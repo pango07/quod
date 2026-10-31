@@ -197,7 +197,7 @@ fn overhead(
     )?;
     writeln!(
         t,
-        "| Plain (no FUSE, no sandbox) | {pm:.2}s | {pp:.2}s | {} |",
+        "| Plain (same sandbox, no FUSE or overlay) | {pm:.2}s | {pp:.2}s | {} |",
         list(&plain_w)
     )?;
     writeln!(
