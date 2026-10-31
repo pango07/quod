@@ -552,9 +552,11 @@ fn uring_queue(
     ready: Arc<Barrier>,
 ) -> anyhow::Result<()> {
     pin_to_cpu(qid as usize);
+    // Declared before the ring so it outlives it: the kernel may still
+    // reference the registered buffers while the ring tears down.
+    let mut ents: Vec<Ent> = (0..depth).map(|_| Ent::new()).collect();
     let mut ring: IoUring<squeue::Entry128, cqueue::Entry32> =
         IoUring::builder().build(depth as u32)?;
-    let mut ents: Vec<Ent> = (0..depth).map(|_| Ent::new()).collect();
     for (i, ent) in ents.iter().enumerate() {
         let sqe = fuse_sqe(fd, FUSE_IO_URING_CMD_REGISTER, qid, 0, ent, i as u64);
         unsafe { ring.submission().push(&sqe) }.map_err(|e| anyhow::anyhow!("{e}"))?;

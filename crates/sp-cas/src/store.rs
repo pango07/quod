@@ -29,9 +29,14 @@ impl Write for HashingWriter<'_> {
 const STREAM_THRESHOLD: u64 = 1 << 20;
 
 /// The mode every blob gets, however it arrived (see `take_files`).
-/// Every blob has this mode, however its bytes arrived: blobs are immutable,
-/// so read-only for everyone; and it is the mode the Go module cache gives
-/// its files, so a snapshot of one can hard-link blobs instead of copying.
+/// Every blob has this mode, however its bytes arrived. A convention, not
+/// the protection: a step reaches blobs only through a read-only bind
+/// (MS_RDONLY, EROFS for everyone including the root-mapped step user), and
+/// nothing in the store writes into an existing blob. 0444 because blobs are
+/// immutable, and because it is the mode the Go module cache gives its
+/// files, so a snapshot of one can hard-link blobs instead of copying
+/// (`link_entries` copies when the modes differ; a store written before
+/// this convention, with 0644 blobs, is copied in full once per snapshot).
 const BLOB_MODE: u32 = 0o444;
 
 /// A file's identity as `take_files` saw it. The inode says it is the same

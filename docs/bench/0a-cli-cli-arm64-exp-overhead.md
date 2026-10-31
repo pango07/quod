@@ -99,10 +99,13 @@ W1-W4 pass with sealing on (`0a-cli-cli-arm64-exp-overhead-acceptance.log`).
 ### Shared snapshots
 
 The module-cache snapshot is built once per distinct subtree under
-`<state>/snapshots/<key>` and reused across runs and commits (key: BLAKE3
-over every entry's path, kind, hash, mode and target). Three misses with
-distinct step keys on the same tree, load 5-7: build 778ms (26,637 entries),
-then reuse 3ms, 3ms; the mount phase went from ~800ms to 34ms.
+`<cas>/snapshots/<key>` (inside the store: it is hard links into it) and
+reused across runs and commits by every process sharing the store (key:
+BLAKE3 over the format version and every entry's path, kind, hash, mode and
+target, length-prefixed). Three misses with distinct step keys on the same
+tree, load 5-7: build 778ms (26,637 entries), then reuse 3ms, 3ms; the mount
+phase went from ~800ms to 34ms. Later bench numbers are therefore the
+snapshot-warm steady state: a store that has seen the module cache once.
 
 ### FUSE over io_uring (`crates/sp-uring-probe`)
 
@@ -134,6 +137,9 @@ box at load average 19-37; the load was steady through rounds 2-6 (plain
 | --- | --- | --- | --- | --- |
 | All 7 non-warm-up runs, median | 15.26s | 18.14s | 16.73s | +18.9% / +9.6% |
 | Rounds 2-6 (steady load 19-31), median | 15.3s | 18.1s | 16.6s | +18% / +8.5% |
+
+Both rows are the snapshot-warm steady state (the module-cache snapshot
+already built in the shared store; mount 0.04s).
 
 Per run (execution; load after the run): plain 15.3 (19.0), 15.3 (21.9),
 15.1 (24.6), 15.2 (27.4), 15.4 (27.2), 15.7 (32.6), 18.4 (37.4); observed

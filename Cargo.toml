@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The io_uring probe is a prototype with its own dependency; it builds on its
+# own (cargo build --manifest-path crates/sp-uring-probe/Cargo.toml).
+exclude = ["crates/sp-uring-probe"]
 
 [workspace.package]
 edition = "2024"
