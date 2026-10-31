@@ -59,6 +59,9 @@ pub struct BenchArgs {
 struct Sample {
     wall: Duration,
     event: Value,
+    /// The observer's event for the same run (request counts, transport,
+    /// serving CPU time); null on a hit.
+    observer: Value,
 }
 
 /// An overhead series: its label and, for an observed series, the extra
@@ -160,6 +163,7 @@ fn overhead(
     let mut walls: Vec<Vec<f64>> = vec![Vec::new(); series.len()];
     let mut loads: Vec<Vec<(f64, f64)>> = vec![Vec::new(); series.len()];
     let mut events: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
+    let mut observers: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
     let cas = work.join("overhead-cas");
     for (s, i) in order {
         let (label, env) = &series[s];
@@ -186,12 +190,23 @@ fn overhead(
                 sp_cas::remove_any(&st)?;
                 let wall = r.wall.as_secs_f64();
                 let load_after = loadavg();
+                let o = &r.observer;
                 eprintln!(
-                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {load_before:.1} -> {load_after:.1})",
+                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {load_before:.1} -> {load_after:.1}; {}, {} ring / {} device requests, serving {}/{} ms user/sys, {} threads ran {} ms and waited {} ms for a CPU, {} lock waits)",
                     i + 1,
                     args.runs,
-                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0
+                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0,
+                    r.event["observer"].as_str().unwrap_or("?"),
+                    o["ring_requests"],
+                    o["device_requests"],
+                    o["serve_user_ms"],
+                    o["serve_sys_ms"],
+                    o["serve_threads"],
+                    o["serve_run_ms"],
+                    o["serve_runq_wait_ms"],
+                    o["lock_contended"],
                 );
+                observers[s].push(r.observer);
                 events[s].push(r.event);
                 wall
             }
@@ -267,6 +282,47 @@ fn overhead(
             (median(&w[s]) / pm - 1.0) * 100.0,
             (p95(&w[s]) / pp - 1.0) * 100.0,
             (exec_median(s) / pm - 1.0) * 100.0
+        )?;
+    }
+    writeln!(t)?;
+    writeln!(
+        t,
+        "How each observed series was served, from its run and observer events (medians over the same runs; requests answered over the ring and over /dev/fuse, the observer process's CPU time while mounted, and how long its serving threads were runnable but waiting for a CPU):\n"
+    )?;
+    writeln!(
+        t,
+        "| Series | Observer | Ring requests | Device requests | Serving CPU user / sys | Serving threads' run queue wait |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    for s in 1..series.len() {
+        let mut seen: Vec<(String, usize)> = Vec::new();
+        for e in events[s].iter().skip(1) {
+            let o = e["observer"].as_str().unwrap_or("?").to_string();
+            match seen.iter_mut().find(|(k, _)| *k == o) {
+                Some((_, n)) => *n += 1,
+                None => seen.push((o, 1)),
+            }
+        }
+        let field = |f: &str| -> f64 {
+            let v: Vec<f64> = observers[s]
+                .iter()
+                .skip(1)
+                .map(|o| o[f].as_f64().unwrap_or(0.0))
+                .collect();
+            median(&v)
+        };
+        writeln!(
+            t,
+            "| {} | {} | {:.0} | {:.0} | {:.0} / {:.0} ms | {:.0} ms |",
+            series[s].0,
+            seen.iter()
+                .map(|(k, n)| format!("`{k}` x{n}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            field("ring_requests"),
+            field("device_requests"),
+            field("serve_user_ms"),
+            field("serve_sys_ms"),
+            field("serve_runq_wait_ms"),
         )?;
     }
     writeln!(t)?;
@@ -588,15 +644,20 @@ fn run_step(
         );
     }
     let text = std::fs::read_to_string(&events)?;
-    let line = text
-        .lines()
-        .skip(before)
-        .filter(|l| l.contains("\"message\":\"run\""))
-        .last()
-        .context("no run event written")?;
+    let last = |message: &str| {
+        text.lines()
+            .skip(before)
+            .filter(|l| l.contains(&format!("\"message\":\"{message}\"")))
+            .last()
+    };
+    let line = last("run").context("no run event written")?;
     Ok(Sample {
         wall,
         event: serde_json::from_str(line)?,
+        observer: match last("observer") {
+            Some(l) => serde_json::from_str(l)?,
+            None => Value::Null,
+        },
     })
 }
 

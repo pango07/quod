@@ -3,5 +3,6 @@
 set -euo pipefail
 cargo fmt --all --check
 cargo clippy -q --workspace --all-targets -- -D warnings
+cargo clippy -q --workspace --all-targets --all-features -- -D warnings
 cargo test -q --workspace >/dev/null
 echo lint ok

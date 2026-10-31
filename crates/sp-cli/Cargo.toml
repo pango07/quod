@@ -24,8 +24,17 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ulid.workspace = true
 
+[features]
+# Builds the binary with the ring transport's test-only failure hooks
+# (STILLPASS_TEST_URING_FAULT); only tests/ring_faults.rs needs it.
+fault-injection = ["sp-fs/fault-injection"]
+
 [dev-dependencies]
 tempfile.workspace = true
+
+[[test]]
+name = "ring_faults"
+required-features = ["fault-injection"]
 
 [[bin]]
 name = "stillpass"

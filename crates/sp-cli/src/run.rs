@@ -6,7 +6,7 @@ use anyhow::{Context, bail};
 use clap::Args;
 use sp_cas::{Cas, Hash, Kind, Tree};
 use sp_key::{StepSpec, step_key};
-use sp_ledger::{Ledger, Lookup, now_rfc3339};
+use sp_ledger::{Ledger, Lookup, Observed, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Mount, RunSpec};
@@ -139,7 +139,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             &mut std::io::stdout().lock(),
             &mut std::io::stderr().lock(),
         )?;
-        ledger.record_run(&run_id, head.as_deref(), hostname().as_deref())?;
+        // A replay observes nothing: no transport.
+        ledger.record_run(
+            &run_id,
+            head.as_deref(),
+            hostname().as_deref(),
+            Observed::default(),
+        )?;
         emit_event(
             &run_id,
             &key,
@@ -189,7 +195,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     }
 
     let t = Instant::now();
-    let mid = ledger.put_manifest(&ex.manifest, &run_id)?;
+    let mid = sp_manifest::manifest_id(&ex.manifest)?;
     let result = StepResult {
         v: sp_manifest::VERSION,
         step_key: key,
@@ -202,8 +208,20 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         outputs: ex.outputs,
         duration_ms: ex.wall.as_millis() as u64,
     };
-    ledger.put_result(&result)?;
-    ledger.record_run(&run_id, head.as_deref(), hostname().as_deref())?;
+    // One transaction: a result is never visible without the run row that
+    // says which transport produced it (results_by_transport and
+    // purge_transport find results through it).
+    ledger.record_execution(
+        &run_id,
+        head.as_deref(),
+        hostname().as_deref(),
+        Observed {
+            transport: Some(ex.transport),
+            observer: Some(&ex.observer),
+        },
+        &ex.manifest,
+        &result,
+    )?;
     phases.record = t.elapsed();
     if let Some(out) = &args.outputs {
         sp_replay::materialize_outputs(&result, &cas, out)?;
@@ -234,7 +252,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         ex.exit_code,
         ex.manifest.entries.len(),
         warm,
-        Some(&ex.observer),
+        Some((ex.transport, &ex.observer)),
     );
     Ok(exit_byte(ex.exit_code))
 }
@@ -248,8 +266,13 @@ struct Executed {
     wall: Duration,
     stdout: Hash,
     stderr: Hash,
-    /// How the inputs were observed: `fuse`, plus `+passthrough` when the
-    /// kernel read blobs directly and `+sealed` when the module cache was a
+    /// The transport that served the observer: `fuse-uring` or `fuse`.
+    transport: &'static str,
+    /// How the inputs were observed: the transport and how it ran
+    /// (`ObserverStats::transport_detail`: the ring queue threads' nice
+    /// value, `+uring-fallback` when the ring was tried and abandoned before
+    /// the step so classic served all of it), `+passthrough` when the kernel
+    /// read blobs directly and `+sealed` when the module cache was a
     /// snapshot outside the observer.
     observer: String,
 }
@@ -361,7 +384,8 @@ fn execute(
     let (stderr, _) = cas.put_file(&dir.join("stderr"))?;
     phases.diff = t.elapsed();
     let observer = format!(
-        "fuse{}{}",
+        "{}{}{}",
+        stats.transport_detail(),
         if stats.passthrough {
             "+passthrough"
         } else {
@@ -377,6 +401,7 @@ fn execute(
         wall: r.wall,
         stdout,
         stderr,
+        transport: stats.transport(),
         observer,
     })
 }
@@ -543,8 +568,9 @@ fn emit_event(
     exit_code: i32,
     inputs: usize,
     warm: bool,
-    observer: Option<&str>,
+    observed: Option<(&str, &str)>,
 ) {
+    let (transport, observer) = (observed.map(|o| o.0), observed.map(|o| o.1));
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     tracing::info!(
         target: "stillpass",
@@ -555,6 +581,7 @@ fn emit_event(
         warm,
         exit_code,
         inputs,
+        transport,
         observer,
         candidates = lookup.candidates,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),

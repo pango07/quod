@@ -153,6 +153,180 @@ What is left: ~1.5s of execution, which the io_uring probe above says is
 mostly the round trip of the ~10k requests the repo's own sources and
 `gomod/cache` still send; ~0.6s of output diff; ~0.2-0.4s of import.
 
+## Round 3 (exp/overhead3): the observer on the ring
+
+Commit ids in the raw logs of this round predate the branch's rebase onto
+main 453ccc2: 54868c9 is now d3a829b, 2dfcf2d is c7910c0, and the
+pre-fix logs cited as 3dde4de are at 9b2dc4e. The code is unchanged by the
+rebase (main touched only README, REVIEWS, DECISIONS and the logo).
+
+`sp-fs` serves one model (`CasFs`) over two transports, chosen once per
+mount before the step starts: FUSE over io_uring when root,
+`fuse.enable_uring=Y`, io_uring with 128-byte SQEs works and the kernel
+offers the ring at INIT with FUSE 7.42-7.45 (one queue per possible CPU,
+its thread pinned to that CPU at nice -10, four 128 KiB entries each), else
+the classic `/dev/fuse` loop through fuser (16 threads). The ring comes up
+whole or not at all: every queue reports its registration, then a statfs
+from Stillpass itself must come back over the ring; any failure tears the
+mount down and the classic transport serves all of it (`observer:
+fuse+uring-fallback+...`). The run event's `transport` is `fuse-uring` or
+`fuse`, and the ledger keeps it with the run (schema v2), so results a
+transport produced can be found and purged.
+
+### What is tested
+
+All in the dev container (root, `enable_uring=Y`, Linux 7.0.14, FUSE 7.45),
+each #[ignore]d because it needs the ring (on a host without it each fails
+saying so; none compares classic with classic). CI exercises the classic
+transport only; the ring is verified by these `--ignored` runs, raw output
+in `0a-cli-cli-arm64-exp-overhead3-ring-tests.log`:
+
+- `transports_log_identically` (crates/sp-cli/tests/transports.rs): eight
+  shell workloads (find and cat of every file; ls; ls -lA; stat of missing
+  paths; symlinks to a file, a directory and nothing; a 700-entry directory
+  listed across several readdir offsets; stat -f; reads at offsets of a 3 MiB
+  file), each on a fresh ring mount and a fresh classic mount, with
+  passthrough on and with it off (every read then goes through the ring's
+  READ path). Asserts identical stdout, identical access logs, and that the
+  ring half reported `uring`, answered requests over the ring and none over
+  the device. Then `go test ./...` on the tiny Go module through the CLI,
+  once per transport: identical manifests, run events and ledger rows naming
+  `fuse-uring` and `fuse`. Request counts can differ with identical logs (the
+  classic transport needed 43 readdirs for listings the ring did in 34).
+- Failure paths (crates/sp-fs/tests/uring.rs and
+  crates/sp-cli/tests/ring_faults.rs, through hooks compiled in only with
+  the `fault-injection` feature): a refused registration and a ring
+  that never becomes ready fall back to classic before anything is served
+  (and fail when the ring is forced); a queue thread that panics or sees an
+  error completion, at the first request after the mount came up or halfway
+  through `go test`, fails the step at once: the run exits 2 within about a second (0.3-1.1s)
+  with no run, manifest or result row in the ledger, the observer's own
+  error event names the dead ring queue and the injected cause, and the
+  mount is gone.
+- Unit tests in uring.rs: every reply encoder against #[repr(C)] mirrors of
+  the FUSE 7.45 structs (sizes and field offsets), the SQE byte layout, CPU
+  lists.
+- What is not tested: kernels other than 7.0 (minors 42-44 are accepted on
+  the strength of the uapi changelog alone), and a reply the kernel rejects
+  over the ring, which the kernel never reports to the daemon (the encoder
+  tests are the guard).
+
+### Acceptance, both ways
+
+`scripts/acceptance.sh /work/cli` at c7910c0 (2dfcf2d before the rebase), once with
+`STILLPASS_FUSE_TRANSPORT=uring` (forced: a ring that failed to come up
+would have been a Stillpass error, not a silent fallback) and once with
+`classic`, back to back, 14:40-15:11 UTC at load 16-48. Each log carries
+the binary's own `observer` and `run` event lines after A1 naming the
+transport (`"transport":"fuse-uring"`, `"observer":"fuse-uring+passthrough+sealed"`,
+70,554 ring and 0 device requests; and `"transport":"fuse"`).
+
+| | ring (`0a-cli-cli-arm64-exp-overhead-acceptance-uring.log`) | classic (`0a-cli-cli-arm64-exp-overhead-acceptance.log`) |
+| --- | --- | --- |
+| A1-A6 | pass; executions 21.8, 18.4, 18.1, 18.8s | pass; executions 21.3, 25.6, 29.7, 21.4s |
+| A7 | 23,939 f, 5,320 d, 620 a mutated, 0 false hits, 451.0s | the same, 0 false hits, 455.8s |
+| A7b | 10/10, every fresh execution read the replay's 29,879 paths (20.0-25.6s) | 10/10, the same (17.3-35.2s) |
+| W1-W4 | pass, 29,843 warm entries with a full and an empty cache | pass, the same |
+
+Both record the same manifests (A1 `b3:23ea6595`, 29,878 inputs, on both).
+
+### The earlier "ring is 40% slower" was the box
+
+The first acceptance runs of this branch (pre-fix code; the logs, since
+replaced, are in git at 9b2dc4e) had the ring well behind the forced classic transport: first
+execution 23.5s against 16.4s, the A4-A6 executions 25.5-31.5s against
+16.2-16.3s, and A7 493s against 379s. A7 is the control. It mutates the
+recorded tree in memory and asks the matcher, with no FUSE involved
+(`sp_ledger::first_match` over CAS blobs), so a 30% slower A7 says the box
+was slower during the ring run (the two ran 15 minutes apart on 18 cores
+shared with other agents), not the transport; run back to back with the
+fixed code, A7 took 451.0s in the ring run and 455.8s in the classic one,
+and the A1 executions were 21.8s and 21.3s. What was checked:
+
+- Device loop serializing traffic: no. Every ring run since reports 0
+  requests answered over the device (the kernel holds requests until each
+  queue has an entry, so the device only ever sees forgets and
+  interrupts), the readiness probe would now catch a connection the kernel
+  switched back to the device, and the kernel's once-per-boot
+  `FUSE_IO_URING_CMD_REGISTER failed` message first appeared in this boot
+  when the new failure test refused a registration on purpose, hours after
+  those runs.
+- Request batching: there is none to speak of. A cli/cli `go test` sends
+  ~70.5k ring requests (the counted ones are 26.3k opens, 5.5k readdirs and
+  3.2k lookups; the rest are mostly the release that follows every open and
+  overlayfs's xattr probes, which the model answers without counting) in
+  ~70k completion batches; 28-35 per run found all four entries of a queue
+  busy, so the depth is not a limit either.
+- Lock contention in the model: 16-54 contended lock acquisitions per
+  `go test` run; negligible.
+- Pinned queue threads under load: the one real effect, and smaller than
+  the classic transport's own. A queue thread is pinned to the CPU whose
+  requests it serves, so on a busy CPU it waits behind the step's
+  processes. Per `go test`, the ring's 19 serving threads ran 142-238 ms in
+  all and waited 275-1875 ms for a CPU; fuser's 17 ran 473-759 ms and
+  waited 3567-23289 ms (`0a-cli-cli-arm64-exp-overhead3-gotest-sched.log` at
+  load 29-35, and every run of the final bench below). Unpinned ring
+  threads answer slower (cross-CPU wakeups: serial cat 1.7-4x slower at
+  load 22) and were no faster end to end (exploration bench execution
+  median 39.55s against 38.19s pinned). At nice -10 the woken
+  thread runs ahead of the step's processes: its wait was lower than at
+  nice 0 in all 8 rounds of the final bench (median 560 against 755 ms), so
+  -10 is the default (`STILLPASS_URING_NICE`). Its end-to-end effect is
+  below what this box can resolve: faster than nice 0 in 5 of 6 rounds of
+  the exploration bench and in 2 of 7 of the final one. Where the ring can
+  lose is a box loaded far past its cores with many requesters in parallel:
+  at load 84-100, 18 parallel `cat`s of 10k files took 0.16-0.34s on the
+  ring and 0.15-0.22s on classic, whose threads can run on any CPU.
+
+Per-request cost with the real observer (`per_request_cost`, fresh mount per
+probe, 10k module-cache files; wall seconds, min-max over the rounds;
+`0a-cli-cli-arm64-exp-overhead3-per-request-nice0.log`, 3 rounds at load
+~22 with the ring at nice 0, and `0a-cli-cli-arm64-exp-overhead3-per-request.log`,
+4 rounds at load 84-100 with the default nice -10 and nice 0 side by side):
+
+| Probe | ring, load 22 | classic, load 22 | ring, load 84-100 | ring nice 0, load 84-100 | classic, load 84-100 |
+| --- | --- | --- | --- | --- | --- |
+| `stat`, serial (11.3k lookups) | 0.049-0.067 | 0.363-0.546 | 0.064-0.138 | 0.073-0.221 | 0.105-0.237 |
+| `stat`, 18 processes | 0.036-0.110 | 0.074-0.094 | 0.031-0.131 | 0.032-0.098 | 0.070-0.225 |
+| `cat`, serial (10k opens, passthrough reads) | 0.195-0.272 | 0.811-1.390 | 0.229-0.271 | 0.227-0.258 | 0.325-1.757 |
+| `cat`, 18 processes | 0.040-0.094 | 0.114-0.136 | 0.163-0.339 | 0.070-0.412 | 0.145-0.219 |
+| `ls -R` (9.3k readdirs) | 0.072-0.085 | 0.527-0.833 | 0.083-0.146 | 0.072-0.100 | 0.115-1.068 |
+
+Identical access logs on every variant (the probe asserts it). The serving
+threads' own CPU per probe is a fifth to a half of fuser's at load 22 (cat
+from 18 processes: 30-50 ms user and 60-80 ms system against 40-60 and
+230-540 ms).
+
+### Paired benches
+
+Exploration, 7 interleaved runs per series, first dropped, load 40-103
+(`0a-cli-cli-arm64-exp-overhead3-bench-explore.{md,log}`; the ring here is
+pinned at nice 0, the default then). Execution medians: plain 30.77s
+(wall), ring 38.19s (+24.1%), classic 44.01s (+43.0%), ring unpinned 39.55s
+(+28.5%), ring at nice -10 32.33s (+5.1%). The ring beat classic in all six
+paired rounds (execution 32.5/34.7, 23.1/25.9, 43.8/51.8, 49.3/61.9,
+49.8/54.3, 25.6/36.2s); nice -10 beat nice 0 in five of six.
+
+Final, 8 interleaved runs per series, first dropped, load 42-105
+(`0a-cli-cli-arm64-exp-overhead3-bench.{md,log}`, c7910c0, right after the
+two acceptance runs). The plain baseline itself ranged 18.5-50.4s, so the
+medians are noise-dominated; the paired rounds and the mechanism columns
+carry the result.
+
+| Series | Wall median | Execution median | Execution, rounds 2-8 (s) | Serving threads' run-queue wait, median |
+| --- | --- | --- | --- | --- |
+| Plain | 30.45s | (30.45s) | 30.5, 18.5, 19.0, 48.3, 34.1, 22.2, 50.4 (wall) | - |
+| Ring (default: pinned, nice -10) | 36.58s | 32.60s | 42.5, 21.4, 21.2, 32.6, 34.3, 22.4, 32.8 | 560 ms |
+| Classic (`STILLPASS_FUSE_TRANSPORT=classic`) | 38.14s | 34.40s | 35.9, 18.0, 42.9, 34.4, 24.0, 25.7, 43.0 | 12,078 ms |
+| Ring at nice 0 | 24.82s | 22.24s | 21.6, 17.5, 37.1, 28.5, 22.2, 22.2, 43.3 | 755 ms |
+
+Every observed run answered 70,523-71,605 requests over the ring and none
+over the device, or (classic) none over the ring. Over both benches the
+ring (either nice value) executed faster than classic in 22 of 26 paired
+rounds. Against plain the observer cost +7.0% execution (+20.1% wall) at
+the default and +13.0% (+25.2%) classic, at this load; the round-2 numbers
+above (load 19-31) remain the better estimate of the overhead itself.
+
 ## Report as written by `stillpass bench` (all 7 non-warm-up runs, first bench, before the rebase)
 
 ## Machine
