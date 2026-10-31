@@ -24,7 +24,7 @@ arguments, then unsupported claims).
 
 | Change | Range | Opus verdict | Merged as | Fable re-review |
 | --- | --- | --- | --- | --- |
-| exp/overhead3 fixes (5f91e2d), verification pass | `52c8cea..5f91e2d` | all 7 findings fixed or nearly; no new false-hit path; merge after: ledger v2 coordination with exp/trust, put_result/record_run atomicity, stricter nothing-recorded test, commit --ignored ring output | - | pending |
+| exp/overhead3 fixes (5f91e2d), verification pass | `52c8cea..5f91e2d` | all 7 findings fixed or nearly; no new false-hit path; merge after: ledger v2 coordination with exp/trust, put_result/record_run atomicity, stricter nothing-recorded test, commit --ignored ring output (all done in cfc12a6, 2b0b3e5) | `d83dd51` | pending |
 | exp/overhead3: io_uring FUSE observer (tip 1aae4e4) | `976744f..1aae4e4` | DO NOT MERGE as is: claimed differential test absent (critical); silent ring registration failure and racy setup can hang a step; dead queue thread hangs instead of failing; unverified 7.47 open_out layout is a false-hit path; transport not stored with results; ring acceptance ~40% slower end to end, unreported | - | pending |
 | exp/split (review fixes, tip 3c06de1) | `6372c70..3c06de1` | merge after fixes: 2 new major (repeat absent lookups never reach FUSE through overlayfs; replays ignore same-step writes), prior metadata/chdir fixes partial, not rebased | - | pending |
 
