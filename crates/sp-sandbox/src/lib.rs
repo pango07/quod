@@ -4,37 +4,44 @@
 //!
 //! Backend: bubblewrap, with the network namespace unshared unless egress is
 //! allowed. The root is either a pinned rootfs (`RunSpec::rootfs`: a
-//! directory bound at `/`, typically a per-step overlay over a sealed
-//! content-addressed snapshot, nothing of the host visible) or, as the
-//! fallback, the host's own system paths bound read-only.
+//! directory bound at `/`, typically a per-step overlay over the rootfs the
+//! caller serves from its store, nothing of the host's userland visible) or,
+//! as the fallback, the host's own system paths bound read-only.
 //!
-//! In rootfs mode the step sees no host file at all: `/` is the rootfs (served
-//! by the caller from its blobs, constant times, sorted listings), `/dev` a
+//! In rootfs mode the step sees no host file: `/` is the rootfs, `/dev` a
 //! fresh tmpfs with bubblewrap's standard nodes, `/proc` a procfs of the
 //! step's own pid namespace, `/sys` the rootfs's empty directory, the
 //! hostname `stillpass`, the user `runner` (uid 1001) owning every file of
 //! the rootfs.
 //!
 //! The step's process state is fixed, not inherited (`PROCESS_STATE`): umask
-//! 022, the rlimits of `RLIMITS`, every signal at its default disposition
-//! and none blocked, and no file descriptor but 0, 1 and 2. A parent's umask
-//! 077, an ignored SIGINT or a stray fd changes nothing a step can see.
+//! 022, nice 0 (where the caller may lower its nice value), the rlimits of
+//! `RLIMITS`, every signal at its default disposition and none blocked, and
+//! no file descriptor but 0, 1 and 2.
 //!
-//! What it can still learn about the host goes through the kernel, and
-//! everything that is constant for a host is in the step key: the
+//! What it can still learn about the host goes through the kernel. The key
+//! pins what is constant for a host and observable or in force: the
 //! `host_platform` fields (arch, kernel major.minor, CPU features, CPU
-//! count, page size) and the `host_class` list (full kernel release, build
-//! and command line, kernel config, the effective rlimits, online and
-//! configured CPUs, a memory bucket, an allowlist of global sysctls, LSM and
-//! security context, seccomp and no_new_privs, personality, nice value,
-//! /proc/cpuinfo, NIS domain name, the filesystem types under the step,
-//! bubblewrap's version). An audit re-runs on the same host, so it can never
-//! catch a dependence on such a property; only the key can. What is left
-//! varies from run to run or boot to boot, so a dependence on it is the
-//! flakiness audit exists for: the clock, load and pressure, free memory and
-//! disk space, uptime and the per-boot random boot id, pids, device and
-//! inode numbers of the FUSE mounts, /proc/self/mountinfo and /proc/1/cmdline
-//! (they name the run directory), randomness.
+//! count, page size) and the host class, read as the step sees it
+//! (`host_class_inside`, run in the sandbox by `probe_in_sandbox`: full
+//! kernel release, build and command line, exact MemTotal, online and
+//! configured CPUs, /proc/cpuinfo without its clock lines, an allowlist of
+//! sysctls, the effective rlimits, umask, signal state and descriptors,
+//! seccomp mode and filter count, no_new_privs, security context without
+//! MCS categories, personality, nice, NIS domain name) and as only the host
+//! sees it (`host_class_outside`: cgroup pids.max and memory.max,
+//! binfmt_misc registrations, the LSM list, the filesystem types of the
+//! store and run directories, bubblewrap's version). Known gaps, constant
+//! for a host and not keyed: the contents of a seccomp filter (mode and
+//! count are keyed; no unprivileged interface exports the program) and of
+//! the AppArmor or SELinux policy (the label is keyed, not its rules), and
+//! the directory hash seed of the filesystem under the workspace overlay's
+//! upper (the type is keyed), which orders listings of directories a step
+//! creates in the workspace. What varies from run to run or boot to boot is
+//! left to audit, which sees it vary: the clock, load and pressure, free
+//! memory and disk, uptime and the per-boot random boot id, pids, device
+//! and inode numbers of the FUSE mounts, /proc/self/mountinfo and
+//! /proc/1/cmdline (they name the run directory), randomness.
 //!
 //! A change to what the sandbox shows a step (its mounts, /dev, identity,
 //! hostname, process state) is a change of environment that no input
@@ -77,8 +84,8 @@ pub struct RunSpec {
 /// A directory to use as the step's `/`. It must already hold the mount
 /// points the sandbox needs: `dev`, `proc`, `tmp`, the destination of every
 /// mount (`/workspace`), and `etc/passwd` and `etc/group` (replaced by the
-/// step identity); a missing one would be created in it. A sealed rootfs
-/// has them all.
+/// step identity); a missing one would be created in it. An imported
+/// rootfs has them all.
 #[derive(Clone, Debug)]
 pub struct RootFs {
     pub dir: PathBuf,
@@ -141,7 +148,10 @@ pub const UMASK: u32 = 0o022;
 /// NOFILE 1024/65536 is a common runner default (Go raises its soft limit to
 /// the hard one); STACK 8 MiB is glibc's default thread stack size; CORE 0
 /// keeps core files out of the outputs; MEMLOCK 64 KiB is the lowest common
-/// default; the rest are the kernel's defaults.
+/// default; NPROC 16384 is a constant because the usual default (systemd's
+/// threads-max/2) follows the exact amount of RAM, and the limit counts every
+/// task of the caller's real uid, so it must stay well above what a parallel
+/// build starts; the rest are the kernel's defaults.
 pub const RLIMITS: &[(i32, &str, Option<u64>, Option<u64>)] = &[
     (libc::RLIMIT_AS as i32, "AS", None, None),
     (libc::RLIMIT_CORE as i32, "CORE", Some(0), Some(0)),
@@ -168,7 +178,7 @@ pub const RLIMITS: &[(i32, &str, Option<u64>, Option<u64>)] = &[
         Some(1024),
         Some(65536),
     ),
-    (libc::RLIMIT_NPROC as i32, "NPROC", None, None),
+    (libc::RLIMIT_NPROC as i32, "NPROC", Some(16384), Some(16384)),
     (libc::RLIMIT_RSS as i32, "RSS", None, None),
     (libc::RLIMIT_RTPRIO as i32, "RTPRIO", Some(0), Some(0)),
     (libc::RLIMIT_RTTIME as i32, "RTTIME", None, None),
@@ -205,7 +215,7 @@ pub fn effective_rlimits() -> Vec<(&'static str, u64, u64)> {
 /// The fixed process state, in words, for the key: changing it is a change
 /// of environment.
 pub const PROCESS_STATE: &str =
-    "umask 0022; signals default, none blocked; fds 0-2 only; rlimits as listed";
+    "umask 0022; nice 0; signals default, none blocked; fds 0-2 only; rlimits as listed";
 
 /// The hostname every step sees. `--unshare-all` gives the sandbox its own
 /// UTS namespace, but the name in it is inherited from the host unless set.
@@ -535,8 +545,8 @@ fn fix_process_state(cmd: &mut Command) {
     let sigmax = libc::SIGRTMAX();
     let fd_ceiling = effective_fd_ceiling();
     // SAFETY: the closure runs in the forked child before exec and only
-    // calls umask, setrlimit, rt_sigaction, sigprocmask, close_range and
-    // fcntl, all async-signal-safe; it allocates nothing (the vector is
+    // calls umask, setpriority, setrlimit, rt_sigaction, sigprocmask,
+    // close_range and fcntl, all async-signal-safe; it allocates nothing (the vector is
     // built above and only read), and the kernel reads the zeroed sigaction
     // buffer, large enough for every architecture's struct, only during
     // the call.
@@ -544,6 +554,10 @@ fn fix_process_state(cmd: &mut Command) {
     unsafe {
         cmd.pre_exec(move || {
             libc::umask(UMASK as libc::mode_t);
+            // Nice 0. Lowering a raised nice value needs CAP_SYS_NICE; where
+            // that is refused the value stays, and the host class (read in
+            // the sandbox) records it.
+            libc::setpriority(libc::PRIO_PROCESS, 0, 0);
             for (res, lim) in &limits {
                 if libc::setrlimit(*res as _, lim) != 0 {
                     return Err(io::Error::last_os_error());
@@ -600,28 +614,15 @@ fn effective_fd_ceiling() -> i32 {
     }
 }
 
-/// MemTotal in whole GiB, rounded down: the memory bucket of the host
-/// class. The exact figure moves by megabytes between boots of identical
-/// machines (kernel reservations); the bucket does not, and a program that
-/// sizes itself from RAM (a JVM heap is a quarter of it) sees at most a
-/// fraction of a GiB of difference within one bucket.
-pub fn memory_gib() -> u64 {
-    std::fs::read_to_string("/proc/meminfo")
-        .unwrap_or_default()
-        .lines()
-        .find_map(|l| l.strip_prefix("MemTotal:"))
-        .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
-        .unwrap_or(0)
-        >> 20
-}
-
-/// Global sysctls that change what a step can do and are not derived from
-/// the amount of RAM (those are covered by the memory bucket) nor per
-/// namespace (the sandbox's net, IPC and UTS namespaces are fresh, so their
-/// sysctls are the kernel's defaults, pinned by the kernel release).
+/// Global sysctls that change what a step can do. Read inside the sandbox
+/// (`host_class_inside`), so a sysctl the sandbox's fresh namespaces give
+/// their own value (net, IPC, UTS) shows the value the step sees. Those the
+/// kernel derives from the amount of RAM are exact, like MemTotal.
 pub const SYSCTLS: &[&str] = &[
+    "fs/file-max",
     "fs/inotify/max_queued_events",
     "fs/inotify/max_user_instances",
+    "fs/inotify/max_user_watches",
     "fs/mount-max",
     "fs/nr_open",
     "fs/pipe-max-size",
@@ -641,44 +642,93 @@ pub const SYSCTLS: &[&str] = &[
     "kernel/perf_event_paranoid",
     "kernel/pid_max",
     "kernel/randomize_va_space",
+    "kernel/threads-max",
     "kernel/unprivileged_bpf_disabled",
     "kernel/unprivileged_userns_clone",
     "kernel/yama/ptrace_scope",
+    "user/max_user_namespaces",
     "vm/max_map_count",
     "vm/mmap_min_addr",
+    "vm/nr_hugepages",
     "vm/overcommit_kbytes",
     "vm/overcommit_memory",
     "vm/overcommit_ratio",
     "vm/unprivileged_userfaultfd",
 ];
 
-/// Everything constant about this host that a sandboxed step can observe
-/// and that `host_platform` does not already report, as (name, value) pairs
-/// (see the module docs). `filesystems` names the directories whose
-/// filesystem types the step sees through its mounts.
-pub fn host_class(filesystems: &[(&str, &Path)]) -> Result<Vec<(String, String)>, SandboxError> {
-    let read = |p: &str| {
-        std::fs::read_to_string(p)
-            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
-            .unwrap_or_else(|_| "-".into())
-    };
+/// A whitespace-normalized file, or `-` when it cannot be read.
+fn read_norm(p: &str) -> String {
+    std::fs::read_to_string(p)
+        .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_else(|_| "-".into())
+}
+
+/// A security label without SELinux MCS categories (`...:s0:c12,c345` ->
+/// `...:s0`): container runtimes draw them at random per container, so they
+/// are noise between runs on one host, not a property of it.
+fn strip_mcs(label: &str) -> String {
+    let parts: Vec<&str> = label.split(':').collect();
+    if parts.len() >= 5 && parts[4].starts_with('c') {
+        parts[..4].join(":")
+    } else {
+        label.to_string()
+    }
+}
+
+/// /proc/cpuinfo without what varies from boot to boot or read to read
+/// (x86's current `cpu MHz`, the calibrated `bogomips`).
+fn stable_cpuinfo(cpuinfo: &str) -> String {
+    cpuinfo
+        .lines()
+        .filter(|l| {
+            let k = l
+                .split(':')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            k != "cpu mhz" && k != "bogomips"
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The host class as a step sees it: call this inside the sandbox
+/// (`probe_in_sandbox`), with its fresh procfs (not one a container runtime
+/// virtualized, such as lxcfs's /proc/meminfo), its fresh namespaces and its
+/// fixed process state. (name, value) pairs; see the module docs.
+pub fn host_class_inside() -> Result<Vec<(String, String)>, SandboxError> {
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut put = |k: String, v: String| out.push((k, v));
+    let mut put = |k: &str, v: String| out.push((k.to_string(), v));
     let (_, release, version) = uname_all()?;
-    put("kernel release".into(), release);
-    put("kernel version".into(), version);
-    put("kernel cmdline".into(), read("/proc/cmdline"));
-    put("domainname".into(), read("/proc/sys/kernel/domainname"));
-    put("lsm".into(), read("/sys/kernel/security/lsm"));
-    put("security context".into(), read("/proc/self/attr/current"));
-    put("personality".into(), read("/proc/self/personality"));
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-    for field in ["Seccomp", "Seccomp_filters", "NoNewPrivs"] {
+    put("kernel release", release);
+    put("kernel version", version);
+    put("kernel cmdline", read_norm("/proc/cmdline"));
+    put("domainname", read_norm("/proc/sys/kernel/domainname"));
+    put(
+        "security context",
+        strip_mcs(&read_norm("/proc/self/attr/current")),
+    );
+    put("personality", read_norm("/proc/self/personality"));
+    // The process state as the sandbox hands it over, read by a C program
+    // (`probe_in_sandbox` has the shell run cat first): the probe itself is
+    // a Rust binary, whose runtime ignores SIGPIPE before `main`.
+    let status = std::fs::read_to_string(RECEIVED_STATUS)
+        .or_else(|_| std::fs::read_to_string("/proc/self/status"))
+        .unwrap_or_default();
+    for field in [
+        "Seccomp",
+        "Seccomp_filters",
+        "NoNewPrivs",
+        "Umask",
+        "SigIgn",
+        "SigBlk",
+    ] {
         let v = status
             .lines()
             .find_map(|l| l.strip_prefix(&format!("{field}:")))
             .map_or("-".to_string(), |v| v.trim().to_string());
-        put(format!("status {field}"), v);
+        put(&format!("status {field}"), v);
     }
     let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
     // Field 19 (nice) counts from the state after the closing parenthesis.
@@ -686,39 +736,44 @@ pub fn host_class(filesystems: &[(&str, &Path)]) -> Result<Vec<(String, String)>
         .rsplit_once(')')
         .and_then(|(_, rest)| rest.split_whitespace().nth(16).map(String::from))
         .unwrap_or_else(|| "-".into());
-    put("nice".into(), nice);
-    put("memory GiB".into(), memory_gib().to_string());
+    put("nice", nice);
+    let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    let mem = meminfo
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))
+        .map_or("-".to_string(), |v| {
+            v.split_whitespace().collect::<Vec<_>>().join(" ")
+        });
+    put("memory", mem);
     let procstat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
     let online = procstat
         .lines()
         .filter(|l| l.starts_with("cpu") && l[3..].starts_with(|c: char| c.is_ascii_digit()))
         .count();
-    put("cpus online".into(), online.to_string());
+    put("cpus online", online.to_string());
     let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
     let configured = cpuinfo
         .lines()
         .filter(|l| l.starts_with("processor"))
         .count();
-    put("cpus configured".into(), configured.to_string());
-    // The whole of /proc/cpuinfo but the clock (x86 reports the current MHz).
-    let stable: Vec<&str> = cpuinfo
-        .lines()
-        .filter(|l| !l.starts_with("cpu MHz"))
-        .collect();
-    put("cpuinfo".into(), stable.join("\n"));
+    put("cpus configured", configured.to_string());
+    put("cpuinfo", stable_cpuinfo(&cpuinfo));
     for name in SYSCTLS {
         put(
-            format!("sysctl {}", name.replace('/', ".")),
-            read(&format!("/proc/sys/{name}")),
+            &format!("sysctl {}", name.replace('/', ".")),
+            read_norm(&format!("/proc/sys/{name}")),
         );
     }
-    // Derived from RAM, so only whether it is zero (user namespaces off).
-    let userns = read("/proc/sys/user/max_user_namespaces");
-    put(
-        "sysctl user.max_user_namespaces".into(),
-        if userns == "0" { "0" } else { "nonzero" }.into(),
-    );
-    for (name, soft, hard) in effective_rlimits() {
+    let fds = std::fs::read_dir("/proc/self/fd").map_or(0, |d| d.count());
+    put("open fds", fds.to_string());
+    for &(res, name, ..) in RLIMITS {
+        let mut cur = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: `cur` is a valid, writable rlimit for the call.
+        #[allow(unsafe_code)] // getrlimit(2) has no safe std wrapper
+        let rc = unsafe { libc::getrlimit(res as _, &mut cur) };
         let v = |x: u64| {
             if x == libc::RLIM_INFINITY {
                 "unlimited".to_string()
@@ -726,11 +781,33 @@ pub fn host_class(filesystems: &[(&str, &Path)]) -> Result<Vec<(String, String)>
                 x.to_string()
             }
         };
-        put(format!("rlimit {name}"), format!("{} {}", v(soft), v(hard)));
+        let val = if rc == 0 {
+            format!("{} {}", v(cur.rlim_cur), v(cur.rlim_max))
+        } else {
+            "-".into()
+        };
+        put(&format!("rlimit {name}"), val);
     }
-    put("process state".into(), PROCESS_STATE.into());
+    put("process state", PROCESS_STATE.into());
+    Ok(out)
+}
+
+/// The part of the host class a step cannot read but is subject to, from
+/// this process (the step runs in its cgroup, under its kernel's binfmt_misc
+/// registrations, on its filesystems, in its bubblewrap): cgroup limits,
+/// binfmt_misc registrations, the LSM list, the filesystem types of
+/// `filesystems`, the sandbox's version.
+pub fn host_class_outside(
+    filesystems: &[(&str, &Path)],
+) -> Result<Vec<(String, String)>, SandboxError> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let (pids, mem) = cgroup_limits();
+    out.push(("cgroup pids.max".into(), pids));
+    out.push(("cgroup memory.max".into(), mem));
+    out.push(("binfmt_misc".into(), binfmt_misc()));
+    out.push(("lsm".into(), read_norm("/sys/kernel/security/lsm")));
     for (what, path) in filesystems {
-        put(format!("fs {what}"), fs_type(path)?);
+        out.push((format!("fs {what}"), fs_type(path)?));
     }
     let bwrap = which("bwrap").ok_or(SandboxError::NoBwrap)?;
     let v = Command::new(&bwrap)
@@ -738,11 +815,173 @@ pub fn host_class(filesystems: &[(&str, &Path)]) -> Result<Vec<(String, String)>
         .env_clear()
         .output()
         .map_err(io_err("bwrap --version"))?;
-    put(
+    out.push((
         "sandbox".into(),
         String::from_utf8_lossy(&v.stdout).trim().to_string(),
-    );
-    out.sort();
+    ));
+    Ok(out)
+}
+
+/// The tightest `pids.max` and `memory.max` on the way from this process's
+/// cgroup (v2) up to the root this process can see: a fork beyond the first
+/// fails with EAGAIN, an allocation beyond the second ends in the OOM
+/// killer, and the step runs in this cgroup. `max` when unlimited, `-` when
+/// not readable (no cgroup v2).
+fn cgroup_limits() -> (String, String) {
+    let Some(rel) = std::fs::read_to_string("/proc/self/cgroup")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("0::").map(String::from))
+        })
+    else {
+        return ("-".into(), "-".into());
+    };
+    let base = Path::new("/sys/fs/cgroup");
+    let mut dir = base.join(rel.trim_start_matches('/'));
+    let (mut pids, mut mem): (Option<u64>, Option<u64>) = (None, None);
+    let mut seen = false;
+    loop {
+        for (file, slot) in [("pids.max", &mut pids), ("memory.max", &mut mem)] {
+            if let Ok(v) = std::fs::read_to_string(dir.join(file)) {
+                seen = true;
+                if let Ok(n) = v.trim().parse::<u64>() {
+                    *slot = Some(slot.map_or(n, |m: u64| m.min(n)));
+                }
+            }
+        }
+        if dir == base || !dir.pop() || !dir.starts_with(base) {
+            break;
+        }
+    }
+    let show = |v: Option<u64>| {
+        if !seen {
+            "-".to_string()
+        } else {
+            v.map_or("max".into(), |n| n.to_string())
+        }
+    };
+    (show(pids), show(mem))
+}
+
+/// The binfmt_misc registrations the kernel applies to a step's execs (a
+/// registered emulator runs foreign binaries a host without it refuses):
+/// every entry with its contents, from /proc/sys/fs/binfmt_misc, else from
+/// a private binfmt_misc mount; `unreadable` when neither works.
+fn binfmt_misc() -> String {
+    let read_dir = |d: &Path| -> Option<String> {
+        if !d.join("status").exists() {
+            return None;
+        }
+        let mut names: Vec<String> = std::fs::read_dir(d)
+            .ok()?
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "register")
+            .collect();
+        names.sort();
+        Some(
+            names
+                .iter()
+                .map(|n| format!("{n}: {}", read_norm(&d.join(n).to_string_lossy())))
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    };
+    if let Some(s) = read_dir(Path::new("/proc/sys/fs/binfmt_misc")) {
+        return s;
+    }
+    let tmp = std::env::temp_dir().join(format!("stillpass-binfmt-{}", std::process::id()));
+    if std::fs::create_dir_all(&tmp).is_err() {
+        return "unreadable".into();
+    }
+    use std::os::unix::ffi::OsStrExt;
+    let (Ok(src), Ok(target)) = (
+        std::ffi::CString::new("binfmt_misc"),
+        std::ffi::CString::new(tmp.as_os_str().as_bytes()),
+    ) else {
+        return "unreadable".into();
+    };
+    // SAFETY: valid C strings for the duration of the call; no data.
+    #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::mount(
+            src.as_ptr(),
+            target.as_ptr(),
+            src.as_ptr(),
+            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            std::ptr::null(),
+        )
+    };
+    let s = if rc == 0 {
+        let s = read_dir(&tmp).unwrap_or_else(|| "unreadable".into());
+        // SAFETY: a valid C string; the mount was made just above.
+        #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+        unsafe {
+            libc::umount2(target.as_ptr(), 0);
+        }
+        s
+    } else {
+        "unreadable".into()
+    };
+    let _ = std::fs::remove_dir(&tmp);
+    s
+}
+
+/// Where `probe_in_sandbox` leaves /proc/self/status as a plain C program
+/// in the sandbox sees it (on the sandbox's own /tmp).
+pub const RECEIVED_STATUS: &str = "/tmp/stillpass-received-status";
+
+/// Runs `program args` in a sandbox laid out as a host-root step's (fresh
+/// pid, mount, IPC, UTS, net and user namespaces, fresh procfs, uid 1001,
+/// the fixed process state), with `program` bound in read-only, and returns
+/// its stdout: how the host class is read as a step would see it.
+pub fn probe_in_sandbox(program: &Path, args: &[&str]) -> Result<String, SandboxError> {
+    let dir = std::env::temp_dir().join(format!(
+        "stillpass-probe-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).map_err(io_err("create probe dir"))?;
+    let mut cmd: Vec<String> = [
+        "/bin/sh",
+        "-c",
+        &format!("cat /proc/self/status > {RECEIVED_STATUS} && exec /stillpass-probe \"$@\""),
+        "sh",
+    ]
+    .map(String::from)
+    .to_vec();
+    cmd.extend(args.iter().map(|a| a.to_string()));
+    let spec = RunSpec {
+        cmd,
+        cwd: "/".into(),
+        env: vec![("PATH".into(), "/usr/bin:/bin".into())],
+        mounts: vec![Mount {
+            src: program.to_path_buf(),
+            dst: "/stillpass-probe".into(),
+            writable: false,
+        }],
+        egress: false,
+        stdout: dir.join("stdout"),
+        stderr: dir.join("stderr"),
+        echo: false,
+        rootfs: None,
+        identity: None,
+    };
+    let r = run(&spec);
+    let out = std::fs::read_to_string(dir.join("stdout")).unwrap_or_default();
+    let err = std::fs::read_to_string(dir.join("stderr")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    let r = r?;
+    if r.exit_code != 0 {
+        return Err(SandboxError::Io {
+            what: format!("host probe exited {}: {}", r.exit_code, err.trim()),
+            source: io::ErrorKind::Other.into(),
+        });
+    }
     Ok(out)
 }
 
@@ -864,6 +1103,62 @@ mod tests {
         );
         assert!(p.cpu_features.contains("hwcap="), "{p:?}");
         assert_eq!(host_platform().unwrap(), p, "stable");
+    }
+
+    #[test]
+    fn labels_lose_their_mcs_categories_and_cpuinfo_its_clocks() {
+        assert_eq!(
+            strip_mcs("system_u:system_r:container_t:s0:c123,c456"),
+            "system_u:system_r:container_t:s0"
+        );
+        assert_eq!(
+            strip_mcs("docker-default (enforce)"),
+            "docker-default (enforce)"
+        );
+        assert_eq!(
+            strip_mcs("unconfined_u:unconfined_r:unconfined_t:s0-s0"),
+            "unconfined_u:unconfined_r:unconfined_t:s0-s0"
+        );
+        assert_eq!(strip_mcs("-"), "-");
+        let x86 =
+            "processor\t: 0\ncpu MHz\t\t: 2994.374\nbogomips\t: 5988.74\nflags\t\t: fpu sse2\n";
+        assert_eq!(stable_cpuinfo(x86), "processor\t: 0\nflags\t\t: fpu sse2");
+        let arm = "processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd\n";
+        assert_eq!(stable_cpuinfo(arm), "processor\t: 0\nFeatures\t: fp asimd");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_host_class_has_both_halves() {
+        let inside = host_class_inside().unwrap();
+        let names: Vec<&str> = inside.iter().map(|(k, _)| k.as_str()).collect();
+        for k in [
+            "kernel release",
+            "memory",
+            "cpuinfo",
+            "status Umask",
+            "rlimit NPROC",
+            "sysctl kernel.threads-max",
+            "sysctl vm.nr_hugepages",
+        ] {
+            assert!(names.contains(&k), "{k}: {names:?}");
+        }
+        let mem = &inside.iter().find(|(k, _)| k == "memory").unwrap().1;
+        assert!(mem.ends_with(" kB"), "{mem}");
+        if which("bwrap").is_some() {
+            let outside = host_class_outside(&[("tmp", Path::new("/tmp"))]).unwrap();
+            let names: Vec<&str> = outside.iter().map(|(k, _)| k.as_str()).collect();
+            for k in [
+                "cgroup pids.max",
+                "cgroup memory.max",
+                "binfmt_misc",
+                "lsm",
+                "fs tmp",
+                "sandbox",
+            ] {
+                assert!(names.contains(&k), "{k}: {names:?}");
+            }
+        }
     }
 
     #[test]

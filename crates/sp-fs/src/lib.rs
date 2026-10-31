@@ -257,6 +257,10 @@ mod unsupported {
         pub fn finish(self, _: &Tree, _: &Cas) -> Result<Vec<Entry>, FsError> {
             Err(FsError::Unsupported)
         }
+
+        pub fn unmount(&mut self) -> Result<(), FsError> {
+            Err(FsError::Unsupported)
+        }
     }
 }
 #[cfg(not(target_os = "linux"))]

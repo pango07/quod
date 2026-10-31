@@ -38,8 +38,9 @@
 //! what pinned the environment), "replayed", "recorded" (false only for a
 //! step killed by a signal: never memoized), "signal", "manifest",
 //! "result"}`. `result.outputs` are the workspace writes (paths relative to
-//! /workspace), `result.root_outputs` the writes anywhere else (relative to
-//! /), `result.stdout`/`stderr` blobs; every hash resolves in the store at
+//! /workspace), `result.root_outputs` the writes anywhere else but /tmp
+//! (relative to /), `result.stdout`/`stderr` blobs; every hash resolves in
+//! the store at
 //! `<cas>/<first 2 hex>/<hash>`. Between steps the root starts again from
 //! the pinned image: a runner that wants a step's root outputs visible to
 //! the next step pins the derived root as a new tree, which is then the

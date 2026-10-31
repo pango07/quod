@@ -353,6 +353,7 @@ pub fn mini_rootfs(dir: &Path, bins: &[&str]) {
     w("etc/os-release", "ID=stillpass-mini\n");
     w("etc/passwd", "root:x:0:0:root:/root:/bin/sh\n");
     w("etc/group", "root:x:0:\n");
+    w("opt/replace-me", "an image file\n");
     for d in ["dev", "proc", "sys", "tmp", "opt", "var", "workspace"] {
         fs::create_dir_all(dir.join(d)).unwrap();
     }

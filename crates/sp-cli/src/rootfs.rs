@@ -23,13 +23,17 @@
 //! pins everything it would record), not copied onto a host filesystem:
 //! times are constant, listings come in tree order, nothing records an
 //! access time, inode numbers are the tree's, and every file belongs to
-//! whoever runs Stillpass, which the sandbox maps to the step user. Nothing
-//! of the host's filesystems (copy times, ext4's per-filesystem hash order,
-//! atime updates, ownership) shows through. `RootOverlay::mount` puts a
-//! per-step overlay over it whose upper lives on a tmpfs, so the step may
-//! write anywhere (/tmp included, still on tmpfs) and the upper is diffed
-//! into the result's `root_outputs` exactly like the workspace overlay is
-//! diffed into `outputs`. The workspace stays the observed FUSE tree.
+//! whoever runs Stillpass, which the sandbox maps to the step user: what
+//! a copy on a host filesystem would let through (copy times, ext4's
+//! per-filesystem hash order, atime updates, ownership) does not.
+//! `RootOverlay::mount` puts a per-step overlay over it whose upper lives on
+//! a tmpfs of fixed limits (`ROOT_TMPFS`), so the step may write anywhere
+//! and the upper is diffed into the result's `root_outputs` like the
+//! workspace overlay is diffed into `outputs`, except /tmp, which is
+//! scratch. The workspace stays the observed FUSE tree, and its overlay's
+//! upper is on the state filesystem: the listing order of a directory a
+//! step creates in the workspace follows that filesystem (its type is in
+//! the key, its hash seed is not; a known gap).
 //!
 //! The same document format pins any read-only tree (`put_tree`): a runner
 //! adapter's mounts are served the same way (`PinnedTree`) and their digests
@@ -57,6 +61,12 @@ use crate::state::State;
 /// is the digest. Changing what `import` keeps or fixes up bumps this, since
 /// every digest changes with it.
 pub const VERSION: u32 = 1;
+
+/// The per-step tmpfs holding the root overlay's upper: everything a step
+/// writes outside the workspace, Go's `$WORK` and every other TMPDIR use
+/// included, lives in RAM up to these limits, which are part of the host
+/// class (a step writing beyond them gets ENOSPC everywhere alike).
+pub const ROOT_TMPFS: &str = "size=4096m,nr_inodes=1048576,mode=0755";
 
 /// The hostname every step sees (also set by the sandbox).
 const HOSTNAME: &str = "stillpass\n";
@@ -119,26 +129,70 @@ impl Rootfs {
     }
 }
 
-/// What this host's kernel and CPU show a step (`sp_sandbox::host_platform`
-/// and `host_class`) as the key pins it: the part of the environment no
-/// root filesystem can. `runs` is where run directories (the workspace
-/// overlay's upper) live; the store is where served blobs live.
+/// What this host's kernel and CPU show a step, as the key pins it: the part
+/// of the environment no root filesystem can. Read the way the step sees it,
+/// by this binary run in a sandbox like a step's (`__host-probe`, through
+/// `sp_sandbox::probe_in_sandbox`: a fresh procfs, fresh namespaces, the
+/// fixed process state), not from this process's own /proc, which a
+/// container runtime may virtualize (lxcfs) where the step's fresh procfs is
+/// not. Then what only the host sees (`sp_sandbox::host_class_outside`):
+/// cgroup limits, binfmt_misc, the filesystems of the store and of `runs`
+/// (where run directories, the workspace overlay's upper, live), the
+/// sandbox's version; and the root overlay's tmpfs limits.
 pub fn platform(cas: &Cas, runs: &Path) -> anyhow::Result<Platform> {
-    let p = sp_sandbox::host_platform().context("probe the host platform")?;
     fs::create_dir_all(runs).with_context(|| format!("create {}", runs.display()))?;
-    let mut host = sp_sandbox::host_class(&[("store", cas.dir()), ("runs", runs)])
-        .context("probe the host class")?;
+    let exe = std::env::current_exe().context("locate this binary for the host probe")?;
+    let out = sp_sandbox::probe_in_sandbox(&exe, &[HOST_PROBE])
+        .context("probe the host class in the sandbox")?;
+    let probe: Probe = serde_json::from_str(&out).context("parse the host probe")?;
+    let mut host = probe.host;
+    host.extend(
+        sp_sandbox::host_class_outside(&[("store", cas.dir()), ("runs", runs)])
+            .context("probe the host class")?,
+    );
+    host.push(("root tmpfs".into(), ROOT_TMPFS.into()));
+    Ok(Platform::new(
+        &probe.machine,
+        &probe.release,
+        &probe.cpu_features,
+        probe.cpus,
+        probe.page_size,
+        host,
+    ))
+}
+
+/// The hidden subcommand `platform` runs in the sandbox.
+pub const HOST_PROBE: &str = "__host-probe";
+
+/// What `__host-probe` prints.
+#[derive(Serialize, Deserialize)]
+struct Probe {
+    machine: String,
+    release: String,
+    cpu_features: String,
+    cpus: u32,
+    page_size: u64,
+    host: Vec<(String, String)>,
+}
+
+/// `stillpass __host-probe`: run inside the sandbox by `platform`; prints
+/// the platform and the inside half of the host class as JSON.
+pub fn host_probe() -> anyhow::Result<u8> {
+    let p = sp_sandbox::host_platform()?;
+    let mut host = sp_sandbox::host_class_inside()?;
     // The kernel's configuration, when it publishes it.
     let config = fs::read("/proc/config.gz").map_or("-".to_string(), |b| Hash::of(&b).to_string());
     host.push(("kernel config".into(), config));
-    Ok(Platform::new(
-        &p.machine,
-        &p.release,
-        &p.cpu_features,
-        p.cpus,
-        p.page_size,
+    let probe = Probe {
+        machine: p.machine,
+        release: p.release,
+        cpu_features: p.cpu_features,
+        cpus: p.cpus,
+        page_size: p.page_size,
         host,
-    ))
+    };
+    println!("{}", serde_json::to_string(&probe)?);
+    Ok(0)
 }
 
 /// The host-root pin: BLAKE3 of the host fingerprint script's output. The
@@ -329,12 +383,8 @@ impl<'a> RootOverlay<'a> {
     pub fn mount(rootfs: &'a Rootfs, cas: &Cas, dir: &Path) -> anyhow::Result<RootOverlay<'a>> {
         let root = dir.join("root");
         let served = serve_tree(cas, &rootfs.tree, &root.join("lower"))?;
-        let gib = sp_sandbox::memory_gib().max(1);
-        let tmpfs = sp_fs::tmpfs(
-            &root.join("rw"),
-            &format!("size={}m,nr_inodes=0,mode=0755", gib * 512),
-        )
-        .context("mount the rootfs overlay's tmpfs")?;
+        let tmpfs = sp_fs::tmpfs(&root.join("rw"), ROOT_TMPFS)
+            .context("mount the rootfs overlay's tmpfs")?;
         let overlay = sp_fs::overlay(
             &served,
             &tmpfs.dir().join("upper"),
@@ -357,37 +407,79 @@ impl<'a> RootOverlay<'a> {
 
     /// Unmounts and diffs the upper dir against the rootfs tree: the step's
     /// writes outside the workspace, paths relative to `/`, files stored in
-    /// the CAS. Sockets and fifos the step left behind are dropped first:
-    /// they hold no content, and a later step could not use them anyway.
-    /// Same precondition as `sp_fs::Overlay::finish`: the step is over.
-    pub fn finish(self, cas: &Cas) -> anyhow::Result<Vec<Entry>> {
+    /// the CAS. The upper is edited only after the overlay is unmounted
+    /// (nothing reaches it then): /tmp is dropped whole, since it is scratch
+    /// (as on a runner between jobs; every step starts from the pinned image
+    /// anyway, and root outputs are not replayed), so its leftovers are
+    /// neither outputs nor copied into the store; sockets and fifos are
+    /// dropped, since they hold no content, and where one replaced a file of
+    /// the image the deletion is recorded instead. Same precondition as
+    /// `sp_fs::Overlay::finish`: the step is over.
+    pub fn finish(mut self, cas: &Cas) -> anyhow::Result<Vec<Entry>> {
+        self.overlay.unmount()?;
         let upper = self.tmpfs.dir().join("upper");
-        let dropped = drop_special_files(&upper)?;
-        if dropped > 0 {
-            tracing::info!(target: "stillpass", dropped, "sockets and fifos left outside the workspace, not outputs");
+        let tmp = upper.join("tmp");
+        let scratch = match fs::symlink_metadata(&tmp) {
+            Ok(_) => {
+                let n = count_entries(&tmp);
+                sp_cas::remove_any(&tmp)?;
+                n
+            }
+            Err(_) => 0,
+        };
+        let mut deleted = Vec::new();
+        drop_special_files(&upper, sp_cas::ROOT, &mut deleted)?;
+        let mut out = self.overlay.finish(self.lower, cas)?;
+        if scratch > 0 || !deleted.is_empty() {
+            tracing::info!(target: "stillpass", scratch, special = deleted.len(), "outside the workspace: /tmp left out, sockets and fifos dropped");
         }
-        let out = self.overlay.finish(self.lower, cas)?;
+        out.extend(
+            deleted
+                .into_iter()
+                .filter(|p| self.lower.get(p).is_some())
+                .map(Entry::deleted),
+        );
+        // The diff walks in path order; a deletion of a leaf has no
+        // children, and a stable sort keeps `x` before `d` for one path.
+        out.sort_by(|a, b| a.p.cmp(&b.p));
         unserve(self.served)?;
         self.tmpfs.unmount()?;
         Ok(out)
     }
 }
 
-/// Removes sockets and fifos under `dir`; returns how many.
-fn drop_special_files(dir: &Path) -> anyhow::Result<usize> {
+/// Entries under `dir` (itself included), for the event.
+fn count_entries(dir: &Path) -> usize {
+    1 + fs::read_dir(dir).map_or(0, |d| {
+        d.flatten()
+            .map(|e| {
+                if e.file_type().is_ok_and(|t| t.is_dir()) {
+                    count_entries(&e.path())
+                } else {
+                    1
+                }
+            })
+            .sum()
+    })
+}
+
+/// Removes sockets and fifos under `dir` (tree path `rel`), collecting
+/// their tree paths.
+fn drop_special_files(dir: &Path, rel: &str, out: &mut Vec<String>) -> anyhow::Result<()> {
     use std::os::unix::fs::FileTypeExt;
-    let mut n = 0;
     for item in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
         let item = item?;
         let ft = item.file_type()?;
+        let name = item.file_name().to_string_lossy().into_owned();
+        let p = sp_cas::child_path(rel, &name);
         if ft.is_socket() || ft.is_fifo() {
             fs::remove_file(item.path())?;
-            n += 1;
+            out.push(p);
         } else if ft.is_dir() {
-            n += drop_special_files(&item.path())?;
+            drop_special_files(&item.path(), &p, out)?;
         }
     }
-    Ok(n)
+    Ok(())
 }
 
 /// A rootfs served read-only for a step that is never memoized (step A,
@@ -820,27 +912,8 @@ mod tests {
         let r = import(&cas, &a, None, None).unwrap();
         let opened = open(&cas, &r.digest).unwrap();
         assert_eq!(opened.tree().len(), r.entries);
-        let runs = tmp.path().join("runs");
-        let image = opened.image(&cas, &runs).unwrap();
-        assert_eq!((image.kind, image.digest), (ImageKind::Rootfs, r.digest));
-        assert!(image.mounts.is_empty() && image.platform.cpus >= 1);
-        let host: std::collections::BTreeMap<_, _> = image.platform.host.iter().cloned().collect();
-        for k in [
-            "kernel release",
-            "kernel version",
-            "kernel config",
-            "memory GiB",
-            "cpus online",
-            "rlimit NOFILE",
-            "sysctl kernel.yama.ptrace_scope",
-            "status NoNewPrivs",
-            "fs store",
-            "fs runs",
-            "sandbox",
-        ] {
-            assert!(host.contains_key(k), "{k} not in the host class: {host:?}");
-        }
-        assert_eq!(host["rlimit CORE"], "0 0");
+        // The platform half of the image is probed by the binary itself in
+        // the sandbox (`__host-probe`): covered by the integration tests.
         assert!(open(&cas, &Hash::of(b"missing")).is_err());
         // A blob that is not a rootfs document is refused.
         let junk = cas.put(b"{\"v\":1}").unwrap();

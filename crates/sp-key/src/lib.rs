@@ -42,13 +42,14 @@ impl std::fmt::Display for ImageKind {
 
 /// What the host's kernel and CPU show a step whatever its root filesystem.
 /// The named fields are the ones programs choose code paths by, kept
-/// readable; `host` is the host class, everything else constant about the
-/// host that a step can observe (sp_sandbox::host_class: full kernel
-/// release, build and command line, sysctls, rlimits, a memory bucket, LSM,
-/// seccomp, filesystem types, the sandbox's version, ...). An audit re-runs
-/// on the same host, so it can never see a dependence on a host constant:
-/// those are all in the key, and a relaxation would have to be an explicit
-/// opt-in recorded here. Only what varies run to run is left to audit.
+/// readable; `host` is the host class: what is constant about the host and
+/// observable by, or in force for, a step (sp_sandbox::host_class_inside,
+/// read in a sandbox like the step's; host_class_outside: cgroup limits,
+/// binfmt_misc, filesystems, the sandbox's version). An audit re-runs on the
+/// same host, so it can never see a dependence on a host constant: those
+/// are in the key, exact (no bucket), and a relaxation would have to be an
+/// explicit opt-in recorded here. Only what varies run to run is left to
+/// audit; the known gaps are listed in sp_sandbox's docs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Platform {
     /// `uname -m`: `x86_64`, `aarch64`.

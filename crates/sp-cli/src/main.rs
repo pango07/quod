@@ -48,11 +48,20 @@ enum Cmd {
     Rootfs(rootfs::RootfsArgs),
     /// Run one step from a JSON request (the runner API; see crate::step).
     Step(step::StepArgs),
+    /// Internal: print the host class as a sandboxed step sees it (run by
+    /// Stillpass itself inside the sandbox; see rootfs::platform).
+    #[command(name = "__host-probe", hide = true)]
+    HostProbe,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = (|| -> anyhow::Result<u8> {
+        // The host probe runs in the sandbox with no state, no HOME and
+        // nothing to log: it only reads the kernel's view and prints it.
+        if matches!(cli.cmd, Cmd::HostProbe) {
+            return rootfs::host_probe();
+        }
         let state = state::State::resolve(cli.state.as_deref())?;
         match cli.cmd {
             Cmd::Run(args) => run::run(&state, args),
@@ -62,6 +71,7 @@ fn main() -> ExitCode {
             }
             Cmd::Rootfs(args) => rootfs::cli(&state, args).map(|()| 0),
             Cmd::Step(args) => step::cli(&state, args),
+            Cmd::HostProbe => rootfs::host_probe(),
         }
     })();
     match result {

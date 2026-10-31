@@ -44,11 +44,13 @@ scripts/acceptance.sh                  # A1-A7 on the pinned spike repo
 
 Steps can run in a pinned root filesystem (`--rootfs DIGEST`, or
 `STILLPASS_ROOTFS`): an OCI image imported once into the store and served
-from it, with nothing of the host's userland or filesystems visible, a fixed
-process state, and every write outside the workspace recorded. The key pins
-the rootfs digest and the host class (kernel release and build, CPU,
-rlimits, sysctls, memory bucket, LSM, seccomp, filesystem types, sandbox
-version, and the rest a step can observe that is constant for a host), so
+from it, with nothing of the host's userland visible, a fixed process
+state, and writes outside the workspace recorded (except /tmp, scratch; the
+workspace overlay's upper still lives on the host's state filesystem). The
+key pins the rootfs digest and the host class, read as the step sees it
+(kernel release, build and config, CPU, exact RAM, rlimits, sysctls, cgroup
+limits, binfmt_misc, LSM label, seccomp mode, filesystem types, sandbox
+version; DECISIONS lists what is not keyed), so
 a proof made on one host replays on another host of the same class whatever
 its userland, and nowhere else. Measured so far, on two containers sharing
 one VM (so kernel and hardware are equal by construction): an Ubuntu

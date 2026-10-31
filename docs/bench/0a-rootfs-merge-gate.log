@@ -1,0 +1,17 @@
+# main's scripts/merge-gate.sh, step by step (so the known ring-fallback test is reported on its own), on the verification-review fixes, 2026-10-31 17:18-17:21 UTC
+== lint (17:18:15, load 51.37)
+lint ok
+exit=0
+enable_uring=Y
+== sp-fs uring (known ring-fallback failure on main) (17:20:03, load 62.36)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.00s
+exit=0
+== ring_faults (17:20:27, load 56.86)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.09s
+exit=0
+== transports_log_identically (17:20:53, load 57.65)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 13.08s
+exit=0
+
+# a_refused_registration_falls_back_before_anything_is_served (in sp-fs tests/uring.rs, the known failure on main being fixed on fix/uring-fallback) passed in this run; it had failed 4 runs out of 4 at 16:30-16:45 UTC on this branch and on main's tree (0a-rootfs-ring-gates.log).
+# The full workspace suite in rootfs mode on the ring (STILLPASS_FUSE_TRANSPORT=uring, STILLPASS_ROOTFS set): exit 0, 31 test binaries, 115 tests passed, 0 failed.

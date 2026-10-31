@@ -32,9 +32,9 @@ pub fn overlay(
     overlay_dir(served.mountpoint(), upper, work, merged)
 }
 
-/// Mounts overlayfs at `merged` with a plain directory as lower: a sealed
-/// rootfs snapshot, whose content is pinned by digest and so needs no
-/// observer. `finish` diffs the upper against that snapshot's tree.
+/// Mounts overlayfs at `merged` with any directory as lower (`overlay`
+/// passes the observer's mount). `finish` diffs the upper against the tree
+/// the lower presents.
 pub fn overlay_dir(
     lower: &Path,
     upper: &Path,
@@ -154,7 +154,10 @@ impl Overlay {
         Ok(out)
     }
 
-    fn unmount(&mut self) -> Result<(), FsError> {
+    /// Unmounts the overlay without diffing it (idempotent; `finish` after
+    /// this diffs the upper as it is then). For a caller that must edit the
+    /// upper first: after the unmount nothing but this process reaches it.
+    pub fn unmount(&mut self) -> Result<(), FsError> {
         if !self.mounted {
             return Ok(());
         }

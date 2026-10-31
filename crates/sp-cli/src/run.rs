@@ -105,8 +105,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let wall_start = Instant::now();
     let extra_env = parse_env(&args.env)?;
     let cas = Cas::open(args.cas.clone().unwrap_or_else(|| state.cas_dir()))?;
-    // The environment pin: a rootfs (opened and sealed now, held for the
-    // run) or the host fingerprint.
+    // The environment pin: a rootfs (its tree, checked servable from the
+    // store) or the host fingerprint, with the host class.
     // Where run directories (the workspace overlay's upper) live, for the
     // host class's filesystem types; State::run_dir puts them here.
     let runs = state.dir.join("runs");
@@ -311,8 +311,9 @@ pub(crate) struct Executed {
 /// With `warm`, that host directory is bound over the step's GOCACHE, on top
 /// of the overlay: Go reads and writes it directly, unobserved, and it
 /// persists for the next warm run. With `rootfs`, the step's `/` is a
-/// per-step overlay over that sealed rootfs and its writes outside the
-/// workspace become `root_outputs`; without, the host's system paths are
+/// per-step overlay over that rootfs, served from the store, and its writes
+/// outside the workspace and /tmp become `root_outputs`; without, the
+/// host's system paths are
 /// bound read-only. `extra_mounts` are bound as given and never observed:
 /// only pinned trees whose digests are in `spec.image.mounts` belong there
 /// (`crate::step`).

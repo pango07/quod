@@ -134,7 +134,11 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
     );
     assert_eq!(paths(&r["result"]["outputs"]), ["f o"]);
     let root_outputs = paths(&r["result"]["root_outputs"]);
-    for want in ["f tmp/t", "d var/x", "f var/x/r", "d opt/tools"] {
+    assert!(
+        !root_outputs.iter().any(|p| p.contains(" tmp")),
+        "/tmp is scratch: {root_outputs:?}"
+    );
+    for want in ["d var/x", "f var/x/r", "d opt/tools"] {
         assert!(
             root_outputs.contains(&want.to_string()),
             "{want}: {root_outputs:?}"
@@ -240,7 +244,7 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
     }
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("rootfs");
-    mini_rootfs(&root, &["cat", "ls", "mkdir", "rm", "id"]);
+    mini_rootfs(&root, &["cat", "ls", "mkdir", "rm", "id", "mkfifo"]);
     let state = tmp.path().join("state");
     let sp = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_stillpass"))
@@ -259,7 +263,8 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
     fs::write(repo.join("a.txt"), "a\n").unwrap();
     let step = "ls -a /; cat /etc/os-release; id -u; \
         for p in /usr/local/go /etc/fuse.conf /src /work /sys/kernel /.complete /.dockerenv; do test -e $p && echo LEAK $p; done; \
-        echo x > /opt/new; mkdir /home2; echo y > /home2/f; echo z > /tmp/z; rm /etc/os-release; echo w > a.out; true";
+        echo x > /opt/new; mkdir /home2; echo y > /home2/f; echo z > /tmp/z; rm /etc/os-release; echo w > a.out; \
+        rm /opt/replace-me; mkfifo /opt/replace-me; mkfifo /opt/newfifo; true";
     let run = |extra: &[&str]| {
         let mut args = vec![
             "run",
@@ -294,12 +299,22 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
         .unwrap();
     let result: Value = serde_json::from_slice(&result.stdout).unwrap();
     let ro = paths(&result["root_outputs"]);
+    assert!(
+        !ro.iter().any(|p| p.contains(" tmp")),
+        "/tmp is scratch: {ro:?}"
+    );
+    assert!(
+        !ro.iter().any(|p| p.contains("newfifo")) && !ro.contains(&"f opt/replace-me".to_string()),
+        "sockets and fifos are not outputs: {ro:?}"
+    );
     for want in [
         "f opt/new",
         "d home2",
         "f home2/f",
-        "f tmp/z",
         "x etc/os-release",
+        // A fifo replaced an image file: not an output, but the file's
+        // deletion is.
+        "x opt/replace-me",
     ] {
         assert!(ro.contains(&want.to_string()), "{want}: {ro:?}");
     }

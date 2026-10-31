@@ -173,7 +173,7 @@ fn rootfs_mode_pins_the_image_and_records_root_outputs() {
         o.stderr
     );
     assert!(
-        o.stderr.contains("6 outputs outside the workspace"),
+        o.stderr.contains("5 outputs outside the workspace"),
         "{}",
         o.stderr
     );
@@ -188,12 +188,13 @@ fn rootfs_mode_pins_the_image_and_records_root_outputs() {
         "\"k\":\"d\",\"p\":\"home/runner/.cache\"",
         "\"k\":\"f\",\"m\":420,\"p\":\"home/runner/.cache/f\"",
         "\"k\":\"f\",\"m\":420,\"p\":\"opt/stillpass-marker\"",
-        "\"k\":\"f\",\"m\":420,\"p\":\"tmp/x\"",
         "\"p\":\"out.txt\"",
     ] {
         assert!(result.contains(want), "{want} not in {result}");
     }
     assert!(!result.contains("stillpass-started"), "{result}");
+    // /tmp is scratch: its leftovers are not outputs, nor in the store.
+    assert!(!result.contains("\"p\":\"tmp/"), "{result}");
     let key = scalar(&env, "SELECT step_key FROM manifests");
     let i = env.stillpass(&["inspect", &key]);
     let text = String::from_utf8_lossy(&i.stdout);
@@ -204,6 +205,63 @@ fn rootfs_mode_pins_the_image_and_records_root_outputs() {
             && text.contains("\"page_size\": "),
         "{text}"
     );
+    // The host class, read in the sandbox and outside it.
+    let doc = scalar(
+        &env,
+        &format!("SELECT json FROM step_keys WHERE step_key = '{key}'"),
+    );
+    let doc: serde_json::Value = serde_json::from_str(&doc).unwrap();
+    let host: std::collections::BTreeMap<String, String> = doc["image"]["platform"]["host"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kv| {
+            (
+                kv[0].as_str().unwrap().into(),
+                kv[1].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    for (k, want) in [
+        ("status Umask", Some("0022")),
+        ("status SigIgn", Some("0000000000000000")),
+        ("status SigBlk", Some("0000000000000000")),
+        ("status NoNewPrivs", Some("1")),
+        ("nice", Some("0")),
+        ("rlimit NOFILE", None),
+        ("rlimit NPROC", None),
+        ("memory", None),
+        ("kernel config", None),
+        ("cgroup pids.max", None),
+        ("cgroup memory.max", None),
+        ("binfmt_misc", None),
+        ("fs store", None),
+        ("sandbox", None),
+        ("root tmpfs", Some(ROOT_TMPFS)),
+    ] {
+        let v = host
+            .get(k)
+            .unwrap_or_else(|| panic!("{k} not in the host class: {host:?}"));
+        if let Some(w) = want {
+            assert_eq!(v, w, "{k}");
+        }
+    }
+    assert!(
+        host["memory"].ends_with(" kB"),
+        "exact MemTotal: {}",
+        host["memory"]
+    );
+    assert!(
+        !host["cpuinfo"].to_ascii_lowercase().contains("bogomips"),
+        "{}",
+        host["cpuinfo"]
+    );
+    // A constant, capped only by a lower hard limit on the host.
+    let nproc: Vec<u64> = host["rlimit NPROC"]
+        .split(' ')
+        .map(|x| x.parse().unwrap())
+        .collect();
+    assert!(nproc[0] <= nproc[1] && nproc[1] <= 16384, "{nproc:?}");
     let h = env.run_step(step, &[]);
     assert!(h.hit() && h.stdout == o.stdout, "{}", h.stderr);
     // The host pin is another key with no proofs; the flag beats the variable.
@@ -302,6 +360,62 @@ fn a_parents_process_state_changes_nothing() {
     let c = hostile(&["--env", "RUN=a"]);
     assert!(c.hit() && c.stdout == a.stdout, "{}", c.stderr);
 }
+
+/// The host class is read the way the step sees the host, in a sandbox
+/// with a fresh procfs, never from the caller's /proc. Where the caller's
+/// /proc files are overmounts (lxcfs virtualizes meminfo and cpuinfo in
+/// containers that way), the kernel refuses a fresh procfs in a user
+/// namespace, so neither the probe nor a step can run: a Stillpass error
+/// and nothing recorded, never a key built from the virtualized values.
+#[test]
+fn a_virtualized_proc_is_never_keyed() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    let fake = env.tmp.path().join("fake");
+    std::fs::create_dir_all(&fake).unwrap();
+    std::fs::write(fake.join("meminfo"), "MemTotal:       1024 kB\n").unwrap();
+    let script = format!(
+        "mount --bind {f}/meminfo /proc/meminfo && grep MemTotal /proc/meminfo && exec \"$0\" \"$@\"",
+        f = fake.display()
+    );
+    let out = Command::new("unshare")
+        .args(["-m", "sh", "-c", &script])
+        .arg(env!("CARGO_BIN_EXE_stillpass"))
+        .arg("--state")
+        .arg(env.state())
+        .args([
+            "run",
+            "--repo",
+            env.repo.to_str().unwrap(),
+            "--step",
+            "true",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if !stdout.starts_with("MemTotal:       1024 kB") {
+        eprintln!("cannot overmount /proc here (needs root and unshare); skipping: {stdout}");
+        return;
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("probe the host class in the sandbox"),
+        "{stderr}"
+    );
+    let results = Command::new("sqlite3")
+        .arg(env.state().join("ledger.sqlite"))
+        .arg("SELECT count(*) FROM results")
+        .output()
+        .unwrap();
+    let n = String::from_utf8_lossy(&results.stdout).trim().to_string();
+    assert!(n.is_empty() || n == "0", "recorded {n} results");
+}
+
+/// rootfs.rs `ROOT_TMPFS`, as the key records it.
+const ROOT_TMPFS: &str = "size=4096m,nr_inodes=1048576,mode=0755";
 
 fn scalar(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")
