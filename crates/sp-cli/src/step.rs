@@ -22,8 +22,8 @@
 //! - `env` is the step's whole environment (nothing is inherited, volatile
 //!   names are refused, as for every key). `cmd` runs as given.
 //! - `mounts` are read-only trees bound at `dst`, pinned by content and
-//!   served from their blobs like the rootfs (constant times, sorted
-//!   listings): their digests are part of the key (`image.mounts`), never
+//!   served from their blobs like the rootfs (content-derived file times,
+//!   sorted listings): their digests are part of the key (`image.mounts`), never
 //!   observed. A `dir`
 //!   is imported into the store on every call, which hashes it; a runner
 //!   that reuses a mount passes its `tree` digest instead. A destination

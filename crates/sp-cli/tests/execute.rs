@@ -1,7 +1,7 @@
 //! T09: the execute path end to end.
 mod common;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use common::*;
 use sp_cas::Hash;
@@ -416,6 +416,39 @@ fn a_virtualized_proc_is_never_keyed() {
 
 /// rootfs.rs `ROOT_TMPFS`, as the key records it.
 const ROOT_TMPFS: &str = "size=4096m,nr_inodes=1048576,mode=0755";
+
+/// Served files carry a content-derived mtime, the same in the observed
+/// tree and in a sealed snapshot; directories a fixed one. A cache keyed by
+/// mtime therefore sees a change exactly when the content changes.
+#[test]
+fn served_mtimes_follow_content() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    env.write("same1.txt", "x\n");
+    env.write("same2.txt", "x\n");
+    env.write("other.txt", "y\n");
+    let sealed = ".stillpass/gomod/example.com/m@v1";
+    env.write(&format!("{sealed}/same3.txt"), "x\n");
+    let step =
+        format!("stat -c '%n %.9Y' same1.txt same2.txt other.txt calc {sealed}/same3.txt {sealed}");
+    let o = env.run_step(&step, &[]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let out = String::from_utf8_lossy(&o.stdout).to_string();
+    let times: std::collections::BTreeMap<&str, &str> =
+        out.lines().filter_map(|l| l.split_once(' ')).collect();
+    let d = sp_fs::content_mtime(&Hash::of(b"x\n"))
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let want = format!("{}.{:09}", d.as_secs(), d.subsec_nanos());
+    assert_eq!(times["same1.txt"], want, "{out}");
+    assert_eq!(times["same2.txt"], want, "{out}");
+    assert_eq!(times[format!("{sealed}/same3.txt").as_str()], want, "{out}");
+    assert_ne!(times["other.txt"], want, "{out}");
+    assert_eq!(times["calc"], "0.000000000", "{out}");
+    assert_eq!(times[sealed], "0.000000000", "{out}");
+}
 
 fn scalar(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")

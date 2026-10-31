@@ -9,31 +9,33 @@
 //! by is recorded beside it and resolves to it (`resolve`), so a runner that
 //! knows only the image reference can find the proof before unpacking.
 //!
-//! The digest pins the tree, which is less than the image: what a tree
-//! does not hold is not kept. Owners (every file belongs to the step user),
+//! The digest pins the tree, which is less than the image: what a tree does
+//! not hold is not kept. Owners (every file belongs to the step user),
 //! setuid, setgid and sticky bits (modes are masked to 0777), xattrs and
 //! file capabilities, directory modes (every directory is 0755), hard links
 //! (each name is its own file), device nodes, sockets and fifos (refused at
-//! import), and timestamps (every time is the epoch). Two images that
-//! differ only there have one digest, and a step sees the same rootfs in
-//! both.
+//! import), and timestamps (a served file's time derives from its content,
+//! `sp_fs::content_mtime`; directories' and symlinks' are the epoch). Two
+//! images that differ only there have one digest, and a step sees the same
+//! rootfs in both.
 //!
 //! At run time the rootfs is served from its blobs by the observer's FUSE
 //! server (`sp_fs::serve`; its log is discarded, since the digest already
-//! pins everything it would record), not copied onto a host filesystem:
-//! times are constant, listings come in tree order, nothing records an
-//! access time, inode numbers are the tree's, and every file belongs to
-//! whoever runs Stillpass, which the sandbox maps to the step user: what
-//! a copy on a host filesystem would let through (copy times, ext4's
-//! per-filesystem hash order, atime updates, ownership) does not.
-//! `RootOverlay::mount` puts a per-step overlay over it whose upper lives on
-//! a tmpfs of fixed limits (`ROOT_TMPFS`), so the step may write anywhere
-//! and the upper is diffed into the result's `root_outputs` like the
-//! workspace overlay is diffed into `outputs`, except /tmp, which is
-//! scratch. The workspace stays the observed FUSE tree, and its overlay's
-//! upper is on the state filesystem: the listing order of a directory a
-//! step creates in the workspace follows that filesystem (its type is in
-//! the key, its hash seed is not; a known gap).
+//! pins everything it would record), not copied onto a host filesystem: a
+//! file's times derive from its content (`sp_fs::content_mtime`, as in the
+//! workspace and the sealed snapshots) and other times are fixed, listings
+//! come in tree order, nothing records an access time, inode numbers are the
+//! tree's, and every file belongs to whoever runs Stillpass, which the
+//! sandbox maps to the step user: what a copy on a host filesystem would let
+//! through (copy times, ext4's per-filesystem hash order, atime updates,
+//! ownership) does not. `RootOverlay::mount` puts a per-step overlay over it
+//! whose upper lives on a tmpfs of fixed limits (`ROOT_TMPFS`), so the step
+//! may write anywhere and the upper is diffed into the result's
+//! `root_outputs` like the workspace overlay is diffed into `outputs`,
+//! except /tmp, which is scratch. The workspace stays the observed FUSE
+//! tree, and its overlay's upper is on the state filesystem: the listing
+//! order of a directory a step creates in the workspace follows that
+//! filesystem (its type is in the key, its hash seed is not; a known gap).
 //!
 //! The same document format pins any read-only tree (`put_tree`): a runner
 //! adapter's mounts are served the same way (`PinnedTree`) and their digests

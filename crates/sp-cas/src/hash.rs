@@ -31,6 +31,10 @@ impl Hash {
     pub fn short(&self) -> String {
         self.hex()[..8].to_string()
     }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl fmt::Display for Hash {

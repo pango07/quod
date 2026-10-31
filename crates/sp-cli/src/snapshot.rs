@@ -18,14 +18,14 @@
 //! the way first, so a crash mid-removal cannot leave a half-deleted
 //! snapshot under its key.
 
-use std::fs::{self, File};
+use std::fs::{self, File, FileTimes};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use sp_cas::{Cas, Entry, Hash};
+use sp_cas::{Cas, Entry, Hash, Kind};
 
 /// Snapshots kept per store beyond the one in use.
 pub const KEEP: usize = 4;
@@ -36,8 +36,10 @@ const STALE_BUILD: Duration = Duration::from_secs(3600);
 /// Written last into a finished build; its absence means "not a snapshot".
 const MARKER: &str = ".complete";
 
-/// Changes to what the key covers or how it is spelled bump this.
-const KEY_FORMAT: &[u8] = b"stillpass snapshot key v1\0";
+/// Changes to what the key covers, how it is spelled, or what a snapshot
+/// built under it looks like bump this. v2: file and directory times are
+/// content-derived and fixed (`set_times`), not the host's.
+const KEY_FORMAT: &[u8] = b"stillpass snapshot key v2\0";
 
 pub struct Snapshot {
     /// The snapshot's directory; the subtree lies under it at its own paths.
@@ -133,6 +135,7 @@ pub fn ensure(cas: &Cas, entries: &[&Entry], root: &Path) -> anyhow::Result<Snap
 fn build(cas: &Cas, entries: &[&Entry], tmp: &Path, root: &Path) -> anyhow::Result<()> {
     sp_cas::remove_any(tmp)?;
     cas.link_entries(entries.iter().copied(), tmp)?;
+    set_times(entries, tmp).with_context(|| format!("set times in {}", tmp.display()))?;
     // Everything the marker vouches for is on disk before the marker is.
     sp_fs::syncfs(root).with_context(|| format!("syncfs {}", root.display()))?;
     let marker = tmp.join(MARKER);
@@ -141,6 +144,26 @@ fn build(cas: &Cas, entries: &[&Entry], tmp: &Path, root: &Path) -> anyhow::Resu
     m.sync_all()?;
     seal_dirs(tmp)?;
     File::open(tmp)?.sync_all()?;
+    Ok(())
+}
+
+/// Every file gets the time the observer serves for its content
+/// (`sp_fs::content_mtime`) and every directory a fixed one, so a sealed
+/// tree shows no host-specific mtimes: what a step sees under a sealed
+/// prefix is then a function of the snapshot key. A blob's inode is shared
+/// by every snapshot that links it, and its content-derived time is the same
+/// for all of them. Symlinks keep theirs (std has no lutimes; nothing seen
+/// in the corpus reads a symlink's own mtime). Directory order is still the
+/// host filesystem's (see DECISIONS).
+fn set_times(entries: &[&Entry], tmp: &Path) -> io::Result<()> {
+    for e in entries {
+        let t = match (e.k, e.h) {
+            (Kind::File, Some(h)) => sp_fs::content_mtime(&h),
+            (Kind::Dir, _) => UNIX_EPOCH,
+            _ => continue,
+        };
+        File::open(tmp.join(&e.p))?.set_times(FileTimes::new().set_accessed(t).set_modified(t))?;
+    }
     Ok(())
 }
 
@@ -406,6 +429,27 @@ mod tests {
         let a = k0.dir.join(PREFIX).join("a.b/c@v1/a.go");
         assert_eq!(fs::read(&a).unwrap(), b"a");
         assert_eq!(fs::metadata(&a).unwrap().mode() & 0o777, 0o444);
+    }
+
+    #[test]
+    fn sealed_files_show_content_times_not_the_hosts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = cas(tmp.path());
+        let root = tmp.path().join("snapshots");
+        // a.go is copied (0644 against a 0444 blob), b.go hard-linked.
+        let s = ensure(&cas, &sealed(&tree(0o644, b"a")), &root).unwrap();
+        let mtime = |p: PathBuf| fs::metadata(p).unwrap().modified().unwrap();
+        let dir = s.dir.join(PREFIX).join("a.b/c@v1");
+        assert_eq!(
+            mtime(dir.join("a.go")),
+            sp_fs::content_mtime(&Hash::of(b"a"))
+        );
+        assert_eq!(
+            mtime(dir.join("b.go")),
+            sp_fs::content_mtime(&Hash::of(b"b"))
+        );
+        assert_eq!(mtime(dir.clone()), UNIX_EPOCH);
+        assert_eq!(mtime(s.dir.join(PREFIX).join("cache")), UNIX_EPOCH);
     }
 
     #[test]
