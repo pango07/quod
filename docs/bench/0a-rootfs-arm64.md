@@ -1,4 +1,4 @@
-# Rootfs mode after the review (key v4): portability, acceptance, overhead
+# Rootfs mode after the review: portability, acceptance, overhead
 
 Steps run in a pinned root filesystem (`--rootfs`), served from its blobs
 by the observer's FUSE server, under a fixed process state, with the host
@@ -6,8 +6,10 @@ class in the key (DECISIONS 2026-10-31 exp/rootfs entries). Same box as the
 other 0a reports: Docker Desktop, 18 arm64 cores, 7.7 GiB, kernel
 7.0.14-linuxkit, shared with three other agents throughout (one-minute load
 averages 20-90), so the paired per-round ratios are the better estimator.
-The first version's measurements (key v3, rootfs copied onto the state
-filesystem) are in `0a-rootfs-v3-arm64.md`, superseded.
+The step key schema is v3 on main (the branch numbered its first and
+reviewed shapes v3 and v4 before landing). The first version's measurements
+(rootfs copied onto the state filesystem) are in `0a-rootfs-v3-arm64.md`,
+superseded.
 
 ## Presentation (review M1)
 
@@ -19,7 +21,10 @@ after `cat /usr/bin/git` its atime is still 0; umask 0022, `SigIgn` and
 
 ## Portability (review M2)
 
-`scripts/portability.sh`, transcript in `0a-rootfs-portability.log`. Both
+`scripts/portability.sh` on the tip rebased onto main, after the
+verification fixes, transcript in `0a-rootfs-portability-main.log` (the
+run before those fixes: `0a-rootfs-portability.log`, the same findings).
+Both
 hosts are containers on one VM, so kernel, CPU, RAM, sysctls and seccomp are
 equal by construction; what differs is the userland. The claim is that the
 key ignores the userland and the result does not depend on it.
@@ -34,13 +39,18 @@ key ignores the userland and the result does not depend on it.
 - Host 2 fresh (bubblewrap 0.9.0, private store, empty ledger, its own
   module-cache download): the key differs from host 1's in exactly one
   host-class entry, `sandbox: bubblewrap 0.9.0` against `0.8.0`, so it
-  executes. Manifest entries identical (the same 29,878 inputs); exit code
-  0 and 0; stdout identical with go test durations normalized. Outputs,
-  14,262 each: 4,102 byte-identical; 9,765 Go cache action entries differ
-  (they hold a creation time); 664 cache output entries exist in one run
-  only (named by content; cached test output holds durations); the rest is
-  Go's trim.txt, dated telemetry counters, gh's device id and cache, and an
-  ssh key pair a test generates.
+  executes. Measured, not reasoned: the two key documents differ in that
+  one line and nothing else, with the verification fixes' entries (cgroup
+  limits, binfmt_misc, exact MemTotal, filesystems, sysctls) all equal.
+  Manifest entries identical (the same 29,878 inputs, sha256 2981b369);
+  exit code 0 and 0; stdout identical with go test durations normalized.
+  Outputs, 14,262 each: 4,121 byte-identical. Same path, different
+  content, 9,771: 9,767 Go cache action entries (they hold a creation
+  time), Go's trim.txt, gh's device id, an ssh key pair a test generates.
+  Paths only one run wrote, 740: 638 Go cache output entries (named by
+  content; cached test output holds durations), 96 Go test-result action
+  entries, 48 per side (named by a hash of the inputs the test logged; each
+  points at its own run's cached test output), 6 files of gh's cache.
 - Host 2 with Debian's bubblewrap 0.8.0 first on PATH, against the shared
   ledger: host 1's class, REPLAYED host 1's proof (same key and manifest).
 - The `--extra jq` rootfs misses (no manifests for its key); `--host-root`
@@ -48,8 +58,11 @@ key ignores the userland and the result does not depend on it.
 
 ## Acceptance
 
-`scripts/acceptance.sh` with `STILLPASS_ROOTFS`, log in
-`0a-rootfs-acceptance.log`: A1-A6 pass; A7 mutates 23,939 files, 5,320
+`scripts/acceptance.sh` with `STILLPASS_ROOTFS` on the ring transport, on
+the tip rebased onto main, log in `0a-rootfs-acceptance-main.log` (earlier
+runs: `0a-rootfs-acceptance.log`, `-ring.log`, `-verif.log`): A1-A6 pass;
+the step key, b3:7f289d88, is the one portability's host 1 computed in
+another store; A7 mutates 23,939 files, 5,320
 listings and 620 absent paths of the 29,879-entry manifest with 0 false
 hits; A7b 10/10, each fresh execution reading exactly the replayed
 manifest's paths; W1-W4 pass (29,843 warm inputs with an empty and a full
@@ -89,6 +102,9 @@ measured on this VM that is 2-3 s of request latency spread over 18
 parallel workers. The first version's copy cost nothing per run but
 leaked the host filesystem (review M1). Host root against plain in the
 same bench: +29.3% wall, +19.7% execution, both inflated by the load.
+
+Measured before the verification fixes, which add the in-sandbox host-class
+probe (6-11 ms a run) and nothing per request; not re-measured.
 
 The raw report follows.
 

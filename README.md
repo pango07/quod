@@ -55,8 +55,9 @@ a proof made on one host replays on another host of the same class whatever
 its userland, and nowhere else. Measured so far, on two containers sharing
 one VM (so kernel and hardware are equal by construction): an Ubuntu
 container replays a Debian container's proof when both use the same
-bubblewrap; with another bubblewrap it is another host class, executes, and
-reads exactly the same inputs to the same result.
+bubblewrap; with another bubblewrap it is another host class (the two key
+documents differ in that one entry only), executes, and reads exactly the
+same inputs to the same result.
 
 ```sh
 STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh             # build, export, import; prints the digest
