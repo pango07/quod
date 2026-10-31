@@ -4,7 +4,8 @@
 #   scripts/acceptance.sh [go|node|python] [checkout-dir]
 # Clones the repo at its pinned commit (versions.toml: [spike_repo] for go,
 # [corpus.<toolchain>] otherwise) if needed, fills its dependency tree with
-# step A, then runs A1-A7 (+A7b, and W1-W4 where the profile has warm state)
+# step A (in the state dir's deps, not the checkout: crates/sp-cli/src/deps.rs),
+# then runs A1-A7 (+A7b, and W1-W4 where the profile has warm state)
 # against a copy of it.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,7 +24,6 @@ repo=${2:-${STILLPASS_SPIKE_DIR:-$root/target/corpus-$tc}}
 if [ ! -d "$repo/.git" ]; then git clone -q "$url" "$repo"; fi
 git -C "$repo" fetch -q origin "$commit" 2>/dev/null || true
 git -C "$repo" checkout -q --detach "$commit"
-grep -qx '.stillpass/' "$repo/.git/info/exclude" || echo '.stillpass/' >> "$repo/.git/info/exclude"
 cd "$root"
 cargo build -q --release -p sp-cli
 sp=${CARGO_TARGET_DIR:-$root/target}/release/stillpass
@@ -46,7 +46,10 @@ if [ -n "${STILLPASS_ROOTFS:-}" ]; then
 else
   echo "== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint"
 fi
-echo "== step A ($tc): $setup (network, not memoized)"
+# Dependency trees live outside the checkout and outside the suite's temp
+# state, so step A fetches them once per box, not per run.
+export STILLPASS_DEPS_DIR="${STILLPASS_DEPS_DIR:-${STILLPASS_HOME:-$HOME/.cache/stillpass}/deps}"
+echo "== step A ($tc): $setup (network, not memoized; deps in $STILLPASS_DEPS_DIR)"
 "$sp" --state "$state" run --repo "$repo" --commit "$commit" --toolchain "$tc" --allow-net --step "$setup"
 # Step B starts from a tree whose only earlier output is the dependency tree.
 for d in $ephemeral; do rm -rf "$repo/$d"; done

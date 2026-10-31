@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 mod bench;
+mod deps;
 mod inspect;
 mod profile;
 mod rootfs;

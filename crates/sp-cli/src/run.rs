@@ -11,6 +11,7 @@ use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Mount, RunSpec};
 
+use crate::deps::{self, Deps};
 use crate::rootfs::{self, Rootfs};
 use crate::seal;
 use crate::snapshot;
@@ -28,7 +29,8 @@ pub struct RunArgs {
     #[arg(long)]
     step: String,
     /// Allow network. Such a step runs directly on --repo (its writes
-    /// persist, e.g. a module cache) and is never memoized.
+    /// persist), with its caches (GOMODCACHE, GOCACHE, HOME) in the state
+    /// dir instead of the checkout, and is never memoized.
     #[arg(long)]
     allow_net: bool,
     /// Run inside a Firecracker microVM (0b).
@@ -133,9 +135,19 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let key = step_key(&spec)?;
     let env = spec.normalized_env()?;
     let run_id = ulid::Ulid::generate().to_string();
+    let deps = Deps::new(state, &deps::repo_id(&repo), &image.id()?, toolchain);
 
     if args.allow_net {
-        return run_unobserved(state, &cas, &repo, &spec, env, &run_id, pin.rootfs.as_ref());
+        return run_unobserved(
+            state,
+            &cas,
+            &repo,
+            &spec,
+            env,
+            &run_id,
+            pin.rootfs.as_ref(),
+            &deps,
+        );
     }
 
     let mut phases = Phases::default();
@@ -143,10 +155,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     ledger.put_step_key(&key, &sp_key::canonical_key_json(&spec)?)?;
 
     let t = Instant::now();
-    let tree = cas
-        .import_dir(&repo)
-        .context("import workspace")?
-        .without_top_level(".git");
+    let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
     phases.import = t.elapsed();
 
     let t = Instant::now();
@@ -556,6 +565,10 @@ fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
 /// the cache ever entering a tree. In a rootfs it runs on the served
 /// rootfs read-only (its writes outside the workspace fail, /tmp is a
 /// tmpfs) with the host's resolver bound in.
+/// Its `.stillpass` directory (dependency trees and scratch) is bound from
+/// the state dir (`crate::deps`), so the checkout receives only the step's
+/// own writes.
+#[allow(clippy::too_many_arguments)] // one call site; the inputs of a run, each named
 fn run_unobserved(
     state: &State,
     cas: &Cas,
@@ -564,6 +577,7 @@ fn run_unobserved(
     mut env: Vec<(String, String)>,
     run_id: &str,
     rootfs: Option<&Rootfs>,
+    deps: &Deps,
 ) -> anyhow::Result<u8> {
     let profile = spec.profile();
     // A network step fetches; let the tool reach its registry.
@@ -579,18 +593,22 @@ fn run_unobserved(
         Some(r) => Some(rootfs::ReadOnlyRoot::mount(r, cas, &dir)?),
         None => None,
     };
-    let mut mounts = vec![Mount {
-        src: repo.to_path_buf(),
-        dst: sp_key::WORKSPACE.into(),
-        writable: true,
-    }];
+    let mut mounts = vec![
+        Mount {
+            src: repo.to_path_buf(),
+            dst: sp_key::WORKSPACE.into(),
+            writable: true,
+        },
+        deps::network_mount(deps, repo, profile)?,
+    ];
     for rel in profile.setup_cache {
         let name = rel.rsplit('/').next().unwrap_or(rel);
         let host = state.setup_cache_dir(spec.toolchain).join(name);
         std::fs::create_dir_all(&host).with_context(|| format!("create {}", host.display()))?;
-        // The mount point must exist in the repo (bubblewrap cannot create
-        // it through the bind); it stays behind as an empty directory.
-        std::fs::create_dir_all(repo.join(rel))?;
+        // The mount point must exist on the host (bubblewrap cannot create
+        // it through a bind): in the state dir's `.stillpass` for a path
+        // under it, in the checkout otherwise.
+        std::fs::create_dir_all(deps::mount_point(deps, repo, rel))?;
         mounts.push(Mount {
             src: host,
             dst: Path::new(sp_key::WORKSPACE).join(rel),
@@ -616,10 +634,12 @@ fn run_unobserved(
     if let Some(root) = root {
         root.unmount()?;
     }
+    deps::after_network_step(repo);
     let r = r?;
     sp_cas::remove_any(&dir)?;
     eprintln!("STILLPASS  EXECUTED  network allowed, not memoized");
     eprintln!("  {}", image_line(&spec.image));
+    eprintln!("  caches in {}", deps.root.display());
     eprintln!("  ran {}", fmt_duration(r.wall));
     tracing::info!(target: "stillpass", run_id, memoized = false, egress = true, exit_code = r.exit_code, wall_ms = r.wall.as_millis() as u64, "run");
     Ok(exit_byte(r.exit_code))

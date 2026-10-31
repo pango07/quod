@@ -20,11 +20,11 @@
 
 mod common;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use common::*;
-use sp_cas::{Cas, Entry, Hash, Kind, child_path};
+use sp_cas::{Cas, Entry, Hash, Kind, Tree, child_path};
 use sp_key::Toolchain;
 use sp_ledger::{Ledger, first_match};
 
@@ -86,6 +86,31 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     let profile = tc.profile();
     let ledger = || Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
 
+    // Where `stillpass run` keeps this repo's `.stillpass` (its dependency
+    // trees, crate::deps): a network step's banner names it, so a no-op one
+    // asks. On a real repo the script's step A filled it (STILLPASS_DEPS_DIR
+    // is shared); a fixture's tree is adopted from its checkout. A7 and A7b
+    // graft its dependency trees into the trees they check, as `stillpass
+    // run` does.
+    let probe = env.run_step("true", &["--allow-net"]);
+    assert_eq!(probe.code, 0, "deps probe: {}", probe.stderr);
+    let deps: PathBuf = probe
+        .stderr
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("caches in "))
+        .map(PathBuf::from)
+        .expect("the network step's banner names its caches dir");
+    if real_repo {
+        assert!(
+            !env.repo.join(".stillpass").exists(),
+            "step A left a .stillpass in the checkout"
+        );
+        println!(
+            "step A ok: dependency trees in {}, none in the checkout",
+            deps.display()
+        );
+    }
+
     // A1: first run executes and records one manifest and result.
     let a1 = env.run_step(step, &[]);
     assert!(a1.executed() && a1.code == 0, "A1: {}", a1.stderr);
@@ -143,7 +168,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
     let cas = Cas::open(env.state().join("cas")).unwrap();
-    let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
     let sealed: usize = profile
         .seals(&tree)
         .iter()
@@ -285,7 +310,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     println!("A6 ok: different key, no manifests");
 
     // A7: every recorded input, mutated, misses. Zero false hits.
-    let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
     let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
     let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
     let m = &cands[base];
@@ -393,7 +418,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         assert!(fresh.executed(), "A7b: {}", fresh.stderr);
         // What each run read: the manifest the replay matched, found the way
         // find_match finds it, and the manifest the fresh execution recorded.
-        let now = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+        let now = workspace_tree(&cas, &env.repo, &deps, profile);
         let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
         let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
         let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
@@ -676,6 +701,34 @@ fn newest_run(env: &Env) -> String {
         env,
         "SELECT run_id FROM results ORDER BY created_at DESC, rowid DESC LIMIT 1",
     )
+}
+
+/// The tree `stillpass run` serves an observed step: the checkout without
+/// `.git` and `.stillpass/`, with the profile's dependency trees (its seed
+/// dirs under `.stillpass/`) grafted in from the deps dir. The same
+/// construction as crates/sp-cli/src/deps.rs; A7 asserts the result matches
+/// the recorded manifest before mutating anything, so a drift between the
+/// two fails loudly instead of testing the wrong tree.
+fn workspace_tree(cas: &Cas, repo: &Path, deps: &Path, profile: &sp_key::Profile) -> Tree {
+    let mut tree = cas
+        .import_dir(repo)
+        .unwrap()
+        .without_top_level(".git")
+        .without_top_level(".stillpass");
+    for name in profile
+        .seed_dirs
+        .iter()
+        .filter_map(|d| d.strip_prefix(".stillpass/"))
+    {
+        let dir = deps.join(name);
+        if dir.is_dir() {
+            tree = tree.merged_at(
+                &format!(".stillpass/{name}"),
+                &cas.import_dir(&dir).unwrap(),
+            );
+        }
+    }
+    tree
 }
 
 fn only_key(env: &Env) -> Hash {
