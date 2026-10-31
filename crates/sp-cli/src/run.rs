@@ -309,18 +309,34 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // A replay is decided again as it is recorded (another run may have
     // quarantined the key or taken the audit slot meanwhile); if that says
     // execute, it executes.
+    // The trust update and the run row are one transaction.
     let replayed = match decision {
         Decision::Replay => {
             let hit = lookup.hit.as_ref().expect("a replay needs a hit");
-            match trust.record_replay(&tstep, hit)? {
-                Replayed::Replayed(facts) => Ok(facts),
-                Replayed::Execute(reason) => Err(reason),
-            }
+            let result = &hit.1;
+            ledger.atomically(|l| -> anyhow::Result<_> {
+                Ok(match trust.record_replay(&tstep, hit)? {
+                    Replayed::Replayed(facts) => {
+                        let replay_wall = wall_start.elapsed();
+                        let saved =
+                            Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
+                        l.record_run_facts(&info.facts(
+                            "replayed",
+                            Some(&result.manifest_id),
+                            Some(result.exit_code),
+                            replay_wall,
+                            Some(saved),
+                        ))?;
+                        Ok((facts, replay_wall))
+                    }
+                    Replayed::Execute(reason) => Err(reason),
+                })
+            })?
         }
         Decision::Execute(reason) => Err(reason),
     };
     let reason = match replayed {
-        Ok(facts) => {
+        Ok((facts, replay_wall)) => {
             let (manifest, result) = lookup.hit.as_ref().expect("a replay needs a hit");
             let mid = result.manifest_id;
             if let Some(dir) = &args.outputs {
@@ -333,14 +349,15 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                     dir,
                 )?;
             }
-            let replay_wall = wall_start.elapsed();
             eprint!(
                 "{}",
                 sp_replay::receipt(
                     result,
                     manifest.entries.len(),
                     replay_wall,
-                    &[facts.receipt_line()]
+                    &std::iter::once(facts.receipt_line())
+                        .chain(uncompared_line(result, &ignore))
+                        .collect::<Vec<_>>()
                 )
             );
             let code = sp_replay::replay_log(
@@ -349,14 +366,6 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 &mut std::io::stdout().lock(),
                 &mut std::io::stderr().lock(),
             )?;
-            let saved = Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
-            ledger.record_run_facts(&info.facts(
-                "replayed",
-                Some(&mid),
-                Some(code),
-                replay_wall,
-                Some(saved),
-            ))?;
             emit_event(
                 &info,
                 Some(&mid),
@@ -420,22 +429,27 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             "STILLPASS  TIMED OUT  the step ran {} and was killed; not memoized",
             fmt_duration(ex.wall)
         );
-        if let Some(line) = trust.record_incomplete(&tstep, lookup.hit.as_ref(), &what)? {
+        // The streak reset and the run row are one transaction.
+        let line = ledger.atomically(|l| -> anyhow::Result<_> {
+            let line = trust.record_incomplete(&tstep, lookup.hit.as_ref(), &what)?;
+            l.record_run_facts(&RunFacts {
+                observed: Observed {
+                    transport: Some(ex.transport),
+                    observer: Some(&ex.observer),
+                },
+                ..info.facts(
+                    "timeout",
+                    None,
+                    Some(i32::from(EXIT_TIMEOUT)),
+                    ex.wall,
+                    None,
+                )
+            })?;
+            Ok(line)
+        })?;
+        if let Some(line) = line {
             eprintln!("{}", indent(&line));
         }
-        ledger.record_run_facts(&RunFacts {
-            observed: Observed {
-                transport: Some(ex.transport),
-                observer: Some(&ex.observer),
-            },
-            ..info.facts(
-                "timeout",
-                None,
-                Some(i32::from(EXIT_TIMEOUT)),
-                ex.wall,
-                None,
-            )
-        })?;
         emit_event(
             &info,
             None,
@@ -566,7 +580,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             &lookup,
             ex.wall,
             warm_dir.as_deref(),
-            &verdict
+            &verdict,
+            uncompared_line(&result, &ignore).as_deref(),
         )
     );
     emit_event(
@@ -1003,6 +1018,27 @@ fn compared_only(r: &StepResult, ignore: &[String]) -> StepResult {
     }
 }
 
+/// The scratch prefixes (`ignored_outputs`) this result wrote under, as a
+/// banner line: what the trust layer did not compare and `--outputs` does
+/// not write. `None` when it wrote under none of them.
+fn uncompared_line(r: &StepResult, ignore: &[String]) -> Option<String> {
+    let under: Vec<&str> = ignore
+        .iter()
+        .filter(|pre| {
+            r.outputs
+                .iter()
+                .any(|e| e.p == **pre || e.p.starts_with(&format!("{pre}/")))
+        })
+        .map(String::as_str)
+        .collect();
+    (!under.is_empty()).then(|| {
+        format!(
+            "not compared, and not written by --outputs: {}",
+            under.join(", ")
+        )
+    })
+}
+
 /// Trust lines are indented under the banner; a DIVERGENCE block comes
 /// with its own header and indentation.
 fn indent(line: &str) -> String {
@@ -1024,6 +1060,7 @@ fn executed_banner(
     wall: Duration,
     warm: Option<&Path>,
     verdict: &Verdict,
+    uncompared: Option<&str>,
 ) -> String {
     let mut s = format!("STILLPASS  EXECUTED{}\n", verdict.headline());
     s += &format!(
@@ -1055,6 +1092,10 @@ fn executed_banner(
     }
     for l in verdict.lines() {
         s += &indent(&l);
+        s.push('\n');
+    }
+    if let Some(u) = uncompared {
+        s += &indent(u);
         s.push('\n');
     }
     s += &format!("  ran {}\n", fmt_duration(wall));

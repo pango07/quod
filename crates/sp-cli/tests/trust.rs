@@ -94,6 +94,11 @@ fn t2_a_deterministic_step_replays_after_two_identical_executions() {
         "{}",
         r1.stderr
     );
+    let status = env.status();
+    assert!(
+        status.contains("why: proving: 1 of 2 identical executions so far"),
+        "{status}"
+    );
     let r2 = env.run_step(step, REPLAY);
     assert!(
         r2.executed()
@@ -646,6 +651,11 @@ fn t9_a_repeated_identical_failure_never_replays() {
         r.executed() && !r.hit(),
         "default policy again: {}",
         r.stderr
+    );
+    let status = env.status();
+    assert!(
+        status.contains("why: failing: its last run exited 1, and failures never prove"),
+        "{status}"
     );
     println!(
         "T9 ok: three identical timed-out failures never replayed, the pass quarantined the key; a plain failure replays only with --replay-failures"

@@ -56,6 +56,12 @@ fn outputs_are_written_on_execute_and_replay() {
             !dir.join(".stillpass/home/.cache/gh").exists(),
             "an uncompared path is never written out"
         );
+        assert!(
+            o.stderr
+                .contains("not compared, and not written by --outputs: .stillpass/home/.cache/gh"),
+            "the banner names it: {}",
+            o.stderr
+        );
     }
     assert!(
         env.repo.join("README.md").exists(),

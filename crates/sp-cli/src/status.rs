@@ -139,6 +139,13 @@ fn render(
         count(TrustState::Observing),
         count(TrustState::Quarantined)
     )?;
+    // The newest run of each key (runs are oldest first).
+    let mut last_run: BTreeMap<Hash, &RunRow> = BTreeMap::new();
+    for r in runs {
+        if let Some(k) = r.step_key {
+            last_run.insert(k, r);
+        }
+    }
     for (t, best, needed) in &rows {
         let mut line = format!(
             "    {:<11}  proofs {}/{}  audited {}x  {} divergence{}  replayed {}x",
@@ -165,6 +172,10 @@ fn render(
             t.step_key.short(),
             t.cmd.as_deref().unwrap_or("-")
         )?;
+        if let Some(why) = why_not_replaying(t, *best, *needed, last_run.get(&t.step_key).copied())
+        {
+            writeln!(o, "                 why: {why}")?;
+        }
     }
     let audits: Vec<_> = ledger
         .audits(None, TRAILING_AUDITS * 4)?
@@ -184,4 +195,34 @@ fn render(
         )?;
     }
     Ok(o)
+}
+
+/// Why a key does not replay now, when it does not: its newest execution
+/// could never prove itself (a failure, or output with a kill or timeout
+/// marker), or its best streak is short of the bar. `None` for a proven key
+/// whose newest run was not unprovable, and for a quarantined one (its
+/// reason is on the line above).
+fn why_not_replaying(
+    t: &sp_ledger::TrustRow,
+    best: u32,
+    needed: u32,
+    last: Option<&RunRow>,
+) -> Option<String> {
+    if let Some(r) = last
+        && r.outcome.as_deref() == Some("unprovable")
+    {
+        return Some(match r.exit_code {
+            Some(c) if c != 0 => format!(
+                "failing: its last run exited {c}, and failures never prove (--replay-failures)"
+            ),
+            _ => "its last run's output carried a kill or timeout marker; such runs never prove"
+                .to_string(),
+        });
+    }
+    match t.state {
+        TrustState::Observing if best < needed => Some(format!(
+            "proving: {best} of {needed} identical executions so far"
+        )),
+        _ => None,
+    }
 }
