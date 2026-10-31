@@ -40,8 +40,9 @@ and 8.8% in the T12 report on a quiet box.
 The Go build cache from earlier warm runs persists as a host directory
 (`<state>/warm/<image>/gocache`) bound over GOCACHE inside the sandbox, on
 top of the overlay. Not observed, not an output, never copied. Warm runs have
-their own step key: GOFLAGS gains `-count=1` and GODEBUG=goindex=0 (see
-DECISIONS.md for why both of Go's path-keyed caches must be off).
+their own step key (`warm: true` in the key JSON, schema v2) and merge
+`-count=1` into GOFLAGS and `goindex=0` into GODEBUG (see DECISIONS.md for
+why both of Go's path-keyed caches must be off).
 
 `stillpass bench --one-file --runs 6`: `api/client.go` (imported by nearly
 every package) gets a comment appended before each pair, so every run is a

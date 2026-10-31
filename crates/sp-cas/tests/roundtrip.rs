@@ -133,6 +133,29 @@ fn take_file_moves_new_blobs_and_leaves_duplicates() {
     // put_file of the same content agrees with the moved blob's hash.
     fs::write(out.join("again"), b"fresh bytes").unwrap();
     assert_eq!(cas.put_file(&out.join("again")).unwrap(), (got[0].0, 0));
+
+    // A hard-linked file is copied, not moved: its other name could still
+    // write to it. Two new files with the same content move only once.
+    fs::write(out.join("linked"), b"linked bytes").unwrap();
+    fs::hard_link(out.join("linked"), out.join("alias")).unwrap();
+    fs::write(out.join("twin1"), b"twins").unwrap();
+    fs::write(out.join("twin2"), b"twins").unwrap();
+    let got = cas
+        .take_files(
+            &[out.join("linked"), out.join("twin1"), out.join("twin2")],
+            |_| Ok(()),
+        )
+        .unwrap();
+    assert!(out.join("linked").exists() && out.join("alias").exists());
+    assert_eq!(cas.get(&got[0].0).unwrap().unwrap(), b"linked bytes");
+    assert_eq!(got[1].0, got[2].0);
+    assert_eq!(cas.get(&got[1].0).unwrap().unwrap(), b"twins");
+    assert!(out.join("twin1").exists() != out.join("twin2").exists());
+    assert_eq!(
+        fs::metadata(cas.blob_path(&got[1].0)).unwrap().nlink(),
+        1,
+        "the blob has one name"
+    );
 }
 
 /// T02 definition of done: importing the spike repo completes and reports

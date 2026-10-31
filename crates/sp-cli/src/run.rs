@@ -96,7 +96,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let image = host_image()?;
     let warm = args.warm && !args.allow_net;
     let spec = if warm {
-        StepSpec::spike_warm(image, &args.step, &extra_env)
+        StepSpec::spike_warm(image, &args.step, &extra_env)?
     } else {
         StepSpec::spike(image, &args.step, &extra_env)
     };

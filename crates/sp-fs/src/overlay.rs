@@ -92,6 +92,18 @@ impl Overlay {
     /// step's and the step is over), and made durable with one filesystem
     /// sync instead of an fsync per blob. When this returns, every blob the
     /// outputs name is on disk, so a result naming them may be written.
+    ///
+    /// Precondition: nothing writes to the upper dir any more. That holds
+    /// because the step is over before this is called: bubblewrap is pid 1
+    /// of the sandbox's pid namespace, so when `sp_sandbox::run` returns
+    /// from waiting on it every process it started is dead; and the
+    /// `umount2` here is not lazy (no MNT_DETACH), so it fails with EBUSY
+    /// rather than succeed while anything still holds the merged dir open.
+    /// `Cas::take_files` checks the precondition anyway: each file's inode,
+    /// size and mtime must be the same before hashing, after hashing and on
+    /// the blob after the rename, or the blob is removed and the run fails
+    /// with nothing recorded. A blob that did not match its name would be a
+    /// permanent false-hit vector (`import_dir` trusts `has`).
     pub fn finish(mut self, lower: &Tree, cas: &Cas) -> Result<Vec<Entry>, FsError> {
         let t = Instant::now();
         self.unmount()?;

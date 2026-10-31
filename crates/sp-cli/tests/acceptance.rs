@@ -208,7 +208,14 @@ fn acceptance() {
     );
 
     // A7b: paths the observer did not record are mutated on disk; the step
-    // must replay, and a fresh execution must agree with the replay.
+    // must replay, and a fresh execution must agree with the replay. Each
+    // sample also compares what the fresh execution read with what the
+    // replayed manifest recorded: the sets must agree, and neither may name
+    // the mutated path. A real under-record looks exactly like a flaky test,
+    // so on any disagreement both logs, both manifests and their diff are
+    // written outside the temp state (STILLPASS_EVIDENCE_DIR, default
+    // target/acceptance-evidence) before the assertion fires.
+    // STILLPASS_A7B_EXTRA=path,path adds named unread files to the samples.
     let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -220,36 +227,103 @@ fn acceptance() {
         .filter(|e| !e.p.starts_with(".stillpass/"))
         .collect();
     let stride = (unread.len() / samples.max(1)).max(1);
-    for (i, e) in unread.iter().step_by(stride).take(samples).enumerate() {
-        let path = env.repo.join(&e.p);
+    let extra = std::env::var("STILLPASS_A7B_EXTRA").unwrap_or_default();
+    let picked: Vec<String> = unread
+        .iter()
+        .step_by(stride)
+        .take(samples)
+        .map(|e| e.p.clone())
+        .chain(extra.split(',').filter(|s| !s.is_empty()).map(String::from))
+        .collect();
+    for (i, p) in picked.iter().enumerate() {
+        assert!(
+            !recorded.contains(p.as_str()) && env.repo.join(p).is_file(),
+            "A7b: {p} must be an unread file of the tree"
+        );
         // Corrupt it outright: if the step secretly read this file, its
         // result would certainly change (a cosmetic edit might not).
-        std::fs::write(&path, b"\x00STILLPASS_A7B corrupted\n").unwrap();
+        std::fs::write(env.repo.join(p), b"\x00STILLPASS_A7B corrupted\n").unwrap();
         let hit = env.run_step(step, &[]);
         assert!(
             hit.hit(),
-            "A7b: mutating unread {} should replay: {}",
-            e.p,
+            "A7b: mutating unread {p} should replay: {}",
             hit.stderr
         );
         let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}")]);
-        assert!(fresh.executed());
-        assert_eq!(
+        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
+        // What each run read: the manifest the replay matched, found the way
+        // find_match finds it, and the manifest the fresh execution recorded.
+        let now = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+        let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
+        let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
+        let fresh_m = ledger().candidates(&newest_key(&env), 1).unwrap().remove(0);
+        let (hp, fp) = (paths(hit_m), paths(&fresh_m));
+        let only_fresh: Vec<&str> = fp.difference(&hp).copied().collect();
+        let only_hit: Vec<&str> = hp.difference(&fp).copied().collect();
+        let read_mutated = fp.contains(p.as_str());
+        let same_code = fresh.code == hit.code;
+        let same_out = normalize(&fresh.stdout) == normalize(&hit.stdout);
+        if same_code && same_out && !read_mutated && only_fresh.is_empty() && only_hit.is_empty() {
+            println!(
+                "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths",
+                fp.len()
+            );
+            continue;
+        }
+        let dir = save_evidence(
+            &format!("a7b-{i}-{}", p.replace('/', "_")),
+            &[
+                ("mutated", p.as_bytes()),
+                ("hit.stdout", &hit.stdout),
+                ("hit.stderr", hit.stderr.as_bytes()),
+                ("fresh.stdout", &fresh.stdout),
+                ("fresh.stderr", fresh.stderr.as_bytes()),
+                (
+                    "hit.manifest.json",
+                    hit_m.canonical_json().unwrap().as_bytes(),
+                ),
+                (
+                    "fresh.manifest.json",
+                    fresh_m.canonical_json().unwrap().as_bytes(),
+                ),
+                (
+                    "manifest.diff",
+                    only_fresh
+                        .iter()
+                        .map(|p| format!("only-fresh {p}\n"))
+                        .chain(only_hit.iter().map(|p| format!("only-replayed {p}\n")))
+                        .collect::<String>()
+                        .as_bytes(),
+                ),
+            ],
+        );
+        let summary = format!(
+            "evidence in {}; the fresh execution read {} paths, the replayed manifest {}; {} only fresh read, {} only the replayed run read; fresh read the mutated file: {read_mutated}",
+            dir.display(),
+            fp.len(),
+            hp.len(),
+            only_fresh.len(),
+            only_hit.len()
+        );
+        assert!(
+            !read_mutated,
+            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded: the observer under-recorded. {summary}"
+        );
+        assert!(
+            same_code,
+            "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\ngo test said:\n{}",
             fresh.code,
             hit.code,
-            "A7b: {} changed the exit code; the observer missed a read, or a test is flaky. go test said:\n{}",
-            e.p,
             failures(&fresh.stdout)
         );
-        assert_eq!(
-            normalize(&fresh.stdout),
-            normalize(&hit.stdout),
-            "A7b: {} changed the output; the observer missed a read",
-            e.p
+        assert!(
+            same_out,
+            "A7b: {p} changed the output: an unrecorded read or a flaky test. {summary}"
         );
         println!(
-            "A7b ok: unread {} mutated, replay agrees with a fresh execution",
-            e.p
+            "A7b WARNING: unread {p} mutated, results agree, but the two executions read different paths: {summary}; first: {:?} {:?}",
+            only_fresh.first(),
+            only_hit.first()
         );
     }
     // W: warm state (--warm). The build cache earlier warm runs left behind
@@ -316,7 +390,7 @@ fn acceptance() {
         .filter(|e| e.k == Kind::Dir)
         .map(|e| e.p.as_str())
         .collect();
-    let full_paths: BTreeSet<&str> = full.entries.iter().map(|e| e.p.as_str()).collect();
+    let full_paths = paths(full);
     let (mut covered_by_listing, mut hidden) = (0, Vec::new());
     for e in &empty.entries {
         if full_paths.contains(e.p.as_str()) {
@@ -360,6 +434,26 @@ fn acceptance() {
             ""
         }
     );
+}
+
+fn paths(m: &sp_manifest::Manifest) -> BTreeSet<&str> {
+    m.entries.iter().map(|e| e.p.as_str()).collect()
+}
+
+/// Writes evidence files where the temp state's deletion cannot reach them:
+/// STILLPASS_EVIDENCE_DIR, else target/acceptance-evidence. Returns the dir.
+fn save_evidence(name: &str, files: &[(&str, &[u8])]) -> std::path::PathBuf {
+    let root = std::env::var_os("STILLPASS_EVIDENCE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/acceptance-evidence")
+        });
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (f, bytes) in files {
+        std::fs::write(dir.join(f), bytes).unwrap();
+    }
+    dir
 }
 
 /// The step key of the newest manifest in the ledger.

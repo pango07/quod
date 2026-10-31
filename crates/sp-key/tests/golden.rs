@@ -1,5 +1,6 @@
 //! Golden step keys: spec in, key out. A changed golden is a schema bump.
-//! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change.
+//! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change
+//! (v2: `warm` added to the key, 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;
@@ -12,6 +13,8 @@ struct Golden {
     cwd: String,
     env: Vec<(String, String)>,
     roots: Vec<String>,
+    #[serde(default)]
+    warm: bool,
     key: Hash,
 }
 
@@ -31,6 +34,7 @@ fn cases() -> Vec<StepSpec> {
         StepSpec::spike(Hash::of(b"rootfs"), "go test ./...", &[]),
         StepSpec::spike(img, "echo 'quoted \"x\"'\nexit 3", &[]),
         StepSpec::spike(img, "printf '%s' héllo ✓", &x(&[("UNICODE", "ü")])),
+        StepSpec::spike_warm(img, "go test ./...", &[]).unwrap(),
     ];
     out.push(StepSpec {
         image: img,
@@ -38,6 +42,7 @@ fn cases() -> Vec<StepSpec> {
         cwd: "/workspace/pkg".into(),
         env: vec![],
         roots: vec!["/workspace".into()],
+        warm: false,
     });
     out.push(StepSpec {
         image: img,
@@ -45,6 +50,7 @@ fn cases() -> Vec<StepSpec> {
         cwd: "/workspace".into(),
         env: x(&[("B", "2"), ("A", "1")]),
         roots: vec!["/workspace".into(), "/cache".into()],
+        warm: false,
     });
     out.push(StepSpec {
         image: img,
@@ -52,6 +58,7 @@ fn cases() -> Vec<StepSpec> {
         cwd: "/".into(),
         env: x(&[("EMPTY", "")]),
         roots: vec![],
+        warm: false,
     });
     out
 }
@@ -71,6 +78,7 @@ fn goldens_match() {
             cwd: s.cwd,
             env: s.env,
             roots: s.roots,
+            warm: s.warm,
         })
         .collect();
     if std::env::var_os("STILLPASS_BLESS").is_some() {
@@ -85,7 +93,7 @@ fn goldens_match() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(committed.len(), 10);
+    assert_eq!(committed.len(), 11);
     for g in &committed {
         let spec = StepSpec {
             image: g.image,
@@ -93,6 +101,7 @@ fn goldens_match() {
             cwd: g.cwd.clone(),
             env: g.env.clone(),
             roots: g.roots.clone(),
+            warm: g.warm,
         };
         assert_eq!(
             step_key(&spec).unwrap(),
