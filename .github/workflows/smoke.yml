@@ -1,14 +1,12 @@
 name: smoke
 on:
   workflow_dispatch:
-  push:
-    branches: [runner-lab]
-    paths: [.github/workflows/smoke.yml]
 jobs:
   smoke:
     runs-on: [self-hosted, stillpass]
     container:
       image: golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b
+      options: --user 1001:1001
     steps:
       - name: Who am I
         run: |
@@ -18,16 +16,24 @@ jobs:
           echo "HOME=$HOME GOMODCACHE=$GOMODCACHE GOCACHE=$GOCACHE"
           env | sort | cut -c1-120
       - name: Check out cli/cli
+        id: co
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cli/cli
           ref: 9490d204a2ba95434153dedce99898ce9f281426
       - name: Look around
+        id: look
         run: |
           ls
           head -3 go.mod
           echo "summary from the step" >> "$GITHUB_STEP_SUMMARY"
           echo "answer=42" >> "$GITHUB_OUTPUT"
+      - name: Outputs reach later steps
+        run: |
+          echo "answer=${{ steps.look.outputs.answer }} commit=${{ steps.co.outputs.commit }}"
+          test "${{ steps.look.outputs.answer }}" = 42
+      - name: Names a volatile variable
+        run: echo "sha $GITHUB_SHA"
       - name: Fail on purpose
         run: exit 3
         continue-on-error: true
