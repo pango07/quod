@@ -1,5 +1,6 @@
 # cli/cli's "Unit and Integration Tests" build job (.github/workflows/go.yml at
-# the pinned commit), on the stillpass runner in the golang job container.
+# the pinned commit), on the stillpass runner in the golang job container
+# (as uid 1001: cli/cli's permission tests fail as root).
 name: go-test
 on:
   workflow_dispatch:
@@ -7,14 +8,15 @@ on:
       commit:
         description: cli/cli commit to test
         default: 9490d204a2ba95434153dedce99898ce9f281426
-      race:
-        description: pass -race to go test
-        default: "true"
+      flags:
+        description: go test flags
+        default: "-count=1 -race -tags=integration"
 jobs:
   build:
     runs-on: [self-hosted, stillpass]
     container:
       image: golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b
+      options: --user 1001:1001
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,10 +32,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      # -count=1 disables Go's test result cache so every test runs. The build
-      # cache above only exists to reuse compiled packages.
       - name: Run unit and integration tests
-        run: go test -count=1 ${{ inputs.race == 'true' && '-race' || '' }} -tags=integration ./...
+        run: go test ${{ inputs.flags }} ./...
 
       - name: Build
         run: go build -v ./cmd/gh
