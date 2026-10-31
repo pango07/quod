@@ -14,7 +14,7 @@
 //!  "cwd": "/workspace",
 //!  "env": [["NAME", "VALUE"]],
 //!  "mounts": [{"dst": "/opt/tools", "dir": "/host/tools"} | {"dst": "/opt/tools", "tree": "b3:..."}],
-//!  "lookup": true}
+//!  "lookup": true, "toolchain": "go" | "node" | "python"}
 //! ```
 //! - `workspace` is served at /workspace through the observer: what the step
 //!   reads there is the manifest. A `dir` is imported (without `.git`); a
@@ -33,6 +33,11 @@
 //! - `lookup` (default true): replay the result of a proof whose manifest
 //!   matches the workspace instead of executing. False always executes and
 //!   records (a runner's observe or audit mode).
+//! - `toolchain` (optional): the profile whose sealing and output rules
+//!   apply (its env does not: `env` is the whole environment). Absent, it is
+//!   detected from the workspace's top level, and Go's when that finds none
+//!   or several: Go's rules seal only a GOMODCACHE the env puts under the
+//!   workspace and drop no outputs. Part of the key.
 //!
 //! Response: `{"step_key", "key" (the canonical key document, which says
 //! what pinned the environment), "replayed", "recorded" (false only for a
@@ -53,7 +58,7 @@ use anyhow::Context;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use sp_cas::{Cas, Hash};
-use sp_key::{StepSpec, canonical_key_json, step_key};
+use sp_key::{StepSpec, Toolchain, canonical_key_json, step_key};
 use sp_ledger::{Ledger, Observed, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_sandbox::Mount;
@@ -91,6 +96,8 @@ pub struct Request {
     pub mounts: Vec<MountRequest>,
     #[serde(default = "yes")]
     pub lookup: bool,
+    #[serde(default)]
+    pub toolchain: Option<Toolchain>,
 }
 
 fn yes() -> bool {
@@ -143,8 +150,16 @@ pub fn run_step(
         };
         image.mounts.push((m.dst.clone(), d));
     }
+    let toolchain = req.toolchain.unwrap_or_else(|| {
+        let top = tree
+            .iter()
+            .filter(|e| !e.p.contains('/'))
+            .map(|e| e.p.as_str());
+        Toolchain::detect(top).unwrap_or(Toolchain::Go)
+    });
     let spec = StepSpec {
         image,
+        toolchain,
         cmd: req.cmd.clone(),
         cwd: req.cwd.clone(),
         env: req.env.clone(),

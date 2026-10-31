@@ -195,14 +195,16 @@ pub fn host_probe() -> anyhow::Result<u8> {
     Ok(0)
 }
 
-/// The host-root pin: BLAKE3 of the host fingerprint script's output. The
+/// The host-root pin: BLAKE3 of the host fingerprint script's output, which
+/// covers every toolchain installed on the host (go, node, python, uv), run
+/// with every profile's PATH so it resolves the binaries steps do. The
 /// fallback for hosts without a rootfs; such a key never travels.
 pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     let out = Command::new("/bin/bash")
         .arg("-c")
         .arg(FINGERPRINT_SH)
         .env_clear()
-        .env("PATH", "/usr/local/go/bin:/usr/bin:/bin")
+        .env("PATH", sp_key::profile::HOST_PATH)
         .output()
         .context("run host fingerprint")?;
     if !out.status.success() {

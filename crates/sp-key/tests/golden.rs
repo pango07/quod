@@ -2,15 +2,17 @@
 //! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change
 //! (v2: `warm` added to the key, 2026-10-31; v3: `image` became an object
 //! with kind, digest, pinned mounts and the platform with its host class,
-//! 2026-10-31).
+//! 2026-10-31; v4: `toolchain` added and the env comes from a toolchain
+//! profile, 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;
-use sp_key::{Image, ImageKind, Platform, StepSpec, shell_cmd, step_key};
+use sp_key::{Image, ImageKind, Platform, StepSpec, Toolchain, shell_cmd, step_key};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct Golden {
     image: Image,
+    toolchain: Toolchain,
     cmd: Vec<String>,
     cwd: String,
     env: Vec<(String, String)>,
@@ -46,18 +48,30 @@ fn cases() -> Vec<StepSpec> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<Vec<_>>()
     };
+    use Toolchain::*;
     let mut out = vec![
-        StepSpec::spike(img.clone(), "go test ./...", &[]),
-        StepSpec::spike(img.clone(), "go mod download", &[]),
-        StepSpec::spike(img.clone(), "go test ./... -run TestFoo", &[]),
-        StepSpec::spike(img.clone(), "go test ./...", &x(&[("GOFLAGS_EXTRA", "-v")])),
-        StepSpec::spike(host.clone(), "go test ./...", &[]),
-        StepSpec::spike(img.clone(), "echo 'quoted \"x\"'\nexit 3", &[]),
-        StepSpec::spike(img.clone(), "printf '%s' héllo ✓", &x(&[("UNICODE", "ü")])),
-        StepSpec::spike_warm(img.clone(), "go test ./...", &[]).unwrap(),
+        StepSpec::new(Go, img.clone(), "go test ./...", &[]),
+        StepSpec::new(Go, img.clone(), "go mod download", &[]),
+        StepSpec::new(Go, img.clone(), "go test ./... -run TestFoo", &[]),
+        StepSpec::new(
+            Go,
+            img.clone(),
+            "go test ./...",
+            &x(&[("GOFLAGS_EXTRA", "-v")]),
+        ),
+        StepSpec::new(Go, host.clone(), "go test ./...", &[]),
+        StepSpec::new(Go, img.clone(), "echo 'quoted \"x\"'\nexit 3", &[]),
+        StepSpec::new(
+            Go,
+            img.clone(),
+            "printf '%s' héllo ✓",
+            &x(&[("UNICODE", "ü")]),
+        ),
+        StepSpec::new_warm(Go, img.clone(), "go test ./...", &[]).unwrap(),
         // Same rootfs on another architecture, another kernel series,
         // another CPU count; and with a pinned mount.
-        StepSpec::spike(
+        StepSpec::new(
+            Go,
             on(&|p| {
                 *p = Platform::new(
                     "x86_64",
@@ -71,15 +85,17 @@ fn cases() -> Vec<StepSpec> {
             "go test ./...",
             &[],
         ),
-        StepSpec::spike(on(&|p| p.kernel = "6.11".into()), "go test ./...", &[]),
-        StepSpec::spike(on(&|p| p.cpus = 16), "go test ./...", &[]),
+        StepSpec::new(Go, on(&|p| p.kernel = "6.11".into()), "go test ./...", &[]),
+        StepSpec::new(Go, on(&|p| p.cpus = 16), "go test ./...", &[]),
         // Same everything on a host whose kernel build differs.
-        StepSpec::spike(
+        StepSpec::new(
+            Go,
             on(&|p| p.host[1].1 = "#26-Ubuntu SMP Fri Feb 14 10:01:02 UTC 2025".into()),
             "go test ./...",
             &[],
         ),
-        StepSpec::spike(
+        StepSpec::new(
+            Go,
             Image {
                 mounts: vec![("/opt/tools".into(), Hash::of(b"a tools tree"))],
                 ..img.clone()
@@ -87,9 +103,19 @@ fn cases() -> Vec<StepSpec> {
             "go test ./...",
             &[],
         ),
+        StepSpec::new(Node, img.clone(), "npm test", &[]),
+        StepSpec::new(Node, img.clone(), "npm ci", &[]),
+        StepSpec::new(Python, img.clone(), "python -m pytest", &[]),
+        StepSpec::new(
+            Python,
+            img.clone(),
+            "python -m pytest",
+            &x(&[("PYTEST_ADDOPTS", "-q")]),
+        ),
     ];
     out.push(StepSpec {
         image: img.clone(),
+        toolchain: Go,
         cmd: shell_cmd("true"),
         cwd: "/workspace/pkg".into(),
         env: vec![],
@@ -98,6 +124,7 @@ fn cases() -> Vec<StepSpec> {
     });
     out.push(StepSpec {
         image: img.clone(),
+        toolchain: Go,
         cmd: vec!["/usr/bin/env".into(), "go".into(), "vet".into()],
         cwd: "/workspace".into(),
         env: x(&[("B", "2"), ("A", "1")]),
@@ -106,6 +133,7 @@ fn cases() -> Vec<StepSpec> {
     });
     out.push(StepSpec {
         image: img,
+        toolchain: Go,
         cmd: vec![],
         cwd: "/".into(),
         env: x(&[("EMPTY", "")]),
@@ -126,6 +154,7 @@ fn goldens_match() {
         .map(|s| Golden {
             key: step_key(&s).unwrap(),
             image: s.image,
+            toolchain: s.toolchain,
             cmd: s.cmd,
             cwd: s.cwd,
             env: s.env,
@@ -145,10 +174,11 @@ fn goldens_match() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(committed.len(), 16);
+    assert_eq!(committed.len(), 20);
     for g in &committed {
         let spec = StepSpec {
             image: g.image.clone(),
+            toolchain: g.toolchain,
             cmd: g.cmd.clone(),
             cwd: g.cwd.clone(),
             env: g.env.clone(),

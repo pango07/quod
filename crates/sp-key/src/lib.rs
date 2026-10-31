@@ -2,19 +2,16 @@
 //! hashing. Pure functions; no filesystem, no storage.
 //!
 //! The key is the identity of "this command in this environment," before any
-//! inputs are known.
+//! inputs are known. The environment comes from a toolchain profile
+//! (`profile`): Go, Node and Python each define the fixed list of variables
+//! a step sees, and the key names the toolchain.
+
+pub mod profile;
 
 use serde::{Deserialize, Serialize};
 use sp_cas::{CanonError, Hash, canonical_json};
 
-/// Schema version of the step key JSON. v2 added `warm`: a warm-state step is
-/// a different key by construction, not only through the env it changes. v3
-/// made `image` an object: what pinned the step's root (`kind`, `digest`),
-/// the read-only trees bound into it (`mounts`), and what the host shows a
-/// step that no root filesystem can pin (`platform`, with the host class
-/// `platform.host`); and the step's process state became fixed (umask,
-/// nice, rlimits, signals, descriptors).
-pub const VERSION: u32 = 3;
+pub use profile::{Knob, Profile, Seal, Toolchain, Warm, go_source_file};
 
 /// How the environment outside the observed tree was pinned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -233,20 +230,15 @@ fn normalized_mounts(
     Ok(m)
 }
 
-/// The spike environment, exactly as the Schemas section lists it. Nothing
-/// from the host is ever inherited.
-pub const SPIKE_ENV: &[(&str, &str)] = &[
-    ("CGO_ENABLED", "0"),
-    ("GOCACHE", "/workspace/.stillpass/gocache"),
-    ("GOFLAGS", "-mod=mod"),
-    ("GOMODCACHE", "/workspace/.stillpass/gomod"),
-    ("GOPROXY", "off"),
-    ("GOTOOLCHAIN", "local"),
-    ("HOME", "/workspace/.stillpass/home"),
-    ("LANG", "C.UTF-8"),
-    ("PATH", "/usr/local/go/bin:/usr/bin:/bin"),
-    ("TZ", "UTC"),
-];
+/// Schema version of the step key JSON. v2 added `warm`: a warm-state step is
+/// a different key by construction, not only through the env it changes. v3
+/// made `image` an object: what pinned the step's root (`kind`, `digest`),
+/// the read-only trees bound into it (`mounts`), and what the host shows a
+/// step that no root filesystem can pin (`platform`, with the host class
+/// `platform.host`); and the step's process state became fixed (umask,
+/// nice, rlimits, signals, descriptors). v4 added `toolchain`: which
+/// profile's env and rules a step ran under.
+pub const VERSION: u32 = 4;
 
 /// Variables whose values change on every run. Putting one in a key would
 /// make every run a miss, or, if normalized silently, hide a real input, so
@@ -266,46 +258,12 @@ pub const DENYLIST: &[&str] = &[
 /// The working directory and root every spike step sees.
 pub const WORKSPACE: &str = "/workspace";
 
-/// What a warm-state step adds to its env. Both turn off the parts of Go's
-/// cache that are not keyed by content, leaving the build cache (keyed by
-/// content hashes) as the warm state. Merged into whatever GOFLAGS and
-/// GODEBUG the step already has; a step that sets the same knob to another
-/// value is refused, never silently overridden. Part of the key like every
-/// variable the step sees.
-///
-/// `-count=1` turns off Go's test-result cache: it decides whether a test's
-/// inputs changed from their size and mtime, and the observer serves every
-/// file with the same constant mtime, so with a warm cache it could replay a
-/// stale result for a changed fixture of the same size.
-///
-/// `goindex=0` turns off Go's module index: the file lists and build
-/// constraints of every module in GOMODCACHE, stored in GOCACHE keyed by the
-/// module's path on the assumption that the module cache never changes. A
-/// warm run using it never reads those directories, so the observer would
-/// record far fewer inputs than a cold run does (7k against 21k on cli/cli).
-pub const WARM_GOFLAG: &str = "-count=1";
-pub const WARM_GODEBUG: &str = "goindex=0";
-
-/// Is `name` a file the Go toolchain treats as source (go/build's extension
-/// set)? Warm runs over-record every such file in every directory the step
-/// listed: go test caches each package's vet verdict keyed by the files it
-/// compiled, but vet's buildtag check also parses the package's ignored
-/// files (excluded by a GOOS/GOARCH suffix, so nothing else ever opens
-/// them), and a cached verdict is reused whatever they now contain. With an
-/// empty cache the observer sees vet read them; with a full one it cannot.
-pub fn go_source_file(name: &str) -> bool {
-    const EXTS: &[&str] = &[
-        ".go", ".c", ".cc", ".cpp", ".cxx", ".m", ".s", ".S", ".sx", ".swig", ".swigcxx", ".syso",
-        ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90",
-    ];
-    EXTS.iter().any(|e| name.ends_with(e))
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepSpec {
     /// The environment pin: rootfs digest or host fingerprint, pinned
     /// mounts, and the platform.
     pub image: Image,
+    pub toolchain: Toolchain,
     pub cmd: Vec<String>,
     pub cwd: String,
     /// Any order on input; sorted by name in the key.
@@ -333,6 +291,8 @@ pub enum KeyError {
         have: String,
         want: &'static str,
     },
+    #[error("the {0} profile has no warm state")]
+    NoWarm(Toolchain),
     #[error(transparent)]
     Canon(#[from] CanonError),
 }
@@ -341,6 +301,7 @@ pub enum KeyError {
 struct KeyJson<'a> {
     v: u32,
     image: Image,
+    toolchain: Toolchain,
     cmd: &'a [String],
     cwd: &'a str,
     env: Vec<[&'a str; 2]>,
@@ -349,16 +310,19 @@ struct KeyJson<'a> {
 }
 
 impl StepSpec {
-    /// A spike step: `/bin/sh -e -c <script>` in `/workspace` with the
-    /// Schemas env plus `extra_env`.
-    pub fn spike(image: Image, script: &str, extra_env: &[(String, String)]) -> StepSpec {
-        let mut env: Vec<(String, String)> = SPIKE_ENV
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
+    /// A step: `/bin/sh -e -c <script>` in `/workspace` with the toolchain
+    /// profile's env plus `extra_env`.
+    pub fn new(
+        toolchain: Toolchain,
+        image: Image,
+        script: &str,
+        extra_env: &[(String, String)],
+    ) -> StepSpec {
+        let mut env = toolchain.profile().env_vec();
         env.extend(extra_env.iter().cloned());
         StepSpec {
             image,
+            toolchain,
             cmd: shell_cmd(script),
             cwd: WORKSPACE.to_string(),
             env,
@@ -367,18 +331,30 @@ impl StepSpec {
         }
     }
 
-    /// The spike step started warm: `spike`, marked warm in the key, with
-    /// `WARM_GOFLAG` and `WARM_GODEBUG` merged into its env.
-    pub fn spike_warm(
+    /// The step started warm: `new`, marked warm in the key, with the
+    /// profile's warm knobs merged into its env. Refused for a toolchain
+    /// whose profile defines no warm state.
+    pub fn new_warm(
+        toolchain: Toolchain,
         image: Image,
         script: &str,
         extra_env: &[(String, String)],
     ) -> Result<StepSpec, KeyError> {
-        let mut spec = StepSpec::spike(image, script, extra_env);
+        let warm = toolchain
+            .profile()
+            .warm
+            .as_ref()
+            .ok_or(KeyError::NoWarm(toolchain))?;
+        let mut spec = StepSpec::new(toolchain, image, script, extra_env);
         spec.warm = true;
-        merge_knob(&mut spec.env, "GOFLAGS", ' ', WARM_GOFLAG)?;
-        merge_knob(&mut spec.env, "GODEBUG", ',', WARM_GODEBUG)?;
+        for k in warm.knobs {
+            merge_knob(&mut spec.env, k)?;
+        }
         Ok(spec)
+    }
+
+    pub fn profile(&self) -> &'static Profile {
+        self.toolchain.profile()
     }
 
     /// Env sorted by name, after validation.
@@ -407,17 +383,13 @@ pub fn shell_cmd(script: &str) -> Vec<String> {
     ["/bin/sh", "-e", "-c", script].map(String::from).to_vec()
 }
 
-/// Adds `item` (a `knob=value` setting) to the `sep`-separated variable
-/// `name`: appended to an existing value, set if absent, left alone if
-/// already there, refused if the variable sets the same knob to something
+/// Adds the knob's `item` (a `knob=value` setting) to the `sep`-separated
+/// variable `name`: appended to an existing value, set if absent, left alone
+/// if already there, refused if the variable sets the same knob to something
 /// else. Only the first entry named `name` is touched; a duplicate is the
 /// key's error to report.
-fn merge_knob(
-    env: &mut Vec<(String, String)>,
-    name: &str,
-    sep: char,
-    item: &'static str,
-) -> Result<(), KeyError> {
+fn merge_knob(env: &mut Vec<(String, String)>, k: &Knob) -> Result<(), KeyError> {
+    let (name, sep, item) = (k.name, k.sep, k.item);
     let knob = &item[..=item.find('=').expect("knob=value")];
     match env.iter_mut().find(|(k, _)| k == name) {
         None => env.push((name.to_string(), item.to_string())),
@@ -448,6 +420,7 @@ pub fn canonical_key_json(spec: &StepSpec) -> Result<String, KeyError> {
     let json = KeyJson {
         v: VERSION,
         image,
+        toolchain: spec.toolchain,
         cmd: &spec.cmd,
         cwd: &spec.cwd,
         env: env.iter().map(|(k, v)| [k.as_str(), v.as_str()]).collect(),
@@ -471,7 +444,7 @@ mod tests {
     }
 
     fn spec() -> StepSpec {
-        StepSpec::spike(img(), "go test ./...", &[])
+        StepSpec::new(Toolchain::Go, img(), "go test ./...", &[])
     }
 
     #[test]
@@ -493,8 +466,9 @@ mod tests {
             j.contains(r#"["sysctl kernel.yama.ptrace_scope","1"]],"kernel":"6.8","page_size":4096}},"roots""#),
             "{j}"
         );
-        assert!(j.ends_with(r#""roots":["/workspace"],"v":3,"warm":false}"#));
-        let mut host = StepSpec::spike(
+        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":4,"warm":false}"#));
+        let mut host = StepSpec::new(
+            Toolchain::Go,
             Image::new(
                 ImageKind::Host,
                 Hash::of(b"fp"),
@@ -639,12 +613,30 @@ mod tests {
             ("/opt/x".into(), Hash::of(b"2")),
         ];
         assert!(matches!(step_key(&s), Err(KeyError::BadMount(..))));
+        let n = StepSpec::new(Toolchain::Node, img(), "npm test", &[]);
+        let j = canonical_key_json(&n).unwrap();
+        assert!(
+            j.contains(r#"["CI","true"]"#) && j.contains(r#""toolchain":"node""#),
+            "{j}"
+        );
+    }
+
+    #[test]
+    fn toolchain_is_in_the_key() {
+        // The same script and image under another profile is another key,
+        // even with an identical env list.
+        let mut a = spec();
+        let mut b = spec();
+        b.toolchain = Toolchain::Python;
+        a.env.clear();
+        b.env.clear();
+        assert_ne!(step_key(&a).unwrap(), step_key(&b).unwrap());
     }
 
     #[test]
     fn warm_is_marked_in_the_key_and_merges_its_knobs() {
         let cold = spec();
-        let warm = StepSpec::spike_warm(img(), "go test ./...", &[]).unwrap();
+        let warm = StepSpec::new_warm(Toolchain::Go, img(), "go test ./...", &[]).unwrap();
         assert!(warm.warm && !cold.warm);
         assert_ne!(step_key(&warm).unwrap(), step_key(&cold).unwrap());
         assert!(
@@ -671,44 +663,42 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect::<Vec<_>>()
         };
-        let merged =
-            StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "http2debug=1")])).unwrap();
+        let merged = StepSpec::new_warm(
+            Toolchain::Go,
+            img(),
+            "true",
+            &x(&[("GODEBUG", "http2debug=1")]),
+        )
+        .unwrap();
         assert_eq!(
             get(&merged, "GODEBUG").as_deref(),
             Some("http2debug=1,goindex=0")
         );
-        let same = StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "goindex=0")])).unwrap();
+        let same = StepSpec::new_warm(
+            Toolchain::Go,
+            img(),
+            "true",
+            &x(&[("GODEBUG", "goindex=0")]),
+        )
+        .unwrap();
         assert_eq!(get(&same, "GODEBUG").as_deref(), Some("goindex=0"));
         // Asking for the opposite is refused, never silently overridden.
-        let conflict = StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "goindex=1")]));
+        let conflict = StepSpec::new_warm(
+            Toolchain::Go,
+            img(),
+            "true",
+            &x(&[("GODEBUG", "goindex=1")]),
+        );
         assert!(
             matches!(conflict, Err(KeyError::WarmConflict { ref name, .. }) if name == "GODEBUG"),
             "{conflict:?}"
         );
-    }
-
-    #[test]
-    fn go_source_files() {
-        for yes in [
-            "a.go",
-            "a_windows.go",
-            "x_test.go",
-            "asm_amd64.s",
-            "t.h",
-            "lib.syso",
-        ] {
-            assert!(go_source_file(yes), "{yes}");
-        }
-        for no in [
-            "README.md",
-            "go.mod",
-            "go.sum",
-            "a.txt",
-            "Makefile",
-            "gofile",
-            ".go.swp",
-        ] {
-            assert!(!go_source_file(no), "{no}");
+        // Profiles without warm state refuse it.
+        for t in [Toolchain::Node, Toolchain::Python] {
+            assert!(matches!(
+                StepSpec::new_warm(t, img(), "true", &[]),
+                Err(KeyError::NoWarm(x)) if x == t
+            ));
         }
     }
 
@@ -721,7 +711,12 @@ mod tests {
 
     #[test]
     fn denylisted_env_is_an_error() {
-        let s = StepSpec::spike(img(), "true", &[("GITHUB_RUN_ID".into(), "1".into())]);
+        let s = StepSpec::new(
+            Toolchain::Go,
+            img(),
+            "true",
+            &[("GITHUB_RUN_ID".into(), "1".into())],
+        );
         assert!(matches!(step_key(&s), Err(KeyError::Denylisted(_))));
     }
 
@@ -731,9 +726,17 @@ mod tests {
         let mut s = spec();
         s.warm = true;
         assert_ne!(step_key(&s).unwrap(), base);
-        let s = StepSpec::spike(img(), "go test ./... ", &[]);
+        let mut s = spec();
+        s.toolchain = Toolchain::Node;
         assert_ne!(step_key(&s).unwrap(), base);
-        let s = StepSpec::spike(img(), "go test ./...", &[("X".into(), "1".into())]);
+        let s = StepSpec::new(Toolchain::Go, img(), "go test ./... ", &[]);
+        assert_ne!(step_key(&s).unwrap(), base);
+        let s = StepSpec::new(
+            Toolchain::Go,
+            img(),
+            "go test ./...",
+            &[("X".into(), "1".into())],
+        );
         assert_ne!(step_key(&s).unwrap(), base);
         let mut s = spec();
         s.cwd = "/workspace/sub".into();

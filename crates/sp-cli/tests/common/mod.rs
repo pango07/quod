@@ -1,10 +1,13 @@
-//! Helpers for CLI integration tests: a tiny Go module and a runner for the
-//! stillpass binary. Gated on STILLPASS_INTEGRATION=1 (Linux, FUSE, bwrap, Go).
+//! Helpers for CLI integration tests: tiny Go, Node and Python modules and a
+//! runner for the stillpass binary. Gated on STILLPASS_INTEGRATION=1 (Linux,
+//! FUSE, bwrap, the toolchain).
 #![allow(dead_code)] // each test binary uses a subset
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use sp_key::Toolchain;
 
 pub fn enabled() -> bool {
     let on =
@@ -15,14 +18,48 @@ pub fn enabled() -> bool {
     on
 }
 
+/// Is the toolchain's binary where the profile's PATH expects it?
+pub fn toolchain_installed(tc: Toolchain) -> bool {
+    let bin = match tc {
+        Toolchain::Go => "/usr/local/go/bin/go",
+        Toolchain::Node => "/usr/local/node/bin/node",
+        Toolchain::Python => "/usr/local/python/bin/python3",
+    };
+    let ok = Path::new(bin).is_file();
+    if !ok {
+        eprintln!("{bin} is not installed; skipping the {tc} fixture");
+    }
+    ok
+}
+
+fn write(dir: &Path, p: &str, s: &str) {
+    let p = dir.join(p);
+    fs::create_dir_all(p.parent().unwrap()).unwrap();
+    fs::write(p, s).unwrap();
+}
+
+fn init_git(dir: &Path) {
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["add", "-A"]);
+    git(
+        dir,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    );
+}
+
 /// A Go module whose tests read a fixture, list a directory and probe for an
 /// optional config file.
 pub fn go_module(dir: &Path) {
-    let w = |p: &str, s: &str| {
-        let p = dir.join(p);
-        fs::create_dir_all(p.parent().unwrap()).unwrap();
-        fs::write(p, s).unwrap();
-    };
+    let w = |p: &str, s: &str| write(dir, p, s);
     w("go.mod", "module example.com/tiny\n\ngo 1.27\n");
     w("README.md", "# tiny\n");
     w(
@@ -74,21 +111,116 @@ func TestOptionalConfig(t *testing.T) {
         "other/other.go",
         "package other\n\nconst Name = \"other\"\n",
     );
-    git(dir, &["init", "-q", "-b", "main"]);
-    git(dir, &["add", "-A"]);
-    git(
-        dir,
-        &[
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "user.name=t",
-            "commit",
-            "-q",
-            "-m",
-            "init",
-        ],
+    init_git(dir);
+}
+
+/// A Node package with an installed dependency tree (a hand-made
+/// `node_modules`, so no npm is needed offline) whose test reads a fixture,
+/// lists the source directory and probes for an optional config file. The
+/// test step is `npm test`, so npm itself runs under the profile.
+pub fn node_package(dir: &Path) {
+    let w = |p: &str, s: &str| write(dir, p, s);
+    w(
+        "package.json",
+        r#"{
+  "name": "tiny",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": { "test": "node test/run.js" },
+  "dependencies": { "dep": "1.0.0" }
+}
+"#,
     );
+    w("README.md", "# tiny\n");
+    w(
+        "node_modules/dep/package.json",
+        "{ \"name\": \"dep\", \"version\": \"1.0.0\", \"main\": \"index.js\" }\n",
+    );
+    w(
+        "node_modules/dep/index.js",
+        "module.exports = { name: 'dep' };\n",
+    );
+    w(
+        "node_modules/.package-lock.json",
+        "{ \"name\": \"tiny\", \"lockfileVersion\": 3, \"packages\": {} }\n",
+    );
+    w("src/add.js", "module.exports = { add: (a, b) => a + b };\n");
+    w(
+        "test/run.js",
+        r#"const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const dep = require('dep');
+const { add } = require('../src/add');
+assert.strictEqual(add(2, 3), 5);
+assert.strictEqual(dep.name, 'dep');
+const fixtures = path.join(__dirname, 'fixtures');
+assert.strictEqual(fs.readFileSync(path.join(fixtures, 'fixture.txt'), 'utf8').trim(), 'hello');
+const cases = fs.readdirSync(path.join(fixtures, 'cases'));
+assert.ok(cases.length >= 2);
+const sources = fs.readdirSync(path.join(__dirname, '..', 'src'));
+if (fs.existsSync(path.join(fixtures, 'override.json'))) console.log('override present');
+console.log('ok', cases.length, 'cases', sources.length, 'sources');
+"#,
+    );
+    w("test/fixtures/fixture.txt", "hello\n");
+    w("test/fixtures/cases/a.txt", "a\n");
+    w("test/fixtures/cases/b.txt", "b\n");
+    init_git(dir);
+}
+
+/// A Python package with a venv at the profile's path (made offline, without
+/// pip) whose unittest suite reads a fixture, lists a directory and probes
+/// for an optional config file.
+pub fn python_package(dir: &Path) {
+    let w = |p: &str, s: &str| write(dir, p, s);
+    w(
+        "pyproject.toml",
+        "[project]\nname = \"tiny\"\nversion = \"0.0.0\"\n",
+    );
+    w("README.md", "# tiny\n");
+    w("tiny/__init__.py", "");
+    w("tiny/calc.py", "def add(a, b):\n    return a + b\n");
+    w("tests/__init__.py", "");
+    w(
+        "tests/test_calc.py",
+        r#"import os
+import unittest
+
+from tiny.calc import add
+
+HERE = os.path.dirname(__file__)
+
+
+class CalcTest(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(add(2, 3), 5)
+
+    def test_fixture(self):
+        with open(os.path.join(HERE, "fixtures", "fixture.txt")) as f:
+            self.assertEqual(f.read().strip(), "hello")
+
+    def test_listing(self):
+        cases = os.listdir(os.path.join(HERE, "fixtures", "cases"))
+        self.assertGreaterEqual(len(cases), 2)
+        print("ok", len(cases), "cases")
+
+    def test_optional_config(self):
+        if os.path.exists(os.path.join(HERE, "fixtures", "override.json")):
+            print("override present")
+"#,
+    );
+    w("tests/fixtures/fixture.txt", "hello\n");
+    w("tests/fixtures/cases/a.txt", "a\n");
+    w("tests/fixtures/cases/b.txt", "b\n");
+    let st = Command::new("/usr/local/python/bin/python3")
+        .args(["-m", "venv", "--without-pip"])
+        .arg(dir.join(".stillpass/venv"))
+        .status()
+        .unwrap();
+    assert!(st.success(), "python3 -m venv");
+    write(dir, ".git/info/exclude", ".stillpass/\n");
+    init_git(dir);
 }
 
 pub fn git(dir: &Path, args: &[&str]) {
@@ -120,21 +252,37 @@ impl Out {
 pub struct Env {
     pub tmp: tempfile::TempDir,
     pub repo: PathBuf,
+    /// Passed as --toolchain to every run; detection is used when `None`.
+    pub toolchain: Option<Toolchain>,
 }
 
 impl Env {
+    /// The tiny Go module.
     pub fn new() -> Env {
+        Env::fixture(Toolchain::Go)
+    }
+
+    /// The tiny fixture for a toolchain, run under its profile explicitly.
+    pub fn fixture(tc: Toolchain) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         fs::create_dir(&repo).unwrap();
-        go_module(&repo);
-        let env = Env { tmp, repo };
+        match tc {
+            Toolchain::Go => go_module(&repo),
+            Toolchain::Node => node_package(&repo),
+            Toolchain::Python => python_package(&repo),
+        }
+        let env = Env {
+            tmp,
+            repo,
+            toolchain: Some(tc),
+        };
         env.seed_rootfs();
         env
     }
 
     /// A scratch copy of an existing checkout (with .git and .stillpass).
-    pub fn from_copy(src: &Path) -> Env {
+    pub fn from_copy(src: &Path, toolchain: Option<Toolchain>) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let repo = tmp.path().join("repo");
         let st = Command::new("cp")
@@ -144,7 +292,11 @@ impl Env {
             .status()
             .unwrap();
         assert!(st.success(), "copy {}", src.display());
-        let env = Env { tmp, repo };
+        let env = Env {
+            tmp,
+            repo,
+            toolchain,
+        };
         env.seed_rootfs();
         env
     }
@@ -217,6 +369,9 @@ impl Env {
     pub fn run_step(&self, step: &str, extra: &[&str]) -> Out {
         let repo = self.repo.to_str().unwrap();
         let mut args = vec!["run", "--repo", repo, "--step", step];
+        if let Some(tc) = self.toolchain {
+            args.extend(["--toolchain", tc.name()]);
+        }
         args.extend_from_slice(extra);
         self.stillpass(&args)
     }

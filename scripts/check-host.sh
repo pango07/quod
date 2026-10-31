@@ -25,6 +25,17 @@ want_go=$(sed -n '/^\[go\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/..
 have_go=$(go env GOVERSION 2>/dev/null)
 row 0a "go $want_go" "$([ "$have_go" = "go$want_go" ] && echo 1 || echo 0)" "$have_go"
 row 0a "sqlite3" "$(has sqlite3 && echo 1 || echo 0)" "$(sqlite3 --version 2>/dev/null | cut -d' ' -f1)"
+# The polyglot corpus (exp/polyglot): node, python and uv at the paths the
+# toolchain profiles put on PATH (sp_key::profile). Optional for the Go spike.
+want_node=$(sed -n '/^\[node\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/../versions.toml")
+have_node=$(/usr/local/node/bin/node --version 2>/dev/null)
+row opt "node $want_node (/usr/local/node)" "$([ "$have_node" = "v$want_node" ] && echo 1 || echo 0)" "$have_node"
+want_py=$(sed -n '/^\[python\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/../versions.toml")
+have_py=$(/usr/local/python/bin/python3 --version 2>/dev/null | cut -d' ' -f2)
+row opt "python $want_py (/usr/local/python)" "$([ "$have_py" = "$want_py" ] && echo 1 || echo 0)" "$have_py"
+want_uv=$(sed -n '/^\[uv\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/../versions.toml")
+have_uv=$(/usr/local/uv/bin/uv --version 2>/dev/null | cut -d' ' -f2)
+row opt "uv $want_uv (/usr/local/uv)" "$([ "$have_uv" = "$want_uv" ] && echo 1 || echo 0)" "$have_uv"
 # Optional: FUSE over io_uring (Linux 6.14+, CONFIG_FUSE_IO_URING), a faster
 # observer transport. Off by default and not kept across a reboot (or a Docker
 # Desktop VM restart); turn on with:  echo Y > /sys/module/fuse/parameters/enable_uring

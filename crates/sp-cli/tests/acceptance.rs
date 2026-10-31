@@ -1,8 +1,16 @@
-//! The spike's acceptance criteria A1 to A7, in order, on one checkout.
+//! The spike's acceptance criteria A1 to A7, in order, on one checkout, for
+//! any toolchain profile.
 //!
-//! Runs on the tiny Go module by default (every PR), or on the spike repo
-//! when STILLPASS_SPIKE_REPO is set (scripts/acceptance.sh, nightly). The
-//! repo is copied first; the original is never touched.
+//! Runs on the tiny Go module by default (every PR), on the tiny Node and
+//! Python fixtures when their toolchains are installed, or on a real repo
+//! when STILLPASS_SPIKE_REPO is set (scripts/acceptance.sh, nightly) with
+//! STILLPASS_TOOLCHAIN naming its profile and STILLPASS_STEP its test step.
+//! The repo is copied first; the original is never touched.
+//!
+//! Everything language-specific comes from the profile: which file A4 edits
+//! (a source file of the language the step read), how it is edited (the
+//! language's line comment), whether warm state exists (W1-W4), and which
+//! directories a step must never write under.
 //!
 //! A7b goes beyond the handoff: A7 mutates only paths the manifest
 //! recorded, so it proves the matcher, not the observer. A7b mutates paths
@@ -17,9 +25,8 @@ use std::time::Instant;
 
 use common::*;
 use sp_cas::{Cas, Entry, Hash, Kind, child_path};
+use sp_key::Toolchain;
 use sp_ledger::{Ledger, first_match};
-
-const STEP_DEFAULT: &str = "go test ./...";
 
 #[test]
 fn acceptance() {
@@ -27,18 +34,62 @@ fn acceptance() {
         return;
     }
     let spike = std::env::var("STILLPASS_SPIKE_REPO").ok();
+    let tc: Toolchain = std::env::var("STILLPASS_TOOLCHAIN")
+        .ok()
+        .map(|s| s.parse().expect("STILLPASS_TOOLCHAIN"))
+        .unwrap_or(Toolchain::Go);
     let env = match &spike {
-        Some(src) => Env::from_copy(Path::new(src)),
-        None => Env::new(),
+        Some(src) => Env::from_copy(Path::new(src), Some(tc)),
+        None => Env::fixture(tc),
     };
-    let step = std::env::var("STILLPASS_STEP").unwrap_or_else(|_| STEP_DEFAULT.into());
-    let step = step.as_str();
+    let step = std::env::var("STILLPASS_STEP").unwrap_or_else(|_| tc.profile().test.to_string());
+    let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    run_acceptance(&env, tc, &step, samples, spike.is_some());
+}
+
+/// The Node fixture under the Node profile (npm, a sealed node_modules).
+#[test]
+fn acceptance_node_fixture() {
+    if !enabled() || !toolchain_installed(Toolchain::Node) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Node);
+    run_acceptance(
+        &env,
+        Toolchain::Node,
+        Toolchain::Node.profile().test,
+        2,
+        false,
+    );
+}
+
+/// The Python fixture under the Python profile (a sealed venv, no pycs).
+#[test]
+fn acceptance_python_fixture() {
+    if !enabled() || !toolchain_installed(Toolchain::Python) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Python);
+    run_acceptance(
+        &env,
+        Toolchain::Python,
+        "python -m unittest discover -s tests -t . -v",
+        2,
+        false,
+    );
+}
+
+fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_repo: bool) {
+    let profile = tc.profile();
     let ledger = || Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
 
     // A1: first run executes and records one manifest and result.
     let a1 = env.run_step(step, &[]);
     assert!(a1.executed() && a1.code == 0, "A1: {}", a1.stderr);
-    let key = only_key(&env);
+    let key = only_key(env);
     assert_eq!(
         ledger().manifest_count(&key).unwrap(),
         1,
@@ -46,7 +97,30 @@ fn acceptance() {
     );
     let inspect = env.stillpass(&["inspect", &key.to_string()]);
     assert!(String::from_utf8_lossy(&inspect.stdout).contains("1 manifest(s)"));
-    println!("A1 ok: EXECUTED, one manifest");
+    // The profile's env keeps the tool's own caches off the workspace.
+    let result = ledger()
+        .results_for_run(&newest_run(env))
+        .unwrap()
+        .remove(0);
+    let forbidden: Vec<&str> = result
+        .outputs
+        .iter()
+        .filter(|o| {
+            o.p.split('/')
+                .any(|c| profile.no_outputs_under.contains(&c))
+        })
+        .map(|o| o.p.as_str())
+        .collect();
+    assert!(
+        forbidden.is_empty(),
+        "A1: the step wrote under a directory the {tc} profile must keep it from writing: {:?}",
+        &forbidden[..forbidden.len().min(5)]
+    );
+    println!(
+        "A1 ok: EXECUTED, one manifest, {} outputs, none under {:?}",
+        result.outputs.len(),
+        profile.no_outputs_under
+    );
     // Which observer produced these results, in the binary's own words.
     for message in ["observer", "run"] {
         if let Some(line) = last_event_line(&env.state(), message) {
@@ -71,51 +145,93 @@ fn acceptance() {
 
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
-
-    // A3: a commit touching only README.md replays.
-    assert!(
-        !recorded.contains("README.md"),
-        "A3 precondition: the step reads README.md, so A3 cannot hold on this repo"
+    let cas = Cas::open(env.state().join("cas")).unwrap();
+    let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+    let sealed: usize = profile
+        .seals(&tree)
+        .iter()
+        .map(|s| {
+            manifest
+                .entries
+                .iter()
+                .filter(|e| e.p == s.prefix || e.p.starts_with(&format!("{}/", s.prefix)))
+                .count()
+        })
+        .sum();
+    println!(
+        "manifest: {} entries ({} f, {} d, {} a, {} l), {} under sealed prefixes {:?}",
+        manifest.entries.len(),
+        manifest
+            .entries
+            .iter()
+            .filter(|e| e.k == Kind::File)
+            .count(),
+        manifest.entries.iter().filter(|e| e.k == Kind::Dir).count(),
+        manifest
+            .entries
+            .iter()
+            .filter(|e| e.k == Kind::Absent)
+            .count(),
+        manifest
+            .entries
+            .iter()
+            .filter(|e| e.k == Kind::Symlink)
+            .count(),
+        sealed,
+        profile
+            .seals(&tree)
+            .iter()
+            .map(|s| s.prefix.clone())
+            .collect::<Vec<_>>()
     );
-    let readme = std::fs::read_to_string(env.repo.join("README.md")).unwrap_or_default();
-    env.write("README.md", &format!("{readme}\nA3 edit\n"));
-    env.commit("A3: README only");
+
+    // A3: a commit touching only a docs file replays. README.md unless the
+    // step reads it, else another unread top-level markdown file.
+    let docs = ["README.md"]
+        .into_iter()
+        .map(String::from)
+        .chain(
+            tree.children(".")
+                .filter(|(n, e)| e.k == Kind::File && n.ends_with(".md"))
+                .map(|(n, _)| n.to_string()),
+        )
+        .find(|p| !recorded.contains(p.as_str()) && env.repo.join(p).is_file())
+        .expect("A3 precondition: the step reads every top-level markdown file");
+    let text = std::fs::read_to_string(env.repo.join(&docs)).unwrap_or_default();
+    env.write(&docs, &format!("{text}\nA3 edit\n"));
+    env.commit("A3: docs only");
     let a3 = env.run_step(step, &[]);
     assert!(a3.hit(), "A3: {}", a3.stderr);
-    println!("A3 ok: README-only commit REPLAYED");
+    println!("A3 ok: {docs}-only commit REPLAYED");
 
-    // A4: a commit changing a Go file the tests read misses and names it.
-    let go_file = manifest
+    // A4: a commit changing a source file the tests read misses and names it.
+    let src_file = manifest
         .entries
         .iter()
-        .find(|e| {
-            e.k == Kind::File
-                && e.p.ends_with(".go")
-                && !e.p.starts_with(".stillpass/")
-                && !e.p.ends_with("_test.go")
-        })
-        .expect("A4: no non-test .go file in the manifest")
+        .find(|e| e.k == Kind::File && profile.is_editable_source(&e.p))
+        .unwrap_or_else(|| panic!("A4: no editable {tc} source file in the manifest"))
         .p
         .clone();
-    let src = std::fs::read_to_string(env.repo.join(&go_file)).unwrap();
-    env.write(&go_file, &format!("{src}\n// A4 edit\n"));
-    env.commit("A4: touch a Go file");
+    let src = std::fs::read_to_string(env.repo.join(&src_file)).unwrap();
+    env.write(&src_file, &format!("{src}\n{} A4 edit\n", profile.comment));
+    env.commit("A4: touch a source file");
     let a4 = env.run_step(step, &[]);
     assert!(a4.executed(), "A4: {}", a4.stderr);
     assert!(
-        a4.stderr.contains(&format!("differed at {go_file}")),
-        "A4 must name {go_file}: {}",
+        a4.stderr.contains(&format!("differed at {src_file}")),
+        "A4 must name {src_file}: {}",
         a4.stderr
     );
-    println!("A4 ok: MISS, receipt names {go_file}");
+    println!("A4 ok: MISS, receipt names {src_file}");
 
     // A5: adding a file to a listed directory misses and names the listing.
-    let dir = std::path::Path::new(&go_file)
+    let dir = std::path::Path::new(&src_file)
         .parent()
         .unwrap()
         .to_str()
         .unwrap()
         .to_string();
+    let dir = if dir.is_empty() { ".".to_string() } else { dir };
     let newest = ledger().candidates(&key, 1).unwrap().remove(0);
     assert!(
         newest
@@ -151,7 +267,6 @@ fn acceptance() {
     println!("A6 ok: different key, no manifests");
 
     // A7: every recorded input, mutated, misses. Zero false hits.
-    let cas = Cas::open(env.state().join("cas")).unwrap();
     let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
     let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
     let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
@@ -222,10 +337,6 @@ fn acceptance() {
     // written outside the temp state (STILLPASS_EVIDENCE_DIR, default
     // target/acceptance-evidence) before the assertion fires.
     // STILLPASS_A7B_EXTRA=path,path adds named unread files to the samples.
-    let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3);
     let recorded: BTreeSet<&str> = m.entries.iter().map(|e| e.p.as_str()).collect();
     let unread: Vec<&Entry> = tree
         .iter()
@@ -241,6 +352,11 @@ fn acceptance() {
         .map(|e| e.p.clone())
         .chain(extra.split(',').filter(|s| !s.is_empty()).map(String::from))
         .collect();
+    println!(
+        "A7b: {} unread files in the tree, sampling {}",
+        unread.len(),
+        picked.len()
+    );
     for (i, p) in picked.iter().enumerate() {
         assert!(
             !recorded.contains(p.as_str()) && env.repo.join(p).is_file(),
@@ -262,7 +378,7 @@ fn acceptance() {
         let now = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
         let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
         let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
-        let fresh_m = ledger().candidates(&newest_key(&env), 1).unwrap().remove(0);
+        let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
         let (hp, fp) = (paths(hit_m), paths(&fresh_m));
         let only_fresh: Vec<&str> = fp.difference(&hp).copied().collect();
         let only_hit: Vec<&str> = hp.difference(&fp).copied().collect();
@@ -317,7 +433,7 @@ fn acceptance() {
         );
         assert!(
             same_code,
-            "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\ngo test said:\n{}",
+            "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\nthe step said:\n{}",
             fresh.code,
             hit.code,
             failures(&fresh.stdout)
@@ -332,16 +448,32 @@ fn acceptance() {
             only_hit.first()
         );
     }
-    // W: warm state (--warm). The build cache earlier warm runs left behind
-    // is bound over GOCACHE, unobserved, on the claim that a content-addressed
-    // cache cannot change a result. This audits the claim two ways. Results:
-    // on the same tree and after a one-file change, a warm execution must
-    // agree with a cold one on exit code and stdout up to durations, and the
-    // warm key must replay. Inputs (W4): a warm run with a full cache must
-    // read every path a run with the same env and an empty cache read (W1 is
-    // that run), so the cache never hides an input from the observer. W4 is
-    // what catches Go's path-keyed caches (the module index, the test-result
-    // cache); the warm env turns both off.
+
+    if profile.warm.is_some() {
+        warm_checks(env, step, &key, &src_file, profile);
+    } else {
+        println!("W: the {tc} profile has no warm state; W1-W4 do not apply");
+    }
+
+    println!(
+        "acceptance: A1-A7{} pass under the {tc} profile{}",
+        if profile.warm.is_some() { " and W" } else { "" },
+        if real_repo { " on the spike repo" } else { "" }
+    );
+}
+
+/// W: warm state (--warm). The build cache earlier warm runs left behind is
+/// bound over the profile's cache dir, unobserved, on the claim that a
+/// content-addressed cache cannot change a result. This audits the claim two
+/// ways. Results: on the same tree and after a one-file change, a warm
+/// execution must agree with a cold one on exit code and stdout up to
+/// durations, and the warm key must replay. Inputs (W4): a warm run with a
+/// full cache must read every path a run with the same env and an empty
+/// cache read (W1 is that run), so the cache never hides an input from the
+/// observer. W4 is what catches path-keyed caches (Go's module index, its
+/// test-result cache); the profile's knobs turn them off.
+fn warm_checks(env: &Env, step: &str, key: &Hash, src_file: &str, profile: &sp_key::Profile) {
+    let ledger = || Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
     let cold = env.run_step(step, &[]);
     assert!(cold.hit(), "W precondition: {}", cold.stderr);
     let w1 = env.run_step(step, &["--warm"]);
@@ -356,11 +488,11 @@ fn acceptance() {
         normalize(&cold.stdout),
         "W1: stdout cold vs warm"
     );
-    let warm_key = newest_key(&env);
-    assert_ne!(warm_key, key, "W1: warm runs have their own step key");
+    let warm_key = newest_key(env);
+    assert_ne!(&warm_key, key, "W1: warm runs have their own step key");
     println!("W1 ok: first warm run (empty cache) agrees with the cold record");
-    let src = std::fs::read_to_string(env.repo.join(&go_file)).unwrap();
-    env.write(&go_file, &format!("{src}\n// W edit\n"));
+    let src = std::fs::read_to_string(env.repo.join(src_file)).unwrap();
+    env.write(src_file, &format!("{src}\n{} W edit\n", profile.comment));
     env.commit("W: one-file change");
     let c2 = env.run_step(step, &[]);
     let w2 = env.run_step(step, &["--warm"]);
@@ -421,7 +553,7 @@ fn acceptance() {
         "W4: the warm cache hid inputs from the observer: {:?}",
         hidden.iter().take(10).collect::<Vec<_>>()
     );
-    let cold_m = &ledger().candidates(&key, 1).unwrap()[0];
+    let cold_m = &ledger().candidates(key, 1).unwrap()[0];
     let only_cold = cold_m
         .entries
         .iter()
@@ -430,15 +562,6 @@ fn acceptance() {
     println!(
         "W4 ok; for the record, the cold env records {} paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)",
         only_cold
-    );
-
-    println!(
-        "acceptance: A1-A7 and W pass{}",
-        if spike.is_some() {
-            " on the spike repo"
-        } else {
-            ""
-        }
     );
 }
 
@@ -462,23 +585,35 @@ fn save_evidence(name: &str, files: &[(&str, &[u8])]) -> std::path::PathBuf {
     dir
 }
 
-/// The step key of the newest manifest in the ledger.
-fn newest_key(env: &Env) -> Hash {
+fn sqlite(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")
         .arg(env.state().join("ledger.sqlite"))
-        .arg("SELECT step_key FROM manifests ORDER BY created_at DESC, rowid DESC LIMIT 1")
+        .arg(sql)
         .output()
         .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The step key of the newest manifest in the ledger.
+fn newest_key(env: &Env) -> Hash {
+    sqlite(
+        env,
+        "SELECT step_key FROM manifests ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    )
+    .parse()
+    .unwrap()
+}
+
+/// The run id of the newest result in the ledger.
+fn newest_run(env: &Env) -> String {
+    sqlite(
+        env,
+        "SELECT run_id FROM results ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    )
 }
 
 fn only_key(env: &Env) -> Hash {
-    let out = std::process::Command::new("sqlite3")
-        .arg(env.state().join("ledger.sqlite"))
-        .arg("SELECT DISTINCT step_key FROM manifests")
-        .output()
-        .unwrap();
-    let keys: Vec<String> = String::from_utf8_lossy(&out.stdout)
+    let keys: Vec<String> = sqlite(env, "SELECT DISTINCT step_key FROM manifests")
         .lines()
         .map(String::from)
         .collect();
@@ -486,28 +621,133 @@ fn only_key(env: &Env) -> Hash {
     keys[0].parse().unwrap()
 }
 
-/// The lines of a go test log that name failures, for a panic message.
+/// The lines of a test log that name failures, for a panic message.
 fn failures(stdout: &[u8]) -> String {
     String::from_utf8_lossy(stdout)
         .lines()
-        .filter(|l| l.starts_with("FAIL") || l.starts_with("--- FAIL") || l.contains("panic:"))
+        .filter(|l| {
+            l.starts_with("FAIL")
+                || l.starts_with("--- FAIL")
+                || l.contains("panic:")
+                || l.starts_with("ERROR")
+                || l.contains("Error:")
+                || l.contains("failed")
+        })
         .take(40)
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-/// go test prints per-package durations; a fresh run differs only there.
+/// Test runners print durations (`ok  pkg 0.412s`, `in 7.54s`, `Time: 1.2 s`,
+/// `(123 ms)`), clock times and, under worker parallelism, files in
+/// completion order; a fresh run differs from the record only there. Every
+/// duration and clock time becomes a placeholder, lines that are a `date`
+/// stamp are dropped, and the lines are sorted.
 fn normalize(stdout: &[u8]) -> String {
-    String::from_utf8_lossy(stdout)
+    let mut lines: Vec<String> = String::from_utf8_lossy(stdout)
         .lines()
-        .map(|l| match l.rsplit_once('\t') {
-            Some((head, tail))
-                if tail.ends_with('s') && tail[..tail.len() - 1].parse::<f64>().is_ok() =>
-            {
-                format!("{head}\t<dur>")
+        .filter(|l| !is_date_line(l))
+        .map(normalize_line)
+        .collect();
+    lines.sort();
+    lines.join("\n")
+}
+
+/// `Sat Oct 31 11:13:24 GMT 2026` and the like: a line that is a date stamp.
+fn is_date_line(l: &str) -> bool {
+    const DAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    let mut words = l.split_whitespace();
+    matches!(words.next(), Some(d) if DAYS.contains(&d))
+        && words.clone().count() >= 4
+        && words.any(|w| w.len() == 4 && w.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Replaces `<number>[ ](ms|s)` tokens with `<dur>` and `hh:mm:ss` with
+/// `<time>`, at word boundaries.
+fn normalize_line(l: &str) -> String {
+    let b = l.as_bytes();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < b.len() {
+        let prev_word = i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'.');
+        if b[i].is_ascii_digit() && !prev_word {
+            let mut j = i;
+            while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.' || b[j] == b',') {
+                j += 1;
             }
-            _ => l.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            // hh:mm:ss
+            if j + 6 <= b.len()
+                && b[j] == b':'
+                && l[j + 1..].starts_with(|c: char| c.is_ascii_digit())
+                && b[j + 3] == b':'
+                && b[j + 4..j + 6].iter().all(u8::is_ascii_digit)
+            {
+                out.push_str("<time>");
+                i = j + 6;
+                continue;
+            }
+            let mut k = j;
+            if k < b.len() && b[k] == b' ' {
+                k += 1;
+            }
+            let unit = if l[k..].starts_with("ms") {
+                2
+            } else if l[k..].starts_with('s') {
+                1
+            } else {
+                0
+            };
+            let end = k + unit;
+            if unit > 0 && (end == b.len() || !b[end].is_ascii_alphanumeric()) {
+                out.push_str("<dur>");
+                i = end;
+                continue;
+            }
+            out.push_str(&l[i..j]);
+            i = j;
+            continue;
+        }
+        let ch = l[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::*;
+
+    #[test]
+    fn durations_times_and_dates() {
+        assert_eq!(
+            normalize_line("ok  \tpkg/cmd\t0.412s"),
+            "ok  \tpkg/cmd\t<dur>"
+        );
+        assert_eq!(
+            normalize_line("== 1412 passed, 2 xfailed in 7.54s =="),
+            "== 1412 passed, 2 xfailed in <dur> =="
+        );
+        assert_eq!(
+            normalize_line("Time:        1.263 s, estimated 2 s"),
+            "Time:        <dur>, estimated <dur>"
+        );
+        assert_eq!(
+            normalize_line("  ✓ Diff (DST) (1ms)"),
+            "  ✓ Diff (DST) (<dur>)"
+        );
+        assert_eq!(
+            normalize_line("   Start at  11:01:40"),
+            "   Start at  <time>"
+        );
+        assert_eq!(
+            normalize_line("v5.0.5 /work and 3 sources"),
+            "v5.0.5 /work and 3 sources"
+        );
+        assert!(is_date_line("Sat Oct 31 11:13:24 GMT 2026"));
+        assert!(!is_date_line("Sat is a day"));
+        let a = b"PASS b.test.js (2 s)\nPASS a.test.js (1 s)\nTime: 3 s\n";
+        let b = b"PASS a.test.js (4 s)\nPASS b.test.js (1 s)\nTime: 9 s\n";
+        assert_eq!(normalize(a), normalize(b));
+    }
 }

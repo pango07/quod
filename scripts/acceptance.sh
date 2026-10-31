@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
-# The spike is done when this passes from a clean checkout.
-#   scripts/acceptance.sh [spike-checkout-dir]
-# Clones the spike repo at the pinned commit (versions.toml) if needed, fills
-# its module cache with step A, then runs A1-A7 (+A7b) against a copy of it.
+# The spike is done when this passes from a clean checkout, for every corpus
+# repo.
+#   scripts/acceptance.sh [go|node|python] [checkout-dir]
+# Clones the repo at its pinned commit (versions.toml: [spike_repo] for go,
+# [corpus.<toolchain>] otherwise) if needed, fills its dependency tree with
+# step A, then runs A1-A7 (+A7b, and W1-W4 where the profile has warm state)
+# against a copy of it.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 v() { sed -n "/^\[$1\]/,/^\[/s/^$2 = \"\(.*\)\"/\1/p" "$root/versions.toml"; }
-url=$(v spike_repo url); commit=$(v spike_repo commit)
-repo=${1:-${STILLPASS_SPIKE_DIR:-$root/target/spike-repo}}
+tc=${1:-go}
+case "$tc" in
+  go) section=spike_repo; corpus_setup=; corpus_step=;;
+  node|python) section="corpus.$tc"; corpus_setup=$(v "$section" setup); corpus_step=$(v "$section" step);;
+  *) echo "usage: scripts/acceptance.sh [go|node|python] [checkout-dir]" >&2; exit 2;;
+esac
+url=$(v "$section" url); commit=$(v "$section" commit)
+[ -n "$url" ] && [ -n "$commit" ] || { echo "versions.toml has no [$section] url/commit" >&2; exit 2; }
+repo=${2:-${STILLPASS_SPIKE_DIR:-$root/target/corpus-$tc}}
 
 "$root/scripts/check-host.sh" >/dev/null || { "$root/scripts/check-host.sh"; exit 1; }
 if [ ! -d "$repo/.git" ]; then git clone -q "$url" "$repo"; fi
@@ -16,6 +26,12 @@ git -C "$repo" checkout -q --detach "$commit"
 grep -qx '.stillpass/' "$repo/.git/info/exclude" || echo '.stillpass/' >> "$repo/.git/info/exclude"
 cd "$root"
 cargo build -q --release -p sp-cli
+# The profile's defaults for anything versions.toml leaves empty, and the
+# directories step A leaves behind that are not step B's inputs.
+eval "$(target/release/stillpass profile --repo "$repo" --toolchain "$tc")"
+setup=${corpus_setup:-$setup}
+# STILLPASS_STEP overrides the corpus step (a parallelism cap on a shared box).
+step=${STILLPASS_STEP:-${corpus_step:-$test}}
 state=$(mktemp -d)
 trap 'rm -rf "$state"' EXIT
 # Rootfs mode: STILLPASS_ROOTFS names the pinned rootfs and
@@ -29,11 +45,12 @@ if [ -n "${STILLPASS_ROOTFS:-}" ]; then
 else
   echo "== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint"
 fi
-echo "== step A: go mod download (network, not memoized)"
-target/release/stillpass --state "$state" run --repo "$repo" --commit "$commit" --allow-net --step "go mod download"
-# Step B starts from a tree whose only earlier output is the module cache.
-rm -rf "$repo/.stillpass/gocache" "$repo/.stillpass/home"
-echo "== A1-A7 on $url@${commit:0:12}"
-STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-10}" \
-  cargo test -q --release -p sp-cli --test acceptance -- --nocapture 2>&1 \
-  | grep -E '^(A[0-9]|W[0-9]|acceptance|\$ stillpass|STILLPASS|  )|panicked|assertion|FAILED|test result'
+echo "== step A ($tc): $setup (network, not memoized)"
+target/release/stillpass --state "$state" run --repo "$repo" --commit "$commit" --toolchain "$tc" --allow-net --step "$setup"
+# Step B starts from a tree whose only earlier output is the dependency tree.
+for d in $ephemeral; do rm -rf "$repo/$d"; done
+echo "== A1-A7 on $url@${commit:0:12} ($tc profile), step: $step"
+STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_TOOLCHAIN="$tc" STILLPASS_STEP="$step" \
+  STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-10}" \
+  cargo test -q --release -p sp-cli --test acceptance -- --exact acceptance --nocapture 2>&1 \
+  | grep -E '^(A[0-9]|W[0-9]|W:|acceptance|manifest:|\$ stillpass|STILLPASS|  )|panicked|assertion|FAILED|test result'
