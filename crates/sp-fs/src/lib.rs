@@ -9,7 +9,9 @@
 #[cfg(target_os = "linux")]
 mod serve;
 #[cfg(target_os = "linux")]
-pub use serve::{Served, serve};
+mod uring;
+#[cfg(target_os = "linux")]
+pub use serve::{Served, Transport, serve, serve_with};
 
 #[cfg(target_os = "linux")]
 mod overlay;
@@ -29,6 +31,15 @@ pub struct ObserverStats {
     pub readdir: u64,
     /// Reads of open files go kernel-to-blob and never arrive here.
     pub passthrough: bool,
+    /// Requests arrive over io_uring rather than the /dev/fuse read loop.
+    pub uring: bool,
+}
+
+impl ObserverStats {
+    /// The transport's name for the run event.
+    pub fn transport(&self) -> &'static str {
+        if self.uring { "fuse-uring" } else { "fuse" }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,7 +77,24 @@ mod unsupported {
     pub struct Served;
     pub struct Overlay;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Transport {
+        Auto,
+        Classic,
+        Uring,
+    }
+
+    impl Transport {
+        pub fn from_env() -> Transport {
+            Transport::Auto
+        }
+    }
+
     pub fn serve(_: &Tree, _: &Cas, _: &Path) -> Result<Served, FsError> {
+        Err(FsError::Unsupported)
+    }
+
+    pub fn serve_with(_: &Tree, _: &Cas, _: &Path, _: Transport) -> Result<Served, FsError> {
         Err(FsError::Unsupported)
     }
 
@@ -103,4 +131,4 @@ mod unsupported {
     }
 }
 #[cfg(not(target_os = "linux"))]
-pub use unsupported::{Overlay, Served, overlay, serve, syncfs};
+pub use unsupported::{Overlay, Served, Transport, overlay, serve, serve_with, syncfs};

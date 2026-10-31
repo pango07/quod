@@ -18,6 +18,7 @@ tracing.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser.workspace = true
+io-uring.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

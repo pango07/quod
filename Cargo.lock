@@ -895,6 +895,7 @@ name = "sp-fs"
 version = "0.0.0"
 dependencies = [
  "fuser",
+ "io-uring",
  "libc",
  "sp-cas",
  "sp-manifest",

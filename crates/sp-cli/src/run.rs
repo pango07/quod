@@ -361,7 +361,8 @@ fn execute(
     let (stderr, _) = cas.put_file(&dir.join("stderr"))?;
     phases.diff = t.elapsed();
     let observer = format!(
-        "fuse{}{}",
+        "{}{}{}",
+        stats.transport(),
         if stats.passthrough {
             "+passthrough"
         } else {
