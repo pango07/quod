@@ -1,8 +1,9 @@
-import Image from "next/image";
+import Link from "next/link";
 import { CiJob } from "@/components/ci-job";
 import { Flow } from "@/components/flow";
 import { JoinForm } from "@/components/join-form";
 import { Receipt } from "@/components/receipt";
+import { SiteFooter, SiteNav } from "@/components/site-nav";
 import { Terminal } from "@/components/terminal";
 import { TrustMeter } from "@/components/trust-meter";
 import { WorkflowDiff } from "@/components/workflow-diff";
@@ -29,21 +30,7 @@ const FAQ: [string, string][] = [
 export default function Home() {
   return (
     <>
-      <header className="nav-bar">
-        <div className="nav">
-          <a href="#top" aria-label="Quod home">
-            <Image src="/quod-logo.png" alt="Quod" width={1280} height={340} priority className="logo" />
-          </a>
-          <nav aria-label="Main">
-            <a href="#how">How it works</a>
-            <a href="#try">Try it</a>
-            <a href="#faq">FAQ</a>
-            <a className="btn small" href="#join">
-              Join the waitlist
-            </a>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
       <main id="top">
         <section className="hero">
@@ -63,6 +50,9 @@ export default function Home() {
             <h2>How it works</h2>
           </div>
           <Flow />
+          <p className="more">
+            <Link href="/under-the-hood">See how it works under the hood, in Rust</Link>
+          </p>
         </section>
 
         <section className="sec" id="try">
@@ -139,10 +129,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="footer">
-        <Image src="/quod-logo.png" alt="Quod" width={1280} height={340} className="logo" />
-        <span>Quod (kwod), from Q.E.D. &copy; 2026</span>
-      </footer>
+      <SiteFooter />
     </>
   );
 }

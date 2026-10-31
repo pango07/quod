@@ -172,3 +172,79 @@ main > section { max-width: 1160px; margin-inline: auto }
 
 .points { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 10px; color: var(--mute); font-size: 17px; max-width: 44ch }
 .points li::marker { color: var(--faint) }
+
+/* Under the hood */
+.more { margin-top: 4px }
+.more a { color: var(--mute); text-underline-offset: 4px }
+.more a:hover { color: var(--paper) }
+.hood-hero { grid-template-columns: 1fr; padding-bottom: clamp(32px, 5vw, 56px) }
+.hood-hero h1 { max-width: 12ch }
+.ic { font: .9em var(--mono); background: var(--raise); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px }
+.small { font-size: 14px }
+
+.code { margin: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--raise); overflow: hidden; min-width: 0 }
+.code-file { font: 12px var(--mono); color: var(--faint); padding: 10px 16px; border-bottom: 1px solid var(--line) }
+.code pre { margin: 0; padding: 16px; overflow-x: auto; font: 13px/1.65 var(--mono) }
+.code-ln { color: #c7c7cc; transition: opacity .3s }
+.code-ln.dim { opacity: .38 }
+.code-ln.lit { color: var(--paper) }
+.c-com { color: var(--faint); font-style: italic }
+.c-str { color: #a1a1a6 }
+.c-num { color: #d1d1d6 }
+.c-kw { color: var(--paper); font-weight: 600 }
+.c-ty { color: #e5e5ea }
+
+.seq { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 32px; align-items: start }
+.seq-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; position: sticky; top: 88px }
+.seq-list button { position: relative; overflow: hidden; width: 100%; text-align: left; display: flex; gap: 12px; align-items: center; padding: 11px 14px; border-radius: 10px; border: 1px solid transparent; background: none; color: var(--faint); font: 500 15px var(--sans); cursor: pointer }
+.seq-list button.past { color: var(--mute) }
+.seq-list button.on { color: var(--paper); border-color: var(--line); background: var(--raise) }
+.seq-list button:hover { color: var(--paper) }
+.seq-list .n { font: 12px var(--mono); width: 18px; color: inherit; opacity: .7 }
+.seq-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--paper); animation: seqbar 5.2s linear forwards }
+@keyframes seqbar { from { width: 0 } to { width: 100% } }
+.seq-detail { display: grid; gap: 18px; min-width: 0 }
+.seq-body { color: var(--mute); font-size: 17px; max-width: 62ch; min-height: 3.2em }
+
+.mf { border: 1px solid var(--line); border-radius: 14px; background: var(--raise); overflow: hidden; min-width: 0 }
+.mf-changes { flex-wrap: wrap; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; display: flex; gap: 6px }
+.mf-changes button { border: 1px solid var(--line) }
+.mf-table { width: 100%; border-collapse: collapse; font: 13px var(--mono) }
+.mf-table th { text-align: left; font-weight: 400; color: var(--faint); padding: 10px 16px 6px }
+.mf-table td { padding: 7px 16px; border-top: 1px solid var(--line); transition: background .3s, color .3s }
+.mf-k { color: var(--paper); width: 1% }
+.mf-note { color: var(--mute); font-family: var(--sans); font-size: 13px }
+.mf-table tr.bad td { background: var(--paper); color: var(--ink) }
+.mf-result { font: 13px/1.6 var(--mono); padding: 14px 16px; border-top: 1px solid var(--line); color: var(--mute); min-height: 4.4em; word-break: break-word }
+.mf-result b { font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-right: 8px; border: 1px solid var(--paper) }
+.mf-result.ok b { color: var(--paper) }
+.mf-result.no b { background: var(--paper); color: var(--ink) }
+.mf-result.ok, .mf-result.no { color: var(--paper) }
+
+.hard { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 40px; align-items: start; padding-top: 40px; border-top: 1px solid var(--line) }
+.hard-txt { display: grid; gap: 14px; align-content: start }
+.hard h3 { font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -0.03em; line-height: 1.15 }
+.hard p { color: var(--mute); max-width: 52ch }
+
+.bench { border: 1px solid var(--line); border-radius: 14px; background: var(--raise); padding: 20px; display: grid; gap: 14px }
+.bench-cap { font: 12px var(--mono); color: var(--faint) }
+.bench-row { display: grid; grid-template-columns: 170px 1fr 56px; gap: 14px; align-items: center; font-size: 14px }
+.bench-row b { font: 500 14px var(--mono); text-align: right }
+.bench-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden }
+.bench-bar i { display: block; height: 100%; background: var(--paper); border-radius: 4px }
+.bench-note { color: var(--mute); font-size: 14px }
+
+.crates { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden }
+.crates li { background: var(--ink); padding: 18px; display: grid; gap: 6px }
+.crates code { font: 500 14px var(--mono) }
+.crates span { color: var(--mute); font-size: 14px }
+
+@media (max-width: 860px) {
+  .seq, .hard { grid-template-columns: 1fr; gap: 20px }
+  .seq-list { position: static; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) }
+  .mf-note-h, .mf-note { display: none }
+  .bench-row { grid-template-columns: 110px 1fr 48px }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seq-bar { animation: none }
+}
