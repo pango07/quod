@@ -141,6 +141,7 @@ mod tests {
             ],
             root_outputs: vec![],
             duration_ms: 252_310,
+            commands: vec![],
         }
     }
 

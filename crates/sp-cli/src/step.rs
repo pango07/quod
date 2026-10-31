@@ -263,6 +263,7 @@ pub fn run_step(
         outputs: ex.outputs,
         root_outputs: ex.root_outputs,
         duration_ms: ex.wall.as_millis() as u64,
+        commands: vec![],
     };
     // Killed from outside (OOM, timeout): the step's own result is unknown,
     // so it is returned and never memoized. Otherwise the run (with the

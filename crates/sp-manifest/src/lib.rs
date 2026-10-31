@@ -9,10 +9,14 @@ use serde::{Deserialize, Serialize};
 use sp_cas::{CanonError, canonical_json};
 pub use sp_cas::{Entry, Hash, Kind, Tree};
 
-/// Schema version of manifests and results. v2 (2026-10-31): results gain
-/// `root_outputs`, what a step wrote outside the workspace when it ran in a
-/// pinned rootfs (the whole root is a per-step overlay there).
-pub const VERSION: u32 = 2;
+/// Schema version of manifests and results. v2 (2026-10-31, exp/rootfs):
+/// results gain `root_outputs`, what a step wrote outside the workspace when
+/// it ran in a pinned rootfs (the whole root is a per-step overlay there).
+/// v3 (2026-10-31, exp/runner): manifests gain `volatile`, the names of
+/// environment variables the step had that its key leaves out
+/// (present-but-unkeyed); serialized only when non-empty, so a CLI manifest
+/// differs from v2 only in `v`.
+pub const VERSION: u32 = 3;
 
 /// One observed access, as the observer logs it. `kind` is what the access
 /// proved about the path: `f`, `d` or `l` for a path that exists, `a` for a
@@ -31,6 +35,10 @@ pub struct Manifest {
     pub step_key: Hash,
     pub roots: Vec<String>,
     pub entries: Vec<Entry>,
+    /// Environment variable names present when the step ran but excluded
+    /// from the step key (`sp_key::is_volatile`), sorted. v3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volatile: Vec<String>,
 }
 
 /// What a step produced.
@@ -54,6 +62,20 @@ pub struct StepResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub root_outputs: Vec<Entry>,
     pub duration_ms: u64,
+    /// What the step appended to the runner's command files (GITHUB_ENV,
+    /// GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STATE, GITHUB_STEP_SUMMARY), by
+    /// name, sorted; replayed by appending to the current step's files. v3;
+    /// left out of the JSON when empty (every CLI result).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<FileCommand>,
+}
+
+/// One runner command file a step wrote to: the variable naming it and the
+/// content's blob.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct FileCommand {
+    pub name: String,
+    pub h: Hash,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -125,7 +147,16 @@ impl Manifest {
             step_key,
             roots,
             entries,
+            volatile: Vec::new(),
         })
+    }
+
+    /// The same manifest with its present-but-unkeyed names recorded.
+    pub fn with_volatile(mut self, mut names: Vec<String>) -> Manifest {
+        names.sort();
+        names.dedup();
+        self.volatile = names;
+        self
     }
 
     pub fn canonical_json(&self) -> Result<String, ManifestError> {
@@ -363,7 +394,7 @@ mod tests {
         );
         assert!(j.contains(r#"{"k":"a","p":"gone"}"#), "{j}");
         assert!(j.contains(r#""k":"f","m":420,"p":"go.mod"}"#), "{j}");
-        assert!(j.ends_with(r#""v":2}"#));
+        assert!(j.ends_with(r#""v":3}"#), "{j}");
         let back: Manifest = serde_json::from_str(&j).unwrap();
         assert_eq!(back, m);
         assert_eq!(manifest_id(&back).unwrap(), manifest_id(&m).unwrap());
@@ -382,6 +413,7 @@ mod tests {
             outputs: vec![Entry::file("out.txt", Hash::of(b"w"), 0o644)],
             root_outputs: vec![],
             duration_ms: 1,
+            commands: vec![],
         };
         let j = canonical_json(&r).unwrap();
         assert!(!j.contains("root_outputs"), "{j}");
@@ -393,6 +425,23 @@ mod tests {
             "{j}"
         );
         assert_eq!(serde_json::from_str::<StepResult>(&j).unwrap(), r);
+        // A v2 manifest (no `volatile`) still loads; recording names changes
+        // the id, and only a non-empty list is serialized.
+        let mj = m.canonical_json().unwrap();
+        assert!(!mj.contains("volatile"), "{mj}");
+        let v2: Manifest = serde_json::from_str(&mj.replace(r#""v":3"#, r#""v":2"#)).unwrap();
+        assert!(v2.volatile.is_empty());
+        let named = m
+            .clone()
+            .with_volatile(vec!["GITHUB_SHA".into(), "GITHUB_RUN_ID".into()]);
+        assert_eq!(named.volatile, ["GITHUB_RUN_ID", "GITHUB_SHA"]);
+        assert_ne!(manifest_id(&named).unwrap(), manifest_id(&m).unwrap());
+        assert!(
+            named
+                .canonical_json()
+                .unwrap()
+                .ends_with(r#""v":3,"volatile":["GITHUB_RUN_ID","GITHUB_SHA"]}"#)
+        );
     }
 
     #[test]

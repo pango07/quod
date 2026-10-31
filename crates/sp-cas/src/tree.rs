@@ -292,14 +292,13 @@ impl Tree {
         for o in outputs {
             match o.k {
                 Kind::Deleted => {
-                    let prefix = format!("{}/", o.p);
-                    leaves.retain(|p, _| p != &o.p && !p.starts_with(&prefix));
+                    leaves.remove(&o.p);
+                    remove_under(&mut leaves, &o.p);
                 }
                 Kind::File | Kind::Symlink => {
                     // Overlayfs writes no whiteout when a file replaces a
                     // directory, so the directory's contents go here.
-                    let prefix = format!("{}/", o.p);
-                    leaves.retain(|p, _| !p.starts_with(&prefix));
+                    remove_under(&mut leaves, &o.p);
                     leaves.insert(o.p.clone(), o.clone());
                 }
                 Kind::Dir => {
@@ -309,6 +308,23 @@ impl Tree {
             }
         }
         Tree::from_leaves(leaves.into_values())
+    }
+}
+
+/// Removes every entry strictly under `dir`. Paths under a directory are
+/// contiguous in bytewise order, so this is a range, not a scan: applying
+/// many outputs (a tool-cache install, the persisted state laid over a
+/// checkout: ~46k entries) was quadratic with a `retain` per output.
+fn remove_under(leaves: &mut BTreeMap<String, Entry>, dir: &str) {
+    use std::ops::Bound;
+    let prefix = format!("{dir}/");
+    let doomed: Vec<String> = leaves
+        .range::<str, _>((Bound::Included(prefix.as_str()), Bound::Unbounded))
+        .take_while(|(p, _)| p.starts_with(&prefix))
+        .map(|(p, _)| p.clone())
+        .collect();
+    for p in doomed {
+        leaves.remove(&p);
     }
 }
 
@@ -425,6 +441,29 @@ mod tests {
             Entry::file("a", Hash::of(b"x"), 0o644),
             Entry::file("a/b", Hash::of(b"y"), 0o644),
         ]);
+    }
+
+    #[test]
+    fn outputs_remove_exactly_the_replaced_subtree() {
+        // Siblings that sort around "a/b/" must survive: "a/b-c" and
+        // "a/b.txt" sort before it, "a/bz" after.
+        let base = Tree::from_leaves([
+            Entry::file("a/b-c", Hash::of(b"1"), 0o644),
+            Entry::file("a/b.txt", Hash::of(b"2"), 0o644),
+            Entry::file("a/b/c", Hash::of(b"3"), 0o644),
+            Entry::file("a/b/d/e", Hash::of(b"4"), 0o644),
+            Entry::file("a/bz", Hash::of(b"5"), 0o644),
+            Entry::file("x/y", Hash::of(b"6"), 0o644),
+        ]);
+        let t = base.with_outputs(&[Entry::file("a/b", Hash::of(b"f"), 0o644)]);
+        let paths: Vec<&str> = t.iter().map(|e| e.p.as_str()).collect();
+        assert_eq!(
+            paths,
+            [".", "a", "a/b", "a/b-c", "a/b.txt", "a/bz", "x", "x/y"]
+        );
+        let t = base.with_outputs(&[Entry::deleted("a/b"), Entry::deleted("x")]);
+        let paths: Vec<&str> = t.iter().map(|e| e.p.as_str()).collect();
+        assert_eq!(paths, [".", "a", "a/b-c", "a/b.txt", "a/bz"]);
     }
 
     #[test]

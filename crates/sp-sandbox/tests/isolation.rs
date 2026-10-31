@@ -33,6 +33,9 @@ fn spec(ws: &Path, out: &Path, script: &str, egress: bool) -> RunSpec {
         echo: false,
         rootfs: None,
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     }
 }
 
@@ -62,6 +65,95 @@ fn env_is_exactly_the_spec() {
         .filter(|n| *n != "PWD" && *n != "SHLVL" && *n != "_")
         .collect();
     assert_eq!(names, ["ONLY_ME", "PATH"], "{out}");
+}
+
+#[test]
+fn env_names_that_are_not_identifiers_reach_the_step() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let mut s = spec(&ws, tmp.path(), "", false);
+    s.cmd = vec!["/usr/bin/env".into()];
+    s.env
+        .push(("INPUT_GO-VERSION-FILE".into(), "go.mod".into()));
+    let r = run(&s).unwrap();
+    assert_eq!(r.exit_code, 0);
+    let out = fs::read_to_string(tmp.path().join("stdout")).unwrap();
+    assert!(
+        out.lines().any(|l| l == "INPUT_GO-VERSION-FILE=go.mod"),
+        "{out}"
+    );
+    assert!(out.lines().any(|l| l == "ONLY_ME=1"), "{out}");
+}
+
+#[test]
+fn network_attempts_are_counted() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let rc = tmp.path().join("resolv.conf");
+    fs::write(&rc, "nameserver 192.0.2.1\n").unwrap();
+    let probe = |script: &str| {
+        let mut s = spec(&ws, tmp.path(), script, false);
+        s.net_probe = true;
+        s.mounts.push(Mount {
+            src: rc.clone(),
+            dst: "/etc/resolv.conf".into(),
+            writable: false,
+        });
+        run(&s).unwrap()
+    };
+    assert_eq!(probe("true").net_attempts, Some(0));
+    let r = probe("curl -sS -m 5 http://1.1.1.1/ || true");
+    assert_eq!(r.exit_code, 0, "the step itself succeeds");
+    assert!(r.net_attempts.unwrap() > 0, "{r:?}");
+    assert!(
+        probe("getent hosts example.com || true")
+            .net_attempts
+            .unwrap()
+            > 0
+    );
+    // Loopback is not the network.
+    assert_eq!(
+        probe("curl -sS -m 5 http://127.0.0.1:9/ || true").net_attempts,
+        Some(0)
+    );
+    // An exit status survives the wrapper.
+    assert_eq!(probe("exit 7").exit_code, 7);
+}
+
+#[test]
+fn uid_gid_and_hostname() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let mut s = spec(
+        &ws,
+        tmp.path(),
+        "id -u; id -g; hostname; grep runner /etc/passwd",
+        false,
+    );
+    s.uid = Some(1234);
+    s.gid = Some(4321);
+    let r = run(&s).unwrap();
+    assert_eq!(r.exit_code, 0);
+    let out = fs::read_to_string(tmp.path().join("stdout")).unwrap();
+    assert_eq!(
+        out,
+        format!(
+            "1234\n4321\n{}\nrunner:x:1234:4321:runner:/workspace/.stillpass/home:/bin/sh\n",
+            sp_sandbox::HOSTNAME
+        )
+    );
 }
 
 #[test]

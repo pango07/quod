@@ -41,15 +41,45 @@ pub fn overlay_dir(
     work: &Path,
     merged: &Path,
 ) -> Result<Overlay, FsError> {
+    overlay_layers(&[lower], upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` over several lower directories, the first
+/// on top (earlier steps' upper dirs over an image root, for instance).
+/// Same options as `overlay`.
+pub fn overlay_layers(
+    lowers: &[&Path],
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
     for d in [upper, work, merged] {
         fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
     }
+    if lowers.is_empty() {
+        return Err(FsError::Io {
+            what: "overlay without a lower directory".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        });
+    }
+    for l in lowers.iter().chain([&upper, &work]) {
+        let s = l.display().to_string();
+        // Separators of the option string: such a path would mount the
+        // wrong layers.
+        if s.contains([':', ',', '\\']) {
+            return Err(FsError::Io {
+                what: format!("overlay path {s:?} contains ':', ',' or a backslash"),
+                source: std::io::ErrorKind::InvalidInput.into(),
+            });
+        }
+    }
+    let lowerdir: Vec<String> = lowers.iter().map(|l| l.display().to_string()).collect();
     let opts = format!(
         // Pinned so the upper dir is plain files: no metacopy (a chmod would
         // copy up an empty file), no redirects (a renamed dir would arrive
         // without contents), no index.
         "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
-        lower.display(),
+        lowerdir.join(":"),
         upper.display(),
         work.display()
     );
@@ -92,6 +122,16 @@ pub fn overlay_dir(
 impl Overlay {
     pub fn merged(&self) -> &Path {
         &self.merged
+    }
+
+    pub fn upper(&self) -> &Path {
+        &self.upper
+    }
+
+    /// Unmounts without diffing: for an overlay whose upper dir the caller
+    /// keeps (a job's root, carried from step to step).
+    pub fn release(mut self) -> Result<(), FsError> {
+        self.unmount()
     }
 
     /// Unmounts, then walks the upper dir: new and modified files and

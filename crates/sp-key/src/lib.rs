@@ -257,6 +257,69 @@ pub const DENYLIST: &[&str] = &[
     "STILLPASS_RUN_ID",
 ];
 
+/// Variables a GitHub Actions step has whose values change from run to run
+/// or commit to commit (run ids, the commit, actors, tokens, the event).
+/// The runner hooks (sp-hooks) build their own keys: they leave these out
+/// of the key, withhold them from keyed steps (or give a fixed placeholder)
+/// and record the names in the manifest as present-but-unkeyed. The CLI
+/// never sees them; its keys refuse the `DENYLIST` outright.
+pub const VOLATILE: &[&str] = &[
+    "GITHUB_SHA",
+    "GITHUB_JOB",
+    "GITHUB_TOKEN",
+    "GITHUB_ACTOR",
+    "GITHUB_ACTOR_ID",
+    "GITHUB_TRIGGERING_ACTOR",
+    "GITHUB_EVENT_NAME",
+    "GITHUB_EVENT_PATH",
+    "GITHUB_WORKFLOW_SHA",
+    "GITHUB_WORKFLOW_REF",
+    "GITHUB_ACTION",
+    "GITHUB_ACTION_REF",
+    "GITHUB_ACTION_REPOSITORY",
+    "GITHUB_ACTION_PATH",
+    "GITHUB_RETENTION_DAYS",
+    "INVOCATION_ID",
+    "STILLPASS_RUN_ID",
+];
+
+/// Name prefixes that are volatile as a family: `GITHUB_RUN_*` (id, number,
+/// attempt), `RUNNER_*` (name, tracking id; see `KEYED_RUNNER` for the
+/// stable ones), `ACTIONS_*` (service urls and tokens).
+///
+/// Not volatile: `GITHUB_REF*`, `GITHUB_HEAD_REF`, `GITHUB_BASE_REF`. They
+/// vary by branch, not by run: keyed, a branch's runs replay each other and
+/// another branch's are another key. Withheld, they would make every step
+/// whose code names them (any action bundling `@actions/cache`) unable to
+/// replay, since a keyed step never runs without a variable its code names.
+pub const VOLATILE_PREFIXES: &[&str] = &["GITHUB_RUN_", "RUNNER_", "ACTIONS_"];
+
+/// `RUNNER_*` names whose values are fixed for a runner (or that the hooks
+/// pin), so a step may be given them. `RUNNER_TEMP` is pinned by the hooks
+/// but stays out of keys (it is in the `DENYLIST`); its value is fixed.
+pub const KEYED_RUNNER: &[&str] = &[
+    "RUNNER_OS",
+    "RUNNER_ARCH",
+    "RUNNER_ENVIRONMENT",
+    "RUNNER_TEMP",
+    "RUNNER_TOOL_CACHE",
+    "RUNNER_WORKSPACE",
+];
+
+/// Is `name` one of a GitHub Actions step's volatile variables?
+pub fn is_volatile(name: &str) -> bool {
+    if KEYED_RUNNER.contains(&name) {
+        return false;
+    }
+    VOLATILE.contains(&name) || VOLATILE_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// Does the runner hooks' key leave `name` out? Volatile names, and the
+/// `DENYLIST` (which a key refuses).
+pub fn unkeyed(name: &str) -> bool {
+    is_volatile(name) || DENYLIST.contains(&name)
+}
+
 /// The working directory and root every spike step sees.
 pub const WORKSPACE: &str = "/workspace";
 
@@ -390,7 +453,7 @@ pub fn shell_cmd(script: &str) -> Vec<String> {
 /// if already there, refused if the variable sets the same knob to something
 /// else. Only the first entry named `name` is touched; a duplicate is the
 /// key's error to report.
-fn merge_knob(env: &mut Vec<(String, String)>, k: &Knob) -> Result<(), KeyError> {
+pub fn merge_knob(env: &mut Vec<(String, String)>, k: &Knob) -> Result<(), KeyError> {
     let (name, sep, item) = (k.name, k.sep, k.item);
     let knob = &item[..=item.find('=').expect("knob=value")];
     match env.iter_mut().find(|(k, _)| k == name) {
@@ -721,6 +784,48 @@ mod tests {
             &[("GITHUB_RUN_ID".into(), "1".into())],
         );
         assert!(matches!(step_key(&s), Err(KeyError::Denylisted(_))));
+    }
+
+    #[test]
+    fn the_runner_volatile_set() {
+        // Stable or pinned by the hooks: keyed like any other variable. An
+        // action's saved state (STATE_*) is the main step's recorded output,
+        // and its post step reads it implicitly, so it must be keyed.
+        for keyed in [
+            "GITHUB_REPOSITORY",
+            "GITHUB_WORKSPACE",
+            "INPUT_GO_VERSION",
+            "CI",
+            "GITHUB_ACTIONS",
+            "PATH",
+            "RUNNER_TOOL_CACHE",
+            "RUNNER_OS",
+            "RUNNER_ARCH",
+            "GITHUB_OUTPUT",
+            "GITHUB_ENV",
+            "GITHUB_STEP_SUMMARY",
+            "STATE_isPost",
+            "GITHUB_REF",
+            "GITHUB_REF_NAME",
+            "GITHUB_HEAD_REF",
+            "GITHUB_BASE_REF",
+        ] {
+            assert!(!is_volatile(keyed) && !unkeyed(keyed), "{keyed}");
+        }
+        for v in [
+            "GITHUB_RUN_ATTEMPT",
+            "ACTIONS_RUNTIME_TOKEN",
+            "RUNNER_NAME",
+            "RUNNER_TRACKING_ID",
+            "GITHUB_EVENT_PATH",
+            "GITHUB_TOKEN",
+        ] {
+            assert!(is_volatile(v) && unkeyed(v), "{v}");
+        }
+        // Given to the step (pinned), but never in a key.
+        assert!(!is_volatile("RUNNER_TEMP") && unkeyed("RUNNER_TEMP"));
+        // Everything a key refuses is also left out of a runner key.
+        assert!(DENYLIST.iter().all(|n| unkeyed(n)));
     }
 
     #[test]

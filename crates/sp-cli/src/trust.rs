@@ -80,21 +80,8 @@ pub fn parse_timeout(s: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs_f64(secs))
 }
 
-/// Paths under HOME that tools fill with per-execution state and that are
-/// therefore not compared (nor written out by `--outputs`). Everything else
-/// a step leaves in HOME is compared like any output: `go install` into a
-/// HOME-relative GOPATH, a token, a generated config are results. Each entry
-/// is here because cli/cli's tests write it differently on every run:
-/// gh's HTTP cache (keys include random httptest ports), Go's telemetry
-/// counters (date-stamped files), gh's state dir (a random device id), and
-/// the SSH key pair gh generates for codespaces.
-pub const HOME_VOLATILE: &[&str] = &[
-    ".cache/gh",
-    ".config/go/telemetry",
-    ".local/state",
-    ".ssh/codespaces.auto",
-    ".ssh/codespaces.auto.pub",
-];
+/// Paths under HOME left out of comparisons (`sp_trust::HOME_VOLATILE`).
+pub use sp_trust::HOME_VOLATILE;
 
 /// Output prefixes the trust layer leaves out when comparing two results:
 /// what Stillpass provides the step as scratch, which starts empty (or

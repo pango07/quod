@@ -1040,6 +1040,7 @@ mod tests {
             outputs: vec![],
             root_outputs: vec![],
             duration_ms: 1000,
+            commands: vec![],
         }
     }
 
