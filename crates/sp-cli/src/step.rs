@@ -40,8 +40,9 @@
 //!   workspace and drop no outputs. Part of the key.
 //!
 //! Response: `{"step_key", "key" (the canonical key document, which says
-//! what pinned the environment), "replayed", "recorded" (false only for a
-//! step killed by a signal: never memoized), "signal", "manifest",
+//! what pinned the environment), "replayed", "recorded" (false for a step
+//! killed by a signal, or one whose write into a sealed prefix failed with
+//! EROFS: never memoized), "signal", "manifest",
 //! "result"}`. `result.outputs` are the workspace writes (paths relative to
 //! /workspace), `result.root_outputs` the writes anywhere else but /tmp
 //! (relative to /), `result.stdout`/`stderr` blobs; every hash resolves in
@@ -191,7 +192,9 @@ pub fn run_step(
     let ex = execute_with_mounts(cas, &tree, &spec, env, run_dir, &root);
     let _ = sp_cas::remove_any(run_dir);
     let ex = ex?;
-    let recorded = ex.signal.is_none();
+    // A sealed dependency tree refused a write CI's would have taken: the
+    // result is this sandbox's, not the step's, so it is never memoized.
+    let recorded = ex.signal.is_none() && !ex.sealed_write_failed;
     let manifest_id = sp_manifest::manifest_id(&ex.manifest)?;
     let result = StepResult {
         v: sp_manifest::VERSION,

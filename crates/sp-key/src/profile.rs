@@ -166,9 +166,14 @@ pub struct Profile {
     pub seed_dirs: &'static [&'static str],
     seals: &'static [SealRule],
     pub warm: Option<Warm>,
-    /// Directory names a correctly configured step never writes under: a
-    /// cache the env is meant to keep off (Python's `__pycache__`). The
-    /// acceptance suite checks a recorded result's outputs against this.
+    /// Caches keyed by a file's mtime (and size) rather than its content,
+    /// which must never come back into a tree as a step's output: an entry
+    /// written under the observer would be trusted against a later tree by
+    /// mtime. Each pattern is one or more path components (`__pycache__`,
+    /// `node_modules/.cache`, `.eslintcache`) matched anywhere in a path.
+    /// Outputs matching one are dropped when a result is recorded and when
+    /// outputs are materialized (`forbids_output`); the served mtime is
+    /// content-derived as well, so this is the second of two defences.
     pub no_outputs_under: &'static [&'static str],
     /// Source file extensions of the language (acceptance picks one to edit).
     pub source_exts: &'static [&'static str],
@@ -236,6 +241,17 @@ impl Profile {
             }
         }
         out
+    }
+
+    /// Is `path` (workspace-relative) at or under a `no_outputs_under`
+    /// pattern: an mtime-keyed cache that must not be recorded or
+    /// materialized as an output.
+    pub fn forbids_output(&self, path: &str) -> bool {
+        let parts: Vec<&str> = path.split('/').collect();
+        self.no_outputs_under.iter().any(|pat| {
+            let pat: Vec<&str> = pat.split('/').collect();
+            parts.windows(pat.len()).any(|w| w == pat.as_slice())
+        })
     }
 
     /// Is `path` (workspace-relative) a source file of this language that
@@ -406,7 +422,10 @@ pub static NODE: Profile = Profile {
         carve_outs: &[".cache", ".vite", ".vitest"],
     }],
     warm: None,
-    no_outputs_under: &[],
+    // @babel/register (keyed by filename and mtime) and babel-loader, terser
+    // and others under node_modules/.cache; ESLint's and Stylelint's default
+    // `--cache` strategy is metadata (mtime and size).
+    no_outputs_under: &["node_modules/.cache", ".eslintcache", ".stylelintcache"],
     source_exts: &[".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx"],
     comment: "//",
 };
@@ -472,7 +491,9 @@ pub static PYTHON: Profile = Profile {
         carve_outs: &[],
     }],
     warm: None,
-    no_outputs_under: &["__pycache__"],
+    // Timestamp pycs (source mtime and size) and pytest's rewritten
+    // modules there; mypy and ruff trust a cached file by mtime and size.
+    no_outputs_under: &["__pycache__", ".mypy_cache", ".ruff_cache"],
     source_exts: &[".py"],
     comment: "#",
 };
@@ -588,6 +609,22 @@ mod tests {
         ]);
         assert_eq!(PYTHON.seals(&py)[0].prefix, ".stillpass/venv");
         assert!(PYTHON.seals(&py)[0].carve_outs.is_empty());
+    }
+
+    #[test]
+    fn mtime_keyed_caches_are_not_outputs() {
+        assert!(NODE.forbids_output("node_modules/.cache/@babel/register/.babel.json"));
+        assert!(NODE.forbids_output("packages/a/node_modules/.cache/x"));
+        assert!(NODE.forbids_output("node_modules/.cache"));
+        assert!(NODE.forbids_output(".eslintcache"));
+        assert!(NODE.forbids_output("web/.eslintcache"));
+        assert!(!NODE.forbids_output("node_modules/.cachex/a"));
+        assert!(!NODE.forbids_output(".cache/a"));
+        assert!(!NODE.forbids_output("build/coverage/lcov.info"));
+        assert!(PYTHON.forbids_output("starlette/__pycache__/routing.cpython-312.pyc"));
+        assert!(PYTHON.forbids_output(".mypy_cache/3.12/x.json"));
+        assert!(!PYTHON.forbids_output(".pytest_cache/v/cache/lastfailed"));
+        assert!(!GO.forbids_output(".stillpass/gocache/00/x-a"));
     }
 
     #[test]

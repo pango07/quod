@@ -156,7 +156,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     if let Some((manifest, result)) = &lookup.hit {
         let mid = result.manifest_id;
         if let Some(dir) = &args.outputs {
-            sp_replay::materialize_outputs(result, &cas, dir)?;
+            // Results recorded before a pattern existed may still hold one.
+            sp_replay::materialize_outputs(&without_forbidden(spec.profile(), result), &cas, dir)?;
         }
         eprint!(
             "{}",
@@ -228,6 +229,23 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         eprintln!("  ran {}", fmt_duration(ex.wall));
         return Ok(exit_byte(ex.exit_code));
     }
+    if ex.sealed_write_failed {
+        // The step reported a write the read-only bind of a sealed
+        // dependency tree refused; in CI that write would have succeeded,
+        // so this result may not be the step's. Shown, never memoized.
+        if !args.keep {
+            sp_cas::remove_any(&dir)?;
+        }
+        eprintln!(
+            "STILLPASS  EXECUTED  a write hit a read-only sealed dependency tree (the step reported EROFS), not memoized"
+        );
+        eprintln!(
+            "  a directory the tool writes under a sealed prefix belongs in the profile's carve-outs"
+        );
+        eprintln!("  ran {}", fmt_duration(ex.wall));
+        tracing::warn!(target: "stillpass", run_id, "sealed prefix write failed; not memoized");
+        return Ok(exit_byte(ex.exit_code));
+    }
 
     let t = Instant::now();
     let mid = sp_manifest::manifest_id(&ex.manifest)?;
@@ -260,7 +278,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     )?;
     phases.record = t.elapsed();
     if let Some(out) = &args.outputs {
-        sp_replay::materialize_outputs(&result, &cas, out)?;
+        sp_replay::materialize_outputs(&without_forbidden(spec.profile(), &result), &cas, out)?;
     }
     if !args.keep {
         sp_cas::remove_any(&dir)?;
@@ -316,6 +334,8 @@ pub(crate) struct Executed {
     /// read blobs directly and `+sealed` when the module cache was a
     /// snapshot outside the observer.
     pub(crate) observer: String,
+    /// The step ran with a sealed prefix and its output reports EROFS.
+    pub(crate) sealed_write_failed: bool,
 }
 
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
@@ -410,7 +430,14 @@ pub(crate) fn execute(
     phases.exec = t.elapsed();
 
     let t = Instant::now();
-    let outputs = ov.finish(tree, cas)?;
+    let mut outputs = ov.finish(tree, cas)?;
+    // mtime-keyed caches never become recorded outputs (see
+    // Profile::no_outputs_under); their blobs stay unreferenced in the store.
+    let before = outputs.len();
+    outputs.retain(|o| !spec.profile().forbids_output(&o.p));
+    if outputs.len() < before {
+        tracing::info!(target: "stillpass", dropped = before - outputs.len(), "mtime-keyed cache outputs not recorded");
+    }
     // The served rootfs is a second FUSE mount whose `observer` event is
     // written when it unmounts: it goes first, so the run's last `observer`
     // event is the workspace's (the bench and the transport tests read the
@@ -454,6 +481,8 @@ pub(crate) fn execute(
     Ok(Executed {
         exit_code: r.exit_code,
         signal: r.signal,
+        sealed_write_failed: !sealed.is_empty()
+            && (reports_erofs(&dir.join("stdout"))? || reports_erofs(&dir.join("stderr"))?),
         manifest,
         outputs,
         root_outputs,
@@ -463,6 +492,48 @@ pub(crate) fn execute(
         transport: stats.transport(),
         observer,
     })
+}
+
+/// `result` without outputs under the profile's `no_outputs_under`.
+fn without_forbidden(profile: &sp_key::Profile, result: &StepResult) -> StepResult {
+    let mut r = result.clone();
+    r.outputs.retain(|o| !profile.forbids_output(&o.p));
+    r
+}
+
+/// Does a captured stream report a write refused for a read-only file
+/// system? A sealed prefix is a read-only bind; a tool that writes there
+/// (outside the carve-outs) gets EROFS, which in CI it would not. The
+/// strerror text and the errno name are what Node, Python, Go and the
+/// coreutils print. Conservative: a step that merely prints the words is
+/// not memoized either. A tool that swallows the error silently is not
+/// caught; its write was then, by its own choice, inessential to it.
+fn reports_erofs(path: &Path) -> anyhow::Result<bool> {
+    use std::io::Read as _;
+    const NEEDLES: [&[u8]; 2] = [b"read-only file system", b"erofs"];
+    let keep = NEEDLES.iter().map(|n| n.len()).max().unwrap_or(1) - 1;
+    let mut f = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    // Streamed in chunks (a step's output can be large), carrying the tail
+    // of each chunk over so a match across a boundary is still found.
+    let mut window: Vec<u8> = Vec::with_capacity(64 << 10);
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .with_context(|| format!("read {}", path.display()))?;
+        if n == 0 {
+            return Ok(false);
+        }
+        window.extend(buf[..n].iter().map(u8::to_ascii_lowercase));
+        if NEEDLES
+            .iter()
+            .any(|needle| window.windows(needle.len()).any(|w| w == *needle))
+        {
+            return Ok(true);
+        }
+        let cut = window.len().saturating_sub(keep);
+        window.drain(..cut);
+    }
 }
 
 fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
@@ -695,4 +766,27 @@ fn hostname() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn erofs_reports_are_found_anywhere_in_a_stream() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("out");
+        let check = |bytes: &[u8]| {
+            std::fs::write(&p, bytes).unwrap();
+            reports_erofs(&p).unwrap()
+        };
+        assert!(check(b"Error: EROFS: read-only file system, open 'x'\n"));
+        assert!(check(b"OSError: [Errno 30] Read-only file system: 'x'"));
+        assert!(!check(b"ok  \tpkg\t0.1s\n"));
+        assert!(!check(b""));
+        // Split across the 64 KiB read boundary.
+        let mut big = vec![b'.'; (64 << 10) - 7];
+        big.extend_from_slice(b"Read-only file system");
+        assert!(check(&big));
+    }
 }

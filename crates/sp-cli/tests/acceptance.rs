@@ -105,10 +105,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     let forbidden: Vec<&str> = result
         .outputs
         .iter()
-        .filter(|o| {
-            o.p.split('/')
-                .any(|c| profile.no_outputs_under.contains(&c))
-        })
+        .filter(|o| profile.forbids_output(&o.p))
         .map(|o| o.p.as_str())
         .collect();
     assert!(

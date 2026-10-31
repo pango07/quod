@@ -5,6 +5,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use common::*;
 use sp_cas::Hash;
+use sp_key::Toolchain;
 
 #[test]
 fn execute_records_one_manifest_and_one_result() {
@@ -448,6 +449,62 @@ fn served_mtimes_follow_content() {
     assert_ne!(times["other.txt"], want, "{out}");
     assert_eq!(times["calc"], "0.000000000", "{out}");
     assert_eq!(times[sealed], "0.000000000", "{out}");
+}
+
+/// mtime-keyed caches a step writes (node_modules/.cache, .eslintcache) are
+/// neither recorded nor materialized as outputs; other outputs are.
+#[test]
+fn mtime_keyed_cache_outputs_are_never_recorded() {
+    if !enabled() || !toolchain_installed(Toolchain::Node) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Node);
+    let step = "mkdir -p node_modules/.cache/babel out && echo c > node_modules/.cache/babel/e.json \
+        && echo c > .eslintcache && echo r > out/r.txt";
+    let outputs = env.tmp.path().join("outputs");
+    let o = env.run_step(step, &["--outputs", outputs.to_str().unwrap()]);
+    assert!(o.code == 0 && o.executed(), "{}", o.stderr);
+    assert!(outputs.join("out/r.txt").is_file());
+    assert!(!outputs.join(".eslintcache").exists());
+    assert!(!outputs.join("node_modules/.cache").exists());
+    let json = scalar(&env, "SELECT json FROM results");
+    assert!(json.contains("\"p\":\"out/r.txt\""), "{json}");
+    assert!(
+        !json.contains(".eslintcache") && !json.contains("node_modules/.cache"),
+        "{json}"
+    );
+}
+
+/// A write into a sealed prefix outside its carve-outs fails with EROFS,
+/// where in CI it would have succeeded: the result is shown, not memoized.
+#[test]
+fn a_write_refused_by_a_sealed_prefix_is_not_memoized() {
+    if !enabled() || !toolchain_installed(Toolchain::Node) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Node);
+    let o = env.run_step(
+        "node -e \"require('fs').writeFileSync('node_modules/dep/new.js', '1')\"",
+        &[],
+    );
+    assert_ne!(o.code, 0, "{}", o.stderr);
+    assert!(
+        o.stderr.contains("read-only file system") && o.stderr.contains("not memoized"),
+        "{}",
+        o.stderr
+    );
+    assert_eq!(rusqlite_count(&env, "SELECT count(*) FROM results"), 0);
+    // The carve-out stays writable and a clean step is memoized as usual.
+    let ok = env.run_step(
+        "mkdir -p node_modules/.cache/x && echo 1 > node_modules/.cache/x/y",
+        &[],
+    );
+    assert!(
+        ok.code == 0 && !ok.stderr.contains("not memoized"),
+        "{}",
+        ok.stderr
+    );
+    assert_eq!(rusqlite_count(&env, "SELECT count(*) FROM results"), 1);
 }
 
 fn scalar(env: &Env, sql: &str) -> String {
