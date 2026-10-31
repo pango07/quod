@@ -29,5 +29,7 @@ arguments, then unsupported claims).
 
 | exp/trust: trust layer, timeouts, panics, CLI (tip 16a6c83) | `merge-base(main)..16a6c83` | merge after fixes: HOME replayed but uncompared (go install into $HOME/go/bin); two identical flaky failures prove a failure; Stillpass conditions counted as step divergences, bar never decays; `needed` overflow. Absent-entry equivalence verified sound | - | pending |
 
+| exp/rootfs: pinned OCI rootfs, whole-root overlay, key v3 (tip a6f7632) | `ad16706..a6f7632` | merge after fixes, 2 critical: inherited umask/rlimits/signals neither keyed nor fixed; host properties constant per host (RAM, online CPUs, kernel build, sysctls, LSM, seccomp, fs type, bwrap) "left to audit" though audits can never see them; rootfs mtimes and readdir order leak host filesystem; portability claim overstated (one VM) | - | pending |
+
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
