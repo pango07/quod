@@ -591,9 +591,12 @@ fn possible_cpus() -> io::Result<usize> {
 fn queue(fs: &CasFs, dev: &File, qid: u16, minor: u32, ready: &Barrier) -> io::Result<()> {
     pin_to_cpu(qid as usize);
     let fd = dev.as_raw_fd();
-    let setup = || -> io::Result<(IoUring<squeue::Entry128, cqueue::Entry32>, Vec<Ent>)> {
-        let mut ring = IoUring::builder().build(DEPTH as u32)?;
+    let setup = || -> io::Result<(Vec<Ent>, IoUring<squeue::Entry128, cqueue::Entry32>)> {
+        // The entries come first in the tuple and are declared first below,
+        // so they outlive the ring: the kernel may still reference the
+        // registered buffers while the ring tears down.
         let ents: Vec<Ent> = (0..DEPTH).map(|_| Ent::new()).collect();
+        let mut ring = IoUring::builder().build(DEPTH as u32)?;
         for (i, ent) in ents.iter().enumerate() {
             let sqe = fuse_sqe(fd, FUSE_IO_URING_CMD_REGISTER, qid, 0, ent, i as u64);
             // SAFETY: the entry's buffers and iovecs live in `ents` for as
@@ -602,11 +605,11 @@ fn queue(fs: &CasFs, dev: &File, qid: u16, minor: u32, ready: &Barrier) -> io::R
             unsafe { ring.submission().push(&sqe) }.map_err(|_| io::Error::other("sq full"))?;
         }
         ring.submit()?;
-        Ok((ring, ents))
+        Ok((ents, ring))
     };
     let setup = setup();
     ready.wait();
-    let (mut ring, mut ents) = setup?;
+    let (mut ents, mut ring) = setup?;
     loop {
         ring.submit_and_wait(1)?;
         let done: Vec<(u64, i32)> = ring
