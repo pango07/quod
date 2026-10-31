@@ -1,0 +1,570 @@
+# fix/uring-fallback at 37b1a23 (on main 2a5fd10): the --ignored ring suites, three times each, default test threads, in the dev container (root, fuse.enable_uring=Y, 7.0.14-linuxkit); started 2026-10-31T17:00:51Z, load 38.42 50.53 53.67
+## round 1: cargo test -p sp-fs --features fault-injection --test uring -- --ignored --nocapture
+
+running 4 tests
+.
+thread 'sp-ring-8' (209) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 8 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+...
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.57s
+
+EXIT 0
+## round 1: cargo test -p sp-cli --features fault-injection --test ring_faults -- --ignored --nocapture
+
+running 2 tests
+fault register transport Some("uring"): exit 2 in 469.736417ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  register ring queue 0 (/work/tmp/.tmp9KVuVO/state-forced/runs/01M69EH5W8729S4CHHD66T8DXZ/lower): ring queue 0 failed: REGISTER of entry 0: Invalid argument (os error 22); the ring mount (FUSE connection 69) is unmounted and its connection gone: other error
+  other error
+
+$ stillpass run --repo /work/tmp/.tmpxkb42r/repo --step cat go.mod && go test ./...
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 2.5s
+fault register transport None: exit 0 in 3.254419001s
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 2.6s
+
+.fault panic transport Some("uring"): exit 2 in 339.065667ms
+
+thread 'sp-ring-15' (8392) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 15 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmpxkb42r/state-panic/runs/01M69EH988WNZ03PFFX95ZV6Q6/merged (lowerdir=/work/tmp/.tmpxkb42r/state-panic/runs/01M69EH988WNZ03PFFX95ZV6Q6/lower,upperdir=/work/tmp/.tmpxkb42r/state-panic/runs/01M69EH988WNZ03PFFX95ZV6Q6/upper,workdir=/work/tmp/.tmpxkb42r/state-panic/runs/01M69EH988WNZ03PFFX95ZV6Q6/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault error transport Some("uring"): exit 2 in 239.989833ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmpxkb42r/state-error/runs/01M69EH9FV7WHXSM4F91R3BBVA/merged (lowerdir=/work/tmp/.tmpxkb42r/state-error/runs/01M69EH9FV7WHXSM4F91R3BBVA/lower,upperdir=/work/tmp/.tmpxkb42r/state-error/runs/01M69EH9FV7WHXSM4F91R3BBVA/upper,workdir=/work/tmp/.tmpxkb42r/state-error/runs/01M69EH9FV7WHXSM4F91R3BBVA/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault panic:73 transport Some("uring"): exit 2 in 427.688333ms
+
+thread 'sp-ring-17' (9914) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 17 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 17 panicked: test hook: ring queue 17 dies holding a request: other error
+  other error
+
+fault error:73 transport Some("uring"): exit 2 in 393.812709ms
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 15 failed: completion of entry 3: Input/output error (os error 5): other error
+  other error
+
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.95s
+
+EXIT 0
+## round 1: STILLPASS_SPIKE_REPO=/work/cli cargo test --release -p sp-cli --test transports -- --ignored --nocapture
+
+running 2 tests
+find and cat (passthrough true): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: true, uring_fallback: false, ring_requests: 2197, device_requests: 0, ring_batches: 2197, ring_full_batches: 0, ring_serve_us: 2500, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough true): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 15, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough true): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 12, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough true): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 10, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: true, uring_fallback: false, ring_requests: 19, device_requests: 0, ring_batches: 19, ring_full_batches: 0, ring_serve_us: 33, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough true): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 102, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough true): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 3, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: true, uring_fallback: false, ring_requests: 16, device_requests: 0, ring_batches: 16, ring_full_batches: 0, ring_serve_us: 31, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+find and cat (passthrough false): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 728, read_bytes: 3146464, readdir: 34, passthrough: false, uring: true, uring_fallback: false, ring_requests: 2925, device_requests: 0, ring_batches: 2913, ring_full_batches: 0, ring_serve_us: 2249, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 716, read_bytes: 3146464, readdir: 34, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough false): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 15, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough false): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 15, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough false): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 10, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: true, uring_fallback: false, ring_requests: 20, device_requests: 0, ring_batches: 20, ring_full_batches: 0, ring_serve_us: 50, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough false): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 61, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough false): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 6, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 21, device_requests: 0, ring_batches: 21, ring_full_batches: 0, ring_serve_us: 58, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+$ stillpass run --repo /work/tmp/.tmpPEJyyL/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 4.6s
+go test over fuse-uring: 17 inputs
+$ stillpass run --repo /work/tmp/.tmpPEJyyL/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 2.6s
+go test over fuse: 17 inputs
+.per-request cost: 10000 files of /work/cli, 3 rounds, nproc 18
+probe round=1 stat, serial       classic  wall=0.509s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/140 threads=17 run_ms=158 runq_wait_ms=25 slices=11370 load=32.47
+probe round=1 stat, serial       unpinned wall=0.610s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=10231 contended=0 observer_cpu_ms=10/120 threads=19 run_ms=146 runq_wait_ms=2 slices=11372 load=31.63
+probe round=1 stat, serial       nice0    wall=0.085s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5089 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=30 runq_wait_ms=27 slices=11386 load=31.63
+probe round=1 stat, serial       uring    wall=0.070s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4700 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=23 runq_wait_ms=6 slices=11386 load=31.63
+probe round=1 stat, 18 parallel  classic  wall=0.069s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1787 observer_cpu_ms=20/340 threads=17 run_ms=360 runq_wait_ms=376 slices=10803 load=31.63
+probe round=1 stat, 18 parallel  unpinned wall=0.069s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=9532 full_batches=95 ring_serve_us=13452 contended=397 observer_cpu_ms=30/190 threads=19 run_ms=220 runq_wait_ms=69 slices=8984 load=31.63
+probe round=1 stat, 18 parallel  nice0    wall=0.026s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4744 contended=692 observer_cpu_ms=10/10 threads=19 run_ms=23 runq_wait_ms=3 slices=11393 load=31.63
+probe round=1 stat, 18 parallel  uring    wall=0.026s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5461 contended=479 observer_cpu_ms=0/10 threads=19 run_ms=21 runq_wait_ms=5 slices=11406 load=31.63
+probe round=1 cat, serial        classic  wall=1.223s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=70/250 threads=17 run_ms=327 runq_wait_ms=51 slices=31513 load=31.63
+probe round=1 cat, serial        unpinned wall=1.219s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=22623 full_batches=0 ring_serve_us=62718 contended=0 observer_cpu_ms=40/170 threads=19 run_ms=215 runq_wait_ms=8 slices=22482 load=31.63
+probe round=1 cat, serial        nice0    wall=0.229s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30731 full_batches=0 ring_serve_us=45135 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=82 runq_wait_ms=19 slices=30782 load=31.63
+probe round=1 cat, serial        uring    wall=0.238s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31326 full_batches=0 ring_serve_us=43419 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=83 runq_wait_ms=15 slices=31397 load=31.63
+probe round=1 cat, 18 parallel   classic  wall=0.112s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1404 observer_cpu_ms=40/230 threads=17 run_ms=268 runq_wait_ms=1012 slices=26159 load=31.63
+probe round=1 cat, 18 parallel   unpinned wall=0.097s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=26925 full_batches=629 ring_serve_us=72524 contended=1603 observer_cpu_ms=40/80 threads=19 run_ms=126 runq_wait_ms=63 slices=26034 load=31.63
+probe round=1 cat, 18 parallel   nice0    wall=0.138s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=18223 full_batches=4130 ring_serve_us=69654 contended=771 observer_cpu_ms=30/70 threads=19 run_ms=100 runq_wait_ms=127 slices=17205 load=33.18
+probe round=1 cat, 18 parallel   uring    wall=0.079s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29703 full_batches=146 ring_serve_us=79978 contended=2417 observer_cpu_ms=40/80 threads=19 run_ms=126 runq_wait_ms=49 slices=29945 load=33.18
+probe round=1 ls -R              classic  wall=0.824s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=50/110 threads=17 run_ms=155 runq_wait_ms=582 slices=27324 load=33.18
+probe round=1 ls -R              unpinned wall=0.090s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6923 contended=0 observer_cpu_ms=0/30 threads=19 run_ms=36 runq_wait_ms=13 slices=23235 load=33.18
+probe round=1 ls -R              nice0    wall=0.092s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22797 full_batches=0 ring_serve_us=6590 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=35 runq_wait_ms=20 slices=22853 load=33.18
+probe round=1 ls -R              uring    wall=0.085s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=5989 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=32 runq_wait_ms=12 slices=23255 load=33.18
+probe round=2 stat, serial       unpinned wall=0.151s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4890 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=25 runq_wait_ms=49 slices=11387 load=33.18
+probe round=2 stat, serial       nice0    wall=0.071s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4227 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=23 runq_wait_ms=17 slices=11392 load=33.18
+probe round=2 stat, serial       uring    wall=0.055s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=3504 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=19 runq_wait_ms=4 slices=11384 load=33.18
+probe round=2 stat, serial       classic  wall=0.784s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/80 threads=17 run_ms=104 runq_wait_ms=378 slices=13302 load=33.18
+probe round=2 stat, 18 parallel  unpinned wall=0.064s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11321 full_batches=0 ring_serve_us=6301 contended=432 observer_cpu_ms=10/20 threads=19 run_ms=28 runq_wait_ms=32 slices=11375 load=33.18
+probe round=2 stat, 18 parallel  nice0    wall=0.058s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11029 full_batches=2 ring_serve_us=8759 contended=518 observer_cpu_ms=10/20 threads=19 run_ms=25 runq_wait_ms=23 slices=11117 load=33.18
+probe round=2 stat, 18 parallel  uring    wall=0.092s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11324 full_batches=0 ring_serve_us=9132 contended=255 observer_cpu_ms=10/10 threads=19 run_ms=26 runq_wait_ms=16 slices=11420 load=33.18
+probe round=2 stat, 18 parallel  classic  wall=0.099s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=488 observer_cpu_ms=10/80 threads=17 run_ms=101 runq_wait_ms=545 slices=12360 load=33.18
+probe round=2 cat, serial        unpinned wall=0.280s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31028 full_batches=0 ring_serve_us=42577 contended=0 observer_cpu_ms=20/70 threads=19 run_ms=85 runq_wait_ms=31 slices=31064 load=33.18
+probe round=2 cat, serial        nice0    wall=0.243s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30726 full_batches=0 ring_serve_us=45481 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=86 runq_wait_ms=20 slices=30801 load=33.18
+probe round=2 cat, serial        uring    wall=0.248s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31325 full_batches=0 ring_serve_us=44392 contended=0 observer_cpu_ms=30/50 threads=19 run_ms=83 runq_wait_ms=28 slices=31511 load=33.18
+probe round=2 cat, serial        classic  wall=1.286s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=70/200 threads=17 run_ms=265 runq_wait_ms=1008 slices=35932 load=33.18
+probe round=2 cat, 18 parallel   unpinned wall=0.091s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=28574 full_batches=327 ring_serve_us=71831 contended=1715 observer_cpu_ms=30/90 threads=19 run_ms=120 runq_wait_ms=53 slices=28432 load=33.25
+probe round=2 cat, 18 parallel   nice0    wall=0.143s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=18819 full_batches=3952 ring_serve_us=64503 contended=723 observer_cpu_ms=30/70 threads=19 run_ms=101 runq_wait_ms=116 slices=17660 load=33.25
+probe round=2 cat, 18 parallel   uring    wall=0.120s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29298 full_batches=288 ring_serve_us=78674 contended=2121 observer_cpu_ms=40/70 threads=19 run_ms=120 runq_wait_ms=102 slices=29379 load=33.25
+probe round=2 cat, 18 parallel   classic  wall=0.139s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1151 observer_cpu_ms=30/230 threads=17 run_ms=263 runq_wait_ms=1061 slices=29147 load=33.25
+probe round=2 ls -R              unpinned wall=0.084s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23179 full_batches=0 ring_serve_us=5982 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=33 runq_wait_ms=19 slices=23205 load=33.25
+probe round=2 ls -R              nice0    wall=0.081s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22805 full_batches=0 ring_serve_us=6450 contended=0 observer_cpu_ms=20/20 threads=19 run_ms=33 runq_wait_ms=16 slices=22869 load=33.25
+probe round=2 ls -R              uring    wall=0.078s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=5595 contended=0 observer_cpu_ms=0/20 threads=19 run_ms=31 runq_wait_ms=12 slices=23260 load=33.25
+probe round=2 ls -R              classic  wall=1.506s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=50/180 threads=17 run_ms=225 runq_wait_ms=1106 slices=25393 load=33.25
+probe round=3 stat, serial       nice0    wall=0.072s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4157 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=19 runq_wait_ms=16 slices=11403 load=33.25
+probe round=3 stat, serial       uring    wall=0.072s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4283 contended=0 observer_cpu_ms=0/20 threads=19 run_ms=20 runq_wait_ms=13 slices=11392 load=33.25
+probe round=3 stat, serial       classic  wall=0.505s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/90 threads=17 run_ms=118 runq_wait_ms=117 slices=12482 load=33.25
+probe round=3 stat, serial       unpinned wall=0.323s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=7864 contended=0 observer_cpu_ms=10/70 threads=19 run_ms=86 runq_wait_ms=1 slices=11377 load=31.15
+probe round=3 stat, 18 parallel  nice0    wall=0.026s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=7220 contended=1368 observer_cpu_ms=10/10 threads=19 run_ms=28 runq_wait_ms=3 slices=11413 load=31.15
+probe round=3 stat, 18 parallel  uring    wall=0.028s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=6233 contended=809 observer_cpu_ms=10/10 threads=19 run_ms=23 runq_wait_ms=3 slices=11414 load=31.15
+probe round=3 stat, 18 parallel  classic  wall=0.075s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=904 observer_cpu_ms=30/260 threads=17 run_ms=290 runq_wait_ms=560 slices=9029 load=31.15
+probe round=3 stat, 18 parallel  unpinned wall=0.069s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=9684 full_batches=72 ring_serve_us=15887 contended=475 observer_cpu_ms=10/180 threads=19 run_ms=202 runq_wait_ms=61 slices=9070 load=31.15
+probe round=3 cat, serial        nice0    wall=0.185s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30850 full_batches=0 ring_serve_us=30966 contended=0 observer_cpu_ms=10/50 threads=19 run_ms=65 runq_wait_ms=14 slices=30948 load=31.15
+probe round=3 cat, serial        uring    wall=0.190s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31328 full_batches=0 ring_serve_us=33021 contended=0 observer_cpu_ms=10/50 threads=19 run_ms=69 runq_wait_ms=9 slices=31396 load=31.15
+probe round=3 cat, serial        classic  wall=1.023s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=70/290 threads=17 run_ms=350 runq_wait_ms=8 slices=31344 load=31.15
+probe round=3 cat, serial        unpinned wall=0.736s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=21988 full_batches=0 ring_serve_us=54306 contended=0 observer_cpu_ms=40/180 threads=19 run_ms=218 runq_wait_ms=1 slices=21848 load=31.15
+probe round=3 cat, 18 parallel   nice0    wall=0.038s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29257 full_batches=68 ring_serve_us=87079 contended=5906 observer_cpu_ms=50/90 threads=19 run_ms=136 runq_wait_ms=33 slices=29506 load=31.15
+probe round=3 cat, 18 parallel   uring    wall=0.035s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31276 full_batches=0 ring_serve_us=75285 contended=5746 observer_cpu_ms=40/90 threads=19 run_ms=126 runq_wait_ms=13 slices=31460 load=31.15
+probe round=3 cat, 18 parallel   classic  wall=0.143s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1832 observer_cpu_ms=60/780 threads=17 run_ms=842 runq_wait_ms=826 slices=23325 load=31.15
+probe round=3 cat, 18 parallel   unpinned wall=0.162s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=21559 full_batches=887 ring_serve_us=92487 contended=1277 observer_cpu_ms=60/340 threads=19 run_ms=396 runq_wait_ms=94 slices=19818 load=31.15
+probe round=3 ls -R              nice0    wall=0.075s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22773 full_batches=0 ring_serve_us=4878 contended=0 observer_cpu_ms=10/30 threads=19 run_ms=31 runq_wait_ms=6 slices=22836 load=31.15
+probe round=3 ls -R              uring    wall=0.073s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=5005 contended=0 observer_cpu_ms=10/30 threads=19 run_ms=31 runq_wait_ms=5 slices=23279 load=31.15
+probe round=3 ls -R              classic  wall=0.567s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=40/150 threads=17 run_ms=194 runq_wait_ms=5 slices=23222 load=31.15
+probe round=3 ls -R              unpinned wall=0.611s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=18866 full_batches=0 ring_serve_us=13652 contended=0 observer_cpu_ms=40/140 threads=19 run_ms=178 runq_wait_ms=2 slices=18788 load=31.15
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.89s
+
+EXIT 0
+## round 2: cargo test -p sp-fs --features fault-injection --test uring -- --ignored --nocapture
+
+running 4 tests
+.
+thread 'sp-ring-3' (21435) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 3 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+...
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.45s
+
+EXIT 0
+## round 2: cargo test -p sp-cli --features fault-injection --test ring_faults -- --ignored --nocapture
+
+running 2 tests
+fault register transport Some("uring"): exit 2 in 565.733833ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  register ring queue 0 (/work/tmp/.tmpiSNCAg/state-forced/runs/01M69EK1V1AEJE74JMXJ19Q81Q/lower): ring queue 0 failed: REGISTER of entry 0: Invalid argument (os error 22); the ring mount (FUSE connection 144) is unmounted and its connection gone: other error
+  other error
+
+$ stillpass run --repo /work/tmp/.tmpCIfZIz/repo --step cat go.mod && go test ./...
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 4.4s
+fault panic transport Some("uring"): exit 2 in 808.068209ms
+
+thread 'sp-ring-12' (28916) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 12 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmpCIfZIz/state-panic/runs/01M69EK8A2QBA5BX5EEZ6P2SM2/merged (lowerdir=/work/tmp/.tmpCIfZIz/state-panic/runs/01M69EK8A2QBA5BX5EEZ6P2SM2/lower,upperdir=/work/tmp/.tmpCIfZIz/state-panic/runs/01M69EK8A2QBA5BX5EEZ6P2SM2/upper,workdir=/work/tmp/.tmpCIfZIz/state-panic/runs/01M69EK8A2QBA5BX5EEZ6P2SM2/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault register transport None: exit 0 in 7.216146462s
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 5.9s
+
+.fault error transport Some("uring"): exit 2 in 1.046538168s
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmpCIfZIz/state-error/runs/01M69EK92WFAZ59ZDTGQC5YXND/merged (lowerdir=/work/tmp/.tmpCIfZIz/state-error/runs/01M69EK92WFAZ59ZDTGQC5YXND/lower,upperdir=/work/tmp/.tmpCIfZIz/state-error/runs/01M69EK92WFAZ59ZDTGQC5YXND/upper,workdir=/work/tmp/.tmpCIfZIz/state-error/runs/01M69EK92WFAZ59ZDTGQC5YXND/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault panic:73 transport Some("uring"): exit 2 in 1.110519084s
+
+thread 'sp-ring-12' (30466) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 12 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 12 panicked: test hook: ring queue 12 dies holding a request: other error
+  other error
+
+fault error:73 transport Some("uring"): exit 2 in 1.497759293s
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 11 failed: completion of entry 3: Input/output error (os error 5): other error
+  other error
+
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.95s
+
+EXIT 0
+## round 2: STILLPASS_SPIKE_REPO=/work/cli cargo test --release -p sp-cli --test transports -- --ignored --nocapture
+
+running 2 tests
+find and cat (passthrough true): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: true, uring_fallback: false, ring_requests: 2197, device_requests: 0, ring_batches: 2194, ring_full_batches: 0, ring_serve_us: 2271, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough true): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 15, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough true): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 17, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough true): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 11, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: true, uring_fallback: false, ring_requests: 19, device_requests: 0, ring_batches: 19, ring_full_batches: 0, ring_serve_us: 28, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough true): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 136, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough true): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 5, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: true, uring_fallback: false, ring_requests: 16, device_requests: 0, ring_batches: 16, ring_full_batches: 0, ring_serve_us: 39, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+find and cat (passthrough false): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 728, read_bytes: 3146464, readdir: 34, passthrough: false, uring: true, uring_fallback: false, ring_requests: 2925, device_requests: 0, ring_batches: 2912, ring_full_batches: 0, ring_serve_us: 2873, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 716, read_bytes: 3146464, readdir: 34, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough false): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 22, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough false): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 24, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough false): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 10, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: true, uring_fallback: false, ring_requests: 20, device_requests: 0, ring_batches: 20, ring_full_batches: 0, ring_serve_us: 31, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough false): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 127, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough false): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 5, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 21, device_requests: 0, ring_batches: 21, ring_full_batches: 0, ring_serve_us: 36, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+$ stillpass run --repo /work/tmp/.tmpH4qbkE/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 3.1s
+go test over fuse-uring: 17 inputs
+per-request cost: 10000 files of /work/cli, 3 rounds, nproc 18
+probe round=1 stat, serial       classic  wall=0.236s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=20/40 threads=17 run_ms=58 runq_wait_ms=110 slices=12289 load=44.15
+probe round=1 stat, serial       unpinned wall=0.271s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=6565 contended=0 observer_cpu_ms=20/40 threads=19 run_ms=59 runq_wait_ms=20 slices=11368 load=44.15
+probe round=1 stat, serial       nice0    wall=0.085s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=3996 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=19 runq_wait_ms=71 slices=11381 load=44.15
+probe round=1 stat, serial       uring    wall=0.071s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=3835 contended=0 observer_cpu_ms=0/20 threads=19 run_ms=21 runq_wait_ms=16 slices=11398 load=44.15
+probe round=1 stat, 18 parallel  classic  wall=0.079s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=741 observer_cpu_ms=20/130 threads=17 run_ms=144 runq_wait_ms=424 slices=12093 load=44.15
+probe round=1 stat, 18 parallel  unpinned wall=0.068s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11172 full_batches=0 ring_serve_us=8260 contended=521 observer_cpu_ms=10/20 threads=19 run_ms=38 runq_wait_ms=44 slices=11185 load=44.15
+probe round=1 stat, 18 parallel  nice0    wall=0.043s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11069 full_batches=0 ring_serve_us=8470 contended=964 observer_cpu_ms=0/20 threads=19 run_ms=27 runq_wait_ms=66 slices=11170 load=44.15
+probe round=1 stat, 18 parallel  uring    wall=0.070s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11321 full_batches=0 ring_serve_us=7233 contended=699 observer_cpu_ms=0/20 threads=19 run_ms=26 runq_wait_ms=45 slices=11415 load=44.15
+$ stillpass run --repo /work/tmp/.tmpH4qbkE/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 2.8s
+go test over fuse: 17 inputs
+.probe round=1 cat, serial        classic  wall=1.477s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=80/340 threads=17 run_ms=375 runq_wait_ms=282 slices=32182 load=44.15
+probe round=1 cat, serial        unpinned wall=0.983s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=21971 full_batches=0 ring_serve_us=68014 contended=0 observer_cpu_ms=60/210 threads=19 run_ms=269 runq_wait_ms=13 slices=21892 load=44.15
+probe round=1 cat, serial        nice0    wall=0.188s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30920 full_batches=0 ring_serve_us=30918 contended=0 observer_cpu_ms=20/40 threads=19 run_ms=64 runq_wait_ms=12 slices=30985 load=41.01
+probe round=1 cat, serial        uring    wall=0.234s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31327 full_batches=0 ring_serve_us=41687 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=81 runq_wait_ms=33 slices=31387 load=41.01
+probe round=1 cat, 18 parallel   classic  wall=0.130s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1243 observer_cpu_ms=50/180 threads=17 run_ms=220 runq_wait_ms=1199 slices=22605 load=41.01
+probe round=1 cat, 18 parallel   unpinned wall=0.156s lookup=11326 open=10000 readdir=0 getattr=1 ring=31329 device=0 batches=25451 full_batches=1048 ring_serve_us=74397 contended=1057 observer_cpu_ms=40/90 threads=19 run_ms=124 runq_wait_ms=342 slices=24356 load=41.01
+probe round=1 cat, 18 parallel   nice0    wall=0.135s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=18582 full_batches=4012 ring_serve_us=63281 contended=694 observer_cpu_ms=20/80 threads=19 run_ms=100 runq_wait_ms=110 slices=17469 load=41.01
+probe round=1 cat, 18 parallel   uring    wall=0.102s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=28790 full_batches=263 ring_serve_us=75929 contended=1881 observer_cpu_ms=40/90 threads=19 run_ms=122 runq_wait_ms=132 slices=28942 load=41.01
+probe round=1 ls -R              classic  wall=0.184s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=20/40 threads=17 run_ms=63 runq_wait_ms=184 slices=29280 load=41.01
+probe round=1 ls -R              unpinned wall=0.094s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6758 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=35 runq_wait_ms=37 slices=23247 load=41.01
+probe round=1 ls -R              nice0    wall=0.085s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22728 full_batches=0 ring_serve_us=10093 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=34 runq_wait_ms=26 slices=22789 load=41.01
+probe round=1 ls -R              uring    wall=0.093s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6683 contended=0 observer_cpu_ms=10/30 threads=19 run_ms=35 runq_wait_ms=41 slices=23264 load=41.01
+probe round=2 stat, serial       unpinned wall=0.111s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4303 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=21 runq_wait_ms=65 slices=11369 load=41.01
+probe round=2 stat, serial       nice0    wall=0.116s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=9244 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=26 runq_wait_ms=52 slices=11426 load=41.01
+probe round=2 stat, serial       uring    wall=0.075s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4134 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=19 runq_wait_ms=23 slices=11374 load=41.01
+probe round=2 stat, serial       classic  wall=0.264s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=10/50 threads=17 run_ms=61 runq_wait_ms=172 slices=14567 load=41.01
+probe round=2 stat, 18 parallel  unpinned wall=0.059s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11319 full_batches=0 ring_serve_us=6670 contended=304 observer_cpu_ms=10/20 threads=19 run_ms=27 runq_wait_ms=25 slices=11378 load=41.01
+probe round=2 stat, 18 parallel  nice0    wall=0.048s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11316 full_batches=0 ring_serve_us=6158 contended=612 observer_cpu_ms=10/20 threads=19 run_ms=26 runq_wait_ms=17 slices=11409 load=41.01
+probe round=2 stat, 18 parallel  uring    wall=0.045s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11326 full_batches=0 ring_serve_us=7050 contended=698 observer_cpu_ms=0/20 threads=19 run_ms=27 runq_wait_ms=27 slices=11418 load=41.01
+probe round=2 stat, 18 parallel  classic  wall=0.092s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=441 observer_cpu_ms=10/80 threads=17 run_ms=90 runq_wait_ms=286 slices=13056 load=41.01
+probe round=2 cat, serial        unpinned wall=0.228s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31287 full_batches=0 ring_serve_us=41109 contended=0 observer_cpu_ms=20/50 threads=19 run_ms=79 runq_wait_ms=21 slices=31324 load=41.01
+probe round=2 cat, serial        nice0    wall=0.216s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30812 full_batches=0 ring_serve_us=40459 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=78 runq_wait_ms=19 slices=30882 load=40.29
+probe round=2 cat, serial        uring    wall=0.228s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31328 full_batches=0 ring_serve_us=41304 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=79 runq_wait_ms=19 slices=31457 load=40.29
+probe round=2 cat, serial        classic  wall=0.632s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=40/140 threads=17 run_ms=181 runq_wait_ms=478 slices=37107 load=40.29
+probe round=2 cat, 18 parallel   unpinned wall=0.116s lookup=11325 open=10000 readdir=0 getattr=1 ring=31329 device=0 batches=25683 full_batches=912 ring_serve_us=63853 contended=1172 observer_cpu_ms=30/80 threads=19 run_ms=112 runq_wait_ms=69 slices=25285 load=40.29
+probe round=2 cat, 18 parallel   nice0    wall=0.129s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=19694 full_batches=3607 ring_serve_us=64214 contended=862 observer_cpu_ms=20/70 threads=19 run_ms=100 runq_wait_ms=111 slices=18696 load=40.29
+probe round=2 cat, 18 parallel   uring    wall=0.108s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29921 full_batches=63 ring_serve_us=67738 contended=1629 observer_cpu_ms=20/90 threads=19 run_ms=119 runq_wait_ms=36 slices=30106 load=40.29
+probe round=2 cat, 18 parallel   classic  wall=0.119s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1468 observer_cpu_ms=30/270 threads=17 run_ms=305 runq_wait_ms=1002 slices=26773 load=40.29
+probe round=2 ls -R              unpinned wall=0.092s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6515 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=91 runq_wait_ms=57 slices=23246 load=40.29
+probe round=2 ls -R              nice0    wall=0.078s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22834 full_batches=0 ring_serve_us=5835 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=32 runq_wait_ms=17 slices=22895 load=40.29
+probe round=2 ls -R              uring    wall=0.091s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6114 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=34 runq_wait_ms=15 slices=23277 load=40.29
+probe round=2 ls -R              classic  wall=0.768s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=60/180 threads=17 run_ms=238 runq_wait_ms=173 slices=23718 load=40.29
+probe round=3 stat, serial       nice0    wall=0.049s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=2904 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=18 runq_wait_ms=2 slices=11401 load=40.29
+probe round=3 stat, serial       uring    wall=0.049s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=2775 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=16 runq_wait_ms=2 slices=11388 load=40.29
+probe round=3 stat, serial       classic  wall=0.281s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/50 threads=17 run_ms=77 runq_wait_ms=1 slices=11342 load=40.29
+probe round=3 stat, serial       unpinned wall=0.338s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=7794 contended=0 observer_cpu_ms=20/80 threads=19 run_ms=93 runq_wait_ms=0 slices=11380 load=40.29
+probe round=3 stat, 18 parallel  nice0    wall=0.024s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5357 contended=818 observer_cpu_ms=0/20 threads=19 run_ms=23 runq_wait_ms=3 slices=11394 load=40.29
+probe round=3 stat, 18 parallel  uring    wall=0.024s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5303 contended=540 observer_cpu_ms=10/10 threads=19 run_ms=20 runq_wait_ms=3 slices=11403 load=40.29
+probe round=3 stat, 18 parallel  classic  wall=0.101s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1426 observer_cpu_ms=30/570 threads=17 run_ms=602 runq_wait_ms=520 slices=9417 load=40.29
+probe round=3 stat, 18 parallel  unpinned wall=0.071s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=9540 full_batches=71 ring_serve_us=16971 contended=571 observer_cpu_ms=20/200 threads=19 run_ms=224 runq_wait_ms=60 slices=8982 load=40.29
+probe round=3 cat, serial        nice0    wall=0.219s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30284 full_batches=0 ring_serve_us=38240 contended=0 observer_cpu_ms=10/60 threads=19 run_ms=78 runq_wait_ms=12 slices=30354 load=37.38
+probe round=3 cat, serial        uring    wall=0.170s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31328 full_batches=0 ring_serve_us=28561 contended=0 observer_cpu_ms=10/40 threads=19 run_ms=60 runq_wait_ms=7 slices=31382 load=37.38
+probe round=3 cat, serial        classic  wall=1.146s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=80/280 threads=17 run_ms=375 runq_wait_ms=94 slices=31365 load=37.38
+probe round=3 cat, serial        unpinned wall=0.901s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=23861 full_batches=0 ring_serve_us=64680 contended=0 observer_cpu_ms=50/180 threads=19 run_ms=226 runq_wait_ms=60 slices=23787 load=37.38
+probe round=3 cat, 18 parallel   nice0    wall=0.066s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=25505 full_batches=1568 ring_serve_us=71964 contended=3042 observer_cpu_ms=40/70 threads=19 run_ms=117 runq_wait_ms=62 slices=25293 load=37.38
+probe round=3 cat, 18 parallel   uring    wall=0.038s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31212 full_batches=2 ring_serve_us=88180 contended=5823 observer_cpu_ms=60/80 threads=19 run_ms=131 runq_wait_ms=29 slices=31481 load=37.38
+probe round=3 cat, 18 parallel   classic  wall=0.124s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1515 observer_cpu_ms=40/290 threads=17 run_ms=337 runq_wait_ms=968 slices=23675 load=37.38
+probe round=3 cat, 18 parallel   unpinned wall=0.102s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=27594 full_batches=389 ring_serve_us=69388 contended=1965 observer_cpu_ms=40/100 threads=19 run_ms=141 runq_wait_ms=97 slices=27230 load=37.38
+probe round=3 ls -R              nice0    wall=0.078s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22729 full_batches=0 ring_serve_us=5027 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=31 runq_wait_ms=9 slices=22796 load=37.38
+probe round=3 ls -R              uring    wall=0.064s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=4245 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=28 runq_wait_ms=8 slices=23272 load=37.38
+probe round=3 ls -R              classic  wall=0.643s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=40/160 threads=17 run_ms=200 runq_wait_ms=87 slices=23333 load=37.38
+probe round=3 ls -R              unpinned wall=0.552s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=18777 full_batches=0 ring_serve_us=11140 contended=0 observer_cpu_ms=30/150 threads=19 run_ms=175 runq_wait_ms=2 slices=18698 load=37.38
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.93s
+
+EXIT 0
+## round 3: cargo test -p sp-fs --features fault-injection --test uring -- --ignored --nocapture
+
+running 4 tests
+.
+thread 'sp-ring-14' (41884) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 14 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+...
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.61s
+
+EXIT 0
+## round 3: cargo test -p sp-cli --features fault-injection --test ring_faults -- --ignored --nocapture
+
+running 2 tests
+fault register transport Some("uring"): exit 2 in 738.673208ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  register ring queue 0 (/work/tmp/.tmpQwTCrD/state-forced/runs/01M69EMVRY3NKFWSX8BR9WHB2Q/lower): ring queue 0 failed: REGISTER of entry 0: Invalid argument (os error 22); the ring mount (FUSE connection 74) is unmounted and its connection gone: other error
+  other error
+
+$ stillpass run --repo /work/tmp/.tmp3oFRs4/repo --step cat go.mod && go test ./...
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 4.8s
+fault panic transport Some("uring"): exit 2 in 694.688417ms
+
+thread 'sp-ring-9' (49349) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 9 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmp3oFRs4/state-panic/runs/01M69EN1KDQMY472Y1S1ZT52WN/merged (lowerdir=/work/tmp/.tmp3oFRs4/state-panic/runs/01M69EN1KDQMY472Y1S1ZT52WN/lower,upperdir=/work/tmp/.tmp3oFRs4/state-panic/runs/01M69EN1KDQMY472Y1S1ZT52WN/upper,workdir=/work/tmp/.tmp3oFRs4/state-panic/runs/01M69EN1KDQMY472Y1S1ZT52WN/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault register transport None: exit 0 in 6.043938836s
+STILLPASS  EXECUTED
+  step b3:b47c1a83  manifest b3:fdc88a34  17 inputs recorded
+  no manifests for this step key
+  ran 4.8s
+
+.fault error transport Some("uring"): exit 2 in 653.421ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  mount overlay at /work/tmp/.tmp3oFRs4/state-error/runs/01M69EN26940JV0QFAPM6MYMNF/merged (lowerdir=/work/tmp/.tmp3oFRs4/state-error/runs/01M69EN26940JV0QFAPM6MYMNF/lower,upperdir=/work/tmp/.tmp3oFRs4/state-error/runs/01M69EN26940JV0QFAPM6MYMNF/upper,workdir=/work/tmp/.tmp3oFRs4/state-error/runs/01M69EN26940JV0QFAPM6MYMNF/work,redirect_dir=off,metacopy=off,index=off): Software caused connection abort (os error 103)
+  Software caused connection abort (os error 103)
+
+fault panic:73 transport Some("uring"): exit 2 in 730.599625ms
+
+thread 'sp-ring-12' (50870) panicked at crates/sp-fs/src/uring.rs:1458:26:
+test hook: ring queue 12 dies holding a request
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 12 panicked: test hook: ring queue 12 dies holding a request: other error
+  other error
+
+fault error:73 transport Some("uring"): exit 2 in 796.6535ms
+# example.com/tiny/calc
+open /workspace/calc/calc_test.go: software caused connection abort
+# ./...
+pattern ./...: open /workspace/other: transport endpoint is not connected
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 0 failed: completion of entry 2: Input/output error (os error 5): other error
+  other error
+
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.93s
+
+EXIT 0
+## round 3: STILLPASS_SPIKE_REPO=/work/cli cargo test --release -p sp-cli --test transports -- --ignored --nocapture
+
+running 2 tests
+find and cat (passthrough true): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: true, uring_fallback: false, ring_requests: 2197, device_requests: 0, ring_batches: 2194, ring_full_batches: 0, ring_serve_us: 2563, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 0, read_bytes: 0, readdir: 34, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough true): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 14, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough true): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 11, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough true): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 16, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: true, uring_fallback: false, ring_requests: 19, device_requests: 0, ring_batches: 19, ring_full_batches: 0, ring_serve_us: 39, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 0, read_bytes: 0, readdir: 2, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough true): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 59, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough true): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 5, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough true): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: true, uring_fallback: false, ring_requests: 16, device_requests: 0, ring_batches: 16, ring_full_batches: 0, ring_serve_us: 46, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 0, read_bytes: 0, readdir: 0, passthrough: true, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+find and cat (passthrough false): ring ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 728, read_bytes: 3146464, readdir: 34, passthrough: false, uring: true, uring_fallback: false, ring_requests: 2925, device_requests: 0, ring_batches: 2913, ring_full_batches: 0, ring_serve_us: 2975, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 712, lookup_absent: 0, getattr: 1, readlink: 0, open: 705, read: 716, read_bytes: 3146464, readdir: 34, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls (passthrough false): ring ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: true, uring_fallback: false, ring_requests: 13, device_requests: 0, ring_batches: 13, ring_full_batches: 0, ring_serve_us: 13, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 3, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 4, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+ls -lA (passthrough false): ring ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: true, uring_fallback: false, ring_requests: 31, device_requests: 0, ring_batches: 31, ring_full_batches: 0, ring_serve_us: 13, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 12, lookup_absent: 0, getattr: 1, readlink: 3, open: 0, read: 0, read_bytes: 0, readdir: 6, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+stat of missing paths (passthrough false): ring ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 8, device_requests: 0, ring_batches: 8, ring_full_batches: 0, ring_serve_us: 10, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 6, lookup_absent: 3, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+symlinks (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: true, uring_fallback: false, ring_requests: 20, device_requests: 0, ring_batches: 20, ring_full_batches: 0, ring_serve_us: 27, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 1, getattr: 1, readlink: 3, open: 1, read: 1, read_bytes: 12, readdir: 2, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+readdir offsets (passthrough false): ring ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: true, uring_fallback: false, ring_requests: 18, device_requests: 0, ring_batches: 18, ring_full_batches: 0, ring_serve_us: 92, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 1, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 9, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+statfs (passthrough false): ring ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 3, device_requests: 0, ring_batches: 3, ring_full_batches: 0, ring_serve_us: 4, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 0, lookup_absent: 0, getattr: 1, readlink: 0, open: 0, read: 0, read_bytes: 0, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+reads at offsets (passthrough false): ring ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: true, uring_fallback: false, ring_requests: 21, device_requests: 0, ring_batches: 21, ring_full_batches: 0, ring_serve_us: 77, ring_nice: Some(-10), ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+  classic ObserverStats { lookup: 7, lookup_absent: 0, getattr: 1, readlink: 0, open: 3, read: 5, read_bytes: 53253, readdir: 0, passthrough: false, uring: false, uring_fallback: false, ring_requests: 0, device_requests: 0, ring_batches: 0, ring_full_batches: 0, ring_serve_us: 0, ring_nice: None, ring_nice_denied: false, ring_abandoned_conn: None, lock_contended: 0 }
+per-request cost: 10000 files of /work/cli, 3 rounds, nproc 18
+probe round=1 stat, serial       classic  wall=0.216s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=10/50 threads=17 run_ms=62 runq_wait_ms=126 slices=14307 load=43.21
+probe round=1 stat, serial       unpinned wall=0.110s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5105 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=24 runq_wait_ms=15 slices=11361 load=43.21
+probe round=1 stat, serial       nice0    wall=0.076s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4273 contended=0 observer_cpu_ms=0/20 threads=19 run_ms=20 runq_wait_ms=91 slices=11388 load=43.21
+$ stillpass run --repo /work/tmp/.tmpWI6cPY/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 4.5s
+go test over fuse-uring: 17 inputs
+probe round=1 stat, serial       uring    wall=0.083s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=8456 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=24 runq_wait_ms=21 slices=11401 load=43.21
+probe round=1 stat, 18 parallel  classic  wall=0.094s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=312 observer_cpu_ms=10/70 threads=17 run_ms=74 runq_wait_ms=402 slices=12581 load=43.21
+probe round=1 stat, 18 parallel  unpinned wall=0.115s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11305 full_batches=0 ring_serve_us=7942 contended=263 observer_cpu_ms=20/20 threads=19 run_ms=29 runq_wait_ms=56 slices=11377 load=43.21
+probe round=1 stat, 18 parallel  nice0    wall=0.129s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11251 full_batches=0 ring_serve_us=8153 contended=158 observer_cpu_ms=10/10 threads=19 run_ms=28 runq_wait_ms=25 slices=11381 load=43.21
+probe round=1 stat, 18 parallel  uring    wall=0.126s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=6042 contended=192 observer_cpu_ms=0/20 threads=19 run_ms=25 runq_wait_ms=36 slices=11420 load=43.21
+probe round=1 cat, serial        classic  wall=0.688s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=50/100 threads=17 run_ms=146 runq_wait_ms=332 slices=36629 load=43.21
+probe round=1 cat, serial        unpinned wall=1.015s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=25181 full_batches=0 ring_serve_us=70352 contended=0 observer_cpu_ms=50/170 threads=19 run_ms=211 runq_wait_ms=73 slices=25118 load=43.21
+probe round=1 cat, serial        nice0    wall=0.228s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30811 full_batches=0 ring_serve_us=36174 contended=0 observer_cpu_ms=20/50 threads=19 run_ms=73 runq_wait_ms=28 slices=30881 load=43.21
+probe round=1 cat, serial        uring    wall=0.222s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30683 full_batches=0 ring_serve_us=33215 contended=0 observer_cpu_ms=20/50 threads=19 run_ms=69 runq_wait_ms=78 slices=30748 load=42.47
+probe round=1 cat, 18 parallel   classic  wall=0.135s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1973 observer_cpu_ms=50/740 threads=17 run_ms=793 runq_wait_ms=826 slices=21029 load=42.47
+$ stillpass run --repo /work/tmp/.tmpWI6cPY/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:39c0b420  manifest b3:a868c88f  17 inputs recorded
+  no manifests for this step key
+  ran 2.7s
+go test over fuse: 17 inputs
+probe round=1 cat, 18 parallel   unpinned wall=0.182s lookup=11325 open=10000 readdir=0 getattr=1 ring=31329 device=0 batches=22083 full_batches=1037 ring_serve_us=92577 contended=1339 observer_cpu_ms=50/190 threads=19 run_ms=246 runq_wait_ms=147 slices=20351 load=42.47
+.probe round=1 cat, 18 parallel   nice0    wall=0.051s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=27855 full_batches=763 ring_serve_us=81848 contended=4036 observer_cpu_ms=40/90 threads=19 run_ms=131 runq_wait_ms=47 slices=27916 load=42.47
+probe round=1 cat, 18 parallel   uring    wall=0.040s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31262 full_batches=0 ring_serve_us=85025 contended=4958 observer_cpu_ms=50/90 threads=19 run_ms=136 runq_wait_ms=19 slices=31511 load=42.47
+probe round=1 ls -R              classic  wall=0.476s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/140 threads=17 run_ms=179 runq_wait_ms=4 slices=23222 load=42.47
+probe round=1 ls -R              unpinned wall=0.474s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=18657 full_batches=0 ring_serve_us=10597 contended=0 observer_cpu_ms=20/120 threads=19 run_ms=142 runq_wait_ms=1 slices=18672 load=42.47
+probe round=1 ls -R              nice0    wall=0.066s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22775 full_batches=0 ring_serve_us=4177 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=28 runq_wait_ms=7 slices=22841 load=42.47
+probe round=1 ls -R              uring    wall=0.064s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=4000 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=27 runq_wait_ms=6 slices=23272 load=42.47
+probe round=2 stat, serial       unpinned wall=0.301s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=7219 contended=0 observer_cpu_ms=10/70 threads=19 run_ms=87 runq_wait_ms=0 slices=11377 load=42.47
+probe round=2 stat, serial       nice0    wall=0.050s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=2901 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=17 runq_wait_ms=3 slices=11392 load=42.47
+probe round=2 stat, serial       uring    wall=0.050s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=2913 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=16 runq_wait_ms=2 slices=11389 load=42.47
+probe round=2 stat, serial       classic  wall=0.320s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=20/70 threads=17 run_ms=98 runq_wait_ms=2 slices=11342 load=42.47
+probe round=2 stat, 18 parallel  unpinned wall=0.071s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=9724 full_batches=64 ring_serve_us=15790 contended=622 observer_cpu_ms=20/190 threads=19 run_ms=215 runq_wait_ms=60 slices=9191 load=42.47
+probe round=2 stat, 18 parallel  nice0    wall=0.026s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=6077 contended=927 observer_cpu_ms=0/10 threads=19 run_ms=24 runq_wait_ms=4 slices=11409 load=42.47
+probe round=2 stat, 18 parallel  uring    wall=0.024s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4651 contended=518 observer_cpu_ms=10/20 threads=19 run_ms=20 runq_wait_ms=4 slices=11406 load=42.47
+probe round=2 stat, 18 parallel  classic  wall=0.150s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1497 observer_cpu_ms=30/1100 threads=17 run_ms=1121 runq_wait_ms=764 slices=10486 load=42.47
+probe round=2 cat, serial        unpinned wall=0.872s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=21911 full_batches=0 ring_serve_us=61355 contended=0 observer_cpu_ms=50/190 threads=19 run_ms=249 runq_wait_ms=2 slices=21853 load=42.47
+probe round=2 cat, serial        nice0    wall=0.218s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30630 full_batches=0 ring_serve_us=38065 contended=0 observer_cpu_ms=20/60 threads=19 run_ms=79 runq_wait_ms=11 slices=30692 load=42.47
+probe round=2 cat, serial        uring    wall=0.168s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31328 full_batches=0 ring_serve_us=27766 contended=0 observer_cpu_ms=20/40 threads=19 run_ms=60 runq_wait_ms=7 slices=31404 load=39.31
+probe round=2 cat, serial        classic  wall=0.855s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=70/220 threads=17 run_ms=297 runq_wait_ms=120 slices=31865 load=39.31
+probe round=2 cat, 18 parallel   unpinned wall=0.113s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=21417 full_batches=954 ring_serve_us=95031 contended=1810 observer_cpu_ms=50/270 threads=19 run_ms=324 runq_wait_ms=85 slices=19243 load=39.31
+probe round=2 cat, 18 parallel   nice0    wall=0.037s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29400 full_batches=177 ring_serve_us=78906 contended=5420 observer_cpu_ms=40/90 threads=19 run_ms=128 runq_wait_ms=41 slices=29572 load=39.31
+probe round=2 cat, 18 parallel   uring    wall=0.043s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31254 full_batches=0 ring_serve_us=101685 contended=5241 observer_cpu_ms=70/80 threads=19 run_ms=151 runq_wait_ms=17 slices=31541 load=39.31
+probe round=2 cat, 18 parallel   classic  wall=0.155s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1857 observer_cpu_ms=70/620 threads=17 run_ms=684 runq_wait_ms=1053 slices=22320 load=39.31
+probe round=2 ls -R              unpinned wall=0.224s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=21952 full_batches=0 ring_serve_us=8136 contended=0 observer_cpu_ms=10/50 threads=19 run_ms=69 runq_wait_ms=11 slices=21963 load=39.31
+probe round=2 ls -R              nice0    wall=0.070s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23020 full_batches=0 ring_serve_us=4855 contended=0 observer_cpu_ms=0/20 threads=19 run_ms=29 runq_wait_ms=17 slices=23080 load=39.31
+probe round=2 ls -R              uring    wall=0.086s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=6315 contended=0 observer_cpu_ms=10/20 threads=19 run_ms=34 runq_wait_ms=11 slices=23271 load=39.31
+probe round=2 ls -R              classic  wall=1.786s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=60/180 threads=17 run_ms=236 runq_wait_ms=1224 slices=24958 load=39.31
+probe round=3 stat, serial       nice0    wall=0.081s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4440 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=20 runq_wait_ms=9 slices=11399 load=39.31
+probe round=3 stat, serial       uring    wall=0.084s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=4822 contended=0 observer_cpu_ms=0/10 threads=19 run_ms=21 runq_wait_ms=19 slices=11384 load=39.31
+probe round=3 stat, serial       classic  wall=0.137s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=10/30 threads=17 run_ms=34 runq_wait_ms=68 slices=14759 load=39.31
+probe round=3 stat, serial       unpinned wall=0.102s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11327 full_batches=0 ring_serve_us=5124 contended=0 observer_cpu_ms=10/10 threads=19 run_ms=22 runq_wait_ms=26 slices=11369 load=39.31
+probe round=3 stat, 18 parallel  nice0    wall=0.066s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11211 full_batches=0 ring_serve_us=7622 contended=339 observer_cpu_ms=0/20 threads=19 run_ms=26 runq_wait_ms=28 slices=11331 load=39.31
+probe round=3 stat, 18 parallel  uring    wall=0.098s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11326 full_batches=0 ring_serve_us=11021 contended=188 observer_cpu_ms=10/10 threads=19 run_ms=26 runq_wait_ms=35 slices=11439 load=39.13
+probe round=3 stat, 18 parallel  classic  wall=0.090s lookup=11325 open=0 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=357 observer_cpu_ms=20/60 threads=17 run_ms=79 runq_wait_ms=346 slices=12649 load=39.13
+probe round=3 stat, 18 parallel  unpinned wall=0.140s lookup=11325 open=0 readdir=0 getattr=1 ring=11327 device=0 batches=11318 full_batches=0 ring_serve_us=9824 contended=237 observer_cpu_ms=10/20 threads=19 run_ms=36 runq_wait_ms=46 slices=11411 load=39.13
+probe round=3 cat, serial        nice0    wall=0.280s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=30340 full_batches=0 ring_serve_us=51101 contended=0 observer_cpu_ms=20/80 threads=19 run_ms=97 runq_wait_ms=37 slices=30428 load=39.13
+probe round=3 cat, serial        uring    wall=0.245s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=31328 full_batches=0 ring_serve_us=44743 contended=0 observer_cpu_ms=10/70 threads=19 run_ms=86 runq_wait_ms=13 slices=31414 load=39.13
+probe round=3 cat, serial        classic  wall=2.001s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=90/240 threads=17 run_ms=334 runq_wait_ms=1275 slices=34176 load=39.13
+probe round=3 cat, serial        unpinned wall=0.458s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=29715 full_batches=0 ring_serve_us=50597 contended=0 observer_cpu_ms=30/80 threads=19 run_ms=114 runq_wait_ms=76 slices=29728 load=39.13
+probe round=3 cat, 18 parallel   nice0    wall=0.162s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=16103 full_batches=4863 ring_serve_us=59026 contended=515 observer_cpu_ms=30/60 threads=19 run_ms=95 runq_wait_ms=142 slices=14811 load=39.13
+probe round=3 cat, 18 parallel   uring    wall=0.113s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=28455 full_batches=386 ring_serve_us=79624 contended=1752 observer_cpu_ms=40/70 threads=19 run_ms=121 runq_wait_ms=47 slices=28650 load=39.13
+probe round=3 cat, 18 parallel   classic  wall=0.115s lookup=11325 open=10000 readdir=0 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=1438 observer_cpu_ms=40/230 threads=17 run_ms=280 runq_wait_ms=1015 slices=27380 load=39.13
+probe round=3 cat, 18 parallel   unpinned wall=0.170s lookup=11325 open=10000 readdir=0 getattr=1 ring=31328 device=0 batches=28939 full_batches=281 ring_serve_us=90233 contended=754 observer_cpu_ms=40/90 threads=19 run_ms=132 runq_wait_ms=74 slices=29005 load=39.13
+probe round=3 ls -R              nice0    wall=0.093s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=22708 full_batches=0 ring_serve_us=6809 contended=0 observer_cpu_ms=10/30 threads=19 run_ms=38 runq_wait_ms=32 slices=22771 load=39.13
+probe round=3 ls -R              uring    wall=0.097s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23207 full_batches=0 ring_serve_us=7066 contended=0 observer_cpu_ms=10/30 threads=19 run_ms=36 runq_wait_ms=15 slices=23269 load=40.40
+probe round=3 ls -R              classic  wall=0.159s lookup=4641 open=0 readdir=9284 getattr=1 ring=0 device=0 batches=0 full_batches=0 ring_serve_us=0 contended=0 observer_cpu_ms=30/30 threads=17 run_ms=54 runq_wait_ms=109 slices=29144 load=40.40
+probe round=3 ls -R              unpinned wall=0.082s lookup=4641 open=0 readdir=9284 getattr=1 ring=23207 device=0 batches=23204 full_batches=0 ring_serve_us=5752 contended=0 observer_cpu_ms=0/30 threads=19 run_ms=31 runq_wait_ms=19 slices=23235 load=40.40
+.
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.66s
+
+EXIT 0
+## clean export: the source tree copied without target/ and built with a fresh CARGO_TARGET_DIR
+## clean export round 1: cargo test -p sp-fs --features fault-injection --test uring -- --ignored
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.71s
+
+EXIT 0
+## clean export round 2: cargo test -p sp-fs --features fault-injection --test uring -- --ignored
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.02s
+
+EXIT 0
+## clean export round 3: cargo test -p sp-fs --features fault-injection --test uring -- --ignored
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.20s
+
+EXIT 0
+# finished 2026-10-31T17:05:07Z

@@ -1,0 +1,14 @@
+# The failing fallback test on main 2a5fd10, before the fix, with one diagnostic line added to its falls_back (printing the test's own forced
+# mountpoint and every /proc/self/mounts line containing "/forced" right after the forced ring mount failed). Dev container, 2026-10-31.
+# cargo test -q -p sp-fs --features fault-injection --test uring -- --ignored --nocapture   (default test threads, then the Register test alone)
+# Reading: in the parallel run the only "/forced" mount listed is /work/tmp/.tmpJBul2G/forced, which is the Unready test's own forced
+# mount (still up for its 10 s readiness timeout); the Register test's mountpoint /work/tmp/.tmp0Fr9iC/forced is not mounted. Alone,
+# the Register test passes. Two earlier parallel runs failed the same way (3 passed, 1 failed).
+== parallel (default test threads)
+EVIDENCE Register: own mountpoint /work/tmp/.tmp0Fr9iC/forced; /proc/self/mounts lines with /forced: ["stillpass /work/tmp/.tmpJBul2G/forced fuse.cas ro,nosuid,nodev,relatime,user_id=0,group_id=0,default_permissions,allow_other,max_read=131072 0 0"]
+a failed ring mount stayed mounted
+..EVIDENCE Unready: own mountpoint /work/tmp/.tmpJBul2G/forced; /proc/self/mounts lines with /forced: []
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.22s
+== Register alone
+EVIDENCE Register: own mountpoint /work/tmp/.tmpQWwUky/forced; /proc/self/mounts lines with /forced: []
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.18s
