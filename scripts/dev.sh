@@ -11,7 +11,9 @@ if ! docker image inspect "$img" >/dev/null 2>&1; then
     --build-arg GO_VERSION="$(v go version)" --build-arg RUST_TOOLCHAIN="$(v rust toolchain)" "$root" >/dev/null
 fi
 tty=; [ -t 0 ] && tty=-it
+# STILLPASS_DEV_NS gives parallel worktrees their own build and work volumes.
+ns=${STILLPASS_DEV_NS:+-$STILLPASS_DEV_NS}
 exec docker run --rm $tty --privileged --device /dev/fuse \
-  -v "$root":/src -v stillpass-target:/src/target -v stillpass-work:/work \
+  -v "$root":/src -v stillpass-target$ns:/src/target -v stillpass-work$ns:/work \
   -e CARGO_TARGET_DIR=/src/target -e TMPDIR=/work/tmp -e STILLPASS_HOME=/work/state -e STILLPASS_INTEGRATION="${STILLPASS_INTEGRATION:-1}" \
   "$img" bash -c "mkdir -p /work/tmp && $*"
