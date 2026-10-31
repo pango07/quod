@@ -1,6 +1,9 @@
 name: smoke
 on:
   workflow_dispatch:
+  push:
+    branches: [runner-lab]
+    paths: [.github/workflows/smoke.yml]
 jobs:
   smoke:
     runs-on: [self-hosted, stillpass]
