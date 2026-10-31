@@ -68,7 +68,33 @@ Per-run log (execution in parentheses):
 | 7 | 23.9 | 32.4 (27.6) | 32.5 (27.8) | 30.5 (26.6) |
 | 8 | 24.1 | 33.7 (28.8) | 32.4 (28.1) | 32.3 (28.0) |
 
-## Report as written by `stillpass bench` (all 7 non-warm-up runs)
+## Combined, after the rebase onto main (exp/misses merged)
+
+`stillpass bench --no-hit-rate --interleave --runs 8`, plain vs the final
+observer (passthrough + sealed module cache, snapshot by hard links) with
+exp/misses' cheaper output diff, on `main` af38959 plus this branch. The
+box was at load average 20-54 throughout and the plain series ranged 16.2
+to 28.5s, so these are upper bounds; round 7 was the one quiet pair.
+
+| | Plain | Observed | Execution | Overhead (wall / execution) |
+| --- | --- | --- | --- | --- |
+| All 7 non-warm-up runs, median | 25.37s | 30.80s | 27.99s | +21.4% / +10.3% |
+| Round 7 (quiet) | 17.9s | 19.9s | 17.5s | +11% / -2% |
+
+Observed phase medians: import 0.54s, mount 0.94s, execution 27.99s,
+output diff 0.79s (1.99s before exp/misses), ledger write 0.10s. The mount
+phase now holds the module-cache snapshot (~22k hard links and chmods,
+~4.4k directories); at this load it cost 0.9s, roughly 0.3-0.4s when the box
+is quiet (import, a comparable amount of syscalls, inflated 2.7x in the same
+run). Per run (execution in parentheses): plain 16.2, 25.4, 28.5, 22.4,
+23.8, 27.3, 17.9, 28.5; observed 35.0 (27.8), 32.5 (29.0), 31.8 (28.7),
+24.9 (21.5), 30.8 (28.0), 32.7 (30.0), 19.9 (17.5), 29.5 (26.3).
+
+Acceptance on the same tree: A1-A7 pass, A7 0 false hits over 29,879
+entries, A7b 10/10 (replay and fresh execution read the same 29,879 paths),
+W1-W4 pass with sealing on (`0a-cli-cli-arm64-exp-overhead-acceptance.log`).
+
+## Report as written by `stillpass bench` (all 7 non-warm-up runs, first bench, before the rebase)
 
 ## Machine
 
