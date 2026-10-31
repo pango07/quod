@@ -27,5 +27,7 @@ arguments, then unsupported claims).
 | exp/overhead3: io_uring FUSE observer (tip 1aae4e4) | `976744f..1aae4e4` | DO NOT MERGE as is: claimed differential test absent (critical); silent ring registration failure and racy setup can hang a step; dead queue thread hangs instead of failing; unverified 7.47 open_out layout is a false-hit path; transport not stored with results; ring acceptance ~40% slower end to end, unreported | - | pending |
 | exp/split (review fixes, tip 3c06de1) | `6372c70..3c06de1` | merge after fixes: 2 new major (repeat absent lookups never reach FUSE through overlayfs; replays ignore same-step writes), prior metadata/chdir fixes partial, not rebased | - | pending |
 
+| exp/trust: trust layer, timeouts, panics, CLI (tip 16a6c83) | `merge-base(main)..16a6c83` | merge after fixes: HOME replayed but uncompared (go install into $HOME/go/bin); two identical flaky failures prove a failure; Stillpass conditions counted as step divergences, bar never decays; `needed` overflow. Absent-entry equivalence verified sound | - | pending |
+
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
