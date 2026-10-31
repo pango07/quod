@@ -428,6 +428,13 @@ version = "0.0.0"
 [[package]]
 name = "sp-key"
 version = "0.0.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "sp-cas",
+ "thiserror",
+]
 
 [[package]]
 name = "sp-ledger"
