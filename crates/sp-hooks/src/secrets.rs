@@ -94,8 +94,11 @@ pub fn mask(bytes: &[u8], masks: &[Vec<u8>]) -> Vec<u8> {
     out
 }
 
-/// The first regular file under `dir` whose content contains a mask.
+/// The first entry under `dir` that carries a mask: in a file's content,
+/// in any entry's name (a step can write a secret as a file name), or in a
+/// symlink's target.
 pub fn file_containing(dir: &Path, masks: &[Vec<u8>]) -> anyhow::Result<Option<PathBuf>> {
+    use std::os::unix::ffi::OsStrExt;
     if masks.is_empty() || !dir.exists() {
         return Ok(None);
     }
@@ -104,9 +107,17 @@ pub fn file_containing(dir: &Path, masks: &[Vec<u8>]) -> anyhow::Result<Option<P
     while let Some(d) = stack.pop() {
         for e in std::fs::read_dir(&d).with_context(|| format!("read {}", d.display()))? {
             let e = e?;
+            if ac.find(e.file_name().as_bytes()).is_some() {
+                return Ok(Some(e.path()));
+            }
             let t = e.file_type()?;
             if t.is_dir() {
                 stack.push(e.path());
+            } else if t.is_symlink() {
+                let target = std::fs::read_link(e.path())?;
+                if ac.find(target.as_os_str().as_bytes()).is_some() {
+                    return Ok(Some(e.path()));
+                }
             } else if t.is_file() {
                 let f = std::fs::File::open(e.path())?;
                 if ac.stream_find_iter(f).next().is_some() {
@@ -155,6 +166,19 @@ mod tests {
         assert_eq!(
             file_containing(tmp.path(), &masks_for("absent-secret")).unwrap(),
             None
+        );
+        // A secret as a file name, or as a symlink's target.
+        let named = tempfile::tempdir().unwrap();
+        std::fs::write(named.path().join("x-line-one-secret.txt"), "nothing").unwrap();
+        assert_eq!(
+            file_containing(named.path(), &m).unwrap(),
+            Some(named.path().join("x-line-one-secret.txt"))
+        );
+        let linked = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("/tmp/line-two-secret", linked.path().join("l")).unwrap();
+        assert_eq!(
+            file_containing(linked.path(), &m).unwrap(),
+            Some(linked.path().join("l"))
         );
     }
 }
