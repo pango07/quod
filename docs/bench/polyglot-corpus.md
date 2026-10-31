@@ -36,8 +36,8 @@ part of the step, so of the key, and fixed for every run here.
 ## What generalized as-is
 
 Unchanged from the Go-only engine and doing its job on all three repos:
-the observer (FUSE over the CAS tree, passthrough reads, constant mtime),
-kernel overlayfs over it, the output diff, the manifest kinds (`f`, `d`,
+the observer (FUSE over the CAS tree, passthrough reads; its one change is
+the content-derived mtime below), kernel overlayfs over it, the output diff, the manifest kinds (`f`, `d`,
 `a`, `l`) and the matching rule, the ledger, replay, the sandbox (uid 1001,
 no network, fresh `/tmp`, read-only root), the sealed-prefix snapshot
 machinery, and A7/A7b. The one rule that carried the safety argument across
@@ -58,20 +58,35 @@ New, and generic (no language in run.rs, seal.rs, bench.rs or the suite):
   carve-outs, warm state with its cache-disabling knobs and over-record
   rule, `no_outputs_under`, and the suite's file picks. Go, Node and Python
   are three values of one struct; the step key names the toolchain (schema
-  v3). The split driver is the one slot not filled (exp/split owns it).
+  v3, which collides with exp/rootfs's v3: the second to merge takes the
+  next version). The split driver is the one slot not filled (exp/split
+  owns it).
 - **Sealing by rule, not by GOMODCACHE**: a prefix is an env variable's
   directory (GOMODCACHE, VIRTUAL_ENV) or every directory of a name not
   nested in another (node_modules, so monorepos work), each with carve-outs
   the tool writes to (`gomod/cache`; `node_modules/.cache`, `.vite`,
-  `.vitest`). The snapshot machinery is unchanged: completion marker,
+  `.vitest`). The snapshot machinery is unchanged (completion marker,
   shared locks, rename-away gc, blobs linked or copied by mode, read-only
-  bind, every tree entry under the prefix recorded.
+  bind, every tree entry under the prefix recorded) apart from fixed times
+  in the snapshot (key format v2).
 - **Step A as a network step on the repo** that fills node_modules or the
   venv in the workspace, with npm/pip/uv download caches bound from
   `<state>/setup-cache/<toolchain>` so they never enter a tree.
 - **The environment pin covers whole toolchain installs**: binary hashes
   and versions as for Go, plus a listing hash of each install root
-  (npm's JavaScript, Python's stdlib, GOROOT), `__pycache__` excluded.
+  (npm's JavaScript, Python's stdlib, GOROOT), `__pycache__` directories
+  left out of the listing and unchecked-hash pycs pinned by content.
+- **Content-derived mtimes** (review fix): served files, and the files of
+  sealed snapshots, carry an mtime derived from their content hash
+  (`sp_fs::content_mtime`, 58 bits of the hash) instead of one constant, so
+  an mtime-keyed cache sees a new mtime whenever content changes;
+  directories a fixed time.
+- **mtime-keyed caches never become outputs** (review fix): outputs under a
+  profile's `no_outputs_under` patterns are dropped when recorded and when
+  materialized.
+- **EROFS taint** (review fix): a run with sealed prefixes whose output
+  reports a read-only file system is shown and never memoized, since CI's
+  write would have succeeded.
 - **Acceptance per repo and step**: `scripts/acceptance.sh go|node|python
   [checkout]`, A3/A4 picks from the profile, A7b's path comparison up to
   implied absence, `--no-verify` commits.
@@ -83,23 +98,29 @@ misses it, or when it is trusted on a key the observer cannot see (a path,
 an mtime). Under this observer a stat records the file's content hash, so a
 cache validated by a stat of its source (mtime and size) can never turn a
 changed source into a false hit: the stat is in the manifest. What such a
-cache can do is make the *recorded result* wrong, if an entry written under
-the observer's constant mtime ever comes back into a tree. The table is
-every cache found on the corpus, how it is keyed, and its handling.
+cache could do, while the observer served one constant mtime, was make the
+*recorded result* wrong once an entry written under observation came back
+into a tree (an outputs directory materialized into the next checkout): the
+edited source showed the same mtime. Two defences close that now: served
+mtimes are content-derived, and outputs under mtime-keyed cache paths are
+never recorded or materialized. The table is every cache found on the
+corpus, how it is keyed, and its handling.
 
 | Toolchain | Cache | Keyed by | Persists? | Handling |
 | --- | --- | --- | --- | --- |
-| Python | `__pycache__` timestamp pycs | source mtime + size | in the tree | `PYTHONDONTWRITEBYTECODE=1`: no step writes one; one that is in a tree is read (recorded) and its source stat'd (recorded) |
+| Python | `__pycache__` timestamp pycs | source mtime + size | in the tree | `PYTHONDONTWRITEBYTECODE=1`: no step writes one; one already in a tree is read (recorded) and its source stat'd (recorded); outputs under `__pycache__` are never recorded |
 | Python | site-packages pycs from install | source hash (checked-hash, PEP 552) | in the sealed venv | `SOURCE_DATE_EPOCH` makes uv's compileall write checked-hash pycs (flags=3 on all 2,500); sealed venv is recorded whole |
 | Python | pytest assertion-rewrite pycs | source mtime + size | `__pycache__` | honours `sys.dont_write_bytecode`; never written |
 | Python | `.pytest_cache` (lastfailed, nodeids) | node ids | workspace | read if present (observed), written as an output; step B's workspace is discarded |
 | Python | importlib FileFinder listing cache, `sys.path_importer_cache` | directory mtime | in process | dies with the process; the listing it caches is a recorded `d` |
-| Python | stdlib `__pycache__` under /usr/local/python | source mtime + size | toolchain install | read-only inside the sandbox; pruned from the fingerprint's install listing, which pins the sources it is validated against (root pythons outside the sandbox write them: the stripped build ships none) |
+| Python | stdlib `__pycache__` under /usr/local/python | source mtime + size, or none (unchecked hash) | toolchain install | read-only inside the sandbox; the directories are left out of the fingerprint's listing (root pythons outside the sandbox write timestamp pycs, which are validated against their pinned sources); unchecked-hash pycs are pinned by content |
+| Python | `.mypy_cache`, `.ruff_cache` | mtime + size | workspace | never recorded or materialized as outputs |
 | Python | uv / pip download caches | content | host | step A only, bound from `<state>/setup-cache`, never in a tree |
-| Node | Jest haste map | file mtime + size | `/tmp/jest_*` | sandbox `/tmp` is a fresh tmpfs: cold every run (an mtime-keyed map would be trusted forever under a constant mtime, so it must not become warm state) |
+| Node | Jest haste map | file mtime + size | `/tmp/jest_*` | sandbox `/tmp` is a fresh tmpfs: cold every run; not warm state |
 | Node | Jest transform cache (babel-jest) | content + config hash | `/tmp/jest_*` | fresh tmpfs |
 | Node | V8 compile cache (npm enables it) | source hash | `/tmp/node-compile-cache` | fresh tmpfs; content-validated anyway |
-| Node | `node_modules/.cache` (babel-loader, @babel/register: filename + mtime) | mtime | node_modules | carve-out: observed and writable, not sealed |
+| Node | `node_modules/.cache` (babel-loader; @babel/register: filename + mtime) | content, or mtime | node_modules | carve-out (observed, writable); never recorded or materialized as an output, and served mtimes follow content, so a stale entry cannot match an edited source |
+| Node | `.eslintcache`, `.stylelintcache` (default metadata strategy) | mtime + size | workspace | never recorded or materialized as outputs |
 | Node | Vitest results cache | test file | `node_modules/.vite`, `.vitest` | carve-outs |
 | Node | npm update notifier, debug logs | time | npm cache dir | `npm_config_update_notifier=false`, `npm_config_logs_max=0` |
 | Node | npm download cache | content | host | step A only, bound from host state |
@@ -109,13 +130,14 @@ every cache found on the corpus, how it is keyed, and its handling.
 
 Node and Python get no warm state (W1-W4 do not apply to them). The caches
 that would make their misses cheap, Jest's haste map and Python's import-time
-pycs, are keyed by mtime, and the observer serves one constant mtime: a
-persisted entry would be trusted forever. A content-keyed variant is the
-precondition. Python comes close: a warm `PYTHONPYCACHEPREFIX` seeded with
-checked-hash pycs is validated by source hash on every import and rewritten
-as checked-hash when stale, but a module with no pyc yet gets a timestamp
-pyc on first import, which the constant mtime would then trust; it would
-need a pre-pass compiling new sources as checked-hash. Not built here.
+pycs, are keyed by mtime. With content-derived mtimes they follow content up
+to 28 bits of the hash in whole seconds (plus size), which is a probability,
+not the proof warm state needs; a content-keyed variant is the precondition.
+Python comes close: a warm `PYTHONPYCACHEPREFIX` seeded with checked-hash
+pycs is validated by source hash on every import and rewritten as
+checked-hash when stale, but a module with no pyc yet gets a timestamp pyc on
+first import; it would need a pre-pass compiling new sources as
+checked-hash. Not built here.
 
 ## Absent-path storms
 
@@ -161,7 +183,9 @@ so starlette sends 1,758 lookups even unsealed.
 committed on this branch. A7 mutates every recorded entry (the whole sealed
 prefix included) and asserts a miss; A7b corrupts files the observer did
 not record, asserts a replay, then re-executes under a fresh key and
-compares exit code, normalized stdout and the set of paths read.
+compares exit code, stdout and the set of paths read; stdout is normalized
+only in the timing tokens each runner prints (go test's durations, Jest's
+`Time:` and `(N s)`, pytest's summary line), with no sorting or dropping.
 
 | Repo | Manifest (f / d / a / l) | Under the sealed prefix | A1-A6 | A7: entries mutated, false hits | A7b: unread files mutated, agreeing | W1-W4 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -169,12 +193,14 @@ compares exit code, normalized stdout and the set of paths read.
 | luxon | 24,987 (22,053 / 2,807 / 88 / 39) | 24,800 (`node_modules`) | pass | 24,987, **0** | 10 of 70, 10/10 | no warm state |
 | starlette | 25,325 (24,264 / 981 / 76 / 4) | 25,092 (`.stillpass/venv`) | pass | 25,326, **0** | 9 of 9, 9/9 | no warm state |
 
-All three rows are runs of this branch's final code: luxon and cli/cli
-with no other heavy job of this experiment beside them, starlette beside
-the cli/cli run (one pytest job). Each repo had also passed with earlier
-states of the branch during the session, with the same counts; one luxon
-acceptance run and one history run were lost to OOM kills of a Jest worker
-and repeated alone (DECISIONS.md). Log: `polyglot-acceptance.log`.
+All three rows are runs of this branch's final code, after the review
+fixes (content-derived mtimes, output filtering, EROFS taint, strict A7b
+normalizer), rebased on main: luxon and cli/cli with no other Jest or
+`go test` job of this experiment beside them, starlette beside luxon (one
+pytest job). Each repo had also passed with earlier states of the branch,
+with the same counts; one luxon acceptance run and one history run were
+lost to OOM kills of a Jest worker and repeated alone (DECISIONS.md). Log:
+`polyglot-acceptance.log`.
 
 Notes per repo:
 
@@ -197,11 +223,15 @@ Notes per repo:
 ## Overhead (A8)
 
 `stillpass bench --interleave --runs 10 --extra-series STILLPASS_SEAL=0`
-per repo, with this branch's final binary: plain (same sandbox, no FUSE,
-no overlay), observed, and observed with the dependency tree unsealed,
-alternating run by run, first run of each dropped. Load averages 33-74
-(luxon) and 30-62 (starlette) throughout; full per-run tables in the
-per-repo reports.
+per repo: plain (same sandbox, no FUSE, no overlay), observed, and observed
+with the dependency tree unsealed, alternating run by run, first run of each
+dropped. Load averages 33-74 (luxon) and 30-62 (starlette) throughout; full
+per-run tables in the per-repo reports. The benches ran on the branch
+before the review fixes; those add a content-derived mtime per attribute
+reply, timestamp-setting on new snapshot builds and the fingerprint's pyc
+scan (about 40 ms in median, measured paired), and were not re-benched.
+p95 is not reported: luxon's plain series has a 33.3s outlier that makes
+its p95 meaningless.
 
 | Repo | Plain median | Observed median (wall) | Wall overhead | Observed execution median | Execution overhead | Unsealed: wall / execution |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -209,7 +239,8 @@ per-repo reports.
 | starlette | 12.55s | 14.40s | +14.8% | 13.06s | +4.1% | +16.1% / +4.4% |
 
 What the wall adds beyond execution is per-run fixed cost, the same for
-any suite length: the host fingerprint (~0.9s at this load), importing
+any suite length: the host fingerprint (0.7-1.2s per run at load ~65,
+measured paired), importing
 the tree (0.87s luxon, 0.34s starlette: hashing ~25k dependency files),
 mount 0.06s, output diff 0.09-0.19s, ledger write 0.08-0.10s. Against a
 5-6s Jest suite that is most of the overhead; against cli/cli's 17s it was
@@ -246,20 +277,19 @@ Why commits miss (first mismatching path of the closest manifest):
   (3, which `npm ci` turns into a different node_modules), or
   jest.config.js (1). Hits replay in 1.4-4.8s against 7.7-19.2s plain;
   each of the 34 misses pays the observer and the fixed costs on a 4-12s
-  suite, and six hits do not repay that at this load (load 46-100; an
-  earlier run of the same commits at load 12-80 measured 339s against
-  297s, same decisions).
+  suite, and six hits do not repay that at this load (46-100).
 - starlette: every commit changes a recorded input: source and tests (27),
   a docs page or AGENTS.md only (6), a dependency bump that changes only
   uv.lock and so the sealed venv (4), a release bumping
   `starlette/__init__.py` (3). The six docs-only misses are pytest's
   collection sweep (a lookup records content); with existence-only records
-  they would hit. The 4.3s average gap per commit is the observer, the
-  fixed costs, new venv snapshots (1.1-2.7s, built by copying because the
-  venv's 0644 files cannot share the 0444 blobs' inodes), and a lookup that
-  deserializes every earlier 25k-entry manifest of the key before missing
-  (measured on the luxon history: 0.07s with one candidate, 0.7-0.9s with
-  28-33, about 25 ms per 25k-entry manifest).
+  they would hit (a projection; see the next step). The 4.3s average gap
+  per commit, not broken down per commit, includes the observer, the fixed
+  costs, a new snapshot whenever the venv changes (1.1s measured for this
+  venv, built by copying because its 0644 files cannot share the 0444
+  blobs' inodes), and a lookup that deserializes every earlier 25k-entry
+  manifest of the key before missing (on the luxon history, lookup took
+  0.07s with one candidate and 0.73-0.87s with 28-33).
 - Both repos: step-level memoization of a single-process test runner hits
   only when nothing the runner touched changed, which on these histories
   is docs work. Per-test-file splitting (exp/split, for Go) is the lever
@@ -274,11 +304,11 @@ Why commits miss (first mismatching path of the closest manifest):
   markdown, docs assets, scripts, `uv.lock`); README- and docs-only commits
   miss. Sound, and the largest avoidable miss source found. Jest's
   `roots: ["test"]` keeps luxon's crawl to test/ and src/.
-- **Fast suites make fixed costs visible.** luxon's suite runs in ~4s and
-  starlette's in ~7s on a quiet box, against cli/cli's ~17s; the
-  fingerprint (0.9s at load 88 after this session's fix, 1.5-2.7s before)
-  and the import of a 25k-file dependency tree (0.2-1s warm) are a larger
-  share of each run. See the overhead section.
+- **Fast suites make fixed costs visible.** luxon's suite ran in 3.4s and
+  starlette's in 6.8s in single observed runs at load ~1, against cli/cli's
+  ~17s; the fingerprint (0.7-1.2s at load ~65) and the import of a 25k-file
+  dependency tree (0.16-1.0s with the store warm, load-dependent) are a
+  larger share of each run. See the overhead section.
 - **A carve-out appearing in the tree is a miss.** The snapshot always has
   the carve-outs as empty mount points, so the step sees the same
   node_modules listing whether or not the tree has `.cache`, but the
@@ -289,6 +319,23 @@ Why commits miss (first mismatching path of the closest manifest):
 - **Toolchain drift on old commits.** luxon's 2025 commits fail 11 locale
   tests under Node 24's ICU (their CI pinned older Nodes); a failing step
   memoizes like a passing one.
+- **Sealed prefixes show the host's directory order.** Snapshot file and
+  directory times are now fixed (content-derived and constant), but
+  readdir order under a sealed prefix is ext4's (hash order, seeded per
+  filesystem), and Python's importlib.metadata and pluggy load plugins in
+  that order. The same snapshot key can behave differently on another host:
+  a blocker for any shared or remote ledger until sealed prefixes and the
+  rootfs (exp/rootfs, same class) are served through one non-logging layer
+  with sorted readdir.
+- **Writes into a sealed prefix fail.** A tool writing under node_modules
+  or the venv outside the carve-outs (.prisma, .svelte-kit, .nx) gets EROFS
+  where CI's write succeeds; such a run is shown and not memoized (it
+  reports EROFS), and the fix is a carve-out in the profile.
+- **Profile env differs from Actions.** `PYTHONHASHSEED=0`,
+  `SOURCE_DATE_EPOCH=315532800`, `PYTHONDONTWRITEBYTECODE=1`, npm's
+  notifier and logs off, files dated 2000-2008 by content: all in the key,
+  so never a false hit, but a recorded result can differ from what Actions
+  would produce (DECISIONS.md lists each).
 
 ## Next step: record what a name lookup reveals, not the file's content
 
@@ -298,10 +345,12 @@ which opens what it stats. pytest does not: collecting from the rootdir, it
 resolves every file of every directory it recurses into (`_in_venv` probes
 `<path>/pyvenv.cfg`, so `<path>` is resolved as a path component and the
 kernel answers ENOTDIR; the step learns "not a directory", nothing more).
-On starlette 57 of the 142 content inputs outside the venv are such files
-(every non-.py file but pyproject.toml: 31 markdown pages, docs assets,
-extensionless scripts, uv.lock); every
-docs-only or README-only commit therefore misses.
+On starlette 57 of the 142 content inputs outside the venv are, by file
+type, such files: every non-.py file but pyproject.toml (31 markdown pages,
+docs assets, extensionless scripts, uv.lock). That is an estimate: the
+observer logs (inode, kind), not which operation, so it cannot yet say
+which files were only looked up. Every docs-only or README-only commit
+therefore misses.
 
 The observer can tell the cases apart at the protocol level if file
 attributes are made uncacheable (attr_valid 0 for file inodes, entry_valid
@@ -316,19 +365,19 @@ content. What must be proven before trusting it, by an A7b-style audit and
 not by argument: no kernel path hands a process a FUSE file's size from the
 lookup reply without a GETATTR (statx with AT_STATX_DONT_SYNC does; so may
 overlayfs copying attributes into its own inode), and overlayfs's stat of a
-lower file always reaches the lower's getattr. Expected effect, measured
-on the history: starlette's six docs- and AGENTS.md-only commits of 40
+lower file always reaches the lower's getattr. Projected effect, not
+measured: starlette's six docs- and AGENTS.md-only commits of 40 would
 become hits (a lockfile bump still changes the sealed venv); on luxon
 nothing (Jest opens what it crawls).
 
-Two smaller follow-ups the corpus also measured:
+Two smaller follow-ups the corpus points to:
 
 - **A sealed prefix as one manifest entry.** A sealed dependency tree is
   recorded as every entry under it (24,800 for luxon's node_modules,
   25,092 for starlette's venv), so every manifest is ~25k entries, and a
-  miss deserializes up to 50 of them (about 25 ms each on the luxon
-  history). The snapshot key already is a hash over exactly those
-  entries; a manifest entry "this prefix has subtree hash K" (matched
+  miss deserializes up to 50 of them (on the luxon history lookup took
+  0.07s with one candidate and 0.73-0.87s with 28-33). The snapshot key
+  already is a hash over exactly those entries; a manifest entry "this prefix has subtree hash K" (matched
   against the same hash of the tree's subtree) would carry the same
   information in one line, shrinking manifests 15x and lookup with them.
 - **Mode-variant blobs for snapshots.** node_modules and venv files are
