@@ -153,6 +153,49 @@ What is left: ~1.5s of execution, which the io_uring probe above says is
 mostly the round trip of the ~10k requests the repo's own sources and
 `gomod/cache` still send; ~0.6s of output diff; ~0.2-0.4s of import.
 
+## Round 3 (exp/overhead3): the observer on the ring
+
+`sp-fs` serves the same model over two transports, chosen once per mount:
+FUSE over io_uring when root, `fuse.enable_uring=Y` and the kernel offers it
+(one pinned queue per CPU, four entries each), else the classic `/dev/fuse`
+loop through fuser. The run event's `observer` says which.
+
+### Per-request cost of the real observer
+
+A `sleep` step keeps the mount up; the probes run on the lower (FUSE) mount
+directly, so they include the access log, counters and passthrough opens.
+Two rounds, alternating, at load 53-65 (acceptance and other agents running).
+
+| Probe (10k module-cache files) | classic | io_uring |
+| --- | --- | --- |
+| `stat` (14,642 lookups) | 0.44s, 0.51s | 0.06s, 0.07s |
+| `cat` (10,000 opens, passthrough reads) | 0.64s, 0.58s | 0.20s, 0.21s |
+| `ls -R` (9,284 readdirs) | 0.68s, 0.95s | 0.07s, 0.07s |
+| observer CPU (user / system) | 89/453ms, 68/255ms | 25/117ms, 27/119ms |
+
+Identical request counts on both transports; the ring answers each request
+on the CPU that raised it and spends a quarter of the system time.
+
+### Acceptance, both ways
+
+With the ring (`observer: fuse-uring+passthrough+sealed`): A1-A6 pass, A7
+mutated 23,939 f, 5,320 d, 620 a entries with 0 false hits, A7b 10/10
+(replay and fresh execution read the same 29,879 paths), W1-W4 pass
+(`0a-cli-cli-arm64-exp-overhead-acceptance-uring.log`). With the fallback
+forced (`STILLPASS_FUSE_TRANSPORT=classic`, `observer:
+fuse+passthrough+sealed`): the same (`0a-cli-cli-arm64-exp-overhead-acceptance.log`).
+The sp-fs integration test `transports_log_identically` runs find-and-cat,
+ls, stat of missing paths, symlinks, the stat -f probe and go test on a tiny
+module over both transports and asserts identical access logs.
+
+### Paired bench, round 3
+
+The first attempt (plain, ring observer, classic observer, 8 interleaved
+runs) ran at load average 43-65 and aborted in round 7 when a *plain*
+baseline run failed to build four packages (no observer involved; the
+harness requires the baseline to pass). Its six rounds carry no signal:
+plain alone ranged 16.2-30.3s. The rerun below waited for a quieter box.
+
 ## Report as written by `stillpass bench` (all 7 non-warm-up runs, first bench, before the rebase)
 
 ## Machine
