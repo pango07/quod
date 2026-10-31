@@ -307,9 +307,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             let (manifest, result) = lookup.hit.as_ref().expect("a replay needs a hit");
             let mid = result.manifest_id;
             if let Some(dir) = &args.outputs {
-                // Results recorded before a pattern existed may still hold one.
+                // Only what a proof vouches for, and never an mtime-keyed
+                // cache (a result recorded before a pattern existed may
+                // still hold one).
                 sp_replay::materialize_outputs(
-                    &without_forbidden(spec.profile(), result),
+                    &compared_only(&without_forbidden(spec.profile(), result), &ignore),
                     &cas,
                     dir,
                 )?;
@@ -530,7 +532,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     })?;
     phases.record = t.elapsed();
     if let Some(out) = &args.outputs {
-        sp_replay::materialize_outputs(&without_forbidden(spec.profile(), &result), &cas, out)?;
+        sp_replay::materialize_outputs(
+            &compared_only(&without_forbidden(spec.profile(), &result), &ignore),
+            &cas,
+            out,
+        )?;
     }
     if !args.keep {
         sp_cas::remove_any(&dir)?;
@@ -926,6 +932,21 @@ fn image_line(image: &Image) -> String {
             "image host fingerprint b3:{}  {platform}  (not portable)",
             image.digest.short()
         ),
+    }
+}
+
+/// The result with only the outputs the trust layer compares. `--outputs`
+/// writes these, on execute and on replay alike: an uncompared path (a
+/// cache, a telemetry counter) is not vouched for by any proof, so a replay
+/// must not hand it out as the step's, and an execution writes the same set
+/// so the two leave identical directories.
+fn compared_only(r: &StepResult, ignore: &[String]) -> StepResult {
+    StepResult {
+        outputs: sp_trust::comparable_outputs(&r.outputs, ignore)
+            .into_iter()
+            .cloned()
+            .collect(),
+        ..r.clone()
     }
 }
 

@@ -65,24 +65,45 @@ pub fn parse_timeout(s: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs_f64(secs))
 }
 
+/// Paths under HOME that tools fill with per-execution state and that are
+/// therefore not compared (nor written out by `--outputs`). Everything else
+/// a step leaves in HOME is compared like any output: `go install` into a
+/// HOME-relative GOPATH, a token, a generated config are results. Each entry
+/// is here because cli/cli's tests write it differently on every run:
+/// gh's HTTP cache (keys include random httptest ports), Go's telemetry
+/// counters (date-stamped files), gh's state dir (a random device id), and
+/// the SSH key pair gh generates for codespaces.
+pub const HOME_VOLATILE: &[&str] = &[
+    ".cache/gh",
+    ".config/go/telemetry",
+    ".local/state",
+    ".ssh/codespaces.auto",
+    ".ssh/codespaces.auto.pub",
+];
+
 /// Output prefixes the trust layer leaves out when comparing two results:
 /// the directories Stillpass provides the step as scratch, which start
 /// empty (or, for the module cache, sealed) on every execution and hold
 /// per-execution state rather than results. The build cache (GOCACHE)
 /// whole, which go stamps with times; of the module cache only its `cache/`
-/// directory, where go writes (the rest is a sealed input); HOME whole,
-/// where tools leave caches, telemetry counters, device ids and generated
-/// keys (cli/cli's tests write all four, differently on every run). They are
-/// still recorded as outputs; only the comparison skips them.
+/// directory, where go writes (the rest is a sealed input); of HOME only
+/// the `HOME_VOLATILE` paths. They are still recorded as outputs; only the
+/// comparison skips them, and `--outputs` does not write them.
 pub fn ignored_outputs(env: &[(String, String)]) -> Vec<String> {
-    crate::deps::cache_dirs(env)
-        .into_iter()
-        .filter_map(|(name, var)| match var.as_str() {
-            "GOCACHE" | "HOME" => Some(format!(".stillpass/{name}")),
-            "GOMODCACHE" => Some(format!(".stillpass/{name}/cache")),
-            _ => None,
-        })
-        .collect()
+    let mut out = Vec::new();
+    for (name, var) in crate::deps::cache_dirs(env) {
+        match var.as_str() {
+            "GOCACHE" => out.push(format!(".stillpass/{name}")),
+            "GOMODCACHE" => out.push(format!(".stillpass/{name}/cache")),
+            "HOME" => out.extend(
+                HOME_VOLATILE
+                    .iter()
+                    .map(|v| format!(".stillpass/{name}/{v}")),
+            ),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Quotes a command line into one `sh` script: `go test ./...` stays as is,
@@ -141,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn ignored_outputs_are_the_build_cache_home_and_the_module_cache_carve_out() {
+    fn ignored_outputs_are_the_build_cache_the_module_cache_carve_out_and_volatile_home() {
         let env = sp_key::Toolchain::Go.profile().env_vec();
         let mut got = ignored_outputs(&env);
         got.sort();
@@ -150,8 +171,27 @@ mod tests {
             [
                 ".stillpass/gocache",
                 ".stillpass/gomod/cache",
-                ".stillpass/home"
+                ".stillpass/home/.cache/gh",
+                ".stillpass/home/.config/go/telemetry",
+                ".stillpass/home/.local/state",
+                ".stillpass/home/.ssh/codespaces.auto",
+                ".stillpass/home/.ssh/codespaces.auto.pub",
             ]
         );
+        // HOME itself, GOPATH (go install's binaries) and the rest of HOME
+        // are compared.
+        let kept: Vec<&str> = [
+            ".stillpass/home/tok",
+            ".stillpass/home/go/bin/tool",
+            ".stillpass/gopath/bin/tool",
+            ".stillpass/home/.ssh/id_ed25519",
+        ]
+        .into_iter()
+        .filter(|p| {
+            !got.iter()
+                .any(|g| *p == g.as_str() || p.starts_with(&format!("{g}/")))
+        })
+        .collect();
+        assert_eq!(kept.len(), 4, "{kept:?}");
     }
 }

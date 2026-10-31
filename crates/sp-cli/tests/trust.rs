@@ -11,7 +11,8 @@
 //! panic in the observer, is in observer_faults.rs (it needs the
 //! `fault-injection` build); T8 a
 //! network step leaves the checkout clean and observed steps see its module
-//! cache from the state dir; T9 a flaky failure executed once never replays.
+//! cache from the state dir; T9 a flaky failure executed once never replays;
+//! T10 nondeterministic writes under HOME or GOPATH never replay.
 
 mod common;
 use std::process::Command;
@@ -573,6 +574,59 @@ fn t9_a_flaky_failure_executed_once_never_replays() {
         r3.stderr
     );
     println!("T9 ok: a failure seen once never replayed; the next pass quarantined the key");
+}
+
+/// What a step leaves in HOME or GOPATH is a result unless it is on the
+/// short list of volatile paths: random bytes written to `$HOME/tok`, or a
+/// binary `go install` stamps with the time, diverge on every execution
+/// and never become replayable.
+#[test]
+fn t10_nondeterministic_writes_under_home_or_gopath_never_replay() {
+    if !enabled() {
+        return;
+    }
+    let mut env = Env::new();
+    env.run_defaults.clear();
+    let tok = r#"mkdir -p "$HOME" && head -c 16 /dev/urandom > "$HOME/tok"; echo done"#;
+    for i in 0..3 {
+        let o = env.run_step(tok, REPLAY);
+        assert!(
+            o.executed() && !o.hit() && o.code == 0,
+            "run {i}: {}",
+            o.stderr
+        );
+        if i > 0 {
+            assert!(
+                o.stderr.contains("STILLPASS  DIVERGENCE")
+                    && o.stderr.contains(".stillpass/home/tok changed"),
+                "run {i}: {}",
+                o.stderr
+            );
+        }
+    }
+    env.write(
+        "cmd/tool/main.go",
+        "package main\n\nvar built string\n\nfunc main() { println(built) }\n",
+    );
+    let install =
+        r#"go install -ldflags "-X main.built=$(date +%s%N)" ./cmd/tool && echo installed"#;
+    for i in 0..3 {
+        let o = env.run_step(install, REPLAY);
+        assert!(
+            o.executed() && !o.hit() && o.code == 0,
+            "run {i}: {}",
+            o.stderr
+        );
+        if i > 0 {
+            assert!(
+                o.stderr.contains("STILLPASS  DIVERGENCE")
+                    && o.stderr.contains(".stillpass/gopath/bin/tool changed"),
+                "run {i}: {}",
+                o.stderr
+            );
+        }
+    }
+    println!("T10 ok: random bytes in HOME and a time-stamped go install never became replayable");
 }
 
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {

@@ -59,7 +59,7 @@ STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_TOOLCHAIN="$tc" S
   STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-10}" \
   cargo test -q --release -p sp-cli --test acceptance -- --exact acceptance --nocapture 2>&1 \
   | grep -E '^(step A|A[0-9]|P[0-9]|W[0-9]|W:|acceptance|manifest:|\$ stillpass|STILLPASS|  )|panicked|assertion|FAILED|test result'
-echo "== trust suite T1-T9 (tiny module)"
+echo "== trust suite (tiny Go module)"
 # Its temp repos get their own deps dirs inside their temp states.
 env -u STILLPASS_DEPS_DIR STILLPASS_INTEGRATION=1 cargo test -q --release -p sp-cli --test trust -- --nocapture --test-threads=1 2>&1 \
   | grep -E '^(T[0-9]|\$ stillpass|STILLPASS|  )|panicked|assertion|FAILED|test result'
