@@ -41,6 +41,12 @@ pub struct BenchArgs {
     /// Skip the hit-rate series (A11).
     #[arg(long)]
     no_hit_rate: bool,
+    /// Hit rate: also run every commit plain (same sandbox, no observer)
+    /// and count that measured wall as the plain runner's time, instead of
+    /// estimating it from the observed run (which overstates it by the
+    /// observer's overhead on misses).
+    #[arg(long)]
+    measure_plain: bool,
     /// Also measure miss latency on a one-file change, cold vs --warm.
     #[arg(long)]
     one_file: bool,
@@ -223,7 +229,13 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         let (label, env) = &series[s];
         let load_before = loadavg();
         let wall = match env {
-            None => plain_run(cfg.profile, &tree, work, &cfg.step, i)?,
+            None => {
+                let (wall, code) = plain_run(cfg.profile, &tree, work, &cfg.step, i)?;
+                if code != 0 {
+                    bail!("plain run {i} exited {code}; the baseline must pass");
+                }
+                wall
+            }
             Some(env) => {
                 // Observed: full path, ledger cleared each time so every run
                 // misses. The CAS persists, as it would between CI runs.
@@ -399,6 +411,37 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         )?;
     }
     writeln!(t)?;
+    // What the step asked the observer for: absent lookups are the probe
+    // storms (sys.path, node_modules resolution, config search) that turn
+    // into `a` entries; repeats of one path carry no new information.
+    writeln!(
+        t,
+        "Observer requests and manifest size, median per run:\n\n| Series | Inputs recorded | Lookups | Absent lookups | Getattr | Opens | Readdirs | Reads |\n| --- | --- | --- | --- | --- | --- | --- | --- |"
+    )?;
+    for s in 1..series.len() {
+        let m = |field: &str, from: &[Value]| {
+            let v: Vec<f64> = from
+                .iter()
+                .skip(1)
+                .map(|e| e[field].as_f64().unwrap_or(f64::NAN))
+                .collect();
+            median(&v)
+        };
+        let o = &observers[s];
+        writeln!(
+            t,
+            "| {} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} |",
+            series[s].0,
+            m("inputs", &events[s]),
+            m("lookup", o),
+            m("lookup_absent", o),
+            m("getattr", o),
+            m("open", o),
+            m("readdir", o),
+            m("read", o),
+        )?;
+    }
+    writeln!(t)?;
     let line = format!(
         "Observer overhead (0a, host): median {:+.1}%, p95 {:+.1}% (plain {pm:.2}s, observed {om:.2}s)",
         ratio * 100.0,
@@ -410,14 +453,14 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
 
 /// One plain run: no FUSE, no overlay; a fresh copy of the tree with the
 /// profile's caches empty, in the same sandbox, uid and env as the observed
-/// path. That isolates the observer.
+/// path. That isolates the observer. Returns the wall time and exit code.
 fn plain_run(
     profile: &Profile,
     tree: &Path,
     work: &Path,
     step: &str,
     i: usize,
-) -> anyhow::Result<f64> {
+) -> anyhow::Result<(f64, i32)> {
     let copy = work.join(format!("plain-{i}"));
     cp(tree, &copy)?;
     let out = work.join(format!("plain-{i}.log"));
@@ -438,14 +481,8 @@ fn plain_run(
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;
-    if r.exit_code != 0 {
-        bail!(
-            "plain run {i} exited {}; the baseline must pass",
-            r.exit_code
-        );
-    }
     sp_cas::remove_any(&copy)?;
-    Ok(r.wall.as_secs_f64())
+    Ok((r.wall.as_secs_f64(), r.exit_code))
 }
 
 /// A11: the last N first-parent commits, oldest first, ledger persisting.
@@ -477,9 +514,21 @@ fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         let s = run_step(exe, &state, &tree, cfg, &["--commit", c], &[])?;
         let hit = s.event["hit"].as_bool().unwrap_or(false);
         let wall = s.wall.as_secs_f64();
-        // What a plain runner would have spent: the execution itself on a
-        // miss, the recorded duration of the matched result on a hit.
-        let plain = if hit {
+        // What a plain runner would have spent: measured on a copy of this
+        // commit's tree with --measure-plain; otherwise estimated as the
+        // execution itself on a miss and the matched result's recorded
+        // duration on a hit (both observed, so high by the overhead).
+        let plain = if args.measure_plain {
+            let (w, code) = plain_run(cfg.profile, &tree, work, &cfg.step, i)?;
+            if code != 0 {
+                eprintln!(
+                    "history {}/{}: plain run exited {code}; its wall time still counts",
+                    i + 1,
+                    commits.len()
+                );
+            }
+            w
+        } else if hit {
             s.event["recorded_ms"].as_f64().unwrap_or(0.0) / 1000.0
         } else {
             s.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0
@@ -492,13 +541,19 @@ fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         } else {
             misses.push((c.clone(), mismatch.clone()));
         }
+        let code = s.event["exit_code"].as_i64().unwrap_or(-1);
+        let status = match (hit, code) {
+            (true, 0) => "HIT".to_string(),
+            (true, c) => format!("HIT (exit {c})"),
+            (false, 0) => "miss".to_string(),
+            (false, c) => format!("miss (exit {c})"),
+        };
         writeln!(
             rows,
-            "| {} | `{}` | {} | {} | {wall:.1}s | {plain:.1}s | {} |",
+            "| {} | `{}` | {} | {status} | {wall:.1}s | {plain:.1}s | {} |",
             i + 1,
             &c[..10],
             md_cell(&subject, 50),
-            if hit { "HIT" } else { "miss" },
             if mismatch.is_empty() {
                 "-".to_string()
             } else {
@@ -506,19 +561,23 @@ fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
             }
         )?;
         eprintln!(
-            "history {}/{} {} {}",
+            "history {}/{} {} {status} wall {wall:.1}s plain {plain:.1}s {mismatch}",
             i + 1,
             commits.len(),
             &c[..10],
-            if hit { "HIT" } else { "miss" }
         );
     }
     let saved = (1.0 - stillpass_s / plain_s) * 100.0;
     let mut t = String::new();
     writeln!(t, "## Hit rate (A11)\n")?;
+    let plain_note = if args.measure_plain {
+        "\"Plain runner\" is measured: the same step on a copy of the commit's tree, in the same sandbox without the observer."
+    } else {
+        "\"Plain runner\" is estimated: the observed execution time on a miss (high by the observer's overhead) and the matched result's recorded duration on a hit."
+    };
     writeln!(
         t,
-        "Last {} first-parent commits, oldest first; step A runs on every commit, step B through the full path with the ledger persisting. Reported, no target. \"Plain runner\" is the observed execution time on a miss (slightly high: it includes observer overhead) and the matched result's recorded duration on a hit.\n",
+        "Last {} first-parent commits, oldest first; step A runs on every commit, step B through the full path with the ledger persisting. Reported, no target. {plain_note} \"Stillpass wall\" is the whole `stillpass run` (fingerprint, import, lookup, then replay or execute and record).\n",
         commits.len()
     )?;
     writeln!(
