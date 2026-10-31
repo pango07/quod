@@ -100,6 +100,7 @@ A result replays only after the same inputs produced the same result twice
 default 5%), and any divergence quarantines the step key until it proves
 itself again. `--timeout` (default 30m) kills a step that runs too long and
 records nothing. `--allow-net` runs a step with network, unmemoized, with
-its caches in the state dir rather than the checkout.
+its dependency trees (module cache, venv) in the state dir rather than the
+checkout.
 
 See `DECISIONS.md` for the record of choices made along the way.

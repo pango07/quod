@@ -212,7 +212,7 @@ pub fn run_step(
 
     // Replay only what the trust layer allows (module docs).
     let trust = Trust::new(ledger, cas, req.policy()?)?;
-    let ignore = ignored_outputs(&env);
+    let ignore = ignored_outputs(spec.profile(), &env, &tree);
     let cmd_text = shell_join(&req.cmd);
     let tstep = Step {
         key,

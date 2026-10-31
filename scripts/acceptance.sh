@@ -25,6 +25,10 @@ repo=${2:-${STILLPASS_SPIKE_DIR:-$root/target/corpus-$tc}}
 if [ ! -d "$repo/.git" ]; then git clone -q "$url" "$repo"; fi
 git -C "$repo" fetch -q origin "$commit" 2>/dev/null || true
 git -C "$repo" checkout -q --detach "$commit"
+# A legacy `.stillpass/` the state dir already supersedes stays in the
+# checkout (adoption never overwrites); the suite's `git add -A` must not
+# commit it.
+grep -qx '.stillpass/' "$repo/.git/info/exclude" || echo '.stillpass/' >> "$repo/.git/info/exclude"
 cd "$root"
 cargo build -q --release -p sp-cli
 sp=${CARGO_TARGET_DIR:-$root/target}/release/stillpass

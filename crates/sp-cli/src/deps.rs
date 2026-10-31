@@ -96,18 +96,6 @@ pub fn toplevel(from: &Path) -> Option<PathBuf> {
         .then(|| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
 }
 
-/// The directories the step env names under `/workspace/.stillpass/`:
-/// (name, variable), e.g. `("gomod", "GOMODCACHE")`.
-pub fn cache_dirs(env: &[(String, String)]) -> Vec<(String, String)> {
-    let prefix = format!("{}/{DOT}/", sp_key::WORKSPACE);
-    env.iter()
-        .filter_map(|(k, v)| {
-            let name = v.strip_prefix(&prefix)?.trim_end_matches('/');
-            (!name.is_empty() && !name.contains('/')).then(|| (name.to_string(), k.clone()))
-        })
-        .collect()
-}
-
 /// The profile's dependency trees kept under `.stillpass/` (its seed
 /// dirs there), as names: what an observed step is served from the state
 /// dir. Scratch (`ephemeral`) and download caches (`setup_cache`) are not.

@@ -290,16 +290,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let mut phases = Phases::default();
     ledger.put_step_key(&key, &sp_key::canonical_key_json(&spec)?)?;
     let trust = Trust::new(&ledger, &cas, policy)?;
-    let ignore = ignored_outputs(&env);
+
+    let t = Instant::now();
+    let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
+    phases.import = t.elapsed();
+    let ignore = ignored_outputs(spec.profile(), &env, &tree);
     let tstep = Step {
         key,
         cmd: &step,
         ignore: &ignore,
     };
-
-    let t = Instant::now();
-    let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
-    phases.import = t.elapsed();
 
     let t = Instant::now();
     let lookup = ledger.find_match(&key, &tree)?;

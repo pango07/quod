@@ -103,7 +103,7 @@ fn render(
     let executed_n = n("miss") + n("proving") + n("unprovable") + n("audit") + n("diverged");
     writeln!(
         o,
-        "  executed {} ({}): {} miss, {} proving, {} unprovable, {} audit, {} diverged; {} timed out, {} killed, {} network, {} unknown",
+        "  executed {} ({}): {} miss, {} proving, {} unprovable, {} audit, {} diverged; {} timed out, {} killed, {} tainted by a sealed write, {} network, {} unknown",
         executed_n,
         fmt_duration(executed),
         n("miss"),
@@ -113,6 +113,7 @@ fn render(
         n("diverged"),
         n("timeout"),
         n("killed"),
+        n("tainted"),
         n("net"),
         n("unknown")
     )?;

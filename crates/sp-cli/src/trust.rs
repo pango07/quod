@@ -4,6 +4,8 @@
 use std::time::Duration;
 
 use clap::Args;
+use sp_cas::Tree;
+use sp_key::Profile;
 use sp_trust::{Mode, Policy, TrustError};
 
 /// `--mode`, `--proofs`, `--audit`: shared by `run` (and read from
@@ -28,7 +30,13 @@ pub struct PolicyArgs {
     /// by default: an identical failure can be the box (load, a hang to go
     /// test's timeout), not the code. Output with a kill or timeout marker
     /// never replays either way.
-    #[arg(long, env = "STILLPASS_REPLAY_FAILURES")]
+    /// STILLPASS_REPLAY_FAILURES takes 1/0, true/false, yes/no, on/off.
+    #[arg(
+        long,
+        env = "STILLPASS_REPLAY_FAILURES",
+        action = clap::ArgAction::SetTrue,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
     replay_failures: bool,
 }
 
@@ -89,27 +97,43 @@ pub const HOME_VOLATILE: &[&str] = &[
 ];
 
 /// Output prefixes the trust layer leaves out when comparing two results:
-/// the directories Stillpass provides the step as scratch, which start
-/// empty (or, for the module cache, sealed) on every execution and hold
-/// per-execution state rather than results. The build cache (GOCACHE)
-/// whole, which go stamps with times; of the module cache only its `cache/`
-/// directory, where go writes (the rest is a sealed input); of HOME only
-/// the `HOME_VOLATILE` paths. They are still recorded as outputs; only the
-/// comparison skips them, and `--outputs` does not write them.
-pub fn ignored_outputs(env: &[(String, String)]) -> Vec<String> {
+/// what Stillpass provides the step as scratch, which starts empty (or
+/// sealed) on every execution and holds per-execution state rather than
+/// results. A directory the env names that the profile calls scratch
+/// (`ephemeral`: Go's build cache, which go stamps with times) or a
+/// download cache (`setup_cache`: npm's, which holds its debug logs; pip's
+/// and uv's), whole; the carve-outs of the sealed dependency trees this
+/// tree has, where the tool keeps its own caches (Go's module download
+/// cache, vitest's results under node_modules/.vite); of HOME only the
+/// `HOME_VOLATILE` paths. Everything else is compared, GOPATH (go
+/// install's binaries) and a venv included. They are still recorded as
+/// outputs; only the comparison skips them, and `--outputs` does not write
+/// them. A directory the env does not point at is compared: a runner's own
+/// env (the runner API) decides what is scratch, not the profile's.
+/// Outputs a profile forbids (`no_outputs_under`) never get this far: they
+/// are dropped before a result is recorded.
+pub fn ignored_outputs(profile: &Profile, env: &[(String, String)], tree: &Tree) -> Vec<String> {
     let mut out = Vec::new();
-    for (name, var) in crate::deps::cache_dirs(env) {
-        match var.as_str() {
-            "GOCACHE" => out.push(format!(".stillpass/{name}")),
-            "GOMODCACHE" => out.push(format!(".stillpass/{name}/cache")),
-            "HOME" => out.extend(
-                HOME_VOLATILE
-                    .iter()
-                    .map(|v| format!(".stillpass/{name}/{v}")),
-            ),
-            _ => {}
+    for (var, value) in env {
+        let Some(dir) = sp_key::profile::workspace_relative(value) else {
+            continue;
+        };
+        if var == "HOME" {
+            out.extend(HOME_VOLATILE.iter().map(|v| format!("{dir}/{v}")));
+        } else if profile
+            .ephemeral
+            .iter()
+            .chain(profile.setup_cache)
+            .any(|d| *d == dir)
+        {
+            out.push(dir);
         }
     }
+    for s in profile.seals(tree) {
+        out.extend(s.carve_outs);
+    }
+    out.sort();
+    out.dedup();
     out
 }
 
@@ -134,6 +158,8 @@ pub fn shell_join(cmd: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sp_cas::{Entry, Hash};
+    use sp_key::Toolchain;
 
     #[test]
     fn timeouts() {
@@ -170,9 +196,13 @@ mod tests {
 
     #[test]
     fn ignored_outputs_are_the_build_cache_the_module_cache_carve_out_and_volatile_home() {
-        let env = sp_key::Toolchain::Go.profile().env_vec();
-        let mut got = ignored_outputs(&env);
-        got.sort();
+        let go = Toolchain::Go.profile();
+        let tree = Tree::from_leaves([
+            Entry::file("go.mod", Hash::of(b"m"), 0o644),
+            Entry::file(".stillpass/gomod/a.b/c@v1/x.go", Hash::of(b"x"), 0o444),
+            Entry::file(".stillpass/gomod/cache/download/x", Hash::of(b"d"), 0o444),
+        ]);
+        let got = ignored_outputs(go, &go.env_vec(), &tree);
         assert_eq!(
             got,
             [
@@ -200,5 +230,57 @@ mod tests {
         })
         .collect();
         assert_eq!(kept.len(), 4, "{kept:?}");
+        // Without a module cache in the tree there is no carve-out to skip.
+        let bare = Tree::from_leaves([Entry::file("go.mod", Hash::of(b"m"), 0o644)]);
+        assert!(
+            !ignored_outputs(go, &go.env_vec(), &bare).contains(&".stillpass/gomod/cache".into())
+        );
+        // A runner's env that puts the build cache elsewhere gets it compared.
+        let mut env = go.env_vec();
+        env.retain(|(k, _)| k != "GOCACHE");
+        env.push(("GOCACHE".into(), "/workspace/build-cache".into()));
+        let got = ignored_outputs(go, &env, &tree);
+        assert!(
+            !got.iter()
+                .any(|g| g == ".stillpass/gocache" || g == "build-cache"),
+            "{got:?}"
+        );
+    }
+
+    /// Node: npm's cache (its debug logs) and the carve-outs of every sealed
+    /// node_modules; Python: pip's and uv's caches, the venv compared.
+    #[test]
+    fn ignored_outputs_follow_the_profile() {
+        let node = Toolchain::Node.profile();
+        let tree = Tree::from_leaves([
+            Entry::file("package.json", Hash::of(b"p"), 0o644),
+            Entry::file("node_modules/dep/index.js", Hash::of(b"i"), 0o644),
+            Entry::file("web/node_modules/x/index.js", Hash::of(b"x"), 0o644),
+        ]);
+        let got = ignored_outputs(node, &node.env_vec(), &tree);
+        for want in [
+            ".stillpass/npm-cache",
+            "node_modules/.vite",
+            "node_modules/.vitest",
+            "web/node_modules/.vite",
+        ] {
+            assert!(got.contains(&want.to_string()), "{want}: {got:?}");
+        }
+        assert!(
+            !got.iter()
+                .any(|g| g == "node_modules" || g == "node_modules/dep")
+        );
+        let py = Toolchain::Python.profile();
+        let tree = Tree::from_leaves([
+            Entry::file("pyproject.toml", Hash::of(b"p"), 0o644),
+            Entry::file(".stillpass/venv/bin/python", Hash::of(b"b"), 0o755),
+        ]);
+        let got = ignored_outputs(py, &py.env_vec(), &tree);
+        assert!(got.contains(&".stillpass/pip-cache".to_string()), "{got:?}");
+        assert!(got.contains(&".stillpass/uv-cache".to_string()), "{got:?}");
+        assert!(
+            !got.iter().any(|g| g.starts_with(".stillpass/venv")),
+            "{got:?}"
+        );
     }
 }
