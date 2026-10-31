@@ -35,6 +35,7 @@ arguments, then unsupported claims).
 
 | exp/runner: actions/runner container hooks (tip a2bc909) | `merge-base(main)..a2bc909` | DO NOT MERGE: uid not in key (false hit); offline sandbox results recorded as the step's (network failures, `\|\| true` side effects, missing .git, overridden workflow vars); raw pre-mask output of token-bearing steps stored; docker.sock bound into tainted steps; shared writable warm GOCACHE across forks; ref resolution can serve the wrong commit; gate logs not committed | - | pending |
 
+| exp/polyglot fixes (fcda366): content-derived mtimes, no_outputs_under enforced, strict normalizer, corrected docs | `1dbe6a2..fcda366` | fixes reported; must port content_mtime to the io_uring attr encoder on rebase; verification review after rebase | - | pending |
 | exp/polyglot: toolchain profiles, Node (luxon) and Python (starlette) | `merge-base(main)..1e92709` | merge after fixes, no false hit (stale-pyc refuted): mtime-keyed caches trusted under constant mtime record wrong results; sealed snapshots expose host readdir order (latent cross-host, same class as rootfs M1); unsupported "measured payoff" claims | - | pending |
 
 Builders on Opus since the Fable limit (their branches will be listed here when
