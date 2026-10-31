@@ -6,7 +6,9 @@
 //! the event, the sha and the ref at import.
 //!
 //! Each blob is scanned once for a fixed pattern set and the answer is
-//! memoized in the store (`<cas>/scan-v1/<hh>/<hash>`); a withheld name the
+//! memoized in the store (`<cas>/scan-<set>/<hh>/<hash>`, `<set>` a hash
+//! of the pattern set, so a changed set never reads an old answer); a
+//! withheld name the
 //! set does not cover (a token in a variable of another name) is scanned
 //! for directly.
 
@@ -16,8 +18,6 @@ use std::path::PathBuf;
 use aho_corasick::AhoCorasick;
 use anyhow::Context;
 use sp_cas::{Cas, Hash};
-
-const MEMO: &str = "scan-v1";
 
 /// Prefix families: a match on one stands for every name it starts.
 const FAMILIES: &[&str] = &["GITHUB_RUN_", "ACTIONS_"];
@@ -44,9 +44,16 @@ fn patterns() -> Vec<String> {
     p
 }
 
+/// The memo's directory: named after the pattern set (and the matcher's
+/// rules, `v2`), so answers computed for another set are never reused.
+fn memo_dir(cas: &Cas) -> PathBuf {
+    let set = Hash::of(format!("stillpass scan v2\0{}", patterns().join("\0")).as_bytes());
+    cas.dir().join(format!("scan-{}", &set.hex()[..16]))
+}
+
 fn memo_path(cas: &Cas, h: &Hash) -> PathBuf {
     let hex = h.hex();
-    cas.dir().join(MEMO).join(&hex[..2]).join(hex)
+    memo_dir(cas).join(&hex[..2]).join(hex)
 }
 
 /// The patterns `h`'s blob contains (memoized).
@@ -154,15 +161,17 @@ pub fn referenced_by(
 /// Is this a file whose content can make a program read an environment
 /// variable (code, a script, a config a tool interprets), as opposed to
 /// pure data? Everything is, except documents and images, and the
-/// repository's `.github/` automation (workflow definitions the runner
-/// already evaluated, read by a step only as data, as `git status` does
-/// when go build stamps VCS information).
+/// repository's workflow definitions (`.github/workflows/*.yml`, which the
+/// runner already evaluated; a step reads them only as data, as `git
+/// status` does when go build stamps VCS information). The rest of
+/// `.github/` is scanned like any code: a local action
+/// (`./.github/actions/x/dist/index.js`) runs and can read `$GITHUB_SHA`.
+/// Text files are scanned too (a `.txt` can be a script's input).
 pub fn may_drive_a_program(path: &str) -> bool {
     const DATA: &[&str] = &[
         ".md",
         ".markdown",
         ".rst",
-        ".txt",
         ".png",
         ".jpg",
         ".jpeg",
@@ -173,7 +182,10 @@ pub fn may_drive_a_program(path: &str) -> bool {
         ".webp",
     ];
     let lower = path.to_ascii_lowercase();
-    !(lower.starts_with(".github/") || DATA.iter().any(|d| lower.ends_with(d)))
+    let workflow = lower
+        .strip_prefix(".github/workflows/")
+        .is_some_and(|f| !f.contains('/') && (f.ends_with(".yml") || f.ends_with(".yaml")));
+    !(workflow || DATA.iter().any(|d| lower.ends_with(d)))
 }
 
 /// Which of `withheld` (and `@actions/github`) the blobs name.
@@ -223,6 +235,41 @@ pub fn referenced(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_is_scanned() {
+        // Code anywhere, .github/ included: a local action runs.
+        for scanned in [
+            ".github/actions/x/dist/index.js",
+            ".github/workflows/scripts/bump-go.sh",
+            ".github/workflows/sub/inner.yml",
+            "notes.txt",
+            "cmd/main.go",
+            "go.mod",
+        ] {
+            assert!(may_drive_a_program(scanned), "{scanned}");
+        }
+        // Only the workflow definitions and documents or images are data.
+        for data in [
+            ".github/workflows/go.yml",
+            ".github/workflows/Release.YAML",
+            "README.md",
+            "docs/logo.png",
+        ] {
+            assert!(!may_drive_a_program(data), "{data}");
+        }
+        // The memo is named after the pattern set.
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path()).unwrap();
+        let d = memo_dir(&cas);
+        assert!(
+            d.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("scan-")
+        );
+        assert_ne!(d.file_name().unwrap(), "scan-v1");
+    }
 
     #[test]
     fn names_in_files_and_the_memo() {
