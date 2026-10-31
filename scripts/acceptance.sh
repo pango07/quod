@@ -25,4 +25,4 @@ rm -rf "$repo/.stillpass/gocache" "$repo/.stillpass/home"
 echo "== A1-A7 on $url@${commit:0:12}"
 STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-10}" \
   cargo test -q --release -p sp-cli --test acceptance -- --nocapture 2>&1 \
-  | grep -E '^(A[0-9]|acceptance|\$ stillpass|STILLPASS|  )|panicked|FAILED|test result'
+  | grep -E '^(A[0-9]|W[0-9]|acceptance|\$ stillpass|STILLPASS|  )|panicked|assertion|FAILED|test result'

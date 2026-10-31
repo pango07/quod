@@ -44,7 +44,18 @@ pub struct RunArgs {
     /// replay). By default the step's workspace is discarded after the step.
     #[arg(long)]
     outputs: Option<PathBuf>,
-    /// Keep the run directory (lower, upper, merged) after the step.
+    /// Warm state: start Go with the build cache earlier warm runs left
+    /// behind (a host directory bound over GOCACHE) instead of an empty one,
+    /// so only what changed is recompiled. Not observed and not an output:
+    /// Go's cache is keyed by content hashes, so a correct cache cannot
+    /// change a result (see DECISIONS.md). Uses its own step key: the env
+    /// turns off Go's path-keyed caches (GOFLAGS gains -count=1,
+    /// GODEBUG=goindex=0). Ignored with --allow-net.
+    #[arg(long)]
+    warm: bool,
+    /// Keep the run directory (lower, upper, merged) after the step. Output
+    /// files are moved into the CAS at step end, so the upper keeps only
+    /// directories, symlinks, whiteouts and duplicates of existing blobs.
     #[arg(long)]
     keep: bool,
 }
@@ -83,7 +94,12 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let wall_start = Instant::now();
     let extra_env = parse_env(&args.env)?;
     let image = host_image()?;
-    let spec = StepSpec::spike(image, &args.step, &extra_env);
+    let warm = args.warm && !args.allow_net;
+    let spec = if warm {
+        StepSpec::spike_warm(image, &args.step, &extra_env)?
+    } else {
+        StepSpec::spike(image, &args.step, &extra_env)
+    };
     let key = step_key(&spec)?;
     let env = spec.normalized_env()?;
     let run_id = ulid::Ulid::generate().to_string();
@@ -133,13 +149,23 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             wall_start.elapsed(),
             code,
             manifest.entries.len(),
+            warm,
         );
         return Ok(exit_byte(code));
     }
 
     let start = Instant::now();
     let dir = state.run_dir(&run_id);
-    let outcome = execute(&cas, &tree, &spec, env, &dir, &mut phases);
+    let warm_dir = warm.then(|| state.warm_gocache_dir(&image));
+    let outcome = execute(
+        &cas,
+        &tree,
+        &spec,
+        env,
+        &dir,
+        warm_dir.as_deref(),
+        &mut phases,
+    );
     let (exit_code, signal, manifest, outputs, wall, stdout, stderr) = match outcome {
         Ok(v) => v,
         Err(e) => {
@@ -184,7 +210,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         sp_cas::remove_any(&dir)?;
     }
 
-    eprint!("{}", executed_banner(&key, &mid, &manifest, &lookup, wall));
+    eprint!(
+        "{}",
+        executed_banner(&key, &mid, &manifest, &lookup, wall, warm_dir.as_deref())
+    );
     emit_event(
         &run_id,
         &key,
@@ -195,6 +224,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         start.elapsed(),
         exit_code,
         manifest.entries.len(),
+        warm,
     );
     Ok(exit_byte(exit_code))
 }
@@ -210,12 +240,16 @@ type Executed = (
 );
 
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
+/// With `warm`, that host directory is bound over the step's GOCACHE, on top
+/// of the overlay: Go reads and writes it directly, unobserved, and it
+/// persists for the next warm run.
 fn execute(
     cas: &Cas,
     tree: &Tree,
     spec: &StepSpec,
     env: Vec<(String, String)>,
     dir: &Path,
+    warm: Option<&Path>,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -228,6 +262,24 @@ fn execute(
         &dir.join("work"),
         &dir.join("merged"),
     )?;
+    let mut mounts = vec![Mount {
+        src: ov.merged().to_path_buf(),
+        dst: sp_key::WORKSPACE.into(),
+        writable: true,
+    }];
+    if let Some(warm) = warm {
+        let gocache = env
+            .iter()
+            .find(|(k, _)| k == "GOCACHE")
+            .map(|(_, v)| v.clone())
+            .context("warm state needs GOCACHE in the step env")?;
+        std::fs::create_dir_all(warm).with_context(|| format!("create {}", warm.display()))?;
+        mounts.push(Mount {
+            src: warm.to_path_buf(),
+            dst: gocache.into(),
+            writable: true,
+        });
+    }
     phases.mount = t.elapsed();
 
     let t = Instant::now();
@@ -235,11 +287,7 @@ fn execute(
         cmd: spec.cmd.clone(),
         cwd: spec.cwd.clone(),
         env,
-        mounts: vec![Mount {
-            src: ov.merged().to_path_buf(),
-            dst: sp_key::WORKSPACE.into(),
-            writable: true,
-        }],
+        mounts,
         egress: false,
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
@@ -251,7 +299,11 @@ fn execute(
 
     let t = Instant::now();
     let outputs = ov.finish(tree, cas)?;
-    let log = served.unmount()?;
+    let mut log = served.unmount()?;
+    if warm.is_some() {
+        // What a cached vet verdict may stand in for (see sp_key::go_source_file).
+        sp_manifest::record_children(tree, &mut log, sp_key::go_source_file);
+    }
     let manifest = Manifest::from_log(spec_key(spec)?, spec.roots.clone(), tree, log)?;
     // Blobs before the result that names them.
     let (stdout, _) = cas.put_file(&dir.join("stdout"))?;
@@ -317,6 +369,7 @@ fn executed_banner(
     m: &Manifest,
     lookup: &Lookup,
     wall: Duration,
+    warm: Option<&Path>,
 ) -> String {
     let mut s = String::from("STILLPASS  EXECUTED\n");
     s += &format!(
@@ -325,6 +378,9 @@ fn executed_banner(
         mid.short(),
         group(m.entries.len())
     );
+    if let Some(w) = warm {
+        s += &format!("  warm build cache {}\n", w.display());
+    }
     match &lookup.closest {
         Some((id, mm)) => {
             s += &format!(
@@ -352,6 +408,7 @@ fn emit_event(
     total: Duration,
     exit_code: i32,
     inputs: usize,
+    warm: bool,
 ) {
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     tracing::info!(
@@ -360,6 +417,7 @@ fn emit_event(
         step_key = %key,
         manifest_id = manifest.map(|m| m.to_string()),
         hit,
+        warm,
         exit_code,
         inputs,
         candidates = lookup.candidates,

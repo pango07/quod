@@ -28,6 +28,57 @@ impl Write for HashingWriter<'_> {
 /// Files at or below this size are read whole; larger ones are streamed.
 const STREAM_THRESHOLD: u64 = 1 << 20;
 
+/// The mode every blob gets, however it arrived (see `take_files`).
+const BLOB_MODE: u32 = 0o644;
+
+/// A file's identity as `take_files` saw it. The inode says it is the same
+/// file; size and mtime say nothing wrote to it (rename and chmod change
+/// neither, so the check survives the move).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Stamp {
+    ino: u64,
+    size: u64,
+    mtime: (i64, i64),
+}
+
+impl Stamp {
+    fn of(m: &fs::Metadata) -> Stamp {
+        Stamp {
+            ino: m.ino(),
+            size: m.len(),
+            mtime: (m.mtime(), m.mtime_nsec()),
+        }
+    }
+}
+
+/// What phase one of `take_files` learned about a file.
+#[derive(Clone, Copy)]
+struct Taken {
+    h: Hash,
+    new: bool,
+    /// Has other links: copy it rather than move it.
+    copy: bool,
+    stamp: Stamp,
+}
+
+/// BLAKE3 of everything `r` yields, read in large chunks so hashing a file
+/// already in the page cache is bound by the hash, not by syscalls.
+fn hash_reader(r: &mut impl io::Read) -> io::Result<Hash> {
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 256 << 10];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                hasher.update(&buf[..n]);
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(Hash::from_blake3(hasher.finalize()))
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CasError {
     #[error("{path}: {source}")]
@@ -40,6 +91,8 @@ pub enum CasError {
     Unsupported(PathBuf),
     #[error("blob {0} is not in the store")]
     Missing(Hash),
+    #[error("{0:?} changed while it was being stored; nothing is recorded")]
+    Changed(PathBuf),
 }
 
 trait IoContext<T> {
@@ -148,6 +201,101 @@ impl Cas {
         Ok((h, size))
     }
 
+    /// Moves files into the store instead of copying them. For files the
+    /// caller owns and is finished with (an overlay upper dir): afterwards
+    /// each is gone unless its blob already existed, in which case it is left
+    /// alone. Returns (hash, new bytes) in input order.
+    ///
+    /// Three phases, so a blob name never points at bytes that are not on
+    /// disk (the same guarantee `put_file` gets from fsync and rename):
+    /// every file is hashed in place; `sync` is called once with the store's
+    /// directory and must flush that filesystem (the caller has syncfs(2));
+    /// then each new file is renamed to its blob path, a metadata operation.
+    /// Storing a step's outputs thus costs one read of the bytes and one
+    /// filesystem flush, not a second write and an fsync per file. Across
+    /// filesystems a file falls back to `put_file`, durable on its own.
+    ///
+    /// The bytes under a blob name must be the bytes that were hashed. The
+    /// caller guarantees nothing writes to these files any more; this
+    /// method checks it: each file's identity (inode, size, mtime) is taken
+    /// before hashing and compared after hashing and again on the blob after
+    /// the rename. Any difference removes the blob and fails with
+    /// `CasError::Changed`, so a run whose outputs moved under it records
+    /// nothing. A file with more than one link is copied, not moved, since
+    /// its other names could still write to it.
+    pub fn take_files(
+        &self,
+        files: &[PathBuf],
+        sync: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<Vec<(Hash, u64)>, CasError> {
+        let hashed = self.par_map(files, |path| {
+            let mut f = fs::File::open(path).at(path)?;
+            let meta = f.metadata().at(path)?;
+            let stamp = Stamp::of(&meta);
+            let h = hash_reader(&mut f).at(path)?;
+            if Stamp::of(&f.metadata().at(path)?) != stamp {
+                return Err(CasError::Changed(path.to_path_buf()));
+            }
+            let new = !self.has(&h);
+            let copy = meta.nlink() > 1;
+            // Every blob looks alike regardless of how it arrived: the mode a
+            // step gave its file must not decide whether the store can read it.
+            if new && !copy && meta.mode() & 0o777 != BLOB_MODE {
+                f.set_permissions(fs::Permissions::from_mode(BLOB_MODE))
+                    .at(path)?;
+            }
+            Ok(Taken {
+                h,
+                new,
+                copy,
+                stamp,
+            })
+        })?;
+        // One move per hash: a second file with the same new content stays
+        // where it is, like a file whose blob already existed.
+        let mut seen = std::collections::HashSet::new();
+        let moves: Vec<(&Path, Taken)> = files
+            .iter()
+            .zip(&hashed)
+            .filter(|(_, t)| t.new && seen.insert(t.h))
+            .map(|(p, t)| (p.as_path(), *t))
+            .collect();
+        if !moves.is_empty() {
+            sync(&self.dir).at(&self.dir)?;
+        }
+        self.par_map(&moves, |(path, t)| {
+            let changed = || CasError::Changed(path.to_path_buf());
+            if t.copy {
+                return (self.put_file(path)?.0 == t.h)
+                    .then_some(())
+                    .ok_or_else(changed);
+            }
+            let dest = self.blob_path(&t.h);
+            let parent = dest.parent().unwrap();
+            fs::create_dir_all(parent).at(parent)?;
+            match fs::rename(path, &dest) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+                    return (self.put_file(path)?.0 == t.h)
+                        .then_some(())
+                        .ok_or_else(changed);
+                }
+                Err(e) => return Err(e).at(&dest),
+            }
+            // The blob is the inode that was hashed, unchanged since; else
+            // it cannot stay under that name.
+            if Stamp::of(&fs::symlink_metadata(&dest).at(&dest)?) != t.stamp {
+                let _ = fs::remove_file(&dest);
+                return Err(changed());
+            }
+            Ok(())
+        })?;
+        Ok(hashed
+            .into_iter()
+            .map(|t| (t.h, if t.new { t.stamp.size } else { 0 }))
+            .collect())
+    }
+
     /// Copies a blob into `dest` (which must not exist).
     pub fn copy_out(&self, h: &Hash, dest: &Path) -> Result<(), CasError> {
         let src = self.blob_path(h);
@@ -249,21 +397,31 @@ impl Cas {
     /// `put_file` for many files in parallel. Returns (hash, new bytes) in
     /// input order.
     pub fn put_files(&self, files: &[PathBuf]) -> Result<Vec<(Hash, u64)>, CasError> {
+        self.par_map(files, |p| self.put_file(p))
+    }
+
+    /// Applies `f` to every item on a pool of threads; results in input
+    /// order, the first error wins.
+    fn par_map<I: Sync, T: Send + Clone>(
+        &self,
+        items: &[I],
+        f: impl Fn(&I) -> Result<T, CasError> + Sync,
+    ) -> Result<Vec<T>, CasError> {
         let n = std::thread::available_parallelism()
             .map_or(4, |n| n.get())
             .min(16);
         let next = AtomicUsize::new(0);
-        let out: Mutex<Vec<Option<(Hash, u64)>>> = Mutex::new(vec![None; files.len()]);
+        let out: Mutex<Vec<Option<T>>> = Mutex::new(vec![None; items.len()]);
         let first_err: Mutex<Option<CasError>> = Mutex::new(None);
         std::thread::scope(|s| {
             for _ in 0..n {
                 s.spawn(|| {
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= files.len() || first_err.lock().unwrap().is_some() {
+                        if i >= items.len() || first_err.lock().unwrap().is_some() {
                             break;
                         }
-                        match self.put_file(&files[i]) {
+                        match f(&items[i]) {
                             Ok(r) => out.lock().unwrap()[i] = Some(r),
                             Err(e) => {
                                 first_err.lock().unwrap().get_or_insert(e);

@@ -1,5 +1,5 @@
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
 
 use proptest::prelude::*;
@@ -89,6 +89,72 @@ fn import_is_stable_and_dedups() {
             .unwrap()
             .unwrap(),
         big
+    );
+}
+
+#[test]
+fn take_file_moves_new_blobs_and_leaves_duplicates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let out = tmp.path().join("out");
+    fs::create_dir(&out).unwrap();
+    fs::write(out.join("fresh"), b"fresh bytes").unwrap();
+    fs::set_permissions(out.join("fresh"), fs::Permissions::from_mode(0o600)).unwrap();
+    let big = vec![9u8; (1 << 20) + 3];
+    fs::write(out.join("big"), &big).unwrap();
+    let known = cas.put(b"already here").unwrap();
+    fs::write(out.join("dup"), b"already here").unwrap();
+
+    let mut synced = false;
+    let got = cas
+        .take_files(
+            &[out.join("fresh"), out.join("big"), out.join("dup")],
+            |d| {
+                // Stands in for syncfs: the store asks for the flush before any
+                // new file is renamed to its blob name.
+                assert!(d == cas.dir() && out.join("fresh").exists());
+                synced = true;
+                fs::File::open(d)?.sync_all()
+            },
+        )
+        .unwrap();
+    assert!(synced);
+    assert_eq!(got[0], (sp_cas::Hash::of(b"fresh bytes"), 11));
+    assert_eq!(got[1].1, big.len() as u64);
+    assert_eq!(got[2], (known, 0));
+    // New blobs moved; the duplicate stayed; the store reads back exactly.
+    assert!(!out.join("fresh").exists() && !out.join("big").exists());
+    assert!(out.join("dup").exists());
+    assert_eq!(cas.get(&got[0].0).unwrap().unwrap(), b"fresh bytes");
+    assert_eq!(cas.get(&got[1].0).unwrap().unwrap(), big);
+    // Whatever mode the step used, the blob has the store's.
+    let mode = fs::metadata(cas.blob_path(&got[0].0)).unwrap().mode() & 0o777;
+    assert_eq!(mode, 0o644);
+    // put_file of the same content agrees with the moved blob's hash.
+    fs::write(out.join("again"), b"fresh bytes").unwrap();
+    assert_eq!(cas.put_file(&out.join("again")).unwrap(), (got[0].0, 0));
+
+    // A hard-linked file is copied, not moved: its other name could still
+    // write to it. Two new files with the same content move only once.
+    fs::write(out.join("linked"), b"linked bytes").unwrap();
+    fs::hard_link(out.join("linked"), out.join("alias")).unwrap();
+    fs::write(out.join("twin1"), b"twins").unwrap();
+    fs::write(out.join("twin2"), b"twins").unwrap();
+    let got = cas
+        .take_files(
+            &[out.join("linked"), out.join("twin1"), out.join("twin2")],
+            |_| Ok(()),
+        )
+        .unwrap();
+    assert!(out.join("linked").exists() && out.join("alias").exists());
+    assert_eq!(cas.get(&got[0].0).unwrap().unwrap(), b"linked bytes");
+    assert_eq!(got[1].0, got[2].0);
+    assert_eq!(cas.get(&got[1].0).unwrap().unwrap(), b"twins");
+    assert!(out.join("twin1").exists() != out.join("twin2").exists());
+    assert_eq!(
+        fs::metadata(cas.blob_path(&got[1].0)).unwrap().nlink(),
+        1,
+        "the blob has one name"
     );
 }
 

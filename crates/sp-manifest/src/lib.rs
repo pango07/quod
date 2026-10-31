@@ -123,6 +123,31 @@ impl Manifest {
     }
 }
 
+/// Over-records: adds a read of every regular file whose parent directory the
+/// log already names (as `d`) and whose name satisfies `pick`, so a tool that
+/// might consult such files without the observer seeing it (a cached verdict
+/// standing in for a run that read them) still has them in the manifest.
+/// Paths the tree does not have as files are left alone. Idempotent.
+pub fn record_children(tree: &Tree, log: &mut Vec<Access>, pick: impl Fn(&str) -> bool) {
+    let dirs: BTreeSet<&str> = log
+        .iter()
+        .filter(|a| a.kind == Kind::Dir)
+        .map(|a| a.path.as_str())
+        .collect();
+    let mut extra = Vec::new();
+    for dir in dirs {
+        for (name, e) in tree.children(dir) {
+            if e.k == Kind::File && pick(name) {
+                extra.push(Access {
+                    path: e.p.clone(),
+                    kind: Kind::File,
+                });
+            }
+        }
+    }
+    log.extend(extra);
+}
+
 pub fn manifest_id(m: &Manifest) -> Result<Hash, ManifestError> {
     Ok(Hash::of(m.canonical_json()?.as_bytes()))
 }
@@ -274,6 +299,37 @@ mod tests {
             matches(&m, &t).is_err(),
             "an impossible log must never match"
         );
+    }
+
+    #[test]
+    fn record_children_adds_picked_files_of_listed_dirs_only() {
+        let t = Tree::from_leaves([
+            Entry::file("pkg/a.go", Hash::of(b"a"), 0o644),
+            Entry::file("pkg/a_windows.go", Hash::of(b"w"), 0o644),
+            Entry::file("pkg/README.md", Hash::of(b"r"), 0o644),
+            Entry::file("pkg/sub/b.go", Hash::of(b"b"), 0o644),
+            Entry::file("other/c.go", Hash::of(b"c"), 0o644),
+            Entry::symlink("pkg/link.go", "a.go"),
+        ]);
+        let mut l = log(&[("pkg", Kind::Dir), ("pkg/a.go", Kind::File)]);
+        record_children(&t, &mut l, |n| n.ends_with(".go"));
+        let mut got: Vec<&str> = l.iter().map(|a| a.path.as_str()).collect();
+        got.sort();
+        // Listed dir's .go files, no recursion, no symlinks, no other dirs.
+        assert_eq!(got, ["pkg", "pkg/a.go", "pkg/a.go", "pkg/a_windows.go"]);
+        let m = Manifest::from_log(Hash::of(b"k"), vec![], &t, l.clone()).unwrap();
+        assert_eq!(m.entries.len(), 3);
+        let before = l.len();
+        record_children(&t, &mut l, |n| n.ends_with(".go"));
+        assert_eq!(
+            Manifest::from_log(Hash::of(b"k"), vec![], &t, l.clone())
+                .unwrap()
+                .entries
+                .len(),
+            3,
+            "idempotent after dedup"
+        );
+        assert_eq!(l.len(), before + 2);
     }
 
     #[test]
