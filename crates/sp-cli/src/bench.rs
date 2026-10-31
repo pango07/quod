@@ -384,6 +384,7 @@ fn plain_run(tree: &Path, work: &Path, step: &str, i: usize) -> anyhow::Result<f
         stdout: out.with_extension("out"),
         stderr: out.with_extension("err"),
         echo: false,
+        rootfs: None,
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;

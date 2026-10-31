@@ -357,6 +357,7 @@ fn execute(
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
         echo: true,
+        rootfs: None,
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;
@@ -512,6 +513,7 @@ fn run_unobserved(
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
         echo: true,
+        rootfs: None,
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;

@@ -972,6 +972,7 @@ dependencies = [
 name = "sp-sandbox"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "tempfile",
  "thiserror",
  "tracing",

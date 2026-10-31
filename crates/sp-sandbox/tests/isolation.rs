@@ -2,9 +2,9 @@
 #![cfg(target_os = "linux")]
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use sp_sandbox::{Mount, RunSpec, run};
+use sp_sandbox::{Mount, RootFs, RunSpec, run};
 
 fn enabled() -> bool {
     let on = std::env::var("STILLPASS_INTEGRATION").is_ok_and(|v| v == "1");
@@ -31,6 +31,7 @@ fn spec(ws: &Path, out: &Path, script: &str, egress: bool) -> RunSpec {
         stdout: out.join("stdout"),
         stderr: out.join("stderr"),
         echo: false,
+        rootfs: None,
         identity: None,
     }
 }
@@ -200,6 +201,159 @@ fn a_sandbox_that_never_starts_the_step_is_an_error_not_a_result() {
         Err(sp_sandbox::SandboxError::DidNotStart { .. }) => {}
         other => panic!("expected DidNotStart, got {other:?}"),
     }
+}
+
+/// A minimal rootfs made from the host's own `sh`, `cat` and `id` plus the
+/// libraries `ldd` names, laid out at their host paths (with the host's
+/// top-level symlinks such as `bin -> usr/bin`), and an /etc of our making.
+fn mini_rootfs(dir: &Path) {
+    // Where a host path lives in the rootfs: through the host's top-level
+    // symlink if there is one (`/lib/x` is `usr/lib/x` on a merged-usr host).
+    let place = |host: &Path| -> PathBuf {
+        let rel = host.strip_prefix("/").unwrap();
+        let mut parts = rel.components();
+        let first = parts.next().unwrap().as_os_str().to_owned();
+        let base = match fs::read_link(Path::new("/").join(&first)) {
+            Ok(target) => dir.join(target),
+            Err(_) => dir.join(&first),
+        };
+        base.join(parts.as_path())
+    };
+    // Copies a host file (the content of its final target) and, when the
+    // host path itself is a symlink, that symlink too.
+    let bring = |host: &Path| {
+        let real = fs::canonicalize(host).unwrap();
+        let dest = place(&real);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        if !dest.exists() {
+            fs::copy(&real, &dest).unwrap_or_else(|e| panic!("copy {}: {e}", real.display()));
+        }
+        if let Ok(target) = fs::read_link(host) {
+            let link = place(host);
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            if fs::symlink_metadata(&link).is_err() {
+                std::os::unix::fs::symlink(target, link).unwrap();
+            }
+        }
+    };
+    for top in ["bin", "sbin", "lib", "lib64", "lib32"] {
+        if let Ok(target) = fs::read_link(Path::new("/").join(top)) {
+            std::os::unix::fs::symlink(target, dir.join(top)).unwrap();
+        }
+    }
+    for bin in ["sh", "cat", "id"] {
+        let out = std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {bin}")])
+            .output()
+            .unwrap();
+        let path = PathBuf::from(String::from_utf8(out.stdout).unwrap().trim());
+        bring(&path);
+        let ldd = std::process::Command::new("ldd")
+            .arg(&path)
+            .output()
+            .unwrap();
+        for line in String::from_utf8_lossy(&ldd.stdout).lines() {
+            // "libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x...)" or
+            // "/lib/ld-linux-aarch64.so.1 (0x...)".
+            let lib = line.split_once("=>").map_or(line, |(_, rhs)| rhs).trim();
+            if let Some(lib) = lib.split_whitespace().next()
+                && lib.starts_with('/')
+            {
+                bring(Path::new(lib));
+            }
+        }
+    }
+    fs::create_dir_all(dir.join("etc")).unwrap();
+    fs::write(dir.join("etc/os-release"), "ID=stillpass-test\n").unwrap();
+    fs::write(dir.join("etc/passwd"), "x").unwrap();
+    fs::write(dir.join("etc/group"), "x").unwrap();
+    fs::write(dir.join("etc/resolv.conf"), "").unwrap();
+    fs::write(dir.join("etc/only-in-rootfs"), "yes\n").unwrap();
+    for d in ["dev", "proc", "sys", "tmp", "home", "opt", "workspace"] {
+        fs::create_dir_all(dir.join(d)).unwrap();
+    }
+    fs::write(dir.join("tmp/leak"), "x").unwrap();
+    fs::write(dir.join("dev/leak"), "x").unwrap();
+}
+
+const ROOTFS_PROBE: &str = "cat /etc/os-release; cat /etc/only-in-rootfs; cat /proc/sys/kernel/hostname; \
+    id -u; id -un; \
+    test -e /usr/local/go && echo LEAK-go; test -e /etc/fuse.conf && echo LEAK-fuse; \
+    test -e /usr/bin/bwrap && echo LEAK-bwrap; test -e /tmp/leak && echo LEAK-tmp; \
+    test -e /dev/leak && echo LEAK-dev; test -e /src && echo LEAK-src; test -e /sys/kernel && echo LEAK-sys; \
+    test -d /proc/self && test -c /dev/null && test -d /tmp && test -d /workspace && echo mounts-ok; \
+    echo x > /workspace/ok && echo ws-writable; echo y > /opt/no && echo root-writable; true";
+
+/// With a rootfs, the step sees that filesystem and nothing of the host's:
+/// not /etc, not /usr/local, not /sys, not the hostname. Read-only, writes
+/// outside the workspace fail; read-write (an overlay's merged dir), they
+/// land in the directory for the diff.
+#[test]
+fn rootfs_replaces_the_host_userland() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("rootfs");
+    fs::create_dir(&root).unwrap();
+    mini_rootfs(&root);
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let mut s = spec(&ws, tmp.path(), ROOTFS_PROBE, false);
+    s.rootfs = Some(RootFs {
+        dir: root.clone(),
+        writable: false,
+    });
+    let r = run(&s).unwrap();
+    let out = fs::read_to_string(tmp.path().join("stdout")).unwrap();
+    let err = fs::read_to_string(tmp.path().join("stderr")).unwrap();
+    assert_eq!(r.exit_code, 0, "{out}\n{err}");
+    assert_eq!(
+        out, "ID=stillpass-test\nyes\nstillpass\n1001\nrunner\nmounts-ok\nws-writable\n",
+        "{err}"
+    );
+    assert!(!root.join("opt/no").exists());
+
+    // Read-write: writes outside the workspace succeed and land in the dir,
+    // /tmp included (it is the rootfs's own, not a tmpfs: what a step
+    // leaves there is an output).
+    s.rootfs = Some(RootFs {
+        dir: root.clone(),
+        writable: true,
+    });
+    s.cmd = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        format!("{ROOTFS_PROBE}; echo t > /tmp/new; cat /tmp/leak"),
+    ];
+    let r = run(&s).unwrap();
+    let out = fs::read_to_string(tmp.path().join("stdout")).unwrap();
+    assert_eq!(r.exit_code, 0);
+    assert!(
+        out.contains("LEAK-tmp\n") && out.ends_with("mounts-ok\nws-writable\nroot-writable\nx"),
+        "/tmp is the rootfs's: {out}"
+    );
+    assert_eq!(fs::read_to_string(root.join("opt/no")).unwrap(), "y\n");
+    assert_eq!(fs::read_to_string(root.join("tmp/new")).unwrap(), "t\n");
+    assert!(
+        !root.join("dev/.stillpass-started").exists(),
+        "the sentinel leaves no trace"
+    );
+
+    // Host mode, same probe: the host's /etc shows through (the control).
+    let s = spec(&ws, tmp.path(), "cat /etc/os-release | head -1", false);
+    run(&s).unwrap();
+    let host = fs::read_to_string(tmp.path().join("stdout")).unwrap();
+    assert!(!host.contains("stillpass-test"), "{host}");
+}
+
+#[test]
+fn hostname_is_fixed() {
+    if !enabled() {
+        return;
+    }
+    let (code, out, _) = exec("cat /proc/sys/kernel/hostname");
+    assert_eq!((code, out.as_str()), (0, "stillpass\n"));
 }
 
 #[test]
