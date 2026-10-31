@@ -186,17 +186,21 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     );
 
     // A3: a commit touching only a docs file replays. README.md unless the
-    // step reads it, else another unread top-level markdown file.
-    let docs = ["README.md"]
-        .into_iter()
-        .map(String::from)
-        .chain(
-            tree.children(".")
-                .filter(|(n, e)| e.k == Kind::File && n.ends_with(".md"))
-                .map(|(n, _)| n.to_string()),
-        )
-        .find(|p| !recorded.contains(p.as_str()) && env.repo.join(p).is_file())
-        .expect("A3 precondition: the step reads every top-level markdown file");
+    // step reads it, else another unread markdown file, shallowest first.
+    // (pytest resolves every file of every directory it collects from, so
+    // on starlette README.md and docs/ are recorded inputs and a README-only
+    // commit rightly misses; only .github/, a dot-directory, goes unread.)
+    let mut markdown: Vec<&str> = tree
+        .iter()
+        .filter(|e| e.k == Kind::File && e.p.ends_with(".md") && !e.p.starts_with(".stillpass/"))
+        .map(|e| e.p.as_str())
+        .collect();
+    markdown.sort_by_key(|p| (p.matches('/').count(), *p));
+    let docs = std::iter::once("README.md")
+        .chain(markdown)
+        .find(|p| !recorded.contains(p) && env.repo.join(p).is_file())
+        .expect("A3 precondition: the step reads every markdown file in the tree")
+        .to_string();
     let text = std::fs::read_to_string(env.repo.join(&docs)).unwrap_or_default();
     env.write(&docs, &format!("{text}\nA3 edit\n"));
     env.commit("A3: docs only");
@@ -205,10 +209,27 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     println!("A3 ok: {docs}-only commit REPLAYED");
 
     // A4: a commit changing a source file the tests read misses and names it.
-    let src_file = manifest
+    // Preferably one in a subdirectory the step listed (A5 adds a file
+    // there), so the edit is to the project's sources rather than a config
+    // file at the top level (luxon's babel.config.js is also a read source).
+    let listed: BTreeSet<&str> = manifest
         .entries
         .iter()
-        .find(|e| e.k == Kind::File && profile.is_editable_source(&e.p))
+        .filter(|e| e.k == Kind::Dir)
+        .map(|e| e.p.as_str())
+        .collect();
+    let editable = || {
+        manifest
+            .entries
+            .iter()
+            .filter(|e| e.k == Kind::File && profile.is_editable_source(&e.p))
+    };
+    let src_file = editable()
+        .find(|e| {
+            let (parent, _) = sp_cas::parent_and_name(&e.p);
+            parent != "." && listed.contains(parent)
+        })
+        .or_else(|| editable().next())
         .unwrap_or_else(|| panic!("A4: no editable {tc} source file in the manifest"))
         .p
         .clone();
@@ -380,15 +401,26 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
         let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
         let (hp, fp) = (paths(hit_m), paths(&fresh_m));
-        let only_fresh: Vec<&str> = fp.difference(&hp).copied().collect();
-        let only_hit: Vec<&str> = hp.difference(&fp).copied().collect();
+        // An absent probe one run made and the other did not is no evidence
+        // of a missed read when the other run recorded the parent's listing:
+        // that listing already pins the name as absent (the rule W4 uses).
+        // pytest's cache provider probes a random `pytest-cache-files-*`
+        // name in the workspace root on every run.
+        let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
         let read_mutated = fp.contains(p.as_str());
         let same_code = fresh.code == hit.code;
         let same_out = normalize(&fresh.stdout) == normalize(&hit.stdout);
         if same_code && same_out && !read_mutated && only_fresh.is_empty() && only_hit.is_empty() {
             println!(
-                "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths",
-                fp.len()
+                "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
+                fp.len().min(hp.len()),
+                if implied > 0 {
+                    format!(
+                        " ({implied} absent probes differ, each implied by the other run's listing)"
+                    )
+                } else {
+                    String::new()
+                }
             );
             continue;
         }
@@ -569,6 +601,43 @@ fn paths(m: &sp_manifest::Manifest) -> BTreeSet<&str> {
     m.entries.iter().map(|e| e.p.as_str()).collect()
 }
 
+/// The paths only `a` recorded and only `b` recorded, leaving out absent
+/// entries the other manifest implies (their parent directory is recorded
+/// there as a listing). Returns (implied count, only in a, only in b).
+fn differing_paths<'m>(
+    a: &'m sp_manifest::Manifest,
+    b: &'m sp_manifest::Manifest,
+) -> (usize, Vec<&'m str>, Vec<&'m str>) {
+    let listed = |m: &'m sp_manifest::Manifest| -> BTreeSet<&'m str> {
+        m.entries
+            .iter()
+            .filter(|e| e.k == Kind::Dir)
+            .map(|e| e.p.as_str())
+            .collect()
+    };
+    let (pa, pb, la, lb) = (paths(a), paths(b), listed(a), listed(b));
+    let mut implied = 0;
+    let mut only =
+        |m: &'m sp_manifest::Manifest, other: &BTreeSet<&str>, other_dirs: &BTreeSet<&str>| {
+            let mut out = Vec::new();
+            for e in &m.entries {
+                if other.contains(e.p.as_str()) {
+                    continue;
+                }
+                if e.k == Kind::Absent && other_dirs.contains(sp_cas::parent_and_name(&e.p).0) {
+                    implied += 1;
+                } else {
+                    out.push(e.p.as_str());
+                }
+            }
+            out.dedup();
+            out
+        };
+    let only_a = only(a, &pb, &lb);
+    let only_b = only(b, &pa, &la);
+    (implied, only_a, only_b)
+}
+
 /// Writes evidence files where the temp state's deletion cannot reach them:
 /// STILLPASS_EVIDENCE_DIR, else target/acceptance-evidence. Returns the dir.
 fn save_evidence(name: &str, files: &[(&str, &[u8])]) -> std::path::PathBuf {
@@ -663,8 +732,35 @@ fn is_date_line(l: &str) -> bool {
 }
 
 /// Replaces `<number>[ ](ms|s)` tokens with `<dur>` and `hh:mm:ss` with
-/// `<time>`, at word boundaries.
+/// `<time>`, at word boundaries, then collapses separator runs (pytest pads
+/// `==== 1414 passed in 6.74s ====` to the terminal width, so the fill
+/// depends on the duration's length).
 fn normalize_line(l: &str) -> String {
+    collapse_separators(&normalize_tokens(l))
+}
+
+/// Runs of three or more `=`, `-`, `_`, `*` or `~` become three.
+fn collapse_separators(l: &str) -> String {
+    let mut out = String::with_capacity(l.len());
+    let mut run: Option<(char, usize)> = None;
+    for ch in l.chars() {
+        match run {
+            Some((c, n)) if c == ch => {
+                run = Some((c, n + 1));
+                if n < 3 {
+                    out.push(ch);
+                }
+            }
+            _ => {
+                run = "=-_*~".contains(ch).then_some((ch, 1));
+                out.push(ch);
+            }
+        }
+    }
+    out
+}
+
+fn normalize_tokens(l: &str) -> String {
     let b = l.as_bytes();
     let mut out = String::new();
     let mut i = 0;
@@ -744,6 +840,11 @@ mod normalize_tests {
             normalize_line("v5.0.5 /work and 3 sources"),
             "v5.0.5 /work and 3 sources"
         );
+        assert_eq!(
+            normalize_line("======= 1414 passed, 2 xfailed in 6.74s ========"),
+            normalize_line("======= 1414 passed, 2 xfailed in 10.66s ======="),
+        );
+        assert_eq!(normalize_line("a -- b ---- c"), "a -- b --- c");
         assert!(is_date_line("Sat Oct 31 11:13:24 GMT 2026"));
         assert!(!is_date_line("Sat is a day"));
         let a = b"PASS b.test.js (2 s)\nPASS a.test.js (1 s)\nTime: 3 s\n";

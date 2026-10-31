@@ -26,9 +26,10 @@ git -C "$repo" checkout -q --detach "$commit"
 grep -qx '.stillpass/' "$repo/.git/info/exclude" || echo '.stillpass/' >> "$repo/.git/info/exclude"
 cd "$root"
 cargo build -q --release -p sp-cli
+sp=${CARGO_TARGET_DIR:-$root/target}/release/stillpass
 # The profile's defaults for anything versions.toml leaves empty, and the
 # directories step A leaves behind that are not step B's inputs.
-eval "$(target/release/stillpass profile --repo "$repo" --toolchain "$tc")"
+eval "$("$sp" profile --repo "$repo" --toolchain "$tc")"
 setup=${corpus_setup:-$setup}
 # STILLPASS_STEP overrides the corpus step (a parallelism cap on a shared box).
 step=${STILLPASS_STEP:-${corpus_step:-$test}}
@@ -46,7 +47,7 @@ else
   echo "== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint"
 fi
 echo "== step A ($tc): $setup (network, not memoized)"
-target/release/stillpass --state "$state" run --repo "$repo" --commit "$commit" --toolchain "$tc" --allow-net --step "$setup"
+"$sp" --state "$state" run --repo "$repo" --commit "$commit" --toolchain "$tc" --allow-net --step "$setup"
 # Step B starts from a tree whose only earlier output is the dependency tree.
 for d in $ephemeral; do rm -rf "$repo/$d"; done
 echo "== A1-A7 on $url@${commit:0:12} ($tc profile), step: $step"

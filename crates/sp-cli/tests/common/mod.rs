@@ -309,6 +309,11 @@ impl Env {
         seed_rootfs_in(&self.state());
     }
 
+    /// Commits everything. `--no-verify`: the repo's own hooks are its
+    /// developers' tooling, not CI's (luxon's husky pre-commit runs
+    /// lint-staged, whose prettier rewrites the staged file and creates
+    /// node_modules/.cache, changing the tree the test meant to change by
+    /// one file).
     pub fn commit(&self, msg: &str) {
         git(&self.repo, &["add", "-A"]);
         git(
@@ -320,6 +325,7 @@ impl Env {
                 "user.name=t",
                 "commit",
                 "-q",
+                "--no-verify",
                 "-m",
                 msg,
             ],
