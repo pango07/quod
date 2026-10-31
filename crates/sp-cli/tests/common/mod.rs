@@ -131,6 +131,37 @@ impl Env {
         Env { tmp, repo }
     }
 
+    /// A scratch copy of an existing checkout (with .git and .stillpass).
+    pub fn from_copy(src: &Path) -> Env {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let st = Command::new("cp")
+            .arg("-a")
+            .arg(src)
+            .arg(&repo)
+            .status()
+            .unwrap();
+        assert!(st.success(), "copy {}", src.display());
+        Env { tmp, repo }
+    }
+
+    pub fn commit(&self, msg: &str) {
+        git(&self.repo, &["add", "-A"]);
+        git(
+            &self.repo,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                msg,
+            ],
+        );
+    }
+
     pub fn state(&self) -> PathBuf {
         self.tmp.path().join("state")
     }

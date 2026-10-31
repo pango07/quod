@@ -338,6 +338,7 @@ fn emit_event(
         inputs,
         candidates = lookup.candidates,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),
+        recorded_ms = lookup.hit.as_ref().map(|(_, r)| r.duration_ms),
         import_ms = ms(p.import),
         lookup_ms = ms(p.lookup),
         mount_ms = ms(p.mount),

@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+mod bench;
 mod inspect;
 mod run;
 mod state;
@@ -31,6 +32,8 @@ struct Cli {
 enum Cmd {
     /// Run one step: replay it if a proven result matches, else execute and record.
     Run(run::RunArgs),
+    /// Measure observer overhead (A8) and hit rate over history (A11).
+    Bench(bench::BenchArgs),
     /// Print a stored step key, manifest or run.
     Inspect {
         /// A step key or manifest id (b3:...) or a run id (ULID).
@@ -46,6 +49,7 @@ fn main() -> ExitCode {
         let state = state::State::resolve(cli.state.as_deref())?;
         match cli.cmd {
             Cmd::Run(args) => run::run(&state, args),
+            Cmd::Bench(args) => bench::bench(&state, args),
             Cmd::Inspect { id, ledger } => {
                 inspect::inspect(&state, &id, ledger.as_deref()).map(|()| 0)
             }

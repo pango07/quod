@@ -32,3 +32,5 @@ The Phase 0 handoff is the plan; this file is the record. One line each, dated.
 - 2026-10-30: Banners: EXECUTED is a miss and REPLAYED is a hit (the acceptance table's MISS/HIT). Banners and receipts go to stderr; stdout is always exactly the step's stdout.
 - 2026-10-30: --env NAME=VALUE adds to the step key's env (needed for A6).
 - 2026-10-30: --outputs <dir> writes a step's outputs out on both execute and replay (eager); without it the ephemeral workspace is discarded, so a replay does not copy cli/cli's ~900 MB build cache.
+- 2026-10-30: A7 mutates only recorded entries, so it proves the matcher rejects every recorded change; it cannot detect a read the observer missed. Added A7b (beyond the handoff): mutate files the observer did not record, expect a replay, and re-execute under a fresh key to confirm the result is unchanged (go test durations normalized).
+- 2026-10-30: A7 checks each mutated tree against the ledger's candidates through sp_ledger::first_match, the same decision find_match makes, without re-reading SQLite per mutation.

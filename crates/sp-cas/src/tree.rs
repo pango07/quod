@@ -250,6 +250,22 @@ impl Tree {
         )
     }
 
+    /// A copy with one existing file or symlink's content replaced. Listings
+    /// are unaffected (same name, same kind), so nothing is recomputed.
+    pub fn with_leaf_changed(&self, e: Entry) -> Tree {
+        let old = self
+            .entries
+            .get(&e.p)
+            .expect("with_leaf_changed on a missing path");
+        assert!(
+            old.k == e.k && matches!(e.k, Kind::File | Kind::Symlink),
+            "with_leaf_changed must keep the kind"
+        );
+        let mut entries = self.entries.clone();
+        entries.insert(e.p.clone(), e);
+        Tree { entries }
+    }
+
     /// The tree after applying `outputs` (f, l and x entries) on top of it.
     pub fn with_outputs<'a>(&self, outputs: impl IntoIterator<Item = &'a Entry>) -> Tree {
         let mut leaves: BTreeMap<String, Entry> = self.entries.clone();

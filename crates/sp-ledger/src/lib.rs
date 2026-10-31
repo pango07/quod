@@ -257,22 +257,20 @@ impl Ledger {
     pub fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
         let cands = self.candidates(step_key, CANDIDATES)?;
         let total = self.manifest_count(step_key)?;
-        let mut closest = None;
-        for (i, m) in cands.iter().enumerate() {
-            match matches(m, tree) {
-                Ok(()) => {
-                    let id = manifest_id(m)?;
-                    if let Some(r) = self.latest_result(step_key, &id)? {
-                        return Ok(Lookup {
-                            hit: Some((m.clone(), r)),
-                            candidates: total,
-                            closest,
-                        });
-                    }
-                }
-                Err(mm) if i == 0 => closest = Some((manifest_id(m)?, *mm)),
-                Err(_) => {}
+        let closest = match cands.first().map(|m| matches(m, tree)) {
+            Some(Err(mm)) => Some((manifest_id(&cands[0])?, *mm)),
+            _ => None,
+        };
+        let mut from = 0;
+        while let Some(i) = first_match(&cands[from..], tree).map(|i| i + from) {
+            if let Some(r) = self.latest_result(step_key, &manifest_id(&cands[i])?)? {
+                return Ok(Lookup {
+                    hit: Some((cands[i].clone(), r)),
+                    candidates: total,
+                    closest,
+                });
             }
+            from = i + 1;
         }
         Ok(Lookup {
             hit: None,
@@ -280,6 +278,12 @@ impl Ledger {
             closest,
         })
     }
+}
+
+/// The index of the first candidate, in order, that matches `tree`. This is
+/// the whole replay decision; `find_match` adds storage around it.
+pub fn first_match(cands: &[Manifest], tree: &Tree) -> Option<usize> {
+    cands.iter().position(|m| matches(m, tree).is_ok())
 }
 
 /// Now as `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC). Sorts lexically in time order.
