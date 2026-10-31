@@ -637,6 +637,145 @@ fn hooks_acceptance() {
         "C3 ok: a secret under a plain name is caught by value shape, masked in the stored output"
     );
 
+    // B1: which withheld or placeholder variables a job has is in the key.
+    // A step that branches on a variable's presence (a test that skips
+    // without GITHUB_TOKEN; an action that asks for an OIDC token only when
+    // ACTIONS_ID_TOKEN_REQUEST_URL is set) must not replay a result recorded
+    // without it for a job that has it. The scripts build the names
+    // indirectly, as code that reads them generically does, so no name scan
+    // sees them: only the key can tell the jobs apart.
+    r.mode = "replay";
+    let token = r#"v=GITHUB_; eval "t=\${${v}TOKEN:-}"; if [ -z "$t" ]; then echo "SKIP: no token"; else echo "ran with a token"; fi"#;
+    let oidc = r#"v=ACTIONS_ID_TOKEN_; eval "u=\${${v}REQUEST_URL:-}"; if [ -n "$u" ]; then echo oidc; else echo "no oidc"; fi"#;
+    let gh_token = ("GITHUB_TOKEN", "ghs_0123456789abcdefghijABCDEFGHIJ0123");
+    let id_url = (
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "https://pipelines.actions.githubusercontent.com/oidc",
+    );
+    for (script, var, what) in [
+        (token, gh_token, "GITHUB_TOKEN"),
+        (oidc, id_url, "ACTIONS_ID_TOKEN_REQUEST_URL"),
+    ] {
+        let without = r.job(script, &[]);
+        assert!(
+            without.executed(),
+            "B1 {what} absent, first: {}",
+            without.stderr
+        );
+        assert!(
+            r.job(script, &[]).replayed(),
+            "B1 {what} absent, again: replays its own result"
+        );
+        let with = r.job(script, &[var]);
+        assert!(
+            with.executed() && !with.replayed(),
+            "B1: a job with {what} must not replay the result recorded without it: {}",
+            with.stderr
+        );
+        assert!(
+            r.job(script, &[var]).replayed(),
+            "B1 {what} present, again: replays its own result"
+        );
+    }
+    // The placeholder reaches the step, so its result really differs.
+    let with = r.job(oidc, &[id_url]);
+    assert_eq!(String::from_utf8_lossy(&with.stdout), "oidc\n");
+    println!(
+        "B1 ok: a job with GITHUB_TOKEN or ACTIONS_ID_TOKEN_REQUEST_URL never replays a result recorded without it"
+    );
+
+    // M1: the scope's warm build cache is bound only into steps that run
+    // go, and what a step leaves there must be Go's cache layout: a step
+    // that stashes a file in it is not recorded, and the cache is wiped.
+    let warm_root = r.scope().join("warm");
+    let find = |name: &str| -> bool {
+        let mut stack = vec![warm_root.clone()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                if e.file_name() == name {
+                    return true;
+                }
+                if e.file_type().is_ok_and(|t| t.is_dir()) {
+                    stack.push(e.path());
+                }
+            }
+        }
+        false
+    };
+    let nogo = r.job(r#"echo planted > "$GOCACHE/stillpass-nogo""#, &[]);
+    assert!(nogo.executed(), "M1 no go: {}", nogo.stderr);
+    assert!(
+        !find("stillpass-nogo"),
+        "M1: a step that does not run go never sees the warm cache"
+    );
+    let stash = r#"go list ./... >/dev/null && echo planted > "$GOCACHE/stillpass-stash""#;
+    let m1 = r.job(stash, &[]);
+    assert!(
+        m1.executed() && m1.summary.contains("not Go's cache layout"),
+        "M1 stash: {}",
+        m1.summary
+    );
+    assert!(!find("stillpass-stash"), "M1: the warm cache was wiped");
+    assert!(!r.job(stash, &[]).replayed(), "M1: never recorded");
+    println!(
+        "M1 ok: only go steps see the warm build cache; a stash in it is not recorded and wipes it"
+    );
+
+    // D1: a hit whose fresh run, on the same inputs, is not the step's own
+    // result (here it fails offline because of a file planted in the warm
+    // build cache, an input the key cannot see) is a divergence: the key is
+    // quarantined and the run row says `diverged`, so `stillpass status`
+    // counts it.
+    r.mode = "observe";
+    let flip = r#"go list ./... >/dev/null; if [ -e "$GOCACHE/stillpass-flip" ]; then exit 3; fi; echo stable"#;
+    let d1 = r.job(flip, &[]);
+    assert!(d1.executed() && d1.code == 0, "D1 first: {}", d1.stderr);
+    let mut planted = None;
+    let mut stack = vec![warm_root.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if e.file_name() == "gocache" {
+                    planted = Some(e.path().join("stillpass-flip"));
+                }
+                stack.push(e.path());
+            }
+        }
+    }
+    let planted = planted.expect("D1: the go step had a warm build cache");
+    std::fs::write(&planted, "flip").unwrap();
+    let d2 = r.job(flip, &[]);
+    std::fs::remove_file(&planted).unwrap();
+    assert!(
+        d2.stderr.contains("DIVERGENCE") && d2.stderr.contains("exited 3 offline"),
+        "D1 second run diverges: {}",
+        d2.stderr
+    );
+    let sql = |q: &str| -> String {
+        let out = Command::new("sqlite3")
+            .arg(r.scope().join("ledger.sqlite"))
+            .arg(q)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    assert!(
+        sql("SELECT count(*) FROM runs WHERE outcome = 'diverged'")
+            .parse::<u32>()
+            .unwrap()
+            >= 1,
+        "D1: a diverged run row"
+    );
+    assert!(
+        sql("SELECT count(*) FROM trust WHERE state = 'quarantined'")
+            .parse::<u32>()
+            .unwrap()
+            >= 1
+    );
+    println!(
+        "D1 ok: a hit that behaves otherwise on the same inputs is quarantined, with a diverged run row"
+    );
+
     // T1 (the trust layer, as `stillpass run` has it): a result seen once
     // never replays; two identical executions prove it; an audit
     // re-executes a would-be hit and compares instead of replaying.
@@ -856,7 +995,7 @@ fn hooks_acceptance() {
     println!("A7b ok: an empty warm GOCACHE gives the recorded result");
 
     println!(
-        "hooks acceptance: A1-A7, A7b, C1-C3 and T1-T2 pass{}",
+        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1 and T1-T2 pass{}",
         if spike.is_some() {
             " on the spike repo"
         } else {
