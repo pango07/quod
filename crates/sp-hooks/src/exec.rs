@@ -12,7 +12,7 @@
 //! creates land in the step's own root upper, which is dropped unless the
 //! step wrote something else there.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -62,6 +62,9 @@ pub struct Exec<'a> {
     pub seal: bool,
     /// A host directory bound over GOCACHE.
     pub gocache: Option<PathBuf>,
+    /// `gocache` is the scope's warm build cache, shared with later steps
+    /// and jobs: what the step leaves in it is checked (`go_cache_delta`).
+    pub gocache_shared: bool,
     pub uid: Option<u32>,
     pub gid: Option<u32>,
     pub keep: Keep,
@@ -92,6 +95,10 @@ pub struct Executed {
     pub observer: String,
     pub net_attempts: Option<u64>,
     pub resource_failure: Option<String>,
+    /// The step left something in the shared warm build cache that is not
+    /// Go's own cache layout, or an entry holding a secret value: the run is
+    /// not recordable and the caller wipes the cache.
+    pub warm_violation: Option<String>,
     pub phases: Phases,
 }
 
@@ -215,8 +222,16 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             writable: true,
         }),
     };
+    let warm_before = match (&x.gocache, x.gocache_shared) {
+        (Some(dir), true) => Some(go_cache_snapshot(dir)),
+        _ => None,
+    };
     let r = sp_sandbox::run(&rs);
     let phases_exec = t.elapsed();
+    let warm_violation = match (&x.gocache, &warm_before) {
+        (Some(dir), Some(before)) => go_cache_delta(dir, before, x.masks)?,
+        _ => None,
+    };
 
     // Unmount everything whatever happened in the sandbox.
     let t = Instant::now();
@@ -307,6 +322,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         observer,
         net_attempts: r.net_attempts,
         resource_failure: r.resource_failure,
+        warm_violation,
         phases: Phases {
             mount: phases_mount,
             exec: phases_exec,
@@ -349,9 +365,171 @@ fn walk_upper(
     Ok(())
 }
 
+/// Every entry under a build cache: relative path, and for a file its size
+/// and mtime (what a rewrite changes).
+fn go_cache_snapshot(dir: &Path) -> BTreeMap<String, (bool, u64, i128)> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            let Ok(m) = std::fs::symlink_metadata(&p) else {
+                continue;
+            };
+            let rel = p.strip_prefix(dir).unwrap().to_string_lossy().into_owned();
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos() as i128);
+            if m.is_dir() {
+                stack.push(p);
+                out.insert(rel, (true, 0, 0));
+            } else {
+                // A symlink is recorded as a non-directory; Go never makes one.
+                out.insert(rel, (false, m.len(), mtime));
+            }
+        }
+    }
+    out
+}
+
+/// Go's own build-cache layout (cmd/go/internal/cache): `README`,
+/// `trim.txt`, two-hex-digit directories holding `<64 hex>-a` (action) and
+/// `<64 hex>-d` (output) entries, and `testexpand/`.
+fn go_cache_path_ok(rel: &str, is_dir: bool) -> bool {
+    let hex = |s: &str, n: usize| {
+        s.len() == n
+            && s.bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    };
+    let mut parts = rel.split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("README" | "trim.txt"), None, None) => !is_dir,
+        (Some("testexpand"), ..) => true,
+        (Some(hh), None, None) => is_dir && hex(hh, 2),
+        (Some(hh), Some(entry), None) => {
+            !is_dir
+                && hex(hh, 2)
+                && entry
+                    .strip_suffix("-a")
+                    .or_else(|| entry.strip_suffix("-d"))
+                    .is_some_and(|id| hex(id, 64))
+        }
+        _ => false,
+    }
+}
+
+/// What a step changed in the shared warm build cache, checked: every new or
+/// rewritten path in Go's layout (anything else is a step using the cache
+/// as a side channel to later steps and jobs), no symlink, and no entry
+/// holding one of the step's secret values (`go run -ldflags -X` caches the
+/// value in an object file). `Some(why)` when the run must not be recorded.
+fn go_cache_delta(
+    dir: &Path,
+    before: &BTreeMap<String, (bool, u64, i128)>,
+    masks: &[Vec<u8>],
+) -> anyhow::Result<Option<String>> {
+    let after = go_cache_snapshot(dir);
+    let changed: Vec<(&String, bool)> = after
+        .iter()
+        .filter(|(p, v)| before.get(*p) != Some(v))
+        .map(|(p, v)| (p, v.0))
+        .collect();
+    for (p, is_dir) in &changed {
+        let link = std::fs::symlink_metadata(dir.join(p)).is_ok_and(|m| m.file_type().is_symlink());
+        if link || !go_cache_path_ok(p, *is_dir) {
+            return Ok(Some(format!(
+                "it wrote {p} into the warm build cache, which is not Go's cache layout"
+            )));
+        }
+    }
+    if !masks.is_empty() {
+        let ac = aho_corasick::AhoCorasick::new(masks).context("mask patterns")?;
+        for (p, is_dir) in &changed {
+            if *is_dir {
+                continue;
+            }
+            let Ok(f) = std::fs::File::open(dir.join(p)) else {
+                continue;
+            };
+            if ac.stream_find_iter(f).next().is_some() {
+                return Ok(Some(format!(
+                    "the warm build cache entry {p} holds one of the step's secret values"
+                )));
+            }
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_warm_build_cache_takes_only_go_s_layout() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(go_cache_path_ok("README", false) && go_cache_path_ok("trim.txt", false));
+        assert!(go_cache_path_ok("ab", true));
+        assert!(go_cache_path_ok(&format!("ab/{id}-a"), false));
+        assert!(go_cache_path_ok(&format!("ab/{id}-d"), false));
+        assert!(go_cache_path_ok("testexpand/x/y", false));
+        for bad in [
+            "notes.txt".to_string(),
+            "ab/payload".to_string(),
+            format!("ab/{id}-x"),
+            format!("ab/{}-a", &id[1..]),
+            format!("AB/{id}-a"),
+            format!("ab/{id}-a/inner"),
+            "fuzz/x".to_string(),
+            "zz".to_string(),
+        ] {
+            assert!(!go_cache_path_ok(&bad, false), "{bad}");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let c = tmp.path();
+        std::fs::create_dir_all(c.join("ab")).unwrap();
+        std::fs::write(c.join("README"), "go cache").unwrap();
+        let before = go_cache_snapshot(c);
+        // Go's own writes pass, a secret value in one does not.
+        std::fs::write(c.join(format!("ab/{id}-d")), "object code").unwrap();
+        assert_eq!(go_cache_delta(c, &before, &[]).unwrap(), None);
+        let mask = vec![b"s3cr3t-value-0123".to_vec()];
+        std::fs::write(
+            c.join(format!("ab/{id}-a")),
+            "ldflags -X main.k=s3cr3t-value-0123",
+        )
+        .unwrap();
+        assert!(
+            go_cache_delta(c, &before, &mask)
+                .unwrap()
+                .unwrap()
+                .contains("secret"),
+            "a cached secret is caught"
+        );
+        // Anything outside the layout, a symlink included, is caught.
+        let before = go_cache_snapshot(c);
+        std::fs::write(c.join("stash"), "for the next job").unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[])
+                .unwrap()
+                .unwrap()
+                .contains("stash")
+        );
+        std::fs::remove_file(c.join("stash")).unwrap();
+        let before = go_cache_snapshot(c);
+        std::os::unix::fs::symlink("/etc/passwd", c.join(format!("ab/{}-d", "f".repeat(64))))
+            .unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[]).unwrap().is_some(),
+            "a symlink is caught"
+        );
+    }
 
     #[test]
     fn upper_walk_skips_the_mount_skeleton() {

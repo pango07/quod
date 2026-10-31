@@ -188,20 +188,19 @@ impl Job {
         Ok(job)
     }
 
-    /// Decides the job's scope from the event the runner wrote (on the
-    /// first step: the runner writes event.json before each step) and
-    /// starts its workspace there: where the last job on this path in this
-    /// scope left it (its persisted `.stillpass/` state), or, for the first
-    /// job, the same parts from whatever is on disk (a seeded module
-    /// cache), and nothing else: HOME and the rest are per job.
-    fn ensure_scope(&mut self, cas: &Cas) -> anyhow::Result<()> {
+    /// Decides the job's scope from the event (its name, GITHUB_EVENT_NAME,
+    /// and the event.json the runner writes before each step; see
+    /// `scope_of`) and starts its workspace there: where the last job on
+    /// this path in this scope left it (its persisted `.stillpass/` state),
+    /// or empty for the scope's first job. HOME and the rest are per job.
+    fn ensure_scope(&mut self, cas: &Cas, event_name: Option<&str>) -> anyhow::Result<()> {
         if self.scope.is_some() {
             return Ok(());
         }
         let event = step::workflow_dir(self)
             .and_then(|d| self.host_path(&format!("{d}/event.json")))
             .and_then(|p| std::fs::read(p).ok());
-        let (repository, scope_name) = scope_of(event.as_deref());
+        let (repository, scope_name) = scope_of(event_name, event.as_deref());
         let scope = self
             .state_dir
             .join("scopes")
@@ -215,12 +214,13 @@ impl Job {
         self.repository = repository;
         self.scope_name = scope_name;
         self.scope = Some(scope);
+        // A scope's first job starts with empty state. Never from the
+        // runner's work directory on the host: a runner-surface step of any
+        // scope can write there, so a fork could seed a trusted scope's
+        // module cache or tool cache through it.
         let tree = match std::fs::read(self.workspace_slot()) {
             Ok(b) => persisted(&tree_from_json(&b)?),
-            Err(_) => match self.host_path(&self.working_directory) {
-                Some(h) => import_persisted(cas, &h)?,
-                None => Tree::from_leaves([]),
-            },
+            Err(_) => Tree::from_leaves([]),
         };
         self.save_tree(&with_state_dirs(cas, &tree)?)?;
         tracing::info!(target: "stillpass", job = %self.id, repository = %self.repository, scope = %self.scope_name, "scope");
@@ -453,6 +453,45 @@ impl Job {
     }
 }
 
+/// Removes every job directory under `state_dir`, unmounting what is still
+/// mounted in them first (deepest first, lazily). For the pool's start,
+/// when no job of this state can be running: a runner killed with SIGKILL
+/// never reaches cleanup_job, and its job directory keeps the steps' raw
+/// output, its job.json and the overlay and FUSE mounts. Returns how many
+/// job directories it removed.
+pub fn sweep_stale_jobs(state_dir: &Path) -> anyhow::Result<usize> {
+    let jobs = jobs_dir(state_dir);
+    let Ok(rd) = std::fs::read_dir(&jobs) else {
+        return Ok(0);
+    };
+    let prefix = format!("{}/", jobs.display());
+    let mut mounts: Vec<String> = std::fs::read_to_string("/proc/self/mountinfo")
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.split(' ').nth(4).map(str::to_string))
+        .filter(|m| m.starts_with(&prefix))
+        .collect();
+    mounts.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    for m in &mounts {
+        let st = std::process::Command::new("umount")
+            .arg("-l")
+            .arg(m)
+            .status();
+        if !st.is_ok_and(|s| s.success()) {
+            tracing::warn!(target: "stillpass", mount = %m, "stale job mount not unmounted");
+        }
+    }
+    let mut removed = 0;
+    for e in rd.flatten() {
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            sp_cas::remove_any(&e.path())
+                .with_context(|| format!("remove stale job {}", e.path().display()))?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 pub(crate) fn jobs_dir(state_dir: &Path) -> PathBuf {
     state_dir.join("jobs")
 }
@@ -469,9 +508,15 @@ fn slug(s: &str) -> String {
         .collect()
 }
 
-/// The repository (lowercase `owner/repo`) and the trust scope of a job,
-/// from its event payload.
-fn scope_of(event: Option<&[u8]>) -> (String, String) {
+/// The job's repository and trust scope. Trusted: an event that runs the
+/// repository's own code by its own hand (push, workflow_dispatch,
+/// schedule), or a pull request or workflow_run whose head repository is
+/// proven the base repository. A pull request or workflow_run from another
+/// repository: that fork's own scope (`fork-<owner_repo>`, `fork-unknown`
+/// when the head is gone). Anything else (issue_comment, release, an event
+/// whose payload does not say): `unverified`. Untrusted scopes never share a
+/// ledger, warm cache, module cache or workspace with the trusted one.
+fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> (String, String) {
     let Some(v) = event.and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok()) else {
         return (String::new(), "unverified".into());
     };
@@ -483,14 +528,31 @@ fn scope_of(event: Option<&[u8]>) -> (String, String) {
     let Some(repo) = v.get("repository").and_then(name) else {
         return (String::new(), "unverified".into());
     };
-    let scope = match v.get("pull_request") {
-        Some(pr) => match pr.get("head").and_then(|h| h.get("repo")).and_then(name) {
-            Some(head) if head == repo => "trusted".to_string(),
-            Some(head) => format!("fork-{}", slug(&head)),
-            // A deleted fork: no head repository to trust.
-            None => "fork-unknown".to_string(),
-        },
-        None => "trusted".to_string(),
+    let by_head = |head: Option<String>| match head {
+        Some(h) if h == repo => "trusted".to_string(),
+        Some(h) => format!("fork-{}", slug(&h)),
+        // A deleted fork: no head repository to trust.
+        None => "fork-unknown".to_string(),
+    };
+    let scope = match event_name {
+        Some("push" | "workflow_dispatch" | "schedule") => "trusted".to_string(),
+        Some(
+            "pull_request"
+            | "pull_request_target"
+            | "pull_request_review"
+            | "pull_request_review_comment",
+        ) => by_head(
+            v.get("pull_request")
+                .and_then(|pr| pr.get("head"))
+                .and_then(|h| h.get("repo"))
+                .and_then(name),
+        ),
+        Some("workflow_run") => by_head(
+            v.get("workflow_run")
+                .and_then(|w| w.get("head_repository"))
+                .and_then(name),
+        ),
+        _ => "unverified".to_string(),
     };
     (repo, scope)
 }
@@ -563,28 +625,6 @@ fn persisted(tree: &Tree) -> Tree {
 /// would make each Go step an input of the next and every day a miss.
 const GO_TELEMETRY_MODE: &str = "home/.config/go/telemetry/mode";
 
-/// The `PERSIST` parts of `<host>/.stillpass/`, as a workspace tree.
-fn import_persisted(cas: &Cas, host: &Path) -> anyhow::Result<Tree> {
-    let mut leaves = Vec::new();
-    for d in PERSIST {
-        let sub = host.join(STATE_SUBDIR).join(d);
-        if !sub.is_dir() {
-            continue;
-        }
-        let base = format!("{STATE_SUBDIR}/{d}");
-        for e in cas.import_dir(&sub)?.iter() {
-            let mut e = e.clone();
-            e.p = if e.p == "." {
-                base.clone()
-            } else {
-                format!("{base}/{}", e.p)
-            };
-            leaves.push(e);
-        }
-    }
-    Ok(Tree::from_leaves(leaves))
-}
-
 /// The tree with Stillpass's state directories present (empty if new), so
 /// HOME exists and the module cache can be sealed from the first step, and
 /// with Go's telemetry off in HOME.
@@ -616,10 +656,15 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
         .context("run_script_step without a job in the hook state (prepare_job did not run?)")?;
     let mut job = Job::load(state_dir, id)?;
     let cas = Cas::open(state_dir.join("cas"))?;
-    job.ensure_scope(&cas)?;
+    let args = input.script_step_args()?;
+    job.ensure_scope(
+        &cas,
+        args.environment_variables
+            .get("GITHUB_EVENT_NAME")
+            .map(String::as_str),
+    )?;
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
-    let args = input.script_step_args()?;
     job.steps += 1;
     job.totals.steps += 1;
     let n = job.steps;
@@ -770,9 +815,12 @@ fn host_copy(job: &Job, cas: &Cas, c: &checkout::CheckedOut) -> anyhow::Result<(
         .state_dir
         .join("host-copies")
         .join(slug(&host.to_string_lossy()));
+    // The copy is reused only by a job of the scope that made it: a
+    // runner-surface step of another scope (a fork's) could have changed it.
+    let stamp = format!("{} {} {}", job.repository, job.scope_name, c.sha);
     let current = std::fs::read_to_string(&marker).unwrap_or_default();
     let populated = std::fs::read_dir(&host).is_ok_and(|mut d| d.next().is_some());
-    if current.trim() == c.sha && populated {
+    if current.trim() == stamp && populated {
         return Ok(());
     }
     let t = Instant::now();
@@ -784,7 +832,7 @@ fn host_copy(job: &Job, cas: &Cas, c: &checkout::CheckedOut) -> anyhow::Result<(
     cas.materialize(&c.tree, &host)
         .with_context(|| format!("materialize checkout at {}", host.display()))?;
     std::fs::create_dir_all(marker.parent().unwrap())?;
-    std::fs::write(&marker, &c.sha)?;
+    std::fs::write(&marker, &stamp)?;
     tracing::info!(target: "stillpass", job = %job.id, ms = t.elapsed().as_millis() as u64, "host checkout copy");
     Ok(())
 }
@@ -800,15 +848,20 @@ fn execute(
     dir: &Path,
     keep: Keep,
     echo: bool,
+    warm: bool,
 ) -> anyhow::Result<Executed> {
     let hermetic = s.kind == surface::SurfaceKind::Hermetic;
-    let gocache = s.env.iter().any(|(k, _)| k == "GOCACHE").then(|| {
-        if hermetic {
-            job.warm_gocache()
-        } else {
-            job.scratch_gocache()
-        }
-    });
+    let has_gocache = s.env.iter().any(|(k, _)| k == "GOCACHE");
+    // The scope's warm build cache only for a keyed step that runs go (the
+    // hooks' `--warm`), checked after the step; the runner's and the
+    // network's surfaces (never recorded) get the job's scratch cache; any
+    // other keyed step none (its GOCACHE is in the observed workspace).
+    let (gocache, gocache_shared) = match (hermetic, warm && has_gocache, has_gocache) {
+        (true, true, _) => (Some(job.warm_gocache()), true),
+        (true, false, _) => (None, false),
+        (false, _, true) => (Some(job.scratch_gocache()), false),
+        (false, _, false) => (None, false),
+    };
     exec::execute(&Exec {
         cas,
         tree,
@@ -831,6 +884,7 @@ fn execute(
         // through the FUSE tree, the cache records what was read.
         seal: false,
         gocache,
+        gocache_shared,
         // No `--user` is the container's default, root (with the image's
         // own passwd); `None` would be the sandbox's runner uid.
         uid: Some(job.uid.unwrap_or(0)),
@@ -911,6 +965,7 @@ fn run_tainted(
         &dir.join("runner"),
         Keep::Layer,
         true,
+        false,
     )?;
     job.totals.executed += 1;
     job.totals.tainted += 1;
@@ -977,7 +1032,7 @@ fn run_online(
     if !s.taint.is_empty() {
         return Ok(None);
     }
-    let ex = execute(job, args, &s, cas, tree, dir, Keep::Store, true)?;
+    let ex = execute(job, args, &s, cas, tree, dir, Keep::Store, true, false)?;
     let ok = ex.exit_code == 0 && ex.signal.is_none() && ex.resource_failure.is_none();
     job.totals.executed += 1;
     job.totals.tainted += 1;
@@ -1040,6 +1095,8 @@ fn run_step(
         return run_tainted(job, args, step, cas, &tree, step_dir, h.taint.clone());
     }
     let image = job.key_image()?;
+    // The scope's warm build cache, only for a step that runs go.
+    let warm = step.runs_go() && h.env.iter().any(|(k, _)| k == "GOCACHE");
     let mut key_cmd = step.cmd.clone();
     key_cmd.extend(h.key_extra.iter().cloned());
     // Volatile names are withheld or given fixed placeholders, and
@@ -1064,6 +1121,12 @@ fn run_step(
         .collect();
     unkeyed.sort();
     unkeyed.dedup();
+    // Their values stay out, but which of them the job has does not: a
+    // step can branch on a variable's presence (a test that skips without
+    // GITHUB_TOKEN, an action that asks for an OIDC token only when
+    // ACTIONS_ID_TOKEN_REQUEST_URL is set), so a result recorded without
+    // one must not replay for a job that has it. Names only, never values.
+    key_cmd.push(format!("stillpass:withheld {}", unkeyed.join(",")));
     let spec = StepSpec {
         image,
         // The hooks build the whole env themselves; the toolchain names the
@@ -1073,7 +1136,7 @@ fn run_step(
         cwd: args.working_directory.clone(),
         env: key_env,
         roots: vec![workspace.clone()],
-        warm: h.env.iter().any(|(k, _)| k == "GOCACHE"),
+        warm,
     };
     let key = step_key(&spec)?;
     ledger.put_step_key(&key, &sp_key::canonical_key_json(&spec)?)?;
@@ -1192,7 +1255,20 @@ fn run_step(
         step_dir,
         Keep::Store,
         step.retry.is_none(),
+        warm,
     )?;
+    if let Some(why) = &ex.warm_violation {
+        // The cache is shared with later steps and jobs of the scope: start
+        // it over rather than keep whatever this step put there.
+        let dir = job.warm_gocache();
+        if let Err(e) = std::fs::remove_dir_all(&dir) {
+            tracing::warn!(target: "stillpass", dir = %dir.display(), error = %e, "warm build cache not wiped");
+        }
+        eprintln!(
+            "stillpass: `{}`: {why}; the scope's warm build cache was wiped",
+            step.label
+        );
+    }
 
     // Reasons the offline run is not the step's result: it is run again.
     let mut again: Vec<String> = Vec::new();
@@ -1262,8 +1338,18 @@ fn run_step(
                     eprintln!("stillpass: `{}`: {line}", step.label);
                 }
             } else {
-                let v =
-                    trust.record_divergence(&tstep, &run_id, hit, &reason, &again.join("; "))?;
+                let v = record_divergence(
+                    ledger,
+                    &trust,
+                    &tstep,
+                    job,
+                    mode,
+                    &run_id,
+                    hit,
+                    &reason,
+                    &again.join("; "),
+                    &ex,
+                )?;
                 job.totals.audits += 1;
                 job.totals.divergences += 1;
                 for l in v.lines() {
@@ -1271,7 +1357,7 @@ fn run_step(
                 }
             }
         }
-        if step.retry.is_some() && step.retry.is_some() && !step.tainted() {
+        if step.retry.is_some() && !step.tainted() {
             print_captured(step_dir)?;
         }
         let note = format!(
@@ -1312,6 +1398,9 @@ fn run_step(
     }
     let (commands, file_taint) = surface::hand_back(&h.files, cas, &h.masks)?;
     let mut taint = file_taint;
+    if let Some(why) = &ex.warm_violation {
+        taint.push(why.clone());
+    }
     if let Some(outputs) = &ex.outputs {
         job.save_tree(&tree.with_outputs(outputs))?;
     }
@@ -1359,7 +1448,9 @@ fn run_step(
             job.totals.tainted += 1;
             match lookup.hit.as_ref() {
                 Some(hit) => {
-                    let v = trust.record_divergence(&tstep, &run_id, hit, &reason, why)?;
+                    let v = record_divergence(
+                        ledger, &trust, &tstep, job, mode, &run_id, hit, &reason, why, &ex,
+                    )?;
                     job.totals.audits += 1;
                     job.totals.divergences += 1;
                     Some(v)
@@ -1613,6 +1704,45 @@ fn ignored_outputs(env: &[(String, String)], workspace: &str) -> Vec<String> {
     out
 }
 
+/// `Trust::record_divergence` and the run's row (outcome `diverged`, with
+/// the transport that observed it), in one transaction, so `stillpass
+/// status` counts the divergence.
+#[allow(clippy::too_many_arguments)]
+fn record_divergence(
+    ledger: &Ledger,
+    trust: &Trust,
+    tstep: &TrustStep,
+    job: &Job,
+    mode: &str,
+    run_id: &str,
+    hit: &(Manifest, StepResult),
+    reason: &Reason,
+    why: &str,
+    ex: &Executed,
+) -> anyhow::Result<Verdict> {
+    ledger.atomically(|l| -> anyhow::Result<Verdict> {
+        let v = trust.record_divergence(tstep, run_id, hit, reason, why)?;
+        l.record_run_facts(&RunFacts {
+            observed: Observed {
+                transport: Some("fuse"),
+                observer: Some(&ex.observer),
+            },
+            ..run_facts(
+                run_id,
+                &tstep.key,
+                job,
+                mode,
+                v.outcome(),
+                None,
+                Some(ex.exit_code),
+                Some(ex.wall),
+                None,
+            )
+        })?;
+        Ok(v)
+    })
+}
+
 /// The run row of a hooks step: what `stillpass status` lists.
 #[allow(clippy::too_many_arguments)]
 fn run_facts<'a>(
@@ -1705,23 +1835,71 @@ mod tests {
     }
 
     #[test]
+    fn stale_jobs_are_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 0, "no jobs dir");
+        let job = jobs_dir(tmp.path()).join("01JOB");
+        std::fs::create_dir_all(job.join("step-001")).unwrap();
+        std::fs::write(job.join("job.json"), "{}").unwrap();
+        std::fs::write(job.join("step-001/stdout"), "raw output").unwrap();
+        assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 1);
+        assert!(!job.exists());
+    }
+
+    #[test]
     fn scopes_from_events() {
-        assert_eq!(scope_of(None), (String::new(), "unverified".into()));
+        let push = Some("push");
+        assert_eq!(scope_of(push, None), (String::new(), "unverified".into()));
         assert_eq!(
-            scope_of(Some(b"not json")),
+            scope_of(push, Some(b"not json")),
             (String::new(), "unverified".into())
         );
-        let push = br#"{"repository":{"full_name":"Pango07/Stillpass"}}"#;
+        let repo = br#"{"repository":{"full_name":"Pango07/Stillpass"}}"#;
+        for trusted in ["push", "workflow_dispatch", "schedule"] {
+            assert_eq!(
+                scope_of(Some(trusted), Some(repo)),
+                ("pango07/stillpass".into(), "trusted".into()),
+                "{trusted}"
+            );
+        }
+        // The same payload under an event that does not run the repository's
+        // own code by its own hand, or with no event name at all.
+        for other in [Some("issue_comment"), Some("release"), Some("issues"), None] {
+            assert_eq!(scope_of(other, Some(repo)).1, "unverified", "{other:?}");
+        }
+        // A comment on a pull request: unverified, whatever it carries.
+        let comment = br#"{"repository":{"full_name":"o/r"},"issue":{"pull_request":{"url":"x"}},"comment":{}}"#;
         assert_eq!(
-            scope_of(Some(push)),
-            ("pango07/stillpass".into(), "trusted".into())
+            scope_of(Some("issue_comment"), Some(comment)).1,
+            "unverified"
         );
         let same = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"O/R"}}}}"#;
-        assert_eq!(scope_of(Some(same)), ("o/r".into(), "trusted".into()));
+        assert_eq!(
+            scope_of(Some("pull_request"), Some(same)),
+            ("o/r".into(), "trusted".into())
+        );
         let fork = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"evil/r"}}}}"#;
-        assert_eq!(scope_of(Some(fork)), ("o/r".into(), "fork-evil_r".into()));
+        assert_eq!(scope_of(Some("pull_request"), Some(fork)).1, "fork-evil_r");
+        assert_eq!(
+            scope_of(Some("pull_request_target"), Some(fork)).1,
+            "fork-evil_r"
+        );
+        // A pull_request payload under a trusted event name is still a push.
         let gone = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":null}}}"#;
-        assert_eq!(scope_of(Some(gone)), ("o/r".into(), "fork-unknown".into()));
+        assert_eq!(scope_of(Some("pull_request"), Some(gone)).1, "fork-unknown");
+        // workflow_run: by the head repository of the run that triggered it.
+        let run_fork = br#"{"repository":{"full_name":"o/r"},"workflow_run":{"head_repository":{"full_name":"evil/r"}}}"#;
+        assert_eq!(
+            scope_of(Some("workflow_run"), Some(run_fork)).1,
+            "fork-evil_r"
+        );
+        let run_same = br#"{"repository":{"full_name":"o/r"},"workflow_run":{"head_repository":{"full_name":"o/r"}}}"#;
+        assert_eq!(scope_of(Some("workflow_run"), Some(run_same)).1, "trusted");
+        let run_none = br#"{"repository":{"full_name":"o/r"},"workflow_run":{}}"#;
+        assert_eq!(
+            scope_of(Some("workflow_run"), Some(run_none)).1,
+            "fork-unknown"
+        );
     }
 
     #[test]

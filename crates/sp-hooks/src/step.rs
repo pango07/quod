@@ -306,6 +306,29 @@ pub fn placeholder(name: &str) -> Option<&'static str> {
     })
 }
 
+impl Step {
+    /// Does the step run the go tool with a command that uses the build
+    /// cache (build, test, vet, run, install, generate, list, tool, fix)?
+    /// Only those get the scope's warm GOCACHE (the hooks' `--warm`): any
+    /// other step gets none, and a step that reaches go another way (make,
+    /// a script file) builds with the observed cache in the workspace.
+    pub fn runs_go(&self) -> bool {
+        let Kind::Script { text, .. } = &self.kind else {
+            return false;
+        };
+        const USES_CACHE: &[&str] = &[
+            "build", "test", "vet", "run", "install", "generate", "list", "tool", "fix",
+        ];
+        let words: Vec<&str> = text
+            .split(|c: char| c.is_whitespace() || ";&|()`$".contains(c))
+            .filter(|w| !w.is_empty())
+            .collect();
+        words
+            .windows(2)
+            .any(|w| (w[0] == "go" || w[0].ends_with("/go")) && USES_CACHE.contains(&w[1]))
+    }
+}
+
 /// Does the name say the value is a secret? The hook is never told which
 /// values are secrets (the container-hooks protocol carries no mask list,
 /// confirmed in the lab), so a telling name is one of two signals it has
@@ -556,6 +579,38 @@ mod tests {
             "ghs_0123456789abcdefghijABCDEFGHIJ"
         ));
         assert!(!withheld("INPUT_GO-VERSION-FILE", "go.mod"));
+    }
+
+    #[test]
+    fn which_steps_run_go() {
+        let script = |t: &str| Step {
+            kind: Kind::Script {
+                text: t.into(),
+                arg: 1,
+            },
+            cmd: vec![],
+            label: String::new(),
+            taint: vec![],
+            retry: None,
+        };
+        for yes in [
+            "go test ./...",
+            "go build -v ./cmd/gh",
+            "set -e\ncd x && go vet ./...",
+            "/usr/local/go/bin/go run ./script",
+            "make; go install ./cmd/x",
+        ] {
+            assert!(script(yes).runs_go(), "{yes}");
+        }
+        for no in [
+            "go mod download",
+            "go env GOVERSION",
+            "make test",
+            "cargo build",
+            "golangci-lint run",
+        ] {
+            assert!(!script(no).runs_go(), "{no}");
+        }
     }
 
     #[test]
