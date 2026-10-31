@@ -984,29 +984,55 @@ impl<'a> Trust<'a> {
             }
             // The last execution of the manifest this run read, when that
             // is another run than the hit's (a manifest read on another
-            // tree, or a ledger written before the trust layer).
+            // tree, or a ledger written before the trust layer). Its
+            // fingerprint is recomputed under the current rules (normalize,
+            // the ignored outputs, HOME_VOLATILE): a stored fingerprint was
+            // computed under whatever rules the run that wrote it had, so
+            // comparing it after the rules changed would read a rules change
+            // as a divergence. Only a result that is gone (purged) leaves the
+            // stored one to compare, and then a mismatch restarts the streak,
+            // never quarantines.
             let mut streak = 1;
             if let Some(p) = &prior {
-                if compared_with.as_deref() != Some(p.last_run.as_str()) {
+                let prev_fp = if compared_with.as_deref() == Some(p.last_run.as_str()) {
+                    let (_, hr) = hit.expect("compared_with is the hit's run");
+                    Some(fingerprint(hr, self.cas, step.ignore)?)
+                } else {
                     match self.result_of_run(&p.last_run, &key)? {
                         Some(prev) => {
+                            compared_with.get_or_insert_with(|| p.last_run.clone());
                             divergence.merge(compare(&prev, result, self.cas, step.ignore)?);
                             byte_identical &= same_bytes(&prev, result, step.ignore);
+                            Some(fingerprint(&prev, self.cas, step.ignore)?)
                         }
-                        None if p.fingerprint != fp => divergence.push(format!(
-                            "result fingerprint differs from run {}",
-                            short_run(&p.last_run)
-                        )),
-                        None => {}
+                        None => None,
                     }
-                    compared_with.get_or_insert_with(|| p.last_run.clone());
-                } else if p.fingerprint != fp && divergence.is_empty() {
-                    // compare() found nothing to name, yet the fingerprints
-                    // differ: say so rather than call them identical.
-                    divergence
-                        .push("result fingerprint differs from the previous execution".into());
-                }
-                if p.fingerprint == fp {
+                };
+                let same = match prev_fp {
+                    Some(pf) => {
+                        if pf != fp && divergence.is_empty() {
+                            // compare() found nothing to name, yet the
+                            // fingerprints differ under the same rules: say
+                            // so rather than call them identical.
+                            divergence.push(
+                                "result fingerprint differs from the previous execution".into(),
+                            );
+                        }
+                        pf == fp
+                    }
+                    None => {
+                        // Equal stored fingerprints still say the results
+                        // agree (on the old rules and the new alike); that
+                        // counts as a comparison. A mismatch says nothing.
+                        let same = p.fingerprint == fp;
+                        byte_identical = false;
+                        if same {
+                            compared_with.get_or_insert_with(|| p.last_run.clone());
+                        }
+                        same
+                    }
+                };
+                if same {
                     streak = p.streak + 1;
                 }
             }
@@ -2104,6 +2130,85 @@ mod tests {
         let v = w.run(&REPLAY, 0, b"ok\n").unwrap();
         assert!(v.divergence.is_some(), "{v:?}");
         assert_eq!(v.trust.state, TrustState::Quarantined);
+    }
+
+    /// The comparison rules (normalize, the ignored outputs, HOME_VOLATILE)
+    /// can change between executions. Stored fingerprints were computed
+    /// under the old rules; the previous result is fingerprinted again
+    /// under the new ones, so a rules change is never a divergence. When the
+    /// previous result is gone (purged), a mismatch with its stored
+    /// fingerprint restarts the streak instead.
+    #[test]
+    fn a_change_in_the_comparison_rules_never_quarantines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let ledger = Ledger::open_in_memory().unwrap();
+        let key = Hash::of(b"go test ./...");
+        let tree = Tree::from_leaves([Entry::file("go.mod", Hash::of(b"m"), 0o644)]);
+        let m = Manifest::from_log(
+            key,
+            vec!["/workspace".into()],
+            &tree,
+            [Access {
+                path: "go.mod".into(),
+                kind: Kind::File,
+            }],
+        )
+        .unwrap();
+        let mid = manifest_id(&m).unwrap();
+        let outputs = vec![
+            Entry::dir("out", Hash::of(b"listing")),
+            Entry::file("out/x", Hash::of(b"x"), 0o644),
+        ];
+        let trust = Trust::new(&ledger, &cas, REPLAY).unwrap();
+        let mut n = 0;
+        let mut exec = |ignore: &[String]| {
+            n += 1;
+            let hit = ledger
+                .latest_result(&key, &mid)
+                .unwrap()
+                .map(|r| (m.clone(), r));
+            let reason = match trust.decide(&key, hit.as_ref()).unwrap() {
+                Decision::Execute(r) => r,
+                Decision::Replay => Reason::WouldReplay,
+            };
+            let r = World::mk(&cas, key, mid, n, 0, b"ok\n", outputs.clone());
+            let step = Step {
+                key,
+                cmd: "go test ./...",
+                ignore,
+            };
+            ledger.put_manifest(&m, &r.run_id).unwrap();
+            let v = trust
+                .record_execution(&step, &r.run_id, &m, &r, hit.as_ref(), &reason)
+                .unwrap();
+            ledger
+                .record_run(&r.run_id, None, None, sp_ledger::Observed::default())
+                .unwrap();
+            ledger.put_result(&r).unwrap();
+            v
+        };
+        let old_rules: Vec<String> = vec![];
+        let new_rules = vec!["out".to_string()];
+        exec(&old_rules);
+        assert_eq!(exec(&old_rules).streak, 2);
+        // The rules change (out/ is now left out of comparisons): the
+        // stored fingerprint covered out/x, the new one does not.
+        let v = exec(&new_rules);
+        assert_eq!((v.divergence, v.streak), (None, 3), "the streak goes on");
+        assert_eq!(v.trust.state, TrustState::Proven);
+        // Back again, the other way: still no divergence.
+        let v = exec(&old_rules);
+        assert_eq!((v.divergence, v.streak), (None, 4));
+        // The previous results are purged (their transport was): only the
+        // stored fingerprint is left, from other rules. No divergence; the
+        // manifest proves again.
+        assert!(ledger.purge_transport(None).unwrap() >= 4);
+        let v = exec(&new_rules);
+        assert_eq!(v.divergence, None);
+        assert_eq!(v.streak, 1, "a mismatch with a stored fingerprint restarts");
+        assert_ne!(v.trust.state, TrustState::Quarantined);
+        assert_eq!(ledger.trust(&key).unwrap().unwrap().divergences, 0);
     }
 
     /// A proof whose run never got its result stored (a crash between the
