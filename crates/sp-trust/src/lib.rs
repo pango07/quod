@@ -5,9 +5,12 @@
 //! result must also be *proven*: the same manifest must have produced the
 //! same result `proofs` executions in a row (the proof streak, kept per
 //! (key, manifest) in the ledger's `proofs` table). A result seen once is
-//! never replayed, so a flaky failure that happened to be the first
-//! execution cannot be memoized; its second execution disagrees with it,
-//! and the disagreement is a divergence.
+//! never replayed. Nor, by default, is any failure (non-zero exit; a
+//! failure can repeat identically, e.g. a test that hangs under load every
+//! time the box is busy), nor any result whose output carries a kill or
+//! timeout marker (`KILL_MARKERS`): such results are compared like any
+//! other, but their streak never advances. `--replay-failures` lets
+//! failures prove themselves like passes; kill markers never do.
 //!
 //! Every execution of a hit is compared with the result a replay would have
 //! served (exit code, stdout and stderr up to `normalize`, outputs outside
@@ -85,6 +88,10 @@ pub struct Policy {
     pub proofs: u32,
     /// Fraction of would-be hits re-executed in replay mode, 0..=1.
     pub audit: f64,
+    /// Whether a failing result (non-zero exit) may prove itself and
+    /// replay. Off by default: a failure that repeats identically is as
+    /// likely the box (load, a hang to go test's timeout) as the code.
+    pub replay_failures: bool,
 }
 
 impl Default for Policy {
@@ -93,9 +100,25 @@ impl Default for Policy {
             mode: Mode::Observe,
             proofs: DEFAULT_PROOFS,
             audit: DEFAULT_AUDIT,
+            replay_failures: false,
         }
     }
 }
+
+/// Text in a step's stdout or stderr that says something was killed or
+/// timed out rather than finished: go test's own timeout panic and its
+/// kill of a test binary that ignored it, a child reported dead by signal,
+/// the Go runtime out of memory. A result carrying one is never provable,
+/// whatever its exit code (`go test ./... || true` exits 0): what it shows
+/// is the box's condition, not the code's.
+pub const KILL_MARKERS: &[&str] = &[
+    "panic: test timed out after",
+    "*** Test killed",
+    "signal: killed",
+    "signal: terminated",
+    "signal: interrupt",
+    "fatal error: out of memory",
+];
 
 impl Policy {
     pub fn validate(&self) -> Result<(), TrustError> {
@@ -135,6 +158,9 @@ pub enum TrustError {
 pub enum Reason {
     /// No manifest of the key matched the tree, or none had a result.
     Miss,
+    /// A manifest matched, but its result can never prove itself (see
+    /// `unprovable`): a failure, or output carrying a kill marker.
+    Unprovable { why: String },
     /// A manifest matched, but its result is not yet reproduced often enough.
     Proving { streak: u32, needed: u32 },
     /// The key is quarantined after a divergence; `streak` of `needed`
@@ -180,23 +206,32 @@ pub fn needed(policy: &Policy, trust: Option<&TrustRow>) -> u32 {
         + u32::try_from(trust.map_or(0, |t| t.divergences)).unwrap_or(u32::MAX - policy.proofs)
 }
 
-/// The replay decision from the policy and the stored facts. Pure. `hit`
-/// is the run whose result a replay would serve (the matched manifest's
-/// newest result). Its proof streak counts only if that run is the one the
-/// streak ends with: the streak vouches for the result that run recorded,
-/// and for no other (a ledger where they disagree, e.g. a result that was
-/// never stored after its proof, is treated as unproven).
+/// What `decide` needs to know about the result a replay would serve.
+#[derive(Clone, Copy, Debug)]
+pub struct HitView<'a> {
+    /// The run that recorded it (the matched manifest's newest result).
+    pub run_id: &'a str,
+    /// Why it can never prove itself, if it cannot (`unprovable`).
+    pub unprovable: Option<&'a str>,
+}
+
+/// The replay decision from the policy and the stored facts. Pure. The
+/// hit's proof streak counts only if the hit's run is the one the streak
+/// ends with: the streak vouches for the result that run recorded, and for
+/// no other (a ledger where they disagree, e.g. a result that was never
+/// stored after its proof, is treated as unproven). An unprovable result
+/// never replays, whatever its streak.
 pub fn decide(
     policy: &Policy,
-    hit: Option<&str>,
+    hit: Option<HitView>,
     trust: Option<&TrustRow>,
     proof: Option<&ProofRow>,
 ) -> Decision {
-    let Some(hit_run) = hit else {
+    let Some(hit) = hit else {
         return Decision::Execute(Reason::Miss);
     };
     let streak = proof
-        .filter(|p| p.last_run == hit_run)
+        .filter(|p| p.last_run == hit.run_id)
         .map_or(0, |p| p.streak);
     let needed = needed(policy, trust);
     if let Some(t) = trust
@@ -208,6 +243,9 @@ pub fn decide(
             streak,
             needed,
         });
+    }
+    if let Some(why) = hit.unprovable {
+        return Decision::Execute(Reason::Unprovable { why: why.into() });
     }
     if streak < needed {
         return Decision::Execute(Reason::Proving { streak, needed });
@@ -331,6 +369,34 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
         buf.extend_from_slice(h.hex().as_bytes());
     }
     Ok(Hash::of(&buf))
+}
+
+/// Why `r` can never prove itself under `policy`, if it cannot: a failure
+/// (unless the policy replays failures), or stdout or stderr carrying a
+/// `KILL_MARKERS` entry.
+pub fn unprovable(
+    policy: &Policy,
+    r: &StepResult,
+    cas: &Cas,
+) -> Result<Option<String>, TrustError> {
+    for (name, h) in [("stdout", &r.stdout), ("stderr", &r.stderr)] {
+        let bytes = read_blob(cas, h)?;
+        if let Some(m) = KILL_MARKERS
+            .iter()
+            .find(|m| bytes.windows(m.len()).any(|w| w == m.as_bytes()))
+        {
+            return Ok(Some(format!(
+                "its {name} says {m:?}: killed or timed out, not finished"
+            )));
+        }
+    }
+    if r.exit_code != 0 && !policy.replay_failures {
+        return Ok(Some(format!(
+            "exit code {}: failures never replay unless --replay-failures",
+            r.exit_code
+        )));
+    }
+    Ok(None)
 }
 
 /// How two results of the same manifest differ. Empty means identical.
@@ -602,12 +668,16 @@ pub struct Verdict {
     pub trust: TrustRow,
     /// Observe mode, would have replayed: the recorded duration.
     pub would_have_saved: Option<Duration>,
+    /// Why this execution's result can never prove itself, if it cannot.
+    pub unprovable: Option<String>,
 }
 
 impl Verdict {
     /// Whether the manifest this execution recorded may replay from now on.
     pub fn replayable(&self) -> bool {
-        self.streak >= self.needed && self.trust.state != TrustState::Quarantined
+        self.streak >= self.needed
+            && self.trust.state != TrustState::Quarantined
+            && self.unprovable.is_none()
     }
 
     /// `replayed`, `miss`, ... for the run row.
@@ -617,6 +687,7 @@ impl Verdict {
         }
         match self.reason {
             Reason::Miss => "miss",
+            Reason::Unprovable { .. } => "unprovable",
             Reason::Proving { .. } | Reason::Quarantined { .. } => "proving",
             Reason::Audit { .. } => "audit",
             Reason::WouldReplay => "would-replay",
@@ -675,6 +746,13 @@ impl Verdict {
             ),
             None => String::new(),
         };
+        if let Some(why) = &self.unprovable
+            && !matches!(self.reason, Reason::Quarantined { .. })
+        {
+            return vec![format!(
+                "trust: not provable ({why}); it executes every time{identical}"
+            )];
+        }
         match &self.reason {
             Reason::Miss if self.compared_with.is_none() => vec![format!(
                 "trust: proof {} of {}; replay needs {} identical execution{}",
@@ -683,7 +761,7 @@ impl Verdict {
                 self.needed,
                 plural(u64::from(self.needed))
             )],
-            Reason::Miss | Reason::Proving { .. } => vec![format!(
+            Reason::Miss | Reason::Proving { .. } | Reason::Unprovable { .. } => vec![format!(
                 "trust: proof {} of {}{identical}{}",
                 self.streak,
                 self.needed,
@@ -737,13 +815,19 @@ impl<'a> Trust<'a> {
         hit: Option<&(Manifest, StepResult)>,
     ) -> Result<Decision, TrustError> {
         let trust = self.ledger.trust(key)?;
-        let proof = match hit {
-            Some((m, _)) => self.ledger.proof(key, &manifest_id(m)?)?,
-            None => None,
+        let (proof, why) = match hit {
+            Some((m, r)) => (
+                self.ledger.proof(key, &manifest_id(m)?)?,
+                unprovable(&self.policy, r, self.cas)?,
+            ),
+            None => (None, None),
         };
         Ok(decide(
             &self.policy,
-            hit.map(|(_, r)| r.run_id.as_str()),
+            hit.map(|(_, r)| HitView {
+                run_id: &r.run_id,
+                unprovable: why.as_deref(),
+            }),
             trust.as_ref(),
             proof.as_ref(),
         ))
@@ -809,6 +893,7 @@ impl<'a> Trust<'a> {
         let manifest = manifest_id(executed)?;
         let fp = fingerprint(result, self.cas, step.ignore)?;
         let hit_manifest = hit.map(|(m, _)| manifest_id(m)).transpose()?;
+        let why_unprovable = unprovable(&self.policy, result, self.cas)?;
         self.ledger.atomically(|l| {
             let key = step.key;
             let mut trust = l
@@ -889,6 +974,11 @@ impl<'a> Trust<'a> {
                 streak = 1;
                 tracing::warn!(target: "stillpass", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence: step key quarantined");
             }
+            if why_unprovable.is_some() {
+                // Compared like any result (a later different one is still
+                // a divergence), but it never counts toward a replay.
+                streak = 0;
+            }
             l.put_proof(&ProofRow {
                 step_key: key,
                 manifest_id: manifest,
@@ -898,7 +988,11 @@ impl<'a> Trust<'a> {
                 updated_at: String::new(),
             })?;
             let needed = needed(&self.policy, Some(&trust));
-            if divergence.is_empty() && streak >= needed && trust.state != TrustState::Proven {
+            if divergence.is_empty()
+                && why_unprovable.is_none()
+                && streak >= needed
+                && trust.state != TrustState::Proven
+            {
                 trust.state = TrustState::Proven;
                 trust.quarantined_at = None;
                 trust.quarantine_reason = None;
@@ -937,6 +1031,7 @@ impl<'a> Trust<'a> {
                     Reason::WouldReplay => hit.map(|(_, r)| Duration::from_millis(r.duration_ms)),
                     _ => None,
                 },
+                unprovable: why_unprovable.clone(),
             })
         })
     }
@@ -1001,6 +1096,7 @@ impl<'a> Trust<'a> {
                 needed,
                 trust,
                 would_have_saved: None,
+                unprovable: None,
             }))
         })
     }
@@ -1065,8 +1161,12 @@ mod tests {
         };
         let observe = Policy::default();
         // `hit`: a result from run 01RUN, the run the proofs end with.
+        let view = |run_id| HitView {
+            run_id,
+            unprovable: None,
+        };
         let d = |p: &Policy, hit: bool, t: Option<&TrustRow>, pr: Option<&ProofRow>| {
-            decide(p, hit.then_some("01RUN"), t, pr)
+            decide(p, hit.then_some(view("01RUN")), t, pr)
         };
         assert_eq!(
             d(&replay, false, None, None),
@@ -1075,7 +1175,7 @@ mod tests {
         // A streak vouches only for the result of the run it ends with: a
         // hit serving another run's result is unproven, however long.
         assert_eq!(
-            decide(&replay, Some("01OTHER"), None, Some(&proof(9))),
+            decide(&replay, Some(view("01OTHER")), None, Some(&proof(9))),
             Decision::Execute(Reason::Proving {
                 streak: 0,
                 needed: 2
@@ -1097,6 +1197,21 @@ mod tests {
         assert_eq!(
             d(&observe, true, None, Some(&proof(2))),
             Decision::Execute(Reason::WouldReplay)
+        );
+        // An unprovable result never replays, however long its streak.
+        assert_eq!(
+            decide(
+                &replay,
+                Some(HitView {
+                    run_id: "01RUN",
+                    unprovable: Some("exit code 1")
+                }),
+                None,
+                Some(&proof(9))
+            ),
+            Decision::Execute(Reason::Unprovable {
+                why: "exit code 1".into()
+            })
         );
         // The 20th eligible hit is audited at 5%.
         let t19 = trust_row(TrustState::Proven, 19, 0);
@@ -1313,6 +1428,7 @@ mod tests {
         mode: Mode::Replay,
         proofs: 2,
         audit: 0.05,
+        replay_failures: false,
     };
 
     /// The real case: a flaky test hangs to go test's timeout on the first
@@ -1327,23 +1443,24 @@ mod tests {
         let v1 = w.run(&REPLAY, 1, hang).unwrap();
         assert_eq!(
             (v1.reason.clone(), v1.streak, v1.needed),
-            (Reason::Miss, 1, 2)
+            (Reason::Miss, 0, 2),
+            "a timed-out failure never counts as a proof"
         );
         assert!(!v1.replayable() && v1.compared_with.is_none());
         assert_eq!(
             v1.lines(),
-            ["trust: proof 1 of 2; replay needs 2 identical executions"]
+            [
+                "trust: not provable (its stdout says \"panic: test timed out after\": killed or timed out, not finished); it executes every time"
+            ]
         );
 
-        // Second run: executes (proof 2 of 2 would be needed), passes: divergence.
+        // Second run: executes (the hit is unprovable), passes: divergence.
         let v2 = w.run(&REPLAY, 0, ok).unwrap();
-        assert!(matches!(
-            v2.reason,
-            Reason::Proving {
-                streak: 1,
-                needed: 2
-            }
-        ));
+        assert!(
+            matches!(v2.reason, Reason::Unprovable { .. }),
+            "{:?}",
+            v2.reason
+        );
         let d = v2.divergence.clone().expect("a divergence");
         assert!(d.items[0].starts_with("exit code 1 -> 0"), "{d}");
         assert!(d.items[1].starts_with("stdout differs from line 1"), "{d}");
@@ -1409,6 +1526,52 @@ mod tests {
                 .unwrap(),
             "exit code 1 -> 0"
         );
+    }
+
+    /// A failure that repeats identically (a test hanging under load every
+    /// time the box is busy) never proves itself by default; with
+    /// --replay-failures a deterministic failure does, but output carrying
+    /// a kill or timeout marker never does, even with exit 0.
+    #[test]
+    fn failures_and_kill_markers_never_prove() {
+        let mut w = World::new();
+        for i in 0..3 {
+            let v = w.run(&REPLAY, 1, b"FAIL\tpkg\t0.1s\n").unwrap();
+            assert!(!v.replayable() && v.divergence.is_none(), "run {i}: {v:?}");
+            assert_eq!(v.streak, 0);
+            assert!(
+                v.lines()[0].starts_with("trust: not provable (exit code 1"),
+                "{:?}",
+                v.lines()
+            );
+        }
+        let failures = Policy {
+            replay_failures: true,
+            ..REPLAY
+        };
+        let mut w = World::new();
+        w.run(&failures, 1, b"FAIL\n").unwrap();
+        assert!(w.run(&failures, 1, b"FAIL\n").unwrap().replayable());
+        assert_eq!(w.run(&failures, 1, b"FAIL\n"), Err(Decision::Replay));
+        // A default-policy run never serves that proven failure.
+        assert!(matches!(
+            w.run(&REPLAY, 1, b"FAIL\n").unwrap().reason,
+            Reason::Unprovable { .. }
+        ));
+
+        let mut w = World::new();
+        let swallowed = b"panic: test timed out after 10m0s\nok\n";
+        for i in 0..3 {
+            let v = w.run(&failures, 0, swallowed).unwrap();
+            assert!(!v.replayable() && v.unprovable.is_some(), "run {i}: {v:?}");
+        }
+        for m in KILL_MARKERS {
+            let mut w = World::new();
+            let r = w.result(0, format!("x\n{m} y\n").as_bytes(), vec![]);
+            assert!(unprovable(&failures, &r, &w.cas).unwrap().is_some(), "{m}");
+        }
+        let r = w.result(0, b"ok  \tpkg\t0.1s\n", vec![]);
+        assert_eq!(unprovable(&REPLAY, &r, &w.cas).unwrap(), None);
     }
 
     /// A step printing random bytes never reaches two identical executions.

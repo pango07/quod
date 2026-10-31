@@ -85,7 +85,7 @@ fn render(
         match outcome {
             "replayed" => saved += ms,
             "would-replay" => would_save += ms,
-            "miss" | "proving" | "audit" | "diverged" => {
+            "miss" | "proving" | "unprovable" | "audit" | "diverged" => {
                 executed += Duration::from_millis(r.wall_ms.unwrap_or(0))
             }
             _ => {}
@@ -100,14 +100,15 @@ fn render(
         n("would-replay"),
         fmt_duration(would_save)
     )?;
-    let executed_n = n("miss") + n("proving") + n("audit") + n("diverged");
+    let executed_n = n("miss") + n("proving") + n("unprovable") + n("audit") + n("diverged");
     writeln!(
         o,
-        "  executed {} ({}): {} miss, {} proving, {} audit, {} diverged; {} timed out, {} killed, {} network, {} unknown",
+        "  executed {} ({}): {} miss, {} proving, {} unprovable, {} audit, {} diverged; {} timed out, {} killed, {} network, {} unknown",
         executed_n,
         fmt_duration(executed),
         n("miss"),
         n("proving"),
+        n("unprovable"),
         n("audit"),
         n("diverged"),
         n("timeout"),

@@ -11,7 +11,7 @@
 //! panic in the observer, is in observer_faults.rs (it needs the
 //! `fault-injection` build); T8 a
 //! network step leaves the checkout clean and observed steps see its module
-//! cache from the state dir; T9 a flaky failure executed once never replays;
+//! cache from the state dir; T9 a repeated identical failure never replays;
 //! T10 nondeterministic writes under HOME or GOPATH never replay.
 
 mod common;
@@ -534,12 +534,13 @@ fn t8_a_network_step_keeps_the_checkout_clean_and_fills_the_state_dir() {
 }
 
 /// The real case: cli/cli's TestHuhPrompterConfirm hung to go test's
-/// 10-minute timeout once under load. A failure seen once must never be
-/// replayed: the next run executes, passes, and the disagreement
-/// quarantines the key. The flake is driven by a file in the warm build
-/// cache, an input the observer does not see.
+/// 10-minute timeout under load, and on a busy box it can do so twice in a
+/// row with identical output. A failure is never replayed by default, and
+/// output with a kill or timeout marker never: the hang executes every
+/// time, the pass that follows quarantines the key. The flake is driven by
+/// a file in the warm build cache, an input the observer does not see.
 #[test]
-fn t9_a_flaky_failure_executed_once_never_replays() {
+fn t9_a_repeated_identical_failure_never_replays() {
     if !enabled() {
         return;
     }
@@ -547,12 +548,19 @@ fn t9_a_flaky_failure_executed_once_never_replays() {
     env.run_defaults.clear();
     let step = r#"if [ -f "$GOCACHE/pass" ]; then echo ok; else echo '--- FAIL: TestHuhPrompterConfirm (600.00s)'; echo 'panic: test timed out after 10m0s'; exit 1; fi"#;
     let flags = &["--mode", "replay", "--warm"];
-    let r1 = env.run_step(step, flags);
-    assert!(
-        r1.executed() && r1.code == 1 && r1.stderr.contains("trust: proof 1 of 2"),
-        "{}",
-        r1.stderr
-    );
+    for i in 0..3 {
+        let r = env.run_step(step, flags);
+        assert!(
+            r.executed()
+                && !r.hit()
+                && r.code == 1
+                && r.stderr.contains(
+                    "trust: not provable (its stdout says \"panic: test timed out after\""
+                ),
+            "identical failure {i}: {}",
+            r.stderr
+        );
+    }
     // The flake clears; the recorded failure is not replayed.
     std::fs::write(warm_dir(&env).join("pass"), "").unwrap();
     let r2 = env.run_step(step, flags);
@@ -573,7 +581,34 @@ fn t9_a_flaky_failure_executed_once_never_replays() {
         "{}",
         r3.stderr
     );
-    println!("T9 ok: a failure seen once never replayed; the next pass quarantined the key");
+
+    // A failure without a kill marker: never replayed by default, and with
+    // --replay-failures it proves itself like a pass.
+    let fail = "echo FAIL; exit 1";
+    for i in 0..3 {
+        let r = env.run_step(fail, &["--mode", "replay"]);
+        assert!(
+            r.executed() && !r.hit() && r.stderr.contains("not provable (exit code 1"),
+            "failure {i}: {}",
+            r.stderr
+        );
+    }
+    let opt_in = &["--mode", "replay", "--replay-failures"];
+    for i in 0..2 {
+        let r = env.run_step(fail, opt_in);
+        assert!(r.executed() && r.code == 1, "opt-in {i}: {}", r.stderr);
+    }
+    let r = env.run_step(fail, opt_in);
+    assert!(r.hit() && r.code == 1, "{}", r.stderr);
+    let r = env.run_step(fail, &["--mode", "replay"]);
+    assert!(
+        r.executed() && !r.hit(),
+        "default policy again: {}",
+        r.stderr
+    );
+    println!(
+        "T9 ok: three identical timed-out failures never replayed, the pass quarantined the key; a plain failure replays only with --replay-failures"
+    );
 }
 
 /// What a step leaves in HOME or GOPATH is a result unless it is on the

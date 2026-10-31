@@ -749,10 +749,12 @@ fn run_step(
         .args(["--toolchain", cfg.profile.toolchain.name()])
         .args(extra)
         // The bench measures the matcher: a matching result replays at
-        // once, with no audit sampling (the trust layer has its own suite).
+        // once, failures too, with no audit sampling (the trust layer has
+        // its own suite).
         .env("STILLPASS_MODE", "replay")
         .env("STILLPASS_PROOFS", "1")
         .env("STILLPASS_AUDIT", "0")
+        .env("STILLPASS_REPLAY_FAILURES", "1")
         .envs(env.iter().map(|(k, v)| (k, v)))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

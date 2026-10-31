@@ -256,16 +256,26 @@ pub struct Env {
     pub toolchain: Option<Toolchain>,
     /// Flags `run_step` adds to every `stillpass run`. The default puts the
     /// matcher's acceptance criteria (A1-A7, W) back on the spike's terms:
-    /// replay mode, a result replays after one execution, no audit
-    /// sampling. The trust suite clears this and sets the policy per call.
+    /// replay mode, a result replays after one execution, failures too, no
+    /// audit sampling. The trust suite clears this and sets the policy per
+    /// call.
     pub run_defaults: Vec<String>,
 }
 
-/// The spike's pre-trust semantics: a matching result replays at once.
+/// The spike's pre-trust semantics: a matching result replays at once,
+/// failures included.
 pub fn legacy_policy() -> Vec<String> {
-    ["--mode", "replay", "--proofs", "1", "--audit", "0"]
-        .map(String::from)
-        .to_vec()
+    [
+        "--mode",
+        "replay",
+        "--proofs",
+        "1",
+        "--audit",
+        "0",
+        "--replay-failures",
+    ]
+    .map(String::from)
+    .to_vec()
 }
 
 impl Env {

@@ -24,6 +24,12 @@ pub struct PolicyArgs {
     /// instead of replaying (0..=1). 0 turns audit off: benchmarks only.
     #[arg(long, default_value_t = sp_trust::DEFAULT_AUDIT, env = "STILLPASS_AUDIT")]
     audit: f64,
+    /// Let failing results (non-zero exit) prove themselves and replay. Off
+    /// by default: an identical failure can be the box (load, a hang to go
+    /// test's timeout), not the code. Output with a kill or timeout marker
+    /// never replays either way.
+    #[arg(long, env = "STILLPASS_REPLAY_FAILURES")]
+    replay_failures: bool,
 }
 
 impl PolicyArgs {
@@ -32,6 +38,7 @@ impl PolicyArgs {
             mode: self.mode,
             proofs: self.proofs,
             audit: self.audit,
+            replay_failures: self.replay_failures,
         };
         p.validate()?;
         Ok(p)

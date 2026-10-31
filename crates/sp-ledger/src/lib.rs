@@ -132,7 +132,7 @@ pub struct RunRow {
     pub repo_path: Option<String>,
     pub mode: Option<String>,
     /// How the run ended: `replayed`, `would-replay`, `miss`, `proving`,
-    /// `audit`, `diverged`, `timeout`, `killed`, `net`.
+    /// `unprovable`, `audit`, `diverged`, `timeout`, `killed`, `net`.
     pub outcome: Option<String>,
     pub manifest_id: Option<Hash>,
     pub exit_code: Option<i32>,
