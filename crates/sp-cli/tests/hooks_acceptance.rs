@@ -1,0 +1,918 @@
+//! A1-A7 (+A7b) through the hooks path. The test plays actions/runner: it
+//! writes the hook inputs the runner would (prepare_job, a CAS checkout from
+//! a local git "server", `run:` steps as scripts under RUNNER_TEMP,
+//! cleanup_job) and feeds them to `stillpass hooks`. Same criteria as
+//! tests/acceptance.rs, so the two paths can be compared (gate (a) compares
+//! the recorded manifests' f/a sets with the CLI path's on the same tree).
+//!
+//! Runs on the tiny Go module by default, or on the spike repo when
+//! STILLPASS_SPIKE_REPO is set (a checkout whose .stillpass/gomod step A
+//! filled). Gated on STILLPASS_INTEGRATION=1. Host-root mode
+//! (STILLPASS_ROOTFS=host) by default; STILLPASS_HOOKS_IMAGE=<image> with
+//! STILLPASS_HOOKS_ROOTFS=<a state's rootfs dir holding it, unpacked> runs
+//! every step in that image instead, as a real job does.
+
+mod common;
+use std::collections::BTreeSet;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Instant;
+
+use common::*;
+use sp_cas::{Cas, Entry, Hash, Kind, child_path};
+use sp_ledger::{Ledger, first_match};
+
+const STEP_DEFAULT: &str = "go test ./...";
+const WORKSPACE: &str = "/__w/o/r";
+
+/// The runner's side of the protocol.
+struct Runner {
+    env: Env,
+    work: PathBuf,
+    state: PathBuf,
+    job: Option<String>,
+    steps: u32,
+    mode: &'static str,
+    /// The trust policy: the matcher criteria (A1-A7) predate the trust
+    /// layer and run with one proof and no audit; T1-T2 use the real one.
+    proofs: u32,
+    audit: f64,
+    /// The job container's create options (who the steps run as).
+    user: &'static str,
+}
+
+struct StepOut {
+    code: i32,
+    stdout: Vec<u8>,
+    stderr: String,
+    summary: String,
+}
+
+impl StepOut {
+    fn executed(&self) -> bool {
+        self.stderr.contains("STILLPASS  EXECUTED")
+    }
+    fn replayed(&self) -> bool {
+        self.stderr.contains("STILLPASS  REPLAYED")
+    }
+}
+
+impl Runner {
+    fn new(env: Env) -> Runner {
+        let work = env.tmp.path().join("_work");
+        for d in [
+            "_temp/_runner_file_commands",
+            "_actions/actions/checkout/abc/dist",
+            "o/r",
+            "_tool",
+        ] {
+            std::fs::create_dir_all(work.join(d)).unwrap();
+        }
+        // The spike repo (with .stillpass/gomod) is the host workspace the
+        // first job imports; later jobs check out of the local git server.
+        let st = Command::new("cp")
+            .arg("-a")
+            .arg(env.repo.join("."))
+            .arg(work.join("o/r"))
+            .status()
+            .unwrap();
+        assert!(st.success());
+        if image().is_some() {
+            // The image, unpacked once, shared read-only with this state.
+            let src = std::env::var("STILLPASS_HOOKS_ROOTFS")
+                .expect("STILLPASS_HOOKS_IMAGE needs STILLPASS_HOOKS_ROOTFS");
+            std::fs::create_dir_all(env.state()).unwrap();
+            std::os::unix::fs::symlink(src, env.state().join("rootfs")).unwrap();
+        }
+        Runner {
+            state: env.state(),
+            env,
+            work,
+            job: None,
+            steps: 0,
+            mode: "observe",
+            proofs: 1,
+            audit: 0.0,
+            user: "--user 1001:1001",
+        }
+    }
+
+    fn mounts(&self) -> serde_json::Value {
+        let m = |src: PathBuf, dst: &str, ro: bool| serde_json::json!({"sourceVolumePath": src, "targetVolumePath": dst, "readOnly": ro});
+        serde_json::json!([
+            m(self.work.clone(), "/__w", false),
+            m(self.work.join("_temp"), "/__w/_temp", false),
+            m(self.work.join("_actions"), "/__w/_actions", false),
+            m(self.work.join("_tool"), "/__w/_tool", false),
+        ])
+    }
+
+    fn hooks(
+        &self,
+        input: &serde_json::Value,
+        extra_env: &[(&str, &str)],
+    ) -> (i32, Vec<u8>, String) {
+        let policy = serde_json::json!({
+            "mode": self.mode,
+            "proofs": self.proofs,
+            "audit": self.audit,
+            "keep_jobs": true,
+            "rootfs": if image().is_some() { "image" } else { "host" },
+        });
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_stillpass"));
+        cmd.arg("--state")
+            .arg(&self.state)
+            .arg("hooks")
+            .arg("--policy")
+            .arg(policy.to_string())
+            // The step's environment reaches the hook process; a workflow
+            // that sets these must change nothing (the policy above wins).
+            .env("STILLPASS_MODE", "replay")
+            .env("STILLPASS_PROOFS", "1")
+            .env("STILLPASS_AUDIT", "0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (k, v) in extra_env {
+            cmd.env(k, v);
+        }
+        let mut child = cmd.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(serde_json::to_string(input).unwrap().as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.code().unwrap_or(-1), out.stdout, stderr)
+    }
+
+    fn prepare_job(&mut self) {
+        let resp = self.work.join("_temp/response.json");
+        std::fs::write(&resp, "").unwrap();
+        let input = serde_json::json!({
+            "command": "prepare_job",
+            "responseFile": resp,
+            "state": {},
+            "args": {
+                "container": {
+                    "image": image().unwrap_or_else(|| "golang@sha256:test".into()),
+                    "workingDirectory": WORKSPACE,
+                    "createOptions": self.user,
+                    "environmentVariables": {"HOME": "/github/home"},
+                    "systemMountVolumes": self.mounts(),
+                    "userMountVolumes": []
+                },
+                "services": []
+            }
+        });
+        let (code, _, stderr) = self.hooks(&input, &[]);
+        assert_eq!(code, 0, "prepare_job: {stderr}");
+        let r: serde_json::Value = serde_json::from_slice(&std::fs::read(&resp).unwrap()).unwrap();
+        assert_eq!(r["isAlpine"], false);
+        self.job = Some(r["state"]["job"].as_str().unwrap().to_string());
+        self.steps = 0;
+        eprintln!("prepare_job: job {}", self.job.as_ref().unwrap());
+    }
+
+    fn step_env(&self, n: u32) -> serde_json::Value {
+        let cmds = "/__w/_temp/_runner_file_commands";
+        for f in [
+            "set_env",
+            "add_path",
+            "set_output",
+            "save_state",
+            "step_summary",
+        ] {
+            std::fs::write(
+                self.work
+                    .join(format!("_temp/_runner_file_commands/{f}_{n}")),
+                "",
+            )
+            .unwrap();
+        }
+        serde_json::json!({
+            "CI": "true",
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_WORKSPACE": WORKSPACE,
+            "GITHUB_SERVER_URL": format!("file://{}", self.env.tmp.path().display()),
+            "GITHUB_SHA": self.head(),
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_RUN_ID": format!("{}", 1000 + n),
+            "GITHUB_RUN_ATTEMPT": "1",
+            "RUNNER_TEMP": "/__w/_temp",
+            "RUNNER_TOOL_CACHE": "/__w/_tool",
+            "RUNNER_OS": "Linux",
+            "GITHUB_ENV": format!("{cmds}/set_env_{n}"),
+            "GITHUB_PATH": format!("{cmds}/add_path_{n}"),
+            "GITHUB_OUTPUT": format!("{cmds}/set_output_{n}"),
+            "GITHUB_STATE": format!("{cmds}/save_state_{n}"),
+            "GITHUB_STEP_SUMMARY": format!("{cmds}/step_summary_{n}"),
+        })
+    }
+
+    fn head(&self) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.env.repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn run_step(&mut self, args: serde_json::Value, n: u32) -> StepOut {
+        let input = serde_json::json!({
+            "command": "run_script_step",
+            "responseFile": self.work.join("_temp/response.json"),
+            "state": {"job": self.job.as_ref().expect("prepare_job first")},
+            "args": args,
+        });
+        let (code, stdout, stderr) = self.hooks(&input, &[]);
+        let summary = std::fs::read_to_string(
+            self.work
+                .join(format!("_temp/_runner_file_commands/step_summary_{n}")),
+        )
+        .unwrap_or_default();
+        eprintln!(
+            "$ step {n}: exit {code}\n{}",
+            stderr
+                .lines()
+                .filter(|l| l.starts_with("STILLPASS")
+                    || l.starts_with("stillpass")
+                    || l.starts_with("  "))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        StepOut {
+            code,
+            stdout,
+            stderr,
+            summary,
+        }
+    }
+
+    /// A `run:` step with `script`, plus `extra` env (NAME=VALUE).
+    fn script(&mut self, script: &str, extra: &[(&str, &str)]) -> StepOut {
+        self.steps += 1;
+        let n = self.steps;
+        std::fs::write(
+            self.work.join(format!("_temp/step-{n}.sh")),
+            format!("{script}\n"),
+        )
+        .unwrap();
+        let mut env = self.step_env(n);
+        for (k, v) in extra {
+            env[k] = serde_json::Value::String(v.to_string());
+        }
+        let args = serde_json::json!({
+            "entryPoint": "bash",
+            "entryPointArgs": ["--noprofile", "--norc", "-e", "-o", "pipefail", format!("/__w/_temp/step-{n}.sh")],
+            "environmentVariables": env,
+            "prependPath": [],
+            "workingDirectory": WORKSPACE,
+        });
+        self.run_step(args, n)
+    }
+
+    /// actions/checkout of the repo's HEAD, served from the CAS.
+    fn checkout(&mut self) -> StepOut {
+        self.steps += 1;
+        let n = self.steps;
+        let mut env = self.step_env(n);
+        for (k, v) in [
+            ("INPUT_REPOSITORY", "o/r"),
+            ("INPUT_REF", ""),
+            ("INPUT_TOKEN", ""),
+            ("INPUT_PATH", ""),
+            ("INPUT_SUBMODULES", "false"),
+            ("INPUT_LFS", "false"),
+        ] {
+            env[k] = serde_json::Value::String(v.into());
+        }
+        let args = serde_json::json!({
+            "entryPoint": "/__e/node20/bin/node",
+            "entryPointArgs": ["/__w/_actions/actions/checkout/abc/dist/index.js"],
+            "environmentVariables": env,
+            "prependPath": [],
+            "workingDirectory": WORKSPACE,
+        });
+        self.run_step(args, n)
+    }
+
+    fn cleanup_job(&mut self) {
+        let input = serde_json::json!({
+            "command": "cleanup_job",
+            "responseFile": null,
+            "state": {"job": self.job.as_ref().unwrap()},
+            "args": {},
+        });
+        let (code, _, stderr) = self.hooks(&input, &[]);
+        assert_eq!(code, 0, "cleanup_job: {stderr}");
+        self.job = None;
+    }
+
+    /// A whole job: checkout HEAD, run `step`, close.
+    fn job(&mut self, step: &str, extra: &[(&str, &str)]) -> StepOut {
+        self.prepare_job();
+        let co = self.checkout();
+        assert_eq!(co.code, 0, "checkout: {}", co.stderr);
+        assert!(co.summary.contains("[checkout]"), "{}", co.summary);
+        let out = self.script(step, extra);
+        self.cleanup_job();
+        out
+    }
+
+    /// The tree the last job's last step started from (kept by
+    /// STILLPASS_KEEP_JOBS): what that step's manifest was matched against.
+    fn tree(&self) -> sp_cas::Tree {
+        let jobs = self.state.join("jobs");
+        let mut ids: Vec<String> = std::fs::read_dir(&jobs)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        ids.sort();
+        let job = jobs.join(ids.last().expect("a kept job"));
+        let mut steps: Vec<PathBuf> = std::fs::read_dir(&job)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.join("tree.json").is_file())
+            .collect();
+        steps.sort();
+        let bytes = std::fs::read(
+            steps
+                .last()
+                .expect("a step with its tree")
+                .join("tree.json"),
+        )
+        .unwrap();
+        let entries: Vec<Entry> = serde_json::from_slice(&bytes).unwrap();
+        sp_cas::Tree::from_leaves(entries)
+    }
+
+    /// The job's scope: no event payload in this harness, so `unverified`.
+    fn scope(&self) -> PathBuf {
+        self.state.join("scopes/unknown/unverified")
+    }
+
+    fn ledger(&self) -> Ledger {
+        Ledger::open(&self.scope().join("ledger.sqlite")).unwrap()
+    }
+}
+
+#[test]
+fn hooks_acceptance() {
+    if !enabled() {
+        return;
+    }
+    let spike = std::env::var("STILLPASS_SPIKE_REPO").ok();
+    let env = match &spike {
+        Some(src) => Env::from_copy(Path::new(src), Some(sp_key::Toolchain::Go)),
+        None => Env::new(),
+    };
+    // The local "GitHub": file://<tmp>/o/r is the repo.
+    std::fs::create_dir_all(env.tmp.path().join("o")).unwrap();
+    std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
+    let step = std::env::var("STILLPASS_STEP").unwrap_or_else(|_| STEP_DEFAULT.into());
+    let step = step.as_str();
+    let mut r = Runner::new(env);
+
+    // A1: first job executes and records one manifest and result.
+    let a1 = r.job(step, &[]);
+    assert!(a1.executed() && a1.code == 0, "A1: {}", a1.stderr);
+    assert!(
+        a1.summary.contains("would replay: no, first run"),
+        "A1 summary: {}",
+        a1.summary
+    );
+    let step_keys = keys(&r);
+    assert_eq!(step_keys.len(), 1, "A1: one step key: {step_keys:?}");
+    let key = step_keys[0];
+    assert_eq!(
+        r.ledger().manifest_count(&key).unwrap(),
+        1,
+        "A1: one manifest"
+    );
+    println!("A1 ok: EXECUTED through the hooks, one manifest");
+
+    // A2: the same tree again. Observe mode executes and says it would
+    // replay; replay mode replays byte for byte.
+    let a2 = r.job(step, &[]);
+    assert!(a2.executed(), "A2 observe: {}", a2.stderr);
+    assert!(
+        a2.summary.contains("would replay: yes"),
+        "A2 observe summary: {}",
+        a2.summary
+    );
+    r.mode = "replay";
+    let a2r = r.job(step, &[]);
+    assert!(
+        a2r.replayed() && a2r.summary.contains("[replayed]"),
+        "A2 replay: {}",
+        a2r.stderr
+    );
+    // The replayed result is the newest one recorded for the manifest:
+    // the observe-mode run just before.
+    assert_eq!(a2r.code, a2.code, "A2: exit code");
+    assert_eq!(a2r.stdout, a2.stdout, "A2: stdout bytes");
+    println!(
+        "A2 ok: observe reports would-replay, replay mode REPLAYED {} stdout bytes identical",
+        a2r.stdout.len()
+    );
+
+    let manifest = r.ledger().candidates(&key, 1).unwrap().remove(0);
+    assert!(
+        !manifest.volatile.is_empty(),
+        "A2: volatile names recorded: {:?}",
+        manifest.volatile
+    );
+    assert!(manifest.volatile.iter().any(|v| v == "GITHUB_RUN_ID"));
+    let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
+
+    // A3: a commit touching only README.md replays (through a real CAS checkout).
+    assert!(!recorded.contains("README.md"), "A3 precondition");
+    let readme = std::fs::read_to_string(r.env.repo.join("README.md")).unwrap_or_default();
+    r.env.write("README.md", &format!("{readme}\nA3 edit\n"));
+    r.env.commit("A3: README only");
+    let a3 = r.job(step, &[]);
+    // A step that reads the checkout's .git (go's VCS probing reads HEAD)
+    // depends on the commit itself, so a new commit is a miss there, as it
+    // must be; README.md must not be what differs.
+    let a3_rest = outside_git(&manifest, &r.tree());
+    assert!(
+        a3.replayed() || a3_rest.is_ok(),
+        "A3: {a3_rest:?}: {}",
+        a3.stderr
+    );
+    println!(
+        "A3 ok: README-only commit {}",
+        if a3.replayed() {
+            "REPLAYED"
+        } else {
+            "missed on the commit's .git only, never on README.md"
+        }
+    );
+
+    // A4: a commit changing a Go file the tests read misses and names it.
+    let go_file = manifest
+        .entries
+        .iter()
+        .find(|e| {
+            e.k == Kind::File
+                && e.p.ends_with(".go")
+                && !e.p.starts_with(".stillpass/")
+                && !e.p.ends_with("_test.go")
+        })
+        .expect("A4: a non-test .go file in the manifest")
+        .p
+        .clone();
+    let src = std::fs::read_to_string(r.env.repo.join(&go_file)).unwrap();
+    r.env.write(&go_file, &format!("{src}\n// A4 edit\n"));
+    r.env.commit("A4: touch a Go file");
+    let a4 = r.job(step, &[]);
+    assert!(a4.executed(), "A4: {}", a4.stderr);
+    let a4_mm = outside_git(&manifest, &r.tree());
+    assert!(
+        a4.summary.contains(&format!("differed at {go_file}"))
+            || a4_mm.as_ref().is_err_and(|m| m.path == go_file),
+        "A4 must name {go_file}: {a4_mm:?}: {}",
+        a4.summary
+    );
+    println!("A4 ok: MISS, the first mismatch outside .git is {go_file}");
+
+    // A5: adding a file to a listed directory misses and names the listing.
+    let dir = Path::new(&go_file)
+        .parent()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let newest = r.ledger().candidates(&key, 1).unwrap().remove(0);
+    assert!(
+        newest
+            .entries
+            .iter()
+            .any(|e| e.p == dir && e.k == Kind::Dir),
+        "A5 precondition: {dir} listed"
+    );
+    let added = child_path(&dir, "zz_stillpass_a5.txt");
+    r.env.write(&added, "new\n");
+    r.env.commit("A5: add a file");
+    let a5 = r.job(step, &[]);
+    assert!(a5.executed(), "A5: {}", a5.stderr);
+    let a5_mm = outside_git(&newest, &r.tree());
+    assert!(
+        (a5.summary.contains(&format!("differed at {dir} "))
+            && a5.summary.contains("directory listing changed"))
+            || a5_mm
+                .as_ref()
+                .is_err_and(|m| m.path == dir && m.expected.k == Kind::Dir),
+        "A5: {a5_mm:?}: {}",
+        a5.summary
+    );
+    println!("A5 ok: MISS, the first mismatch outside .git is the listing of {dir}");
+
+    // A6: a changed (keyed) env var is a different key with no manifests.
+    let a6 = r.job(step, &[("STILLPASS_A6", "1")]);
+    assert!(
+        a6.executed() && a6.summary.contains("first run of this step"),
+        "A6: {}",
+        a6.summary
+    );
+    assert_eq!(keys(&r).len(), 2, "A6: a second key");
+    // A volatile one is not: same key, and it replays.
+    let a6v = r.job(step, &[("GITHUB_RUN_ID", "999999")]);
+    assert!(a6v.replayed(), "A6 volatile: {}", a6v.stderr);
+    println!("A6 ok: keyed env is a new key; volatile env is not");
+
+    // C1: who the step runs as is part of the key: the same step as
+    // another user never replays the first user's result. (As root,
+    // cli/cli's permission tests fail, and a failure is never recorded.)
+    let before = keys(&r).len();
+    r.user = "--user 1234:1234";
+    let c1 = r.job(step, &[]);
+    assert!(
+        c1.executed() && !c1.replayed() && !c1.summary.contains("would replay: yes"),
+        "C1 uid 1234: {}",
+        c1.summary
+    );
+    r.user = "";
+    let c1r = r.job(step, &[]);
+    assert!(
+        c1r.executed() && !c1r.replayed() && !c1r.summary.contains("would replay: yes"),
+        "C1 root: {}",
+        c1r.summary
+    );
+    let recorded_now = keys(&r).len();
+    assert!(
+        recorded_now > before && recorded_now <= before + 2,
+        "C1: a new key per identity that recorded ({before} -> {recorded_now})"
+    );
+    r.user = "--user 1001:1001";
+    println!(
+        "C1 ok: the same step as uid 1234 and as root never replays uid 1001's result ({} new keys recorded)",
+        recorded_now - before
+    );
+
+    // C2: an offline result that is not the step's own is never recorded:
+    // a failure, and a step that reached for the network (and did not
+    // fail, `|| true`). Both run again with the runner's environment.
+    let recorded = |r: &Runner| -> usize {
+        let out = Command::new("sqlite3")
+            .arg(r.scope().join("ledger.sqlite"))
+            .arg("SELECT count(*) FROM results")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    };
+    let n0 = recorded(&r);
+    let fail = r.job("echo c2; exit 3", &[]);
+    assert_eq!(fail.code, 3, "C2: the job still fails: {}", fail.stderr);
+    assert!(
+        fail.summary.contains("exited 3 offline") && fail.summary.contains("tainted"),
+        "C2 failure: {}",
+        fail.summary
+    );
+    let net = r.job(
+        "curl -sS -m 3 http://192.0.2.1/ >/dev/null 2>&1 || true; echo done",
+        &[],
+    );
+    assert_eq!(net.code, 0);
+    assert!(
+        net.summary.contains("tried to reach the network offline")
+            && net.summary.contains("tainted"),
+        "C2 network: {}",
+        net.summary
+    );
+    let dns = r.job("getent hosts example.com || true", &[]);
+    assert!(
+        dns.summary.contains("tried to reach the network offline"),
+        "C2 dns: {}",
+        dns.summary
+    );
+    assert_eq!(recorded(&r), n0, "C2: nothing recorded");
+    println!(
+        "C2 ok: a failure, a `curl || true` and a DNS lookup offline are run again, never recorded"
+    );
+
+    // C3 (MAJOR 1): a secret under a name the sign list misses is still
+    // caught by its value shape. A lab probe confirmed a mapped secret
+    // reaches the step env and the protocol gives the hook no mask list, so
+    // the value itself is the signal. The step prints the value; the stored
+    // output (read back by replaying) must be masked, never the secret.
+    let secret = "aB3kZ9qR7tN2wX5vY8uJ1mD4cF6hL0pS2eG7d";
+    r.mode = "observe";
+    let c3o = r.job(
+        "printf 'v=%s' \"$RELEASE_UPLOAD\"",
+        &[("RELEASE_UPLOAD", secret)],
+    );
+    assert!(
+        c3o.executed(),
+        "C3 observe (records the first run): {}",
+        c3o.summary
+    );
+    assert!(
+        String::from_utf8_lossy(&c3o.stdout).contains(secret),
+        "C3: the live step really did print the value"
+    );
+    r.mode = "replay";
+    let c3r = r.job(
+        "printf 'v=%s' \"$RELEASE_UPLOAD\"",
+        &[("RELEASE_UPLOAD", secret)],
+    );
+    assert!(c3r.replayed(), "C3 replay: {}", c3r.stderr);
+    let stored = String::from_utf8_lossy(&c3r.stdout);
+    assert!(
+        !stored.contains(secret),
+        "C3: the stored output leaked the mis-named secret: {stored:?}"
+    );
+    assert!(
+        stored.contains("***"),
+        "C3: the stored output was not masked: {stored:?}"
+    );
+    println!(
+        "C3 ok: a secret under a plain name is caught by value shape, masked in the stored output"
+    );
+
+    // T1 (the trust layer, as `stillpass run` has it): a result seen once
+    // never replays; two identical executions prove it; an audit
+    // re-executes a would-be hit and compares instead of replaying.
+    r.mode = "replay";
+    r.proofs = 2;
+    let stable = "echo trust-$((40 + 2))";
+    let t1 = r.job(stable, &[]);
+    assert!(
+        t1.executed()
+            && t1
+                .summary
+                .contains("first run of this step (1 of 2 identical proofs)"),
+        "T1 first: {}",
+        t1.summary
+    );
+    let t1 = r.job(stable, &[]);
+    assert!(
+        t1.executed()
+            && t1.summary.contains("not yet (2 of 2 identical proofs)")
+            && t1.summary.contains("replayable from the next matching run"),
+        "T1 second: {}",
+        t1.summary
+    );
+    let t1 = r.job(stable, &[]);
+    assert!(t1.replayed(), "T1 third replays: {}", t1.stderr);
+    assert_eq!(String::from_utf8_lossy(&t1.stdout), "trust-42\n");
+    r.audit = 1.0;
+    let t1 = r.job(stable, &[]);
+    assert!(
+        t1.executed() && t1.summary.contains("audit: agrees with run"),
+        "T1 audit: {}",
+        t1.summary
+    );
+    r.audit = 0.0;
+    println!("T1 ok: once never replays, twice proves, the third replays; an audit agrees");
+
+    // T2: a step whose result differs on the same inputs never replays:
+    // its second execution diverges from the first, which quarantines the
+    // key, and it executes from then on.
+    let noisy = "date +%s%N";
+    let mut outs = Vec::new();
+    for _ in 0..3 {
+        let o = r.job(noisy, &[]);
+        assert!(o.executed() && !o.replayed(), "T2: {}", o.stderr);
+        outs.push(o);
+    }
+    assert!(
+        outs[1].summary.contains("audit DIVERGED") && outs[1].stderr.contains("DIVERGENCE"),
+        "T2 second run diverges: {}",
+        outs[1].stderr
+    );
+    assert!(
+        outs[2].summary.contains("quarantined"),
+        "T2 third run is quarantined: {}",
+        outs[2].summary
+    );
+    r.proofs = 1;
+    println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
+
+    // A7: every recorded input, mutated, misses. Zero false hits.
+    let cas = Cas::open(r.state.join("cas")).unwrap();
+    let tree = r.tree();
+    let cands = r.ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
+    let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
+    let m = &cands[base];
+    let t = Instant::now();
+    let mut counts = [0usize; 4];
+    let mut false_hits = Vec::new();
+    for e in &m.entries {
+        let (slot, mutated) = match e.k {
+            Kind::File => {
+                let mut bytes = cas.get(&e.h.unwrap()).unwrap().unwrap();
+                match bytes.first_mut() {
+                    Some(b) => *b ^= 0x01,
+                    None => bytes.push(b'x'),
+                }
+                (
+                    0,
+                    tree.with_leaf_changed(Entry::file(
+                        e.p.clone(),
+                        Hash::of(&bytes),
+                        e.m.unwrap(),
+                    )),
+                )
+            }
+            Kind::Dir => (
+                1,
+                tree.with_outputs(&[Entry::file(
+                    child_path(&e.p, "zz_stillpass_a7"),
+                    Hash::of(b"x"),
+                    0o644,
+                )]),
+            ),
+            Kind::Absent => (
+                2,
+                tree.with_outputs(&[Entry::file(e.p.clone(), Hash::of(b"x"), 0o644)]),
+            ),
+            Kind::Symlink => (
+                3,
+                tree.with_leaf_changed(Entry::symlink(e.p.clone(), "zz_stillpass_a7")),
+            ),
+            Kind::Deleted => unreachable!("manifests never hold x"),
+        };
+        counts[slot] += 1;
+        if first_match(&cands, &mutated).is_some() {
+            false_hits.push(format!("{} {:?}", e.p, e.k));
+        }
+    }
+    println!(
+        "A7: mutated {} f, {} d, {} a, {} l entries in {:.1}s: {} false hits",
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3],
+        t.elapsed().as_secs_f64(),
+        false_hits.len()
+    );
+    assert!(false_hits.is_empty(), "A7 false hits: {false_hits:?}");
+
+    // A7b: unread paths mutated on disk (and committed, so the checkout
+    // serves them) must replay, and a fresh execution must agree.
+    let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let recorded: BTreeSet<&str> = m.entries.iter().map(|e| e.p.as_str()).collect();
+    let unread: Vec<&Entry> = tree
+        .iter()
+        .filter(|e| {
+            // Not .git: the checkout serves its own, and the files at those
+            // paths on disk are the test repository's.
+            e.k == Kind::File
+                && !recorded.contains(e.p.as_str())
+                && !e.p.starts_with(".stillpass/")
+                && !e.p.starts_with(".git/")
+        })
+        .filter(|e| r.env.repo.join(&e.p).is_file())
+        .collect();
+    let stride = (unread.len() / samples.max(1)).max(1);
+    let picked: Vec<String> = unread
+        .iter()
+        .step_by(stride)
+        .take(samples)
+        .map(|e| e.p.clone())
+        .collect();
+    for (i, p) in picked.iter().enumerate() {
+        std::fs::write(r.env.repo.join(p), b"\x00STILLPASS_A7B corrupted\n").unwrap();
+        r.env.commit(&format!("A7b {i}: corrupt {p}"));
+        let hit = r.job(step, &[]);
+        let rest = outside_git(m, &r.tree());
+        assert!(
+            hit.replayed() || rest.is_ok(),
+            "A7b: mutating unread {p} should replay, or miss only on the commit's .git: {rest:?}: {}",
+            hit.stderr
+        );
+        let fresh = r.job(step, &[("STILLPASS_A7B", &i.to_string())]);
+        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
+        let fresh_key = newest_key(&r);
+        let fresh_m = r.ledger().candidates(&fresh_key, 1).unwrap().remove(0);
+        let fp: BTreeSet<&str> = fresh_m.entries.iter().map(|e| e.p.as_str()).collect();
+        assert!(
+            !fp.contains(p.as_str()),
+            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded"
+        );
+        assert_eq!(fresh.code, hit.code, "A7b: {p} changed the exit code");
+        assert_eq!(
+            normalize(&fresh.stdout),
+            normalize(&hit.stdout),
+            "A7b: {p} changed the output"
+        );
+        let only_fresh: Vec<&str> = fp.difference(&recorded).copied().collect();
+        let only_hit: Vec<&str> = recorded.difference(&fp).copied().collect();
+        println!(
+            "A7b ok: unread {p} mutated, replay agrees with a fresh execution ({} paths; {} only fresh, {} only replayed)",
+            fp.len(),
+            only_fresh.len(),
+            only_hit.len()
+        );
+    }
+    // A7b beyond the repository: what the step cannot see must not change
+    // its result. A file in the runner's own RUNNER_TEMP (the step gets a
+    // fresh one), and the warm GOCACHE (wiped: a fresh run with an empty
+    // cache must agree with the recorded result).
+    std::fs::write(r.work.join("_temp/zz_stillpass_a7b"), "planted\n").unwrap();
+    let hit = r.job(step, &[]);
+    assert!(hit.replayed(), "A7b RUNNER_TEMP: {}", hit.stderr);
+    let fresh = r.job(step, &[("STILLPASS_A7B", "temp")]);
+    assert!(
+        fresh.executed() && fresh.code == hit.code,
+        "A7b RUNNER_TEMP: {}",
+        fresh.stderr
+    );
+    assert_eq!(
+        normalize(&fresh.stdout),
+        normalize(&hit.stdout),
+        "A7b RUNNER_TEMP"
+    );
+    std::fs::remove_file(r.work.join("_temp/zz_stillpass_a7b")).unwrap();
+    println!("A7b ok: a file in the runner's RUNNER_TEMP changes nothing");
+    let warm = r.scope().join("warm");
+    if warm.exists() {
+        sp_cas::remove_any(&warm).unwrap();
+    }
+    let hit = r.job(step, &[]);
+    assert!(hit.replayed(), "A7b GOCACHE: {}", hit.stderr);
+    let fresh = r.job(step, &[("STILLPASS_A7B", "gocache")]);
+    assert!(
+        fresh.executed() && fresh.code == hit.code,
+        "A7b GOCACHE: {}",
+        fresh.stderr
+    );
+    assert_eq!(
+        normalize(&fresh.stdout),
+        normalize(&hit.stdout),
+        "A7b GOCACHE"
+    );
+    println!("A7b ok: an empty warm GOCACHE gives the recorded result");
+
+    println!(
+        "hooks acceptance: A1-A7, A7b, C1-C3 and T1-T2 pass{}",
+        if spike.is_some() {
+            " on the spike repo"
+        } else {
+            ""
+        }
+    );
+}
+
+/// Does `m` match `tree` everywhere outside `.git` (the commit's own
+/// identity)? `Err` holds the first mismatch elsewhere.
+fn outside_git(
+    m: &sp_manifest::Manifest,
+    tree: &sp_cas::Tree,
+) -> Result<(), Box<sp_manifest::Mismatch>> {
+    let mut rest = m.clone();
+    rest.entries
+        .retain(|e| e.p != ".git" && !e.p.starts_with(".git/"));
+    sp_manifest::matches(&rest, tree)
+}
+
+fn image() -> Option<String> {
+    std::env::var("STILLPASS_HOOKS_IMAGE").ok()
+}
+
+fn keys(r: &Runner) -> Vec<Hash> {
+    let out = Command::new("sqlite3")
+        .arg(r.scope().join("ledger.sqlite"))
+        .arg("SELECT DISTINCT step_key FROM manifests ORDER BY step_key")
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.parse().unwrap())
+        .collect()
+}
+
+fn newest_key(r: &Runner) -> Hash {
+    let out = Command::new("sqlite3")
+        .arg(r.scope().join("ledger.sqlite"))
+        .arg("SELECT step_key FROM manifests ORDER BY created_at DESC, rowid DESC LIMIT 1")
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+}
+
+fn normalize(stdout: &[u8]) -> String {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .map(|l| match l.rsplit_once('\t') {
+            Some((head, tail))
+                if tail.ends_with('s') && tail[..tail.len() - 1].parse::<f64>().is_ok() =>
+            {
+                format!("{head}\t<dur>")
+            }
+            _ => l.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
