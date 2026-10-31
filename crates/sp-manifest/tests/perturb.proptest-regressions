@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 639d55e7ca3e6103edef311b3a8a68b9f07d2a3a5e8f95ee6946fa18f3812b5c # shrinks to c = Case { tree: Tree { entries: {".": Entry { p: ".", k: Dir, h: Some(b3:0127963c), m: None, t: None }, "a": Entry { p: "a", k: File, h: Some(b3:ec2bd03b), m: Some(420), t: None }} }, manifest: Manifest { v: 1, step_key: b3:ff8e2bab, roots: ["/workspace"], entries: [Entry { p: ".", k: Dir, h: Some(b3:0127963c), m: None, t: None }, Entry { p: "zz/d", k: Absent, h: None, m: None, t: None }] } }, pick = Index(0)
