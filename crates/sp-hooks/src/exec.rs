@@ -228,8 +228,15 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     };
     let r = sp_sandbox::run(&rs);
     let phases_exec = t.elapsed();
+    // Checked before anything is unmounted; a check that fails is a
+    // violation (not recorded, the cache wiped), never an early return
+    // that would skip the unmounting below.
     let warm_violation = match (&x.gocache, &warm_before) {
-        (Some(dir), Some(before)) => go_cache_delta(dir, before, x.masks)?,
+        (Some(dir), Some(before)) => go_cache_delta(dir, before, x.masks).unwrap_or_else(|e| {
+            Some(format!(
+                "what it wrote into the warm build cache could not be checked ({e:#})"
+            ))
+        }),
         _ => None,
     };
 
@@ -365,9 +372,32 @@ fn walk_upper(
     Ok(())
 }
 
-/// Every entry under a build cache: relative path, and for a file its size
-/// and mtime (what a rewrite changes).
-fn go_cache_snapshot(dir: &Path) -> BTreeMap<String, (bool, u64, i128)> {
+/// What a build-cache entry is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CacheKind {
+    File,
+    Dir,
+    Symlink,
+    Other,
+}
+
+/// A build-cache entry's identity: its kind, and everything a change to it
+/// moves. A rewrite moves mtime, which a step can set back, and ctime,
+/// which it cannot (the kernel sets it on every data or metadata change);
+/// a replacement moves the inode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Ident {
+    kind: CacheKind,
+    dev: u64,
+    ino: u64,
+    size: u64,
+    mtime: (i64, i64),
+    ctime: (i64, i64),
+}
+
+/// Every entry under a build cache, by relative path.
+fn go_cache_snapshot(dir: &Path) -> BTreeMap<String, Ident> {
+    use std::os::unix::fs::MetadataExt;
     let mut out = BTreeMap::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
@@ -379,19 +409,31 @@ fn go_cache_snapshot(dir: &Path) -> BTreeMap<String, (bool, u64, i128)> {
             let Ok(m) = std::fs::symlink_metadata(&p) else {
                 continue;
             };
-            let rel = p.strip_prefix(dir).unwrap().to_string_lossy().into_owned();
-            let mtime = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_nanos() as i128);
-            if m.is_dir() {
-                stack.push(p);
-                out.insert(rel, (true, 0, 0));
+            let ft = m.file_type();
+            let kind = if ft.is_dir() {
+                CacheKind::Dir
+            } else if ft.is_symlink() {
+                CacheKind::Symlink
+            } else if ft.is_file() {
+                CacheKind::File
             } else {
-                // A symlink is recorded as a non-directory; Go never makes one.
-                out.insert(rel, (false, m.len(), mtime));
+                CacheKind::Other
+            };
+            if kind == CacheKind::Dir {
+                stack.push(p.clone());
             }
+            let rel = p.strip_prefix(dir).unwrap().to_string_lossy().into_owned();
+            out.insert(
+                rel,
+                Ident {
+                    kind,
+                    dev: m.dev(),
+                    ino: m.ino(),
+                    size: m.size(),
+                    mtime: (m.mtime(), m.mtime_nsec()),
+                    ctime: (m.ctime(), m.ctime_nsec()),
+                },
+            );
         }
     }
     out
@@ -430,18 +472,22 @@ fn go_cache_path_ok(rel: &str, is_dir: bool) -> bool {
 /// value in an object file). `Some(why)` when the run must not be recorded.
 fn go_cache_delta(
     dir: &Path,
-    before: &BTreeMap<String, (bool, u64, i128)>,
+    before: &BTreeMap<String, Ident>,
     masks: &[Vec<u8>],
 ) -> anyhow::Result<Option<String>> {
     let after = go_cache_snapshot(dir);
-    let changed: Vec<(&String, bool)> = after
+    let changed: Vec<(&String, &Ident)> = after
         .iter()
-        .filter(|(p, v)| before.get(*p) != Some(v))
-        .map(|(p, v)| (p, v.0))
+        .filter(|(p, v)| before.get(*p) != Some(*v))
         .collect();
-    for (p, is_dir) in &changed {
-        let link = std::fs::symlink_metadata(dir.join(p)).is_ok_and(|m| m.file_type().is_symlink());
-        if link || !go_cache_path_ok(p, *is_dir) {
+    for (p, v) in &changed {
+        let ok = match v.kind {
+            CacheKind::File => go_cache_path_ok(p, false),
+            CacheKind::Dir => go_cache_path_ok(p, true),
+            // Go never makes a symlink, a fifo or a device node.
+            CacheKind::Symlink | CacheKind::Other => false,
+        };
+        if !ok {
             return Ok(Some(format!(
                 "it wrote {p} into the warm build cache, which is not Go's cache layout"
             )));
@@ -449,8 +495,8 @@ fn go_cache_delta(
     }
     if !masks.is_empty() {
         let ac = aho_corasick::AhoCorasick::new(masks).context("mask patterns")?;
-        for (p, is_dir) in &changed {
-            if *is_dir {
+        for (p, v) in &changed {
+            if v.kind != CacheKind::File {
                 continue;
             }
             let Ok(f) = std::fs::File::open(dir.join(p)) else {
@@ -512,6 +558,33 @@ mod tests {
                 .contains("secret"),
             "a cached secret is caught"
         );
+        // A same-size rewrite that sets mtime back is still a change (ctime
+        // moves), so its content is checked.
+        let entry = c.join(format!("ab/{id}-d"));
+        std::fs::write(&entry, "object code 0123x").unwrap();
+        let mtime = std::fs::metadata(&entry).unwrap().modified().unwrap();
+        let before = go_cache_snapshot(c);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&entry, "s3cr3t-value-0123").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&entry)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        let m = std::fs::metadata(&entry).unwrap();
+        assert_eq!(
+            (m.modified().unwrap(), m.len()),
+            (mtime, 17),
+            "same size, same mtime"
+        );
+        assert!(
+            go_cache_delta(c, &before, &mask)
+                .unwrap()
+                .is_some_and(|w| w.contains("secret")),
+            "a same-size rewrite with its mtime set back is caught"
+        );
+        std::fs::write(&entry, "object code").unwrap();
         // Anything outside the layout, a symlink included, is caught.
         let before = go_cache_snapshot(c);
         std::fs::write(c.join("stash"), "for the next job").unwrap();
