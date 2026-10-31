@@ -206,3 +206,96 @@ fn a_ring_that_cannot_come_up_is_a_recorded_fallback() {
         "{obs}"
     );
 }
+
+/// The first mount whose mount point is `<runs>/<run id>/lower`, from
+/// /proc/self/mountinfo (field 5; the paths here need no unescaping).
+fn run_lower_mount(runs: &Path) -> Option<std::path::PathBuf> {
+    let runs = runs.to_str().unwrap();
+    std::fs::read_to_string("/proc/self/mountinfo")
+        .ok()?
+        .lines()
+        .filter_map(|l| l.split(' ').nth(4))
+        .find(|p| p.starts_with(runs) && p.ends_with("/lower"))
+        .map(std::path::PathBuf::from)
+}
+
+/// A ring mount that something outside holds through its failed setup's
+/// teardown can only be detached, its connection alive (aborted) until the
+/// holder lets go, so the run must not fall back to classic: it is a
+/// Stillpass error with nothing recorded.
+#[test]
+#[ignore = "needs FUSE over io_uring (root, fuse.enable_uring=Y); run with --ignored"]
+fn a_ring_mount_held_through_its_teardown_fails_the_run() {
+    use std::os::unix::fs::OpenOptionsExt;
+    assert!(enabled(), "needs Linux and STILLPASS_INTEGRATION=1");
+    let env = Env::new();
+    let state = env.tmp.path().join("state-held");
+    let t = Instant::now();
+    // `unready`: the setup waits 10 s for its readiness probe, time to take
+    // hold of the mount before the teardown starts.
+    let mut run = Command::new(env!("CARGO_BIN_EXE_stillpass"))
+        .arg("--state")
+        .arg(&state)
+        .args(["run", "--repo", env.repo.to_str().unwrap(), "--step", STEP])
+        .env("STILLPASS_TEST_URING_FAULT", "unready")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let runs = state.join("runs");
+    let lower = loop {
+        if let Some(p) = run_lower_mount(&runs) {
+            break p;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(9),
+            "the run never mounted its ring"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    // An O_PATH descriptor of the mount's root sends FUSE nothing (so it
+    // cannot block on the unready ring) and keeps the mount busy.
+    let root = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH)
+        .open(&lower)
+        .unwrap();
+    let mut holder = Command::new("sleep")
+        .arg("120")
+        .stdin(std::process::Stdio::from(root))
+        .spawn()
+        .unwrap();
+    let status = loop {
+        if let Some(st) = run.try_wait().unwrap() {
+            break st;
+        }
+        if t.elapsed() > Duration::from_secs(120) {
+            let _ = run.kill();
+            let _ = holder.kill();
+            panic!("the run hung with its ring mount held");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(&mut run.stderr.take().unwrap(), &mut stderr).unwrap();
+    eprintln!("held ring mount: {status} in {:?}\n{stderr}", t.elapsed());
+    assert_eq!(status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("STILLPASS  ERROR"), "{stderr}");
+    assert!(
+        !stderr.contains("STILLPASS  EXECUTED"),
+        "fell back and ran: {stderr}"
+    );
+    assert_eq!(
+        Ledger::open(&state.join("ledger.sqlite"))
+            .unwrap()
+            .row_counts()
+            .unwrap(),
+        RowCounts {
+            runs: 0,
+            manifests: 0,
+            results: 0
+        }
+    );
+}

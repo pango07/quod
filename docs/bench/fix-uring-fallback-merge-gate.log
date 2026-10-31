@@ -1,0 +1,73 @@
+# fix/uring-fallback at 42c1deb (on main 07d2485): scripts/merge-gate.sh three times, then the sp-fs uring suite twice at default test threads; dev container (root, fuse.enable_uring=Y, 7.0.14-linuxkit), started 2026-10-31T17:29:37Z, load 45.91 62.74 55.22
+## merge-gate round 1, 17:29:37, load 45.91
+lint ok
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.70s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.27s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 8.15s
+
+merge gate ok
+EXIT 0
+## merge-gate round 2, 17:31:52, load 48.26
+lint ok
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.20s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.74s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 5.53s
+
+merge gate ok
+EXIT 0
+## merge-gate round 3, 17:33:45, load 36.90
+lint ok
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.31s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.79s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 6.03s
+
+merge gate ok
+EXIT 0
+## sp-fs uring at default test threads, round 1
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.97s
+
+EXIT 0
+## sp-fs uring at default test threads, round 2
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.66s
+
+EXIT 0
+# finished 2026-10-31T17:36:35Z

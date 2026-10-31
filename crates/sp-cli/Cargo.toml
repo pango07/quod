@@ -30,6 +30,8 @@ ulid.workspace = true
 fault-injection = ["sp-fs/fault-injection"]
 
 [dev-dependencies]
+# O_PATH, for ring_faults.rs holding a mount busy.
+libc.workspace = true
 tempfile.workspace = true
 
 [[test]]
