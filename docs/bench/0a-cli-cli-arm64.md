@@ -86,7 +86,9 @@ Last 50 first-parent commits, oldest first; step A runs on every commit, step B 
 | 49 | `443baeba05` | Merge pull request #14355 from cli/williammartin-c… | miss | 21.4s | 18.1s | `git` |
 | 50 | `9490d204a2` | Merge pull request #14879 from cli/bagtoad/show-re… | miss | 21.2s | 18.1s | `git/client_test.go` |
 
-**12 hits out of 50.** Stillpass 810s vs plain 908s: 10.8% saved.
+**12 hits out of 50.** Stillpass 810s vs plain 908s: 10.8% saved (overstated, see correction).
+
+> **Correction (2026-10-31):** the "plain" column on misses is the *observed* execution time, which overstates what a plain runner spends. Measured against a real plain baseline (exp/split report), step-level memoization on this history is roughly break-even, not 10.8% saved. The hit count (12/50) stands.
 
 ## Totals
 
