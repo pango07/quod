@@ -307,11 +307,15 @@ impl Ledger {
         }
     }
 
+    /// Brings the schema up to date in one write transaction, taken before
+    /// the version is read (BEGIN IMMEDIATE): two processes opening a new
+    /// ledger at once (a runner pool's hooks) cannot both see version 0 and
+    /// both run the first migration; the second waits, then sees it done.
     fn migrate(&mut self) -> Result<(), LedgerError> {
-        let v = self
+        let tx = self
             .db
-            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))?
-            as usize;
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let v = tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? as usize;
         if v > MIGRATIONS.len() {
             return Err(LedgerError::TooNew {
                 found: v,
@@ -319,11 +323,10 @@ impl Ledger {
             });
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(v) {
-            let tx = self.db.transaction()?;
             tx.execute_batch(sql)?;
             tx.pragma_update(None, "user_version", (i + 1) as i64)?;
-            tx.commit()?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -622,8 +625,17 @@ impl Ledger {
 
     /// Verifies the newest candidates against `tree` in order; the first
     /// match wins and its newest result is returned.
+    /// The first candidate manifest that matches `tree`, with its newest
+    /// result. A manifest or result written by a newer schema than this
+    /// binary's (`v` greater than `sp_manifest::VERSION`) never matches: an
+    /// older binary would read it without the fields it does not know, and
+    /// replay what it does not understand.
     pub fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
-        let cands = self.candidates(step_key, CANDIDATES)?;
+        let cands: Vec<Manifest> = self
+            .candidates(step_key, CANDIDATES)?
+            .into_iter()
+            .filter(|m| m.v <= sp_manifest::VERSION)
+            .collect();
         let total = self.manifest_count(step_key)?;
         let closest = match cands.first().map(|m| matches(m, tree)) {
             Some(Err(mm)) => Some((manifest_id(&cands[0])?, *mm)),
@@ -631,7 +643,9 @@ impl Ledger {
         };
         let mut from = 0;
         while let Some(i) = first_match(&cands[from..], tree).map(|i| i + from) {
-            if let Some(r) = self.latest_result(step_key, &manifest_id(&cands[i])?)? {
+            if let Some(r) = self.latest_result(step_key, &manifest_id(&cands[i])?)?
+                && r.v <= sp_manifest::VERSION
+            {
                 return Ok(Lookup {
                     hit: Some((cands[i].clone(), r)),
                     candidates: total,
@@ -1058,6 +1072,47 @@ mod tests {
         assert_eq!(format_rfc3339(0, 0), "1970-01-01T00:00:00.000Z");
         assert_eq!(format_rfc3339(1_731_575_523, 7), "2024-11-14T09:12:03.007Z");
         assert_eq!(format_rfc3339(951_782_400, 0), "2000-02-29T00:00:00.000Z");
+    }
+
+    #[test]
+    fn a_newer_schema_never_matches() {
+        let l = Ledger::open_in_memory().unwrap();
+        let key = Hash::of(b"key");
+        let t = tree("v1");
+        let mut m = manifest(&t, key);
+        let id = l.put_manifest(&m, "r1").unwrap();
+        l.put_result(&result(key, id, "r1", 0)).unwrap();
+        assert!(l.find_match(&key, &t).unwrap().hit.is_some());
+        // The same manifest from a newer binary: never a match.
+        m.v = sp_manifest::VERSION + 1;
+        let newer = Hash::of(b"newer key");
+        m.step_key = newer;
+        let id2 = l.put_manifest(&m, "r2").unwrap();
+        l.put_result(&result(newer, id2, "r2", 0)).unwrap();
+        assert!(l.find_match(&newer, &t).unwrap().hit.is_none());
+        // A current manifest whose result is newer: no match either.
+        let mut cur = manifest(&t, Hash::of(b"third"));
+        cur.step_key = Hash::of(b"third");
+        let id3 = l.put_manifest(&cur, "r3").unwrap();
+        let mut r = result(Hash::of(b"third"), id3, "r3", 0);
+        r.v = sp_manifest::VERSION + 1;
+        l.put_result(&r).unwrap();
+        assert!(l.find_match(&Hash::of(b"third"), &t).unwrap().hit.is_none());
+    }
+
+    #[test]
+    fn concurrent_opens_of_a_new_ledger_migrate_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("ledger.sqlite");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let p = path.clone();
+                std::thread::spawn(move || Ledger::open(&p).map(|l| l.schema_version().unwrap()))
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap().unwrap(), SCHEMA_VERSION);
+        }
     }
 
     #[test]
