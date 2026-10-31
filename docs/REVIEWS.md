@@ -25,7 +25,7 @@ arguments, then unsupported claims).
 | Change | Range | Opus verdict | Merged as | Fable re-review |
 | --- | --- | --- | --- | --- |
 | exp/overhead3: io_uring FUSE observer | `main..exp/overhead3` | in review | - | pending |
-| exp/split (rebased, review fixes) | `main..exp/split` | in review | - | pending |
+| exp/split (review fixes, tip 3c06de1) | `6372c70..3c06de1` | merge after fixes: 2 new major (repeat absent lookups never reach FUSE through overlayfs; replays ignore same-step writes), prior metadata/chdir fixes partial, not rebased | - | pending |
 
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
