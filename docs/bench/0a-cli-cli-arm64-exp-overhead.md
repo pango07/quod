@@ -33,14 +33,16 @@ per-operation probes on a mounted tree:
 1. FUSE passthrough (Linux 6.9+): the kernel reads blobs directly; zero
    READ requests reach userspace, the OPEN that the log needs still does.
 2. `FUSE_PARALLEL_DIROPS`, `FUSE_CACHE_SYMLINKS`, `FUSE_NO_OPENDIR_SUPPORT`.
-3. The module cache is sealed: served from a read-only bind of the repo's
-   `GOMODCACHE` (immutable module@version dirs), `gomod/cache` stays on the
-   observed overlay, and every tree entry under the prefix is recorded.
-   Manifests grow from ~21k to ~29.9k entries.
+3. The module cache is sealed: served from a read-only snapshot of
+   `GOMODCACHE` (immutable module@version dirs) made by hard-linking CAS
+   blobs into the run dir, `gomod/cache` stays on the observed overlay, and
+   every tree entry under the prefix is recorded. Manifests grow from ~21k
+   to ~29.9k entries.
 
 Acceptance with all of the above: A1-A6 pass, A7 mutated 23,939 f, 5,320 d,
 620 a entries with 0 false hits, A7b 10/10 (replay agrees with a fresh
-execution for every unread file mutated).
+execution for every unread file mutated). The acceptance log of the final
+code is `0a-cli-cli-arm64-exp-overhead-acceptance.log` next to this file.
 
 ## Final interleaved bench
 
