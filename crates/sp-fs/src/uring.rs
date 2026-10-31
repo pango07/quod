@@ -3,7 +3,8 @@
 //! The mount and the INIT handshake are done here (fuser's session cannot
 //! ask for `FUSE_OVER_IO_URING`). Then one thread per possible CPU (the
 //! kernel makes one queue per possible CPU and queues a request raised on
-//! CPU n to queue n), pinned to that CPU, registers its ring entries and
+//! CPU n to queue n), pinned to that CPU at a raised priority (see
+//! `Options::uring_nice`), registers its ring entries and
 //! answers commit-and-fetch until the connection ends. A device reader runs
 //! alongside for what the kernel never puts on the ring (forgets,
 //! interrupts).
@@ -18,7 +19,8 @@
 //! classic transport. Only then is the mount marked ring-served.
 //!
 //! Once serving, a queue thread or the device reader that fails (an error
-//! completion, a panic, a reply the kernel refuses) records an I/O error,
+//! completion, a panic, or on the device a reply the kernel refuses; over
+//! the ring a refused reply is never reported) records an I/O error,
 //! which `Served::unmount` turns into a Stillpass error, and aborts the
 //! connection: the requests a dead thread would have answered fail at once
 //! instead of blocking the step forever.
