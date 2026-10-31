@@ -134,9 +134,22 @@ pub enum FsError {
     },
     #[error(transparent)]
     Cas(#[from] sp_cas::CasError),
+    /// A serving thread panicked. The step saw EIO from then on and was
+    /// aborted; nothing it did can be recorded.
+    #[error(
+        "the observer failed while serving the step ({what}); the step was aborted and nothing was recorded"
+    )]
+    Fatal { what: String },
     #[error("the observer needs Linux (FUSE and overlayfs)")]
     Unsupported,
 }
+
+/// The environment variable that injects a fault into the observer, for
+/// tests of the failure path only: `observer-panic:<path>` makes the lookup
+/// of that workspace-relative path panic in the serving thread, on either
+/// transport. Read only in builds with the `fault-injection` feature, like
+/// the ring's STILLPASS_TEST_URING_FAULT.
+pub const FAULT_ENV: &str = "STILLPASS_FAULT";
 
 impl FsError {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // only the Linux observer builds paths
@@ -261,6 +274,14 @@ mod unsupported {
 
         pub fn sched(&self) -> crate::SchedStats {
             crate::SchedStats::default()
+        }
+
+        pub fn abort_flag(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+            Default::default()
+        }
+
+        pub fn fatal(&self) -> Option<String> {
+            None
         }
 
         pub fn unmount(self) -> Result<Vec<Access>, FsError> {

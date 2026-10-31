@@ -14,6 +14,7 @@ use std::fs::File;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,106 @@ use crate::{FsError, ObserverStats, SchedStats};
 /// Caching only removes repeat requests, which carry no new information.
 pub(crate) const TTL: Duration = Duration::from_secs(3600);
 const ROOT_INO: u64 = 1;
+
+/// The observer's failure state, shared by both transports. `flag` is the
+/// sandbox's abort (`Served::abort_flag` into `sp_sandbox::Limits::abort`):
+/// raised by any I/O error served to the step (`CasFs::io_error`, which the
+/// ring's dying queue thread also goes through before it force-aborts the
+/// connection) and by a panic in a classic serving thread, so the step is
+/// killed instead of running on against a broken filesystem. `reason` is
+/// set only by a panic: from then on every classic request is answered EIO
+/// without touching state, and `Served::unmount` returns `FsError::Fatal`.
+#[derive(Default)]
+struct Fatal {
+    flag: Arc<AtomicBool>,
+    reason: Mutex<Option<String>>,
+}
+
+impl Fatal {
+    /// Kill the step: the run is a Stillpass error already.
+    fn abort(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+    }
+
+    fn panicked(&self) -> bool {
+        lock(&self.reason).is_some()
+    }
+
+    fn raise(&self, what: String) {
+        tracing::error!(error = %what, "observer thread failed; aborting the step");
+        lock(&self.reason).get_or_insert(what);
+        self.abort();
+    }
+
+    /// Completes the reason `RaiseOnPanic` gave with the panic message,
+    /// once the unwind is over and the payload is known.
+    fn detail(&self, op: &str, msg: &str) {
+        let generic = format!("{op} panicked");
+        let full = format!("{generic}: {msg}");
+        tracing::error!(error = %full, "observer thread failed; aborting the step");
+        let mut r = lock(&self.reason);
+        if r.is_none() || r.as_deref() == Some(generic.as_str()) {
+            *r = Some(full);
+        }
+        drop(r);
+        self.abort();
+    }
+
+    fn reason(&self) -> Option<String> {
+        lock(&self.reason).clone()
+    }
+}
+
+/// Raises `Fatal` when dropped by a panicking thread. Declared first in a
+/// guarded handler's body, it is dropped during the unwind before the reply
+/// the handler captured (a closure's captures are dropped after its body's
+/// locals), so the abort flag is up before fuser answers the panicking
+/// request with EIO: the step can never see that error, finish, and be
+/// looked at while the flag is still down.
+struct RaiseOnPanic<'a> {
+    fatal: &'a Fatal,
+    op: &'static str,
+}
+
+impl Drop for RaiseOnPanic<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.fatal.raise(format!("{} panicked", self.op));
+        }
+    }
+}
+
+fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = p.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = p.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panic".to_string()
+    }
+}
+
+/// Runs a classic request handler so that a panic in it cannot hang the
+/// step: once a serving thread has panicked every request gets EIO at
+/// once; otherwise the body runs under `catch_unwind` and a panic raises
+/// `Fatal` (first, see `RaiseOnPanic`; then the reply the body held is
+/// dropped and fuser answers EIO for an unanswered reply; then the message
+/// is added). The ring transport catches its queue threads' panics itself
+/// and fails the mount through `CasFs::io_error`.
+macro_rules! guarded {
+    ($fatal:expr, $op:literal, $reply:ident, $body:block) => {{
+        let fatal: &Fatal = &$fatal;
+        if fatal.panicked() {
+            return $reply.error(Errno::EIO);
+        }
+        if let Err(p) = catch_unwind(AssertUnwindSafe(move || {
+            let _raise = RaiseOnPanic { fatal, op: $op };
+            $body
+        })) {
+            fatal.detail($op, &panic_message(&*p));
+        }
+    }};
+}
 
 /// How requests reach the observer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -333,6 +434,22 @@ pub(crate) struct Opened {
     pub backing: Option<Arc<Backing>>,
 }
 
+/// The path whose lookup the observer is told to panic on (`FAULT_ENV`),
+/// in `fault-injection` builds only.
+fn fault_path() -> Option<String> {
+    #[cfg(feature = "fault-injection")]
+    {
+        let p = std::env::var(crate::FAULT_ENV)
+            .ok()?
+            .strip_prefix("observer-panic:")?
+            .to_string();
+        tracing::warn!(path = %p, "fault injection armed: the lookup of this path will panic");
+        Some(p)
+    }
+    #[cfg(not(feature = "fault-injection"))]
+    None
+}
+
 /// One directory entry for a readdir reply.
 pub(crate) struct DirEnt<'a> {
     pub ino: u64,
@@ -366,6 +483,10 @@ pub(crate) struct CasFs {
     /// Whether to ask the kernel for passthrough at all.
     want_passthrough: bool,
     stats: Arc<Stats>,
+    fatal: Arc<Fatal>,
+    /// Test-only (`fault-injection`): the path whose lookup panics (see
+    /// `FAULT_ENV`). Always `None` in other builds.
+    fault: Option<String>,
 }
 
 impl CasFs {
@@ -374,6 +495,7 @@ impl CasFs {
         cas: Cas,
         log: Arc<Mutex<Log>>,
         stats: Arc<Stats>,
+        fatal: Arc<Fatal>,
         want_passthrough: bool,
     ) -> Result<CasFs, FsError> {
         let mut index: HashMap<&str, u64> = HashMap::new();
@@ -427,6 +549,8 @@ impl CasFs {
             mode: Mutex::new(None),
             want_passthrough,
             stats,
+            fatal,
+            fault: fault_path(),
         })
     }
 
@@ -541,6 +665,9 @@ impl CasFs {
     pub(crate) fn io_error(&self, what: String) {
         tracing::error!(error = %what, "I/O error served to the step");
         lock(&self.log).io_errors.push(what);
+        // The run is a Stillpass error now: kill the step rather than let
+        // it run on (the ring's dying queue thread comes through here).
+        self.fatal.abort();
     }
 
     fn attr(&self, ino: u64, n: &Node) -> FileAttr {
@@ -614,6 +741,13 @@ impl CasFs {
         match found {
             Some(ino) => {
                 let n = &self.nodes[ino as usize - 1];
+                if self.fault.as_deref() == Some(n.entry.p.as_str()) {
+                    panic!(
+                        "injected fault ({}) on lookup of {}",
+                        crate::FAULT_ENV,
+                        n.entry.p
+                    );
+                }
                 self.record(req, ino, n.entry.k);
                 Ok((ino, self.attr(ino, n)))
             }
@@ -835,44 +969,52 @@ impl Filesystem for Classic {
     }
 
     fn lookup(&self, r: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
-        match self.0.lookup(&req(r), parent.0, name.as_bytes()) {
-            Ok((_, attr)) => reply.entry(&TTL, &attr, Generation(0)),
-            Err(e) => reply.error(errno(e)),
-        }
+        guarded!(self.0.fatal, "lookup", reply, {
+            match self.0.lookup(&req(r), parent.0, name.as_bytes()) {
+                Ok((_, attr)) => reply.entry(&TTL, &attr, Generation(0)),
+                Err(e) => reply.error(errno(e)),
+            }
+        })
     }
 
     fn getattr(&self, r: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
-        match self.0.getattr(&req(r), ino.0) {
-            Ok(attr) => reply.attr(&TTL, &attr),
-            Err(e) => reply.error(errno(e)),
-        }
+        guarded!(self.0.fatal, "getattr", reply, {
+            match self.0.getattr(&req(r), ino.0) {
+                Ok(attr) => reply.attr(&TTL, &attr),
+                Err(e) => reply.error(errno(e)),
+            }
+        })
     }
 
     fn readlink(&self, r: &Request, ino: INodeNo, reply: ReplyData) {
-        match self.0.readlink(&req(r), ino.0) {
-            Ok(t) => reply.data(t.as_bytes()),
-            Err(e) => reply.error(errno(e)),
-        }
+        guarded!(self.0.fatal, "readlink", reply, {
+            match self.0.readlink(&req(r), ino.0) {
+                Ok(t) => reply.data(t.as_bytes()),
+                Err(e) => reply.error(errno(e)),
+            }
+        })
     }
 
     fn open(&self, r: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
-        let register = |file: &File| reply.open_backing(file).map(Backing::Fuser);
-        let read_only = flags.acc_mode() == OpenAccMode::O_RDONLY;
-        match self.0.open(&req(r), ino.0, read_only, &register) {
-            Ok(Opened {
-                fh,
-                backing: Some(b),
-            }) => match &*b {
-                Backing::Fuser(id) => {
-                    reply.opened_passthrough(FileHandle(fh), FopenFlags::empty(), id)
+        guarded!(self.0.fatal, "open", reply, {
+            let register = |file: &File| reply.open_backing(file).map(Backing::Fuser);
+            let read_only = flags.acc_mode() == OpenAccMode::O_RDONLY;
+            match self.0.open(&req(r), ino.0, read_only, &register) {
+                Ok(Opened {
+                    fh,
+                    backing: Some(b),
+                }) => match &*b {
+                    Backing::Fuser(id) => {
+                        reply.opened_passthrough(FileHandle(fh), FopenFlags::empty(), id)
+                    }
+                    Backing::Raw(_) => unreachable!("the fuser transport registers fuser ids"),
+                },
+                Ok(Opened { fh, backing: None }) => {
+                    reply.opened(FileHandle(fh), FopenFlags::FOPEN_KEEP_CACHE)
                 }
-                Backing::Raw(_) => unreachable!("the fuser transport registers fuser ids"),
-            },
-            Ok(Opened { fh, backing: None }) => {
-                reply.opened(FileHandle(fh), FopenFlags::FOPEN_KEEP_CACHE)
+                Err(e) => reply.error(errno(e)),
             }
-            Err(e) => reply.error(errno(e)),
-        }
+        })
     }
 
     fn read(
@@ -886,10 +1028,12 @@ impl Filesystem for Classic {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        match self.0.read(&req(r), ino.0, fh.0, offset, size) {
-            Ok(data) => reply.data(&data),
-            Err(e) => reply.error(errno(e)),
-        }
+        guarded!(self.0.fatal, "read", reply, {
+            match self.0.read(&req(r), ino.0, fh.0, offset, size) {
+                Ok(data) => reply.data(&data),
+                Err(e) => reply.error(errno(e)),
+            }
+        })
     }
 
     fn release(
@@ -902,15 +1046,19 @@ impl Filesystem for Classic {
         _flush: bool,
         reply: fuser::ReplyEmpty,
     ) {
-        self.0.release(fh.0);
-        reply.ok();
+        guarded!(self.0.fatal, "release", reply, {
+            self.0.release(fh.0);
+            reply.ok();
+        })
     }
 
     fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
-        match self.0.opendir(ino.0) {
-            Ok(()) => reply.opened(FileHandle(0), FopenFlags::empty()),
-            Err(e) => reply.error(errno(e)),
-        }
+        guarded!(self.0.fatal, "opendir", reply, {
+            match self.0.opendir(ino.0) {
+                Ok(()) => reply.opened(FileHandle(0), FopenFlags::empty()),
+                Err(e) => reply.error(errno(e)),
+            }
+        })
     }
 
     fn readdir(
@@ -921,22 +1069,26 @@ impl Filesystem for Classic {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
-        match self.0.readdir(&req(r), ino.0, offset) {
-            Ok(entries) => {
-                for d in entries {
-                    if reply.add(INodeNo(d.ino), d.off, d.kind, d.name) {
-                        break;
+        guarded!(self.0.fatal, "readdir", reply, {
+            match self.0.readdir(&req(r), ino.0, offset) {
+                Ok(entries) => {
+                    for d in entries {
+                        if reply.add(INodeNo(d.ino), d.off, d.kind, d.name) {
+                            break;
+                        }
                     }
+                    reply.ok();
                 }
-                reply.ok();
+                Err(e) => reply.error(errno(e)),
             }
-            Err(e) => reply.error(errno(e)),
-        }
+        })
     }
 
     fn statfs(&self, _req: &Request, _ino: INodeNo, reply: fuser::ReplyStatfs) {
-        self.0.statfs();
-        reply.statfs(0, 0, 0, self.0.file_count(), 0, 4096, 255, 4096);
+        guarded!(self.0.fatal, "statfs", reply, {
+            self.0.statfs();
+            reply.statfs(0, 0, 0, self.0.file_count(), 0, 4096, 255, 4096);
+        })
     }
 
     fn getxattr(
@@ -975,6 +1127,7 @@ pub struct Served {
     session: Option<Session>,
     log: Arc<Mutex<Log>>,
     stats: Arc<Stats>,
+    fatal: Arc<Fatal>,
     started: Instant,
     /// This process's (user, system) CPU time at mount, to report the
     /// delta: while mounted, the process does little besides serving.
@@ -1002,11 +1155,13 @@ pub fn serve_with(
 ) -> Result<Served, FsError> {
     let log = Arc::new(Mutex::new(Log::default()));
     let stats = Arc::new(Stats::default());
+    let fatal = Arc::new(Fatal::default());
     let fs = Arc::new(CasFs::new(
         tree,
         cas.clone(),
         log.clone(),
         stats.clone(),
+        fatal.clone(),
         opts.passthrough,
     )?);
     let paths = fs
@@ -1058,6 +1213,7 @@ pub fn serve_with(
         session: Some(session),
         log,
         stats,
+        fatal,
         started: Instant::now(),
         cpu_at_mount: cpu_ms(),
         paths,
@@ -1111,6 +1267,20 @@ impl Served {
         serving_sched()
     }
 
+    /// Raised when the observer can no longer serve the step's inputs: an
+    /// I/O error served to it (either transport) or a serving thread that
+    /// panicked. Hand it to the sandbox (`sp_sandbox::Limits::abort`) so
+    /// the step is killed instead of running on; `unmount` then reports
+    /// the failure.
+    pub fn abort_flag(&self) -> Arc<AtomicBool> {
+        self.fatal.flag.clone()
+    }
+
+    /// Why a serving thread panicked, if one did.
+    pub fn fatal(&self) -> Option<String> {
+        self.fatal.reason()
+    }
+
     /// Unmounts, waits for in-flight requests, and returns the log,
     /// deduplicated and sorted. An error, and no log, when the step may
     /// have seen anything but its inputs: an I/O error served to it, a
@@ -1130,6 +1300,9 @@ impl Served {
         };
         let log = std::mem::take(&mut *lock(&self.log));
         self.report(log.pids.len(), sched);
+        if let Some(what) = self.fatal.reason() {
+            return Err(FsError::Fatal { what });
+        }
         if !log.io_errors.is_empty() {
             return Err(FsError::Io {
                 what: format!(

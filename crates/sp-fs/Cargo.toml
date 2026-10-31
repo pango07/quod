@@ -31,3 +31,7 @@ tempfile.workspace = true
 [[test]]
 name = "uring"
 required-features = ["fault-injection"]
+
+[[test]]
+name = "faults"
+required-features = ["fault-injection"]
