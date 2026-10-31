@@ -5,9 +5,8 @@
 //! mount and a fresh classic mount and asserts the step saw the same thing
 //! (stdout) and the observer logged the same accesses, then runs the tiny Go
 //! module's `go test ./...` through the CLI on each and asserts identical
-//! manifests. The other tests run the CLI with the ring's failure hooks: a
-//! ring that cannot come up is a recorded fallback, a ring that dies under
-//! the step is a fast Stillpass error with nothing recorded.
+//! manifests. `per_request_cost` times the transports against each other.
+//! The ring's failure paths are in ring_faults.rs (`fault-injection`).
 //!
 //! Every test here needs the ring (Linux, root, `fuse.enable_uring=Y`, a
 //! kernel whose FUSE minor the ring transport is tested against) and is
@@ -20,7 +19,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use common::*;
 use sp_cas::{Cas, Hash, Tree};
@@ -160,6 +159,9 @@ fn transports_log_identically() {
             eprintln!("{name} (passthrough {passthrough}): ring {rs:?}\n  classic {cs:?}");
             // The ring half really ran on the ring, the classic half did not.
             assert!(rs.uring && !rs.uring_fallback, "{name}: {rs:?}");
+            // The queue threads run at the nice value asked for (root).
+            assert_eq!(rs.ring_nice, Some(Options::default().uring_nice), "{name}");
+            assert!(!rs.ring_nice_denied, "{name}");
             assert!(
                 rs.ring_requests > 0 && rs.device_requests == 0,
                 "{name}: {rs:?}"
@@ -209,11 +211,13 @@ fn transports_log_identically() {
         assert!(o.executed() && o.code == 0, "{transport}: {}", o.stderr);
         let run = last_event(&state, "run").unwrap();
         assert_eq!(run["transport"], want, "{run}");
+        let detail = if transport == "uring" {
+            format!("{want}+nice{}+", Options::default().uring_nice)
+        } else {
+            format!("{want}+")
+        };
         assert!(
-            run["observer"]
-                .as_str()
-                .unwrap()
-                .starts_with(&format!("{want}+")),
+            run["observer"].as_str().unwrap().starts_with(&detail),
             "{run}"
         );
         let obs = last_event(&state, "observer").unwrap();
@@ -236,170 +240,6 @@ fn transports_log_identically() {
     assert_eq!(
         manifests[0], manifests[1],
         "go test recorded different manifests over the two transports"
-    );
-}
-
-/// Runs the CLI with a ring failure hook, bounded: past `limit` the test
-/// fails (a hang). Returns the output and how long the run took.
-fn hooked(env: &Env, state: &Path, fault: &str, transport: Option<&str>) -> (Out, Duration) {
-    let mut envs = vec![("STILLPASS_TEST_URING_FAULT", fault)];
-    if let Some(t) = transport {
-        envs.push(("STILLPASS_FUSE_TRANSPORT", t));
-    }
-    let (tx, rx) = std::sync::mpsc::channel();
-    let (repo, st, envs2): (String, std::path::PathBuf, Vec<(String, String)>) = (
-        env.repo.to_str().unwrap().into(),
-        state.to_path_buf(),
-        envs.iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect(),
-    );
-    let t = Instant::now();
-    std::thread::spawn(move || {
-        let out = Command::new(env!("CARGO_BIN_EXE_stillpass"))
-            .arg("--state")
-            .arg(&st)
-            .args([
-                "run",
-                "--repo",
-                &repo,
-                "--step",
-                "cat go.mod && go test ./...",
-            ])
-            .envs(envs2)
-            .output()
-            .unwrap();
-        let _ = tx.send(out);
-    });
-    let out = rx
-        .recv_timeout(Duration::from_secs(300))
-        .unwrap_or_else(|_| panic!("STILLPASS_TEST_URING_FAULT={fault}: the run hung"));
-    let o = Out {
-        code: out.status.code().unwrap_or(-1),
-        stdout: out.stdout,
-        stderr: String::from_utf8_lossy(&out.stderr).into(),
-    };
-    eprintln!(
-        "fault {fault} transport {transport:?}: exit {} in {:?}\n{}",
-        o.code,
-        t.elapsed(),
-        o.stderr
-    );
-    (o, t.elapsed())
-}
-
-#[test]
-#[ignore = "needs FUSE over io_uring (root, fuse.enable_uring=Y); run with --ignored"]
-fn a_ring_queue_that_dies_under_the_step_fails_the_run_fast() {
-    assert!(enabled(), "needs Linux and STILLPASS_INTEGRATION=1");
-    let env = Env::new();
-    // The baseline: the same step on a healthy ring passes and is recorded.
-    let ok_state = env.tmp.path().join("state-ok");
-    let o = env.stillpass_in(
-        &ok_state,
-        &[
-            "run",
-            "--repo",
-            env.repo.to_str().unwrap(),
-            "--step",
-            "cat go.mod && go test ./...",
-        ],
-        &[("STILLPASS_FUSE_TRANSPORT", "uring")],
-    );
-    if o.code == 2 {
-        ring_needed("this test", &o.stderr);
-    }
-    assert!(o.executed() && o.code == 0, "{}", o.stderr);
-    // Half the baseline's ring requests in, the failure lands inside go
-    // test; with no count it lands on the first request after the mount
-    // came up (the overlay mounting over it).
-    let half = last_event(&ok_state, "observer").unwrap()["ring_requests"]
-        .as_u64()
-        .unwrap()
-        / 2;
-    assert!(half > 10, "the step sends too few requests to aim at");
-    let mid = [format!("panic:{half}"), format!("error:{half}")];
-    for fault in ["panic", "error", &mid[0], &mid[1]] {
-        let state = env
-            .tmp
-            .path()
-            .join(format!("state-{}", fault.replace(':', "-")));
-        let (o, took) = hooked(&env, &state, fault, Some("uring"));
-        if fault.contains(':') {
-            // The step ran and failed; the observer's record of why is the
-            // error the run reports.
-            assert!(
-                o.stderr.contains("FUSE over io_uring"),
-                "{fault}: {}",
-                o.stderr
-            );
-        }
-        assert_eq!(
-            o.code, 2,
-            "{fault}: a dead observer must be a Stillpass error: {}",
-            o.stderr
-        );
-        assert!(o.stderr.contains("STILLPASS  ERROR"), "{}", o.stderr);
-        assert!(
-            !o.executed(),
-            "{fault}: reported as a step result: {}",
-            o.stderr
-        );
-        assert!(took < Duration::from_secs(120), "{fault}: took {took:?}");
-        let ledger = Ledger::open(&state.join("ledger.sqlite")).unwrap();
-        assert!(
-            ledger
-                .results_by_transport(Some("fuse-uring"))
-                .unwrap()
-                .is_empty()
-                && ledger
-                    .results_by_transport(Some("fuse"))
-                    .unwrap()
-                    .is_empty()
-                && ledger.results_by_transport(None).unwrap().is_empty(),
-            "{fault}: a result was recorded"
-        );
-    }
-}
-
-#[test]
-#[ignore = "needs FUSE over io_uring (root, fuse.enable_uring=Y); run with --ignored"]
-fn a_ring_that_cannot_come_up_is_a_recorded_fallback() {
-    assert!(enabled(), "needs Linux and STILLPASS_INTEGRATION=1");
-    let env = Env::new();
-    // Forced, the ring's failure is the run's.
-    let state = env.tmp.path().join("state-forced");
-    let (o, _) = hooked(&env, &state, "register", Some("uring"));
-    assert_eq!(o.code, 2, "{}", o.stderr);
-    if !o.stderr.contains("REGISTER") {
-        ring_needed("this test", &o.stderr);
-    }
-    // Auto: classic serves the whole mount, and the run says so.
-    let state = env.tmp.path().join("state-auto");
-    let (o, _) = hooked(&env, &state, "register", None);
-    assert!(o.executed() && o.code == 0, "{}", o.stderr);
-    let run = last_event(&state, "run").unwrap();
-    assert_eq!(run["transport"], "fuse", "{run}");
-    let observer = run["observer"].as_str().unwrap();
-    assert!(observer.starts_with("fuse+uring-fallback"), "{run}");
-    let ledger = Ledger::open(&state.join("ledger.sqlite")).unwrap();
-    let row = ledger
-        .run(run["run_id"].as_str().unwrap())
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        (row.transport.as_deref(), row.observer.as_deref()),
-        (Some("fuse"), Some(observer))
-    );
-    assert_eq!(ledger.results_by_transport(Some("fuse")).unwrap().len(), 1);
-    let obs = last_event(&state, "observer").unwrap();
-    assert_eq!(
-        (
-            obs["uring_fallback"].as_bool(),
-            obs["ring_requests"].as_u64()
-        ),
-        (Some(true), Some(0)),
-        "{obs}"
     );
 }
 

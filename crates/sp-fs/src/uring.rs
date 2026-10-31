@@ -165,13 +165,31 @@ enum Phase {
     Setup,
     /// The step may be running: a failure is a Stillpass error.
     Serving,
-    /// Teardown: errors from the connection going away are expected.
+    /// Teardown: only the completions and errors the kernel produces when
+    /// the connection goes away are expected (`is_teardown`); any other
+    /// failure is still recorded.
     Stopping,
 }
 
 struct Health {
     phase: Phase,
+    /// Whether the mount ever reached `Serving`: a failure in teardown is
+    /// the run's only if a step may have used the mount.
+    served: bool,
     failures: Vec<String>,
+}
+
+/// The errors a queue's commands complete with, or the device read and
+/// write return, because the connection is being torn down: entries
+/// released (ENOTCONN), commands refused on an aborted connection
+/// (ECONNABORTED), task work cancelled with the ring (ECANCELED), the device
+/// gone (ENODEV), a request ended before its reply arrived (ENOENT).
+/// Expected only while stopping.
+fn is_teardown(errno: i32) -> bool {
+    matches!(
+        errno,
+        libc::ENOTCONN | libc::ECONNABORTED | libc::ECANCELED | libc::ENODEV | libc::ENOENT
+    )
 }
 
 /// What the queue threads, the device reader and the session share.
@@ -194,18 +212,20 @@ impl Shared {
         lock(&self.health).phase == Phase::Stopping
     }
 
-    /// A serving thread failed. While serving: an I/O error for the run and
-    /// an aborted connection, so nothing waits on the dead thread. During
-    /// setup: noted for `mount`, which falls back. During teardown: ignored.
-    /// Only the first failure counts; the abort makes every other thread
-    /// fail after it.
+    /// A serving thread failed. On a mount that served (including during
+    /// its teardown, which a step could still be using if a caller unmounts
+    /// early): an I/O error for the run and an aborted connection, so
+    /// nothing waits on the dead thread. On a mount that never served: noted
+    /// for `mount`, which falls back. Expected teardown errors never get
+    /// here (the threads filter them with `is_teardown`). Only the first
+    /// failure counts; the abort makes every other thread fail after it.
     fn fail(&self, what: String) {
         let mut h = lock(&self.health);
-        if h.phase == Phase::Stopping || !h.failures.is_empty() {
+        if !h.failures.is_empty() {
             return;
         }
         h.failures.push(what.clone());
-        let serving = h.phase == Phase::Serving;
+        let serving = h.served;
         drop(h);
         if serving {
             self.fs.io_error(format!("FUSE over io_uring: {what}"));
@@ -222,6 +242,7 @@ impl Shared {
             return Err(io::Error::other(f.clone()));
         }
         h.phase = Phase::Serving;
+        h.served = true;
         let (armed, after) = match self.fault {
             Some(Fault::QueuePanic(n)) => (1, n),
             Some(Fault::QueueError(n)) => (2, n),
@@ -351,9 +372,10 @@ pub(crate) fn mount(fs: Arc<CasFs>, mountpoint: &Path, opts: &Options) -> Result
             mountpoint: mountpoint.to_path_buf(),
             health: Mutex::new(Health {
                 phase: Phase::Setup,
+                served: false,
                 failures: Vec::new(),
             }),
-            fault: opts.fault,
+            fault: opts.fault(),
             armed: AtomicU8::new(0),
             countdown: AtomicU64::new(0),
             per_queue: (0..nq).map(|_| AtomicU64::new(0)).collect(),
@@ -376,8 +398,8 @@ pub(crate) fn mount(fs: Arc<CasFs>, mountpoint: &Path, opts: &Options) -> Result
             cpu: (opts.uring_pin && cpus.contains(&qid)).then_some(qid),
             depth: opts.uring_depth,
             nice: opts.uring_nice,
-            register: !(opts.fault == Some(Fault::Unready) && qid + 1 == nq),
-            register_qid: if opts.fault == Some(Fault::Register) && qid == 0 {
+            register: !(opts.fault() == Some(Fault::Unready) && qid + 1 == nq),
+            register_qid: if opts.fault() == Some(Fault::Register) && qid == 0 {
                 u16::MAX
             } else {
                 qid as u16
@@ -821,7 +843,9 @@ fn device_loop(sh: &Shared) -> io::Result<()> {
     loop {
         let n = match read_dev(&sh.dev, &mut buf) {
             Ok(n) => n,
-            Err(_) if sh.stopping() => return Ok(()),
+            Err(e) if sh.stopping() && e.raw_os_error().is_some_and(is_teardown) => {
+                return Ok(());
+            }
             Err(e) => return Err(e),
         };
         if n < IN_HEADER {
@@ -834,7 +858,7 @@ fn device_loop(sh: &Shared) -> io::Result<()> {
         };
         stats.device_requests.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = write_reply(&sh.dev, u64_at(hdr, 8), error, &data) {
-            if sh.stopping() {
+            if sh.stopping() && e.raw_os_error().is_some_and(is_teardown) {
                 return Ok(());
             }
             // The requester got an error, not the model's answer.
@@ -1020,6 +1044,18 @@ fn check_sqe_layout() -> io::Result<()> {
     Ok(())
 }
 
+/// The calling thread's nice value, from /proc/thread-self/stat (field 19).
+fn thread_nice() -> Option<i32> {
+    let stat = std::fs::read_to_string("/proc/thread-self/stat").ok()?;
+    // Fields after the command name, which ends at the last ')', start at
+    // field 3 (state).
+    stat[stat.rfind(')')? + 2..]
+        .split(' ')
+        .nth(19 - 3)?
+        .parse()
+        .ok()
+}
+
 /// Pins the calling thread to `cpu`.
 fn pin_to_cpu(cpu: usize) -> io::Result<()> {
     if cpu >= libc::CPU_SETSIZE as usize {
@@ -1109,6 +1145,7 @@ fn queue(sh: &Shared, cfg: &QueueCfg, report: &mut Report) -> io::Result<()> {
     {
         tracing::warn!(qid = cfg.qid, cpu, error = %e, "ring queue thread not pinned");
     }
+    let stats = sh.fs.stats();
     if cfg.nice != 0 {
         // SAFETY: gettid and setpriority have no memory preconditions; on
         // Linux PRIO_PROCESS with a thread id sets that thread's nice value.
@@ -1117,8 +1154,18 @@ fn queue(sh: &Shared, cfg: &QueueCfg, report: &mut Report) -> io::Result<()> {
             libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, cfg.nice)
         };
         if rc != 0 {
-            tracing::warn!(qid = cfg.qid, error = %io::Error::last_os_error(), "ring queue thread nice unchanged");
+            let e = io::Error::last_os_error();
+            if matches!(e.raw_os_error(), Some(libc::EPERM) | Some(libc::EACCES)) {
+                // Lowering nice needs CAP_SYS_NICE.
+                stats.ring_nice_denied.store(true, Ordering::Relaxed);
+            }
+            tracing::warn!(qid = cfg.qid, error = %e, "ring queue thread nice unchanged");
         }
+    }
+    // What the thread actually runs at, whatever was asked; the least
+    // favoured thread is what the run reports.
+    if let Some(n) = thread_nice() {
+        stats.ring_nice.fetch_max(n, Ordering::Relaxed);
     }
     let fd = sh.dev.as_raw_fd();
     // The entries are declared before the ring, so they are dropped after
@@ -1200,7 +1247,6 @@ fn serve_queue(
                 // A signal interrupts only the wait; the commits were
                 // submitted or are still queued. Wait again.
                 Err(e) if e.raw_os_error() == Some(libc::EINTR) => continue,
-                Err(_) if sh.stopping() => return Ok(()),
                 Err(e) => return Err(e),
             }
             pending.extend(ring.completion().map(|c| (c.user_data(), c.result())));
@@ -1218,7 +1264,7 @@ fn serve_queue(
                 }
             }
             if res < 0 {
-                if sh.stopping() {
+                if sh.stopping() && is_teardown(-res) {
                     return Ok(());
                 }
                 return Err(io::Error::other(format!(
@@ -1724,6 +1770,36 @@ mod tests {
         assert_eq!(parse_cpu_list("1023-1025").unwrap(), [1023, 1024, 1025]);
         for bad in ["", "a", "3-1", "0-3,2-5", "1,0", "0-", "-1"] {
             assert!(parse_cpu_list(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn thread_nice_reads_this_threads_nice_value() {
+        // SAFETY: getpriority has no memory preconditions.
+        #[allow(unsafe_code)] // the reference value
+        let want = unsafe { libc::getpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t) };
+        assert_eq!(thread_nice(), Some(want));
+    }
+
+    #[test]
+    fn teardown_errors_are_only_those_of_a_closing_connection() {
+        for e in [
+            libc::ENOTCONN,
+            libc::ECONNABORTED,
+            libc::ECANCELED,
+            libc::ENODEV,
+            libc::ENOENT,
+        ] {
+            assert!(is_teardown(e));
+        }
+        for e in [
+            libc::EIO,
+            libc::EINVAL,
+            libc::EFAULT,
+            libc::EBADF,
+            libc::ENOMEM,
+        ] {
+            assert!(!is_teardown(e));
         }
     }
 

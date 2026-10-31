@@ -137,11 +137,45 @@ impl Ledger {
         host: Option<&str>,
         observed: Observed,
     ) -> Result<(), LedgerError> {
-        self.db.execute(
-            "INSERT INTO runs (id, started_at, commit_sha, host, transport, observer) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, now_rfc3339(), commit_sha, host, observed.transport, observed.observer],
-        )?;
-        Ok(())
+        insert_run(&self.db, id, commit_sha, host, observed)
+    }
+
+    /// Records an executed run: its run row (with the transport that
+    /// observed it), its manifest and its result, in one transaction. A
+    /// crash or an error part-way leaves none of them, so a result is never
+    /// visible without the run row `results_by_transport` and
+    /// `purge_transport` find it through. Returns the manifest id.
+    pub fn record_execution(
+        &self,
+        run_id: &str,
+        commit_sha: Option<&str>,
+        host: Option<&str>,
+        observed: Observed,
+        m: &Manifest,
+        r: &StepResult,
+    ) -> Result<Hash, LedgerError> {
+        let tx = self.db.unchecked_transaction()?;
+        insert_run(&tx, run_id, commit_sha, host, observed)?;
+        let id = insert_manifest(&tx, m, run_id)?;
+        insert_result(&tx, r)?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Rows per table, counted directly.
+    pub fn row_counts(&self) -> Result<RowCounts, LedgerError> {
+        let n = |t: &str| -> Result<usize, LedgerError> {
+            Ok(self
+                .db
+                .query_row(&format!("SELECT count(*) FROM {t}"), [], |r| {
+                    r.get::<_, i64>(0)
+                })? as usize)
+        };
+        Ok(RowCounts {
+            runs: n("runs")?,
+            manifests: n("manifests")?,
+            results: n("results")?,
+        })
     }
 
     pub fn run(&self, id: &str) -> Result<Option<RunRow>, LedgerError> {
@@ -190,22 +224,11 @@ impl Ledger {
     /// Stores a manifest and returns its id. Re-recording an identical
     /// manifest refreshes its position as newest.
     pub fn put_manifest(&self, m: &Manifest, run_id: &str) -> Result<Hash, LedgerError> {
-        let id = manifest_id(m)?;
-        self.db.execute(
-            // REPLACE gives the row a new rowid, which breaks created_at ties.
-            "INSERT OR REPLACE INTO manifests (id, step_key, run_id, created_at, json) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id.to_string(), m.step_key.to_string(), run_id, now_rfc3339(), m.canonical_json()?.into_bytes()],
-        )?;
-        Ok(id)
+        insert_manifest(&self.db, m, run_id)
     }
 
     pub fn put_result(&self, r: &StepResult) -> Result<(), LedgerError> {
-        let json = sp_cas::canonical_json(r).map_err(sp_manifest::ManifestError::from)?;
-        self.db.execute(
-            "INSERT INTO results (id, step_key, manifest_id, run_id, created_at, json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![r.run_id, r.step_key.to_string(), r.manifest_id.to_string(), r.run_id, now_rfc3339(), json.into_bytes()],
-        )?;
-        Ok(())
+        insert_result(&self.db, r)
     }
 
     pub fn put_blob(&self, h: &Hash, size: u64, path: &str) -> Result<(), LedgerError> {
@@ -323,6 +346,47 @@ impl Ledger {
             closest,
         })
     }
+}
+
+/// Rows per ledger table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowCounts {
+    pub runs: usize,
+    pub manifests: usize,
+    pub results: usize,
+}
+
+fn insert_run(
+    db: &Connection,
+    id: &str,
+    commit_sha: Option<&str>,
+    host: Option<&str>,
+    observed: Observed,
+) -> Result<(), LedgerError> {
+    db.execute(
+        "INSERT INTO runs (id, started_at, commit_sha, host, transport, observer) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, now_rfc3339(), commit_sha, host, observed.transport, observed.observer],
+    )?;
+    Ok(())
+}
+
+fn insert_manifest(db: &Connection, m: &Manifest, run_id: &str) -> Result<Hash, LedgerError> {
+    let id = manifest_id(m)?;
+    db.execute(
+        // REPLACE gives the row a new rowid, which breaks created_at ties.
+        "INSERT OR REPLACE INTO manifests (id, step_key, run_id, created_at, json) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id.to_string(), m.step_key.to_string(), run_id, now_rfc3339(), m.canonical_json()?.into_bytes()],
+    )?;
+    Ok(id)
+}
+
+fn insert_result(db: &Connection, r: &StepResult) -> Result<(), LedgerError> {
+    let json = sp_cas::canonical_json(r).map_err(sp_manifest::ManifestError::from)?;
+    db.execute(
+        "INSERT INTO results (id, step_key, manifest_id, run_id, created_at, json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![r.run_id, r.step_key.to_string(), r.manifest_id.to_string(), r.run_id, now_rfc3339(), json.into_bytes()],
+    )?;
+    Ok(())
 }
 
 /// The index of the first candidate, in order, that matches `tree`. This is
@@ -497,6 +561,54 @@ mod tests {
         drop(l);
         // Reopening a v2 ledger runs nothing again.
         assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 2);
+    }
+
+    /// An execution is recorded whole or not at all: when its result cannot
+    /// be written, neither its run row nor its manifest is left behind.
+    #[test]
+    fn record_execution_is_all_or_nothing() {
+        let l = Ledger::open_in_memory().unwrap();
+        let key = Hash::of(b"key");
+        let t = tree("v1");
+        let m = manifest(&t, key);
+        let mid = manifest_id(&m).unwrap();
+        let ring = Observed {
+            transport: Some("fuse-uring"),
+            observer: Some("fuse-uring+nice-10"),
+        };
+        assert_eq!(
+            l.record_execution("r1", Some("c"), None, ring, &m, &result(key, mid, "r1", 0))
+                .unwrap(),
+            mid
+        );
+        assert_eq!(
+            l.row_counts().unwrap(),
+            RowCounts {
+                runs: 1,
+                manifests: 1,
+                results: 1
+            }
+        );
+        assert_eq!(l.results_by_transport(Some("fuse-uring")).unwrap().len(), 1);
+        // A result row "r2" already exists (written before v2, say), so the
+        // insert of r2's result fails after its run and manifest went in.
+        l.put_result(&result(key, mid, "r2", 0)).unwrap();
+        let m2 = manifest(&tree("v2"), key);
+        let mid2 = manifest_id(&m2).unwrap();
+        assert!(
+            l.record_execution("r2", None, None, ring, &m2, &result(key, mid2, "r2", 0))
+                .is_err()
+        );
+        assert!(l.run("r2").unwrap().is_none(), "the run row stayed");
+        assert!(l.manifest(&mid2).unwrap().is_none(), "the manifest stayed");
+        assert_eq!(l.row_counts().unwrap().results, 2);
+        // A run id that exists already fails before anything is written.
+        assert!(
+            l.record_execution("r1", None, None, ring, &m2, &result(key, mid2, "r3", 0))
+                .is_err()
+        );
+        assert!(l.manifest(&mid2).unwrap().is_none());
+        assert_eq!(l.row_counts().unwrap().results, 2);
     }
 
     #[test]

@@ -171,8 +171,10 @@ transport produced can be found and purged.
 ### What is tested
 
 All in the dev container (root, `enable_uring=Y`, Linux 7.0.14, FUSE 7.45),
-each #[ignore]d elsewhere because it needs the ring (on a host without it
-each fails saying so; none compares classic with classic):
+each #[ignore]d because it needs the ring (on a host without it each fails
+saying so; none compares classic with classic). CI exercises the classic
+transport only; the ring is verified by these `--ignored` runs, raw output
+in `0a-cli-cli-arm64-exp-overhead3-ring-tests.log`:
 
 - `transports_log_identically` (crates/sp-cli/tests/transports.rs): eight
   shell workloads (find and cat of every file; ls; ls -lA; stat of missing
@@ -186,13 +188,16 @@ each fails saying so; none compares classic with classic):
   once per transport: identical manifests, run events and ledger rows naming
   `fuse-uring` and `fuse`. Request counts can differ with identical logs (the
   classic transport needed 43 readdirs for listings the ring did in 34).
-- Failure paths (crates/sp-fs/tests/uring.rs and the CLI tests in
-  transports.rs, through test-only hooks): a refused registration and a ring
+- Failure paths (crates/sp-fs/tests/uring.rs and
+  crates/sp-cli/tests/ring_faults.rs, through hooks compiled in only with
+  the `fault-injection` feature): a refused registration and a ring
   that never becomes ready fall back to classic before anything is served
   (and fail when the ring is forced); a queue thread that panics or sees an
   error completion, at the first request after the mount came up or halfway
   through `go test`, fails the step at once: the run exits 2 within about a second (0.3-1.1s)
-  with nothing in the ledger, and the mount is gone.
+  with no run, manifest or result row in the ledger, the observer's own
+  error event names the dead ring queue and the injected cause, and the
+  mount is gone.
 - Unit tests in uring.rs: every reply encoder against #[repr(C)] mirrors of
   the FUSE 7.45 structs (sizes and field offsets), the SQE byte layout, CPU
   lists.

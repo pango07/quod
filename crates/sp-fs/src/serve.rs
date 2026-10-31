@@ -15,7 +15,7 @@ use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -62,7 +62,9 @@ impl Transport {
 
 /// Failures the ring transport can be made to suffer, so tests can prove
 /// each one ends in a fallback (before the step) or a Stillpass error
-/// (during it), never in a hang or a recorded result. Not for production.
+/// (during it), never in a hang or a recorded result. Only reachable with
+/// the `fault-injection` feature (`Options::fault`,
+/// `STILLPASS_TEST_URING_FAULT`); release builds cannot be told to fail.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
@@ -79,6 +81,7 @@ pub enum Fault {
     QueueError(u64),
 }
 
+#[cfg(feature = "fault-injection")]
 impl Fault {
     /// `STILLPASS_TEST_URING_FAULT`: `register`, `unready`, `panic[:N]`,
     /// `error[:N]` (N requests answered first, default 0).
@@ -116,6 +119,7 @@ pub struct Options {
     /// own processes; a lower nice value lets it run first. It runs for
     /// microseconds per request.
     pub uring_nice: i32,
+    #[cfg(feature = "fault-injection")]
     #[doc(hidden)]
     pub fault: Option<Fault>,
 }
@@ -128,6 +132,7 @@ impl Default for Options {
             uring_pin: true,
             uring_depth: 4,
             uring_nice: -10,
+            #[cfg(feature = "fault-injection")]
             fault: None,
         }
     }
@@ -150,8 +155,17 @@ impl Options {
                 .and_then(|v| v.parse().ok())
                 .filter(|n| (-20..=19).contains(n))
                 .unwrap_or(d.uring_nice),
+            #[cfg(feature = "fault-injection")]
             fault: Fault::from_env(),
         }
+    }
+
+    /// The failure to inject; always `None` without `fault-injection`.
+    pub(crate) fn fault(&self) -> Option<Fault> {
+        #[cfg(feature = "fault-injection")]
+        return self.fault;
+        #[cfg(not(feature = "fault-injection"))]
+        None
     }
 }
 
@@ -186,7 +200,6 @@ struct Log {
 
 /// Request counts, reported at unmount so the bench can see what the step
 /// actually asked the observer for.
-#[derive(Default)]
 pub(crate) struct Stats {
     lookup: AtomicU64,
     lookup_absent: AtomicU64,
@@ -211,8 +224,39 @@ pub(crate) struct Stats {
     pub(crate) ring_batches: AtomicU64,
     pub(crate) ring_full_batches: AtomicU64,
     pub(crate) ring_serve_ns: AtomicU64,
+    /// The highest (least favoured) nice value any ring queue thread
+    /// actually runs at, `i32::MIN` until one reports, and whether lowering
+    /// it was refused (no CAP_SYS_NICE).
+    pub(crate) ring_nice: AtomicI32,
+    pub(crate) ring_nice_denied: AtomicBool,
     /// Times a serving thread found a model lock held by another.
     contended: AtomicU64,
+}
+
+impl Default for Stats {
+    fn default() -> Stats {
+        Stats {
+            lookup: AtomicU64::new(0),
+            lookup_absent: AtomicU64::new(0),
+            getattr: AtomicU64::new(0),
+            readlink: AtomicU64::new(0),
+            open: AtomicU64::new(0),
+            read: AtomicU64::new(0),
+            read_bytes: AtomicU64::new(0),
+            readdir: AtomicU64::new(0),
+            passthrough: AtomicBool::new(false),
+            uring: AtomicBool::new(false),
+            uring_fallback: AtomicBool::new(false),
+            ring_requests: AtomicU64::new(0),
+            device_requests: AtomicU64::new(0),
+            ring_batches: AtomicU64::new(0),
+            ring_full_batches: AtomicU64::new(0),
+            ring_serve_ns: AtomicU64::new(0),
+            ring_nice: AtomicI32::new(i32::MIN),
+            ring_nice_denied: AtomicBool::new(false),
+            contended: AtomicU64::new(0),
+        }
+    }
 }
 
 impl Stats {
@@ -235,6 +279,8 @@ impl Stats {
             ring_batches: g(&self.ring_batches),
             ring_full_batches: g(&self.ring_full_batches),
             ring_serve_us: g(&self.ring_serve_ns) / 1000,
+            ring_nice: Some(self.ring_nice.load(Ordering::Relaxed)).filter(|&n| n != i32::MIN),
+            ring_nice_denied: self.ring_nice_denied.load(Ordering::Relaxed),
             lock_contended: g(&self.contended),
         }
     }
@@ -250,6 +296,8 @@ impl Stats {
         ] {
             a.store(0, Ordering::Relaxed);
         }
+        self.ring_nice.store(i32::MIN, Ordering::Relaxed);
+        self.ring_nice_denied.store(false, Ordering::Relaxed);
     }
 }
 
@@ -1116,6 +1164,8 @@ impl Served {
             ring_batches = s.ring_batches,
             ring_full_batches = s.ring_full_batches,
             ring_serve_us = s.ring_serve_us,
+            ring_nice = s.ring_nice,
+            ring_nice_denied = s.ring_nice_denied,
             lock_contended = s.lock_contended,
             serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
             serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),

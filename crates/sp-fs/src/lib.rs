@@ -47,6 +47,11 @@ pub struct ObserverStats {
     pub ring_batches: u64,
     pub ring_full_batches: u64,
     pub ring_serve_us: u64,
+    /// Ring transport only: the nice value the queue threads actually run
+    /// at (the least favoured of them), and whether lowering it was refused
+    /// for lack of CAP_SYS_NICE.
+    pub ring_nice: Option<i32>,
+    pub ring_nice_denied: bool,
     /// Times a serving thread found a model lock held by another.
     pub lock_contended: u64,
 }
@@ -57,6 +62,26 @@ impl ObserverStats {
     /// that fell back).
     pub fn transport(&self) -> &'static str {
         if self.uring { "fuse-uring" } else { "fuse" }
+    }
+
+    /// The transport with how it ran, for the run's observer string:
+    /// `fuse-uring+nice-10`, `fuse-uring+nice0(denied)` when lowering the
+    /// queue threads' nice value was refused, `fuse+uring-fallback` when
+    /// the ring was tried and abandoned, or `fuse`.
+    pub fn transport_detail(&self) -> String {
+        let mut s = self.transport().to_string();
+        if self.uring {
+            if let Some(n) = self.ring_nice {
+                s += &format!("+nice{n}");
+            }
+            if self.ring_nice_denied {
+                s += "(denied)";
+            }
+        }
+        if self.uring_fallback {
+            s += "+uring-fallback";
+        }
+        s
     }
 }
 
@@ -137,6 +162,7 @@ mod unsupported {
         pub uring_pin: bool,
         pub uring_depth: usize,
         pub uring_nice: i32,
+        #[cfg(feature = "fault-injection")]
         #[doc(hidden)]
         pub fault: Option<Fault>,
     }
@@ -149,6 +175,7 @@ mod unsupported {
                 uring_pin: true,
                 uring_depth: 4,
                 uring_nice: -10,
+                #[cfg(feature = "fault-injection")]
                 fault: None,
             }
         }

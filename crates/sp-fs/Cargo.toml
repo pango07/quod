@@ -20,5 +20,14 @@ tracing.workspace = true
 fuser.workspace = true
 io-uring.workspace = true
 
+[features]
+# Test-only failure hooks for the ring transport (`Options::fault`,
+# STILLPASS_TEST_URING_FAULT). Off in every build that records results.
+fault-injection = []
+
 [dev-dependencies]
 tempfile.workspace = true
+
+[[test]]
+name = "uring"
+required-features = ["fault-injection"]
