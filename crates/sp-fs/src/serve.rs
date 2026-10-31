@@ -549,14 +549,19 @@ impl CasFs {
             Kind::Symlink => (FileType::Symlink, 0o777, 1),
             _ => (FileType::RegularFile, n.entry.m.unwrap_or(0o644) as u16, 1),
         };
+        // The tree has no times. Files get one derived from their content
+        // (see `content_mtime`); directories and symlinks a fixed one.
+        let time = match (n.entry.k, n.entry.h) {
+            (Kind::File, Some(h)) => crate::content_mtime(&h),
+            _ => UNIX_EPOCH,
+        };
         FileAttr {
             ino: INodeNo(ino),
             size: n.size,
             blocks: n.size.div_ceil(512),
-            // Fixed times: the tree has none, and mtime is never an input.
-            atime: UNIX_EPOCH,
-            mtime: UNIX_EPOCH,
-            ctime: UNIX_EPOCH,
+            atime: time,
+            mtime: time,
+            ctime: time,
             crtime: UNIX_EPOCH,
             kind,
             perm,

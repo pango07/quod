@@ -1,0 +1,107 @@
+# exp/polyglot acceptance, final code after the review fixes, rebased onto
+# main cfb1785 (exp/overhead3 io_uring observer, fix/uring-fallback,
+# exp/rootfs); host mode (no pinned rootfs), transport Auto (the ring: see
+# each A1 observer event). scripts/acceptance.sh <toolchain> <checkout>,
+# filtered to the suite's own lines (stillpass banners omitted). No two Jest
+# or go test runs of this experiment at once (starlette ran beside luxon);
+# box shared with other agents; see polyglot-corpus.md. cli/cli is its second
+# run on this tip: the first printed every A and W line passing and "test
+# result: ok", then its cargo process was SIGKILLed (exit 137) with no OOM
+# kill in dmesg; rerun alone, exit 0. During the rerun the kernel OOM-killed
+# a process (link) in another agent's container (stillpass-lab-runner),
+# not in this run.
+
+################ scripts/acceptance.sh go
+== go 18:52:34 load 13.23 25.42 25.33
+== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint
+== step A (go): go mod download (network, not memoized)
+== A1-A7 on https://github.com/cli/cli@9490d204a2ba (go profile), step: go test -p 4 ./...
+A1 ok: EXECUTED, one manifest, 14262 outputs, none under []
+A1 observer event: {"timestamp":"2026-10-31T18:53:45.875371Z","level":"INFO","message":"observer","mounted_ms":59316,"transport":"fuse-uring","uring_fallback":false,"pids":1931,"passthrough":true,"lookup":3244,"lookup_absent":622,"getattr":1,"readlink":0,"open":26296,"read":0,"read_mb":0,"readdir":5462,"ring_requests":71526,"device_requests":0,"ring_batches":71355,"ring_full_batches":29,"ring_serv
+A1 run event: {"timestamp":"2026-10-31T18:53:46.087390Z","level":"INFO","message":"run","run_id":"01M69MX57BE4H5XX92607NC8F1","step_key":"b3:0f360445f54701c287c98c0a15b0132d2c40ec2af6e42445a30dc05c311049a4","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:9151f831898505575c564fbe3a66539ba47
+A2 ok: REPLAYED, exit 0 and 18160 stdout bytes identical
+manifest: 29878 entries (23938 f, 5320 d, 620 a, 0 l), 27752 under sealed prefixes [".stillpass/gomod"]
+A3 ok: README.md-only commit REPLAYED
+A4 ok: MISS, receipt names api/client.go
+A5 ok: MISS, mismatch names the listing of api
+A6 ok: different key, no manifests
+A7: mutated 23939 f, 5320 d, 620 a, 0 l entries in 474.2s: 0 false hits
+A7b: 292 unread files in the tree, sampling 10
+A7b ok: unread .devcontainer/devcontainer.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/codeql/tests/unsanitized-response-to-terminal/go.mod mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/extensions/terminal-mockup/library/discussion-view-monas-cafe.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/scripts/package-lock.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/tool/internal/evidence/raster.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/tool/internal/terminal/output_unix_test.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/workflows/scripts/spam-detection/eval-instructions.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/install_source.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/primer/foundations/images/Iconography-3.png mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/triage.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+W1 ok: first warm run (empty cache) agrees with the cold record
+W2 ok: warm agrees with cold after a one-file change; W3 ok: the warm key replays
+W4: warm manifest has 29843 entries with a full cache, 29843 with an empty one; 0 absent probes covered by their parent listing, 0 hidden by the cache
+W4 ok; for the record, the cold env records 36 paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)
+acceptance: A1-A7 and W pass under the go profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1565.38s
+== go exit 0 19:18:44 load 8.01 27.75 35.92
+
+################ scripts/acceptance.sh node
+== node 18:21:12 load 3.81 5.20 16.11
+== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint
+== step A (node): npm ci (network, not memoized)
+== A1-A7 on https://github.com/moment/luxon@f427515a38f6 (node profile), step: export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4
+A1 ok: EXECUTED, one manifest, 45 outputs, none under ["node_modules/.cache", ".eslintcache", ".stylelintcache"]
+A1 observer event: {"timestamp":"2026-10-31T18:21:38.877346Z","level":"INFO","message":"observer","mounted_ms":5402,"transport":"fuse-uring","uring_fallback":false,"pids":18,"passthrough":true,"lookup":190,"lookup_absent":88,"getattr":1,"readlink":0,"open":1707,"read":0,"read_mb":0,"readdir":14,"ring_requests":3745,"device_requests":0,"ring_batches":3762,"ring_full_batches":17,"ring_serve_us":3583
+A1 run event: {"timestamp":"2026-10-31T18:21:38.973102Z","level":"INFO","message":"run","run_id":"01M69K3ZY6J85D1R6ZH3HS4ZCQ","step_key":"b3:92901dcf5abccc6f35bc5ecf34027e371515d6b7970d36bda815756a9824c2fd","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:b59474b14c2a299bc181fd5c6864f9ae416
+A2 ok: REPLAYED, exit 0 and 4859 stdout bytes identical
+manifest: 24987 entries (22053 f, 2807 d, 88 a, 39 l), 24800 under sealed prefixes ["node_modules"]
+A3 ok: README.md-only commit REPLAYED
+A4 ok: MISS, receipt names src/datetime.js
+A5 ok: MISS, mismatch names the listing of src
+A6 ok: different key, no manifests
+A7: mutated 22053 f, 2807 d, 88 a, 39 l entries in 254.0s: 0 false hits
+A7b: 70 unread files in the tree, sampling 10
+A7b ok: unread .agignore mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread .husky/.gitignore mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread LICENSE.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docker/Dockerfile mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docs/home.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docs/tour.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread scripts/deploy-site mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread scripts/version mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread site/docs/_media/Luxon_icon.svg mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread site/plugins/dark-theme-toggle.css mutated, replay agrees with a fresh execution, both read the same 24987 paths
+W: the node profile has no warm state; W1-W4 do not apply
+acceptance: A1-A7 pass under the node profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 411.27s
+== node exit 0 18:28:19 load 57.52 30.53 21.93
+
+################ scripts/acceptance.sh python
+== python 18:21:20 load 3.62 5.11 15.97
+== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint
+== step A (python): uv sync --frozen (network, not memoized)
+== A1-A7 on https://github.com/encode/starlette@2745bbc5afa2 (python profile), step: python -m pytest
+A1 ok: EXECUTED, one manifest, 7 outputs, none under ["__pycache__", ".mypy_cache", ".ruff_cache"]
+A1 observer event: {"timestamp":"2026-10-31T18:21:45.384429Z","level":"INFO","message":"observer","mounted_ms":9649,"transport":"fuse-uring","uring_fallback":false,"pids":11,"passthrough":true,"lookup":235,"lookup_absent":78,"getattr":1,"readlink":0,"open":96,"read":0,"read_mb":0,"readdir":42,"ring_requests":675,"device_requests":0,"ring_batches":693,"ring_full_batches":18,"ring_serve_us":1764,"ri
+A1 run event: {"timestamp":"2026-10-31T18:21:45.481548Z","level":"INFO","message":"run","run_id":"01M69K411WDC6RZEEMSFHH6ESC","step_key":"b3:bb38b9a6ea60d0bef1679493c350a17ba9d07e9d6ff79ef0da4ed02b85e7c89f","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:0a56e818b0c4f368a37c88568e96a4caa0d
+A2 ok: REPLAYED, exit 0 and 4179 stdout bytes identical
+manifest: 25325 entries (24264 f, 981 d, 76 a, 4 l), 25092 under sealed prefixes [".stillpass/venv"]
+A3 ok: .github/pull_request_template.md-only commit REPLAYED
+A4 ok: MISS, receipt names benchmarks/__init__.py
+A5 ok: MISS, mismatch names the listing of benchmarks
+A6 ok: different key, no manifests
+A7: mutated 24265 f, 981 d, 76 a, 4 l entries in 326.6s: 0 false hits
+A7b: 9 unread files in the tree, sampling 9
+A7b ok: unread .github/FUNDING.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/ISSUE_TEMPLATE/1-issue.md mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/ISSUE_TEMPLATE/config.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/dependabot.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/pull_request_template.md mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/benchmark.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/main.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/publish.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/zizmor.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+W: the python profile has no warm state; W1-W4 do not apply
+acceptance: A1-A7 pass under the python profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 511.87s
+== python exit 0 18:30:00 load 32.20 29.07 22.27

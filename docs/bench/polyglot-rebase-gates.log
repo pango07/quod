@@ -1,0 +1,44 @@
+# exp/polyglot rebased onto main cfb1785 (exp/overhead3's io_uring observer,
+# fix/uring-fallback, exp/rootfs): the gates besides acceptance
+# (polyglot-acceptance.log).
+# Tip d70dad4 (the last commit below; the commit adding this log changes only docs) on main cfb1785.
+# Dev container (root, fuse.enable_uring=Y), box shared with other agents.
+
+## Every rebased commit, exported clean: cargo fmt --all --check; cargo clippy
+## --workspace --all-targets -D warnings; the same with --all-features (0 = pass)
+60f3ef6 POLY: toolchain profiles; Node and Python join Go: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+2dafad0 POLY: pin whole toolchain installs in the host fingerprint: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+29f70f3 POLY: acceptance holds on luxon and starlette: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+ed8b946 POLY: bench measures plain per commit and observer requests: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+3a7d933 POLY: corpus results: acceptance, overhead, hit rate: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+1f98b80 POLY: content-derived mtimes for served and sealed files: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+203bc71 POLY: never record mtime-keyed caches or EROFS-tainted runs: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+d16d806 POLY: pin unchecked-hash pycs; prune only __pycache__ dirs: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+3ef7786 POLY: strict A7b normalizer: runner timing tokens only: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+61323b5 POLY: review fixes recorded; corpus claims corrected: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+d70dad4 POLY: rebased onto the ring observer and the rootfs; gates rerun: fmt --check 0, clippy -D warnings 0, clippy --all-features -D warnings 0
+
+## scripts/merge-gate.sh, whole (lint, then the --ignored ring suites: sp-fs
+## uring with fault injection, ring_faults, transports_log_identically), run
+## at d70dad4, the code of the tip; stillpass banners and passing test names omitted
+# 2026-10-31T18:18:58Z load 3.65 6.38 18.16 kernel 7.0.14-linuxkit enable_uring=Y STILLPASS_SPIKE_REPO=unset
+lint ok
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.28s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.24s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 5.28s
+merge gate ok
+EXIT 0
+# done 2026-10-31T18:20:47Z load 3.22 5.25 16.43
+
+## Negative control: the ring's put_attr forced back to zero times;
+## transports_log_identically must fail
+# 2026-10-31T18:31:56Z load 22.24 27.18 22.41; the tip with the ring put_attr writing zero times
+EXIT 101
+thread 'transports_log_identically' (1170) panicked at crates/sp-cli/tests/transports.rs:198:13:
+assertion `left == right` failed: ls -lA: the step saw different things
+left (ring) ['-rw-r--r-- 1 root root  9 Jan  1  1970 go.mod', '-rw-r--r-- 1 root root      12 Jan  1  1970 root.go']
+right (classic) ['-rw-r--r-- 1 root root  9 Oct 31  2002 go.mod', '-rw-r--r-- 1 root root      12 Apr  7  2005 root.go']
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.22s

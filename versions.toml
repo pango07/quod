@@ -8,6 +8,19 @@ toolchain = "1.98.0"
 # Matches the spike repo's go.mod `toolchain` line.
 version = "1.27.3"
 
+[node]
+# LTS (Krypton), installed at /usr/local/node in the dev image.
+version = "24.22.2"
+
+[python]
+# A python-build-standalone release, installed at /usr/local/python.
+version = "3.12.16"
+pbs_release = "20261026"
+
+[uv]
+# Installs Python dependencies from uv.lock; at /usr/local/uv/bin.
+version = "0.13.6"
+
 [spike_repo]
 url = "https://github.com/cli/cli"
 # Pinned for acceptance and overhead runs (trunk on 2026-10-30).
@@ -34,6 +47,32 @@ digest_arm64 = "b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b
 image_id_arm64 = "sha256:89658b74a5326b6e912ad7da13ae37a280d79d12d6da2555a33d3bf3b4a0085e"
 digest_amd64 = ""
 image_id_amd64 = ""
+# The polyglot corpus (exp/polyglot): one real repo per toolchain besides
+# Go, each with real Actions CI, a lockfile and a test suite that passes
+# offline after the setup step. `setup` is step A (network, never
+# memoized), `step` is step B (observed, memoized), `touch` the file the
+# one-file bench appends a comment to.
+[corpus.node]
+# moment/luxon: Jest, package-lock.json, 1,222 tests in 58 suites. Its
+# workflow (.github/workflows/test.yml) runs `npm test` with these three
+# variables set at the job level; the step script sets them the same way.
+# `--maxWorkers=4` caps Jest on the shared dev box (part of the step, so
+# part of the key; fixed for every run of this experiment).
+url = "https://github.com/moment/luxon"
+commit = "f427515a38f6a671f8de663e6bcc040ed81f114e"
+setup = "npm ci"
+step = "export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4"
+touch = "src/datetime.js"
+
+[corpus.python]
+# encode/starlette: pytest, uv.lock, 1,414 tests (asyncio and trio). Its
+# workflow runs scripts/install (`uv sync --frozen`) then scripts/test
+# (`uv run coverage run -m pytest`); the step runs pytest without coverage.
+url = "https://github.com/encode/starlette"
+commit = "2745bbc5afa2f8ce900d290bedca2bc5d3f3cfe8"
+setup = "uv sync --frozen"
+step = "python -m pytest"
+touch = "starlette/routing.py"
 
 [firecracker]
 # 0b. Deferred (DECISIONS 2026-10-31: pinned OCI rootfs under bubblewrap first).

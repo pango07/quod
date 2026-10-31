@@ -7,8 +7,10 @@ use clap::{Parser, Subcommand};
 
 mod bench;
 mod inspect;
+mod profile;
 mod rootfs;
 mod run;
+mod seal;
 mod snapshot;
 mod state;
 mod step;
@@ -52,6 +54,10 @@ enum Cmd {
     /// Stillpass itself inside the sandbox; see rootfs::platform).
     #[command(name = "__host-probe", hide = true)]
     HostProbe,
+    /// Print the toolchain profile a repo runs under, as NAME='VALUE' lines
+    /// a shell can eval: toolchain, default setup and test steps, the
+    /// directories to clear after setup, the sealed prefixes.
+    Profile(profile::ProfileArgs),
 }
 
 fn main() -> ExitCode {
@@ -72,6 +78,7 @@ fn main() -> ExitCode {
             Cmd::Rootfs(args) => rootfs::cli(&state, args).map(|()| 0),
             Cmd::Step(args) => step::cli(&state, args),
             Cmd::HostProbe => rootfs::host_probe(),
+            Cmd::Profile(args) => profile::profile(args).map(|()| 0),
         }
     })();
     match result {

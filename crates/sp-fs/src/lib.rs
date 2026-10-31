@@ -18,6 +18,25 @@ mod overlay;
 #[cfg(target_os = "linux")]
 pub use overlay::{Overlay, Tmpfs, overlay, overlay_dir, syncfs, tmpfs};
 
+/// The modification time served for a regular file: a function of its
+/// content alone, so it changes exactly when the content does. A constant
+/// mtime let a cache keyed by (path, mtime[, size]) that was written under
+/// observation (@babel/register, `eslint --cache`, a timestamp pyc) trust a
+/// stale entry once it came back into a tree: the edited source showed the
+/// same mtime. Seconds carry 28 bits of the content hash, so a tool that
+/// compares only whole seconds still tells contents apart (equal odds
+/// 2^-28), and nanoseconds 30 more. The base, 2000-01-01, keeps every served
+/// file in the past and older than anything a step writes. `CasFs::attr`
+/// applies it, and both transports encode the times that returns. Sealed
+/// snapshot files get the same times, so a file looks the same wherever it
+/// is served.
+pub fn content_mtime(content: &sp_cas::Hash) -> std::time::SystemTime {
+    let b = content.as_bytes();
+    let secs = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & ((1 << 28) - 1);
+    let nanos = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) % 1_000_000_000;
+    std::time::UNIX_EPOCH + std::time::Duration::new(946_684_800 + u64::from(secs), nanos)
+}
+
 /// How many requests of each kind the kernel sent the observer so far.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ObserverStats {
@@ -268,3 +287,29 @@ pub use unsupported::{
     Fault, Options, Overlay, Served, Tmpfs, Transport, overlay, overlay_dir, serve, serve_with,
     syncfs, tmpfs,
 };
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use sp_cas::Hash;
+
+    use super::content_mtime;
+
+    #[test]
+    fn content_mtime_changes_exactly_with_content() {
+        let a = content_mtime(&Hash::of(b"module.exports = 1;\n"));
+        assert_eq!(a, content_mtime(&Hash::of(b"module.exports = 1;\n")));
+        let secs = |t: std::time::SystemTime| t.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        // Same size, different content: different whole seconds too.
+        let b = content_mtime(&Hash::of(b"module.exports = 2;\n"));
+        assert_ne!(secs(a), secs(b));
+        // Always in 2000-01-01 .. 2008-07, never the observer's old epoch.
+        for i in 0..1000u32 {
+            let t = content_mtime(&Hash::of(&i.to_le_bytes()));
+            let d = t.duration_since(UNIX_EPOCH).unwrap();
+            assert!(d >= Duration::from_secs(946_684_800));
+            assert!(d < Duration::from_secs(946_684_800 + (1 << 28)));
+        }
+    }
+}

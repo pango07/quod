@@ -3,7 +3,9 @@
 //!
 //! `transports_log_identically` runs the same workloads on a fresh ring
 //! mount and a fresh classic mount and asserts the step saw the same thing
-//! (stdout) and the observer logged the same accesses, then runs the tiny Go
+//! (stdout, including a stat of every entry: size, mode and times) and the
+//! observer logged the same accesses, checks both serve content-derived file
+//! times, then runs the tiny Go
 //! module's `go test ./...` through the CLI on each and asserts identical
 //! manifests. `per_request_cost` times the transports against each other.
 //! The ring's failure paths are in ring_faults.rs (`fault-injection`).
@@ -79,6 +81,14 @@ const WORKLOADS: &[(&str, &str)] = &[
         "ls -f big | cksum; ls big | wc -l; ls big | tail -n 2",
     ),
     ("statfs", "stat -f -c '%c %b %S %l' ."),
+    (
+        // What a stat shows of every served entry (lstat: symlinks are not
+        // followed): size, raw mode, permissions, nlink, and the three times
+        // to the nanosecond. The ring encodes attributes itself, so this is
+        // where its encoder and fuser's could drift apart.
+        "stat of every entry",
+        "find . -exec stat -c '%n %s %f %a %h %.9X %.9Y %.9Z' {} + | sort",
+    ),
     (
         "reads at offsets",
         "dd if=pkg/cmd/big.bin bs=4096 skip=300 count=3 2>/dev/null | cksum; tail -c 100 pkg/cmd/big.bin | cksum; head -c 1 a/b/c/d.txt",
@@ -205,6 +215,31 @@ fn transports_log_identically() {
                 }
             }
         }
+    }
+
+    // Both transports serve the times `CasFs::attr` chose: a file's derived
+    // from its content, directories and symlinks fixed.
+    let blob = |p: &str| {
+        f.tree
+            .iter()
+            .find(|e| e.p == p)
+            .and_then(|e| e.h)
+            .unwrap_or_else(|| panic!("{p} is not a file of the tree"))
+    };
+    let at = |t: std::time::SystemTime| {
+        let d = t.duration_since(std::time::UNIX_EPOCH).unwrap();
+        format!("{}.{:09}", d.as_secs(), d.subsec_nanos())
+    };
+    let want = format!(
+        "go.mod 9 {m} {m} {m}\npkg/cmd/root.go 12 {r} {r} {r}\npkg 0.000000000\nlink 0.000000000\n",
+        m = at(sp_fs::content_mtime(&blob("go.mod"))),
+        r = at(sp_fs::content_mtime(&blob("pkg/cmd/root.go"))),
+    );
+    let script =
+        "stat -c '%n %s %.9X %.9Y %.9Z' go.mod pkg/cmd/root.go; stat -c '%n %.9Y' pkg link";
+    for (name, transport) in [("rt", Transport::Uring), ("ct", Transport::Classic)] {
+        let (out, _, _) = f.run(name, transport, true, script);
+        assert_eq!(out, want, "{transport:?}: served times");
     }
 
     // go test on the tiny module, through the CLI, once per transport.

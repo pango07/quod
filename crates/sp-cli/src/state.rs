@@ -45,10 +45,20 @@ impl State {
         self.dir.join("events.jsonl")
     }
 
-    /// The warm Go build cache for steps pinned to `image` (the toolchain):
-    /// a persistent host directory the sandbox binds over GOCACHE.
-    pub fn warm_gocache_dir(&self, image: &sp_cas::Hash) -> PathBuf {
-        self.dir.join("warm").join(image.hex()).join("gocache")
+    /// The warm cache for steps pinned to `image` (the toolchain), named by
+    /// the profile's cache variable (`GOCACHE` -> `gocache`): a persistent
+    /// host directory the sandbox binds over that variable's directory.
+    pub fn warm_cache_dir(&self, image: &sp_cas::Hash, cache_env: &str) -> PathBuf {
+        self.dir
+            .join("warm")
+            .join(image.hex())
+            .join(cache_env.to_ascii_lowercase())
+    }
+
+    /// A toolchain's download cache for setup steps (npm's, pip's, uv's):
+    /// bound into --allow-net runs only, never part of a tree.
+    pub fn setup_cache_dir(&self, toolchain: sp_key::Toolchain) -> PathBuf {
+        self.dir.join("setup-cache").join(toolchain.name())
     }
 
     /// Structured events go to events.jsonl (the bench harness reads them),

@@ -47,7 +47,7 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use fuser::{BackingId, FileAttr, FileType};
 use io_uring::{IoUring, cqueue, opcode, squeue, types};
@@ -1141,6 +1141,14 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
     }
 }
 
+/// A served time as fuse_attr's (seconds, nanoseconds), encoded as the
+/// classic transport's fuser does, so both serve the times `CasFs::attr`
+/// chose (content-derived for files). Nothing served predates the epoch.
+fn fuse_time(t: SystemTime) -> (u64, u32) {
+    let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
+    (d.as_secs(), d.subsec_nanos())
+}
+
 /// struct fuse_attr (88 bytes).
 fn put_attr(out: &mut Vec<u8>, a: &FileAttr) {
     let mode = match a.kind {
@@ -1148,15 +1156,18 @@ fn put_attr(out: &mut Vec<u8>, a: &FileAttr) {
         FileType::Symlink => libc::S_IFLNK,
         _ => libc::S_IFREG,
     } | a.perm as u32;
+    let (atime, atimensec) = fuse_time(a.atime);
+    let (mtime, mtimensec) = fuse_time(a.mtime);
+    let (ctime, ctimensec) = fuse_time(a.ctime);
     put64(out, a.ino.0);
     put64(out, a.size);
     put64(out, a.blocks);
-    put64(out, 0); // atime
-    put64(out, 0); // mtime
-    put64(out, 0); // ctime
-    put32(out, 0); // atimensec
-    put32(out, 0); // mtimensec
-    put32(out, 0); // ctimensec
+    put64(out, atime);
+    put64(out, mtime);
+    put64(out, ctime);
+    put32(out, atimensec);
+    put32(out, mtimensec);
+    put32(out, ctimensec);
     put32(out, mode);
     put32(out, a.nlink);
     put32(out, a.uid);
@@ -1901,9 +1912,11 @@ mod tests {
             ino: INodeNo(0x0102_0304_0506_0708),
             size: 0x1111_2222_3333,
             blocks: 0x44_5555,
-            atime: UNIX_EPOCH,
-            mtime: UNIX_EPOCH,
-            ctime: UNIX_EPOCH,
+            // Distinct times with nanoseconds, so a swapped or dropped
+            // field shows.
+            atime: UNIX_EPOCH + Duration::new(946_684_801, 11),
+            mtime: UNIX_EPOCH + Duration::new(1_000_000_002, 999_999_999),
+            ctime: UNIX_EPOCH + Duration::new(1_200_000_003, 33),
             crtime: UNIX_EPOCH,
             kind,
             perm,
@@ -1929,12 +1942,19 @@ mod tests {
         );
         assert_eq!(u64_at(b, f(offset_of!(FuseAttr, size))), 0x1111_2222_3333);
         assert_eq!(u64_at(b, f(offset_of!(FuseAttr, blocks))), 0x44_5555);
-        for o in [
-            offset_of!(FuseAttr, atime),
-            offset_of!(FuseAttr, mtime),
-            offset_of!(FuseAttr, ctime),
+        for (o, secs) in [
+            (offset_of!(FuseAttr, atime), 946_684_801),
+            (offset_of!(FuseAttr, mtime), 1_000_000_002),
+            (offset_of!(FuseAttr, ctime), 1_200_000_003),
         ] {
-            assert_eq!(u64_at(b, f(o)), 0);
+            assert_eq!(u64_at(b, f(o)), secs);
+        }
+        for (o, nsec) in [
+            (offset_of!(FuseAttr, atimensec), 11),
+            (offset_of!(FuseAttr, mtimensec), 999_999_999),
+            (offset_of!(FuseAttr, ctimensec), 33),
+        ] {
+            assert_eq!(u32_at(b, f(o)), nsec);
         }
         assert_eq!(u32_at(b, f(offset_of!(FuseAttr, mode))), mode);
         assert_eq!(u32_at(b, f(offset_of!(FuseAttr, nlink))), 7);

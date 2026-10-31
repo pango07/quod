@@ -40,6 +40,13 @@ scripts/dev.sh cargo test --workspace  # unit, property, golden, integration
 scripts/acceptance.sh                  # A1-A7 on the pinned spike repo
 ```
 
+Steps run under a toolchain profile (Go, Node or Python; `sp_key::profile`),
+detected from the repo or given with `--toolchain`. The acceptance suite
+runs per profile: `scripts/acceptance.sh go|node|python [checkout]` on the
+corpus repos pinned in `versions.toml` (cli/cli, moment/luxon,
+encode/starlette); results in `docs/bench/polyglot-corpus.md`. The
+pinned rootfs below holds only Go, so Node and Python steps pin the host.
+
 ## Portable proofs
 
 Steps can run in a pinned root filesystem (`--rootfs DIGEST`, or

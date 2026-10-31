@@ -14,7 +14,7 @@
 //!  "cwd": "/workspace",
 //!  "env": [["NAME", "VALUE"]],
 //!  "mounts": [{"dst": "/opt/tools", "dir": "/host/tools"} | {"dst": "/opt/tools", "tree": "b3:..."}],
-//!  "lookup": true}
+//!  "lookup": true, "toolchain": "go" | "node" | "python"}
 //! ```
 //! - `workspace` is served at /workspace through the observer: what the step
 //!   reads there is the manifest. A `dir` is imported (without `.git`); a
@@ -22,8 +22,8 @@
 //! - `env` is the step's whole environment (nothing is inherited, volatile
 //!   names are refused, as for every key). `cmd` runs as given.
 //! - `mounts` are read-only trees bound at `dst`, pinned by content and
-//!   served from their blobs like the rootfs (constant times, sorted
-//!   listings): their digests are part of the key (`image.mounts`), never
+//!   served from their blobs like the rootfs (content-derived file times,
+//!   sorted listings): their digests are part of the key (`image.mounts`), never
 //!   observed. A `dir`
 //!   is imported into the store on every call, which hashes it; a runner
 //!   that reuses a mount passes its `tree` digest instead. A destination
@@ -33,10 +33,16 @@
 //! - `lookup` (default true): replay the result of a proof whose manifest
 //!   matches the workspace instead of executing. False always executes and
 //!   records (a runner's observe or audit mode).
+//! - `toolchain` (optional): the profile whose sealing and output rules
+//!   apply (its env does not: `env` is the whole environment). Absent, it is
+//!   detected from the workspace's top level, and Go's when that finds none
+//!   or several: Go's rules seal only a GOMODCACHE the env puts under the
+//!   workspace and drop no outputs. Part of the key.
 //!
 //! Response: `{"step_key", "key" (the canonical key document, which says
-//! what pinned the environment), "replayed", "recorded" (false only for a
-//! step killed by a signal: never memoized), "signal", "manifest",
+//! what pinned the environment), "replayed", "recorded" (false for a step
+//! killed by a signal, or one whose write into a sealed prefix failed with
+//! EROFS: never memoized), "signal", "manifest",
 //! "result"}`. `result.outputs` are the workspace writes (paths relative to
 //! /workspace), `result.root_outputs` the writes anywhere else but /tmp
 //! (relative to /), `result.stdout`/`stderr` blobs; every hash resolves in
@@ -53,7 +59,7 @@ use anyhow::Context;
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use sp_cas::{Cas, Hash};
-use sp_key::{StepSpec, canonical_key_json, step_key};
+use sp_key::{StepSpec, Toolchain, canonical_key_json, step_key};
 use sp_ledger::{Ledger, Observed, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_sandbox::Mount;
@@ -91,6 +97,8 @@ pub struct Request {
     pub mounts: Vec<MountRequest>,
     #[serde(default = "yes")]
     pub lookup: bool,
+    #[serde(default)]
+    pub toolchain: Option<Toolchain>,
 }
 
 fn yes() -> bool {
@@ -143,8 +151,16 @@ pub fn run_step(
         };
         image.mounts.push((m.dst.clone(), d));
     }
+    let toolchain = req.toolchain.unwrap_or_else(|| {
+        let top = tree
+            .iter()
+            .filter(|e| !e.p.contains('/'))
+            .map(|e| e.p.as_str());
+        Toolchain::detect(top).unwrap_or(Toolchain::Go)
+    });
     let spec = StepSpec {
         image,
+        toolchain,
         cmd: req.cmd.clone(),
         cwd: req.cwd.clone(),
         env: req.env.clone(),
@@ -176,7 +192,9 @@ pub fn run_step(
     let ex = execute_with_mounts(cas, &tree, &spec, env, run_dir, &root);
     let _ = sp_cas::remove_any(run_dir);
     let ex = ex?;
-    let recorded = ex.signal.is_none();
+    // A sealed dependency tree refused a write CI's would have taken: the
+    // result is this sandbox's, not the step's, so it is never memoized.
+    let recorded = ex.signal.is_none() && !ex.sealed_write_failed;
     let manifest_id = sp_manifest::manifest_id(&ex.manifest)?;
     let result = StepResult {
         v: sp_manifest::VERSION,

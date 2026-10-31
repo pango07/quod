@@ -1,10 +1,11 @@
 //! T09: the execute path end to end.
 mod common;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use common::*;
 use sp_cas::Hash;
+use sp_key::Toolchain;
 
 #[test]
 fn execute_records_one_manifest_and_one_result() {
@@ -416,6 +417,95 @@ fn a_virtualized_proc_is_never_keyed() {
 
 /// rootfs.rs `ROOT_TMPFS`, as the key records it.
 const ROOT_TMPFS: &str = "size=4096m,nr_inodes=1048576,mode=0755";
+
+/// Served files carry a content-derived mtime, the same in the observed
+/// tree and in a sealed snapshot; directories a fixed one. A cache keyed by
+/// mtime therefore sees a change exactly when the content changes.
+#[test]
+fn served_mtimes_follow_content() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    env.write("same1.txt", "x\n");
+    env.write("same2.txt", "x\n");
+    env.write("other.txt", "y\n");
+    let sealed = ".stillpass/gomod/example.com/m@v1";
+    env.write(&format!("{sealed}/same3.txt"), "x\n");
+    let step =
+        format!("stat -c '%n %.9Y' same1.txt same2.txt other.txt calc {sealed}/same3.txt {sealed}");
+    let o = env.run_step(&step, &[]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let out = String::from_utf8_lossy(&o.stdout).to_string();
+    let times: std::collections::BTreeMap<&str, &str> =
+        out.lines().filter_map(|l| l.split_once(' ')).collect();
+    let d = sp_fs::content_mtime(&Hash::of(b"x\n"))
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let want = format!("{}.{:09}", d.as_secs(), d.subsec_nanos());
+    assert_eq!(times["same1.txt"], want, "{out}");
+    assert_eq!(times["same2.txt"], want, "{out}");
+    assert_eq!(times[format!("{sealed}/same3.txt").as_str()], want, "{out}");
+    assert_ne!(times["other.txt"], want, "{out}");
+    assert_eq!(times["calc"], "0.000000000", "{out}");
+    assert_eq!(times[sealed], "0.000000000", "{out}");
+}
+
+/// mtime-keyed caches a step writes (node_modules/.cache, .eslintcache) are
+/// neither recorded nor materialized as outputs; other outputs are.
+#[test]
+fn mtime_keyed_cache_outputs_are_never_recorded() {
+    if !enabled() || !toolchain_installed(Toolchain::Node) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Node);
+    let step = "mkdir -p node_modules/.cache/babel out && echo c > node_modules/.cache/babel/e.json \
+        && echo c > .eslintcache && echo r > out/r.txt";
+    let outputs = env.tmp.path().join("outputs");
+    let o = env.run_step(step, &["--outputs", outputs.to_str().unwrap()]);
+    assert!(o.code == 0 && o.executed(), "{}", o.stderr);
+    assert!(outputs.join("out/r.txt").is_file());
+    assert!(!outputs.join(".eslintcache").exists());
+    assert!(!outputs.join("node_modules/.cache").exists());
+    let json = scalar(&env, "SELECT json FROM results");
+    assert!(json.contains("\"p\":\"out/r.txt\""), "{json}");
+    assert!(
+        !json.contains(".eslintcache") && !json.contains("node_modules/.cache"),
+        "{json}"
+    );
+}
+
+/// A write into a sealed prefix outside its carve-outs fails with EROFS,
+/// where in CI it would have succeeded: the result is shown, not memoized.
+#[test]
+fn a_write_refused_by_a_sealed_prefix_is_not_memoized() {
+    if !enabled() || !toolchain_installed(Toolchain::Node) {
+        return;
+    }
+    let env = Env::fixture(Toolchain::Node);
+    let o = env.run_step(
+        "node -e \"require('fs').writeFileSync('node_modules/dep/new.js', '1')\"",
+        &[],
+    );
+    assert_ne!(o.code, 0, "{}", o.stderr);
+    assert!(
+        o.stderr.contains("read-only file system") && o.stderr.contains("not memoized"),
+        "{}",
+        o.stderr
+    );
+    assert_eq!(rusqlite_count(&env, "SELECT count(*) FROM results"), 0);
+    // The carve-out stays writable and a clean step is memoized as usual.
+    let ok = env.run_step(
+        "mkdir -p node_modules/.cache/x && echo 1 > node_modules/.cache/x/y",
+        &[],
+    );
+    assert!(
+        ok.code == 0 && !ok.stderr.contains("not memoized"),
+        "{}",
+        ok.stderr
+    );
+    assert_eq!(rusqlite_count(&env, "SELECT count(*) FROM results"), 1);
+}
 
 fn scalar(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")

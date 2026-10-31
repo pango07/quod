@@ -5,10 +5,12 @@
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 v() { sed -n "/^\[$1\]/,/^\[/s/^$2 = \"\(.*\)\"/\1/p" "$root/versions.toml"; }
-img=stillpass-dev:go$(v go version)-rust$(v rust toolchain)
+img=stillpass-dev:go$(v go version)-rust$(v rust toolchain)-node$(v node version)-py$(v python version)-uv$(v uv version)
 if ! docker image inspect "$img" >/dev/null 2>&1; then
   docker build -q -t "$img" -f "$root/Dockerfile.dev" \
-    --build-arg GO_VERSION="$(v go version)" --build-arg RUST_TOOLCHAIN="$(v rust toolchain)" "$root" >/dev/null
+    --build-arg GO_VERSION="$(v go version)" --build-arg RUST_TOOLCHAIN="$(v rust toolchain)" \
+    --build-arg NODE_VERSION="$(v node version)" --build-arg PYTHON_VERSION="$(v python version)" \
+    --build-arg PBS_RELEASE="$(v python pbs_release)" --build-arg UV_VERSION="$(v uv version)" "$root" >/dev/null
 fi
 tty=; [ -t 0 ] && tty=-it
 # STILLPASS_DEV_NS gives parallel worktrees their own build and work volumes.
