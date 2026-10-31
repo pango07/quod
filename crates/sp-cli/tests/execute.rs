@@ -78,7 +78,7 @@ fn sealed_module_cache_is_a_snapshot() {
     // before the step starts.
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let snapshots = std::fs::read_dir(env.state().join("snapshots"))
+        let snapshots = std::fs::read_dir(env.state().join("cas/snapshots"))
             .map(|d| {
                 d.flatten()
                     .filter(|r| !r.file_name().to_string_lossy().starts_with("tmp."))
@@ -137,7 +137,7 @@ fn sealed_module_cache_is_a_snapshot() {
         .collect();
     assert_eq!(snapshots, [false, false, true], "{events}");
     assert_eq!(
-        std::fs::read_dir(env.state().join("snapshots"))
+        std::fs::read_dir(env.state().join("cas/snapshots"))
             .unwrap()
             .count(),
         2

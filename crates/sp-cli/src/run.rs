@@ -166,7 +166,6 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         env,
         &dir,
         warm_dir.as_deref(),
-        &state.snapshots_dir(),
         &mut phases,
     );
     let ex = match outcome {
@@ -267,7 +266,6 @@ fn execute(
     env: Vec<(String, String)>,
     dir: &Path,
     warm: Option<&Path>,
-    snapshots: &Path,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -300,7 +298,11 @@ fn execute(
     }
     // The warm GOCACHE bind and the sealed module cache are disjoint
     // subtrees of the workspace; both sit on top of the overlay.
-    let sealed = seal_modcache(spec, tree, cas, snapshots);
+    // Snapshots are hard links into the store, so they live in it: same
+    // filesystem by construction, and shared by every state dir and bench
+    // run that shares the store.
+    let snapshots = cas.dir().join("snapshots");
+    let sealed = seal_modcache(spec, tree, cas, &snapshots);
     phases.mount = t.elapsed();
 
     let t = Instant::now();
@@ -343,7 +345,7 @@ fn execute(
     let mut log = served.unmount()?;
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(tree, &s.prefix, &s.carve_out));
-        let removed = snapshot::gc(snapshots, snapshot::KEEP, &s.snapshot)?;
+        let removed = snapshot::gc(&snapshots, snapshot::KEEP, &s.snapshot)?;
         if removed > 0 {
             tracing::info!(target: "stillpass", removed, "snapshot gc");
         }
