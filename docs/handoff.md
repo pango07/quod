@@ -217,6 +217,7 @@ On a miss the banner says EXECUTED and, when candidate manifests existed, names 
 Ledger (SQLite).
 
 Lookup: the 50 newest manifests for the step key, verified in order against the tree; the first match wins and its newest result is returned. Blobs live on disk at <cas>/<first 2 hex>/<hash>; the table is an index, not the store. Ledger v2 (2026-10-31) records each executed run's observer transport; v3 adds step_keys (step_key, json): the canonical JSON behind every key a run computed, so a result's environment pin can be read back (`stillpass inspect <step_key>`).
+Ledger trust schema (exp/trust, see DECISIONS.md; v4, after the transport columns (v2) and step_keys (v3)): runs gain step_key, repo, repo_path, mode, outcome, manifest_id, exit_code, wall_ms, saved_ms; new tables trust (one row per step key: state, counters, quarantine), proofs (one row per key and manifest: streak, result fingerprint, last run) and audits (every comparison of an execution with a recorded result). The exact schema is the golden fixtures/ledger_schema.sql; v1 ledgers migrate in place (fixtures/ledger_v1.sql). Lookup is unchanged: whether a matched result may replay is the trust layer's decision (sp-trust), not the lookup's.
 
 ## Component specs
 Behavior and invariants per crate. Public API sketches are Rust signatures; names can change, shapes shouldn't.
