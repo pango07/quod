@@ -30,9 +30,14 @@
 //!   the image lacks is created by the sandbox and shows up in
 //!   `root_outputs` as directories. There is no other kind of mount: a host
 //!   directory bound as is would be an input nothing records.
-//! - `lookup` (default true): replay the result of a proof whose manifest
-//!   matches the workspace instead of executing. False always executes and
-//!   records (a runner's observe or audit mode).
+//! - `lookup` (default true): replay instead of executing when the trust
+//!   layer allows it, exactly as `stillpass run --mode replay`: a manifest
+//!   that matches the workspace and whose result was reproduced `proofs`
+//!   times in a row (default 2; failures and killed runs never, unless
+//!   `replay_failures` for failures), with `audit` (default 0.05) of such
+//!   hits re-executed and compared, and a key that diverged quarantined.
+//!   False always executes and records (observe mode: the execution still
+//!   counts as evidence).
 //! - `toolchain` (optional): the profile whose sealing and output rules
 //!   apply (its env does not: `env` is the whole environment). Absent, it is
 //!   detected from the workspace's top level, and Go's when that finds none
@@ -42,8 +47,9 @@
 //! Response: `{"step_key", "key" (the canonical key document, which says
 //! what pinned the environment), "replayed", "recorded" (false for a step
 //! killed by a signal, or one whose write into a sealed prefix failed with
-//! EROFS: never memoized), "signal", "manifest",
-//! "result"}`. `result.outputs` are the workspace writes (paths relative to
+//! EROFS: never memoized), "signal", "manifest", "result", "trust" (the
+//! trust layer's lines: the receipt's on a replay, the proof streak or
+//! divergence on an execution)}`. `result.outputs` are the workspace writes (paths relative to
 //! /workspace), `result.root_outputs` the writes anywhere else but /tmp
 //! (relative to /), `result.stdout`/`stderr` blobs; every hash resolves in
 //! the store at
@@ -64,9 +70,12 @@ use sp_ledger::{Ledger, Observed, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_sandbox::Mount;
 
+use sp_trust::{Decision, Mode, Policy, Replayed, Step, Trust};
+
 use crate::rootfs;
 use crate::run::{Phases, execute};
 use crate::state::State;
+use crate::trust::{ignored_outputs, shell_join};
 
 /// Where a tree comes from: a host directory imported now, or a tree
 /// document already in the store.
@@ -84,7 +93,7 @@ pub struct MountRequest {
     pub src: Source,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub image: String,
@@ -99,6 +108,31 @@ pub struct Request {
     pub lookup: bool,
     #[serde(default)]
     pub toolchain: Option<Toolchain>,
+    /// The trust policy for `lookup` (see the module docs).
+    #[serde(default)]
+    pub proofs: Option<u32>,
+    #[serde(default)]
+    pub audit: Option<f64>,
+    #[serde(default)]
+    pub replay_failures: bool,
+}
+
+impl Request {
+    /// Replay mode for `lookup`, observe mode without it.
+    fn policy(&self) -> Result<Policy, sp_trust::TrustError> {
+        let p = Policy {
+            mode: if self.lookup {
+                Mode::Replay
+            } else {
+                Mode::Observe
+            },
+            proofs: self.proofs.unwrap_or(sp_trust::DEFAULT_PROOFS),
+            audit: self.audit.unwrap_or(sp_trust::DEFAULT_AUDIT),
+            replay_failures: self.replay_failures,
+        };
+        p.validate()?;
+        Ok(p)
+    }
 }
 
 fn yes() -> bool {
@@ -116,6 +150,8 @@ pub struct Outcome {
     pub signal: Option<i32>,
     pub manifest: Manifest,
     pub result: StepResult,
+    /// The trust layer's lines about this step.
+    pub trust: Vec<String>,
 }
 
 /// Runs (or replays) one step. `run_dir` is a fresh scratch directory on the
@@ -174,19 +210,38 @@ pub fn run_step(
     ledger.put_step_key(&key, &key_json)?;
     let key_doc: serde_json::Value = serde_json::from_str(&key_json)?;
 
-    if req.lookup
-        && let Some((manifest, result)) = ledger.find_match(&key, &tree)?.hit
-    {
-        return Ok(Outcome {
-            step_key: key,
-            key: key_doc,
-            replayed: true,
-            recorded: true,
-            signal: None,
-            manifest,
-            result,
-        });
-    }
+    // Replay only what the trust layer allows (module docs).
+    let trust = Trust::new(ledger, cas, req.policy()?)?;
+    let ignore = ignored_outputs(spec.profile(), &env, &tree);
+    let cmd_text = shell_join(&req.cmd);
+    let tstep = Step {
+        key,
+        cmd: &cmd_text,
+        ignore: &ignore,
+    };
+    let lookup = ledger.find_match(&key, &tree)?;
+    let reason = match trust.decide(&key, lookup.hit.as_ref())? {
+        Decision::Replay => {
+            let hit = lookup.hit.as_ref().expect("a replay needs a hit");
+            match trust.record_replay(&tstep, hit)? {
+                Replayed::Replayed(facts) => {
+                    let (manifest, result) = hit.clone();
+                    return Ok(Outcome {
+                        step_key: key,
+                        key: key_doc,
+                        replayed: true,
+                        recorded: true,
+                        signal: None,
+                        manifest,
+                        result,
+                        trust: vec![facts.receipt_line()],
+                    });
+                }
+                Replayed::Execute(reason) => reason,
+            }
+        }
+        Decision::Execute(reason) => reason,
+    };
 
     let run_id = ulid::Ulid::generate().to_string();
     let ex = execute_with_mounts(cas, &tree, &spec, env, run_dir, &root);
@@ -212,18 +267,32 @@ pub fn run_step(
     // Killed from outside (OOM, timeout): the step's own result is unknown,
     // so it is returned and never memoized. Otherwise the run (with the
     // transport that observed it), manifest and result go in together.
+    // With the trust layer's verdict, in the same transaction.
+    let mut trust_lines = Vec::new();
     if recorded {
-        ledger.record_execution(
-            &run_id,
-            None,
-            None,
-            Observed {
-                transport: Some(ex.transport),
-                observer: Some(&ex.observer),
-            },
-            &ex.manifest,
-            &result,
-        )?;
+        let verdict = ledger.atomically(|l| -> anyhow::Result<_> {
+            let v = trust.record_execution(
+                &tstep,
+                &run_id,
+                &ex.manifest,
+                &result,
+                lookup.hit.as_ref(),
+                &reason,
+            )?;
+            l.record_execution(
+                &run_id,
+                None,
+                None,
+                Observed {
+                    transport: Some(ex.transport),
+                    observer: Some(&ex.observer),
+                },
+                &ex.manifest,
+                &result,
+            )?;
+            Ok(v)
+        })?;
+        trust_lines = verdict.lines();
     }
     tracing::info!(target: "stillpass", run_id, step_key = %key, image = %digest, mounts = spec.image.mounts.len(), replayed = false, recorded, exit_code = ex.exit_code, wall_ms = ex.wall.as_millis() as u64, transport = ex.transport, observer = ex.observer, "step");
     Ok(Outcome {
@@ -234,6 +303,7 @@ pub fn run_step(
         signal: ex.signal,
         manifest: ex.manifest,
         result,
+        trust: trust_lines,
     })
 }
 
@@ -276,6 +346,8 @@ fn execute_with_mounts(
         None,
         Some(root),
         &mounts,
+        // The runner owns the job's time limit.
+        None,
         &mut phases,
     );
     for p in pinned {

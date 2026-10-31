@@ -250,6 +250,26 @@ impl Tree {
         )
     }
 
+    /// A copy with `sub` grafted in at `prefix` (a relative path that must
+    /// not exist in `self`): every entry of `sub` except its root appears
+    /// under `prefix/`, empty directories included, and every listing on
+    /// the way is recomputed. Used to serve a dependency cache kept outside
+    /// the checkout at the workspace path the step expects it at.
+    pub fn merged_at(&self, prefix: &str, sub: &Tree) -> Tree {
+        assert!(
+            prefix != ROOT && !prefix.is_empty() && !self.entries.contains_key(prefix),
+            "merged_at: {prefix:?} must be a new relative path"
+        );
+        let grafted = sub.entries.values().filter(|e| e.p != ROOT).map(|e| {
+            let mut e = e.clone();
+            e.p = child_path(prefix, &e.p);
+            e
+        });
+        // The prefix itself, so an empty `sub` still yields a directory.
+        let anchor = std::iter::once(Entry::dir(prefix, Hash::of(b"")));
+        Tree::from_leaves(self.entries.values().cloned().chain(anchor).chain(grafted))
+    }
+
     /// A copy with one existing file or symlink's content replaced. Listings
     /// are unaffected (same name, same kind), so nothing is recomputed.
     pub fn with_leaf_changed(&self, e: Entry) -> Tree {
@@ -341,6 +361,54 @@ mod tests {
         let t = t().without_top_level("a");
         assert!(t.get("a").is_none() && t.get("a/b/c.txt").is_none());
         assert!(t.get("a.b").is_some());
+    }
+
+    #[test]
+    fn merged_at_grafts_a_tree_under_a_new_prefix() {
+        let deps = Tree::from_leaves([
+            Entry::file("x.y/m@v1/a.go", Hash::of(b"a"), 0o444),
+            Entry::symlink("x.y/m@v1/l", "a.go"),
+            Entry::dir("cache/download", Hash::of(b"")),
+        ]);
+        let base = t();
+        let m = base.merged_at(".stillpass/gomod", &deps);
+        let paths: Vec<&str> = m
+            .iter()
+            .map(|e| e.p.as_str())
+            .filter(|p| p.starts_with(".stillpass"))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                ".stillpass",
+                ".stillpass/gomod",
+                ".stillpass/gomod/cache",
+                ".stillpass/gomod/cache/download",
+                ".stillpass/gomod/x.y",
+                ".stillpass/gomod/x.y/m@v1",
+                ".stillpass/gomod/x.y/m@v1/a.go",
+                ".stillpass/gomod/x.y/m@v1/l",
+            ]
+        );
+        // The grafted subtree's listings equal the original's; the root's
+        // listing gained one name; everything else is untouched.
+        assert_eq!(
+            m.get(".stillpass/gomod/x.y").unwrap().h,
+            deps.get("x.y").unwrap().h
+        );
+        assert_eq!(
+            m.get(".stillpass/gomod").unwrap().h,
+            deps.get(ROOT).unwrap().h
+        );
+        assert_eq!(
+            m.get(".stillpass/gomod/cache/download").unwrap().h,
+            Some(Hash::of(b""))
+        );
+        assert_ne!(m.get(ROOT).unwrap().h, base.get(ROOT).unwrap().h);
+        assert_eq!(m.get("a").unwrap(), base.get("a").unwrap());
+        // An empty dependency tree still yields the directory.
+        let e = base.merged_at("deps", &Tree::from_leaves([]));
+        assert_eq!(e.get("deps").unwrap().k, Kind::Dir);
     }
 
     #[test]

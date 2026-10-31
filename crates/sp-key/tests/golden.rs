@@ -3,7 +3,7 @@
 //! (v2: `warm` added to the key, 2026-10-31; v3: `image` became an object
 //! with kind, digest, pinned mounts and the platform with its host class,
 //! 2026-10-31; v4: `toolchain` added and the env comes from a toolchain
-//! profile, 2026-10-31).
+//! profile, 2026-10-31; v5: GOPATH in the Go profile's env, 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;

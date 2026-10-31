@@ -20,11 +20,11 @@
 
 mod common;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use common::*;
-use sp_cas::{Cas, Entry, Hash, Kind, child_path};
+use sp_cas::{Cas, Entry, Hash, Kind, Tree, child_path};
 use sp_key::Toolchain;
 use sp_ledger::{Ledger, first_match};
 
@@ -86,6 +86,31 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     let profile = tc.profile();
     let ledger = || Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
 
+    // Where `stillpass run` keeps this repo's `.stillpass` (its dependency
+    // trees, crate::deps): a network step's banner names it, so a no-op one
+    // asks. On a real repo the script's step A filled it (STILLPASS_DEPS_DIR
+    // is shared); a fixture's tree is adopted from its checkout. A7 and A7b
+    // graft its dependency trees into the trees they check, as `stillpass
+    // run` does.
+    let probe = env.run_step("true", &["--allow-net"]);
+    assert_eq!(probe.code, 0, "deps probe: {}", probe.stderr);
+    let deps: PathBuf = probe
+        .stderr
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("caches in "))
+        .map(PathBuf::from)
+        .expect("the network step's banner names its caches dir");
+    if real_repo {
+        assert!(
+            !env.repo.join(".stillpass").exists(),
+            "step A left a .stillpass in the checkout"
+        );
+        println!(
+            "step A ok: dependency trees in {}, none in the checkout",
+            deps.display()
+        );
+    }
+
     // A1: first run executes and records one manifest and result.
     let a1 = env.run_step(step, &[]);
     assert!(a1.executed() && a1.code == 0, "A1: {}", a1.stderr);
@@ -140,10 +165,37 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         a2.stdout.len()
     );
 
+    // P1 (the trust layer, beyond the handoff). The criteria here run on
+    // the spike's terms (one execution proves a result); the default policy
+    // needs two identical executions. A second execution on the same tree,
+    // under the default policy (observe mode, so it executes), is compared
+    // with A1's: it must read an equivalent manifest and produce the same
+    // result up to go test durations, or this step could never be trusted.
+    let repo = env.repo.to_str().unwrap().to_string();
+    let p1 = env.stillpass(&[
+        "run", "--repo", &repo, "--step", step, "--mode", "observe", "--proofs", "2",
+    ]);
+    assert!(
+        p1.executed()
+            && p1.code == a1.code
+            && p1.stderr.contains("trust: proof 2 of 2")
+            && !p1.stderr.contains("DIVERGENCE"),
+        "P1: {}",
+        p1.stderr
+    );
+    println!(
+        "P1 ok: a second execution agreed with A1 ({}); proof 2 of 2 under the default policy",
+        if p1.stderr.contains("byte-identical") {
+            "byte-identical"
+        } else {
+            "identical up to go test durations"
+        }
+    );
+
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
     let cas = Cas::open(env.state().join("cas")).unwrap();
-    let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
     let sealed: usize = profile
         .seals(&tree)
         .iter()
@@ -285,7 +337,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     println!("A6 ok: different key, no manifests");
 
     // A7: every recorded input, mutated, misses. Zero false hits.
-    let tree = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
+    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
     let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
     let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
     let m = &cands[base];
@@ -375,7 +427,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         unread.len(),
         picked.len()
     );
-    for (i, p) in picked.iter().enumerate() {
+    'sample: for (i, p) in picked.iter().enumerate() {
         assert!(
             !recorded.contains(p.as_str()) && env.repo.join(p).is_file(),
             "A7b: {p} must be an unread file of the tree"
@@ -389,93 +441,125 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
             "A7b: mutating unread {p} should replay: {}",
             hit.stderr
         );
-        let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}")]);
-        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
-        // What each run read: the manifest the replay matched, found the way
-        // find_match finds it, and the manifest the fresh execution recorded.
-        let now = cas.import_dir(&env.repo).unwrap().without_top_level(".git");
-        let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
-        let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
-        let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
-        let (hp, fp) = (paths(hit_m), paths(&fresh_m));
-        // An absent probe one run made and the other did not is no evidence
-        // of a missed read when the other run recorded the parent's listing:
-        // that listing already pins the name as absent (the rule W4 uses).
-        // pytest's cache provider probes a random `pytest-cache-files-*`
-        // name in the workspace root on every run.
-        let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
-        let read_mutated = fp.contains(p.as_str());
-        let same_code = fresh.code == hit.code;
-        let same_out = normalize(tc, &fresh.stdout) == normalize(tc, &hit.stdout);
-        if same_code && same_out && !read_mutated && only_fresh.is_empty() && only_hit.is_empty() {
-            println!(
-                "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
-                fp.len().min(hp.len()),
-                if implied > 0 {
-                    format!(
-                        " ({implied} absent probes differ, each implied by the other run's listing)"
-                    )
-                } else {
-                    String::new()
-                }
+        for attempt in 0..2 {
+            let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}.{attempt}")]);
+            assert!(fresh.executed(), "A7b: {}", fresh.stderr);
+            // What each run read: the manifest the replay matched, found the
+            // way find_match finds it, and the manifest the fresh execution
+            // recorded.
+            let now = workspace_tree(&cas, &env.repo, &deps, profile);
+            let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
+            let hit_m =
+                &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
+            let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
+            let (hp, fp) = (paths(hit_m), paths(&fresh_m));
+            // An absent probe one run made and the other did not is no
+            // evidence of a missed read when the other run recorded the
+            // parent's listing: that listing already pins the name as absent
+            // (the rule W4 uses). pytest's cache provider probes a random
+            // `pytest-cache-files-*` name in the workspace root on every run.
+            let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
+            let read_mutated = fp.contains(p.as_str());
+            let same_code = fresh.code == hit.code;
+            let same_out = normalize(tc, &fresh.stdout) == normalize(tc, &hit.stdout);
+            if same_code
+                && same_out
+                && !read_mutated
+                && only_fresh.is_empty()
+                && only_hit.is_empty()
+            {
+                println!(
+                    "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
+                    fp.len().min(hp.len()),
+                    if implied > 0 {
+                        format!(
+                            " ({implied} absent probes differ, each implied by the other run's listing)"
+                        )
+                    } else {
+                        String::new()
+                    }
+                );
+                continue 'sample;
+            }
+            let dir = save_evidence(
+                &format!("a7b-{i}.{attempt}-{}", p.replace('/', "_")),
+                &[
+                    ("mutated", p.as_bytes()),
+                    ("hit.stdout", &hit.stdout),
+                    ("hit.stderr", hit.stderr.as_bytes()),
+                    ("fresh.stdout", &fresh.stdout),
+                    ("fresh.stderr", fresh.stderr.as_bytes()),
+                    (
+                        "hit.manifest.json",
+                        hit_m.canonical_json().unwrap().as_bytes(),
+                    ),
+                    (
+                        "fresh.manifest.json",
+                        fresh_m.canonical_json().unwrap().as_bytes(),
+                    ),
+                    (
+                        "manifest.diff",
+                        only_fresh
+                            .iter()
+                            .map(|p| format!("only-fresh {p}\n"))
+                            .chain(only_hit.iter().map(|p| format!("only-replayed {p}\n")))
+                            .collect::<String>()
+                            .as_bytes(),
+                    ),
+                ],
             );
-            continue;
+            let summary = format!(
+                "evidence in {}; the fresh execution read {} paths, the replayed manifest {}; {} only fresh read, {} only the replayed run read; fresh read the mutated file: {read_mutated}",
+                dir.display(),
+                fp.len(),
+                hp.len(),
+                only_fresh.len(),
+                only_hit.len()
+            );
+            assert!(
+                !read_mutated,
+                "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded: the observer under-recorded. {summary}"
+            );
+            // A fresh execution that was killed or timed out (the trust
+            // layer's KILL_MARKERS: cli/cli's TestHuhPrompterConfirm hangs
+            // to go test's 10-minute timeout under load) did not finish, so
+            // it is no evidence about the replay. Only when it read exactly
+            // the replayed manifest's paths, and not the mutated file, is it
+            // executed once more; the evidence of this attempt is kept.
+            let killed = sp_trust::KILL_MARKERS.iter().find(|m| {
+                let m = m.as_bytes();
+                fresh.stdout.windows(m.len()).any(|w| w == m)
+                    || fresh.stderr.as_bytes().windows(m.len()).any(|w| w == m)
+            });
+            if let Some(m) = killed
+                && attempt == 0
+                && only_fresh.is_empty()
+                && only_hit.is_empty()
+            {
+                println!(
+                    "A7b RETRY: {p}: the fresh execution did not finish ({m:?}) and read exactly the replayed manifest's paths; {summary}; executing it once more"
+                );
+                continue;
+            }
+            assert!(
+                same_code,
+                "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\nthe step said:\n{}",
+                fresh.code,
+                hit.code,
+                failures(&fresh.stdout)
+            );
+            assert!(
+                same_out,
+                "A7b: {p} changed the output: an unrecorded read or a flaky test. {summary}"
+            );
+            println!(
+                "A7b WARNING: unread {p} mutated, results agree, but the two executions read different paths: {summary}; first: {:?} {:?}",
+                only_fresh.first(),
+                only_hit.first()
+            );
+            continue 'sample;
         }
-        let dir = save_evidence(
-            &format!("a7b-{i}-{}", p.replace('/', "_")),
-            &[
-                ("mutated", p.as_bytes()),
-                ("hit.stdout", &hit.stdout),
-                ("hit.stderr", hit.stderr.as_bytes()),
-                ("fresh.stdout", &fresh.stdout),
-                ("fresh.stderr", fresh.stderr.as_bytes()),
-                (
-                    "hit.manifest.json",
-                    hit_m.canonical_json().unwrap().as_bytes(),
-                ),
-                (
-                    "fresh.manifest.json",
-                    fresh_m.canonical_json().unwrap().as_bytes(),
-                ),
-                (
-                    "manifest.diff",
-                    only_fresh
-                        .iter()
-                        .map(|p| format!("only-fresh {p}\n"))
-                        .chain(only_hit.iter().map(|p| format!("only-replayed {p}\n")))
-                        .collect::<String>()
-                        .as_bytes(),
-                ),
-            ],
-        );
-        let summary = format!(
-            "evidence in {}; the fresh execution read {} paths, the replayed manifest {}; {} only fresh read, {} only the replayed run read; fresh read the mutated file: {read_mutated}",
-            dir.display(),
-            fp.len(),
-            hp.len(),
-            only_fresh.len(),
-            only_hit.len()
-        );
-        assert!(
-            !read_mutated,
-            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded: the observer under-recorded. {summary}"
-        );
-        assert!(
-            same_code,
-            "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\nthe step said:\n{}",
-            fresh.code,
-            hit.code,
-            failures(&fresh.stdout)
-        );
-        assert!(
-            same_out,
-            "A7b: {p} changed the output: an unrecorded read or a flaky test. {summary}"
-        );
-        println!(
-            "A7b WARNING: unread {p} mutated, results agree, but the two executions read different paths: {summary}; first: {:?} {:?}",
-            only_fresh.first(),
-            only_hit.first()
-        );
+        unreachable!("A7b: every attempt either passes, retries once, or fails an assertion");
     }
 
     if profile.warm.is_some() {
@@ -676,6 +760,34 @@ fn newest_run(env: &Env) -> String {
         env,
         "SELECT run_id FROM results ORDER BY created_at DESC, rowid DESC LIMIT 1",
     )
+}
+
+/// The tree `stillpass run` serves an observed step: the checkout without
+/// `.git` and `.stillpass/`, with the profile's dependency trees (its seed
+/// dirs under `.stillpass/`) grafted in from the deps dir. The same
+/// construction as crates/sp-cli/src/deps.rs; A7 asserts the result matches
+/// the recorded manifest before mutating anything, so a drift between the
+/// two fails loudly instead of testing the wrong tree.
+fn workspace_tree(cas: &Cas, repo: &Path, deps: &Path, profile: &sp_key::Profile) -> Tree {
+    let mut tree = cas
+        .import_dir(repo)
+        .unwrap()
+        .without_top_level(".git")
+        .without_top_level(".stillpass");
+    for name in profile
+        .seed_dirs
+        .iter()
+        .filter_map(|d| d.strip_prefix(".stillpass/"))
+    {
+        let dir = deps.join(name);
+        if dir.is_dir() {
+            tree = tree.merged_at(
+                &format!(".stillpass/{name}"),
+                &cas.import_dir(&dir).unwrap(),
+            );
+        }
+    }
+    tree
 }
 
 fn only_key(env: &Env) -> Hash {

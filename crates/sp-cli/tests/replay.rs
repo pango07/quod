@@ -34,7 +34,9 @@ fn outputs_are_written_on_execute_and_replay() {
         return;
     }
     let env = Env::new();
-    let step = "mkdir -p out && echo built > out/artifact.txt && rm README.md";
+    // Also one compared and one volatile path under HOME: --outputs writes
+    // what the trust layer compares, never a path it does not.
+    let step = r#"mkdir -p out && echo built > out/artifact.txt && rm README.md && mkdir -p "$HOME/.cache/gh" && echo v > "$HOME/.cache/gh/entry" && echo keep > "$HOME/tok""#;
     for (i, want_hit) in [(0, false), (1, true)] {
         let dir = env.tmp.path().join(format!("outputs{i}"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -46,6 +48,20 @@ fn outputs_are_written_on_execute_and_replay() {
             "built\n"
         );
         assert!(!dir.join("README.md").exists(), "deletion applied");
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".stillpass/home/tok")).unwrap(),
+            "keep\n"
+        );
+        assert!(
+            !dir.join(".stillpass/home/.cache/gh").exists(),
+            "an uncompared path is never written out"
+        );
+        assert!(
+            o.stderr
+                .contains("not compared, and not written by --outputs: .stillpass/home/.cache/gh"),
+            "the banner names it: {}",
+            o.stderr
+        );
     }
     assert!(
         env.repo.join("README.md").exists(),

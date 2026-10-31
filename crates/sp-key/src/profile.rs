@@ -346,6 +346,9 @@ pub static GO: Profile = Profile {
         ("GOCACHE", "/workspace/.stillpass/gocache"),
         ("GOFLAGS", "-mod=mod"),
         ("GOMODCACHE", "/workspace/.stillpass/gomod"),
+        // Out of HOME: `go install` writes its binaries to a compared
+        // output (.stillpass/gopath/bin), not under $HOME/go.
+        ("GOPATH", "/workspace/.stillpass/gopath"),
         ("GOPROXY", "off"),
         ("GOTOOLCHAIN", "local"),
         ("HOME", "/workspace/.stillpass/home"),

@@ -17,6 +17,7 @@ sp-fs.workspace = true
 sp-sandbox.workspace = true
 sp-ledger.workspace = true
 sp-replay.workspace = true
+sp-trust.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 # The rootfs document and import record are serde types (rootfs.rs).
@@ -27,8 +28,9 @@ tracing-subscriber.workspace = true
 ulid.workspace = true
 
 [features]
-# Builds the binary with the ring transport's test-only failure hooks
-# (STILLPASS_TEST_URING_FAULT); only tests/ring_faults.rs needs it.
+# Builds the binary with the observer's test-only failure hooks
+# (STILLPASS_TEST_URING_FAULT, STILLPASS_FAULT); only tests/ring_faults.rs
+# and tests/observer_faults.rs need it.
 fault-injection = ["sp-fs/fault-injection"]
 
 [dev-dependencies]
@@ -38,6 +40,10 @@ tempfile.workspace = true
 
 [[test]]
 name = "ring_faults"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "observer_faults"
 required-features = ["fault-injection"]
 
 [[bin]]

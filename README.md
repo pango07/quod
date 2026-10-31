@@ -80,3 +80,27 @@ does not travel; the result records which mode produced it
 
 The code still says `stillpass` (binary, crates, paths); the rename to `quod`
 lands in one sweep once the in-flight branches merge.
+
+Using it from a checkout (observe mode is the default: every step executes
+and is recorded; the banner says what would have replayed):
+
+```sh
+stillpass run -- go test ./...           # the step as a command line
+stillpass run --step "go test ./..."     # or as a script
+stillpass run --mode replay -- go test ./...   # replay results that proved themselves
+stillpass status                         # hits, misses, time saved, trust per step key
+stillpass inspect <step key | manifest id | run id>
+```
+
+Without `--repo` the repo is the git checkout around the current directory,
+and the step runs in that directory, as it would without Stillpass.
+
+A result replays only after the same inputs produced the same result twice
+(`--proofs`); a fraction of replays is re-executed and compared (`--audit`,
+default 5%), and any divergence quarantines the step key until it proves
+itself again. `--timeout` (default 30m) kills a step that runs too long and
+records nothing. `--allow-net` runs a step with network, unmemoized, with
+its dependency trees (module cache, venv) in the state dir rather than the
+checkout.
+
+See `DECISIONS.md` for the record of choices made along the way.

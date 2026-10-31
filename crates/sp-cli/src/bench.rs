@@ -91,6 +91,12 @@ struct Setup<'a> {
     profile: &'static Profile,
     step: String,
     setup: String,
+    /// STILLPASS_DEPS_DIR for every child run: the bench's step A and its
+    /// observed runs use different state dirs, and dependency trees live in
+    /// the state dir (crate::deps), so they share one. The caller's
+    /// STILLPASS_DEPS_DIR when set, else the bench state's own `deps`, where
+    /// an ordinary `stillpass run` already fetched them.
+    deps_base: PathBuf,
 }
 
 pub fn bench(state: &State, args: BenchArgs) -> anyhow::Result<u8> {
@@ -114,6 +120,10 @@ pub fn bench(state: &State, args: BenchArgs) -> anyhow::Result<u8> {
             .setup
             .clone()
             .unwrap_or_else(|| profile.setup.to_string()),
+        deps_base: std::env::var_os("STILLPASS_DEPS_DIR")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| state.dir.join("deps")),
     };
     let work = state.dir.join("bench");
     sp_cas::remove_any(&work)?;
@@ -169,7 +179,7 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
     let tree = work.join("overhead-tree");
     clone_at(repo, &tree, "HEAD")?;
     seed_dependencies(cfg.profile, repo, &tree)?;
-    run_setup(exe, &work.join("setup-state"), &tree, cfg)?;
+    let deps = run_setup(exe, &work.join("setup-state"), &tree, cfg)?;
 
     // Series 0 is plain, 1 the observed path, then one observed series per
     // --extra-series with that variable set in the child's environment.
@@ -230,7 +240,7 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         let load_before = loadavg();
         let wall = match env {
             None => {
-                let (wall, code) = plain_run(cfg.profile, &tree, work, &cfg.step, i)?;
+                let (wall, code) = plain_run(cfg.profile, &tree, &deps, work, &cfg.step, i)?;
                 if code != 0 {
                     bail!("plain run {i} exited {code}; the baseline must pass");
                 }
@@ -453,16 +463,30 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
 
 /// One plain run: no FUSE, no overlay; a fresh copy of the tree with the
 /// profile's caches empty, in the same sandbox, uid and env as the observed
-/// path. That isolates the observer. Returns the wall time and exit code.
+/// path. That isolates the observer. The copy gets the dependency trees
+/// from `deps` (step A's, in the state dir) at their workspace paths, as a
+/// plain runner has them in its checkout and as the observed path serves
+/// them. Returns the wall time and exit code.
 fn plain_run(
     profile: &Profile,
     tree: &Path,
+    deps: &Path,
     work: &Path,
     step: &str,
     i: usize,
 ) -> anyhow::Result<(f64, i32)> {
     let copy = work.join(format!("plain-{i}"));
     cp(tree, &copy)?;
+    sp_cas::remove_any(&copy.join(".stillpass"))?;
+    for d in profile.seed_dirs {
+        let Some(name) = d.strip_prefix(".stillpass/") else {
+            continue;
+        };
+        if deps.join(name).is_dir() {
+            std::fs::create_dir_all(copy.join(".stillpass"))?;
+            cp(&deps.join(name), &copy.join(d))?;
+        }
+    }
     let out = work.join(format!("plain-{i}.log"));
     let rs = sp_sandbox::RunSpec {
         cmd: sp_key::shell_cmd(step),
@@ -510,7 +534,7 @@ fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
     for (i, c) in commits.iter().enumerate() {
         git(&tree, &["checkout", "-q", "--detach", c])?;
         let subject = git(&tree, &["log", "-1", "--format=%s", c])?;
-        run_setup(exe, &state, &tree, cfg)?;
+        let deps = run_setup(exe, &state, &tree, cfg)?;
         let s = run_step(exe, &state, &tree, cfg, &["--commit", c], &[])?;
         let hit = s.event["hit"].as_bool().unwrap_or(false);
         let wall = s.wall.as_secs_f64();
@@ -519,7 +543,7 @@ fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         // execution itself on a miss and the matched result's recorded
         // duration on a hit (both observed, so high by the overhead).
         let plain = if args.measure_plain {
-            let (w, code) = plain_run(cfg.profile, &tree, work, &cfg.step, i)?;
+            let (w, code) = plain_run(cfg.profile, &tree, &deps, work, &cfg.step, i)?;
             if code != 0 {
                 eprintln!(
                     "history {}/{}: plain run exited {code}; its wall time still counts",
@@ -701,8 +725,10 @@ fn one_file(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
     Ok((t, line))
 }
 
-fn run_setup(exe: &Path, state: &Path, tree: &Path, cfg: &Setup) -> anyhow::Result<()> {
-    let st = Command::new(exe)
+/// Step A on `tree`; returns the directory its banner names, where the
+/// dependency trees went.
+fn run_setup(exe: &Path, state: &Path, tree: &Path, cfg: &Setup) -> anyhow::Result<PathBuf> {
+    let out = Command::new(exe)
         .arg("--state")
         .arg(state)
         .args([
@@ -715,18 +741,25 @@ fn run_setup(exe: &Path, state: &Path, tree: &Path, cfg: &Setup) -> anyhow::Resu
             "--step",
             &cfg.setup,
         ])
+        .env("STILLPASS_DEPS_DIR", &cfg.deps_base)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    if !st.success() {
-        bail!("step A failed in {}", tree.display());
+        .stderr(Stdio::piped())
+        .output()?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() {
+        bail!("step A failed in {}: {stderr}", tree.display());
     }
+    let deps = stderr
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("caches in "))
+        .map(PathBuf::from)
+        .with_context(|| format!("step A named no caches dir: {stderr}"))?;
     // Step B starts from a tree whose only earlier output is the dependency
     // tree: no build cache, no per-day files the tool writes under HOME.
     for d in cfg.profile.ephemeral {
         sp_cas::remove_any(&tree.join(d))?;
     }
-    Ok(())
+    Ok(deps)
 }
 
 fn run_step(
@@ -748,6 +781,14 @@ fn run_step(
         .args(["run", "--repo", tree.to_str().unwrap(), "--step", &cfg.step])
         .args(["--toolchain", cfg.profile.toolchain.name()])
         .args(extra)
+        // The bench measures the matcher: a matching result replays at
+        // once, failures too, with no audit sampling (the trust layer has
+        // its own suite).
+        .env("STILLPASS_MODE", "replay")
+        .env("STILLPASS_PROOFS", "1")
+        .env("STILLPASS_AUDIT", "0")
+        .env("STILLPASS_REPLAY_FAILURES", "1")
+        .env("STILLPASS_DEPS_DIR", &cfg.deps_base)
         .envs(env.iter().map(|(k, v)| (k, v)))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

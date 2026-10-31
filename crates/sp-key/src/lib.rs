@@ -237,8 +237,10 @@ fn normalized_mounts(
 /// step that no root filesystem can pin (`platform`, with the host class
 /// `platform.host`); and the step's process state became fixed (umask,
 /// nice, rlimits, signals, descriptors). v4 added `toolchain`: which
-/// profile's env and rules a step ran under.
-pub const VERSION: u32 = 4;
+/// profile's env and rules a step ran under. v5 added GOPATH to the Go
+/// profile's env, so `go install` writes its binaries to
+/// `.stillpass/gopath/bin`, a compared output, instead of `$HOME/go/bin`.
+pub const VERSION: u32 = 5;
 
 /// Variables whose values change on every run. Putting one in a key would
 /// make every run a miss, or, if normalized silently, hide a real input, so
@@ -466,7 +468,8 @@ mod tests {
             j.contains(r#"["sysctl kernel.yama.ptrace_scope","1"]],"kernel":"6.8","page_size":4096}},"roots""#),
             "{j}"
         );
-        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":4,"warm":false}"#));
+        assert!(j.contains(r#"["GOMODCACHE","/workspace/.stillpass/gomod"],["GOPATH","/workspace/.stillpass/gopath"],"#));
+        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":5,"warm":false}"#));
         let mut host = StepSpec::new(
             Toolchain::Go,
             Image::new(

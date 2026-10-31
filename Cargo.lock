@@ -897,6 +897,7 @@ dependencies = [
  "sp-manifest",
  "sp-replay",
  "sp-sandbox",
+ "sp-trust",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -974,6 +975,18 @@ name = "sp-sandbox"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "sp-trust"
+version = "0.0.0"
+dependencies = [
+ "sp-cas",
+ "sp-ledger",
+ "sp-manifest",
  "tempfile",
  "thiserror",
  "tracing",

@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use common::{enabled, mini_rootfs};
+use common::{enabled, legacy_policy, mini_rootfs};
 use serde_json::{Value, json};
 
 struct Api {
@@ -158,13 +158,38 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
         .unwrap();
     assert_eq!(blob(&r_out["h"]), "r\n");
 
-    // Same request: replayed, same streams, no execution.
+    // The trust layer decides replays: a result seen once never replays.
+    assert!(
+        r["trust"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("trust: proof 1 of 2"),
+        "{}",
+        r["trust"]
+    );
+    let a2 = api.step(&req(true));
+    let r2 = a2.response.expect("a response");
+    assert_eq!(r2["replayed"], false, "{}", a2.stderr);
+    assert!(
+        r2["trust"][0].as_str().unwrap().contains("proof 2 of 2"),
+        "{}",
+        r2["trust"]
+    );
+    // Proven: the same request replays, same streams, no execution.
     let b = api.step(&req(true));
     let rb = b.response.expect("a response");
     assert_eq!(rb["replayed"], true, "{}", b.stderr);
     assert_eq!((b.code, b.stdout.as_str()), (0, "in\nv1\n"));
     assert_eq!(rb["step_key"], r["step_key"]);
-    assert_eq!(rb["result"]["run_id"], r["result"]["run_id"]);
+    assert_eq!(rb["result"]["run_id"], r2["result"]["run_id"]);
+    assert!(
+        rb["trust"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("trust: proven by 2"),
+        "{}",
+        rb["trust"]
+    );
     // A file the step never read changes nothing.
     fs::write(ws.join("unread.txt"), "changed\n").unwrap();
     assert_eq!(api.step(&req(true)).response.unwrap()["replayed"], true);
@@ -191,6 +216,21 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
         (Some(false), "in2\nv2\n")
     );
     assert_eq!(re["step_key"], rd["step_key"]);
+
+    // A failure is recorded but never proves itself: identical failures,
+    // called again and again, always execute.
+    let mut failing = req(true);
+    failing["cmd"] = json!(["/bin/sh", "-e", "-c", "cat in.txt; exit 1"]);
+    for i in 0..3 {
+        let f = api.step(&failing);
+        let rf = f.response.expect("a response");
+        assert_eq!(
+            (rf["replayed"].as_bool(), rf["recorded"].as_bool(), f.code),
+            (Some(false), Some(true), 1),
+            "failure {i}: {}",
+            f.stderr
+        );
+    }
 
     // A step killed by a signal is returned, never recorded, never replayed.
     let mut killed = req(true);
@@ -265,6 +305,8 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
         for p in /usr/local/go /etc/fuse.conf /src /work /sys/kernel /.complete /.dockerenv; do test -e $p && echo LEAK $p; done; \
         echo x > /opt/new; mkdir /home2; echo y > /home2/f; echo z > /tmp/z; rm /etc/os-release; echo w > a.out; \
         rm /opt/replace-me; mkfifo /opt/replace-me; mkfifo /opt/newfifo; true";
+    // The matcher's terms (a match replays at once), as env.run_step uses.
+    let legacy = legacy_policy();
     let run = |extra: &[&str]| {
         let mut args = vec![
             "run",
@@ -275,6 +317,7 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
             "--step",
             step,
         ];
+        args.extend(legacy.iter().map(String::as_str));
         args.extend_from_slice(extra);
         sp(&args)
     };

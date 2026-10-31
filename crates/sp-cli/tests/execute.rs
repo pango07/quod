@@ -53,8 +53,10 @@ fn stillpass_errors_exit_2() {
 }
 
 /// The sealed module cache is a snapshot of the imported tree: a change to
-/// the repo's copy while the step runs is neither seen by the step nor
-/// recorded, and the next run sees the changed tree as a miss.
+/// the cache while the step runs is neither seen by the step nor recorded,
+/// and the next run sees the changed tree as a miss. The cache is seeded
+/// where the old flow left it (the repo's `.stillpass/gomod`); the first
+/// run adopts it into the state dir, where the mid-step change is made.
 #[test]
 fn sealed_module_cache_is_a_snapshot() {
     if !enabled() {
@@ -93,7 +95,14 @@ fn sealed_module_cache_is_a_snapshot() {
         assert!(Instant::now() < deadline, "no sealed snapshot appeared");
         std::thread::sleep(Duration::from_millis(50));
     }
-    env.write(modfile, "two\n");
+    // The cache now lives in the state dir (adopted from the checkout).
+    assert!(
+        !env.repo.join(".stillpass").exists(),
+        "adopted out of the checkout"
+    );
+    let adopted = find_file(&env.state().join("deps"), "gomod/example.com/m@v1/a.txt")
+        .expect("the adopted module cache in the state dir");
+    std::fs::write(&adopted, "two\n").unwrap();
     let out = child.wait_with_output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
@@ -316,6 +325,8 @@ fn a_parents_process_state_changes_nothing() {
             "--step".into(),
             step.into(),
         ];
+        // The matcher's terms, as env.run_step uses (a match replays at once).
+        args.extend(env.run_defaults.iter().cloned());
         args.extend(extra.iter().map(|s| s.to_string()));
         let out = Command::new("sh")
             .arg("-c")
@@ -505,6 +516,22 @@ fn a_write_refused_by_a_sealed_prefix_is_not_memoized() {
         ok.stderr
     );
     assert_eq!(rusqlite_count(&env, "SELECT count(*) FROM results"), 1);
+}
+
+/// The one file under `root` whose path ends with `suffix`.
+fn find_file(root: &std::path::Path, suffix: &str) -> Option<std::path::PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.to_string_lossy().ends_with(suffix) {
+                return Some(p);
+            }
+        }
+    }
+    None
 }
 
 fn scalar(env: &Env, sql: &str) -> String {

@@ -14,6 +14,10 @@ if [ "$(cat "$ring" 2>/dev/null)" != "Y" ]; then
 fi
 cargo test -q -p sp-fs --features fault-injection --test uring -- --ignored --test-threads=1
 cargo test -q -p sp-cli --features fault-injection --test ring_faults -- --ignored --test-threads=1
+# The observer's failure path (STILLPASS_FAULT): a panic while serving
+# aborts the step and fails the run, classic and ring (--include-ignored).
+cargo test -q -p sp-fs --features fault-injection --test faults -- --include-ignored --test-threads=1
+cargo test -q -p sp-cli --features fault-injection --test observer_faults -- --include-ignored --test-threads=1
 # transports_log_identically only: per_request_cost is a benchmark that needs STILLPASS_SPIKE_REPO
 cargo test -q -p sp-cli --release --test transports transports_log_identically -- --ignored --test-threads=1
 echo "merge gate ok"
