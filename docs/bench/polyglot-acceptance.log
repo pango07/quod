@@ -1,0 +1,90 @@
+# exp/polyglot acceptance, final code (scripts/acceptance.sh <toolchain> <checkout>)
+# Filtered to the suite's own lines (stillpass banners omitted). No two Jest or
+# go test runs of this experiment at once (starlette ran beside cli/cli); box
+# shared with other agents (load 4-90); see polyglot-corpus.md.
+
+################ scripts/acceptance.sh go
+== go 14:37:55 load 29.71 39.38 53.75
+== step A (go): go mod download (network, not memoized)
+== A1-A7 on https://github.com/cli/cli@9490d204a2ba (go profile), step: go test -p 4 ./...
+A1 ok: EXECUTED, one manifest, 14262 outputs, none under []
+A2 ok: REPLAYED, exit 0 and 18160 stdout bytes identical
+manifest: 29878 entries (23938 f, 5320 d, 620 a, 0 l), 27752 under sealed prefixes [".stillpass/gomod"]
+A3 ok: README.md-only commit REPLAYED
+A4 ok: MISS, receipt names api/client.go
+A5 ok: MISS, mismatch names the listing of api
+A6 ok: different key, no manifests
+A7: mutated 23939 f, 5320 d, 620 a, 0 l entries in 475.5s: 0 false hits
+A7b: 292 unread files in the tree, sampling 10
+A7b ok: unread .devcontainer/devcontainer.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/codeql/tests/unsanitized-response-to-terminal/go.mod mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/extensions/terminal-mockup/library/discussion-view-monas-cafe.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/scripts/package-lock.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/tool/internal/evidence/raster.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/skills/cli-exercise/tool/internal/terminal/output_unix_test.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread .github/workflows/scripts/spam-detection/eval-instructions.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/install_source.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/primer/foundations/images/Iconography-3.png mutated, replay agrees with a fresh execution, both read the same 29879 paths
+A7b ok: unread docs/triage.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+W1 ok: first warm run (empty cache) agrees with the cold record
+W2 ok: warm agrees with cold after a one-file change; W3 ok: the warm key replays
+W4: warm manifest has 29843 entries with a full cache, 29843 with an empty one; 0 absent probes covered by their parent listing, 0 hidden by the cache
+W4 ok; for the record, the cold env records 36 paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)
+acceptance: A1-A7 and W pass under the go profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1304.48s
+== go exit 0 14:59:44 load 13.85 24.89 30.80
+
+################ scripts/acceptance.sh node
+== node 14:30:48 load 53.38 71.57 68.20
+== step A (node): npm ci (network, not memoized)
+== A1-A7 on https://github.com/moment/luxon@f427515a38f6 (node profile), step: export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4
+A1 ok: EXECUTED, one manifest, 46 outputs, none under []
+A2 ok: REPLAYED, exit 0 and 4859 stdout bytes identical
+manifest: 24987 entries (22053 f, 2807 d, 88 a, 39 l), 24800 under sealed prefixes ["node_modules"]
+A3 ok: README.md-only commit REPLAYED
+A4 ok: MISS, receipt names src/datetime.js
+A5 ok: MISS, mismatch names the listing of src
+A6 ok: different key, no manifests
+A7: mutated 22053 f, 2807 d, 88 a, 39 l entries in 280.2s: 0 false hits
+A7b: 70 unread files in the tree, sampling 10
+A7b ok: unread .agignore mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread .husky/.gitignore mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread LICENSE.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docker/Dockerfile mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docs/home.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread docs/tour.md mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread scripts/deploy-site mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread scripts/version mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread site/docs/_media/Luxon_icon.svg mutated, replay agrees with a fresh execution, both read the same 24987 paths
+A7b ok: unread site/plugins/dark-theme-toggle.css mutated, replay agrees with a fresh execution, both read the same 24987 paths
+W: the node profile has no warm state; W1-W4 do not apply
+acceptance: A1-A7 pass under the node profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 403.87s
+== node exit 0 14:37:47 load 32.30 40.05 54.04
+
+################ scripts/acceptance.sh python
+== python 14:38:42 load 18.12 34.65 51.39
+== step A (python): uv sync --frozen (network, not memoized)
+== A1-A7 on https://github.com/encode/starlette@2745bbc5afa2 (python profile), step: python -m pytest
+A1 ok: EXECUTED, one manifest, 7 outputs, none under ["__pycache__"]
+A2 ok: REPLAYED, exit 0 and 4179 stdout bytes identical
+manifest: 25325 entries (24264 f, 981 d, 76 a, 4 l), 25092 under sealed prefixes [".stillpass/venv"]
+A3 ok: .github/pull_request_template.md-only commit REPLAYED
+A4 ok: MISS, receipt names benchmarks/__init__.py
+A5 ok: MISS, mismatch names the listing of benchmarks
+A6 ok: different key, no manifests
+A7: mutated 24265 f, 981 d, 76 a, 4 l entries in 312.6s: 0 false hits
+A7b: 9 unread files in the tree, sampling 9
+A7b ok: unread .github/FUNDING.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/ISSUE_TEMPLATE/1-issue.md mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/ISSUE_TEMPLATE/config.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/dependabot.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/pull_request_template.md mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/benchmark.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/main.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/publish.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+A7b ok: unread .github/workflows/zizmor.yml mutated, replay agrees with a fresh execution, both read the same 25326 paths (2 absent probes differ, each implied by the other run's listing)
+W: the python profile has no warm state; W1-W4 do not apply
+acceptance: A1-A7 pass under the python profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 449.67s
+== python exit 0 14:46:19 load 4.02 16.39 36.76
