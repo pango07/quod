@@ -38,13 +38,25 @@ pub fn checkout(
         inputs.server_url.trim_end_matches('/'),
         inputs.repository
     );
-    let mirror = mirror_dir(state_dir, &inputs.repository.to_ascii_lowercase());
+    // GitHub compares repository names case-insensitively, as checkout does.
+    let repo = inputs.repository.to_ascii_lowercase();
+    let mirror = mirror_dir(state_dir, &inputs.server_url, &repo);
     ensure_mirror(&mirror)?;
     let auth = Auth::new(&inputs.server_url, inputs.token.as_deref());
     let (sha, ref_output) = resolve(inputs, &url, &mirror, &auth)?;
-    // v2: the tree has a .git.
-    let memo = state_dir.join("trees").join(format!("{sha}.v2.json"));
-    if let Ok(bytes) = std::fs::read(&memo)
+    // The memo is per (server, repository, commit): a commit id names the
+    // same content in every fork, but the served .git names its origin, and
+    // a repository must never be served a commit it does not have. v3: per
+    // repository. Served only when this repository's own mirror has the
+    // commit (it was fetched from this repository's URL); otherwise it is
+    // fetched with the job's token, which proves the token can read it.
+    let memo = state_dir
+        .join("trees")
+        .join(safe_path(&inputs.server_url))
+        .join(safe_path(&repo))
+        .join(format!("{sha}.v3.json"));
+    if has_commit(&mirror, &sha)
+        && let Ok(bytes) = std::fs::read(&memo)
         && let Ok(tree) = tree_from_json(&bytes)
     {
         return Ok(CheckedOut {
@@ -75,8 +87,23 @@ pub fn checkout(
     })
 }
 
-fn mirror_dir(state_dir: &Path, repository: &str) -> PathBuf {
-    let safe: String = repository
+/// The bare mirror of one repository on one server.
+fn mirror_dir(state_dir: &Path, server_url: &str, repository: &str) -> PathBuf {
+    state_dir
+        .join("mirrors")
+        .join(safe_path(server_url))
+        .join(format!("{}.git", safe_path(repository)))
+}
+
+/// `s` as a relative path: the characters a repository name has, `/` kept
+/// as a separator, anything else (a URL's `:`) as `_`, and no `..`.
+fn safe_path(s: &str) -> String {
+    let s = s
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("file://")
+        .trim_matches('/');
+    let safe: String = s
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' {
@@ -86,8 +113,7 @@ fn mirror_dir(state_dir: &Path, repository: &str) -> PathBuf {
             }
         })
         .collect();
-    let safe = safe.replace("..", "__");
-    state_dir.join("mirrors").join(format!("{safe}.git"))
+    safe.replace("..", "__").replace("//", "/")
 }
 
 /// How git authenticates: the token as actions/checkout sends it (basic
@@ -353,6 +379,12 @@ fn git_dir(work: &Path, mirror: &Path, sha: &str, url: &str) -> anyhow::Result<(
             sp_cas::remove_any(&p)?;
         }
     }
+    // Stillpass's own state lives under the checkout (`.stillpass/`): a
+    // step's `git status` (go build stamping VCS information) must not see
+    // it as untracked files, which a GitHub checkout would not have.
+    let info = work.join(".git/info");
+    std::fs::create_dir_all(&info)?;
+    std::fs::write(info.join("exclude"), "/.stillpass/\n")?;
     Ok(())
 }
 
@@ -515,6 +547,13 @@ mod tests {
             format!("{head}\n").as_bytes()
         );
         assert!(c.tree.get(".git/FETCH_HEAD").is_none() && c.tree.get(".git/logs").is_none());
+        assert_eq!(
+            cas.get(&c.tree.get(".git/info/exclude").unwrap().h.unwrap())
+                .unwrap()
+                .unwrap(),
+            b"/.stillpass/\n",
+            "the served .git ignores Stillpass's state directory"
+        );
         let config = String::from_utf8(
             cas.get(&c.tree.get(".git/config").unwrap().h.unwrap())
                 .unwrap()
@@ -554,5 +593,70 @@ mod tests {
             ..inputs.clone()
         };
         assert!(checkout(&state, &cas, &unreadable).is_err());
+
+        // Another readable repository asking for this commit, which it does
+        // not have: the memo of o/r must not serve it.
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let git_in = |dir: &Path, args: &[&str]| {
+            let st = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(st.success(), "git {args:?}");
+        };
+        git_in(&other, &["init", "-q", "-b", "main"]);
+        std::fs::write(other.join("x"), "x\n").unwrap();
+        git_in(&other, &["add", "-A"]);
+        git_in(
+            &other,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "x",
+            ],
+        );
+        std::os::unix::fs::symlink(&other, tmp.path().join("o/other")).unwrap();
+        let foreign = CheckoutInputs {
+            repository: "o/other".into(),
+            reference: head.clone(),
+            ..inputs.clone()
+        };
+        assert!(
+            checkout(&state, &cas, &foreign).is_err(),
+            "a commit of another repository is never served"
+        );
+        // A fork that has the commit gets it, as its own tree: its .git
+        // names the fork as origin.
+        let st = Command::new("git")
+            .args(["clone", "-q", "--bare"])
+            .arg(&src)
+            .arg(tmp.path().join("fork.git"))
+            .status()
+            .unwrap();
+        assert!(st.success());
+        std::os::unix::fs::symlink(tmp.path().join("fork.git"), tmp.path().join("o/Fork")).unwrap();
+        let fork = CheckoutInputs {
+            repository: "o/Fork".into(),
+            reference: head.clone(),
+            ..inputs.clone()
+        };
+        let f = checkout(&state, &cas, &fork).unwrap();
+        assert!(!f.memo, "not o/r's memo");
+        let fork_config = String::from_utf8(
+            cas.get(&f.tree.get(".git/config").unwrap().h.unwrap())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(fork_config.contains("o/Fork"), "{fork_config}");
+        assert!(checkout(&state, &cas, &fork).unwrap().memo);
     }
 }
