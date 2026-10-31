@@ -78,6 +78,16 @@ fn cat_every_file_logs_exactly_the_file_set() {
         fs::read_to_string(served.mountpoint().join("link")).unwrap(),
         "package cmd\n"
     );
+    // With kernel passthrough (Linux 6.9+, CAP_SYS_ADMIN) no read reaches
+    // userspace at all; the log below must be complete either way.
+    let stats = served.stats();
+    eprintln!("observer stats: {stats:?}");
+    assert!(stats.open >= 4, "{stats:?}");
+    if stats.passthrough {
+        assert_eq!(stats.read, 0, "passthrough reads must not reach userspace");
+    } else {
+        assert!(stats.read_bytes >= 3 << 20, "{stats:?}");
+    }
     let log = served.unmount().unwrap();
     let logged: BTreeSet<&str> = log
         .iter()

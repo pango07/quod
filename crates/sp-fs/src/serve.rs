@@ -4,19 +4,20 @@ use std::fs::File;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use fuser::{
-    BackgroundSession, Config, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags,
-    Generation, INodeNo, LockOwner, MountOption, OpenAccMode, OpenFlags, ReplyAttr, ReplyData,
-    ReplyDirectory, ReplyEntry, ReplyOpen, ReplyXattr, Request, SessionACL,
+    BackgroundSession, BackingId, Config, Errno, FileAttr, FileHandle, FileType, Filesystem,
+    FopenFlags, Generation, INodeNo, InitFlags, KernelConfig, LockOwner, MountOption, OpenAccMode,
+    OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, ReplyXattr, Request,
+    SessionACL,
 };
 use sp_cas::{Cas, Entry, Kind, ROOT, Tree, child_path};
 use sp_manifest::Access;
 
-use crate::FsError;
+use crate::{FsError, ObserverStats};
 
 /// Entries never change during a step, so the kernel may cache them freely.
 /// Caching only removes repeat requests, which carry no new information.
@@ -42,6 +43,38 @@ struct Log {
     io_errors: Vec<String>,
 }
 
+/// Request counts, reported at unmount so the bench can see what the step
+/// actually asked the observer for.
+#[derive(Default)]
+struct Stats {
+    lookup: AtomicU64,
+    lookup_absent: AtomicU64,
+    getattr: AtomicU64,
+    readlink: AtomicU64,
+    open: AtomicU64,
+    read: AtomicU64,
+    read_bytes: AtomicU64,
+    readdir: AtomicU64,
+    passthrough: AtomicBool,
+}
+
+impl Stats {
+    fn snapshot(&self) -> ObserverStats {
+        let g = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        ObserverStats {
+            lookup: g(&self.lookup),
+            lookup_absent: g(&self.lookup_absent),
+            getattr: g(&self.getattr),
+            readlink: g(&self.readlink),
+            open: g(&self.open),
+            read: g(&self.read),
+            read_bytes: g(&self.read_bytes),
+            readdir: g(&self.readdir),
+            passthrough: self.passthrough.load(Ordering::Relaxed),
+        }
+    }
+}
+
 struct CasFs {
     /// Index `ino - 1`. Inode numbers come from the tree's sorted order, so
     /// they are stable across lookups by construction (overlayfs needs that).
@@ -52,10 +85,20 @@ struct CasFs {
     next_fh: AtomicU64,
     uid: u32,
     gid: u32,
+    /// One backing id per inode, kept until unmount: the kernel refuses
+    /// mixing backing files on one inode, and the id outliving every open
+    /// is what fuser's docs ask for.
+    backing: Mutex<HashMap<u64, Arc<BackingId>>>,
+    stats: Arc<Stats>,
 }
 
 impl CasFs {
-    fn new(tree: &Tree, cas: Cas, log: Arc<Mutex<Log>>) -> Result<CasFs, FsError> {
+    fn new(
+        tree: &Tree,
+        cas: Cas,
+        log: Arc<Mutex<Log>>,
+        stats: Arc<Stats>,
+    ) -> Result<CasFs, FsError> {
         let mut index: HashMap<&str, u64> = HashMap::new();
         let mut nodes = Vec::with_capacity(tree.len());
         // The root first, so it gets inode 1; then the rest in path order.
@@ -102,7 +145,17 @@ impl CasFs {
             next_fh: AtomicU64::new(1),
             uid,
             gid,
+            backing: Mutex::new(HashMap::new()),
+            stats,
         })
+    }
+
+    /// Kernel passthrough (Linux 6.9+): once a file is open, the kernel reads
+    /// its blob directly and no read request reaches this process. The open
+    /// is still a request, and the open is what the log needs. Decided in
+    /// `init`; cleared for good if registering a blob ever fails.
+    fn passthrough(&self) -> bool {
+        self.stats.passthrough.load(Ordering::Relaxed)
     }
 
     fn node(&self, ino: INodeNo) -> Option<&Node> {
@@ -115,6 +168,11 @@ impl CasFs {
 
     fn record_absent(&self, path: String) {
         self.log.lock().unwrap().absent.insert(path);
+    }
+
+    fn io_error(&self, what: String) {
+        tracing::error!(error = %what, "I/O error served to the step");
+        self.log.lock().unwrap().io_errors.push(what);
     }
 
     fn attr(&self, ino: u64, n: &Node) -> FileAttr {
@@ -142,10 +200,62 @@ impl CasFs {
             flags: 0,
         }
     }
+
+    /// The backing id for a file's blob, registered with the kernel on first
+    /// use. The kernel takes its own reference to the blob, so the fd is
+    /// closed again right away.
+    fn backing_id(&self, ino: u64, n: &Node, reply: &ReplyOpen) -> Result<Arc<BackingId>, String> {
+        if let Some(id) = self.backing.lock().unwrap().get(&ino) {
+            return Ok(id.clone());
+        }
+        let file = self
+            .cas
+            .open_blob(&n.entry.h.unwrap())
+            .map_err(|e| format!("open {}: {e}", n.entry.p))?;
+        let id = reply
+            .open_backing(&file)
+            .map_err(|e| format!("register blob of {} for passthrough: {e}", n.entry.p))?;
+        Ok(self
+            .backing
+            .lock()
+            .unwrap()
+            .entry(ino)
+            .or_insert_with(|| Arc::new(id))
+            .clone())
+    }
 }
 
 impl Filesystem for CasFs {
+    fn init(&mut self, _req: &Request, config: &mut KernelConfig) -> std::io::Result<()> {
+        // Each is independent; a kernel without one just keeps the default.
+        // PARALLEL_DIROPS: lookups in one directory need not serialize.
+        // CACHE_SYMLINKS: the kernel keeps a target after the first readlink.
+        // NO_OPENDIR_SUPPORT: readdir is what the log needs; skip the opendir
+        // round trip.
+        for cap in [
+            InitFlags::FUSE_PARALLEL_DIROPS,
+            InitFlags::FUSE_CACHE_SYMLINKS,
+            InitFlags::FUSE_NO_OPENDIR_SUPPORT,
+        ] {
+            let _ = config.add_capabilities(cap);
+        }
+        // STILLPASS_NO_PASSTHROUGH=1 serves reads in userspace instead (for
+        // the bench's attribution series).
+        let want = std::env::var_os("STILLPASS_NO_PASSTHROUGH").is_none();
+        if want && config.add_capabilities(InitFlags::FUSE_PASSTHROUGH).is_ok() {
+            // 1: blobs live on a plain filesystem (depth 0), and overlayfs
+            // may stack on this mount (depth 2 is the kernel's maximum).
+            config
+                .set_max_stack_depth(1)
+                .expect("1 is within the kernel's stacking limit");
+            self.stats.passthrough.store(true, Ordering::Relaxed);
+        }
+        tracing::info!(target: "stillpass", passthrough = self.passthrough(), "observer init");
+        Ok(())
+    }
+
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        self.stats.lookup.fetch_add(1, Ordering::Relaxed);
         let Some(p) = self.node(parent) else {
             return reply.error(Errno::ENOENT);
         };
@@ -162,6 +272,7 @@ impl Filesystem for CasFs {
                 reply.entry(&TTL, &self.attr(ino, n), Generation(0));
             }
             None => {
+                self.stats.lookup_absent.fetch_add(1, Ordering::Relaxed);
                 // A name that isn't UTF-8 can never be in a tree (import
                 // refuses them), so its lossy spelling is a safe record.
                 let name = String::from_utf8_lossy(name.as_bytes());
@@ -172,6 +283,7 @@ impl Filesystem for CasFs {
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
+        self.stats.getattr.fetch_add(1, Ordering::Relaxed);
         let Some(n) = self.node(ino) else {
             return reply.error(Errno::ENOENT);
         };
@@ -180,6 +292,7 @@ impl Filesystem for CasFs {
     }
 
     fn readlink(&self, _req: &Request, ino: INodeNo, reply: ReplyData) {
+        self.stats.readlink.fetch_add(1, Ordering::Relaxed);
         let Some(n) = self.node(ino) else {
             return reply.error(Errno::ENOENT);
         };
@@ -193,6 +306,7 @@ impl Filesystem for CasFs {
     }
 
     fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
+        self.stats.open.fetch_add(1, Ordering::Relaxed);
         let Some(n) = self.node(ino) else {
             return reply.error(Errno::ENOENT);
         };
@@ -203,19 +317,27 @@ impl Filesystem for CasFs {
             return reply.error(Errno::EROFS);
         }
         self.record(ino.0, Kind::File);
+        let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
+        if self.passthrough() {
+            match self.backing_id(ino.0, n, &reply) {
+                Ok(id) => {
+                    return reply.opened_passthrough(FileHandle(fh), FopenFlags::empty(), &id);
+                }
+                Err(e) => {
+                    // Fall back to serving reads ourselves, for every file
+                    // from now on: one inode must not see both modes.
+                    self.stats.passthrough.store(false, Ordering::Relaxed);
+                    tracing::warn!(error = %e, "passthrough disabled; serving reads in userspace");
+                }
+            }
+        }
         let file = match self.cas.open_blob(&n.entry.h.unwrap()) {
             Ok(f) => f,
             Err(e) => {
-                tracing::error!(path = %n.entry.p, error = %e, "blob missing while serving");
-                self.log
-                    .lock()
-                    .unwrap()
-                    .io_errors
-                    .push(format!("open {}: {e}", n.entry.p));
+                self.io_error(format!("open {}: {e}", n.entry.p));
                 return reply.error(Errno::EIO);
             }
         };
-        let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
         self.open.lock().unwrap().insert(fh, Arc::new(file));
         reply.opened(FileHandle(fh), FopenFlags::FOPEN_KEEP_CACHE);
     }
@@ -231,30 +353,42 @@ impl Filesystem for CasFs {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
+        self.stats.read.fetch_add(1, Ordering::Relaxed);
         self.record(ino.0, Kind::File);
-        let Some(file) = self.open.lock().unwrap().get(&fh.0).cloned() else {
-            return reply.error(Errno::EBADF);
+        let Some(n) = self.node(ino) else {
+            return reply.error(Errno::ENOENT);
+        };
+        let opened = self.open.lock().unwrap().get(&fh.0).cloned();
+        let file = match opened {
+            Some(f) => f,
+            // A handle this process holds no fd for (a passthrough handle
+            // the kernel chose to read through anyway): serve it from the
+            // blob all the same.
+            None => match n.entry.h.map(|h| self.cas.open_blob(&h)) {
+                Some(Ok(f)) => Arc::new(f),
+                Some(Err(e)) => {
+                    self.io_error(format!("read {}: {e}", n.entry.p));
+                    return reply.error(Errno::EIO);
+                }
+                None => return reply.error(Errno::EBADF),
+            },
         };
         let mut buf = vec![0u8; size as usize];
         let mut filled = 0;
         while filled < buf.len() {
             match file.read_at(&mut buf[filled..], offset + filled as u64) {
                 Ok(0) => break,
-                Ok(n) => filled += n,
+                Ok(k) => filled += k,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => {
-                    let path = self
-                        .node(ino)
-                        .map_or("?".to_string(), |n| n.entry.p.clone());
-                    self.log
-                        .lock()
-                        .unwrap()
-                        .io_errors
-                        .push(format!("read {path}: {e}"));
+                    self.io_error(format!("read {}: {e}", n.entry.p));
                     return reply.error(Errno::EIO);
                 }
             }
         }
+        self.stats
+            .read_bytes
+            .fetch_add(filled as u64, Ordering::Relaxed);
         reply.data(&buf[..filled]);
     }
 
@@ -288,6 +422,7 @@ impl Filesystem for CasFs {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
+        self.stats.readdir.fetch_add(1, Ordering::Relaxed);
         let Some(n) = self.node(ino) else {
             return reply.error(Errno::ENOENT);
         };
@@ -305,6 +440,14 @@ impl Filesystem for CasFs {
             }
         }
         reply.ok();
+    }
+
+    fn statfs(&self, _req: &Request, _ino: INodeNo, reply: fuser::ReplyStatfs) {
+        // Not an input. Doubles as a probe: `stat -f <mount>` logs the
+        // request counts so far.
+        let s = self.stats.snapshot();
+        tracing::info!(target: "stillpass", lookup = s.lookup, lookup_absent = s.lookup_absent, getattr = s.getattr, open = s.open, read = s.read, readdir = s.readdir, "observer statfs");
+        reply.statfs(0, 0, 0, self.nodes.len() as u64, 0, 4096, 255, 4096);
     }
 
     fn getxattr(
@@ -328,6 +471,11 @@ impl Filesystem for CasFs {
 pub struct Served {
     session: Option<BackgroundSession>,
     log: Arc<Mutex<Log>>,
+    stats: Arc<Stats>,
+    started: Instant,
+    /// This process's (user, system) CPU time at mount, to report the
+    /// delta: while mounted, the process does little besides serving.
+    cpu_at_mount: (u64, u64),
     paths: Vec<(String, Kind)>,
     mountpoint: PathBuf,
 }
@@ -335,7 +483,8 @@ pub struct Served {
 /// Mounts `tree` read-only at `mountpoint`, serving content from `cas`.
 pub fn serve(tree: &Tree, cas: &Cas, mountpoint: &Path) -> Result<Served, FsError> {
     let log = Arc::new(Mutex::new(Log::default()));
-    let fs = CasFs::new(tree, cas.clone(), log.clone())?;
+    let stats = Arc::new(Stats::default());
+    let fs = CasFs::new(tree, cas.clone(), log.clone(), stats.clone())?;
     let paths = fs
         .nodes
         .iter()
@@ -365,6 +514,9 @@ pub fn serve(tree: &Tree, cas: &Cas, mountpoint: &Path) -> Result<Served, FsErro
     Ok(Served {
         session: Some(session),
         log,
+        stats,
+        started: Instant::now(),
+        cpu_at_mount: cpu_ms(),
         paths,
         mountpoint: mountpoint.to_path_buf(),
     })
@@ -373,6 +525,11 @@ pub fn serve(tree: &Tree, cas: &Cas, mountpoint: &Path) -> Result<Served, FsErro
 impl Served {
     pub fn mountpoint(&self) -> &Path {
         &self.mountpoint
+    }
+
+    /// Request counts so far.
+    pub fn stats(&self) -> ObserverStats {
+        self.stats.snapshot()
     }
 
     /// Unmounts, waits for in-flight requests, and returns the log,
@@ -390,6 +547,7 @@ impl Served {
             )))?;
         }
         let log = std::mem::take(&mut *self.log.lock().unwrap());
+        self.report();
         if !log.io_errors.is_empty() {
             return Err(FsError::Io {
                 what: format!(
@@ -414,6 +572,50 @@ impl Served {
             .collect();
         out.sort();
         Ok(out)
+    }
+
+    /// One structured event with the request counts and this process's CPU
+    /// time while mounted (nearly all of it is serving requests).
+    fn report(&self) {
+        let s = self.stats.snapshot();
+        let (user, sys) = cpu_ms();
+        tracing::info!(
+            target: "stillpass",
+            mounted_ms = self.started.elapsed().as_millis() as u64,
+            passthrough = s.passthrough,
+            lookup = s.lookup,
+            lookup_absent = s.lookup_absent,
+            getattr = s.getattr,
+            readlink = s.readlink,
+            open = s.open,
+            read = s.read,
+            read_mb = s.read_bytes / (1 << 20),
+            readdir = s.readdir,
+            serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
+            serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),
+            "observer"
+        );
+    }
+}
+
+/// This process's CPU time so far (user, system) in milliseconds.
+fn cpu_ms() -> (u64, u64) {
+    let mut ru: libc::rusage = unsafe_zeroed();
+    // SAFETY: ru is a valid, writable rusage; RUSAGE_SELF cannot fail.
+    #[allow(unsafe_code)] // getrusage(2) has no safe std wrapper
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
+    if rc != 0 {
+        return (0, 0);
+    }
+    let ms = |t: libc::timeval| t.tv_sec as u64 * 1000 + t.tv_usec as u64 / 1000;
+    (ms(ru.ru_utime), ms(ru.ru_stime))
+}
+
+fn unsafe_zeroed() -> libc::rusage {
+    // SAFETY: rusage is a plain C struct of integers; all-zero is valid.
+    #[allow(unsafe_code)] // no safe constructor for the libc struct
+    unsafe {
+        std::mem::zeroed()
     }
 }
 
