@@ -51,6 +51,8 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -106,7 +108,33 @@ pub struct RunResult {
     /// The signal that killed the step, if any (exit_code is then 128+sig).
     pub signal: Option<i32>,
     pub wall: Duration,
+    /// Set when `run_with` killed the step itself (a limit, not the step's
+    /// own doing). Such a run has no result worth recording.
+    pub killed: Option<Killed>,
 }
+
+/// Why `run_with` killed a step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Killed {
+    /// `Limits::timeout` elapsed.
+    Timeout,
+    /// `Limits::abort` was raised (the caller's observer failed).
+    Aborted,
+}
+
+/// Limits `run_with` enforces on a step from outside. Either one kills
+/// bubblewrap with SIGKILL; as pid 1 of the sandbox's pid namespace, its
+/// death takes every process the step started with it.
+#[derive(Clone, Debug, Default)]
+pub struct Limits {
+    /// Kill the step once it has run this long.
+    pub timeout: Option<Duration>,
+    /// Kill the step as soon as this is set (checked every poll interval).
+    pub abort: Option<Arc<AtomicBool>>,
+}
+
+/// How often `run_with` checks its limits while the step runs.
+const POLL: Duration = Duration::from_millis(25);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxError {
@@ -309,8 +337,13 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
     a
 }
 
-/// Runs `spec` under bubblewrap.
+/// Runs `spec` under bubblewrap with no limits.
 pub fn run(spec: &RunSpec) -> Result<RunResult, SandboxError> {
+    run_with(spec, &Limits::default())
+}
+
+/// Runs `spec` under bubblewrap, killing it if a limit is hit.
+pub fn run_with(spec: &RunSpec, limits: &Limits) -> Result<RunResult, SandboxError> {
     let bwrap = which("bwrap").ok_or(SandboxError::NoBwrap)?;
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -319,12 +352,49 @@ pub fn run(spec: &RunSpec) -> Result<RunResult, SandboxError> {
     std::fs::write(ident.join("passwd"), PASSWD).map_err(io_err("write passwd"))?;
     std::fs::write(ident.join("group"), GROUP).map_err(io_err("write group"))?;
     std::fs::write(ident.join("started"), "").map_err(io_err("write start sentinel"))?;
-    let result = run_inner(spec, bwrap, &ident);
+    let result = run_inner(spec, bwrap, &ident, limits);
     let _ = std::fs::remove_dir_all(&ident);
     result
 }
 
-fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, SandboxError> {
+/// Waits for bwrap, killing it when a limit is hit. Returns the exit status
+/// and why the step was killed, if it was.
+fn wait_within(
+    child: &mut std::process::Child,
+    start: Instant,
+    limits: &Limits,
+) -> io::Result<(std::process::ExitStatus, Option<Killed>)> {
+    let mut killed = None;
+    loop {
+        if let Some(st) = child.try_wait()? {
+            return Ok((st, killed));
+        }
+        if killed.is_none() {
+            let aborted = limits
+                .abort
+                .as_ref()
+                .is_some_and(|a| a.load(Ordering::SeqCst));
+            let timed_out = limits.timeout.is_some_and(|t| start.elapsed() >= t);
+            if aborted || timed_out {
+                killed = Some(if aborted {
+                    Killed::Aborted
+                } else {
+                    Killed::Timeout
+                });
+                // Already gone is fine; try_wait reports it next round.
+                let _ = child.kill();
+            }
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+fn run_inner(
+    spec: &RunSpec,
+    bwrap: PathBuf,
+    ident: &Path,
+    limits: &Limits,
+) -> Result<RunResult, SandboxError> {
     let ident = ident.to_path_buf();
     let spec = &RunSpec {
         identity: Some(ident),
@@ -347,7 +417,8 @@ fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, 
     let echo = spec.echo;
     let t_out = std::thread::spawn(move || tee(child_out, out, echo.then(io::stdout)));
     let t_err = std::thread::spawn(move || tee(child_err, err, echo.then(io::stderr)));
-    let status = child.wait().map_err(io_err("wait for bwrap"))?;
+    let (status, killed) =
+        wait_within(&mut child, start, limits).map_err(io_err("wait for bwrap"))?;
     t_out
         .join()
         .expect("stdout tee panicked")
@@ -366,6 +437,15 @@ fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, 
         _ => None,
     });
     let exit_code = status.code().unwrap_or_else(|| 128 + signal.unwrap_or(0));
+    if killed.is_some() {
+        // Killed by a limit: whether the step had started is beside the point.
+        return Ok(RunResult {
+            exit_code,
+            signal,
+            wall,
+            killed,
+        });
+    }
     let started = std::fs::read(spec.identity.as_ref().unwrap().join("started"))
         .map_err(io_err("read start sentinel"))?;
     if started != b"1" {
@@ -379,6 +459,7 @@ fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, 
         exit_code,
         signal,
         wall,
+        killed: None,
     })
 }
 

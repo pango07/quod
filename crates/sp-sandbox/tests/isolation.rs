@@ -367,3 +367,60 @@ fn signal_deaths_are_reported() {
     let r = run(&spec(&ws, tmp.path(), "kill -9 $$", false)).unwrap();
     assert_eq!((r.signal, r.exit_code), (Some(9), 137));
 }
+
+/// A limit kills the step and says so; its children die with bubblewrap.
+#[test]
+fn limits_kill_the_step_and_report_why() {
+    if !enabled() {
+        return;
+    }
+    use sp_sandbox::{Killed, Limits, run_with};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let t = Instant::now();
+    let r = run_with(
+        &spec(&ws, tmp.path(), "sleep 30 & sleep 30", false),
+        &Limits {
+            timeout: Some(Duration::from_millis(500)),
+            abort: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(r.killed, Some(Killed::Timeout));
+    assert!(r.signal.is_some(), "{r:?}");
+    assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+
+    let abort = Arc::new(AtomicBool::new(false));
+    let flag = abort.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        flag.store(true, Ordering::SeqCst);
+    });
+    let t = Instant::now();
+    let r = run_with(
+        &spec(&ws, tmp.path(), "sleep 30", false),
+        &Limits {
+            timeout: Some(Duration::from_secs(60)),
+            abort: Some(abort),
+        },
+    )
+    .unwrap();
+    assert_eq!(r.killed, Some(Killed::Aborted));
+    assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+
+    // A step that finishes in time is untouched.
+    let r = run_with(
+        &spec(&ws, tmp.path(), "exit 0", false),
+        &Limits {
+            timeout: Some(Duration::from_secs(60)),
+            abort: None,
+        },
+    )
+    .unwrap();
+    assert_eq!((r.killed, r.exit_code), (None, 0));
+}
