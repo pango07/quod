@@ -898,8 +898,47 @@ fn hooks_acceptance() {
     );
     assert!(!find("stillpass-stash"), "M1: the warm cache was wiped");
     assert!(!r.job(stash, &[]).replayed(), "M1: never recorded");
+    // `go run` caches its executable as Go 1.24+ does, `<hh>/<id>-d/<exe>`
+    // with the `-d` a directory: Go's layout, so recorded and replayed,
+    // and the cache kept.
+    let gorun = r#"mkdir -p /tmp/hello && printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello from go run") }\n' > /tmp/hello/main.go && go run /tmp/hello/main.go"#;
+    let first = r.job(gorun, &[]);
+    assert!(
+        first.executed() && first.code == 0 && !first.summary.contains("not Go's cache layout"),
+        "M1 go run: {}\n{}",
+        first.summary,
+        first.stderr
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&first.stdout),
+        "hello from go run\n"
+    );
+    let mut exe = None;
+    let mut stack = vec![warm_root.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                if e.file_name().to_string_lossy().ends_with("-d")
+                    && e.path().join("main").is_file()
+                {
+                    exe = Some(e.path());
+                }
+                stack.push(e.path());
+            }
+        }
+    }
+    assert!(
+        exe.is_some(),
+        "M1 go run: the executable is cached in a -d directory"
+    );
+    let again = r.job(gorun, &[]);
+    assert!(again.replayed(), "M1 go run replays: {}", again.stderr);
+    assert_eq!(
+        String::from_utf8_lossy(&again.stdout),
+        "hello from go run\n"
+    );
     println!(
-        "M1 ok: only go steps see the warm build cache; a stash in it is not recorded and wipes it"
+        "M1 ok: only go steps see the warm build cache; a stash in it is not recorded and wipes it; go run's cached executable is Go's layout"
     );
 
     // D1: a hit whose fresh run, on the same inputs, is not the step's own

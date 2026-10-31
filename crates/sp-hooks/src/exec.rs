@@ -164,9 +164,25 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
         mounts.push(Mount {
             src: dir.clone(),
-            dst: gocache.into(),
+            dst: gocache.clone().into(),
             writable: true,
         });
+        if x.gocache_shared {
+            // The fuzz cache is not shared. Go reads it only under `go test
+            // -fuzz` (cmd/go passes -test.fuzzcachedir only then), where it
+            // is an input no key covers; each step gets an empty one that
+            // goes with the step, as on a runner with no cache restored.
+            let mount_point = dir.join("fuzz");
+            std::fs::create_dir_all(&mount_point)
+                .with_context(|| format!("create {}", mount_point.display()))?;
+            let fuzz = x.step_dir.join("gofuzz");
+            std::fs::create_dir_all(&fuzz).with_context(|| format!("create {}", fuzz.display()))?;
+            mounts.push(Mount {
+                src: fuzz,
+                dst: Path::new(&gocache).join("fuzz"),
+                writable: true,
+            });
+        }
     }
     let snapshots = x.cas.dir().join("snapshots");
     let sealed = if x.seal && x.ws_layers.is_empty() {
@@ -439,28 +455,28 @@ fn go_cache_snapshot(dir: &Path) -> BTreeMap<String, Ident> {
     out
 }
 
-/// Go's own build-cache layout (cmd/go/internal/cache): `README`,
-/// `trim.txt`, two-hex-digit directories holding `<64 hex>-a` (action) and
-/// `<64 hex>-d` (output) entries, and `testexpand/`.
+/// Go's own build-cache layout, read from cmd/go/internal/cache in the
+/// image's Go (1.27.3): `README`, `trim.txt` and `testexpire.txt` (`go
+/// clean -testcache`) at the top; two-hex-digit directories holding `<64
+/// hex>-a` (action) and `<64 hex>-d` (output) entries, an output being a
+/// file, or for an executable `go run` or `go tool` caches (PutExecutable,
+/// Go 1.24 and later) a directory holding that one executable; and `fuzz`,
+/// the fuzz cache, which stays empty here (each step gets its own, bound
+/// over it: see `execute`). Nothing else: Go has no `testexpand`.
 fn go_cache_path_ok(rel: &str, is_dir: bool) -> bool {
     let hex = |s: &str, n: usize| {
         s.len() == n
             && s.bytes()
                 .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     };
-    let mut parts = rel.split('/');
-    match (parts.next(), parts.next(), parts.next()) {
-        (Some("README" | "trim.txt"), None, None) => !is_dir,
-        (Some("testexpand"), ..) => true,
-        (Some(hh), None, None) => is_dir && hex(hh, 2),
-        (Some(hh), Some(entry), None) => {
-            !is_dir
-                && hex(hh, 2)
-                && entry
-                    .strip_suffix("-a")
-                    .or_else(|| entry.strip_suffix("-d"))
-                    .is_some_and(|id| hex(id, 64))
-        }
+    let entry = |e: &str, suffix: &str| e.strip_suffix(suffix).is_some_and(|id| hex(id, 64));
+    let parts: Vec<&str> = rel.split('/').collect();
+    match parts.as_slice() {
+        ["README" | "trim.txt" | "testexpire.txt"] => !is_dir,
+        ["fuzz"] => is_dir,
+        [hh] => is_dir && hex(hh, 2),
+        [hh, e] => hex(hh, 2) && (entry(e, "-d") || (!is_dir && entry(e, "-a"))),
+        [hh, e, exe] => !is_dir && hex(hh, 2) && entry(e, "-d") && !matches!(*exe, "" | "." | ".."),
         _ => false,
     }
 }
@@ -493,6 +509,30 @@ fn go_cache_delta(
             )));
         }
     }
+    // An executable's output directory holds that executable and nothing
+    // else. At most one: Go makes the directory, then the file, and a
+    // concurrent job's step can look in between.
+    let exe_dirs: BTreeSet<&str> = changed
+        .iter()
+        .filter_map(|(p, v)| match p.matches('/').count() {
+            1 if v.kind == CacheKind::Dir => Some(p.as_str()),
+            2 => p.rsplit_once('/').map(|(d, _)| d),
+            _ => None,
+        })
+        .collect();
+    for d in exe_dirs {
+        let prefix = format!("{d}/");
+        let inside: Vec<&Ident> = after
+            .range(prefix.clone()..)
+            .take_while(|(p, _)| p.starts_with(&prefix))
+            .map(|(_, v)| v)
+            .collect();
+        if inside.len() > 1 || inside.iter().any(|v| v.kind != CacheKind::File) {
+            return Ok(Some(format!(
+                "it left {d} in the warm build cache holding more than one executable file, which is not Go's cache layout"
+            )));
+        }
+    }
     if !masks.is_empty() {
         let ac = aho_corasick::AhoCorasick::new(masks).context("mask patterns")?;
         for (p, v) in &changed {
@@ -519,22 +559,42 @@ mod tests {
     #[test]
     fn the_warm_build_cache_takes_only_go_s_layout() {
         let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        assert!(go_cache_path_ok("README", false) && go_cache_path_ok("trim.txt", false));
-        assert!(go_cache_path_ok("ab", true));
-        assert!(go_cache_path_ok(&format!("ab/{id}-a"), false));
-        assert!(go_cache_path_ok(&format!("ab/{id}-d"), false));
-        assert!(go_cache_path_ok("testexpand/x/y", false));
-        for bad in [
-            "notes.txt".to_string(),
-            "ab/payload".to_string(),
-            format!("ab/{id}-x"),
-            format!("ab/{}-a", &id[1..]),
-            format!("AB/{id}-a"),
-            format!("ab/{id}-a/inner"),
-            "fuzz/x".to_string(),
-            "zz".to_string(),
+        for (ok, is_dir) in [
+            ("README".to_string(), false),
+            ("trim.txt".to_string(), false),
+            ("testexpire.txt".to_string(), false),
+            ("fuzz".to_string(), true),
+            ("ab".to_string(), true),
+            (format!("ab/{id}-a"), false),
+            (format!("ab/{id}-d"), false),
+            // `go run` and `go tool` executables (Go 1.24+).
+            (format!("ab/{id}-d"), true),
+            (format!("ab/{id}-d/gh"), false),
         ] {
-            assert!(!go_cache_path_ok(&bad, false), "{bad}");
+            assert!(go_cache_path_ok(&ok, is_dir), "{ok}");
+        }
+        for (bad, is_dir) in [
+            ("notes.txt".to_string(), false),
+            ("README".to_string(), true),
+            ("fuzz".to_string(), false),
+            ("ab/payload".to_string(), false),
+            (format!("ab/{id}-x"), false),
+            (format!("ab/{}-a", &id[1..]), false),
+            (format!("AB/{id}-a"), false),
+            (format!("ab/{id}-a"), true),
+            (format!("ab/{id}-a/inner"), false),
+            (format!("ab/{id}-d/inner"), true),
+            (format!("ab/{id}-d/inner/deeper"), false),
+            (format!("ab/{id}-d/.."), false),
+            // Not Go's: there is no testexpand; the fuzz cache stays empty.
+            ("testexpand/x/y".to_string(), false),
+            (
+                "fuzz/example.com/m/FuzzX/0123456789abcdef".to_string(),
+                false,
+            ),
+            ("zz".to_string(), true),
+        ] {
+            assert!(!go_cache_path_ok(&bad, is_dir), "{bad}");
         }
 
         let tmp = tempfile::tempdir().unwrap();
@@ -601,6 +661,56 @@ mod tests {
         assert!(
             go_cache_delta(c, &before, &[]).unwrap().is_some(),
             "a symlink is caught"
+        );
+        std::fs::remove_file(c.join(format!("ab/{}-d", "f".repeat(64)))).unwrap();
+
+        // An executable `go run` cached: a -d directory holding it passes;
+        // a second file, a directory or a symlink beside it does not.
+        let exe = c.join(format!("ab/{}-d", "e".repeat(64)));
+        let before = go_cache_snapshot(c);
+        std::fs::create_dir(&exe).unwrap();
+        std::fs::write(exe.join("hello"), "ELF").unwrap();
+        assert_eq!(go_cache_delta(c, &before, &[]).unwrap(), None);
+        let before = go_cache_snapshot(c);
+        std::fs::write(exe.join("stash"), "for the next job").unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[])
+                .unwrap()
+                .is_some_and(|w| w.contains("more than one")),
+            "a second file beside the executable"
+        );
+        std::fs::remove_file(exe.join("stash")).unwrap();
+        let before = go_cache_snapshot(c);
+        std::os::unix::fs::symlink("/etc/passwd", exe.join("link")).unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[]).unwrap().is_some(),
+            "a symlink beside it"
+        );
+        std::fs::remove_file(exe.join("link")).unwrap();
+        let before = go_cache_snapshot(c);
+        std::fs::create_dir(exe.join("sub")).unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[]).unwrap().is_some(),
+            "a directory beside it"
+        );
+        std::fs::remove_dir(exe.join("sub")).unwrap();
+        // A secret compiled into a cached executable is caught too.
+        let before = go_cache_snapshot(c);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(exe.join("hello"), "ELF s3cr3t-value-0123").unwrap();
+        assert!(
+            go_cache_delta(c, &before, &mask)
+                .unwrap()
+                .is_some_and(|w| w.contains("secret"))
+        );
+        // The fuzz cache's mount point stays empty: anything in it is not
+        // Go writing through the per-step bind.
+        std::fs::create_dir(c.join("fuzz")).unwrap();
+        let before = go_cache_snapshot(c);
+        std::fs::create_dir_all(c.join("fuzz/example.com/m/FuzzX")).unwrap();
+        assert!(
+            go_cache_delta(c, &before, &[]).unwrap().is_some(),
+            "fuzz/ written"
         );
     }
 
