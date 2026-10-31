@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3d5d1930840093991cbf8ed6e16831162f578da53d5a3e36ce567468abb1e189 # shrinks to root = {"_": Dir([("_", Dir([(".", File([], 420))]))])}
+cc 15c64f43be57673ef67c3b0362052509d73fd7e5b0dfc4c3ddcbad6fbfec4611 # shrinks to root = {"_": Dir([(".", File([], 420))])}

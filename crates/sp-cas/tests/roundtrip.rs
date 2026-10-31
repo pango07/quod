@@ -1,0 +1,117 @@
+use std::fs;
+use std::os::unix::fs::{PermissionsExt, symlink};
+use std::path::Path;
+
+use proptest::prelude::*;
+use sp_cas::{Cas, Kind};
+
+#[derive(Debug, Clone)]
+enum Node {
+    File(Vec<u8>, u32),
+    Link(String),
+    Dir(Vec<(String, Node)>),
+}
+
+fn arb_node() -> impl Strategy<Value = Node> {
+    let leaf = prop_oneof![
+        (
+            prop::collection::vec(any::<u8>(), 0..64),
+            prop::sample::select(vec![0o644u32, 0o755, 0o600, 0o444])
+        )
+            .prop_map(|(b, m)| Node::File(b, m)),
+        "[a-z]{1,6}(/[a-z]{1,6})?".prop_map(Node::Link),
+    ];
+    leaf.prop_recursive(3, 24, 5, |inner| {
+        prop::collection::btree_map("[a-z0-9_-][a-z0-9._-]{0,7}", inner, 0..5)
+            .prop_map(|m| Node::Dir(m.into_iter().collect()))
+    })
+}
+
+fn write(dir: &Path, kids: &[(String, Node)]) {
+    for (name, node) in kids {
+        let p = dir.join(name);
+        match node {
+            Node::File(b, m) => {
+                fs::write(&p, b).unwrap();
+                fs::set_permissions(&p, fs::Permissions::from_mode(*m)).unwrap();
+            }
+            Node::Link(t) => symlink(t, &p).unwrap(),
+            Node::Dir(sub) => {
+                fs::create_dir(&p).unwrap();
+                write(&p, sub);
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+    #[test]
+    fn import_then_materialize_is_identity(
+        root in prop::collection::btree_map("[a-z0-9_-][a-z0-9._-]{0,7}", arb_node(), 0..6)
+    ) {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir(&src).unwrap();
+        write(&src, &root.into_iter().collect::<Vec<_>>());
+
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let tree = cas.import_dir(&src).unwrap();
+        let out = tmp.path().join("out");
+        cas.materialize(&tree, &out).unwrap();
+        let again = cas.import_dir(&out).unwrap();
+        prop_assert_eq!(&tree, &again);
+        for e in tree.iter().filter(|e| e.k == Kind::File) {
+            prop_assert!(cas.has(&e.h.unwrap()));
+        }
+    }
+}
+
+#[test]
+fn import_is_stable_and_dedups() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    fs::create_dir_all(src.join("a/b")).unwrap();
+    fs::write(src.join("a/b/one"), b"same").unwrap();
+    fs::write(src.join("two"), b"same").unwrap();
+    let big = vec![7u8; (1 << 20) + 17];
+    fs::write(src.join("big"), &big).unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let (t1, s1) = cas.import_dir_stats(&src).unwrap();
+    let (t2, s2) = cas.import_dir_stats(&src).unwrap();
+    assert_eq!(t1, t2);
+    assert_eq!((s1.files, s1.bytes, s1.dirs), (3, 8 + big.len() as u64, 3));
+    // Two workers may both store the duplicate before either sees it.
+    assert!((4 + big.len() as u64..=8 + big.len() as u64).contains(&s1.new_bytes));
+    assert_eq!(s2.new_bytes, 0);
+    assert_eq!(
+        cas.get(&t1.get("big").unwrap().h.unwrap())
+            .unwrap()
+            .unwrap(),
+        big
+    );
+}
+
+/// T02 definition of done: importing the spike repo completes and reports
+/// file count and bytes. Runs when STILLPASS_SPIKE_REPO points at a checkout.
+#[test]
+fn import_spike_repo() {
+    let Ok(repo) = std::env::var("STILLPASS_SPIKE_REPO") else {
+        eprintln!("STILLPASS_SPIKE_REPO not set; skipping");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let start = std::time::Instant::now();
+    let (tree, s) = cas.import_dir_stats(Path::new(&repo)).unwrap();
+    eprintln!(
+        "imported {repo}: {} files, {} bytes, {} dirs, {} symlinks, {} entries in {:?}",
+        s.files,
+        s.bytes,
+        s.dirs,
+        s.symlinks,
+        tree.len(),
+        start.elapsed()
+    );
+    assert!(s.files > 0);
+}
