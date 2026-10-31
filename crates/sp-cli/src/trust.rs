@@ -197,7 +197,7 @@ mod tests {
                 ".stillpass/gomod/cache",
                 ".stillpass/home/.cache/gh",
                 ".stillpass/home/.config/go/telemetry",
-                ".stillpass/home/.local/state",
+                ".stillpass/home/.local/state/gh",
                 ".stillpass/home/.ssh/codespaces.auto",
                 ".stillpass/home/.ssh/codespaces.auto.pub",
             ]

@@ -1693,7 +1693,8 @@ mod tests {
         // HOME: only the volatile paths; the build cache whole; GOPATH (go
         // install's binaries) and anything outside the workspace compared.
         assert!(ign.contains(&".stillpass/home/.cache/gh".to_string()));
-        assert!(ign.contains(&".stillpass/home/.local/state".to_string()));
+        assert!(ign.contains(&".stillpass/home/.local/state/gh".to_string()));
+        assert!(!ign.contains(&".stillpass/home/.local/state".to_string()));
         assert!(ign.contains(&".stillpass/gocache".to_string()));
         assert!(
             !ign.iter()

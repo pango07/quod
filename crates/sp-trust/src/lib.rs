@@ -58,12 +58,15 @@ pub const MAX_PROOFS: u32 = 100;
 /// HOME-relative GOPATH, a token, a generated config are results. Each entry
 /// is here because cli/cli's tests write it differently on every run:
 /// gh's HTTP cache (keys include random httptest ports), Go's telemetry
-/// counters (date-stamped files), gh's state dir (a random device id), and
-/// the SSH key pair gh generates for codespaces.
+/// counters (date-stamped files), gh's state dir (a random device id; gh's
+/// own directory only, not every tool's `.local/state`), and the SSH key
+/// pair gh generates for codespaces. Each was seen differing between two
+/// executions on identical inputs (exp/trust's P1 on cli/cli); nothing is
+/// on the list without that.
 pub const HOME_VOLATILE: &[&str] = &[
     ".cache/gh",
     ".config/go/telemetry",
-    ".local/state",
+    ".local/state/gh",
     ".ssh/codespaces.auto",
     ".ssh/codespaces.auto.pub",
 ];
@@ -433,7 +436,8 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
         Hash::of(sp_cas::canonical_json(&comparable_outputs(&r.outputs, ignore))?.as_bytes());
     let root = Hash::of(sp_cas::canonical_json(&r.root_outputs)?.as_bytes());
     let mut buf = Vec::with_capacity(256);
-    buf.extend_from_slice(b"stillpass result fingerprint v1\0");
+    // v2: command files hashed in, GOGCCFLAGS' build dir normalized.
+    buf.extend_from_slice(b"stillpass result fingerprint v2\0");
     buf.extend_from_slice(&i64::from(r.exit_code).to_le_bytes());
     for h in [out, err, outputs, root] {
         buf.extend_from_slice(h.hex().as_bytes());
