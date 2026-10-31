@@ -192,7 +192,8 @@ impl Job {
     /// and the event.json the runner writes before each step; see
     /// `scope_of`) and starts its workspace there: where the last job on
     /// this path in this scope left it (its persisted `.stillpass/` state),
-    /// or empty for the scope's first job. HOME and the rest are per job.
+    /// or for the scope's first job the operator's seed for the repository,
+    /// if any. HOME and the rest are per job.
     fn ensure_scope(&mut self, cas: &Cas, event_name: Option<&str>) -> anyhow::Result<()> {
         if self.scope.is_some() {
             return Ok(());
@@ -201,26 +202,37 @@ impl Job {
             .and_then(|d| self.host_path(&format!("{d}/event.json")))
             .and_then(|p| std::fs::read(p).ok());
         let (repository, scope_name) = scope_of(event_name, event.as_deref());
+        let repo_slug = slug(if repository.is_empty() {
+            "unknown"
+        } else {
+            &repository
+        });
         let scope = self
             .state_dir
             .join("scopes")
-            .join(slug(if repository.is_empty() {
-                "unknown"
-            } else {
-                &repository
-            }))
+            .join(&repo_slug)
             .join(&scope_name);
         std::fs::create_dir_all(&scope)?;
         self.repository = repository;
         self.scope_name = scope_name;
         self.scope = Some(scope);
-        // A scope's first job starts with empty state. Never from the
+        // A scope's first job starts from the operator's seed for the
+        // repository (`<state>/seeds/<repo>/.stillpass/{gomod,tool}`, a
+        // module cache filled ahead of time), or empty. Never from the
         // runner's work directory on the host: a runner-surface step of any
         // scope can write there, so a fork could seed a trusted scope's
-        // module cache or tool cache through it.
+        // module cache or tool cache through it. The state directory is
+        // mounted into no step.
         let tree = match std::fs::read(self.workspace_slot()) {
             Ok(b) => persisted(&tree_from_json(&b)?),
-            Err(_) => Tree::from_leaves([]),
+            Err(_) => {
+                let seed = self.state_dir.join("seeds").join(&repo_slug);
+                if seed.is_dir() {
+                    import_persisted(cas, &seed)?
+                } else {
+                    Tree::from_leaves([])
+                }
+            }
         };
         self.save_tree(&with_state_dirs(cas, &tree)?)?;
         tracing::info!(target: "stillpass", job = %self.id, repository = %self.repository, scope = %self.scope_name, "scope");
@@ -451,6 +463,29 @@ impl Job {
     fn scratch_gocache(&self) -> PathBuf {
         self.dir.join("gocache")
     }
+}
+
+/// The `PERSIST` parts of `<dir>/.stillpass/` (an operator's seed), as a
+/// workspace tree.
+fn import_persisted(cas: &Cas, dir: &Path) -> anyhow::Result<Tree> {
+    let mut leaves = Vec::new();
+    for d in PERSIST {
+        let sub = dir.join(STATE_SUBDIR).join(d);
+        if !sub.is_dir() {
+            continue;
+        }
+        let base = format!("{STATE_SUBDIR}/{d}");
+        for e in cas.import_dir(&sub)?.iter() {
+            let mut e = e.clone();
+            e.p = if e.p == "." {
+                base.clone()
+            } else {
+                format!("{base}/{}", e.p)
+            };
+            leaves.push(e);
+        }
+    }
+    Ok(Tree::from_leaves(leaves))
 }
 
 /// Removes every job directory under `state_dir`, unmounting what is still
