@@ -1,79 +1,100 @@
-# Rootfs mode: portability, acceptance, overhead (exp/rootfs)
+# Rootfs mode after the review (key v4): portability, acceptance, overhead
 
-Steps run in a pinned root filesystem (`--rootfs`, DECISIONS 2026-10-31
-exp/rootfs) instead of on the host's /usr, /bin, /lib and /etc. Same box as
-the other 0a reports: Docker Desktop, 18 arm64 cores, 7.7 GiB, kernel
+Steps run in a pinned root filesystem (`--rootfs`), served from its blobs
+by the observer's FUSE server, under a fixed process state, with the host
+class in the key (DECISIONS 2026-10-31 exp/rootfs entries). Same box as the
+other 0a reports: Docker Desktop, 18 arm64 cores, 7.7 GiB, kernel
 7.0.14-linuxkit, shared with three other agents throughout (one-minute load
-averages 35-70 during the bench), so medians carry a lot of load noise and
-the paired per-round ratios are the better estimator.
+averages 20-90), so the paired per-round ratios are the better estimator.
+The first version's measurements (key v3, rootfs copied onto the state
+filesystem) are in `0a-rootfs-v3-arm64.md`, superseded.
 
-## Portability
+## Presentation (review M1)
 
-`scripts/portability.sh`, full transcript in `0a-rootfs-portability.log`.
-A Debian bookworm host (glibc 2.36, bubblewrap 0.8.0, Go installed) executed
-`go test ./...` on cli/cli at the pinned commit in rootfs
-b3:3500d167 (29,878 inputs, 37.4s). An Ubuntu 24.04 host (glibc 2.39,
-bubblewrap 0.9.0, no Go), sharing only the state directory, imported its own
-export of the image to the same digest, filled its own module cache, and
-replayed the proof: same step key b3:34021417, same manifest b3:588da912,
-29,878 inputs matched, identical stdout (sha256 14aee4e3bdff4a5d), 1.0s. The
-same step in the `--extra jq` rootfs b3:ab6d5d42 found no manifests for its
-key and executed; `--host-root` on the Go-less host is a Stillpass error.
-Both containers share one VM, so the platform half of the key (arch, kernel
-major.minor, CPU features and count, page size) is equal by construction.
+With the real rootfs, inside a step: `stat` of `/usr/bin/git` and
+`/usr/local/go/bin/go` shows mtime and atime 0 and owner `runner`;
+`ls -f /usr/share/zoneinfo` (directory order) equals `ls -a` (sorted);
+after `cat /usr/bin/git` its atime is still 0; umask 0022, `SigIgn` and
+`SigBlk` 0, NOFILE 1024 soft and 65536 hard.
+
+## Portability (review M2)
+
+`scripts/portability.sh`, transcript in `0a-rootfs-portability.log`. Both
+hosts are containers on one VM, so kernel, CPU, RAM, sysctls and seccomp are
+equal by construction; what differs is the userland. The claim is that the
+key ignores the userland and the result does not depend on it.
+
+| | Host 1 | Host 2 |
+| --- | --- | --- |
+| Userland | Debian 12, glibc 2.36, Go installed | Ubuntu 24.04, glibc 2.39, no Go |
+| bubblewrap | 0.8.0 | 0.9.0 (and 0.8.0 for the replay) |
+| Store | shared state, volume ext4 | private, its own loop-mounted ext4 |
+| Rootfs import | b3:3500d167 | its own export: b3:3500d167 |
+
+- Host 2 fresh (bubblewrap 0.9.0, private store, empty ledger, its own
+  module-cache download): the key differs from host 1's in exactly one
+  host-class entry, `sandbox: bubblewrap 0.9.0` against `0.8.0`, so it
+  executes. Manifest entries identical (the same 29,878 inputs); exit code
+  0 and 0; stdout identical with go test durations normalized. Outputs,
+  14,262 each: 4,102 byte-identical; 9,765 Go cache action entries differ
+  (they hold a creation time); 664 cache output entries exist in one run
+  only (named by content; cached test output holds durations); the rest is
+  Go's trim.txt, dated telemetry counters, gh's device id and cache, and an
+  ssh key pair a test generates.
+- Host 2 with Debian's bubblewrap 0.8.0 first on PATH, against the shared
+  ledger: host 1's class, REPLAYED host 1's proof (same key and manifest).
+- The `--extra jq` rootfs misses (no manifests for its key); `--host-root`
+  on host 2 is refused (no Go to fingerprint).
 
 ## Acceptance
 
 `scripts/acceptance.sh` with `STILLPASS_ROOTFS`, log in
 `0a-rootfs-acceptance.log`: A1-A6 pass; A7 mutates 23,939 files, 5,320
 listings and 620 absent paths of the 29,879-entry manifest with 0 false
-hits; A7b 10/10 (each fresh execution read exactly the replayed manifest's
-paths); W1-W4 pass (29,843 warm inputs with an empty and a full cache).
-`0a-rootfs-acceptance-run1.log` is the run before it, stopped at A7b sample
-6 by cli/cli's `TestHuhPrompterConfirm/reject_with_n_key` hanging to go
-test's 10-minute timeout; its kept evidence (empty manifest diff, identical
-read sets, mutated file unread) is the flaky-test signature DECISIONS
-describes, and run 2 mutated the same file and agreed.
+hits; A7b 10/10, each fresh execution reading exactly the replayed
+manifest's paths; W1-W4 pass (29,843 warm inputs with an empty and a full
+cache, 0 hidden).
 
 ## Overhead, host root vs rootfs
 
-`stillpass bench --no-hit-rate --interleave --runs 7 --rootfs-src
+`stillpass bench --no-hit-rate --interleave --runs 7 --step "go test -skip
+TestHuhPrompterConfirm ./..." --rootfs-src
 /work/rootfs/go1.27.3-bookworm-arm64.tar --extra-series
 STILLPASS_ROOTFS=b3:3500d167...`: plain (same sandbox, host root, no
-FUSE), observed on the host root, observed in the rootfs, one run of each
-per round, first round dropped. Per round (wall seconds, load before the
-host-root run):
+FUSE), observed on the host root, observed in the served rootfs, one run of
+each per round, first round dropped. The step skips cli/cli's
+`TestHuhPrompterConfirm`: the first attempt of this bench stopped when it
+hung to go test's 10-minute timeout in a host-root run (the flaky test of
+DECISIONS; a bench refuses a run that is not a passing miss). Per round
+(wall seconds; load before the host-root run):
 
 | Round | Load | Plain | Host root | Rootfs | Rootfs / host root (wall) | (execution) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2 | 64 | 34.8 | 48.6 | 31.4 | 0.65 | 0.66 |
-| 3 | 51 | 26.5 | 29.1 | 32.9 | 1.13 | 1.13 |
-| 4 | 58 | 34.2 | 34.2 | 39.0 | 1.14 | 1.17 |
-| 5 | 58 | 19.8 | 27.8 | 26.5 | 0.95 | 0.93 |
-| 6 | 39 | 19.6 | 27.1 | 27.5 | 1.01 | 1.02 |
-| 7 | 35 | 21.5 | 27.5 | 30.3 | 1.10 | 1.11 |
+| 2 | 87 | 40.4 | 37.6 | 35.3 | 0.94 | 0.96 |
+| 3 | 69 | 30.9 | 40.8 | 64.0 | 1.57 | 1.59 |
+| 4 | 72 | 29.2 | 39.5 | 43.0 | 1.09 | 1.11 |
+| 5 | 61 | 31.3 | 59.4 | 42.7 | 0.72 | 0.71 |
+| 6 | 69 | 36.3 | 46.6 | 38.2 | 0.82 | 0.82 |
+| 7 | 79 | 42.6 | 50.2 | 52.3 | 1.04 | 1.06 |
 
-Median of the paired ratios: wall +5.8%, execution +6.7%. Medians: host
-root 28.45s, rootfs 30.87s (+8.5%); execution 25.93s vs 28.48s (+9.8%).
-Minimum: 27.1s vs 26.5s. Rounds 5-7 (load 35-58): +2.3%. The load swings
-are larger than the effect; what the numbers support is that rootfs mode
-costs between nothing and ~10% of an observed run here, not a precise
-figure. Unattributed candidates: /tmp is on the root overlay (ext4 upper)
-instead of a tmpfs, so Go's `$WORK` (objects and linked test binaries) is
-written through overlayfs; every exec and library load goes through the
-root overlay instead of a plain bind; and the root diff walks the upper
-(14 outputs per run here). Mount is unchanged but for one more overlay
-mount: the rootfs snapshot is built once per store (4.6s for 24,614
-entries) and reused in 4 ms, before the run's phases start. One OOM kill appears in dmesg during
-the window, a process named `MainThread` in another agent's container;
-every bench run passed (the bench refuses a run that is not a passing
-miss).
+Median of the paired ratios 0.99 (wall) and 1.01 (execution); medians
+42.85s rootfs against 43.69s host root; minima 35.3s against 37.6s. At load
+averages of 60-90 the two modes cannot be told apart, and the claim is only
+that: rootfs mode costs no more than the noise of this box. What it costs in
+requests, independent of load (one run, observer events): the served root
+answers about 34k requests per `go test ./...` (10,364 lookups of which
+5,812 absent, 21,780 opens, 1,842 readdirs, no reads: passthrough), about as
+many as the workspace observer (35k); at the 50-80 µs per round trip
+measured on this VM that is 2-3 s of request latency spread over 18
+parallel workers. The first version's copy cost nothing per run but
+leaked the host filesystem (review M1). Host root against plain in the
+same bench: +29.3% wall, +19.7% execution, both inflated by the load.
 
 The raw report follows.
 
 ### stillpass bench report
 
-Spike repo `https://github.com/cli/cli` at `9490d204a2ba`. Step A `go mod download`, step B `go test ./...`. Generated by `stillpass bench`.
+Spike repo `https://github.com/cli/cli` at `9490d204a2ba`. Step A `go mod download`, step B `go test -skip TestHuhPrompterConfirm ./...`. Generated by `stillpass bench`.
 
 #### Machine
 
@@ -87,23 +108,23 @@ Spike repo `https://github.com/cli/cli` at `9490d204a2ba`. Step A `go mod downlo
 
 | Series | Median | p95 | Execution median | Runs (s) | Load average (1m) before -> after each run |
 | --- | --- | --- | --- | --- | --- |
-| Plain (same sandbox, no FUSE or overlay) | 23.96s | 34.77s | 23.96s | 34.8, 26.5, 34.2, 19.8, 19.6, 21.5 | 48.6->63.9, 57.6->51.3, 50.9->58.0, 65.8->58.1, 45.2->39.1, 39.1->35.0 |
-| Observed (import, serve, overlay, sandbox, record) | 28.45s | 48.60s | 25.93s | 48.6, 29.1, 34.2, 27.8, 27.1, 27.5 | 63.9->70.5, 51.3->50.8, 58.0->60.7, 58.1->55.3, 39.1->37.9, 35.0->40.1 |
-| Observed, STILLPASS_ROOTFS=b3:3500d167 | 30.87s | 39.01s | 28.48s | 31.4, 32.9, 39.0, 26.5, 27.5, 30.3 | 70.5->57.6, 50.8->50.9, 60.7->65.8, 55.3->45.2, 37.9->39.1, 40.1->44.2 |
-| **Overhead** | **+18.8%** | +39.8% | +8.2% | | |
-| Overhead, STILLPASS_ROOTFS=b3:3500d167 | +28.9% | +12.2% | +18.9% | | |
+| Plain (same sandbox, no FUSE or overlay) | 33.79s | 42.58s | 33.79s | 40.4, 30.9, 29.2, 31.3, 36.3, 42.6 | 87.7->87.0, 70.9->68.8, 84.5->71.9, 69.4->61.4, 78.5->68.7, 69.2->78.9 |
+| Observed (import, serve, overlay, sandbox, record) | 43.69s | 59.37s | 40.46s | 37.6, 40.8, 39.5, 59.4, 46.6, 50.2 | 87.0->75.7, 68.8->67.9, 71.9->67.6, 61.4->82.9, 68.7->73.3, 78.9->89.0 |
+| Observed, STILLPASS_ROOTFS=b3:3500d167 | 42.85s | 63.97s | 39.73s | 35.3, 64.0, 43.0, 42.7, 38.2, 52.3 | 75.7->70.9, 67.9->84.5, 67.6->69.4, 82.9->78.5, 73.3->69.2, 89.0->90.0 |
+| **Overhead** | **+29.3%** | +39.4% | +19.7% | | |
+| Overhead, STILLPASS_ROOTFS=b3:3500d167 | +26.8% | +50.2% | +17.6% | | |
 
 Observed phase breakdown, median over the same runs:
 
 | Phase | Median | Share of observed |
 | --- | --- | --- |
-| import | 0.98s | 3.5% |
+| import | 1.02s | 2.3% |
 | lookup | 0.00s | 0.0% |
-| mount | 0.06s | 0.2% |
-| execution | 25.93s | 91.1% |
-| output diff | 0.81s | 2.8% |
-| ledger write | 0.13s | 0.5% |
+| mount | 0.06s | 0.1% |
+| execution | 40.46s | 92.6% |
+| output diff | 1.06s | 2.4% |
+| ledger write | 0.15s | 0.3% |
 
 #### Totals
 
-- Observer overhead (0a, host): median +18.8%, p95 +39.8% (plain 23.96s, observed 28.45s)
+- Observer overhead (0a, host): median +29.3%, p95 +39.4% (plain 33.79s, observed 43.69s)

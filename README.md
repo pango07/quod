@@ -42,18 +42,25 @@ scripts/acceptance.sh                  # A1-A7 on the pinned spike repo
 
 ## Portable proofs
 
-Steps run in a pinned root filesystem (`--rootfs DIGEST`, or
-`STILLPASS_ROOTFS`): an OCI image imported once into the store, with nothing
-of the host's userland visible and every write outside the workspace
-recorded. The key pins the rootfs digest and the host platform (arch, kernel
-major.minor, CPU features and count, page size), so a proof made on one
-machine holds on another with the same rootfs and platform:
+Steps can run in a pinned root filesystem (`--rootfs DIGEST`, or
+`STILLPASS_ROOTFS`): an OCI image imported once into the store and served
+from it, with nothing of the host's userland or filesystems visible, a fixed
+process state, and every write outside the workspace recorded. The key pins
+the rootfs digest and the host class (kernel release and build, CPU,
+rlimits, sysctls, memory bucket, LSM, seccomp, filesystem types, sandbox
+version, and the rest a step can observe that is constant for a host), so
+a proof made on one host replays on another host of the same class whatever
+its userland, and nowhere else. Measured so far, on two containers sharing
+one VM (so kernel and hardware are equal by construction): an Ubuntu
+container replays a Debian container's proof when both use the same
+bubblewrap; with another bubblewrap it is another host class, executes, and
+reads exactly the same inputs to the same result.
 
 ```sh
 STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh             # build, export, import; prints the digest
 STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh --extra jq  # a different rootfs (the miss case)
 scripts/dev.sh 'stillpass run --repo /work/cli --rootfs b3:... --step "go test ./..."'
-STILLPASS_DEV_NS=rootfs scripts/portability.sh              # Debian host and Ubuntu host, one ledger
+STILLPASS_DEV_NS=rootfs scripts/portability.sh              # Debian host and Ubuntu host
 ```
 
 Without a rootfs the key pins the host's fingerprint (`--host-root`), which
