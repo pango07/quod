@@ -1,8 +1,8 @@
 //! Golden step keys: spec in, key out. A changed golden is a schema bump.
 //! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change
 //! (v2: `warm` added to the key, 2026-10-31; v3: `image` became an object
-//! with kind, digest, pinned mounts and the platform, 2026-10-31; v4: the
-//! platform carries the host class, 2026-10-31).
+//! with kind, digest, pinned mounts and the platform with its host class,
+//! 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;

@@ -10,11 +10,11 @@ use sp_cas::{CanonError, Hash, canonical_json};
 /// Schema version of the step key JSON. v2 added `warm`: a warm-state step is
 /// a different key by construction, not only through the env it changes. v3
 /// made `image` an object: what pinned the step's root (`kind`, `digest`),
-/// the read-only trees bound into it (`mounts`), and the host ABI no root
-/// filesystem can pin (`platform`). v4 added `platform.host`, the host class
-/// (everything constant about a host that a step can observe), and fixed
-/// the step's process state (umask, rlimits, signals, descriptors).
-pub const VERSION: u32 = 4;
+/// the read-only trees bound into it (`mounts`), and what the host shows a
+/// step that no root filesystem can pin (`platform`, with the host class
+/// `platform.host`); and the step's process state became fixed (umask,
+/// nice, rlimits, signals, descriptors).
+pub const VERSION: u32 = 3;
 
 /// How the environment outside the observed tree was pinned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -493,7 +493,7 @@ mod tests {
             j.contains(r#"["sysctl kernel.yama.ptrace_scope","1"]],"kernel":"6.8","page_size":4096}},"roots""#),
             "{j}"
         );
-        assert!(j.ends_with(r#""roots":["/workspace"],"v":4,"warm":false}"#));
+        assert!(j.ends_with(r#""roots":["/workspace"],"v":3,"warm":false}"#));
         let mut host = StepSpec::spike(
             Image::new(
                 ImageKind::Host,

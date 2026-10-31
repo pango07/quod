@@ -232,6 +232,8 @@ fn a_ring_mount_held_through_its_teardown_fails_the_run() {
     assert!(enabled(), "needs Linux and STILLPASS_INTEGRATION=1");
     let env = Env::new();
     let state = env.tmp.path().join("state-held");
+    // Rootfs mode (STILLPASS_ROOTFS set): this state dir needs the rootfs too.
+    seed_rootfs_in(&state);
     let t = Instant::now();
     // `unready`: the setup waits 10 s for its readiness probe, time to take
     // hold of the mount before the teardown starts.
