@@ -406,7 +406,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
         let read_mutated = fp.contains(p.as_str());
         let same_code = fresh.code == hit.code;
-        let same_out = normalize(&fresh.stdout) == normalize(&hit.stdout);
+        let same_out = normalize(tc, &fresh.stdout) == normalize(tc, &hit.stdout);
         if same_code && same_out && !read_mutated && only_fresh.is_empty() && only_hit.is_empty() {
             println!(
                 "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
@@ -513,8 +513,8 @@ fn warm_checks(env: &Env, step: &str, key: &Hash, src_file: &str, profile: &sp_k
     );
     assert_eq!(w1.code, cold.code, "W1: exit code cold vs warm");
     assert_eq!(
-        normalize(&w1.stdout),
-        normalize(&cold.stdout),
+        normalize(profile.toolchain, &w1.stdout),
+        normalize(profile.toolchain, &cold.stdout),
         "W1: stdout cold vs warm"
     );
     let warm_key = newest_key(env);
@@ -533,8 +533,8 @@ fn warm_checks(env: &Env, step: &str, key: &Hash, src_file: &str, profile: &sp_k
     );
     assert_eq!(w2.code, c2.code, "W2: exit code cold vs warm");
     assert_eq!(
-        normalize(&w2.stdout),
-        normalize(&c2.stdout),
+        normalize(profile.toolchain, &w2.stdout),
+        normalize(profile.toolchain, &c2.stdout),
         "W2: stdout cold vs warm after a one-file change"
     );
     let w3 = env.run_step(step, &["--warm"]);
@@ -704,107 +704,79 @@ fn failures(stdout: &[u8]) -> String {
         .join("\n")
 }
 
-/// Test runners print durations (`ok  pkg 0.412s`, `in 7.54s`, `Time: 1.2 s`,
-/// `(123 ms)`), clock times and, under worker parallelism, files in
-/// completion order; a fresh run differs from the record only there. Every
-/// duration and clock time becomes a placeholder, lines that are a `date`
-/// stamp are dropped, and the lines are sorted.
-fn normalize(stdout: &[u8]) -> String {
-    let mut lines: Vec<String> = String::from_utf8_lossy(stdout)
+/// What a fresh execution may differ from the record in: timing tokens on
+/// the lines the profile's test runner prints them on, and nothing else (no
+/// line sorting, nothing dropped, so a reordered or extra line is a
+/// difference). Go: go test's per-package `ok  \tpkg\t0.412s` and per-test
+/// `--- FAIL: TestX (0.01s)`. Node: Jest's `Time:` line and `(N s)` / `(N ms)`
+/// suffixes of PASS/FAIL and test lines. Python: pytest's summary line
+/// (`==== 1414 passed in 6.74s ====`, padded to the terminal width).
+fn normalize(tc: Toolchain, stdout: &[u8]) -> String {
+    String::from_utf8_lossy(stdout)
         .lines()
-        .filter(|l| !is_date_line(l))
-        .map(normalize_line)
-        .collect();
-    lines.sort();
-    lines.join("\n")
+        .map(|l| normalize_line(tc, l))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-/// `Sat Oct 31 11:13:24 GMT 2026` and the like: a line that is a date stamp.
-fn is_date_line(l: &str) -> bool {
-    const DAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    let mut words = l.split_whitespace();
-    matches!(words.next(), Some(d) if DAYS.contains(&d))
-        && words.clone().count() >= 4
-        && words.any(|w| w.len() == 4 && w.chars().all(|c| c.is_ascii_digit()))
-}
-
-/// Replaces `<number>[ ](ms|s)` tokens with `<dur>` and `hh:mm:ss` with
-/// `<time>`, at word boundaries, then collapses separator runs (pytest pads
-/// `==== 1414 passed in 6.74s ====` to the terminal width, so the fill
-/// depends on the duration's length).
-fn normalize_line(l: &str) -> String {
-    collapse_separators(&normalize_tokens(l))
-}
-
-/// Runs of three or more `=`, `-`, `_`, `*` or `~` become three.
-fn collapse_separators(l: &str) -> String {
-    let mut out = String::with_capacity(l.len());
-    let mut run: Option<(char, usize)> = None;
-    for ch in l.chars() {
-        match run {
-            Some((c, n)) if c == ch => {
-                run = Some((c, n + 1));
-                if n < 3 {
-                    out.push(ch);
-                }
-            }
-            _ => {
-                run = "=-_*~".contains(ch).then_some((ch, 1));
-                out.push(ch);
-            }
-        }
-    }
-    out
-}
-
-fn normalize_tokens(l: &str) -> String {
-    let b = l.as_bytes();
-    let mut out = String::new();
-    let mut i = 0;
-    while i < b.len() {
-        let prev_word = i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'.');
-        if b[i].is_ascii_digit() && !prev_word {
-            let mut j = i;
-            while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.' || b[j] == b',') {
-                j += 1;
-            }
-            // hh:mm:ss
-            if j + 6 <= b.len()
-                && b[j] == b':'
-                && l[j + 1..].starts_with(|c: char| c.is_ascii_digit())
-                && b[j + 3] == b':'
-                && b[j + 4..j + 6].iter().all(u8::is_ascii_digit)
+fn normalize_line(tc: Toolchain, l: &str) -> String {
+    match tc {
+        Toolchain::Go => {
+            if let Some((head, tail)) = l.rsplit_once('\t')
+                && is_seconds(tail)
             {
-                out.push_str("<time>");
-                i = j + 6;
-                continue;
+                return format!("{head}\t<dur>");
             }
-            let mut k = j;
-            if k < b.len() && b[k] == b' ' {
-                k += 1;
+            let t = l.trim_start();
+            if t.starts_with("--- ") {
+                return paren_duration(l);
             }
-            let unit = if l[k..].starts_with("ms") {
-                2
-            } else if l[k..].starts_with('s') {
-                1
-            } else {
-                0
-            };
-            let end = k + unit;
-            if unit > 0 && (end == b.len() || !b[end].is_ascii_alphanumeric()) {
-                out.push_str("<dur>");
-                i = end;
-                continue;
-            }
-            out.push_str(&l[i..j]);
-            i = j;
-            continue;
+            l.to_string()
         }
-        let ch = l[i..].chars().next().unwrap();
-        out.push(ch);
-        i += ch.len_utf8();
+        Toolchain::Node => {
+            let t = l.trim_start();
+            if t.starts_with("Time:") {
+                return format!("{}Time: <dur>", &l[..l.len() - t.len()]);
+            }
+            paren_duration(l)
+        }
+        Toolchain::Python => pytest_summary(l).unwrap_or_else(|| l.to_string()),
     }
-    out
+}
+
+/// `0.412s`, `12.5s`.
+fn is_seconds(s: &str) -> bool {
+    s.strip_suffix('s')
+        .is_some_and(|n| !n.is_empty() && n.parse::<f64>().is_ok())
+}
+
+/// A trailing `(0.01s)`, `(5.526 s)` or `(12 ms)` becomes `(<dur>)`.
+fn paren_duration(l: &str) -> String {
+    if let Some(open) = l.rfind(" (")
+        && let Some(inner) = l[open + 2..].strip_suffix(')')
+    {
+        let n = inner
+            .strip_suffix("ms")
+            .or_else(|| inner.strip_suffix('s'))
+            .map(str::trim_end);
+        if n.is_some_and(|n| !n.is_empty() && n.parse::<f64>().is_ok()) {
+            return format!("{} (<dur>)", &l[..open]);
+        }
+    }
+    l.to_string()
+}
+
+/// pytest's final line, `===== 1414 passed, 2 xfailed in 6.74s =====` (with an
+/// optional ` (0:01:02)`), whose `=` fill depends on the duration's length.
+fn pytest_summary(l: &str) -> Option<String> {
+    let inner = l
+        .strip_prefix('=')?
+        .strip_suffix('=')?
+        .trim_matches('=')
+        .trim();
+    let (what, when) = inner.rsplit_once(" in ")?;
+    let secs = when.split_once(' ').map_or(when, |(s, _)| s);
+    is_seconds(secs).then(|| format!("== {what} in <dur> =="))
 }
 
 #[cfg(test)]
@@ -812,40 +784,54 @@ mod normalize_tests {
     use super::*;
 
     #[test]
-    fn durations_times_and_dates() {
+    fn only_runner_timing_tokens() {
+        let go = |l| normalize_line(Toolchain::Go, l);
+        assert_eq!(go("ok  \tpkg/cmd\t0.412s"), "ok  \tpkg/cmd\t<dur>");
         assert_eq!(
-            normalize_line("ok  \tpkg/cmd\t0.412s"),
-            "ok  \tpkg/cmd\t<dur>"
+            go("    --- FAIL: TestX (0.01s)"),
+            "    --- FAIL: TestX (<dur>)"
+        );
+        assert_eq!(go("ok  \tpkg/cmd\t(cached)"), "ok  \tpkg/cmd\t(cached)");
+        assert_eq!(go("took 0.4s here"), "took 0.4s here");
+        let node = |l| normalize_line(Toolchain::Node, l);
+        assert_eq!(node("Time:        1.263 s, estimated 2 s"), "Time: <dur>");
+        assert_eq!(
+            node("PASS test/interval/setter.test.js (18.763 s)"),
+            "PASS test/interval/setter.test.js (<dur>)"
+        );
+        assert_eq!(node("  ✓ Diff (DST) (1 ms)"), "  ✓ Diff (DST) (<dur>)");
+        assert_eq!(node("  ✓ Diff (DST)"), "  ✓ Diff (DST)");
+        assert_eq!(node("All files |   98.1 |"), "All files |   98.1 |");
+        let py = |l| normalize_line(Toolchain::Python, l);
+        assert_eq!(
+            py("======= 1414 passed, 2 xfailed in 6.74s ========"),
+            py("======= 1414 passed, 2 xfailed in 10.66s =======")
         );
         assert_eq!(
-            normalize_line("== 1412 passed, 2 xfailed in 7.54s =="),
-            "== 1412 passed, 2 xfailed in <dur> =="
+            py("== 3 failed, 1 passed in 61.20s (0:01:01) =="),
+            "== 3 failed, 1 passed in <dur> =="
         );
         assert_eq!(
-            normalize_line("Time:        1.263 s, estimated 2 s"),
-            "Time:        <dur>, estimated <dur>"
+            py("== 1414 passed in 6.74s =="),
+            "== 1414 passed in <dur> =="
         );
         assert_eq!(
-            normalize_line("  ✓ Diff (DST) (1ms)"),
-            "  ✓ Diff (DST) (<dur>)"
+            py("tests/test_a.py ....  [ 50%]"),
+            "tests/test_a.py ....  [ 50%]"
         );
         assert_eq!(
-            normalize_line("   Start at  11:01:40"),
-            "   Start at  <time>"
+            py("== 1413 passed in 6.74s =="),
+            "== 1413 passed in <dur> =="
         );
-        assert_eq!(
-            normalize_line("v5.0.5 /work and 3 sources"),
-            "v5.0.5 /work and 3 sources"
+        // Nothing is sorted or dropped: order and date lines are compared.
+        let a = b"PASS b.test.js (2 s)\nPASS a.test.js (1 s)\n";
+        let b = b"PASS a.test.js (4 s)\nPASS b.test.js (1 s)\n";
+        assert_ne!(normalize(Toolchain::Node, a), normalize(Toolchain::Node, b));
+        let d1 = b"Sat Oct 31 11:13:24 GMT 2026\nok\n";
+        let d2 = b"Sat Oct 31 11:13:25 GMT 2026\nok\n";
+        assert_ne!(
+            normalize(Toolchain::Node, d1),
+            normalize(Toolchain::Node, d2)
         );
-        assert_eq!(
-            normalize_line("======= 1414 passed, 2 xfailed in 6.74s ========"),
-            normalize_line("======= 1414 passed, 2 xfailed in 10.66s ======="),
-        );
-        assert_eq!(normalize_line("a -- b ---- c"), "a -- b --- c");
-        assert!(is_date_line("Sat Oct 31 11:13:24 GMT 2026"));
-        assert!(!is_date_line("Sat is a day"));
-        let a = b"PASS b.test.js (2 s)\nPASS a.test.js (1 s)\nTime: 3 s\n";
-        let b = b"PASS a.test.js (4 s)\nPASS b.test.js (1 s)\nTime: 9 s\n";
-        assert_eq!(normalize(a), normalize(b));
     }
 }
