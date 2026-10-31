@@ -305,29 +305,28 @@ fn xattr(path: &Path, name: &str) -> Result<Option<Vec<u8>>, FsError> {
 
 /// Overlay markers this diff cannot interpret. Both xattr namespaces are
 /// checked (trusted.* as root, user.* with userxattr).
+/// The overlay is mounted without `userxattr`, so the kernel reads its
+/// markers in the `trusted.overlay.*` namespace only: `user.overlay.*`
+/// xattrs are ordinary attributes a step may set on its own files and mean
+/// nothing to the overlay, so they must mean nothing to the diff either.
 fn refuse_markers(path: &Path) -> Result<(), FsError> {
-    for ns in ["trusted", "user"] {
-        for m in ["redirect", "metacopy"] {
-            let name = format!("{ns}.overlay.{m}");
-            if xattr(path, &name)?.is_some() {
-                return Err(FsError::Io {
-                    what: format!(
-                        "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
-                        path.display()
-                    ),
-                    source: std::io::ErrorKind::Unsupported.into(),
-                });
-            }
+    for m in ["redirect", "metacopy"] {
+        let name = format!("trusted.overlay.{m}");
+        if xattr(path, &name)?.is_some() {
+            return Err(FsError::Io {
+                what: format!(
+                    "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
+                    path.display()
+                ),
+                source: std::io::ErrorKind::Unsupported.into(),
+            });
         }
     }
     Ok(())
 }
 
+/// Opaque as the kernel sees it: `trusted.overlay.opaque` (see
+/// `refuse_markers`); a step's own `user.overlay.opaque` is just an xattr.
 fn is_opaque(dir: &Path) -> Result<bool, FsError> {
-    for name in ["trusted.overlay.opaque", "user.overlay.opaque"] {
-        if xattr(dir, name)?.is_some_and(|v| v == b"y") {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(xattr(dir, "trusted.overlay.opaque")?.is_some_and(|v| v == b"y"))
 }

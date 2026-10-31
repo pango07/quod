@@ -264,3 +264,60 @@ fn overlay_diff_reports_exactly_the_writes() {
     assert!(after.get("gone").is_none() && after.get("gone/sub/f").is_none());
     assert!(after.get("newdir/deep/x").is_some() && after.get("pkg/old.txt").is_none());
 }
+
+/// Sets an xattr, as a step may on its own files.
+fn set_xattr(path: &Path, name: &str, value: &[u8]) {
+    use std::os::unix::ffi::OsStrExt;
+    let p = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let n = std::ffi::CString::new(name).unwrap();
+    // SAFETY: valid C strings and a buffer valid for its length.
+    #[allow(unsafe_code)] // setxattr(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::setxattr(
+            p.as_ptr(),
+            n.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+        )
+    };
+    assert_eq!(
+        rc,
+        0,
+        "setxattr {name} on {}: {}",
+        path.display(),
+        std::io::Error::last_os_error()
+    );
+}
+
+/// The overlay reads its markers in `trusted.overlay.*` only (no
+/// userxattr), so a `user.overlay.opaque` a step sets on a directory is an
+/// ordinary xattr: the merged view still shows the lower contents, and the
+/// diff must not claim they were deleted (that output would replay as a
+/// deletion a fresh run never makes).
+#[test]
+fn a_steps_user_overlay_xattrs_mean_nothing() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    sample(&tmp.path().join("src"));
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let tree = cas.import_dir(&tmp.path().join("src")).unwrap();
+    let served = mounted(&tree, &cas, tmp.path());
+    let ov = sp_fs::overlay(
+        &served,
+        &tmp.path().join("upper"),
+        &tmp.path().join("work"),
+        &tmp.path().join("merged"),
+    )
+    .unwrap();
+    set_xattr(&ov.merged().join("pkg"), "user.overlay.opaque", b"y");
+    fs::create_dir(ov.merged().join("mine")).unwrap();
+    set_xattr(&ov.merged().join("mine"), "user.overlay.redirect", b"/pkg");
+    assert!(ov.merged().join("pkg/cmd/root.go").exists(), "still merged");
+    let out = ov.finish(&tree, &cas).unwrap();
+    served.unmount().unwrap();
+    let got: Vec<(String, Kind)> = out.iter().map(|e| (e.p.clone(), e.k)).collect();
+    assert_eq!(got, vec![("mine".to_string(), Kind::Dir)], "{got:?}");
+}
