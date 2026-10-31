@@ -69,8 +69,10 @@ impl Runner {
         ] {
             std::fs::create_dir_all(work.join(d)).unwrap();
         }
-        // The spike repo (with .stillpass/gomod) is the host workspace the
-        // first job imports; later jobs check out of the local git server.
+        // The spike repo is the host workspace; jobs check out of the local
+        // git server. Its .stillpass/ (the module cache step A filled) is the
+        // operator's seed the scope's first job starts from: the seeds
+        // directory of the state, never the runner's work directory.
         let st = Command::new("cp")
             .arg("-a")
             .arg(env.repo.join("."))
@@ -78,6 +80,17 @@ impl Runner {
             .status()
             .unwrap();
         assert!(st.success());
+        if env.repo.join(".stillpass").is_dir() {
+            let seed = env.state().join("seeds/unknown");
+            std::fs::create_dir_all(&seed).unwrap();
+            let st = Command::new("cp")
+                .arg("-a")
+                .arg(env.repo.join(".stillpass"))
+                .arg(&seed)
+                .status()
+                .unwrap();
+            assert!(st.success());
+        }
         if image().is_some() {
             // The image, unpacked once, shared read-only with this state.
             let src = std::env::var("STILLPASS_HOOKS_ROOTFS")
@@ -637,6 +650,168 @@ fn hooks_acceptance() {
         "C3 ok: a secret under a plain name is caught by value shape, masked in the stored output"
     );
 
+    // A7: every recorded input, mutated, misses. Zero false hits.
+    let cas = Cas::open(r.state.join("cas")).unwrap();
+    let tree = r.tree();
+    let cands = r.ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
+    let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
+    let m = &cands[base];
+    let t = Instant::now();
+    let mut counts = [0usize; 4];
+    let mut false_hits = Vec::new();
+    for e in &m.entries {
+        let (slot, mutated) = match e.k {
+            Kind::File => {
+                let mut bytes = cas.get(&e.h.unwrap()).unwrap().unwrap();
+                match bytes.first_mut() {
+                    Some(b) => *b ^= 0x01,
+                    None => bytes.push(b'x'),
+                }
+                (
+                    0,
+                    tree.with_leaf_changed(Entry::file(
+                        e.p.clone(),
+                        Hash::of(&bytes),
+                        e.m.unwrap(),
+                    )),
+                )
+            }
+            Kind::Dir => (
+                1,
+                tree.with_outputs(&[Entry::file(
+                    child_path(&e.p, "zz_stillpass_a7"),
+                    Hash::of(b"x"),
+                    0o644,
+                )]),
+            ),
+            Kind::Absent => (
+                2,
+                tree.with_outputs(&[Entry::file(e.p.clone(), Hash::of(b"x"), 0o644)]),
+            ),
+            Kind::Symlink => (
+                3,
+                tree.with_leaf_changed(Entry::symlink(e.p.clone(), "zz_stillpass_a7")),
+            ),
+            Kind::Deleted => unreachable!("manifests never hold x"),
+        };
+        counts[slot] += 1;
+        if first_match(&cands, &mutated).is_some() {
+            false_hits.push(format!("{} {:?}", e.p, e.k));
+        }
+    }
+    println!(
+        "A7: mutated {} f, {} d, {} a, {} l entries in {:.1}s: {} false hits",
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3],
+        t.elapsed().as_secs_f64(),
+        false_hits.len()
+    );
+    assert!(false_hits.is_empty(), "A7 false hits: {false_hits:?}");
+
+    // A7b: unread paths mutated on disk (and committed, so the checkout
+    // serves them) must replay, and a fresh execution must agree.
+    let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let recorded: BTreeSet<&str> = m.entries.iter().map(|e| e.p.as_str()).collect();
+    let unread: Vec<&Entry> = tree
+        .iter()
+        .filter(|e| {
+            // Not .git: the checkout serves its own, and the files at those
+            // paths on disk are the test repository's.
+            e.k == Kind::File
+                && !recorded.contains(e.p.as_str())
+                && !e.p.starts_with(".stillpass/")
+                && !e.p.starts_with(".git/")
+        })
+        .filter(|e| r.env.repo.join(&e.p).is_file())
+        .collect();
+    let stride = (unread.len() / samples.max(1)).max(1);
+    let picked: Vec<String> = unread
+        .iter()
+        .step_by(stride)
+        .take(samples)
+        .map(|e| e.p.clone())
+        .collect();
+    for (i, p) in picked.iter().enumerate() {
+        std::fs::write(r.env.repo.join(p), b"\x00STILLPASS_A7B corrupted\n").unwrap();
+        r.env.commit(&format!("A7b {i}: corrupt {p}"));
+        let hit = r.job(step, &[]);
+        let rest = outside_git(m, &r.tree());
+        assert!(
+            hit.replayed() || rest.is_ok(),
+            "A7b: mutating unread {p} should replay, or miss only on the commit's .git: {rest:?}: {}",
+            hit.stderr
+        );
+        let fresh = r.job(step, &[("STILLPASS_A7B", &i.to_string())]);
+        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
+        let fresh_key = newest_key(&r);
+        let fresh_m = r.ledger().candidates(&fresh_key, 1).unwrap().remove(0);
+        let fp: BTreeSet<&str> = fresh_m.entries.iter().map(|e| e.p.as_str()).collect();
+        assert!(
+            !fp.contains(p.as_str()),
+            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded"
+        );
+        assert_eq!(fresh.code, hit.code, "A7b: {p} changed the exit code");
+        assert_eq!(
+            normalize(&fresh.stdout),
+            normalize(&hit.stdout),
+            "A7b: {p} changed the output"
+        );
+        let only_fresh: Vec<&str> = fp.difference(&recorded).copied().collect();
+        let only_hit: Vec<&str> = recorded.difference(&fp).copied().collect();
+        println!(
+            "A7b ok: unread {p} mutated, replay agrees with a fresh execution ({} paths; {} only fresh, {} only replayed)",
+            fp.len(),
+            only_fresh.len(),
+            only_hit.len()
+        );
+    }
+    // A7b beyond the repository: what the step cannot see must not change
+    // its result. A file in the runner's own RUNNER_TEMP (the step gets a
+    // fresh one), and the warm GOCACHE (wiped: a fresh run with an empty
+    // cache must agree with the recorded result).
+    std::fs::write(r.work.join("_temp/zz_stillpass_a7b"), "planted\n").unwrap();
+    let hit = r.job(step, &[]);
+    assert!(hit.replayed(), "A7b RUNNER_TEMP: {}", hit.stderr);
+    let fresh = r.job(step, &[("STILLPASS_A7B", "temp")]);
+    assert!(
+        fresh.executed() && fresh.code == hit.code,
+        "A7b RUNNER_TEMP: {}",
+        fresh.stderr
+    );
+    assert_eq!(
+        normalize(&fresh.stdout),
+        normalize(&hit.stdout),
+        "A7b RUNNER_TEMP"
+    );
+    std::fs::remove_file(r.work.join("_temp/zz_stillpass_a7b")).unwrap();
+    println!("A7b ok: a file in the runner's RUNNER_TEMP changes nothing");
+    let warm = r.scope().join("warm");
+    if warm.exists() {
+        sp_cas::remove_any(&warm).unwrap();
+    }
+    let hit = r.job(step, &[]);
+    assert!(hit.replayed(), "A7b GOCACHE: {}", hit.stderr);
+    let fresh = r.job(step, &[("STILLPASS_A7B", "gocache")]);
+    assert!(
+        fresh.executed() && fresh.code == hit.code,
+        "A7b GOCACHE: {}",
+        fresh.stderr
+    );
+    assert_eq!(
+        normalize(&fresh.stdout),
+        normalize(&hit.stdout),
+        "A7b GOCACHE"
+    );
+    println!("A7b ok: an empty warm GOCACHE gives the recorded result");
+
+    // After A7 and A7b, which mutate the main step's recorded tree: these
+    // run other steps, and on a real module (cli/cli) `go list` can add to
+    // the persisted module cache, which would move the tree A7 starts from.
     // B1: which withheld or placeholder variables a job has is in the key.
     // A step that branches on a variable's presence (a test that skips
     // without GITHUB_TOKEN; an action that asks for an OIDC token only when
@@ -834,165 +1009,6 @@ fn hooks_acceptance() {
     );
     r.proofs = 1;
     println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
-
-    // A7: every recorded input, mutated, misses. Zero false hits.
-    let cas = Cas::open(r.state.join("cas")).unwrap();
-    let tree = r.tree();
-    let cands = r.ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
-    let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
-    let m = &cands[base];
-    let t = Instant::now();
-    let mut counts = [0usize; 4];
-    let mut false_hits = Vec::new();
-    for e in &m.entries {
-        let (slot, mutated) = match e.k {
-            Kind::File => {
-                let mut bytes = cas.get(&e.h.unwrap()).unwrap().unwrap();
-                match bytes.first_mut() {
-                    Some(b) => *b ^= 0x01,
-                    None => bytes.push(b'x'),
-                }
-                (
-                    0,
-                    tree.with_leaf_changed(Entry::file(
-                        e.p.clone(),
-                        Hash::of(&bytes),
-                        e.m.unwrap(),
-                    )),
-                )
-            }
-            Kind::Dir => (
-                1,
-                tree.with_outputs(&[Entry::file(
-                    child_path(&e.p, "zz_stillpass_a7"),
-                    Hash::of(b"x"),
-                    0o644,
-                )]),
-            ),
-            Kind::Absent => (
-                2,
-                tree.with_outputs(&[Entry::file(e.p.clone(), Hash::of(b"x"), 0o644)]),
-            ),
-            Kind::Symlink => (
-                3,
-                tree.with_leaf_changed(Entry::symlink(e.p.clone(), "zz_stillpass_a7")),
-            ),
-            Kind::Deleted => unreachable!("manifests never hold x"),
-        };
-        counts[slot] += 1;
-        if first_match(&cands, &mutated).is_some() {
-            false_hits.push(format!("{} {:?}", e.p, e.k));
-        }
-    }
-    println!(
-        "A7: mutated {} f, {} d, {} a, {} l entries in {:.1}s: {} false hits",
-        counts[0],
-        counts[1],
-        counts[2],
-        counts[3],
-        t.elapsed().as_secs_f64(),
-        false_hits.len()
-    );
-    assert!(false_hits.is_empty(), "A7 false hits: {false_hits:?}");
-
-    // A7b: unread paths mutated on disk (and committed, so the checkout
-    // serves them) must replay, and a fresh execution must agree.
-    let samples: usize = std::env::var("STILLPASS_A7B_SAMPLES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3);
-    let recorded: BTreeSet<&str> = m.entries.iter().map(|e| e.p.as_str()).collect();
-    let unread: Vec<&Entry> = tree
-        .iter()
-        .filter(|e| {
-            // Not .git: the checkout serves its own, and the files at those
-            // paths on disk are the test repository's.
-            e.k == Kind::File
-                && !recorded.contains(e.p.as_str())
-                && !e.p.starts_with(".stillpass/")
-                && !e.p.starts_with(".git/")
-        })
-        .filter(|e| r.env.repo.join(&e.p).is_file())
-        .collect();
-    let stride = (unread.len() / samples.max(1)).max(1);
-    let picked: Vec<String> = unread
-        .iter()
-        .step_by(stride)
-        .take(samples)
-        .map(|e| e.p.clone())
-        .collect();
-    for (i, p) in picked.iter().enumerate() {
-        std::fs::write(r.env.repo.join(p), b"\x00STILLPASS_A7B corrupted\n").unwrap();
-        r.env.commit(&format!("A7b {i}: corrupt {p}"));
-        let hit = r.job(step, &[]);
-        let rest = outside_git(m, &r.tree());
-        assert!(
-            hit.replayed() || rest.is_ok(),
-            "A7b: mutating unread {p} should replay, or miss only on the commit's .git: {rest:?}: {}",
-            hit.stderr
-        );
-        let fresh = r.job(step, &[("STILLPASS_A7B", &i.to_string())]);
-        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
-        let fresh_key = newest_key(&r);
-        let fresh_m = r.ledger().candidates(&fresh_key, 1).unwrap().remove(0);
-        let fp: BTreeSet<&str> = fresh_m.entries.iter().map(|e| e.p.as_str()).collect();
-        assert!(
-            !fp.contains(p.as_str()),
-            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded"
-        );
-        assert_eq!(fresh.code, hit.code, "A7b: {p} changed the exit code");
-        assert_eq!(
-            normalize(&fresh.stdout),
-            normalize(&hit.stdout),
-            "A7b: {p} changed the output"
-        );
-        let only_fresh: Vec<&str> = fp.difference(&recorded).copied().collect();
-        let only_hit: Vec<&str> = recorded.difference(&fp).copied().collect();
-        println!(
-            "A7b ok: unread {p} mutated, replay agrees with a fresh execution ({} paths; {} only fresh, {} only replayed)",
-            fp.len(),
-            only_fresh.len(),
-            only_hit.len()
-        );
-    }
-    // A7b beyond the repository: what the step cannot see must not change
-    // its result. A file in the runner's own RUNNER_TEMP (the step gets a
-    // fresh one), and the warm GOCACHE (wiped: a fresh run with an empty
-    // cache must agree with the recorded result).
-    std::fs::write(r.work.join("_temp/zz_stillpass_a7b"), "planted\n").unwrap();
-    let hit = r.job(step, &[]);
-    assert!(hit.replayed(), "A7b RUNNER_TEMP: {}", hit.stderr);
-    let fresh = r.job(step, &[("STILLPASS_A7B", "temp")]);
-    assert!(
-        fresh.executed() && fresh.code == hit.code,
-        "A7b RUNNER_TEMP: {}",
-        fresh.stderr
-    );
-    assert_eq!(
-        normalize(&fresh.stdout),
-        normalize(&hit.stdout),
-        "A7b RUNNER_TEMP"
-    );
-    std::fs::remove_file(r.work.join("_temp/zz_stillpass_a7b")).unwrap();
-    println!("A7b ok: a file in the runner's RUNNER_TEMP changes nothing");
-    let warm = r.scope().join("warm");
-    if warm.exists() {
-        sp_cas::remove_any(&warm).unwrap();
-    }
-    let hit = r.job(step, &[]);
-    assert!(hit.replayed(), "A7b GOCACHE: {}", hit.stderr);
-    let fresh = r.job(step, &[("STILLPASS_A7B", "gocache")]);
-    assert!(
-        fresh.executed() && fresh.code == hit.code,
-        "A7b GOCACHE: {}",
-        fresh.stderr
-    );
-    assert_eq!(
-        normalize(&fresh.stdout),
-        normalize(&hit.stdout),
-        "A7b GOCACHE"
-    );
-    println!("A7b ok: an empty warm GOCACHE gives the recorded result");
 
     println!(
         "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1 and T1-T2 pass{}",
