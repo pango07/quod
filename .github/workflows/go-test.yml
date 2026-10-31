@@ -1,0 +1,42 @@
+# cli/cli's "Unit and Integration Tests" build job (.github/workflows/go.yml at
+# the pinned commit), on the stillpass runner in the golang job container.
+name: go-test
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: cli/cli commit to test
+        default: 9490d204a2ba95434153dedce99898ce9f281426
+      race:
+        description: pass -race to go test
+        default: "true"
+jobs:
+  build:
+    runs-on: [self-hosted, stillpass]
+    container:
+      image: golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cli/cli
+          ref: ${{ inputs.commit }}
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+        with:
+          cache-key-prefix: go-race
+
+      - name: Download dependencies
+        run: go mod download
+
+      # -count=1 disables Go's test result cache so every test runs. The build
+      # cache above only exists to reuse compiled packages.
+      - name: Run unit and integration tests
+        run: go test -count=1 ${{ inputs.race == 'true' && '-race' || '' }} -tags=integration ./...
+
+      - name: Build
+        run: go build -v ./cmd/gh
+
+      - name: Build with debug overrides
+        run: go build -v -tags=ghdebug ./cmd/gh
