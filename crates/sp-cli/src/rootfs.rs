@@ -28,6 +28,10 @@
 //! another uid would see every file as nobody's, a different environment,
 //! so `open` refuses a snapshot it does not own.
 //!
+//! The same document format pins any read-only tree (`put_tree`): a runner
+//! adapter's mounts are bound from snapshots under `<cas>/rootfs/mounts`
+//! and their digests are part of the key. The runner API is `crate::step`.
+//!
 //! What a rootfs mode step can still learn about the host is listed on
 //! `sp_sandbox`; the key pins what changes behavior (`platform`).
 
@@ -52,6 +56,9 @@ pub const VERSION: u32 = 1;
 
 /// Sealed snapshots of rootfs trees kept per store beyond the one in use.
 const KEEP: usize = 3;
+
+/// Snapshots of pinned mount trees kept per store beyond those in use.
+const KEEP_MOUNTS: usize = 8;
 
 /// Where a tree lies inside its snapshot directory (beside the marker).
 const SUBDIR: &str = "root";
@@ -212,6 +219,10 @@ fn snapshots_dir(cas: &Cas) -> PathBuf {
     cas.dir().join("rootfs/snapshots")
 }
 
+fn mounts_dir(cas: &Cas) -> PathBuf {
+    cas.dir().join("rootfs/mounts")
+}
+
 /// A rootfs digest from `b3:<hex>`, or from the OCI digest `sha256:<hex>`
 /// of an image imported into this store.
 pub fn resolve(cas: &Cas, id: &str) -> anyhow::Result<Hash> {
@@ -244,7 +255,8 @@ pub fn resolve(cas: &Cas, id: &str) -> anyhow::Result<Hash> {
     bail!("{id:?} is neither a rootfs digest (b3:...) nor an OCI digest (sha256:...)")
 }
 
-/// The tree a rootfs digest names, from the store.
+/// The tree a digest names, from the store: a rootfs, or any tree stored
+/// with `put_tree`.
 pub fn tree(cas: &Cas, digest: &Hash) -> anyhow::Result<Tree> {
     let bytes = cas
         .get(digest)?
@@ -258,6 +270,24 @@ pub fn tree(cas: &Cas, digest: &Hash) -> anyhow::Result<Tree> {
         );
     }
     Ok(Tree::from_leaves(doc.entries))
+}
+
+/// Stores a tree as a document (the rootfs format, without the rootfs
+/// rules) and returns its digest: how a runner pins a workspace or a
+/// read-only mount by content. Every blob it names must be in the store.
+pub fn put_tree(cas: &Cas, tree: &Tree) -> anyhow::Result<Hash> {
+    for e in tree.iter() {
+        if let Some(h) = e.h.filter(|_| e.k == Kind::File)
+            && !cas.has(&h)
+        {
+            bail!("{} names blob {h}, which is not in the store", e.p);
+        }
+    }
+    let doc = Doc {
+        v: VERSION,
+        entries: tree.iter().cloned().collect(),
+    };
+    Ok(cas.put(canonical_json(&doc)?.as_bytes())?)
 }
 
 /// `entries` under `SUBDIR/`, the way a snapshot holds them.
@@ -316,6 +346,39 @@ pub fn open(cas: &Cas, digest: &Hash) -> anyhow::Result<Rootfs> {
 /// (never one in use). Housekeeping: never fails a run.
 pub fn gc(cas: &Cas, current: &Rootfs) -> usize {
     snapshot::gc(&snapshots_dir(cas), KEEP, &current.snapshot.dir)
+}
+
+/// A pinned read-only tree, materialized for binding: `dir()` is the tree,
+/// read-only, shared-locked against gc while this is held.
+pub struct PinnedTree {
+    snapshot: Snapshot,
+}
+
+impl PinnedTree {
+    pub fn dir(&self) -> PathBuf {
+        self.snapshot.dir.join(SUBDIR)
+    }
+}
+
+/// Materializes the tree `digest` names (`put_tree`) as a sealed snapshot:
+/// directories 0555, files hard links to their blobs where the mode allows.
+pub fn open_pinned(cas: &Cas, digest: &Hash) -> anyhow::Result<PinnedTree> {
+    let tree = tree(cas, digest)?;
+    let entries = under_subdir(&tree);
+    let refs: Vec<&Entry> = entries.iter().collect();
+    let snapshot = snapshot::ensure(cas, &refs, &mounts_dir(cas))
+        .with_context(|| format!("materialize tree {digest}"))?;
+    let p = PinnedTree { snapshot };
+    check_owner(&p.dir())?;
+    Ok(p)
+}
+
+/// Removes pinned-tree snapshots beyond the most recently used (never one
+/// in use: `current`, or any another run holds). Never fails a run.
+pub fn gc_pinned(cas: &Cas, current: Option<&PinnedTree>) -> usize {
+    let none = PathBuf::new();
+    let cur = current.map_or(none, |p| p.snapshot.dir.clone());
+    snapshot::gc(&mounts_dir(cas), KEEP_MOUNTS, &cur)
 }
 
 /// A per-step overlay over a sealed rootfs: the step's `/`, writable, with
@@ -779,5 +842,38 @@ mod tests {
             std::os::unix::fs::chown(&dir, Some(me), None).unwrap();
             assert!(open(&cas, &r.digest).is_ok());
         }
+    }
+
+    #[test]
+    fn put_tree_pins_any_tree_and_open_pinned_seals_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let src = tmp.path().join("tools");
+        fs::create_dir_all(src.join("bin")).unwrap();
+        fs::write(src.join("bin/t"), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(src.join("bin/t"), fs::Permissions::from_mode(0o755)).unwrap();
+        let t = cas.import_dir(&src).unwrap();
+        let d = put_tree(&cas, &t).unwrap();
+        assert_eq!(tree(&cas, &d).unwrap().len(), t.len());
+        assert_eq!(put_tree(&cas, &t).unwrap(), d, "content-addressed");
+        let p = open_pinned(&cas, &d).unwrap();
+        assert_eq!(
+            fs::read_to_string(p.dir().join("bin/t")).unwrap(),
+            "#!/bin/sh\n"
+        );
+        assert_eq!(
+            fs::metadata(p.dir().join("bin"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o555,
+            "sealed: nobody writes into a pinned tree"
+        );
+        assert!(!p.dir().join(".complete").exists());
+        // A tree naming a blob the store lacks is refused.
+        let bad = Tree::from_leaves([Entry::file("x", Hash::of(b"absent"), 0o644)]);
+        assert!(put_tree(&cas, &bad).is_err());
+        assert_eq!(gc_pinned(&cas, Some(&p)), 0);
     }
 }

@@ -262,3 +262,71 @@ pub fn last_event_line(state: &Path, message: &str) -> Option<String> {
         .find(|l| l.contains(&needle))
         .map(str::to_string)
 }
+
+/// A minimal root filesystem made from this host's `bins` (plus `sh`) and
+/// the libraries `ldd` names, at their host paths (with the host's top-level
+/// symlinks such as `bin -> usr/bin`), an /etc of our making and the usual
+/// top-level directories: enough to import with `stillpass rootfs import`
+/// and run shell steps in, without the real rootfs.
+pub fn mini_rootfs(dir: &Path, bins: &[&str]) {
+    let place = |host: &Path| -> PathBuf {
+        let rel = host.strip_prefix("/").unwrap();
+        let mut parts = rel.components();
+        let first = parts.next().unwrap().as_os_str().to_owned();
+        let base = match fs::read_link(Path::new("/").join(&first)) {
+            Ok(target) => dir.join(target),
+            Err(_) => dir.join(&first),
+        };
+        base.join(parts.as_path())
+    };
+    let bring = |host: &Path| {
+        let real = fs::canonicalize(host).unwrap();
+        let dest = place(&real);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        if !dest.exists() {
+            fs::copy(&real, &dest).unwrap_or_else(|e| panic!("copy {}: {e}", real.display()));
+        }
+        if let Ok(target) = fs::read_link(host) {
+            let link = place(host);
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            if fs::symlink_metadata(&link).is_err() {
+                std::os::unix::fs::symlink(target, link).unwrap();
+            }
+        }
+    };
+    fs::create_dir_all(dir).unwrap();
+    for top in ["bin", "sbin", "lib", "lib64", "lib32"] {
+        if let Ok(target) = fs::read_link(Path::new("/").join(top)) {
+            std::os::unix::fs::symlink(target, dir.join(top)).unwrap();
+        }
+    }
+    for bin in std::iter::once(&"sh").chain(bins) {
+        let out = Command::new("sh")
+            .args(["-c", &format!("command -v {bin}")])
+            .output()
+            .unwrap();
+        let path = PathBuf::from(String::from_utf8(out.stdout).unwrap().trim());
+        assert!(path.is_absolute(), "{bin} not found on this host");
+        bring(&path);
+        let ldd = Command::new("ldd").arg(&path).output().unwrap();
+        for line in String::from_utf8_lossy(&ldd.stdout).lines() {
+            let lib = line.split_once("=>").map_or(line, |(_, rhs)| rhs).trim();
+            if let Some(lib) = lib.split_whitespace().next()
+                && lib.starts_with('/')
+            {
+                bring(Path::new(lib));
+            }
+        }
+    }
+    let w = |p: &str, s: &str| {
+        let p = dir.join(p);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, s).unwrap();
+    };
+    w("etc/os-release", "ID=stillpass-mini\n");
+    w("etc/passwd", "root:x:0:0:root:/root:/bin/sh\n");
+    w("etc/group", "root:x:0:\n");
+    for d in ["dev", "proc", "sys", "tmp", "opt", "var", "workspace"] {
+        fs::create_dir_all(dir.join(d)).unwrap();
+    }
+}

@@ -11,6 +11,7 @@ mod rootfs;
 mod run;
 mod snapshot;
 mod state;
+mod step;
 
 /// Exit code for Stillpass's own failures, distinct from any step's.
 pub const EXIT_STILLPASS_ERROR: u8 = 2;
@@ -45,6 +46,8 @@ enum Cmd {
     },
     /// Pinned root filesystems for steps: import one, list them.
     Rootfs(rootfs::RootfsArgs),
+    /// Run one step from a JSON request (the runner API; see crate::step).
+    Step(step::StepArgs),
 }
 
 fn main() -> ExitCode {
@@ -58,6 +61,7 @@ fn main() -> ExitCode {
                 inspect::inspect(&state, &id, ledger.as_deref()).map(|()| 0)
             }
             Cmd::Rootfs(args) => rootfs::cli(&state, args).map(|()| 0),
+            Cmd::Step(args) => step::cli(&state, args),
         }
     })();
     match result {
