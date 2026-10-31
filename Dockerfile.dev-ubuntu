@@ -1,0 +1,17 @@
+# The second host for the portability proof (scripts/dev-host2.sh): an
+# Ubuntu 24.04 userland with other packages, another glibc and another /etc
+# than Dockerfile.dev's Debian, and deliberately NO Go toolchain, so a step
+# that passes here can only have used the pinned rootfs. Shares nothing with
+# the first host but the state directory (CAS, ledger, snapshots).
+FROM ubuntu:24.04
+ARG RUST_TOOLCHAIN
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bubblewrap ca-certificates curl fuse3 git build-essential pkg-config \
+      sqlite3 util-linux procps time openssh-client jq \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH=/usr/local/cargo/bin:$PATH \
+    RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
+      --default-toolchain "${RUST_TOOLCHAIN}" -c rustfmt -c clippy
+RUN echo user_allow_other >> /etc/fuse.conf
+WORKDIR /src

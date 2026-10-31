@@ -29,6 +29,18 @@ pub fn overlay(
     work: &Path,
     merged: &Path,
 ) -> Result<Overlay, FsError> {
+    overlay_dir(served.mountpoint(), upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` with any directory as lower (`overlay`
+/// passes the observer's mount). `finish` diffs the upper against the tree
+/// the lower presents.
+pub fn overlay_dir(
+    lower: &Path,
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
     for d in [upper, work, merged] {
         fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
     }
@@ -37,7 +49,7 @@ pub fn overlay(
         // copy up an empty file), no redirects (a renamed dir would arrive
         // without contents), no index.
         "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
-        served.mountpoint().display(),
+        lower.display(),
         upper.display(),
         work.display()
     );
@@ -142,7 +154,10 @@ impl Overlay {
         Ok(out)
     }
 
-    fn unmount(&mut self) -> Result<(), FsError> {
+    /// Unmounts the overlay without diffing it (idempotent; `finish` after
+    /// this diffs the upper as it is then). For a caller that must edit the
+    /// upper first: after the unmount nothing but this process reaches it.
+    pub fn unmount(&mut self) -> Result<(), FsError> {
         if !self.mounted {
             return Ok(());
         }
@@ -293,29 +308,110 @@ fn xattr(path: &Path, name: &str) -> Result<Option<Vec<u8>>, FsError> {
 
 /// Overlay markers this diff cannot interpret. Both xattr namespaces are
 /// checked (trusted.* as root, user.* with userxattr).
+/// The overlay is mounted without `userxattr`, so the kernel reads its
+/// markers in the `trusted.overlay.*` namespace only: `user.overlay.*`
+/// xattrs are ordinary attributes a step may set on its own files and mean
+/// nothing to the overlay, so they must mean nothing to the diff either.
 fn refuse_markers(path: &Path) -> Result<(), FsError> {
-    for ns in ["trusted", "user"] {
-        for m in ["redirect", "metacopy"] {
-            let name = format!("{ns}.overlay.{m}");
-            if xattr(path, &name)?.is_some() {
-                return Err(FsError::Io {
-                    what: format!(
-                        "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
-                        path.display()
-                    ),
-                    source: std::io::ErrorKind::Unsupported.into(),
-                });
-            }
+    for m in ["redirect", "metacopy"] {
+        let name = format!("trusted.overlay.{m}");
+        if xattr(path, &name)?.is_some() {
+            return Err(FsError::Io {
+                what: format!(
+                    "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
+                    path.display()
+                ),
+                source: std::io::ErrorKind::Unsupported.into(),
+            });
         }
     }
     Ok(())
 }
 
+/// Opaque as the kernel sees it: `trusted.overlay.opaque` (see
+/// `refuse_markers`); a step's own `user.overlay.opaque` is just an xattr.
 fn is_opaque(dir: &Path) -> Result<bool, FsError> {
-    for name in ["trusted.overlay.opaque", "user.overlay.opaque"] {
-        if xattr(dir, name)?.is_some_and(|v| v == b"y") {
-            return Ok(true);
-        }
+    Ok(xattr(dir, "trusted.overlay.opaque")?.is_some_and(|v| v == b"y"))
+}
+
+/// A tmpfs mounted at a directory, unmounted on drop: a scratch filesystem
+/// whose behavior (readdir in creation order, no host filesystem's hash
+/// seed, nothing on disk) does not depend on the host's disks.
+pub struct Tmpfs {
+    dir: PathBuf,
+    mounted: bool,
+}
+
+/// Mounts a tmpfs at `dir` (created if missing) with `options` (e.g.
+/// `size=4096m,mode=0755`). Needs root or CAP_SYS_ADMIN.
+pub fn tmpfs(dir: &Path, options: &str) -> Result<Tmpfs, FsError> {
+    fs::create_dir_all(dir).map_err(FsError::io(format!("create {}", dir.display())))?;
+    let c = |s: &[u8]| {
+        CString::new(s).map_err(|_| FsError::Io {
+            what: "tmpfs path contains NUL".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        })
+    };
+    let (src, target, fstype, data) = (
+        c(b"tmpfs")?,
+        c(dir.as_os_str().as_bytes())?,
+        c(b"tmpfs")?,
+        c(options.as_bytes())?,
+    );
+    // SAFETY: every pointer is a valid NUL-terminated string that outlives the call.
+    #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::mount(
+            src.as_ptr(),
+            target.as_ptr(),
+            fstype.as_ptr(),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            data.as_ptr().cast(),
+        )
+    };
+    if rc != 0 {
+        return Err(FsError::Io {
+            what: format!("mount tmpfs at {} ({options})", dir.display()),
+            source: std::io::Error::last_os_error(),
+        });
     }
-    Ok(false)
+    Ok(Tmpfs {
+        dir: dir.to_path_buf(),
+        mounted: true,
+    })
+}
+
+impl Tmpfs {
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Unmounts now (contents are lost), reporting failure.
+    pub fn unmount(mut self) -> Result<(), FsError> {
+        self.unmount_inner()
+    }
+
+    fn unmount_inner(&mut self) -> Result<(), FsError> {
+        if !self.mounted {
+            return Ok(());
+        }
+        let target = CString::new(self.dir.as_os_str().as_bytes()).expect("checked at mount");
+        // SAFETY: target is a valid NUL-terminated path.
+        #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+        let rc = unsafe { libc::umount2(target.as_ptr(), 0) };
+        if rc != 0 {
+            return Err(FsError::Io {
+                what: format!("unmount tmpfs {}", self.dir.display()),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        self.mounted = false;
+        Ok(())
+    }
+}
+
+impl Drop for Tmpfs {
+    fn drop(&mut self) {
+        let _ = self.unmount_inner();
+    }
 }

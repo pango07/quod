@@ -261,7 +261,7 @@ fn touch(dir: &Path) {
 
 /// A suffix no other process will pick: not the pid, which pid namespaces
 /// sharing a volume reuse.
-fn random() -> String {
+pub(crate) fn random() -> String {
     let mut b = [0u8; 8];
     if File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut b))

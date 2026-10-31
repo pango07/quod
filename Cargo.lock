@@ -888,6 +888,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "serde",
  "serde_json",
  "sp-cas",
  "sp-fs",
@@ -972,6 +973,7 @@ dependencies = [
 name = "sp-sandbox"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "tempfile",
  "thiserror",
  "tracing",

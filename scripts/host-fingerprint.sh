@@ -5,7 +5,7 @@
 # resolves the same toolchain the step will.
 set -eu
 export PATH=/usr/local/go/bin:/usr/bin:/bin GOTOOLCHAIN=local HOME=/nonexistent GOENV=off
-go=$(command -v go)
+go=$(command -v go) || { echo "no go on PATH ($PATH): host mode pins the host's Go toolchain; use --rootfs" >&2; exit 1; }
 echo "go $(go env GOVERSION) $(go env GOOS)/$(go env GOARCH) GOROOT=$(go env GOROOT)"
 echo "go binary $(sha256sum "$go" | cut -c1-64)"
 echo "glibc $(getconf GNU_LIBC_VERSION 2>/dev/null || ldd --version 2>&1 | head -1)"

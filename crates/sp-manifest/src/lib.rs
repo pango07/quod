@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 use sp_cas::{CanonError, canonical_json};
 pub use sp_cas::{Entry, Hash, Kind, Tree};
 
-/// Schema version of manifests and results.
-pub const VERSION: u32 = 1;
+/// Schema version of manifests and results. v2 (2026-10-31): results gain
+/// `root_outputs`, what a step wrote outside the workspace when it ran in a
+/// pinned rootfs (the whole root is a per-step overlay there).
+pub const VERSION: u32 = 2;
 
 /// One observed access, as the observer logs it. `kind` is what the access
 /// proved about the path: `f`, `d` or `l` for a path that exists, `a` for a
@@ -42,7 +44,15 @@ pub struct StepResult {
     pub exit_code: i32,
     pub stdout: Hash,
     pub stderr: Hash,
+    /// Writes under the workspace root, relative to it.
     pub outputs: Vec<Entry>,
+    /// Writes anywhere else, relative to `/`: in a pinned rootfs the whole
+    /// root is an overlay and its upper dir is diffed like the workspace's
+    /// (a tool cache under /opt, a config under /home). Empty on the host
+    /// root, where writes outside the workspace fail. Left out of the JSON
+    /// when empty, so results without them read as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub root_outputs: Vec<Entry>,
     pub duration_ms: u64,
 }
 
@@ -353,10 +363,36 @@ mod tests {
         );
         assert!(j.contains(r#"{"k":"a","p":"gone"}"#), "{j}");
         assert!(j.contains(r#""k":"f","m":420,"p":"go.mod"}"#), "{j}");
-        assert!(j.ends_with(r#""v":1}"#));
+        assert!(j.ends_with(r#""v":2}"#));
         let back: Manifest = serde_json::from_str(&j).unwrap();
         assert_eq!(back, m);
         assert_eq!(manifest_id(&back).unwrap(), manifest_id(&m).unwrap());
+
+        // A result without root outputs serializes without the field, and a
+        // stored one without it reads back as empty.
+        let mut r = StepResult {
+            v: VERSION,
+            step_key: Hash::of(b"k"),
+            manifest_id: manifest_id(&m).unwrap(),
+            run_id: "01RUN".into(),
+            recorded_at: "2026-10-31T00:00:00.000Z".into(),
+            exit_code: 0,
+            stdout: Hash::of(b""),
+            stderr: Hash::of(b""),
+            outputs: vec![Entry::file("out.txt", Hash::of(b"w"), 0o644)],
+            root_outputs: vec![],
+            duration_ms: 1,
+        };
+        let j = canonical_json(&r).unwrap();
+        assert!(!j.contains("root_outputs"), "{j}");
+        assert_eq!(serde_json::from_str::<StepResult>(&j).unwrap(), r);
+        r.root_outputs = vec![Entry::file("opt/marker", Hash::of(b"m"), 0o644)];
+        let j = canonical_json(&r).unwrap();
+        assert!(
+            j.contains(r#""root_outputs":[{"h":"b3:"#) && j.contains(r#""p":"opt/marker"}]"#),
+            "{j}"
+        );
+        assert_eq!(serde_json::from_str::<StepResult>(&j).unwrap(), r);
     }
 
     #[test]

@@ -10,6 +10,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# uname(2) for the platform probe (host_platform).
+libc.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

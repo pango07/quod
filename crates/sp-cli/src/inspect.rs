@@ -31,6 +31,12 @@ fn render(state: &State, id: &str, ledger: Option<&Path>) -> anyhow::Result<Stri
             bail!("{h} is neither a manifest id nor a step key with manifests");
         }
         writeln!(o, "step key {h}: {} manifest(s), newest first", rows.len())?;
+        if let Some(json) = ledger.step_key_json(&h)? {
+            // The environment pin (rootfs or host, arch, kernel) and the
+            // rest of what the key was computed from.
+            let v: serde_json::Value = serde_json::from_str(&json)?;
+            writeln!(o, "{}", serde_json::to_string_pretty(&v)?)?;
+        }
         for r in rows {
             writeln!(
                 o,

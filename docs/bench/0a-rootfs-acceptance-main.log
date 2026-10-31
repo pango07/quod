@@ -1,0 +1,219 @@
+# scripts/acceptance.sh in rootfs mode on the ring, exp/rootfs 7304eb9 rebased onto main 03cb517 (step key schema v3), 2026-10-31 17:54-18:08 UTC, load 32-40 (other agents)
+# STILLPASS_FUSE_TRANSPORT=uring STILLPASS_ROOTFS=b3:3500d167... STILLPASS_ROOTFS_SRC=/work/rootfs/go1.27.3-bookworm-arm64.tar scripts/acceptance.sh /work/cli-acc; dmesg | grep -i oom printed nothing
+start 2026-10-31T17:54:57Z load 32.25 36.85 45.36 8/813 9 enable_uring=Y transport=uring
+== rootfs mode: importing /work/rootfs/go1.27.3-bookworm-arm64.tar
+imported 24614 entries (21010 files, 441450803 bytes) in 4.4s into /work/tmp/tmp.LeCMsvBunu/cas
+== step A: go mod download (network, not memoized)
+STILLPASS  EXECUTED  network allowed, not memoized
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  ran 0.1s
+== A1-A7 on https://github.com/cli/cli@9490d204a2ba
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:7f289d88  manifest b3:5ba63d2e  29,878 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 21.9s
+$ stillpass inspect b3:7f289d88ba658558c969ee9b86df0778b2d50eb5cb92ce49dcbce6b4ffecf0af
+A1 ok: EXECUTED, one manifest
+A1 observer event: {"timestamp":"2026-10-31T17:55:46.975386Z","level":"INFO","message":"observer","mounted_ms":24075,"transport":"fuse-uring","uring_fallback":false,"pids":1826,"passthrough":true,"lookup":3242,"lookup_absent":620,"getattr":1,"readlink":0,"open":26298,"read":0,"read_mb":0,"readdir":5462,"ring_requests":70527,"device_requests":0,"ring_batches":69927,"ring_full_batches":31,"ring_serve_us":44294,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":27,"serve_user_ms":717,"serve_sys_ms":9014,"serve_threads":19,"serve_run_ms":164,"serve_runq_wait_ms":485,"serve_slices":70000,"target":"stillpass"}
+A1 run event: {"timestamp":"2026-10-31T17:55:47.158968Z","level":"INFO","message":"run","run_id":"01M69HM13GD3XTW1MYKVW4RA0P","step_key":"b3:7f289d88ba658558c969ee9b86df0778b2d50eb5cb92ce49dcbce6b4ffecf0af","image_kind":"rootfs","image":"b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:5ba63d2e27e12df40832c510f01d42e825fd44bbfb353d4ef0da215a6097182d","hit":false,"warm":false,"exit_code":0,"inputs":29878,"transport":"fuse-uring","observer":"fuse-uring+nice-10+passthrough+sealed","candidates":0,"import_ms":4569.827461,"lookup_ms":0.9949589999999999,"mount_ms":1289.529667,"exec_ms":21930.762843,"diff_ms":947.416584,"record_ms":157.725958,"total_ms":24329.877219,"target":"stillpass"}
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HM1 on 2026-10-31 17:55 UTC
+  step b3:7f289d88  manifest b3:5ba63d2e  29,878 inputs matched
+  recorded 21.9s  replay 0.9s  saved 21.1s
+A2 ok: REPLAYED, exit 0 and 18160 stdout bytes identical
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HM1 on 2026-10-31 17:55 UTC
+  step b3:7f289d88  manifest b3:5ba63d2e  29,878 inputs matched
+  recorded 21.9s  replay 0.4s  saved 21.5s
+A3 ok: README-only commit REPLAYED
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:7f289d88  manifest b3:82196523  29,878 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  closest manifest b3:5ba63d2e differed at api/client.go
+    api/client.go: file content changed (file b3:1c6d53c1 mode 644 -> file b3:9d6c2787 mode 644)
+  ran 18.1s
+A4 ok: MISS, receipt names api/client.go
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  closest manifest b3:82196523 differed at api
+    api: directory listing changed (directory listing b3:7027a9fb -> directory listing b3:5ea238aa)
+  ran 18.2s
+A5 ok: MISS, mismatch names the listing of api
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A6=1
+STILLPASS  EXECUTED
+  step b3:24a6d53f  manifest b3:5a8c59cd  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 19.4s
+A6 ok: different key, no manifests
+A7: mutated 23939 f, 5320 d, 620 a, 0 l entries in 423.7s: 0 false hits
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.4s  saved 17.8s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=0
+STILLPASS  EXECUTED
+  step b3:65ad8a3e  manifest b3:1470e6c6  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 15.7s
+A7b ok: unread .devcontainer/devcontainer.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.3s  saved 17.9s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=1
+STILLPASS  EXECUTED
+  step b3:6eb3207b  manifest b3:f5542b1f  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 16.1s
+A7b ok: unread .github/codeql/tests/unsanitized-response-to-terminal/go.mod mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.3s  saved 17.9s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=2
+STILLPASS  EXECUTED
+  step b3:afe6fa94  manifest b3:54ae7e7a  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 16.4s
+A7b ok: unread .github/extensions/terminal-mockup/library/discussion-view-monas-cafe.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.4s  saved 17.8s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=3
+STILLPASS  EXECUTED
+  step b3:5ed89f3c  manifest b3:5fd95f3b  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 18.5s
+A7b ok: unread .github/skills/cli-exercise/scripts/package-lock.json mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.3s  saved 17.9s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=4
+STILLPASS  EXECUTED
+  step b3:b9afc3c1  manifest b3:87159d24  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 18.1s
+A7b ok: unread .github/skills/cli-exercise/tool/internal/evidence/raster.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.5s  saved 17.7s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=5
+STILLPASS  EXECUTED
+  step b3:c2e6edd3  manifest b3:d45d2f44  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 26.7s
+A7b ok: unread .github/skills/cli-exercise/tool/internal/terminal/output_unix_test.go mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.4s  saved 17.8s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=6
+STILLPASS  EXECUTED
+  step b3:042f1cf4  manifest b3:2417934a  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 17.3s
+A7b ok: unread .github/workflows/scripts/spam-detection/eval-instructions.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.3s  saved 17.9s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=7
+STILLPASS  EXECUTED
+  step b3:8a75dffb  manifest b3:8d6d7865  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 17.7s
+A7b ok: unread docs/install_source.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.5s  saved 17.7s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=8
+STILLPASS  EXECUTED
+  step b3:217efc66  manifest b3:d1d43496  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 29.3s
+A7b ok: unread docs/primer/foundations/images/Iconography-3.png mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.4s  saved 17.8s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --env STILLPASS_A7B=9
+STILLPASS  EXECUTED
+  step b3:8f373fb7  manifest b3:935a15f8  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 30.0s
+A7b ok: unread docs/triage.md mutated, replay agrees with a fresh execution, both read the same 29879 paths
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  REPLAYED
+  proved by run 01M69HNH on 2026-10-31 17:56 UTC
+  step b3:7f289d88  manifest b3:5fe5921b  29,879 inputs matched
+  recorded 18.2s  replay 0.3s  saved 17.9s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --warm
+STILLPASS  EXECUTED
+  step b3:2bae19ba  manifest b3:124e8409  29,843 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  warm build cache /work/tmp/.tmpfcZ7nB/state/warm/6e80a9d1b37adbebdb2a2e9bc59214f8d0c37972627a34be2a0a57a4e824ec94/gocache
+  no manifests for this step key
+  ran 16.7s
+W1 ok: first warm run (empty cache) agrees with the cold record
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./...
+STILLPASS  EXECUTED
+  step b3:7f289d88  manifest b3:7c5dfe8a  29,879 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  closest manifest b3:5fe5921b differed at api/client.go
+    api/client.go: file content changed (file b3:9d6c2787 mode 644 -> file b3:1717bab3 mode 644)
+  ran 16.2s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --warm
+STILLPASS  EXECUTED
+  step b3:2bae19ba  manifest b3:86c8d660  29,843 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  warm build cache /work/tmp/.tmpfcZ7nB/state/warm/6e80a9d1b37adbebdb2a2e9bc59214f8d0c37972627a34be2a0a57a4e824ec94/gocache
+  closest manifest b3:124e8409 differed at api/client.go
+    api/client.go: file content changed (file b3:9d6c2787 mode 644 -> file b3:1717bab3 mode 644)
+  ran 7.5s
+$ stillpass run --repo /work/tmp/.tmpfcZ7nB/repo --step go test ./... --warm
+STILLPASS  REPLAYED
+  proved by run 01M69JBQ on 2026-10-31 18:08 UTC
+  step b3:2bae19ba  manifest b3:86c8d660  29,843 inputs matched
+  recorded 7.5s  replay 0.3s  saved 7.2s
+W2 ok: warm agrees with cold after a one-file change; W3 ok: the warm key replays
+W4: warm manifest has 29843 entries with a full cache, 29843 with an empty one; 0 absent probes covered by their parent listing, 0 hidden by the cache
+W4 ok; for the record, the cold env records 36 paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)
+acceptance: A1-A7 and W pass on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 796.08s
+
+real	13m27.638s
+user	57m29.541s
+sys	14m35.782s
+end 2026-10-31T18:08:25Z load 37.99 31.24 33.51 1/789 515751

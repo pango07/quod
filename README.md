@@ -40,5 +40,36 @@ scripts/dev.sh cargo test --workspace  # unit, property, golden, integration
 scripts/acceptance.sh                  # A1-A7 on the pinned spike repo
 ```
 
+## Portable proofs
+
+Steps can run in a pinned root filesystem (`--rootfs DIGEST`, or
+`STILLPASS_ROOTFS`): an OCI image imported once into the store and served
+from it, with nothing of the host's userland visible, a fixed process
+state, and writes outside the workspace recorded (except /tmp, scratch; the
+workspace overlay's upper still lives on the host's state filesystem). The
+key pins the rootfs digest and the host class, read as the step sees it
+(kernel release, build and config, CPU, exact RAM, rlimits, sysctls, cgroup
+limits, binfmt_misc, LSM label, seccomp mode, filesystem types, sandbox
+version; DECISIONS lists what is not keyed), so
+a proof made on one host replays on another host of the same class whatever
+its userland, and nowhere else. Measured so far, on two containers sharing
+one VM (so kernel and hardware are equal by construction): an Ubuntu
+container replays a Debian container's proof when both use the same
+bubblewrap; with another bubblewrap it is another host class (the two key
+documents differ in that one entry only), executes, and reads exactly the
+same inputs to the same result.
+
+```sh
+STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh             # build, export, import; prints the digest
+STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh --extra jq  # a different rootfs (the miss case)
+scripts/dev.sh 'stillpass run --repo /work/cli --rootfs b3:... --step "go test ./..."'
+STILLPASS_DEV_NS=rootfs scripts/portability.sh              # Debian host and Ubuntu host
+```
+
+Without a rootfs the key pins the host's fingerprint (`--host-root`), which
+does not travel; the result records which mode produced it
+(`stillpass inspect <step_key>`). A runner drives single steps through
+`stillpass step --request R --response O` (see `crates/sp-cli/src/step.rs`).
+
 The code still says `stillpass` (binary, crates, paths); the rename to `quod`
 lands in one sweep once the in-flight branches merge.

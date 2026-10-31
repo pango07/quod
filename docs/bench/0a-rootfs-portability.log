@@ -1,0 +1,85 @@
+# scripts/portability.sh on exp/rootfs after the review fixes (key v4: host class, fixed process state, rootfs served from blobs), 2026-10-31 UTC
+# STILLPASS_DEV_NS=rootfs CARGO_BUILD_JOBS=4 scripts/portability.sh   (box at load 25-87 from other agents)
+start 2026-10-31T15:24:46Z
+== host 2 gets its own export of stillpass-rootfs:go1.27.3-bookworm-arm64
+== host 2 also gets host 1's bubblewrap binary (Debian 0.8.0), for step 4
+
+== host 1 (scripts/dev.sh), shared state /work/portability-20261031T082446
+--- host: Debian GNU/Linux 12 (bookworm), ldd (Debian GLIBC 2.36-9+deb12u14) 2.36, bubblewrap 0.8.0, 181 packages, go on host: /usr/local/go/bin/go, kernel 7.0.14-linuxkit aarch64, load 61.81 64.63 52.02
+imported 24614 entries (21010 files, 441450803 bytes) in 6.4s into /work/portability-20261031T082446/cas
+imported 24637 entries (21028 files, 442513185 bytes) in 2.1s into /work/portability-20261031T082446/cas
+rootfs b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d, other b3:ab6d5d4247267b50d989f22a810686d555b40eaf19e3f5b721191c631a5e3788
+--- step A in the rootfs (network, not memoized)
+STILLPASS  EXECUTED  network allowed, not memoized
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  ran 9.5s
+--- step B with the pinned rootfs (EXECUTED expected)
+STILLPASS  EXECUTED
+  step b3:bd558dc8  manifest b3:7be47d66  29,878 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  14 outputs outside the workspace
+  no manifests for this step key
+  ran 47.2s
+stdout: 18160 bytes, sha256 88d76751246a78cd, 259 packages ok
+
+== host 2 (scripts/dev-host2.sh), sharing only /work/portability-20261031T082446
+--- host: Ubuntu 24.04.5 LTS, ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39, bubblewrap 0.9.0, 189 packages, go on host: none, kernel 7.0.14-linuxkit aarch64, load 87.10 70.30 55.00
+--- private store on ext2/ext3 (loop file, own hash seed), shared on ext2/ext3
+imported 24614 entries (21010 files, 441450803 bytes) in 15.2s into /mnt/fs2/state/cas
+own import of its own export: b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d (same digest)
+--- step A in the rootfs (network, not memoized)
+STILLPASS  EXECUTED  network allowed, not memoized
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  ran 8.8s
+--- step B fresh on the private store with this host's bubblewrap 0.9.0 (EXECUTED expected: another host class)
+STILLPASS  EXECUTED
+  step b3:b0d05dba  manifest b3:dbde02aa  29,878 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  14 outputs outside the workspace
+  no manifests for this step key
+  ran 53.8s
+stdout: 18160 bytes, sha256 11ef786240af20a2, 259 packages ok
+--- the two executions compared (host 1 recorded, host 2 fresh)
+step key:    b3:bd558dc8b3309586bb0110f27c36bc25b6e094e5fc5207324f1c3a62a035614b vs b3:b0d05dba440d377917b19db500e40d7c143b3b7f63ceccabb567377d12bfb115; key documents differ in:
+    <           "bubblewrap 0.8.0"
+    >           "bubblewrap 0.9.0"
+manifest entries: 29878 vs 29878, sha256 2981b369352d8f64 vs 2981b369352d8f64 (identical: both read exactly the same inputs)
+exit code:   0 vs 0
+stdout:      identical with durations normalized
+outputs:     14262 vs 14262; identical path, kind, mode and content: 4102
+  same path, different content: 9775, of which Go cache action entries (*-a, they hold a creation time): 9765
+  paths only one run wrote: 770, of which Go cache output entries (*-d, named by content: cached test output holds durations): 664
+  every other difference:
+    .stillpass/gocache/trim.txt
+    .stillpass/home/.cache/gh/65
+    .stillpass/home/.cache/gh/65/ae
+    .stillpass/home/.cache/gh/65/ae/8f823c9c431f494b485b8b585df2e73cb9cef7bd833d4ff270a7979cfd99
+    .stillpass/home/.cache/gh/e8
+    .stillpass/home/.cache/gh/e8/35
+    .stillpass/home/.cache/gh/e8/35/92f9a554282f4ceca0c19c54019b11a6033f5efeef908b0e3d8ba5e5d8c6
+    .stillpass/home/.config/go/telemetry/local/asm@go1.27.3-go1.27.3-linux-arm64-2026-10-31.v1.count
+    .stillpass/home/.config/go/telemetry/local/compile@go1.27.3-go1.27.3-linux-arm64-2026-10-31.v1.count
+    .stillpass/home/.config/go/telemetry/local/go@go1.27.3-go1.27.3-linux-arm64-2026-10-31.v1.count
+    .stillpass/home/.config/go/telemetry/local/link@go1.27.3-go1.27.3-linux-arm64-2026-10-31.v1.count
+    .stillpass/home/.config/go/telemetry/local/vet@go1.27.3-go1.27.3-linux-arm64-2026-10-31.v1.count
+    .stillpass/home/.config/go/telemetry/local/weekends
+    .stillpass/home/.local/state/gh/device-id
+    .stillpass/home/.ssh/codespaces.auto
+    .stillpass/home/.ssh/codespaces.auto.pub
+root outputs: 14 vs 14 (cli/cli's tests leave randomly named files in /tmp)
+--- step B against the shared ledger with Debian's bubblewrap 0.8.0 first on PATH (host 1's class: REPLAYED expected)
+    bwrap on PATH: bubblewrap 0.8.0
+STILLPASS  REPLAYED
+  proved by run 01M6991J on 2026-10-31 15:26 UTC
+  step b3:bd558dc8  manifest b3:7be47d66  29,878 inputs matched
+  recorded 47.2s  replay 2.6s  saved 44.6s
+stdout: 18160 bytes, sha256 88d76751246a78cd, 259 packages ok
+--- step B with a different rootfs (MISS expected)
+STILLPASS  EXECUTED
+  image rootfs b3:ab6d5d42  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 50.4s
+--- step B on the host root (the fallback; this host has no Go)
+STILLPASS  ERROR (exit 2, not the step's result)
+  host fingerprint failed (exit status: 1): no go on PATH (/usr/local/go/bin:/usr/bin:/bin): host mode pins the host's Go toolchain; use --rootfs
+exit=0 end 2026-10-31T15:29:13Z

@@ -1,14 +1,16 @@
 //! Golden step keys: spec in, key out. A changed golden is a schema bump.
 //! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change
-//! (v2: `warm` added to the key, 2026-10-31).
+//! (v2: `warm` added to the key, 2026-10-31; v3: `image` became an object
+//! with kind, digest, pinned mounts and the platform with its host class,
+//! 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;
-use sp_key::{StepSpec, shell_cmd, step_key};
+use sp_key::{Image, ImageKind, Platform, StepSpec, shell_cmd, step_key};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct Golden {
-    image: Hash,
+    image: Image,
     cmd: Vec<String>,
     cwd: String,
     env: Vec<(String, String)>,
@@ -19,7 +21,25 @@ struct Golden {
 }
 
 fn cases() -> Vec<StepSpec> {
-    let img = Hash::of(b"go1.27.3 linux/arm64 glibc 2.36 debian 12");
+    // A rootfs pin on a fixed arm64 platform (kernel 6.8, 4 CPUs).
+    let img = Image::rootfs(Hash::of(b"stillpass rootfs go1.27.3 bookworm arm64"));
+    let host = Image::new(
+        ImageKind::Host,
+        Hash::of(b"go1.27.3 linux/arm64 glibc 2.36 debian 12"),
+        Platform::new(
+            "aarch64",
+            "7.0.14-linuxkit",
+            "fp asimd; hwcap=0xefffffff hwcap2=0x3fffff",
+            18,
+            4096,
+            vec![("kernel release".into(), "7.0.14-linuxkit".into())],
+        ),
+    );
+    let on = |f: &dyn Fn(&mut Platform)| {
+        let mut i = img.clone();
+        f(&mut i.platform);
+        i
+    };
     let x = |pairs: &[(&str, &str)]| {
         pairs
             .iter()
@@ -27,17 +47,49 @@ fn cases() -> Vec<StepSpec> {
             .collect::<Vec<_>>()
     };
     let mut out = vec![
-        StepSpec::spike(img, "go test ./...", &[]),
-        StepSpec::spike(img, "go mod download", &[]),
-        StepSpec::spike(img, "go test ./... -run TestFoo", &[]),
-        StepSpec::spike(img, "go test ./...", &x(&[("GOFLAGS_EXTRA", "-v")])),
-        StepSpec::spike(Hash::of(b"rootfs"), "go test ./...", &[]),
-        StepSpec::spike(img, "echo 'quoted \"x\"'\nexit 3", &[]),
-        StepSpec::spike(img, "printf '%s' héllo ✓", &x(&[("UNICODE", "ü")])),
-        StepSpec::spike_warm(img, "go test ./...", &[]).unwrap(),
+        StepSpec::spike(img.clone(), "go test ./...", &[]),
+        StepSpec::spike(img.clone(), "go mod download", &[]),
+        StepSpec::spike(img.clone(), "go test ./... -run TestFoo", &[]),
+        StepSpec::spike(img.clone(), "go test ./...", &x(&[("GOFLAGS_EXTRA", "-v")])),
+        StepSpec::spike(host.clone(), "go test ./...", &[]),
+        StepSpec::spike(img.clone(), "echo 'quoted \"x\"'\nexit 3", &[]),
+        StepSpec::spike(img.clone(), "printf '%s' héllo ✓", &x(&[("UNICODE", "ü")])),
+        StepSpec::spike_warm(img.clone(), "go test ./...", &[]).unwrap(),
+        // Same rootfs on another architecture, another kernel series,
+        // another CPU count; and with a pinned mount.
+        StepSpec::spike(
+            on(&|p| {
+                *p = Platform::new(
+                    "x86_64",
+                    "6.8.0-1021-azure",
+                    "fpu sse2 avx2",
+                    4,
+                    4096,
+                    p.host.clone(),
+                )
+            }),
+            "go test ./...",
+            &[],
+        ),
+        StepSpec::spike(on(&|p| p.kernel = "6.11".into()), "go test ./...", &[]),
+        StepSpec::spike(on(&|p| p.cpus = 16), "go test ./...", &[]),
+        // Same everything on a host whose kernel build differs.
+        StepSpec::spike(
+            on(&|p| p.host[1].1 = "#26-Ubuntu SMP Fri Feb 14 10:01:02 UTC 2025".into()),
+            "go test ./...",
+            &[],
+        ),
+        StepSpec::spike(
+            Image {
+                mounts: vec![("/opt/tools".into(), Hash::of(b"a tools tree"))],
+                ..img.clone()
+            },
+            "go test ./...",
+            &[],
+        ),
     ];
     out.push(StepSpec {
-        image: img,
+        image: img.clone(),
         cmd: shell_cmd("true"),
         cwd: "/workspace/pkg".into(),
         env: vec![],
@@ -45,7 +97,7 @@ fn cases() -> Vec<StepSpec> {
         warm: false,
     });
     out.push(StepSpec {
-        image: img,
+        image: img.clone(),
         cmd: vec!["/usr/bin/env".into(), "go".into(), "vet".into()],
         cwd: "/workspace".into(),
         env: x(&[("B", "2"), ("A", "1")]),
@@ -93,10 +145,10 @@ fn goldens_match() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(committed.len(), 11);
+    assert_eq!(committed.len(), 16);
     for g in &committed {
         let spec = StepSpec {
-            image: g.image,
+            image: g.image.clone(),
             cmd: g.cmd.clone(),
             cwd: g.cwd.clone(),
             env: g.env.clone(),
