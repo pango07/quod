@@ -6,12 +6,12 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Quod: Your CI already did this",
+  title: "Quod: Skip the CI work you already did",
   description:
-    "Quod replays any CI step whose inputs haven't changed, and shows you the proof. No config. No rewrite. Join the waitlist.",
+    "If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again. Join the waitlist.",
   openGraph: {
-    title: "Quod: Your CI already did this",
-    description: "Quod replays any CI step whose inputs haven't changed, and shows you the proof.",
+    title: "Quod: Skip the CI work you already did",
+    description: "If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again.",
     images: ["/quod-logo.png"],
   },
 };

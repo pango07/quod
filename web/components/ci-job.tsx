@@ -8,11 +8,11 @@ type Push = "first" | "next";
 // A go job's steps, timed from a cli/cli run: first push executes, next push replays.
 const STEPS: { name: string; first: number; next: number; tag?: string }[] = [
   { name: "Set up job", first: 3.1, next: 0.3 },
-  { name: "Checkout", first: 2.4, next: 0.1, tag: "served from store" },
-  { name: "Set up Go", first: 14.0, next: 0.2, tag: "replayed" },
-  { name: "Download modules", first: 9.6, next: 0.2, tag: "replayed" },
-  { name: "Build", first: 21.4, next: 0.3, tag: "replayed" },
-  { name: "go test ./...", first: 17.0, next: 0.25, tag: "replayed" },
+  { name: "Checkout", first: 2.4, next: 0.1, tag: "reused" },
+  { name: "Set up Go", first: 14.0, next: 0.2, tag: "reused" },
+  { name: "Download modules", first: 9.6, next: 0.2, tag: "reused" },
+  { name: "Build", first: 21.4, next: 0.3, tag: "reused" },
+  { name: "go test ./...", first: 17.0, next: 0.25, tag: "reused" },
 ];
 
 const fmt = (s: number) => (s < 1 ? s.toFixed(2) : s.toFixed(1)) + "s";
@@ -59,7 +59,7 @@ export function CiJob() {
         <div className="seg" role="group" aria-label="Which push to show">
           {(["first", "next"] as Push[]).map((p) => (
             <button key={p} type="button" aria-pressed={push === p} onClick={() => choose(p)}>
-              {p === "first" ? "First push" : "Next push"}
+              {p === "first" ? "First run" : "Next run"}
             </button>
           ))}
         </div>
@@ -84,7 +84,7 @@ export function CiJob() {
         <span>
           total <b>{fmt(total)}</b>
         </span>
-        <span>{push === "first" ? "every step runs and is recorded" : "unchanged inputs, proven results"}</span>
+        <span>{push === "first" ? "everything runs, Quod takes notes" : "nothing changed, results reused"}</span>
       </div>
     </div>
   );

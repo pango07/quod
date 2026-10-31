@@ -7,28 +7,28 @@ const LINES: { text: string; head?: boolean; title: string; body: string }[] = [
   {
     text: "QUOD  REPLAYED",
     head: true,
-    title: "Replayed, not run.",
-    body: "The result came from a proven earlier run. Its output and exit code follow, byte for byte.",
+    title: "Reused, not run.",
+    body: "Quod skipped the step and gave you the result of an earlier run."
   },
   {
     text: "  proved by run 01JCK3Q9 on 2026-11-14 09:12 UTC",
-    title: "Which run proved it.",
-    body: "Open that run to see its log, its commit and everything it read.",
+    title: "Where it came from.",
+    body: "The earlier run that produced this result."
   },
   {
     text: "  step 4c1e9a07  manifest 9a07f2d1  2,314 inputs matched",
-    title: "What matched.",
-    body: "Every file the step read, every directory it listed and every path it looked for and didn't find. All 2,314 were identical.",
+    title: "Why it was safe.",
+    body: "All 2,314 files the step reads are exactly the same as last time."
   },
   {
     text: "  proven 2 of 2  audited 17 times  0 divergences",
-    title: "Earned trust.",
-    body: "This step replays only after identical proofs, and a share of replays keep re-running as audits.",
+    title: "Double-checked.",
+    body: "This result was produced twice and re-checked 17 times. It never changed."
   },
   {
     text: "  recorded 4m12s  replay 0.4s  saved 4m11s",
-    title: "Time back.",
-    body: "The recorded run took 4m12s. The replay took 0.4s.",
+    title: "Time saved.",
+    body: "4 minutes and 11 seconds you didn't wait for."
   },
 ];
 

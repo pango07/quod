@@ -5,16 +5,16 @@ import { sleep, useInView, useReducedMotion } from "@/lib/use-in-view";
 
 const STEPS = [
   {
-    title: "Observe",
-    body: "Your repo is served through a filesystem that records every file a step opens, every directory it lists and every path it looks for and doesn't find. That record is the step's real input list. Nothing to declare.",
+    title: "Watch",
+    body: "Quod runs your CI step and notes every file it reads.",
   },
   {
-    title: "Prove",
-    body: "The result is stored against those exact inputs. A step becomes replayable only after it reproduces the same result from the same inputs.",
+    title: "Compare",
+    body: "On your next push, it checks whether any of those files changed.",
   },
   {
-    title: "Replay",
-    body: "On the next push, if every recorded input is byte-identical, Quod returns the proven result in a fraction of a second. If anything changed, the step runs and the receipt names what moved.",
+    title: "Reuse",
+    body: "Nothing changed? You get the last result in under a second. Something changed? The step runs as usual.",
   },
 ];
 

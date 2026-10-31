@@ -6,7 +6,7 @@ import { sleep, useInView, useReducedMotion } from "@/lib/use-in-view";
 type State = { proofs: number; audits: number; quarantined: boolean; runs: number; log: string };
 type Action = { type: "run" } | { type: "flake" } | { type: "reset" };
 
-const start: State = { proofs: 0, audits: 0, quarantined: false, runs: 0, log: "Every step starts in observe mode." };
+const start: State = { proofs: 0, audits: 0, quarantined: false, runs: 0, log: "Quod starts by only watching." };
 const need = (s: State) => 2 + (s.quarantined ? 1 : 0);
 
 function reduce(s: State, a: Action): State {
@@ -17,7 +17,7 @@ function reduce(s: State, a: Action): State {
       proofs: 0,
       audits: s.audits + 1,
       quarantined: true,
-      log: "An audit re-ran a replay and got a different result. Quarantined until it proves itself again.",
+      log: "A re-check got a different result. Quod stops skipping this step until it's consistent again.",
     };
   const replaying = s.proofs >= need(s);
   const runs = s.runs + 1;
@@ -27,7 +27,7 @@ function reduce(s: State, a: Action): State {
       ...s,
       runs,
       audits: s.audits + (audited ? 1 : 0),
-      log: audited ? "Audit: re-ran this replay in full. Identical." : "Replayed from a proven run.",
+      log: audited ? "Re-checked: ran it for real. Same result." : "Skipped. Reused the last result.",
     };
   }
   const proofs = s.proofs + 1;
@@ -35,7 +35,7 @@ function reduce(s: State, a: Action): State {
     ...s,
     runs,
     proofs,
-    log: proofs >= need(s) ? "Proven. Identical results from identical inputs. Replays are on." : `Executed. Proof ${proofs} of ${need(s)}.`,
+    log: proofs >= need(s) ? "Same result every time. Skipping is on." : `Ran it. Same result ${proofs} of ${need(s)} times.`,
   };
 }
 
@@ -70,16 +70,16 @@ export function TrustMeter() {
       <div className="meter-top">
         <span className="mono">go test ./...</span>
         <span className={`state ${replaying ? "on" : ""}`}>
-          {replaying ? "replaying" : s.quarantined ? "quarantined" : "observing"}
+          {replaying ? "skipping" : s.quarantined ? "paused" : "watching"}
         </span>
       </div>
       <div className="bar" aria-hidden>
         <i style={{ width: `${Math.min(100, (s.proofs / need(s)) * 100)}%` }} />
       </div>
       <div className="meter-row mono">
-        <span>{replaying ? `proven ${need(s)} of ${need(s)}` : `${s.proofs} of ${need(s)} proofs`}</span>
+        <span>{replaying ? `consistent ${need(s)} of ${need(s)}` : `${s.proofs} of ${need(s)} consistent runs`}</span>
         <span>
-          {s.audits} audit{s.audits === 1 ? "" : "s"}
+          {s.audits} re-check{s.audits === 1 ? "" : "s"}
         </span>
       </div>
       <p className="meter-log" aria-live="polite">

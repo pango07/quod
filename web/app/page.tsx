@@ -9,24 +9,20 @@ import { WorkflowDiff } from "@/components/workflow-diff";
 
 const FAQ: [string, string][] = [
   [
-    "How is this different from a cache?",
-    "A cache restores what you told it to. Quod decides whether a step needs to run at all, based on everything the step read, and replays the whole result when nothing changed. There are no hand-written keys to get wrong.",
+    "Is this just caching?",
+    "A cache saves files you pick. Quod skips whole steps, like your test run, and it decides by looking at every file the step actually read. You don't configure anything.",
   ],
   [
-    "What if a step depends on something Quod can't see?",
-    "The network, the clock and other machines can't be hashed. A step that reaches the network never replays. Audits re-run a share of replays to catch anything else, and quarantine a step the moment it diverges.",
+    "What if it reuses a result it shouldn't?",
+    "It only reuses a result when every file the step read is exactly the same. Steps that use the network are never reused, and Quod keeps re-running a few reused steps to double-check.",
   ],
   [
-    "Which languages work?",
-    "Quod watches the filesystem, so it doesn't need a plugin per language. We've tested Go, Node and Python end to end, and we'll add more as they pass the same tests.",
+    "Which languages?",
+    "Go, Node and Python today. Quod watches files, not code, so more are coming.",
   ],
   [
     "Where does it run?",
-    "On your own Linux machines, as a self-hosted GitHub Actions runner. Your code and secrets stay on your hardware.",
-  ],
-  [
-    "When can I use it?",
-    "We're onboarding teams from the waitlist in small groups. Join and we'll reach out when there's a spot.",
+    "On your own Linux machines, with your existing GitHub Actions workflows.",
   ],
 ];
 
@@ -40,7 +36,7 @@ export default function Home() {
           </a>
           <nav aria-label="Main">
             <a href="#how">How it works</a>
-            <a href="#proof">Proof</a>
+            <a href="#try">Try it</a>
             <a href="#faq">FAQ</a>
             <a className="btn small" href="#join">
               Join the waitlist
@@ -52,113 +48,72 @@ export default function Home() {
       <main id="top">
         <section className="hero">
           <div className="hero-txt">
-            <h1>Your CI already did this.</h1>
+            <h1>Skip the CI work you already did.</h1>
             <p className="lede">
-              Quod replays any step whose inputs haven&rsquo;t changed, and shows you the proof. No config. No rewrite.
+              If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again. Your
+              checks finish in seconds, not minutes.
             </p>
             <JoinForm source="hero" />
           </div>
           <CiJob />
         </section>
 
-        <section className="sec" id="try">
-          <div className="sec-head">
-            <h2>Try it in your browser.</h2>
-            <p className="lede">
-              A real shell with a small Go project. Watch it run, or take over. Edit the README and Quod replays. Edit
-              the code and it runs, then tells you exactly which file changed.
-            </p>
-          </div>
-          <Terminal id="term-try" />
-        </section>
-
         <section className="sec" id="how">
           <div className="sec-head">
-            <h2>It watches what your steps actually read.</h2>
+            <h2>How it works</h2>
           </div>
           <Flow />
         </section>
 
+        <section className="sec" id="try">
+          <div className="sec-head">
+            <h2>Try it</h2>
+            <p className="lede">Change a file, run the tests, and see what Quod reuses.</p>
+          </div>
+          <Terminal id="term-try" />
+        </section>
+
         <section className="sec split">
           <div className="sec-head">
-            <h2>Every skip comes with a receipt.</h2>
-            <p className="lede">
-              A replay is never a black box. Each one tells you which run proved it, what matched and how much time it
-              gave back.
-            </p>
+            <h2>Every skip shows its proof.</h2>
+            <p className="lede">You always see which run a result came from and which files matched.</p>
           </div>
           <Receipt />
         </section>
 
-        <section className="sec" id="proof">
+        <section className="sec split" id="safe">
           <div className="sec-head">
-            <h2>We tried to break it.</h2>
-            <p className="lede">
-              A skip is only worth taking if it&rsquo;s safe. So we changed every input Quod recorded, one at a time,
-              and checked that each change forced a real run.
-            </p>
-          </div>
-          <div className="proof">
-            <div>
-              <span className="big">0</span>
-              <p>false replays across 29,879 mutated inputs on GitHub&rsquo;s own CLI</p>
-            </div>
-            <div>
-              <span className="big">0.25s</span>
-              <p>to replay a 17.0s test step, with byte-identical output</p>
-            </div>
-            <div>
-              <span className="big">3</span>
-              <p>ecosystems tested end to end: Go, Node and Python</p>
-            </div>
-            <div>
-              <span className="big">1 line</span>
-              <p>in your workflow to run on Quod</p>
-            </div>
-          </div>
-          <p className="foot-note">
-            Measured on cli/cli, luxon and starlette in our test harness. The full method and logs ship with the public
-            benchmark.
-          </p>
-        </section>
-
-        <section className="sec split">
-          <div className="sec-head">
-            <h2>Trust is earned, one step at a time.</h2>
-            <dl className="trust">
-              <div>
-                <dt>Observe first</dt>
-                <dd>
-                  On day one Quod runs everything and shows you what it would have skipped. Nothing replays until you turn
-                  it on.
-                </dd>
-              </div>
-              <div>
-                <dt>Proof before replay</dt>
-                <dd>
-                  A step replays only after it produces the same result from the same inputs more than once. Failures and
-                  timeouts never prove themselves.
-                </dd>
-              </div>
-              <div>
-                <dt>Audits never stop</dt>
-                <dd>
-                  A share of replays re-run in full and are compared. One divergence quarantines that step until it proves
-                  itself again.
-                </dd>
-              </div>
-            </dl>
+            <h2>Safe by default.</h2>
+            <ul className="points">
+              <li>It starts by only watching. Nothing is skipped until you turn it on.</li>
+              <li>A result is reused only after the step has produced it twice.</li>
+              <li>It keeps re-running a few skipped steps to make sure.</li>
+            </ul>
           </div>
           <TrustMeter />
         </section>
 
+        <section className="sec" id="proof">
+          <div className="proof">
+            <div>
+              <span className="big">0.25s</span>
+              <p>instead of 17s for a test step that didn&rsquo;t need to run</p>
+            </div>
+            <div>
+              <span className="big">0</span>
+              <p>wrong skips when we changed each of 29,879 files one at a time</p>
+            </div>
+            <div>
+              <span className="big">3</span>
+              <p>languages tested end to end: Go, Node and Python</p>
+            </div>
+          </div>
+        </section>
+
         <section className="sec split">
           <div className="sec-head">
-            <h2>One line in your workflow.</h2>
-            <p className="lede">
-              Quod runs your existing GitHub Actions jobs on your own Linux machines. Your YAML, your logs and your checks
-              stay in GitHub.
-            </p>
+            <h2>One line to set up.</h2>
+            <p className="lede">Point your GitHub Actions job at Quod. Everything else stays the same.</p>
           </div>
           <WorkflowDiff />
         </section>
@@ -179,14 +134,14 @@ export default function Home() {
 
         <section className="cta" id="join">
           <h2>Push. Prove. Done.</h2>
-          <p className="lede">Join the waitlist and we&rsquo;ll reach out when there&rsquo;s a spot for your team.</p>
+          <p className="lede">We&rsquo;re letting teams in a few at a time. Join the waitlist.</p>
           <JoinForm source="footer" />
         </section>
       </main>
 
       <footer className="footer">
         <Image src="/quod-logo.png" alt="Quod" width={1280} height={340} className="logo" />
-        <span>&copy; 2026 Quod</span>
+        <span>Quod (kwod), from Q.E.D. &copy; 2026</span>
       </footer>
     </>
   );

@@ -120,7 +120,7 @@ export function Terminal({ id }: { id: string }) {
     setLines([
       {
         kind: "out",
-        text: `${DIM}A Go project and the quod CLI, running in your browser.\n${DIM}Timings are replayed from a real run on cli/cli.\n\n`,
+        text: `${DIM}A small Go project with the quod CLI, running in your browser.\n${DIM}It runs by itself. Click anywhere to try it.\n\n`,
       },
     ]);
   }, []);
