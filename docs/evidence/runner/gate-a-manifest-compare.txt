@@ -1,0 +1,25 @@
+hooks manifest b3:53e95a9608ba6e9fa7d88a4343887c6f4773fcea4bf35100d2c78aaec7196293
+cli manifest   b3:ea581e19a9bf1cc6f63638dc744a5c0aae9dcc8e98308c3fefab126869989157
+hooks: entries 14101, f/a 12113, repo f/a 1674, gomod f/a 6180, repo d 421
+cli: entries 29843, f/a 24525, repo f/a 1672, gomod f/a 22851, repo d 417
+== repo f/a only in hooks:
+a .git/commondir
+a vendor
+f .git/HEAD
+f .git/config
+== repo f/a only in cli:
+a .git
+a HEAD
+== gomod f/a: only hooks 29, only cli 16700
+a .stillpass/gomod/github.com/!masterminds/goutils@v1.1.1/go.mod
+a .stillpass/gomod/github.com/alecthomas/chroma/v2@v2.27.0/lexers/embedded/go.mod
+a .stillpass/gomod/github.com/aymerick/douceur@v0.2.0/go.mod
+a .stillpass/gomod/github.com/blang/semver@v3.5.1+incompatible/go.mod
+a .stillpass/gomod/github.com/cyberphone/json-canonicalization@v0.0.0-20241213102144-19d51d7fe467/go.mod
+== repo d differences: 4
+d .git
+d .git/objects
+d .git/refs
+d .github
+== .git entries in hooks: 7
+== .stillpass (not gomod) only hooks: 4259, only cli: 2
