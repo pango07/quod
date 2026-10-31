@@ -510,8 +510,11 @@ fn without_forbidden(profile: &sp_key::Profile, result: &StepResult) -> StepResu
 /// caught; its write was then, by its own choice, inessential to it.
 fn reports_erofs(path: &Path) -> anyhow::Result<bool> {
     use std::io::Read as _;
-    const NEEDLES: [&[u8]; 2] = [b"read-only file system", b"erofs"];
-    let keep = NEEDLES.iter().map(|n| n.len()).max().unwrap_or(1) - 1;
+    // The strerror phrase in any case; the errno name only as a whole,
+    // upper-case word, so identifiers like `numberOfSides` don't match.
+    const PHRASE: &[u8] = b"read-only file system";
+    const ERRNO: &[u8] = b"EROFS";
+    let keep = PHRASE.len() + 1;
     let mut f = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     // Streamed in chunks (a step's output can be large), carrying the tail
     // of each chunk over so a match across a boundary is still found.
@@ -524,10 +527,15 @@ fn reports_erofs(path: &Path) -> anyhow::Result<bool> {
         if n == 0 {
             return Ok(false);
         }
-        window.extend(buf[..n].iter().map(u8::to_ascii_lowercase));
-        if NEEDLES
-            .iter()
-            .any(|needle| window.windows(needle.len()).any(|w| w == *needle))
+        window.extend_from_slice(&buf[..n]);
+        let word = |b: Option<&u8>| b.is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_');
+        let errno_at = |i: usize| {
+            window[i..].starts_with(ERRNO)
+                && !word(i.checked_sub(1).and_then(|j| window.get(j)))
+                && !word(window.get(i + ERRNO.len()))
+        };
+        if window.windows(PHRASE.len()).any(|w| w.eq_ignore_ascii_case(PHRASE))
+            || (0..window.len()).any(errno_at)
         {
             return Ok(true);
         }
@@ -788,5 +796,9 @@ mod tests {
         let mut big = vec![b'.'; (64 << 10) - 7];
         big.extend_from_slice(b"Read-only file system");
         assert!(check(&big));
+        // The errno name counts only as a whole upper-case word.
+        assert!(check(b"open x: EROFS\n"));
+        assert!(!check(b"--- PASS: TestNumberOfSides (0.00s)\n"));
+        assert!(!check(b"powerOfSum erofs_helper SEROFS EROFS_X\n"));
     }
 }
