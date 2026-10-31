@@ -89,6 +89,14 @@ struct CasFs {
     /// mixing backing files on one inode, and the id outliving every open
     /// is what fuser's docs ask for.
     backing: Mutex<HashMap<u64, Arc<BackingId>>>,
+    /// Whether the kernel granted FUSE_PASSTHROUGH at init.
+    granted: AtomicBool,
+    /// Whether opens use passthrough, decided at the first open for the
+    /// whole mount (`None` until then). The kernel refuses to open an
+    /// inode cached while it has passthrough handles, and vice versa, with
+    /// an error this process never sees; switching modes mid-mount could
+    /// therefore hide a failure from the log.
+    mode: Mutex<Option<bool>>,
     stats: Arc<Stats>,
 }
 
@@ -146,16 +154,38 @@ impl CasFs {
             uid,
             gid,
             backing: Mutex::new(HashMap::new()),
+            granted: AtomicBool::new(false),
+            mode: Mutex::new(None),
             stats,
         })
     }
 
     /// Kernel passthrough (Linux 6.9+): once a file is open, the kernel reads
     /// its blob directly and no read request reaches this process. The open
-    /// is still a request, and the open is what the log needs. Decided in
-    /// `init`; cleared for good if registering a blob ever fails.
-    fn passthrough(&self) -> bool {
-        self.stats.passthrough.load(Ordering::Relaxed)
+    /// is still a request, and the open is what the log needs.
+    ///
+    /// Decided here, at the first open, for the whole mount: if the kernel
+    /// granted it and this first blob registers, every later open must
+    /// register too or the step gets EIO (logged, so the run is a Stillpass
+    /// error); if the first registration fails, the mount serves reads in
+    /// userspace throughout. No passthrough handle exists yet at that point,
+    /// so neither choice can conflict with an open file.
+    fn passthrough(&self, ino: u64, n: &Node, reply: &ReplyOpen) -> bool {
+        let mut mode = self.mode.lock().unwrap();
+        if let Some(m) = *mode {
+            return m;
+        }
+        let m = self.granted.load(Ordering::Relaxed)
+            && match self.backing_id(ino, n, reply) {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!(error = %e, "passthrough unavailable; serving reads in userspace");
+                    false
+                }
+            };
+        *mode = Some(m);
+        self.stats.passthrough.store(m, Ordering::Relaxed);
+        m
     }
 
     fn node(&self, ino: INodeNo) -> Option<&Node> {
@@ -248,9 +278,9 @@ impl Filesystem for CasFs {
             config
                 .set_max_stack_depth(1)
                 .expect("1 is within the kernel's stacking limit");
-            self.stats.passthrough.store(true, Ordering::Relaxed);
+            self.granted.store(true, Ordering::Relaxed);
         }
-        tracing::info!(target: "stillpass", passthrough = self.passthrough(), "observer init");
+        tracing::info!(target: "stillpass", passthrough_granted = self.granted.load(Ordering::Relaxed), "observer init");
         Ok(())
     }
 
@@ -318,18 +348,16 @@ impl Filesystem for CasFs {
         }
         self.record(ino.0, Kind::File);
         let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
-        if self.passthrough() {
-            match self.backing_id(ino.0, n, &reply) {
-                Ok(id) => {
-                    return reply.opened_passthrough(FileHandle(fh), FopenFlags::empty(), &id);
-                }
+        if self.passthrough(ino.0, n, &reply) {
+            return match self.backing_id(ino.0, n, &reply) {
+                Ok(id) => reply.opened_passthrough(FileHandle(fh), FopenFlags::empty(), &id),
                 Err(e) => {
-                    // Fall back to serving reads ourselves, for every file
-                    // from now on: one inode must not see both modes.
-                    self.stats.passthrough.store(false, Ordering::Relaxed);
-                    tracing::warn!(error = %e, "passthrough disabled; serving reads in userspace");
+                    // Never fall back mid-mount (see `passthrough`): the
+                    // step sees an I/O error and the run is not recorded.
+                    self.io_error(format!("open {}: {e}", n.entry.p));
+                    reply.error(Errno::EIO)
                 }
-            }
+            };
         }
         let file = match self.cas.open_blob(&n.entry.h.unwrap()) {
             Ok(f) => f,
