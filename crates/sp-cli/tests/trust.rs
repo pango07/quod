@@ -6,13 +6,14 @@
 //! receipt; T3 observe mode (the default) never replays and reports what it
 //! would have saved; T4 an audit that finds a different result quarantines
 //! the key until it re-proves itself; T5 a timed-out step is killed and
-//! never recorded, and a timeout under audit is a divergence; T6 the agent
-//! ergonomics (`stillpass run -- cmd...` from inside the repo); T7, a
-//! panic in the observer, is in observer_faults.rs (it needs the
+//! never recorded, and under audit restarts the proof (no divergence); T6
+//! the agent ergonomics (`stillpass run -- cmd...` from inside the repo);
+//! T7, a panic in the observer, is in observer_faults.rs (it needs the
 //! `fault-injection` build); T8 a
 //! network step leaves the checkout clean and observed steps see its module
 //! cache from the state dir; T9 a repeated identical failure never replays;
-//! T10 nondeterministic writes under HOME or GOPATH never replay.
+//! T10 nondeterministic writes under HOME or GOPATH never replay; T11 the
+//! observer's configuration (sealing on or off) never counts as a divergence.
 
 mod common;
 use std::process::Command;
@@ -292,8 +293,9 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
     assert_eq!(env.manifests(), 0, "nothing recorded");
     assert!(o.stdout.is_empty());
 
-    // A proven step that stops finishing: the timeout under audit is a
-    // divergence and quarantines the key.
+    // A proven step that stops finishing (load, a slow observer, or the
+    // step): not a result and not a divergence, but the expected result did
+    // not reproduce, so the manifest proves again from 0.
     let step = r#"test -f "$GOCACHE/hang" && sleep 120; echo ok"#;
     let flags = &[
         "--mode",
@@ -316,20 +318,49 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
     assert_eq!(r3.code, 124, "{}", r3.stderr);
     assert!(
         r3.stderr.contains("STILLPASS  TIMED OUT")
+            && !r3.stderr.contains("DIVERGENCE")
             && r3
                 .stderr
-                .contains("STILLPASS  DIVERGENCE  step key quarantined")
-            && r3.stderr.contains("the step timed out after 10.0s; run"),
+                .contains("the step timed out after 10.0s, which is not a result")
+            && r3.stderr.contains("proves again from 0 of 2"),
         "{}",
         r3.stderr
     );
     assert_eq!(env.manifests(), 1, "the timed-out run recorded no manifest");
     let status = env.status();
     assert!(
-        status.contains("quarantined") && status.contains("2 timed out"),
+        !status.contains("quarantined  ")
+            && status.contains("0 quarantined")
+            && status.contains("2 timed out"),
         "{status}"
     );
-    println!("T5 ok: timeouts kill the step, record nothing, and count as divergences under audit");
+    // It finishes again: two identical executions re-prove it, then it replays.
+    std::fs::remove_file(warm_dir(&env).join("hang")).unwrap();
+    let no_audit = &[
+        "--mode",
+        "replay",
+        "--warm",
+        "--audit",
+        "0",
+        "--timeout",
+        "10s",
+    ];
+    let r4 = env.run_step(step, no_audit);
+    assert!(
+        r4.executed() && r4.stderr.contains("proof 1 of 2"),
+        "{}",
+        r4.stderr
+    );
+    let r5 = env.run_step(step, no_audit);
+    assert!(
+        r5.executed() && r5.stderr.contains("proof 2 of 2"),
+        "{}",
+        r5.stderr
+    );
+    assert!(env.run_step(step, no_audit).hit());
+    println!(
+        "T5 ok: timeouts kill the step, record nothing, and restart the proof without a divergence"
+    );
 }
 
 #[test]
@@ -662,6 +693,59 @@ fn t10_nondeterministic_writes_under_home_or_gopath_never_replay() {
         }
     }
     println!("T10 ok: random bytes in HOME and a time-stamped go install never became replayable");
+}
+
+/// Stillpass's own configuration is not the step's behavior: a sealed and
+/// an unsealed run (STILLPASS_SEAL_MODCACHE=0, or a snapshot that could not
+/// be made) record the module cache whole either way, read equivalent
+/// manifests, and never count as a divergence.
+#[test]
+fn t11_the_observer_configuration_never_diverges() {
+    if !enabled() {
+        return;
+    }
+    let mut env = Env::new();
+    env.run_defaults.clear();
+    let step_a = r#"mkdir -p "$GOMODCACHE/cache/download" "$GOMODCACHE/example.com/dep@v1.0.0" && echo dep > "$GOMODCACHE/example.com/dep@v1.0.0/dep.txt""#;
+    assert_eq!(env.run_step(step_a, &["--allow-net"]).code, 0);
+    let step = "cat .stillpass/gomod/example.com/dep@v1.0.0/dep.txt; ls .stillpass/gomod/example.com; test -e .stillpass/gomod/example.com/dep@v1.0.0/go.mod || echo no-go-mod";
+    let run = |seal: &str| {
+        let repo = env.repo.to_str().unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_stillpass"))
+            .arg("--state")
+            .arg(env.state())
+            .args(["run", "--repo", repo, "--step", step, "--mode", "replay"])
+            .env("STILLPASS_SEAL_MODCACHE", seal)
+            .output()
+            .unwrap();
+        Out {
+            code: out.status.code().unwrap_or(-1),
+            stdout: out.stdout,
+            stderr: String::from_utf8_lossy(&out.stderr).into(),
+        }
+    };
+    let r1 = run("1");
+    assert!(r1.executed() && r1.code == 0, "{}", r1.stderr);
+    let r2 = run("0");
+    assert!(
+        r2.executed() && !r2.stderr.contains("DIVERGENCE") && r2.stdout == r1.stdout,
+        "unsealed after sealed: {}",
+        r2.stderr
+    );
+    let r3 = run("1");
+    assert!(
+        !r3.stderr.contains("DIVERGENCE"),
+        "sealed after unsealed: {}",
+        r3.stderr
+    );
+    let r4 = run("0");
+    assert!(!r4.stderr.contains("DIVERGENCE"), "{}", r4.stderr);
+    let status = env.status();
+    assert!(
+        status.contains("0 quarantined") && status.contains("0 divergences"),
+        "{status}"
+    );
+    println!("T11 ok: sealed and unsealed runs of one tree never diverged");
 }
 
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {

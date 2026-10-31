@@ -122,10 +122,15 @@ fn render(
     for k in &keys {
         if let Some(t) = ledger.trust(k)? {
             let best = ledger.proofs_for_key(k)?.first().map_or(0, |p| p.streak);
-            rows.push((t, best));
+            let policy = sp_trust::Policy {
+                proofs,
+                ..sp_trust::Policy::default()
+            };
+            let needed = sp_trust::needed(&policy, ledger.recent_divergences(k, TRAILING_AUDITS)?);
+            rows.push((t, best, needed));
         }
     }
-    let count = |s: TrustState| rows.iter().filter(|(t, _)| t.state == s).count();
+    let count = |s: TrustState| rows.iter().filter(|(t, _, _)| t.state == s).count();
     writeln!(
         o,
         "  trust: {} step key(s): {} proven, {} observing, {} quarantined",
@@ -134,8 +139,7 @@ fn render(
         count(TrustState::Observing),
         count(TrustState::Quarantined)
     )?;
-    for (t, best) in &rows {
-        let needed = proofs + u32::try_from(t.divergences).unwrap_or(u32::MAX);
+    for (t, best, needed) in &rows {
         let mut line = format!(
             "    {:<11}  proofs {}/{}  audited {}x  {} divergence{}  replayed {}x",
             t.state.as_str(),

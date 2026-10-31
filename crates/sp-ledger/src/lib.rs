@@ -798,6 +798,24 @@ impl Ledger {
         )?)
     }
 
+    /// Resets one manifest's proof streak to zero (its last fingerprint and
+    /// run stay, to compare the next execution against).
+    pub fn reset_proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<usize, LedgerError> {
+        Ok(self.db.execute(
+            "UPDATE proofs SET streak = 0, updated_at = ?3 WHERE step_key = ?1 AND manifest_id = ?2",
+            params![step_key.to_string(), manifest_id.to_string(), now_rfc3339()],
+        )?)
+    }
+
+    /// How many of a key's newest `window` audits diverged.
+    pub fn recent_divergences(&self, step_key: &Hash, window: usize) -> Result<u64, LedgerError> {
+        Ok(self.db.query_row(
+            "SELECT count(*) FROM (SELECT diverged FROM audits WHERE step_key = ?1 ORDER BY id DESC LIMIT ?2) WHERE diverged != 0",
+            params![step_key.to_string(), window as i64],
+            |r| r.get::<_, i64>(0),
+        )? as u64)
+    }
+
     /// Appends an audit (the row's `id` and `at` are assigned here).
     pub fn record_audit(&self, a: &AuditRow) -> Result<i64, LedgerError> {
         self.db.execute(
@@ -1400,6 +1418,21 @@ mod tests {
         assert_eq!(got[1].detail.as_deref(), Some("exit code 0 -> 1"));
         assert_eq!(l.audits(Some(&Hash::of(b"other")), 10).unwrap().len(), 0);
         assert_eq!(l.audits(None, 1).unwrap().len(), 1);
+        // Divergences age out of the window: newest first.
+        assert_eq!(l.recent_divergences(&key, 10).unwrap(), 1);
+        assert_eq!(
+            l.recent_divergences(&key, 1).unwrap(),
+            0,
+            "the newest is clean"
+        );
+        assert_eq!(l.recent_divergences(&Hash::of(b"other"), 10).unwrap(), 0);
+        // One manifest's streak resets, the other's stays.
+        l.put_proof(&p(m1, 4, "r4")).unwrap();
+        l.put_proof(&p(m2, 3, "r5")).unwrap();
+        assert_eq!(l.reset_proof(&key, &m1).unwrap(), 1);
+        assert_eq!(l.proof(&key, &m1).unwrap().unwrap().streak, 0);
+        assert_eq!(l.proof(&key, &m1).unwrap().unwrap().last_run, "r4");
+        assert_eq!(l.proof(&key, &m2).unwrap().unwrap().streak, 3);
     }
 
     /// `atomically` commits on success, rolls everything back on failure,

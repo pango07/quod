@@ -41,8 +41,15 @@ use sp_manifest::{Manifest, ManifestError, StepResult, manifest_id};
 pub const DEFAULT_PROOFS: u32 = 2;
 /// The fraction of would-be hits replay mode re-executes and compares.
 pub const DEFAULT_AUDIT: f64 = 0.05;
-/// How many of the newest audits the trailing divergence rate covers.
+/// How many of the newest audits the trailing divergence rate covers, and
+/// the window a key's divergences raise its bar within.
 pub const TRAILING_AUDITS: usize = 100;
+/// The most a key's recent divergences add to its bar: a chronically flaky
+/// key needs at most `proofs + MAX_EXTRA_PROOFS` identical executions to
+/// re-prove itself, and its divergences age out of the window.
+pub const MAX_EXTRA_PROOFS: u32 = 5;
+/// The largest `--proofs` accepted.
+pub const MAX_PROOFS: u32 = 100;
 
 /// `observe` executes everything and reports what would have replayed;
 /// `replay` replays proven results.
@@ -127,6 +134,12 @@ impl Policy {
                 "--proofs must be at least 1: a result seen zero times cannot replay".into(),
             ));
         }
+        if self.proofs > MAX_PROOFS {
+            return Err(TrustError::BadPolicy(format!(
+                "--proofs {} is more than {MAX_PROOFS}",
+                self.proofs
+            )));
+        }
         if !(0.0..=1.0).contains(&self.audit) || self.audit.is_nan() {
             return Err(TrustError::BadPolicy(format!(
                 "--audit {} is not a fraction in 0..=1",
@@ -199,11 +212,15 @@ pub enum Decision {
 }
 
 /// Identical executions a key's manifests need: the policy's count plus one
-/// for every divergence the key has shown. A key that keeps diverging
-/// drifts out of reach of replay, which is where a flaky step belongs.
-pub fn needed(policy: &Policy, trust: Option<&TrustRow>) -> u32 {
-    policy.proofs
-        + u32::try_from(trust.map_or(0, |t| t.divergences)).unwrap_or(u32::MAX - policy.proofs)
+/// for every divergence among the key's newest `TRAILING_AUDITS` audits, at
+/// most `MAX_EXTRA_PROOFS` more. A key that keeps diverging needs longer
+/// runs of identical results; one that stops diverging gets back to the
+/// base bar as clean audits push its divergences out of the window.
+pub fn needed(policy: &Policy, recent_divergences: u64) -> u32 {
+    let extra = u32::try_from(recent_divergences)
+        .unwrap_or(u32::MAX)
+        .min(MAX_EXTRA_PROOFS);
+    policy.proofs.saturating_add(extra)
 }
 
 /// What `decide` needs to know about the result a replay would serve.
@@ -226,6 +243,7 @@ pub fn decide(
     hit: Option<HitView>,
     trust: Option<&TrustRow>,
     proof: Option<&ProofRow>,
+    recent_divergences: u64,
 ) -> Decision {
     let Some(hit) = hit else {
         return Decision::Execute(Reason::Miss);
@@ -233,7 +251,7 @@ pub fn decide(
     let streak = proof
         .filter(|p| p.last_run == hit.run_id)
         .map_or(0, |p| p.streak);
-    let needed = needed(policy, trust);
+    let needed = needed(policy, recent_divergences);
     if let Some(t) = trust
         && t.state == TrustState::Quarantined
     {
@@ -830,6 +848,7 @@ impl<'a> Trust<'a> {
             }),
             trust.as_ref(),
             proof.as_ref(),
+            self.ledger.recent_divergences(key, TRAILING_AUDITS)?,
         ))
     }
 
@@ -840,7 +859,10 @@ impl<'a> Trust<'a> {
             .trust(key)?
             .unwrap_or_else(|| TrustRow::new(*key, None));
         let streak = self.ledger.proof(key, manifest)?.map_or(0, |p| p.streak);
-        let needed = needed(&self.policy, Some(&trust));
+        let needed = needed(
+            &self.policy,
+            self.ledger.recent_divergences(key, TRAILING_AUDITS)?,
+        );
         Ok(Facts {
             trust,
             streak,
@@ -987,7 +1009,10 @@ impl<'a> Trust<'a> {
                 last_run: run_id.to_string(),
                 updated_at: String::new(),
             })?;
-            let needed = needed(&self.policy, Some(&trust));
+            // This execution's audit row is written below: count it now.
+            let recent = l.recent_divergences(&key, TRAILING_AUDITS.saturating_sub(1))?
+                + u64::from(!divergence.is_empty());
+            let needed = needed(&self.policy, recent);
             if divergence.is_empty()
                 && why_unprovable.is_none()
                 && streak >= needed
@@ -1037,67 +1062,34 @@ impl<'a> Trust<'a> {
     }
 
     /// Records a step that did not finish (`what`: "timed out after 30m00s").
-    /// Nothing is memoized; but if a result was expected, not finishing is a
-    /// divergence from it and the key is quarantined. `None` when there was
-    /// nothing to compare with.
+    /// Nothing is memoized, and nothing is learned about the step's result:
+    /// a timeout is as likely the box (load, a slow observer) as the step,
+    /// so it is not a divergence. But the result that was expected did not
+    /// reproduce, so the matched manifest's streak restarts. Returns the
+    /// banner line, or `None` when nothing was expected.
     pub fn record_incomplete(
         &self,
         step: &Step,
-        run_id: &str,
         hit: Option<&(Manifest, StepResult)>,
-        reason: &Reason,
         what: &str,
-    ) -> Result<Option<Verdict>, TrustError> {
+    ) -> Result<Option<String>, TrustError> {
         let Some((m, prev)) = hit else {
             return Ok(None);
         };
-        let key = step.key;
         let manifest = manifest_id(m)?;
         self.ledger.atomically(|l| {
-            let mut trust = l
-                .trust(&key)?
-                .unwrap_or_else(|| TrustRow::new(key, Some(step.cmd)));
-            if reason.eligible() {
-                trust.eligible += 1;
-            }
-            let divergence = Divergence {
-                items: vec![format!(
-                    "the step {what}; run {} finished with exit code {}",
-                    short_run(&prev.run_id),
-                    prev.exit_code
-                )],
-            };
-            trust.audits += 1;
-            trust.divergences += 1;
-            trust.state = TrustState::Quarantined;
-            trust.quarantined_at = Some(now_rfc3339());
-            trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
-            l.reset_proofs(&key)?;
-            l.put_trust(&trust)?;
-            l.record_audit(&AuditRow {
-                id: 0,
-                step_key: key,
-                manifest_id: manifest,
-                at: String::new(),
-                phase: reason.phase().into(),
-                diverged: true,
-                expected_run: Some(prev.run_id.clone()),
-                actual_run: Some(run_id.to_string()),
-                detail: Some(divergence.to_string()),
-            })?;
-            tracing::warn!(target: "stillpass", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence: step key quarantined");
-            let needed = needed(&self.policy, Some(&trust));
-            Ok(Some(Verdict {
-                reason: reason.clone(),
-                compared_with: Some(prev.run_id.clone()),
-                divergence: Some(divergence),
-                byte_identical: false,
-                streak: 0,
-                needed,
-                trust,
-                would_have_saved: None,
-                unprovable: None,
-            }))
+            l.reset_proof(&step.key, &manifest)?;
+            let needed = needed(
+                &self.policy,
+                l.recent_divergences(&step.key, TRAILING_AUDITS)?,
+            );
+            tracing::info!(target: "stillpass", step_key = %step.key, manifest_id = %manifest, what, "incomplete: proof streak reset");
+            Ok(Some(format!(
+                "trust: the step {what}, which is not a result (run {} finished with exit code {}); manifest b3:{} proves again from 0 of {needed}",
+                short_run(&prev.run_id),
+                prev.exit_code,
+                manifest.short()
+            )))
         })
     }
 }
@@ -1166,7 +1158,13 @@ mod tests {
             unprovable: None,
         };
         let d = |p: &Policy, hit: bool, t: Option<&TrustRow>, pr: Option<&ProofRow>| {
-            decide(p, hit.then_some(view("01RUN")), t, pr)
+            decide(
+                p,
+                hit.then_some(view("01RUN")),
+                t,
+                pr,
+                t.map_or(0, |t| t.divergences),
+            )
         };
         assert_eq!(
             d(&replay, false, None, None),
@@ -1175,7 +1173,7 @@ mod tests {
         // A streak vouches only for the result of the run it ends with: a
         // hit serving another run's result is unproven, however long.
         assert_eq!(
-            decide(&replay, Some(view("01OTHER")), None, Some(&proof(9))),
+            decide(&replay, Some(view("01OTHER")), None, Some(&proof(9)), 0),
             Decision::Execute(Reason::Proving {
                 streak: 0,
                 needed: 2
@@ -1207,7 +1205,8 @@ mod tests {
                     unprovable: Some("exit code 1")
                 }),
                 None,
-                Some(&proof(9))
+                Some(&proof(9)),
+                0
             ),
             Decision::Execute(Reason::Unprovable {
                 why: "exit code 1".into()
@@ -1668,10 +1667,11 @@ mod tests {
         assert_eq!(w.run(&none, 0, ok), Err(Decision::Replay));
     }
 
-    /// A timed-out audit is a divergence: the proven result said the step
-    /// finishes, reality said it did not.
+    /// A step that does not finish is not a result and not a divergence (a
+    /// timeout is as likely the box as the step), but the expected result
+    /// did not reproduce, so the matched manifest proves again from 0.
     #[test]
-    fn a_step_that_does_not_finish_diverges_from_its_result() {
+    fn a_step_that_does_not_finish_restarts_its_streak() {
         let mut w = World::new();
         let ok = b"ok\n";
         w.run(&REPLAY, 0, ok).unwrap();
@@ -1687,45 +1687,121 @@ mod tests {
             cmd: "go test ./...",
             ignore: &[],
         };
-        let v = trust
-            .record_incomplete(
-                &step,
-                "01RUNTO",
-                hit.as_ref(),
-                &Reason::Audit { nth: 1 },
-                "timed out after 30m00s",
-            )
+        let line = trust
+            .record_incomplete(&step, hit.as_ref(), "timed out after 30m00s")
             .unwrap()
             .unwrap();
-        assert_eq!(v.trust.state, TrustState::Quarantined);
+        assert!(
+            line.starts_with("trust: the step timed out after 30m00s, which is not a result (run 01RUN02 finished with exit code 0)")
+                && line.ends_with("proves again from 0 of 2"),
+            "{line}"
+        );
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
         assert_eq!(
-            v.divergence.unwrap().items[0],
-            "the step timed out after 30m00s; run 01RUN02 finished with exit code 0"
+            (t.state, t.divergences, t.audits),
+            (TrustState::Proven, 0, 1)
         );
         assert_eq!(w.ledger.proof(&w.key, &w.mid).unwrap().unwrap().streak, 0);
-        // Nothing to compare with: nothing recorded about trust.
+        assert!(
+            w.ledger
+                .audits(Some(&w.key), 10)
+                .unwrap()
+                .iter()
+                .all(|a| !a.diverged)
+        );
+        // Nothing expected: nothing recorded.
         assert!(
             trust
-                .record_incomplete(&step, "01RUNTO", None, &Reason::Miss, "timed out")
+                .record_incomplete(&step, None, "timed out")
                 .unwrap()
                 .is_none()
         );
-        // Timeouts are never memoized (no result was stored), so the next
-        // run compares with the last finished one.
+        // The next run compares with the last finished one and re-proves.
         let v = w.run(&REPLAY, 0, ok).unwrap();
         assert!(
             matches!(
                 v.reason,
-                Reason::Quarantined {
+                Reason::Proving {
                     streak: 0,
-                    needed: 3,
-                    ..
+                    needed: 2
                 }
             ),
             "{:?}",
             v.reason
         );
         assert_eq!((v.streak, v.divergence), (1, None));
+        assert!(w.run(&REPLAY, 0, ok).unwrap().replayable());
+    }
+
+    /// The bar rises with recent divergences, at most MAX_EXTRA_PROOFS, and
+    /// falls back as clean audits push them out of the window.
+    #[test]
+    fn the_bar_is_capped_and_decays() {
+        let p = Policy::default();
+        assert_eq!(needed(&p, 0), 2);
+        assert_eq!(needed(&p, 3), 5);
+        assert_eq!(needed(&p, 1_000), 2 + MAX_EXTRA_PROOFS);
+        assert_eq!(needed(&p, u64::MAX), 2 + MAX_EXTRA_PROOFS);
+        let big = Policy {
+            proofs: MAX_PROOFS,
+            ..p
+        };
+        assert!(big.validate().is_ok() && needed(&big, u64::MAX) == MAX_PROOFS + MAX_EXTRA_PROOFS);
+        assert!(
+            Policy {
+                proofs: MAX_PROOFS + 1,
+                ..p
+            }
+            .validate()
+            .is_err()
+        );
+
+        // A chronically flaky key: many divergences, then it settles. It
+        // re-proves within the capped bar, and once its divergences leave
+        // the window the bar is the base again.
+        let mut w = World::new();
+        for i in 0..10u8 {
+            w.run(&REPLAY, 0, &[i]).unwrap();
+        }
+        let v = w.run(&REPLAY, 0, b"settled").unwrap();
+        assert_eq!(v.needed, 2 + MAX_EXTRA_PROOFS, "capped");
+        let mut runs = 1;
+        loop {
+            match w.run(&REPLAY, 0, b"settled") {
+                Err(Decision::Replay) => break,
+                Ok(v) => {
+                    assert!(v.divergence.is_none());
+                    runs += 1;
+                    assert!(runs <= 2 + MAX_EXTRA_PROOFS, "re-proves within the cap");
+                }
+                Err(d) => panic!("{d:?}"),
+            }
+        }
+        assert_eq!(runs, 2 + MAX_EXTRA_PROOFS);
+        let recent = w
+            .ledger
+            .recent_divergences(&w.key, TRAILING_AUDITS)
+            .unwrap();
+        assert_eq!(
+            recent, 10,
+            "nine between the random runs, one when it settled"
+        );
+        // Push the divergences out of the window with clean audits.
+        let all = Policy {
+            audit: 1.0,
+            ..REPLAY
+        };
+        for _ in 0..TRAILING_AUDITS {
+            assert!(w.run(&all, 0, b"settled").unwrap().divergence.is_none());
+        }
+        assert_eq!(
+            w.ledger
+                .recent_divergences(&w.key, TRAILING_AUDITS)
+                .unwrap(),
+            0
+        );
+        let trust = Trust::new(&w.ledger, &w.cas, REPLAY).unwrap();
+        assert_eq!(trust.facts(&w.key, &w.mid).unwrap().needed, 2);
     }
 
     /// Outputs under the toolchain's cache directories are not compared;

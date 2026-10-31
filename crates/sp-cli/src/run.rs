@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use clap::Args;
-use sp_cas::{Cas, Hash, Tree};
+use sp_cas::{Cas, Hash, Kind, Tree};
 use sp_key::{Image, StepSpec, Toolchain, step_key};
 use sp_ledger::{Ledger, Lookup, Observed, RunFacts, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
@@ -396,20 +396,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 "the observer failed while the step ran; the step was aborted and nothing was recorded"
             );
         }
-        // Timed out: killed, reported, never memoized. If a result was
-        // expected (a proven or proving manifest), not finishing diverges
-        // from it, and the key is quarantined.
+        // Timed out: killed, reported, never memoized, and not a divergence
+        // (load or a slow observer can do it as well as the step). If a
+        // result was expected, the matched manifest proves again from 0.
         let what = format!("timed out after {}", fmt_duration(args.timeout));
         eprintln!(
             "STILLPASS  TIMED OUT  the step ran {} and was killed; not memoized",
             fmt_duration(ex.wall)
         );
-        if let Some(v) =
-            trust.record_incomplete(&tstep, &info.run_id, lookup.hit.as_ref(), &reason, &what)?
-        {
-            for l in v.lines() {
-                eprintln!("{}", indent(&l));
-            }
+        if let Some(line) = trust.record_incomplete(&tstep, lookup.hit.as_ref(), &what)? {
+            eprintln!("{}", indent(&line));
         }
         ledger.record_run_facts(&RunFacts {
             observed: Observed {
@@ -662,6 +658,13 @@ pub(crate) fn execute(
     // construction, and shared by every state dir and bench run that
     // shares the store.
     let snapshots = cas.dir().join("snapshots");
+    // Which prefixes are sealable is a function of the profile and the
+    // tree; whether a snapshot could be made is not (and sealing can be
+    // turned off for the bench). The manifest records every sealable prefix
+    // whole either way, so its shape never depends on the observer's
+    // configuration: a sealed and an observed run of one tree read
+    // equivalent manifests, and neither can be mistaken for a divergence.
+    let sealable = spec.profile().seals(tree);
     let sealed = seal::seal(spec.profile(), tree, cas, &snapshots);
     phases.mount = t.elapsed();
 
@@ -728,8 +731,15 @@ pub(crate) fn execute(
     };
     let stats = served.stats();
     let mut log = served.unmount()?;
-    for s in &sealed {
-        log.extend(seal::accesses(tree, &s.seal));
+    for s in &sealable {
+        log.extend(seal::accesses(tree, s));
+        // Each carve-out too, as the tree has it (a listing, or absent): a
+        // sealed run's mounting of it is a lookup the observer records, so
+        // an unsealed run records it as well.
+        log.extend(s.carve_outs.iter().map(|c| sp_manifest::Access {
+            path: c.clone(),
+            kind: tree.get(c).map_or(Kind::Absent, |e| e.k),
+        }));
     }
     if let Some(s) = sealed.first() {
         // Housekeeping never fails a completed run (gc warns instead).
