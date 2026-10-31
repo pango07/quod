@@ -16,6 +16,21 @@ mod overlay;
 #[cfg(target_os = "linux")]
 pub use overlay::{Overlay, overlay};
 
+/// How many requests of each kind the kernel sent the observer so far.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ObserverStats {
+    pub lookup: u64,
+    pub lookup_absent: u64,
+    pub getattr: u64,
+    pub readlink: u64,
+    pub open: u64,
+    pub read: u64,
+    pub read_bytes: u64,
+    pub readdir: u64,
+    /// Reads of open files go kernel-to-blob and never arrive here.
+    pub passthrough: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FsError {
     #[error("{what}: {source}")]
@@ -62,6 +77,10 @@ mod unsupported {
     impl Served {
         pub fn mountpoint(&self) -> &Path {
             Path::new("/")
+        }
+
+        pub fn stats(&self) -> crate::ObserverStats {
+            crate::ObserverStats::default()
         }
 
         pub fn unmount(self) -> Result<Vec<Access>, FsError> {

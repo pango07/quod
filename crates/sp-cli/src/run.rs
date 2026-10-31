@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use clap::Args;
-use sp_cas::{Cas, Hash, Tree};
+use sp_cas::{Cas, Hash, Kind, Tree};
 use sp_key::{StepSpec, step_key};
 use sp_ledger::{Ledger, Lookup, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
@@ -150,6 +150,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             code,
             manifest.entries.len(),
             warm,
+            None,
         );
         return Ok(exit_byte(code));
     }
@@ -166,7 +167,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         warm_dir.as_deref(),
         &mut phases,
     );
-    let (exit_code, signal, manifest, outputs, wall, stdout, stderr) = match outcome {
+    let ex = match outcome {
         Ok(v) => v,
         Err(e) => {
             if !args.keep {
@@ -175,30 +176,30 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             return Err(e);
         }
     };
-    if let Some(sig) = signal {
+    if let Some(sig) = ex.signal {
         // Killed from outside (OOM, timeout, a signal): the step's own
         // result is unknown, so it is reported and never memoized.
         if !args.keep {
             sp_cas::remove_any(&dir)?;
         }
         eprintln!("STILLPASS  EXECUTED  killed by signal {sig}, not memoized");
-        eprintln!("  ran {}", fmt_duration(wall));
-        return Ok(exit_byte(exit_code));
+        eprintln!("  ran {}", fmt_duration(ex.wall));
+        return Ok(exit_byte(ex.exit_code));
     }
 
     let t = Instant::now();
-    let mid = ledger.put_manifest(&manifest, &run_id)?;
+    let mid = ledger.put_manifest(&ex.manifest, &run_id)?;
     let result = StepResult {
         v: sp_manifest::VERSION,
         step_key: key,
         manifest_id: mid,
         run_id: run_id.clone(),
         recorded_at: now_rfc3339(),
-        exit_code,
-        stdout,
-        stderr,
-        outputs,
-        duration_ms: wall.as_millis() as u64,
+        exit_code: ex.exit_code,
+        stdout: ex.stdout,
+        stderr: ex.stderr,
+        outputs: ex.outputs,
+        duration_ms: ex.wall.as_millis() as u64,
     };
     ledger.put_result(&result)?;
     ledger.record_run(&run_id, head.as_deref(), hostname().as_deref())?;
@@ -212,7 +213,14 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 
     eprint!(
         "{}",
-        executed_banner(&key, &mid, &manifest, &lookup, wall, warm_dir.as_deref())
+        executed_banner(
+            &key,
+            &mid,
+            &ex.manifest,
+            &lookup,
+            ex.wall,
+            warm_dir.as_deref()
+        )
     );
     emit_event(
         &run_id,
@@ -222,22 +230,28 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         &lookup,
         &phases,
         start.elapsed(),
-        exit_code,
-        manifest.entries.len(),
+        ex.exit_code,
+        ex.manifest.entries.len(),
         warm,
+        Some(&ex.observer),
     );
-    Ok(exit_byte(exit_code))
+    Ok(exit_byte(ex.exit_code))
 }
 
-type Executed = (
-    i32,
-    Option<i32>,
-    Manifest,
-    Vec<sp_cas::Entry>,
-    Duration,
-    Hash,
-    Hash,
-);
+/// What one execution produced, before anything is recorded.
+struct Executed {
+    exit_code: i32,
+    signal: Option<i32>,
+    manifest: Manifest,
+    outputs: Vec<sp_cas::Entry>,
+    wall: Duration,
+    stdout: Hash,
+    stderr: Hash,
+    /// How the inputs were observed: `fuse`, plus `+passthrough` when the
+    /// kernel read blobs directly and `+sealed` when the module cache was a
+    /// snapshot outside the observer.
+    observer: String,
+}
 
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
 /// With `warm`, that host directory is bound over the step's GOCACHE, on top
@@ -280,9 +294,31 @@ fn execute(
             writable: true,
         });
     }
+    // The warm GOCACHE bind and the sealed module cache are disjoint
+    // subtrees of the workspace; both sit on top of the overlay.
+    let sealed = seal_modcache(spec, tree, cas, &dir.join("sealed"));
     phases.mount = t.elapsed();
 
     let t = Instant::now();
+    if let Some(s) = &sealed {
+        // The module cache is nine tenths of the observer's traffic and its
+        // module@version directories never change once extracted: the step
+        // reads a read-only snapshot of exactly the imported content, and
+        // the whole subtree is recorded instead of what was touched. go
+        // writes under its cache/ directory, so that part stays on the
+        // observed overlay.
+        let ws = Path::new(sp_key::WORKSPACE);
+        mounts.push(Mount {
+            src: s.snapshot.join(&s.prefix),
+            dst: ws.join(&s.prefix),
+            writable: false,
+        });
+        mounts.push(Mount {
+            src: ov.merged().join(&s.carve_out),
+            dst: ws.join(&s.carve_out),
+            writable: true,
+        });
+    }
     let rs = RunSpec {
         cmd: spec.cmd.clone(),
         cwd: spec.cwd.clone(),
@@ -299,7 +335,11 @@ fn execute(
 
     let t = Instant::now();
     let outputs = ov.finish(tree, cas)?;
+    let stats = served.stats();
     let mut log = served.unmount()?;
+    if let Some(s) = &sealed {
+        log.extend(sealed_accesses(tree, &s.prefix, &s.carve_out));
+    }
     if warm.is_some() {
         // What a cached vet verdict may stand in for (see sp_key::go_source_file).
         sp_manifest::record_children(tree, &mut log, sp_key::go_source_file);
@@ -309,19 +349,96 @@ fn execute(
     let (stdout, _) = cas.put_file(&dir.join("stdout"))?;
     let (stderr, _) = cas.put_file(&dir.join("stderr"))?;
     phases.diff = t.elapsed();
-    Ok((
-        r.exit_code,
-        r.signal,
+    let observer = format!(
+        "fuse{}{}",
+        if stats.passthrough {
+            "+passthrough"
+        } else {
+            ""
+        },
+        if sealed.is_some() { "+sealed" } else { "" }
+    );
+    Ok(Executed {
+        exit_code: r.exit_code,
+        signal: r.signal,
         manifest,
         outputs,
-        r.wall,
+        wall: r.wall,
         stdout,
         stderr,
-    ))
+        observer,
+    })
 }
 
 fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
     Ok(step_key(spec)?)
+}
+
+/// A subtree served from a snapshot outside the observer and recorded whole.
+struct Sealed {
+    /// Workspace-relative path of the subtree.
+    prefix: String,
+    /// A directory under it that stays observed (the step writes there).
+    carve_out: String,
+    /// Where the snapshot was built; the subtree is at `snapshot/prefix`.
+    snapshot: PathBuf,
+}
+
+/// Seals the step's module cache (GOMODCACHE under the workspace) when the
+/// tree has it with its cache/ directory (so go has somewhere to write):
+/// hard-links its blobs into `dest`, so the step can only ever see the
+/// imported content whatever happens to the repo meanwhile. `None`, with a
+/// warning, when the store cannot be linked from `dest` (another
+/// filesystem): the module cache is then observed like everything else.
+/// STILLPASS_SEAL_MODCACHE=0 turns sealing off (the bench's attribution
+/// series).
+fn seal_modcache(spec: &StepSpec, tree: &Tree, cas: &Cas, dest: &Path) -> Option<Sealed> {
+    if std::env::var("STILLPASS_SEAL_MODCACHE").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let modcache = spec.env.iter().find(|(k, _)| k == "GOMODCACHE")?.1.as_str();
+    let prefix = modcache
+        .strip_prefix(sp_key::WORKSPACE)?
+        .strip_prefix('/')?
+        .trim_end_matches('/')
+        .to_string();
+    let carve_out = format!("{prefix}/cache");
+    let has_dir = |p: &str| tree.get(p).is_some_and(|e| e.k == Kind::Dir);
+    if !has_dir(&prefix) || !has_dir(&carve_out) {
+        return None;
+    }
+    // The carve-out directory itself is linked (empty) as the mount point.
+    let (under, carve) = (format!("{prefix}/"), format!("{carve_out}/"));
+    let entries = tree
+        .iter()
+        .filter(|e| (e.p == prefix || e.p.starts_with(&under)) && !e.p.starts_with(&carve));
+    match cas.link_entries(entries, dest) {
+        Ok(()) => Some(Sealed {
+            prefix,
+            carve_out,
+            snapshot: dest.to_path_buf(),
+        }),
+        Err(e) => {
+            tracing::warn!(error = %e, "module cache not sealed; observing it instead");
+            let _ = sp_cas::remove_any(dest);
+            None
+        }
+    }
+}
+
+/// Every tree entry at or under `prefix`, except those under `carve_out`,
+/// as accesses: what a sealed subtree records. Over-records by construction:
+/// any change under the prefix alters a recorded file, symlink or listing.
+fn sealed_accesses(tree: &Tree, prefix: &str, carve_out: &str) -> Vec<sp_manifest::Access> {
+    let (under, carve) = (format!("{prefix}/"), format!("{carve_out}/"));
+    tree.iter()
+        .filter(|e| e.p == prefix || e.p.starts_with(&under))
+        .filter(|e| e.p != carve_out && !e.p.starts_with(&carve))
+        .map(|e| sp_manifest::Access {
+            path: e.p.clone(),
+            kind: e.k,
+        })
+        .collect()
 }
 
 /// A step with network: runs directly on the repo, never memoized.
@@ -409,6 +526,7 @@ fn emit_event(
     exit_code: i32,
     inputs: usize,
     warm: bool,
+    observer: Option<&str>,
 ) {
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     tracing::info!(
@@ -420,6 +538,7 @@ fn emit_event(
         warm,
         exit_code,
         inputs,
+        observer,
         candidates = lookup.candidates,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),
         recorded_ms = lookup.hit.as_ref().map(|(_, r)| r.duration_ms),
@@ -482,4 +601,65 @@ fn hostname() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sp_cas::Entry;
+
+    #[test]
+    fn sealed_accesses_cover_the_prefix_minus_the_carve_out() {
+        let tree = Tree::from_leaves([
+            Entry::file("go.mod", Hash::of(b"m"), 0o644),
+            Entry::file(".stillpass/gomod/a.b/c@v1/x.go", Hash::of(b"x"), 0o444),
+            Entry::symlink(".stillpass/gomod/a.b/c@v1/l", "x.go"),
+            Entry::file(
+                ".stillpass/gomod/cache/download/a.b/c/@v/v1.mod",
+                Hash::of(b"d"),
+                0o444,
+            ),
+            Entry::file(".stillpass/gomodx/y", Hash::of(b"y"), 0o644),
+        ]);
+        let spec = StepSpec::spike(Hash::of(b"i"), "go test ./...", &[]);
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        for b in [b"m".as_slice(), b"x", b"d", b"y"] {
+            cas.put(b).unwrap();
+        }
+        let snap = tmp.path().join("sealed");
+        let s =
+            seal_modcache(&spec, &tree, &cas, &snap).expect("GOMODCACHE is under the workspace");
+        assert_eq!(
+            (s.prefix.as_str(), s.carve_out.as_str()),
+            (".stillpass/gomod", ".stillpass/gomod/cache")
+        );
+        // The snapshot holds the module dirs and an empty carve-out to mount over.
+        assert_eq!(
+            std::fs::read(snap.join(".stillpass/gomod/a.b/c@v1/x.go")).unwrap(),
+            b"x"
+        );
+        assert_eq!(
+            std::fs::read_dir(snap.join(".stillpass/gomod/cache"))
+                .unwrap()
+                .count(),
+            0
+        );
+        assert!(!snap.join("go.mod").exists() && !snap.join(".stillpass/gomodx").exists());
+        let got: Vec<(String, Kind)> = sealed_accesses(&tree, &s.prefix, &s.carve_out)
+            .into_iter()
+            .map(|a| (a.path, a.kind))
+            .collect();
+        let want: Vec<(String, Kind)> = [
+            (".stillpass/gomod", Kind::Dir),
+            (".stillpass/gomod/a.b", Kind::Dir),
+            (".stillpass/gomod/a.b/c@v1", Kind::Dir),
+            (".stillpass/gomod/a.b/c@v1/l", Kind::Symlink),
+            (".stillpass/gomod/a.b/c@v1/x.go", Kind::File),
+        ]
+        .iter()
+        .map(|(p, k)| (p.to_string(), *k))
+        .collect();
+        assert_eq!(got, want);
+    }
 }

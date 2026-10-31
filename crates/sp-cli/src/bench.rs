@@ -42,6 +42,14 @@ pub struct BenchArgs {
     /// The file the one-file series appends a comment to before each pair.
     #[arg(long, default_value = "api/client.go")]
     touch: String,
+    /// Alternate the overhead series run by run (plain, observed, plain, ...)
+    /// so load from elsewhere on the box hits every series alike.
+    #[arg(long)]
+    interleave: bool,
+    /// An extra observed series with NAME=VALUE[,NAME=VALUE...] in the
+    /// child's environment (repeatable), to attribute overhead to a mechanism.
+    #[arg(long = "extra-series", value_name = "NAME=VALUE[,...]")]
+    extra_series: Vec<String>,
     #[arg(long)]
     vm: bool,
     #[arg(long, default_value = "report.md")]
@@ -52,6 +60,10 @@ struct Sample {
     wall: Duration,
     event: Value,
 }
+
+/// An overhead series: its label and, for an observed series, the extra
+/// environment of the child `stillpass run` (`None` is the plain baseline).
+type Series = (String, Option<Vec<(String, String)>>);
 
 pub fn bench(state: &State, args: BenchArgs) -> anyhow::Result<u8> {
     if args.vm {
@@ -117,111 +129,136 @@ fn overhead(
     copy_module_cache(repo, &tree)?;
     run_setup(exe, &work.join("setup-state"), &tree, &args.setup)?;
 
-    // Plain: no FUSE, no sandbox; fresh copy of the tree, empty GOCACHE.
-    let mut plain = Vec::new();
-    for i in 0..args.runs {
-        let copy = work.join(format!("plain-{i}"));
-        cp(&tree, &copy)?;
-        // Same sandbox, uid and env as the observed path; only the FUSE
-        // lower and the overlay are missing. That isolates the observer.
-        let out = work.join(format!("plain-{i}.log"));
-        let rs = sp_sandbox::RunSpec {
-            cmd: sp_key::shell_cmd(&args.step),
-            cwd: sp_key::WORKSPACE.into(),
-            env: sp_key::SPIKE_ENV
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-            mounts: vec![sp_sandbox::Mount {
-                src: copy.clone(),
-                dst: sp_key::WORKSPACE.into(),
-                writable: true,
-            }],
-            egress: false,
-            stdout: out.with_extension("out"),
-            stderr: out.with_extension("err"),
-            echo: false,
-            identity: None,
-        };
-        let r = sp_sandbox::run(&rs)?;
-        if r.exit_code != 0 {
-            bail!(
-                "plain run {i} exited {}; the baseline must pass",
-                r.exit_code
-            );
-        }
-        plain.push(r.wall);
-        sp_cas::remove_any(&copy)?;
-        eprintln!(
-            "overhead plain {}/{}: {:.1}s",
-            i + 1,
-            args.runs,
-            r.wall.as_secs_f64()
-        );
+    // Series 0 is plain, 1 the observed path, then one observed series per
+    // --extra-series with that variable set in the child's environment.
+    let mut series: Vec<Series> = vec![
+        ("Plain (same sandbox, no FUSE or overlay)".into(), None),
+        (
+            "Observed (import, serve, overlay, sandbox, record)".into(),
+            Some(Vec::new()),
+        ),
+    ];
+    for e in &args.extra_series {
+        let env = e
+            .split(',')
+            .map(|kv| match kv.split_once('=') {
+                Some((k, v)) => Ok((k.to_string(), v.to_string())),
+                None => bail!("--extra-series {e:?}: {kv:?} is not NAME=VALUE"),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        series.push((format!("Observed, {e}"), Some(env)));
     }
-
-    // Observed: full path, ledger cleared each time so every run misses.
-    // The CAS persists, as it would between CI runs.
-    let mut observed = Vec::new();
+    let order: Vec<(usize, usize)> = if args.interleave {
+        (0..args.runs)
+            .flat_map(|i| (0..series.len()).map(move |s| (s, i)))
+            .collect()
+    } else {
+        (0..series.len())
+            .flat_map(|s| (0..args.runs).map(move |i| (s, i)))
+            .collect()
+    };
+    let mut walls: Vec<Vec<f64>> = vec![Vec::new(); series.len()];
+    let mut events: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
     let cas = work.join("overhead-cas");
-    for i in 0..args.runs {
-        let st = work.join(format!("observed-{i}"));
-        let s = run_step(
-            exe,
-            &st,
-            &tree,
-            &args.step,
-            &["--cas", cas.to_str().unwrap()],
-        )?;
-        if s.event["hit"].as_bool() != Some(false) || s.event["exit_code"].as_i64() != Some(0) {
-            bail!("observed run {i} was not a passing miss: {}", s.event);
+    for (s, i) in order {
+        let (label, env) = &series[s];
+        let wall = match env {
+            None => plain_run(&tree, work, &args.step, i)?,
+            Some(env) => {
+                // Observed: full path, ledger cleared each time so every run
+                // misses. The CAS persists, as it would between CI runs.
+                let st = work.join(format!("observed-{s}-{i}"));
+                let r = run_step(
+                    exe,
+                    &st,
+                    &tree,
+                    &args.step,
+                    &["--cas", cas.to_str().unwrap()],
+                    env,
+                )?;
+                if r.event["hit"].as_bool() != Some(false)
+                    || r.event["exit_code"].as_i64() != Some(0)
+                {
+                    bail!("observed run {i} was not a passing miss: {}", r.event);
+                }
+                sp_cas::remove_any(&st)?;
+                let wall = r.wall.as_secs_f64();
+                eprintln!(
+                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s)",
+                    i + 1,
+                    args.runs,
+                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0
+                );
+                events[s].push(r.event);
+                wall
+            }
+        };
+        if env.is_none() {
+            eprintln!("overhead [{label}] {}/{}: {wall:.1}s", i + 1, args.runs);
         }
-        eprintln!(
-            "overhead observed {}/{}: {:.1}s",
-            i + 1,
-            args.runs,
-            s.wall.as_secs_f64()
-        );
-        observed.push(s);
-        sp_cas::remove_any(&st)?;
+        walls[s].push(wall);
     }
 
-    let plain_w: Vec<f64> = plain.iter().skip(1).map(|d| d.as_secs_f64()).collect();
-    let obs_w: Vec<f64> = observed
-        .iter()
-        .skip(1)
-        .map(|s| s.wall.as_secs_f64())
-        .collect();
-    let (pm, pp) = (median(&plain_w), p95(&plain_w));
-    let (om, op) = (median(&obs_w), p95(&obs_w));
+    // The first run of each series is warm-up.
+    let w: Vec<Vec<f64>> = walls.iter().map(|v| v[1..].to_vec()).collect();
+    let exec_median = |s: usize| {
+        let v: Vec<f64> = events[s]
+            .iter()
+            .skip(1)
+            .map(|e| e["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0)
+            .collect();
+        median(&v)
+    };
+    let (pm, pp) = (median(&w[0]), p95(&w[0]));
+    let (om, op) = (median(&w[1]), p95(&w[1]));
     let ratio = om / pm - 1.0;
     let mut t = String::new();
     writeln!(t, "## Overhead (A8)\n")?;
     writeln!(
         t,
-        "{} runs per series, first dropped as warm-up. Overhead = observed median / plain median - 1. Target under 10%.\n",
-        args.runs
+        "{} runs per series{}, first dropped as warm-up. Overhead = observed median / plain median - 1. Target under 10%.\n",
+        args.runs,
+        if args.interleave { ", interleaved" } else { "" }
     )?;
     writeln!(
         t,
-        "| Series | Median | p95 | Runs (s) |\n| --- | --- | --- | --- |"
+        "| Series | Median | p95 | Execution median | Runs (s) |\n| --- | --- | --- | --- | --- |"
     )?;
     writeln!(
         t,
-        "| Plain (same sandbox, no FUSE or overlay) | {pm:.2}s | {pp:.2}s | {} |",
-        list(&plain_w)
+        "| {} | {pm:.2}s | {pp:.2}s | {pm:.2}s | {} |",
+        series[0].0,
+        list(&w[0])
     )?;
+    for s in 1..series.len() {
+        writeln!(
+            t,
+            "| {} | {:.2}s | {:.2}s | {:.2}s | {} |",
+            series[s].0,
+            median(&w[s]),
+            p95(&w[s]),
+            exec_median(s),
+            list(&w[s])
+        )?;
+    }
     writeln!(
         t,
-        "| Observed (import, serve, overlay, sandbox, record) | {om:.2}s | {op:.2}s | {} |",
-        list(&obs_w)
-    )?;
-    writeln!(
-        t,
-        "| **Overhead** | **{:+.1}%** | {:+.1}% | |\n",
+        "| **Overhead** | **{:+.1}%** | {:+.1}% | {:+.1}% | |",
         ratio * 100.0,
-        (op / pp - 1.0) * 100.0
+        (op / pp - 1.0) * 100.0,
+        (exec_median(1) / pm - 1.0) * 100.0
     )?;
+    for s in 2..series.len() {
+        writeln!(
+            t,
+            "| Overhead, {} | {:+.1}% | {:+.1}% | {:+.1}% | |",
+            &series[s].0["Observed, ".len()..],
+            (median(&w[s]) / pm - 1.0) * 100.0,
+            (p95(&w[s]) / pp - 1.0) * 100.0,
+            (exec_median(s) / pm - 1.0) * 100.0
+        )?;
+    }
+    writeln!(t)?;
     writeln!(t, "Observed phase breakdown, median over the same runs:\n")?;
     writeln!(
         t,
@@ -235,10 +272,10 @@ fn overhead(
         ("output diff", "diff_ms"),
         ("ledger write", "record_ms"),
     ] {
-        let v: Vec<f64> = observed
+        let v: Vec<f64> = events[1]
             .iter()
             .skip(1)
-            .map(|s| s.event[field].as_f64().unwrap_or(0.0) / 1000.0)
+            .map(|s| s[field].as_f64().unwrap_or(0.0) / 1000.0)
             .collect();
         writeln!(
             t,
@@ -255,6 +292,42 @@ fn overhead(
     );
     sp_cas::remove_any(&tree)?;
     Ok((t, line))
+}
+
+/// One plain run: no FUSE, no overlay; a fresh copy of the tree with an
+/// empty GOCACHE, in the same sandbox, uid and env as the observed path. That
+/// isolates the observer.
+fn plain_run(tree: &Path, work: &Path, step: &str, i: usize) -> anyhow::Result<f64> {
+    let copy = work.join(format!("plain-{i}"));
+    cp(tree, &copy)?;
+    let out = work.join(format!("plain-{i}.log"));
+    let rs = sp_sandbox::RunSpec {
+        cmd: sp_key::shell_cmd(step),
+        cwd: sp_key::WORKSPACE.into(),
+        env: sp_key::SPIKE_ENV
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        mounts: vec![sp_sandbox::Mount {
+            src: copy.clone(),
+            dst: sp_key::WORKSPACE.into(),
+            writable: true,
+        }],
+        egress: false,
+        stdout: out.with_extension("out"),
+        stderr: out.with_extension("err"),
+        echo: false,
+        identity: None,
+    };
+    let r = sp_sandbox::run(&rs)?;
+    if r.exit_code != 0 {
+        bail!(
+            "plain run {i} exited {}; the baseline must pass",
+            r.exit_code
+        );
+    }
+    sp_cas::remove_any(&copy)?;
+    Ok(r.wall.as_secs_f64())
 }
 
 /// A11: the last N first-parent commits, oldest first, ledger persisting.
@@ -287,7 +360,7 @@ fn hit_rate(
         git(&tree, &["checkout", "-q", "--detach", c])?;
         let subject = git(&tree, &["log", "-1", "--format=%s", c])?;
         run_setup(exe, &state, &tree, &args.setup)?;
-        let s = run_step(exe, &state, &tree, &args.step, &["--commit", c])?;
+        let s = run_step(exe, &state, &tree, &args.step, &["--commit", c], &[])?;
         let hit = s.event["hit"].as_bool().unwrap_or(false);
         let wall = s.wall.as_secs_f64();
         // What a plain runner would have spent: the execution itself on a
@@ -378,8 +451,8 @@ fn one_file(
         let mut f = std::fs::OpenOptions::new().append(true).open(&file)?;
         writeln!(f, "\n// stillpass bench: one-file change {i}")?;
         drop(f);
-        let c = run_step(exe, &cold_state, &tree, &args.step, &[])?;
-        let w = run_step(exe, &warm_state, &tree, &args.step, &["--warm"])?;
+        let c = run_step(exe, &cold_state, &tree, &args.step, &[], &[])?;
+        let w = run_step(exe, &warm_state, &tree, &args.step, &["--warm"], &[])?;
         for (s, name) in [(&c, "cold"), (&w, "warm")] {
             if s.event["hit"].as_bool() != Some(false) || s.event["exit_code"].as_i64() != Some(0) {
                 bail!(
@@ -479,6 +552,7 @@ fn run_step(
     tree: &Path,
     step: &str,
     extra: &[&str],
+    env: &[(String, String)],
 ) -> anyhow::Result<Sample> {
     let events = state.join("events.jsonl");
     let before = std::fs::read_to_string(&events)
@@ -490,6 +564,7 @@ fn run_step(
         .arg(state)
         .args(["run", "--repo", tree.to_str().unwrap(), "--step", step])
         .args(extra)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()?;
