@@ -44,6 +44,7 @@ arguments, then unsupported claims).
 
 | fix/uring-fallback: refused-registration teardown (66be2b5) | `2a5fd10..66be2b5` | merge after fixes: "only our mount" unimplemented (umount2 acts on the top mount; compare device numbers); fusectl verification claimed but unmounted in the dev container; teardown unbounded. All fixed in 42c1deb | `e422336` | pending |
 | exp/runner rebased onto trust (sp-trust in hooks) | `main..86c4e3a` | merge after fixes: B1 withheld/placeholder env names missing from the key (false replay); M1 warm GOCACHE writable+unobserved in every step; M2 checkout memo keyed by sha only (cross-repo leak); M3 scan skips .github/ and *.txt; M4 workflow_run/issue_comment scoped trusted; M5 unpacker not in image key; minors listed in the fix request. Confirmed sound: decide() untouched, command-file canonicalization, evidence free of secrets | - | pending |
+| exp/runner fix verification | `86c4e3a..beaeed4` | merge after fixes: M2-M5 and minors closed; B1 half-closed (withheld vars still removed from the offline run, so a no-token result replays to token jobs); Go cache layout wrong (rejects go run/go tool -d dirs, accepts nonexistent testexpand/); warm-cache poisoning by same-repo PRs not caught by proofs/audits; scope trust from forgeable GITHUB_EVENT_NAME; minors: mtime-only delta, unlocked sweep, mount leak on error, migrate lock on every open | - | pending |
 
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
