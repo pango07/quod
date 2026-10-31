@@ -1,7 +1,8 @@
 //! Golden step keys: spec in, key out. A changed golden is a schema bump.
 //! Regenerate with STILLPASS_BLESS=1 only alongside a VERSION change
 //! (v2: `warm` added to the key, 2026-10-31; v3: `image` became an object
-//! with kind, digest, pinned mounts and the platform, 2026-10-31).
+//! with kind, digest, pinned mounts and the platform, 2026-10-31; v4: the
+//! platform carries the host class, 2026-10-31).
 
 use serde::{Deserialize, Serialize};
 use sp_cas::Hash;
@@ -31,6 +32,7 @@ fn cases() -> Vec<StepSpec> {
             "fp asimd; hwcap=0xefffffff hwcap2=0x3fffff",
             18,
             4096,
+            vec![("kernel release".into(), "7.0.14-linuxkit".into())],
         ),
     );
     let on = |f: &dyn Fn(&mut Platform)| {
@@ -56,12 +58,27 @@ fn cases() -> Vec<StepSpec> {
         // Same rootfs on another architecture, another kernel series,
         // another CPU count; and with a pinned mount.
         StepSpec::spike(
-            on(&|p| *p = Platform::new("x86_64", "6.8.0-1021-azure", "fpu sse2 avx2", 4, 4096)),
+            on(&|p| {
+                *p = Platform::new(
+                    "x86_64",
+                    "6.8.0-1021-azure",
+                    "fpu sse2 avx2",
+                    4,
+                    4096,
+                    p.host.clone(),
+                )
+            }),
             "go test ./...",
             &[],
         ),
         StepSpec::spike(on(&|p| p.kernel = "6.11".into()), "go test ./...", &[]),
         StepSpec::spike(on(&|p| p.cpus = 16), "go test ./...", &[]),
+        // Same everything on a host whose kernel build differs.
+        StepSpec::spike(
+            on(&|p| p.host[1].1 = "#26-Ubuntu SMP Fri Feb 14 10:01:02 UTC 2025".into()),
+            "go test ./...",
+            &[],
+        ),
         StepSpec::spike(
             Image {
                 mounts: vec![("/opt/tools".into(), Hash::of(b"a tools tree"))],
@@ -128,7 +145,7 @@ fn goldens_match() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(committed.len(), 15);
+    assert_eq!(committed.len(), 16);
     for g in &committed {
         let spec = StepSpec {
             image: g.image.clone(),

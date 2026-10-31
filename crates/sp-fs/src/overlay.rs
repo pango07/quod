@@ -330,3 +330,85 @@ fn refuse_markers(path: &Path) -> Result<(), FsError> {
 fn is_opaque(dir: &Path) -> Result<bool, FsError> {
     Ok(xattr(dir, "trusted.overlay.opaque")?.is_some_and(|v| v == b"y"))
 }
+
+/// A tmpfs mounted at a directory, unmounted on drop: a scratch filesystem
+/// whose behavior (readdir in creation order, no host filesystem's hash
+/// seed, nothing on disk) does not depend on the host's disks.
+pub struct Tmpfs {
+    dir: PathBuf,
+    mounted: bool,
+}
+
+/// Mounts a tmpfs at `dir` (created if missing) with `options` (e.g.
+/// `size=4096m,mode=0755`). Needs root or CAP_SYS_ADMIN.
+pub fn tmpfs(dir: &Path, options: &str) -> Result<Tmpfs, FsError> {
+    fs::create_dir_all(dir).map_err(FsError::io(format!("create {}", dir.display())))?;
+    let c = |s: &[u8]| {
+        CString::new(s).map_err(|_| FsError::Io {
+            what: "tmpfs path contains NUL".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        })
+    };
+    let (src, target, fstype, data) = (
+        c(b"tmpfs")?,
+        c(dir.as_os_str().as_bytes())?,
+        c(b"tmpfs")?,
+        c(options.as_bytes())?,
+    );
+    // SAFETY: every pointer is a valid NUL-terminated string that outlives the call.
+    #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::mount(
+            src.as_ptr(),
+            target.as_ptr(),
+            fstype.as_ptr(),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            data.as_ptr().cast(),
+        )
+    };
+    if rc != 0 {
+        return Err(FsError::Io {
+            what: format!("mount tmpfs at {} ({options})", dir.display()),
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    Ok(Tmpfs {
+        dir: dir.to_path_buf(),
+        mounted: true,
+    })
+}
+
+impl Tmpfs {
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Unmounts now (contents are lost), reporting failure.
+    pub fn unmount(mut self) -> Result<(), FsError> {
+        self.unmount_inner()
+    }
+
+    fn unmount_inner(&mut self) -> Result<(), FsError> {
+        if !self.mounted {
+            return Ok(());
+        }
+        let target = CString::new(self.dir.as_os_str().as_bytes()).expect("checked at mount");
+        // SAFETY: target is a valid NUL-terminated path.
+        #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+        let rc = unsafe { libc::umount2(target.as_ptr(), 0) };
+        if rc != 0 {
+            return Err(FsError::Io {
+                what: format!("unmount tmpfs {}", self.dir.display()),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        self.mounted = false;
+        Ok(())
+    }
+}
+
+impl Drop for Tmpfs {
+    fn drop(&mut self) {
+        let _ = self.unmount_inner();
+    }
+}

@@ -11,8 +11,10 @@ use sp_cas::{CanonError, Hash, canonical_json};
 /// a different key by construction, not only through the env it changes. v3
 /// made `image` an object: what pinned the step's root (`kind`, `digest`),
 /// the read-only trees bound into it (`mounts`), and the host ABI no root
-/// filesystem can pin (`platform`).
-pub const VERSION: u32 = 3;
+/// filesystem can pin (`platform`). v4 added `platform.host`, the host class
+/// (everything constant about a host that a step can observe), and fixed
+/// the step's process state (umask, rlimits, signals, descriptors).
+pub const VERSION: u32 = 4;
 
 /// How the environment outside the observed tree was pinned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,18 +40,21 @@ impl std::fmt::Display for ImageKind {
     }
 }
 
-/// What the host's kernel and CPU show a step whatever its root filesystem:
-/// the values programs choose code paths by. Each one changes what a step
-/// can do or compute, deterministically, so each is part of the key. What a
-/// step can only print or race on (the kernel's patch level and build
-/// string, CPU model and clock, memory size, load, the clock) is left out
-/// and to audit; see DECISIONS.md for the enumeration.
+/// What the host's kernel and CPU show a step whatever its root filesystem.
+/// The named fields are the ones programs choose code paths by, kept
+/// readable; `host` is the host class, everything else constant about the
+/// host that a step can observe (sp_sandbox::host_class: full kernel
+/// release, build and command line, sysctls, rlimits, a memory bucket, LSM,
+/// seccomp, filesystem types, the sandbox's version, ...). An audit re-runs
+/// on the same host, so it can never see a dependence on a host constant:
+/// those are all in the key, and a relaxation would have to be an explicit
+/// opt-in recorded here. Only what varies run to run is left to audit.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Platform {
     /// `uname -m`: `x86_64`, `aarch64`.
     pub arch: String,
-    /// `uname -r` reduced to `major.minor`, e.g. `6.8`: the syscall set and
-    /// kernel features (Go and glibc compare exactly this).
+    /// `uname -r` reduced to `major.minor`, e.g. `6.8` (the full release is
+    /// in `host`).
     pub kernel: String,
     /// The CPU features user space dispatches on (aarch64: the auxv HWCAP
     /// words; x86_64: also /proc/cpuinfo's flags), as the sandbox reports
@@ -60,6 +65,9 @@ pub struct Platform {
     pub cpus: u32,
     /// The kernel's page size (AT_PAGESZ): 4 KiB, 16 KiB or 64 KiB on arm64.
     pub page_size: u64,
+    /// The host class, `[name, value]` pairs, sorted by name in the key;
+    /// a repeated name is an error.
+    pub host: Vec<(String, String)>,
 }
 
 impl Platform {
@@ -70,6 +78,7 @@ impl Platform {
         cpu_features: &str,
         cpus: u32,
         page_size: u64,
+        host: Vec<(String, String)>,
     ) -> Platform {
         Platform {
             arch: arch.to_string(),
@@ -77,6 +86,7 @@ impl Platform {
             cpu_features: cpu_features.to_string(),
             cpus,
             page_size,
+            host,
         }
     }
 }
@@ -112,26 +122,58 @@ impl Image {
         Image::new(ImageKind::Rootfs, digest, Platform::test_aarch64())
     }
 
-    /// BLAKE3 of the image's canonical JSON (mounts sorted): names
-    /// host-side state that belongs to exactly one environment, such as the
-    /// warm build cache.
+    /// BLAKE3 of the image's canonical JSON (mounts and host class sorted):
+    /// names host-side state that belongs to exactly one environment, such
+    /// as the warm build cache.
     pub fn id(&self) -> Result<Hash, KeyError> {
-        let mut image = self.clone();
-        image.mounts = normalized_mounts(&self.mounts, &[])?;
-        Ok(Hash::of(canonical_json(&image)?.as_bytes()))
+        Ok(Hash::of(canonical_json(&self.normalized(&[])?)?.as_bytes()))
+    }
+
+    /// The image as the key spells it: mounts validated against `roots` and
+    /// sorted, the host class sorted and unique.
+    fn normalized(&self, roots: &[String]) -> Result<Image, KeyError> {
+        let mut host = self.platform.host.clone();
+        host.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        for w in host.windows(2) {
+            if w[0].0 == w[1].0 {
+                return Err(KeyError::DuplicateHost(w[0].0.clone()));
+            }
+        }
+        Ok(Image {
+            mounts: normalized_mounts(&self.mounts, roots)?,
+            platform: Platform {
+                host,
+                ..self.platform.clone()
+            },
+            ..self.clone()
+        })
     }
 }
 
 impl Platform {
     /// A fixed aarch64 platform for tests and goldens (kernel 6.8, the
-    /// features of a Neoverse N1, 4 CPUs, 4 KiB pages).
+    /// features of a Neoverse N1, 4 CPUs, 4 KiB pages, a small host class).
     pub fn test_aarch64() -> Platform {
+        let host = [
+            ("kernel release", "6.8.0-1021-azure"),
+            (
+                "kernel version",
+                "#25-Ubuntu SMP Wed Jan 15 20:45:09 UTC 2025",
+            ),
+            ("memory GiB", "15"),
+            ("rlimit NOFILE", "1024 65536"),
+            ("sandbox", "bubblewrap 0.9.0"),
+            ("sysctl kernel.yama.ptrace_scope", "1"),
+        ];
         Platform::new(
             "aarch64",
             "6.8.0-1021-azure",
             "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs; hwcap=0x8fff hwcap2=0x0",
             4,
             4096,
+            host.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         )
     }
 }
@@ -282,6 +324,8 @@ pub enum KeyError {
     BadEnvName(String),
     #[error("mount {0:?}: {1}")]
     BadMount(String, &'static str),
+    #[error("host class names {0:?} twice")]
+    DuplicateHost(String),
     #[error("warm state needs {name}={want}, but the step sets {name}={have:?}")]
     WarmConflict {
         name: String,
@@ -399,10 +443,7 @@ fn merge_knob(
 
 pub fn canonical_key_json(spec: &StepSpec) -> Result<String, KeyError> {
     let env = spec.normalized_env()?;
-    let image = Image {
-        mounts: normalized_mounts(&spec.image.mounts, &spec.roots)?,
-        ..spec.image.clone()
-    };
+    let image = spec.image.normalized(&spec.roots)?;
     let json = KeyJson {
         v: VERSION,
         image,
@@ -444,15 +485,26 @@ mod tests {
             "{j}"
         );
         assert!(
-            j.contains(r#"hwcap2=0x0","cpus":4,"kernel":"6.8","page_size":4096}},"roots""#),
+            j.contains(r#"hwcap2=0x0","cpus":4,"host":[["kernel release","6.8.0-1021-azure"],["kernel version","#),
             "{j}"
         );
-        assert!(j.ends_with(r#""roots":["/workspace"],"v":3,"warm":false}"#));
+        assert!(
+            j.contains(r#"["sysctl kernel.yama.ptrace_scope","1"]],"kernel":"6.8","page_size":4096}},"roots""#),
+            "{j}"
+        );
+        assert!(j.ends_with(r#""roots":["/workspace"],"v":4,"warm":false}"#));
         let mut host = StepSpec::spike(
             Image::new(
                 ImageKind::Host,
                 Hash::of(b"fp"),
-                Platform::new("x86_64", "7.0.14-linuxkit", "fpu sse2", 18, 4096),
+                Platform::new(
+                    "x86_64",
+                    "7.0.14-linuxkit",
+                    "fpu sse2",
+                    18,
+                    4096,
+                    vec![("z".into(), "1".into()), ("a".into(), "2".into())],
+                ),
             ),
             "true",
             &[],
@@ -464,12 +516,12 @@ mod tests {
         let j = canonical_key_json(&host).unwrap();
         assert!(
             j.contains(&format!(
-                r#""image":{{"digest":"{}","kind":"host","mounts":[["/opt/a","{}"],["/opt/z","{}"]],"platform":{{"arch":"x86_64","cpu_features":"fpu sse2","cpus":18,"kernel":"7.0","page_size":4096}}}}"#,
+                r#""image":{{"digest":"{}","kind":"host","mounts":[["/opt/a","{}"],["/opt/z","{}"]],"platform":{{"arch":"x86_64","cpu_features":"fpu sse2","cpus":18,"host":[["a","2"],["z","1"]],"kernel":"7.0","page_size":4096}}}}"#,
                 Hash::of(b"fp"),
                 Hash::of(b"a"),
                 Hash::of(b"z")
             )),
-            "mounts sorted by destination: {j}"
+            "mounts and host class sorted by name: {j}"
         );
     }
 
@@ -504,6 +556,27 @@ mod tests {
         assert_ne!(changed(&|i| i.platform.cpu_features.push_str(" sve")), base);
         assert_ne!(changed(&|i| i.platform.cpus = 2), base);
         assert_ne!(changed(&|i| i.platform.page_size = 16384), base);
+        // Every host-class value is pinned, and so is its presence.
+        for (n, (name, _)) in img().platform.host.iter().enumerate() {
+            assert_ne!(changed(&|i| i.platform.host[n].1.push('x')), base, "{name}");
+            assert_ne!(
+                changed(&|i| {
+                    i.platform.host.remove(n);
+                }),
+                base,
+                "{name}"
+            );
+        }
+        assert_ne!(
+            changed(&|i| i.platform.host.push(("new".into(), "1".into()))),
+            base
+        );
+        // Order does not matter; a repeated name is an error.
+        assert_eq!(changed(&|i| i.platform.host.reverse()), base);
+        let mut s = spec();
+        let first = s.image.platform.host[0].clone();
+        s.image.platform.host.push(first);
+        assert!(matches!(step_key(&s), Err(KeyError::DuplicateHost(_))));
         let m = |i: &mut Image| i.mounts = vec![("/opt/t".into(), Hash::of(b"t"))];
         let with_mount = changed(&m);
         assert_ne!(with_mount, base);
@@ -518,7 +591,7 @@ mod tests {
             "and where it is"
         );
         // Patch level and build are not part of the pin.
-        let p = |release: &str| Platform::new("aarch64", release, "fp", 4, 4096);
+        let p = |release: &str| Platform::new("aarch64", release, "fp", 4, 4096, vec![]);
         assert_eq!(p("6.8.0-1021-azure"), p("6.8.12-generic"));
         assert_ne!(p("6.8.0-1021-azure"), p("6.9.0"));
         // The image id follows the key's notion of equality.

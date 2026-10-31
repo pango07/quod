@@ -16,7 +16,7 @@ pub use serve::{Fault, Options, Served, Transport, serve, serve_with};
 #[cfg(target_os = "linux")]
 mod overlay;
 #[cfg(target_os = "linux")]
-pub use overlay::{Overlay, overlay, overlay_dir, syncfs};
+pub use overlay::{Overlay, Tmpfs, overlay, overlay_dir, syncfs, tmpfs};
 
 /// How many requests of each kind the kernel sent the observer so far.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -211,6 +211,22 @@ mod unsupported {
         Err(FsError::Unsupported)
     }
 
+    pub struct Tmpfs;
+
+    impl Tmpfs {
+        pub fn dir(&self) -> &Path {
+            Path::new("")
+        }
+
+        pub fn unmount(self) -> Result<(), FsError> {
+            Err(FsError::Unsupported)
+        }
+    }
+
+    pub fn tmpfs(_: &Path, _: &str) -> Result<Tmpfs, FsError> {
+        Err(FsError::Unsupported)
+    }
+
     pub fn syncfs(_: &Path) -> std::io::Result<()> {
         Err(std::io::ErrorKind::Unsupported.into())
     }
@@ -245,5 +261,6 @@ mod unsupported {
 }
 #[cfg(not(target_os = "linux"))]
 pub use unsupported::{
-    Fault, Options, Overlay, Served, Transport, overlay, overlay_dir, serve, serve_with, syncfs,
+    Fault, Options, Overlay, Served, Tmpfs, Transport, overlay, overlay_dir, serve, serve_with,
+    syncfs, tmpfs,
 };

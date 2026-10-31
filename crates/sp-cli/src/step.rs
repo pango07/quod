@@ -21,8 +21,10 @@
 //!   `tree` is a document in the store (`rootfs::put_tree`).
 //! - `env` is the step's whole environment (nothing is inherited, volatile
 //!   names are refused, as for every key). `cmd` runs as given.
-//! - `mounts` are read-only trees bound at `dst`, pinned by content: their
-//!   digests are part of the key (`image.mounts`), never observed. A `dir`
+//! - `mounts` are read-only trees bound at `dst`, pinned by content and
+//!   served from their blobs like the rootfs (constant times, sorted
+//!   listings): their digests are part of the key (`image.mounts`), never
+//!   observed. A `dir`
 //!   is imported into the store on every call, which hashes it; a runner
 //!   that reuses a mount passes its `tree` digest instead. A destination
 //!   the image lacks is created by the sandbox and shows up in
@@ -124,8 +126,10 @@ pub fn run_step(
             .without_top_level(".git"),
         Source::Tree(h) => rootfs::tree(cas, h)?,
     };
-    let mut image = root.image()?;
-    let mut pinned = Vec::new();
+    // Run directories live beside this one; their filesystem is part of the
+    // host class.
+    let runs = run_dir.parent().unwrap_or(run_dir);
+    let mut image = root.image(cas, runs)?;
     for m in &req.mounts {
         let d = match &m.src {
             Source::Tree(h) => *h,
@@ -137,7 +141,6 @@ pub fn run_step(
             }
         };
         image.mounts.push((m.dst.clone(), d));
-        pinned.push((m.dst.clone(), rootfs::open_pinned(cas, &d)?));
     }
     let spec = StepSpec {
         image,
@@ -169,26 +172,7 @@ pub fn run_step(
     }
 
     let run_id = ulid::Ulid::generate().to_string();
-    let mounts: Vec<Mount> = pinned
-        .iter()
-        .map(|(dst, p)| Mount {
-            src: p.dir(),
-            dst: dst.into(),
-            writable: false,
-        })
-        .collect();
-    let mut phases = Phases::default();
-    let ex = execute(
-        cas,
-        &tree,
-        &spec,
-        env,
-        run_dir,
-        None,
-        Some(&root),
-        &mounts,
-        &mut phases,
-    );
+    let ex = execute_with_mounts(cas, &tree, &spec, env, run_dir, &root);
     let _ = sp_cas::remove_any(run_dir);
     let ex = ex?;
     let recorded = ex.signal.is_none();
@@ -222,10 +206,7 @@ pub fn run_step(
             &result,
         )?;
     }
-    // Housekeeping; snapshots this run still holds are skipped.
-    rootfs::gc(cas, &root);
-    rootfs::gc_pinned(cas, pinned.first().map(|(_, p)| p));
-    tracing::info!(target: "stillpass", run_id, step_key = %key, image = %digest, mounts = pinned.len(), replayed = false, recorded, exit_code = ex.exit_code, wall_ms = ex.wall.as_millis() as u64, transport = ex.transport, observer = ex.observer, "step");
+    tracing::info!(target: "stillpass", run_id, step_key = %key, image = %digest, mounts = spec.image.mounts.len(), replayed = false, recorded, exit_code = ex.exit_code, wall_ms = ex.wall.as_millis() as u64, transport = ex.transport, observer = ex.observer, "step");
     Ok(Outcome {
         step_key: key,
         key: key_doc,
@@ -235,6 +216,53 @@ pub fn run_step(
         manifest: ex.manifest,
         result,
     })
+}
+
+/// Serves the pinned mounts (each its own FUSE mount under `run_dir`),
+/// executes, and unmounts them, reporting a mount's I/O error as an error.
+fn execute_with_mounts(
+    cas: &Cas,
+    tree: &sp_cas::Tree,
+    spec: &StepSpec,
+    env: Vec<(String, String)>,
+    run_dir: &Path,
+    root: &rootfs::Rootfs,
+) -> anyhow::Result<crate::run::Executed> {
+    let mut pinned = Vec::new();
+    for (i, (_, d)) in spec.image.mounts.iter().enumerate() {
+        pinned.push(rootfs::PinnedTree::mount(
+            cas,
+            d,
+            &run_dir.join("pinned").join(i.to_string()),
+        )?);
+    }
+    let mounts: Vec<Mount> = spec
+        .image
+        .mounts
+        .iter()
+        .zip(&pinned)
+        .map(|((dst, _), p)| Mount {
+            src: p.dir().to_path_buf(),
+            dst: dst.into(),
+            writable: false,
+        })
+        .collect();
+    let mut phases = Phases::default();
+    let ex = execute(
+        cas,
+        tree,
+        spec,
+        env,
+        run_dir,
+        None,
+        Some(root),
+        &mounts,
+        &mut phases,
+    );
+    for p in pinned {
+        p.unmount()?;
+    }
+    ex
 }
 
 #[derive(Args)]

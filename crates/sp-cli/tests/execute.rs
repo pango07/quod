@@ -233,6 +233,76 @@ fn an_unknown_rootfs_is_a_stillpass_error() {
     assert!(o.stderr.contains("neither a rootfs digest"), "{}", o.stderr);
 }
 
+/// A parent with umask 077, SIGINT ignored and a stray descriptor gets the
+/// same key, the same outputs (modes included) and the same stdout as a
+/// plain parent, and replays the plain parent's proof: the step's process
+/// state is fixed by the sandbox, not inherited.
+#[test]
+fn a_parents_process_state_changes_nothing() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    let step = "umask; while read -r k v rest; do case $k in SigIgn:|SigBlk:) echo \"$k $v\";; esac; done < /proc/self/status; \
+                echo x > out.txt; mkdir -p outdir; echo y > outdir/f; ulimit -n";
+    let hostile = |extra: &[&str]| {
+        let repo = env.repo.to_str().unwrap().to_string();
+        let state = env.state();
+        let mut args: Vec<String> = vec![
+            "--state".into(),
+            state.to_str().unwrap().into(),
+            "run".into(),
+            "--repo".into(),
+            repo,
+            "--step".into(),
+            step.into(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg("umask 077; trap '' INT HUP; exec 7</dev/null; ulimit -S -n 512; exec \"$0\" \"$@\"")
+            .arg(env!("CARGO_BIN_EXE_stillpass"))
+            .args(&args)
+            .output()
+            .unwrap();
+        Out {
+            code: out.status.code().unwrap_or(-1),
+            stdout: out.stdout,
+            stderr: String::from_utf8_lossy(&out.stderr).into(),
+        }
+    };
+    let a = env.run_step(step, &["--env", "RUN=a"]);
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    let b = hostile(&["--env", "RUN=b"]);
+    assert_eq!(b.code, 0, "{}", b.stderr);
+    assert!(b.executed(), "{}", b.stderr);
+    assert_eq!(
+        String::from_utf8_lossy(&b.stdout),
+        String::from_utf8_lossy(&a.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&a.stdout)
+            .starts_with("0022\nSigBlk: 0000000000000000\nSigIgn: 0000000000000000\n1024\n"),
+        "{}",
+        String::from_utf8_lossy(&a.stdout)
+    );
+    // Same outputs, modes included (mode 420 is 0644).
+    // Results in the order recorded: run a, then run b.
+    let outputs = |n: usize| {
+        let r = scalar(
+            &env,
+            &format!("SELECT json FROM results ORDER BY created_at LIMIT 1 OFFSET {n}"),
+        );
+        let v: serde_json::Value = serde_json::from_str(&r).unwrap();
+        v["outputs"].clone()
+    };
+    assert_eq!(outputs(0), outputs(1));
+    assert!(outputs(0).to_string().contains(r#""m":420,"p":"out.txt""#));
+    // And the hostile parent replays the plain parent's proof.
+    let c = hostile(&["--env", "RUN=a"]);
+    assert!(c.hit() && c.stdout == a.stdout, "{}", c.stderr);
+}
+
 fn scalar(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")
         .arg(env.state().join("ledger.sqlite"))

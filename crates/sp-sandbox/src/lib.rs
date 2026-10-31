@@ -8,26 +8,37 @@
 //! content-addressed snapshot, nothing of the host visible) or, as the
 //! fallback, the host's own system paths bound read-only.
 //!
-//! In rootfs mode the step sees no host file at all: `/` is the rootfs,
-//! `/dev` a fresh tmpfs with bubblewrap's standard nodes, `/proc` a procfs of
-//! the step's own pid namespace, `/sys` the rootfs's empty directory, `/tmp`
-//! part of the root (so what a step leaves there is an output), the
+//! In rootfs mode the step sees no host file at all: `/` is the rootfs (served
+//! by the caller from its blobs, constant times, sorted listings), `/dev` a
+//! fresh tmpfs with bubblewrap's standard nodes, `/proc` a procfs of the
+//! step's own pid namespace, `/sys` the rootfs's empty directory, the
 //! hostname `stillpass`, the user `runner` (uid 1001) owning every file of
-//! the rootfs. What it can still learn about the host, through the kernel:
-//! - pinned by the key (`host_platform`): `uname -m`, kernel major.minor,
-//!   the CPU features user space dispatches on, the CPU count (affinity),
-//!   the page size;
-//! - not pinned, left to audit like the clock: the kernel's patch level
-//!   and build string (`uname -r`/`-v`, /proc/version, /proc/sys/kernel),
-//!   /proc/cmdline, CPU model, frequency and topology (/proc/cpuinfo,
-//!   /proc/stat), memory size and load (/proc/meminfo, /proc/loadavg,
-//!   /proc/pressure), uptime and boot id, /proc/self/mountinfo (names the
-//!   run directory), free space on /workspace, sysctls under /proc/sys, the
-//!   clock, pids and randomness.
+//! the rootfs.
+//!
+//! The step's process state is fixed, not inherited (`PROCESS_STATE`): umask
+//! 022, the rlimits of `RLIMITS`, every signal at its default disposition
+//! and none blocked, and no file descriptor but 0, 1 and 2. A parent's umask
+//! 077, an ignored SIGINT or a stray fd changes nothing a step can see.
+//!
+//! What it can still learn about the host goes through the kernel, and
+//! everything that is constant for a host is in the step key: the
+//! `host_platform` fields (arch, kernel major.minor, CPU features, CPU
+//! count, page size) and the `host_class` list (full kernel release, build
+//! and command line, kernel config, the effective rlimits, online and
+//! configured CPUs, a memory bucket, an allowlist of global sysctls, LSM and
+//! security context, seccomp and no_new_privs, personality, nice value,
+//! /proc/cpuinfo, NIS domain name, the filesystem types under the step,
+//! bubblewrap's version). An audit re-runs on the same host, so it can never
+//! catch a dependence on such a property; only the key can. What is left
+//! varies from run to run or boot to boot, so a dependence on it is the
+//! flakiness audit exists for: the clock, load and pressure, free memory and
+//! disk space, uptime and the per-boot random boot id, pids, device and
+//! inode numbers of the FUSE mounts, /proc/self/mountinfo and /proc/1/cmdline
+//! (they name the run directory), randomness.
 //!
 //! A change to what the sandbox shows a step (its mounts, /dev, identity,
-//! hostname) is a change of environment that no input records: it ships
-//! with a step key version bump.
+//! hostname, process state) is a change of environment that no input
+//! records: it ships with a step key version bump.
 
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -72,10 +83,9 @@ pub struct RunSpec {
 pub struct RootFs {
     pub dir: PathBuf,
     /// Bind read-write: `dir` is a per-step overlay whose upper dir captures
-    /// everything the step writes outside the workspace, /tmp included.
-    /// Read-only otherwise (a shared snapshot must never be bound
-    /// writable: the step runs as the caller's real uid, which mode bits do
-    /// not stop), with a tmpfs on /tmp and every other write failing.
+    /// everything the step writes outside the workspace, /tmp included (the
+    /// caller keeps that upper on a tmpfs). Read-only otherwise, with a
+    /// tmpfs on /tmp and every other write failing.
     pub writable: bool,
 }
 
@@ -121,16 +131,81 @@ const STARTED: &str = "/dev/.stillpass-started";
 /// The uid and gid a step runs as inside the sandbox.
 pub const STEP_UID: &str = "1001";
 
-/// The uid the sandbox maps to the step user (bubblewrap maps the caller's
-/// real uid): files it owns belong to `runner` inside, any other uid's to
-/// nobody.
-pub fn caller_uid() -> u32 {
-    // SAFETY: getuid(2) takes no arguments, cannot fail and touches no memory.
-    #[allow(unsafe_code)] // no safe std wrapper for getuid
-    unsafe {
-        libc::getuid()
-    }
+/// The umask every step starts with, whatever the caller's.
+pub const UMASK: u32 = 0o022;
+
+/// The rlimits every step starts with: (resource, name, soft, hard), `None`
+/// meaning unlimited. Hard limits can only be lowered, so on a host whose
+/// hard limit is below one of these the step gets that host's (and soft no
+/// higher): `effective_rlimits` is what is applied and what the key pins.
+/// NOFILE 1024/65536 is a common runner default (Go raises its soft limit to
+/// the hard one); STACK 8 MiB is glibc's default thread stack size; CORE 0
+/// keeps core files out of the outputs; MEMLOCK 64 KiB is the lowest common
+/// default; the rest are the kernel's defaults.
+pub const RLIMITS: &[(i32, &str, Option<u64>, Option<u64>)] = &[
+    (libc::RLIMIT_AS as i32, "AS", None, None),
+    (libc::RLIMIT_CORE as i32, "CORE", Some(0), Some(0)),
+    (libc::RLIMIT_CPU as i32, "CPU", None, None),
+    (libc::RLIMIT_DATA as i32, "DATA", None, None),
+    (libc::RLIMIT_FSIZE as i32, "FSIZE", None, None),
+    (libc::RLIMIT_LOCKS as i32, "LOCKS", None, None),
+    (
+        libc::RLIMIT_MEMLOCK as i32,
+        "MEMLOCK",
+        Some(65536),
+        Some(65536),
+    ),
+    (
+        libc::RLIMIT_MSGQUEUE as i32,
+        "MSGQUEUE",
+        Some(819200),
+        Some(819200),
+    ),
+    (libc::RLIMIT_NICE as i32, "NICE", Some(0), Some(0)),
+    (
+        libc::RLIMIT_NOFILE as i32,
+        "NOFILE",
+        Some(1024),
+        Some(65536),
+    ),
+    (libc::RLIMIT_NPROC as i32, "NPROC", None, None),
+    (libc::RLIMIT_RSS as i32, "RSS", None, None),
+    (libc::RLIMIT_RTPRIO as i32, "RTPRIO", Some(0), Some(0)),
+    (libc::RLIMIT_RTTIME as i32, "RTTIME", None, None),
+    (
+        libc::RLIMIT_SIGPENDING as i32,
+        "SIGPENDING",
+        Some(8192),
+        Some(8192),
+    ),
+    (libc::RLIMIT_STACK as i32, "STACK", Some(8 << 20), None),
+];
+
+/// The rlimits a step gets on this host (see `RLIMITS`): (name, soft, hard)
+/// with `u64::MAX` for unlimited.
+pub fn effective_rlimits() -> Vec<(&'static str, u64, u64)> {
+    let unl = |v: Option<u64>| v.unwrap_or(libc::RLIM_INFINITY);
+    RLIMITS
+        .iter()
+        .map(|&(res, name, soft, hard)| {
+            let mut cur = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            // SAFETY: `cur` is a valid, writable rlimit for the call.
+            #[allow(unsafe_code)] // getrlimit(2) has no safe std wrapper
+            let rc = unsafe { libc::getrlimit(res as _, &mut cur) };
+            let host_hard = if rc == 0 { cur.rlim_max } else { 0 };
+            let hard = unl(hard).min(host_hard);
+            (name, unl(soft).min(hard), hard)
+        })
+        .collect()
 }
+
+/// The fixed process state, in words, for the key: changing it is a change
+/// of environment.
+pub const PROCESS_STATE: &str =
+    "umask 0022; signals default, none blocked; fds 0-2 only; rlimits as listed";
 
 /// The hostname every step sees. `--unshare-all` gives the sandbox its own
 /// UTS namespace, but the name in it is inherited from the host unless set.
@@ -251,6 +326,7 @@ fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, 
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    fix_process_state(&mut cmd);
     let start = Instant::now();
     let mut child = cmd.spawn().map_err(io_err("spawn bwrap"))?;
     let out =
@@ -354,6 +430,12 @@ const AT_HWCAPS: [(u64, &str); 4] = [
 ];
 
 fn uname() -> Result<(String, String), SandboxError> {
+    let (machine, release, _) = uname_all()?;
+    Ok((machine, release))
+}
+
+/// `uname -m`, `-r` and `-v`.
+fn uname_all() -> Result<(String, String, String), SandboxError> {
     // SAFETY: utsname is plain old data (arrays of c_char); all zeroes is a
     // valid value.
     #[allow(unsafe_code)] // uname(2) has no safe std wrapper
@@ -373,7 +455,7 @@ fn uname() -> Result<(String, String), SandboxError> {
             .collect();
         String::from_utf8_lossy(&bytes).into_owned()
     };
-    Ok((field(&u.machine), field(&u.release)))
+    Ok((field(&u.machine), field(&u.release), field(&u.version)))
 }
 
 /// `0-3,8,10-11` -> 7.
@@ -428,6 +510,271 @@ fn cpu_features(cpuinfo: &str, aux: &std::collections::BTreeMap<u64, u64>) -> St
         .collect();
     lines.push(hwcaps.join(" "));
     lines.join("; ")
+}
+
+/// Makes the child start from `PROCESS_STATE` instead of this process's:
+/// bubblewrap and the step inherit umask, rlimits, ignored signals, the
+/// signal mask and any descriptor not marked close-on-exec, and a shell
+/// cannot reset a signal ignored on entry. Everything is computed before the
+/// fork; the child only makes async-signal-safe calls.
+fn fix_process_state(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    let limits: Vec<(i32, libc::rlimit)> = RLIMITS
+        .iter()
+        .zip(effective_rlimits())
+        .map(|(&(res, ..), (_, soft, hard))| {
+            (
+                res,
+                libc::rlimit {
+                    rlim_cur: soft,
+                    rlim_max: hard,
+                },
+            )
+        })
+        .collect();
+    let sigmax = libc::SIGRTMAX();
+    let fd_ceiling = effective_fd_ceiling();
+    // SAFETY: the closure runs in the forked child before exec and only
+    // calls umask, setrlimit, rt_sigaction, sigprocmask, close_range and
+    // fcntl, all async-signal-safe; it allocates nothing (the vector is
+    // built above and only read), and the kernel reads the zeroed sigaction
+    // buffer, large enough for every architecture's struct, only during
+    // the call.
+    #[allow(unsafe_code)] // pre_exec is unsafe; the calls have no safe std wrapper
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::umask(UMASK as libc::mode_t);
+            for (res, lim) in &limits {
+                if libc::setrlimit(*res as _, lim) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            // The raw syscall, not libc's sigaction: the C library refuses
+            // to touch the signals it reserves (32 and 33 in glibc), and an
+            // ignored one survives exec like any other. An all-zero kernel
+            // sigaction is SIG_DFL, no flags, empty mask on every layout.
+            let dfl = [0u64; 4];
+            for sig in 1..=sigmax {
+                if sig != libc::SIGKILL && sig != libc::SIGSTOP {
+                    libc::syscall(
+                        libc::SYS_rt_sigaction,
+                        sig as libc::c_long,
+                        dfl.as_ptr(),
+                        std::ptr::null_mut::<u64>(),
+                        8 as libc::c_long,
+                    );
+                }
+            }
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            if libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut()) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // Every descriptor above stderr closes on exec (Rust's own
+            // exec-error pipe already does).
+            const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+            if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) != 0 {
+                for fd in 3..fd_ceiling {
+                    libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+                }
+            }
+            Ok(())
+        });
+    }
+}
+
+/// Upper bound on descriptor numbers this process may hold (its NOFILE soft
+/// limit, capped), for the fallback without close_range(2).
+fn effective_fd_ceiling() -> i32 {
+    let mut cur = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `cur` is a valid, writable rlimit for the call.
+    #[allow(unsafe_code)]
+    let rc = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut cur) };
+    if rc == 0 {
+        cur.rlim_cur.min(1 << 20) as i32
+    } else {
+        1 << 16
+    }
+}
+
+/// MemTotal in whole GiB, rounded down: the memory bucket of the host
+/// class. The exact figure moves by megabytes between boots of identical
+/// machines (kernel reservations); the bucket does not, and a program that
+/// sizes itself from RAM (a JVM heap is a quarter of it) sees at most a
+/// fraction of a GiB of difference within one bucket.
+pub fn memory_gib() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .unwrap_or_default()
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))
+        .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
+        .unwrap_or(0)
+        >> 20
+}
+
+/// Global sysctls that change what a step can do and are not derived from
+/// the amount of RAM (those are covered by the memory bucket) nor per
+/// namespace (the sandbox's net, IPC and UTS namespaces are fresh, so their
+/// sysctls are the kernel's defaults, pinned by the kernel release).
+pub const SYSCTLS: &[&str] = &[
+    "fs/inotify/max_queued_events",
+    "fs/inotify/max_user_instances",
+    "fs/mount-max",
+    "fs/nr_open",
+    "fs/pipe-max-size",
+    "fs/pipe-user-pages-soft",
+    "fs/protected_fifos",
+    "fs/protected_hardlinks",
+    "fs/protected_regular",
+    "fs/protected_symlinks",
+    "kernel/apparmor_restrict_unprivileged_userns",
+    "kernel/core_pattern",
+    "kernel/dmesg_restrict",
+    "kernel/io_uring_disabled",
+    "kernel/io_uring_group",
+    "kernel/kptr_restrict",
+    "kernel/overflowgid",
+    "kernel/overflowuid",
+    "kernel/perf_event_paranoid",
+    "kernel/pid_max",
+    "kernel/randomize_va_space",
+    "kernel/unprivileged_bpf_disabled",
+    "kernel/unprivileged_userns_clone",
+    "kernel/yama/ptrace_scope",
+    "vm/max_map_count",
+    "vm/mmap_min_addr",
+    "vm/overcommit_kbytes",
+    "vm/overcommit_memory",
+    "vm/overcommit_ratio",
+    "vm/unprivileged_userfaultfd",
+];
+
+/// Everything constant about this host that a sandboxed step can observe
+/// and that `host_platform` does not already report, as (name, value) pairs
+/// (see the module docs). `filesystems` names the directories whose
+/// filesystem types the step sees through its mounts.
+pub fn host_class(filesystems: &[(&str, &Path)]) -> Result<Vec<(String, String)>, SandboxError> {
+    let read = |p: &str| {
+        std::fs::read_to_string(p)
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap_or_else(|_| "-".into())
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut put = |k: String, v: String| out.push((k, v));
+    let (_, release, version) = uname_all()?;
+    put("kernel release".into(), release);
+    put("kernel version".into(), version);
+    put("kernel cmdline".into(), read("/proc/cmdline"));
+    put("domainname".into(), read("/proc/sys/kernel/domainname"));
+    put("lsm".into(), read("/sys/kernel/security/lsm"));
+    put("security context".into(), read("/proc/self/attr/current"));
+    put("personality".into(), read("/proc/self/personality"));
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    for field in ["Seccomp", "Seccomp_filters", "NoNewPrivs"] {
+        let v = status
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{field}:")))
+            .map_or("-".to_string(), |v| v.trim().to_string());
+        put(format!("status {field}"), v);
+    }
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    // Field 19 (nice) counts from the state after the closing parenthesis.
+    let nice = stat
+        .rsplit_once(')')
+        .and_then(|(_, rest)| rest.split_whitespace().nth(16).map(String::from))
+        .unwrap_or_else(|| "-".into());
+    put("nice".into(), nice);
+    put("memory GiB".into(), memory_gib().to_string());
+    let procstat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
+    let online = procstat
+        .lines()
+        .filter(|l| l.starts_with("cpu") && l[3..].starts_with(|c: char| c.is_ascii_digit()))
+        .count();
+    put("cpus online".into(), online.to_string());
+    let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    let configured = cpuinfo
+        .lines()
+        .filter(|l| l.starts_with("processor"))
+        .count();
+    put("cpus configured".into(), configured.to_string());
+    // The whole of /proc/cpuinfo but the clock (x86 reports the current MHz).
+    let stable: Vec<&str> = cpuinfo
+        .lines()
+        .filter(|l| !l.starts_with("cpu MHz"))
+        .collect();
+    put("cpuinfo".into(), stable.join("\n"));
+    for name in SYSCTLS {
+        put(
+            format!("sysctl {}", name.replace('/', ".")),
+            read(&format!("/proc/sys/{name}")),
+        );
+    }
+    // Derived from RAM, so only whether it is zero (user namespaces off).
+    let userns = read("/proc/sys/user/max_user_namespaces");
+    put(
+        "sysctl user.max_user_namespaces".into(),
+        if userns == "0" { "0" } else { "nonzero" }.into(),
+    );
+    for (name, soft, hard) in effective_rlimits() {
+        let v = |x: u64| {
+            if x == libc::RLIM_INFINITY {
+                "unlimited".to_string()
+            } else {
+                x.to_string()
+            }
+        };
+        put(format!("rlimit {name}"), format!("{} {}", v(soft), v(hard)));
+    }
+    put("process state".into(), PROCESS_STATE.into());
+    for (what, path) in filesystems {
+        put(format!("fs {what}"), fs_type(path)?);
+    }
+    let bwrap = which("bwrap").ok_or(SandboxError::NoBwrap)?;
+    let v = Command::new(&bwrap)
+        .arg("--version")
+        .env_clear()
+        .output()
+        .map_err(io_err("bwrap --version"))?;
+    put(
+        "sandbox".into(),
+        String::from_utf8_lossy(&v.stdout).trim().to_string(),
+    );
+    out.sort();
+    Ok(out)
+}
+
+/// The filesystem type of `path` (statfs f_type), by name where known.
+fn fs_type(path: &Path) -> Result<String, SandboxError> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io_err("statfs")(io::ErrorKind::InvalidInput.into()))?;
+    // SAFETY: statfs is plain old data; all zeroes is a valid value.
+    #[allow(unsafe_code)]
+    let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c` is a valid C string and `st` writable for the call.
+    #[allow(unsafe_code)]
+    let rc = unsafe { libc::statfs(c.as_ptr(), &mut st) };
+    if rc != 0 {
+        return Err(io_err(format!("statfs {}", path.display()))(
+            io::Error::last_os_error(),
+        ));
+    }
+    let magic = st.f_type as u64;
+    Ok(match magic {
+        0xEF53 => "ext4".into(),
+        0x5846_5342 => "xfs".into(),
+        0x9123_683E => "btrfs".into(),
+        0x0102_1994 => "tmpfs".into(),
+        0x794C_7630 => "overlay".into(),
+        0x6573_5546 => "fuse".into(),
+        0x2FC1_2FC1 => "zfs".into(),
+        0xF2F5_2010 => "f2fs".into(),
+        0x6969 => "nfs".into(),
+        other => format!("{other:#x}"),
+    })
 }
 
 fn tee(mut src: impl Read, mut file: File, mut echo: Option<impl Write>) -> io::Result<()> {

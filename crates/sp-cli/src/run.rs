@@ -107,7 +107,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let cas = Cas::open(args.cas.clone().unwrap_or_else(|| state.cas_dir()))?;
     // The environment pin: a rootfs (opened and sealed now, held for the
     // run) or the host fingerprint.
-    let pin = rootfs::pin(&cas, args.rootfs.as_deref(), args.host_root)?;
+    // Where run directories (the workspace overlay's upper) live, for the
+    // host class's filesystem types; State::run_dir puts them here.
+    let runs = state.dir.join("runs");
+    let pin = rootfs::pin(&cas, args.rootfs.as_deref(), args.host_root, &runs)?;
     let image = pin.image.clone();
     let warm = args.warm && !args.allow_net;
     let spec = if warm {
@@ -120,7 +123,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let run_id = ulid::Ulid::generate().to_string();
 
     if args.allow_net {
-        return run_unobserved(state, &repo, &spec, env, &run_id, pin.rootfs.as_ref());
+        return run_unobserved(state, &cas, &repo, &spec, env, &run_id, pin.rootfs.as_ref());
     }
 
     let mut phases = Phases::default();
@@ -251,12 +254,6 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     if !args.keep {
         sp_cas::remove_any(&dir)?;
     }
-    if let Some(r) = &pin.rootfs {
-        let removed = rootfs::gc(&cas, r);
-        if removed > 0 {
-            tracing::info!(target: "stillpass", removed, "rootfs snapshot gc");
-        }
-    }
 
     eprint!(
         "{}",
@@ -342,7 +339,7 @@ pub(crate) fn execute(
         &dir.join("merged"),
     )?;
     let root = match rootfs {
-        Some(r) => Some(rootfs::RootOverlay::mount(r, dir)?),
+        Some(r) => Some(rootfs::RootOverlay::mount(r, cas, dir)?),
         None => None,
     };
     let mut mounts = vec![Mount {
@@ -413,6 +410,10 @@ pub(crate) fn execute(
 
     let t = Instant::now();
     let outputs = ov.finish(tree, cas)?;
+    // The served rootfs is a second FUSE mount whose `observer` event is
+    // written when it unmounts: it goes first, so the run's last `observer`
+    // event is the workspace's (the bench and the transport tests read the
+    // last one).
     let root_outputs = match root {
         Some(o) => o.finish(cas)?,
         None => Vec::new(),
@@ -538,10 +539,11 @@ fn sealed_accesses(tree: &Tree, prefix: &str, carve_out: &str) -> Vec<sp_manifes
 }
 
 /// A step with network: runs directly on the repo, never memoized. In a
-/// rootfs it runs on the sealed snapshot read-only (its writes outside the
-/// workspace are not kept) with the host's resolver bound in.
+/// rootfs it runs on the served rootfs read-only (its writes outside the
+/// workspace fail, /tmp is a tmpfs) with the host's resolver bound in.
 fn run_unobserved(
     state: &State,
+    cas: &Cas,
     repo: &Path,
     spec: &StepSpec,
     mut env: Vec<(String, String)>,
@@ -556,6 +558,10 @@ fn run_unobserved(
     }
     let dir = state.run_dir(run_id);
     std::fs::create_dir_all(&dir)?;
+    let root = match rootfs {
+        Some(r) => Some(rootfs::ReadOnlyRoot::mount(r, cas, &dir)?),
+        None => None,
+    };
     let rs = RunSpec {
         cmd: spec.cmd.clone(),
         cwd: spec.cwd.clone(),
@@ -569,13 +575,17 @@ fn run_unobserved(
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
         echo: true,
-        rootfs: rootfs.map(|r| sp_sandbox::RootFs {
+        rootfs: root.as_ref().map(|r| sp_sandbox::RootFs {
             dir: r.dir().to_path_buf(),
             writable: false,
         }),
         identity: None,
     };
-    let r = sp_sandbox::run(&rs)?;
+    let r = sp_sandbox::run(&rs);
+    if let Some(root) = root {
+        root.unmount()?;
+    }
+    let r = r?;
     sp_cas::remove_any(&dir)?;
     eprintln!("STILLPASS  EXECUTED  network allowed, not memoized");
     eprintln!("  {}", image_line(&spec.image));

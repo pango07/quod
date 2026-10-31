@@ -49,27 +49,12 @@ pub struct Snapshot {
     _lock: File,
 }
 
-/// Directory mode of a sealed snapshot: nobody writes into it.
-pub const SEALED_DIR_MODE: u32 = 0o555;
-
 /// BLAKE3 over the format version and every entry's path, kind, hash, mode
 /// and target, each variable field length-prefixed so no spelling of one
-/// entry can collide with another. (What `ensure` keys a sealed snapshot by.)
-#[cfg(test)]
+/// entry can collide with another.
 pub fn key<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> Hash {
-    key_with(entries, SEALED_DIR_MODE)
-}
-
-/// `key`, for a snapshot whose directories get `dir_mode`; any mode but
-/// the sealed one is part of the key, so the same entries with other
-/// directory modes are another snapshot.
-fn key_with<'a>(entries: impl IntoIterator<Item = &'a Entry>, dir_mode: u32) -> Hash {
     let mut buf = Vec::with_capacity(1 << 16);
     buf.extend_from_slice(KEY_FORMAT);
-    if dir_mode != SEALED_DIR_MODE {
-        buf.extend_from_slice(b"dir mode\0");
-        buf.extend_from_slice(&dir_mode.to_le_bytes());
-    }
     let field = |buf: &mut Vec<u8>, b: &[u8]| {
         buf.extend_from_slice(&(b.len() as u32).to_le_bytes());
         buf.extend_from_slice(b);
@@ -92,20 +77,8 @@ fn key_with<'a>(entries: impl IntoIterator<Item = &'a Entry>, dir_mode: u32) -> 
 /// The snapshot of `entries` under `root`, built if no run built it before.
 /// The returned `Snapshot` holds it shared-locked until dropped.
 pub fn ensure(cas: &Cas, entries: &[&Entry], root: &Path) -> anyhow::Result<Snapshot> {
-    ensure_with(cas, entries, root, SEALED_DIR_MODE)
-}
-
-/// `ensure`, with every directory of the snapshot given `dir_mode` instead
-/// of the sealed 0555 (a rootfs that is only ever an overlay lower or a
-/// read-only bind, whose step user must be able to write into its overlay).
-pub fn ensure_with(
-    cas: &Cas,
-    entries: &[&Entry],
-    root: &Path,
-    dir_mode: u32,
-) -> anyhow::Result<Snapshot> {
     fs::create_dir_all(root).with_context(|| format!("create {}", root.display()))?;
-    let key = key_with(entries.iter().copied(), dir_mode);
+    let key = key(entries.iter().copied());
     let dir = root.join(key.hex());
     let lock = lock_shared(&lock_path(root, &key))?;
     if complete(&dir) {
@@ -126,7 +99,7 @@ pub fn ensure_with(
         }
     }
     let tmp = root.join(format!("tmp.{}.{}", key.hex(), random()));
-    if let Err(e) = build(cas, entries, &tmp, root, dir_mode) {
+    if let Err(e) = build(cas, entries, &tmp, root) {
         let _ = sp_cas::remove_any(&tmp);
         return Err(e);
     }
@@ -156,14 +129,8 @@ pub fn ensure_with(
 }
 
 /// Links the entries into `tmp`, makes them durable, marks the build
-/// complete (durably), then gives every directory `dir_mode`.
-fn build(
-    cas: &Cas,
-    entries: &[&Entry],
-    tmp: &Path,
-    root: &Path,
-    dir_mode: u32,
-) -> anyhow::Result<()> {
+/// complete (durably), then makes the directories read-only.
+fn build(cas: &Cas, entries: &[&Entry], tmp: &Path, root: &Path) -> anyhow::Result<()> {
     sp_cas::remove_any(tmp)?;
     cas.link_entries(entries.iter().copied(), tmp)?;
     // Everything the marker vouches for is on disk before the marker is.
@@ -172,7 +139,7 @@ fn build(
     let mut m = File::create(&marker).with_context(|| format!("create {}", marker.display()))?;
     m.write_all(b"complete\n")?;
     m.sync_all()?;
-    seal_dirs(tmp, dir_mode)?;
+    seal_dirs(tmp)?;
     File::open(tmp)?.sync_all()?;
     Ok(())
 }
@@ -309,16 +276,15 @@ pub(crate) fn random() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// Every directory `mode` (read-only when sealed: the snapshot is complete
-/// and must not change).
-fn seal_dirs(dir: &Path, mode: u32) -> io::Result<()> {
+/// Every directory read-only: the snapshot is complete and must not change.
+fn seal_dirs(dir: &Path) -> io::Result<()> {
     for item in fs::read_dir(dir)? {
         let item = item?;
         if item.file_type()?.is_dir() {
-            seal_dirs(&item.path(), mode)?;
+            seal_dirs(&item.path())?;
         }
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(mode))
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o555))
 }
 
 #[cfg(test)]

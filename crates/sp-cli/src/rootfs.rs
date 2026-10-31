@@ -9,31 +9,35 @@
 //! by is recorded beside it and resolves to it (`resolve`), so a runner that
 //! knows only the image reference can find the proof before unpacking.
 //!
-//! At run time `open` materializes the tree once per store as a sealed
-//! snapshot (`crate::snapshot`: built under a temporary name, made durable,
-//! marked complete, shared-locked while in use, garbage collected), the
-//! rootfs under its `root/` directory so the snapshot's own marker is not
-//! part of what the step sees, and `RootOverlay::mount` puts a per-step
-//! overlay over it, so the step may write anywhere (/tmp included) and the
-//! overlay's upper dir is diffed into the result's `root_outputs` exactly
-//! like the workspace overlay is diffed into `outputs`. The rootfs lower is
-//! pinned by digest, so nothing read from it needs recording; the workspace
-//! stays the observed FUSE tree.
+//! The digest pins the tree, which is less than the image: what a tree
+//! does not hold is not kept. Owners (every file belongs to the step user),
+//! setuid, setgid and sticky bits (modes are masked to 0777), xattrs and
+//! file capabilities, directory modes (every directory is 0755), hard links
+//! (each name is its own file), device nodes, sockets and fifos (refused at
+//! import), and timestamps (every time is the epoch). Two images that
+//! differ only there have one digest, and a step sees the same rootfs in
+//! both.
 //!
-//! Every directory of a rootfs snapshot is 0755 and every file has its tree
-//! mode, all owned by the user who built it, which the sandbox maps to the
-//! step user: the step may create and change files anywhere in its overlay,
-//! as root may in a container, while the snapshot itself is only ever an
-//! overlay lower or a read-only bind and never changes. A process of
-//! another uid would see every file as nobody's, a different environment,
-//! so `open` refuses a snapshot it does not own.
+//! At run time the rootfs is served from its blobs by the observer's FUSE
+//! server (`sp_fs::serve`; its log is discarded, since the digest already
+//! pins everything it would record), not copied onto a host filesystem:
+//! times are constant, listings come in tree order, nothing records an
+//! access time, inode numbers are the tree's, and every file belongs to
+//! whoever runs Stillpass, which the sandbox maps to the step user. Nothing
+//! of the host's filesystems (copy times, ext4's per-filesystem hash order,
+//! atime updates, ownership) shows through. `RootOverlay::mount` puts a
+//! per-step overlay over it whose upper lives on a tmpfs, so the step may
+//! write anywhere (/tmp included, still on tmpfs) and the upper is diffed
+//! into the result's `root_outputs` exactly like the workspace overlay is
+//! diffed into `outputs`. The workspace stays the observed FUSE tree.
 //!
 //! The same document format pins any read-only tree (`put_tree`): a runner
-//! adapter's mounts are bound from snapshots under `<cas>/rootfs/mounts`
-//! and their digests are part of the key. The runner API is `crate::step`.
+//! adapter's mounts are served the same way (`PinnedTree`) and their digests
+//! are part of the key. The runner API is `crate::step`.
 //!
 //! What a rootfs mode step can still learn about the host is listed on
-//! `sp_sandbox`; the key pins what changes behavior (`platform`).
+//! `sp_sandbox`; the key pins all of it that is constant for a host
+//! (`platform`, with the host class).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,26 +50,13 @@ use serde::{Deserialize, Serialize};
 use sp_cas::{Cas, Entry, Hash, Kind, Tree, canonical_json};
 use sp_key::{Image, ImageKind, Platform};
 
-use crate::snapshot::{self, Snapshot};
+use crate::snapshot;
 use crate::state::State;
 
 /// Format of the rootfs document (`{"entries":[...],"v":1}`), whose BLAKE3
 /// is the digest. Changing what `import` keeps or fixes up bumps this, since
 /// every digest changes with it.
 pub const VERSION: u32 = 1;
-
-/// Sealed snapshots of rootfs trees kept per store beyond the one in use.
-const KEEP: usize = 3;
-
-/// Snapshots of pinned mount trees kept per store beyond those in use.
-const KEEP_MOUNTS: usize = 8;
-
-/// Where a tree lies inside its snapshot directory (beside the marker).
-const SUBDIR: &str = "root";
-
-/// Directory mode of a rootfs snapshot: writable by the step user, so that
-/// the overlay over it accepts writes anywhere.
-const ROOTFS_DIR_MODE: u32 = 0o755;
 
 /// The hostname every step sees (also set by the sandbox).
 const HOSTNAME: &str = "stillpass\n";
@@ -105,46 +96,54 @@ pub struct Record {
     pub bytes: u64,
 }
 
-/// An opened rootfs: its tree and its sealed snapshot, shared-locked against
-/// gc for as long as this is held.
+/// An opened rootfs: its digest and tree, every blob present in the store.
 pub struct Rootfs {
     pub digest: Hash,
     tree: Tree,
-    snapshot: Snapshot,
 }
 
 impl Rootfs {
-    /// The sealed snapshot: the rootfs at its own paths. Never written to.
-    pub fn dir(&self) -> PathBuf {
-        self.snapshot.dir.join(SUBDIR)
-    }
-
+    #[cfg(test)]
     pub fn tree(&self) -> &Tree {
         &self.tree
     }
 
-    /// The step key's `image` for a step run in this rootfs on this host.
-    pub fn image(&self) -> anyhow::Result<Image> {
-        Ok(Image::new(ImageKind::Rootfs, self.digest, platform()?))
+    /// The step key's `image` for a step run in this rootfs on this host,
+    /// with run directories under `runs`.
+    pub fn image(&self, cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
+        Ok(Image::new(
+            ImageKind::Rootfs,
+            self.digest,
+            platform(cas, runs)?,
+        ))
     }
 }
 
-/// What this host's kernel and CPU show a step (`sp_sandbox::host_platform`)
-/// as the key pins it: the part of the environment no root filesystem can.
-pub fn platform() -> anyhow::Result<Platform> {
+/// What this host's kernel and CPU show a step (`sp_sandbox::host_platform`
+/// and `host_class`) as the key pins it: the part of the environment no
+/// root filesystem can. `runs` is where run directories (the workspace
+/// overlay's upper) live; the store is where served blobs live.
+pub fn platform(cas: &Cas, runs: &Path) -> anyhow::Result<Platform> {
     let p = sp_sandbox::host_platform().context("probe the host platform")?;
+    fs::create_dir_all(runs).with_context(|| format!("create {}", runs.display()))?;
+    let mut host = sp_sandbox::host_class(&[("store", cas.dir()), ("runs", runs)])
+        .context("probe the host class")?;
+    // The kernel's configuration, when it publishes it.
+    let config = fs::read("/proc/config.gz").map_or("-".to_string(), |b| Hash::of(&b).to_string());
+    host.push(("kernel config".into(), config));
     Ok(Platform::new(
         &p.machine,
         &p.release,
         &p.cpu_features,
         p.cpus,
         p.page_size,
+        host,
     ))
 }
 
 /// The host-root pin: BLAKE3 of the host fingerprint script's output. The
 /// fallback for hosts without a rootfs; such a key never travels.
-pub fn host_image() -> anyhow::Result<Image> {
+pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     let out = Command::new("/bin/bash")
         .arg("-c")
         .arg(FINGERPRINT_SH)
@@ -162,7 +161,7 @@ pub fn host_image() -> anyhow::Result<Image> {
     Ok(Image::new(
         ImageKind::Host,
         Hash::of(&out.stdout),
-        platform()?,
+        platform(cas, runs)?,
     ))
 }
 
@@ -175,21 +174,21 @@ pub struct Pin {
     pub rootfs: Option<Rootfs>,
 }
 
-pub fn pin(cas: &Cas, rootfs: Option<&str>, host_root: bool) -> anyhow::Result<Pin> {
+pub fn pin(cas: &Cas, rootfs: Option<&str>, host_root: bool, runs: &Path) -> anyhow::Result<Pin> {
     let from_env = std::env::var("STILLPASS_ROOTFS")
         .ok()
         .filter(|s| !s.is_empty());
     let id = rootfs.map(String::from).or(from_env);
     match id {
         Some(_) if host_root => Ok(Pin {
-            image: host_image()?,
+            image: host_image(cas, runs)?,
             rootfs: None,
         }),
         Some(id) => {
             let digest = resolve(cas, &id)?;
             let r = open(cas, &digest)?;
             Ok(Pin {
-                image: r.image()?,
+                image: r.image(cas, runs)?,
                 rootfs: Some(r),
             })
         }
@@ -200,7 +199,7 @@ pub fn pin(cas: &Cas, rootfs: Option<&str>, host_root: bool) -> anyhow::Result<P
                 );
             }
             Ok(Pin {
-                image: host_image()?,
+                image: host_image(cas, runs)?,
                 rootfs: None,
             })
         }
@@ -213,14 +212,6 @@ fn index_dir(cas: &Cas) -> PathBuf {
 
 fn oci_dir(cas: &Cas) -> PathBuf {
     cas.dir().join("rootfs/oci")
-}
-
-fn snapshots_dir(cas: &Cas) -> PathBuf {
-    cas.dir().join("rootfs/snapshots")
-}
-
-fn mounts_dir(cas: &Cas) -> PathBuf {
-    cas.dir().join("rootfs/mounts")
 }
 
 /// A rootfs digest from `b3:<hex>`, or from the OCI digest `sha256:<hex>`
@@ -272,17 +263,24 @@ pub fn tree(cas: &Cas, digest: &Hash) -> anyhow::Result<Tree> {
     Ok(Tree::from_leaves(doc.entries))
 }
 
-/// Stores a tree as a document (the rootfs format, without the rootfs
-/// rules) and returns its digest: how a runner pins a workspace or a
-/// read-only mount by content. Every blob it names must be in the store.
-pub fn put_tree(cas: &Cas, tree: &Tree) -> anyhow::Result<Hash> {
+/// Every file blob `tree` names is in the store (else serving it would be
+/// an I/O error in the middle of a step).
+fn check_blobs(cas: &Cas, tree: &Tree, what: &str) -> anyhow::Result<()> {
     for e in tree.iter() {
         if let Some(h) = e.h.filter(|_| e.k == Kind::File)
             && !cas.has(&h)
         {
-            bail!("{} names blob {h}, which is not in the store", e.p);
+            bail!("{what}: {} names blob {h}, which is not in the store", e.p);
         }
     }
+    Ok(())
+}
+
+/// Stores a tree as a document (the rootfs format, without the rootfs
+/// rules) and returns its digest: how a runner pins a workspace or a
+/// read-only mount by content. Every blob it names must be in the store.
+pub fn put_tree(cas: &Cas, tree: &Tree) -> anyhow::Result<Hash> {
+    check_blobs(cas, tree, "tree")?;
     let doc = Doc {
         v: VERSION,
         entries: tree.iter().cloned().collect(),
@@ -290,118 +288,65 @@ pub fn put_tree(cas: &Cas, tree: &Tree) -> anyhow::Result<Hash> {
     Ok(cas.put(canonical_json(&doc)?.as_bytes())?)
 }
 
-/// `entries` under `SUBDIR/`, the way a snapshot holds them.
-fn under_subdir(tree: &Tree) -> Vec<Entry> {
-    tree.iter()
-        .map(|e| Entry {
-            p: if e.p == sp_cas::ROOT {
-                SUBDIR.to_string()
-            } else {
-                format!("{SUBDIR}/{}", e.p)
-            },
-            ..e.clone()
-        })
-        .collect()
+/// Opens a rootfs: its tree, checked to be servable from the store.
+pub fn open(cas: &Cas, digest: &Hash) -> anyhow::Result<Rootfs> {
+    let t = Instant::now();
+    let tree = tree(cas, digest)?;
+    check_blobs(cas, &tree, &format!("rootfs {digest}"))?;
+    tracing::info!(target: "stillpass", rootfs = %digest, entries = tree.len(), ms = t.elapsed().as_millis() as u64, "rootfs open");
+    Ok(Rootfs {
+        digest: *digest,
+        tree,
+    })
 }
 
-/// The snapshot's tree must belong to this process's uid: that is the uid
-/// the sandbox maps to the step user. Any other would make every file
-/// nobody's inside, and the step a different environment than the digest
-/// says.
-fn check_owner(dir: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::MetadataExt;
-    let owner = fs::metadata(dir)
-        .with_context(|| format!("stat {}", dir.display()))?
-        .uid();
-    let me = sp_sandbox::caller_uid();
-    if owner != me {
-        bail!(
-            "{} belongs to uid {owner}, this process is uid {me}: inside the sandbox its files would not belong to the step user (a store shared between users needs one snapshot per user)",
-            dir.display()
-        );
-    }
+/// Serves `tree` read-only at `dir` (created): the observer without its log.
+fn serve_tree(cas: &Cas, tree: &Tree, dir: &Path) -> anyhow::Result<sp_fs::Served> {
+    fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    sp_fs::serve(tree, cas, dir).with_context(|| format!("serve the rootfs at {}", dir.display()))
+}
+
+/// Unmounts a served tree. The log is discarded, but an I/O error served to
+/// the step is a Stillpass error, as on the workspace.
+fn unserve(served: sp_fs::Served) -> anyhow::Result<()> {
+    served.unmount().context("unmount the served rootfs")?;
     Ok(())
 }
 
-/// Opens a rootfs: its tree, and its sealed snapshot built now if no run
-/// built it before (shared with every state dir and process using the store).
-pub fn open(cas: &Cas, digest: &Hash) -> anyhow::Result<Rootfs> {
-    let tree = tree(cas, digest)?;
-    let entries = under_subdir(&tree);
-    let refs: Vec<&Entry> = entries.iter().collect();
-    let t = Instant::now();
-    let snapshot = snapshot::ensure_with(cas, &refs, &snapshots_dir(cas), ROOTFS_DIR_MODE)
-        .with_context(|| format!("materialize rootfs {digest}"))?;
-    tracing::info!(target: "stillpass", rootfs = %digest, key = %snapshot.key, reused = snapshot.reused, entries = entries.len(), ms = t.elapsed().as_millis() as u64, "rootfs snapshot");
-    let r = Rootfs {
-        digest: *digest,
-        tree,
-        snapshot,
-    };
-    check_owner(&r.dir())?;
-    Ok(r)
-}
-
-/// Removes sealed rootfs snapshots beyond the `KEEP` most recently used
-/// (never one in use). Housekeeping: never fails a run.
-pub fn gc(cas: &Cas, current: &Rootfs) -> usize {
-    snapshot::gc(&snapshots_dir(cas), KEEP, &current.snapshot.dir)
-}
-
-/// A pinned read-only tree, materialized for binding: `dir()` is the tree,
-/// read-only, shared-locked against gc while this is held.
-pub struct PinnedTree {
-    snapshot: Snapshot,
-}
-
-impl PinnedTree {
-    pub fn dir(&self) -> PathBuf {
-        self.snapshot.dir.join(SUBDIR)
-    }
-}
-
-/// Materializes the tree `digest` names (`put_tree`) as a sealed snapshot:
-/// directories 0555, files hard links to their blobs where the mode allows.
-pub fn open_pinned(cas: &Cas, digest: &Hash) -> anyhow::Result<PinnedTree> {
-    let tree = tree(cas, digest)?;
-    let entries = under_subdir(&tree);
-    let refs: Vec<&Entry> = entries.iter().collect();
-    let snapshot = snapshot::ensure(cas, &refs, &mounts_dir(cas))
-        .with_context(|| format!("materialize tree {digest}"))?;
-    let p = PinnedTree { snapshot };
-    check_owner(&p.dir())?;
-    Ok(p)
-}
-
-/// Removes pinned-tree snapshots beyond the most recently used (never one
-/// in use: `current`, or any another run holds). Never fails a run.
-pub fn gc_pinned(cas: &Cas, current: Option<&PinnedTree>) -> usize {
-    let none = PathBuf::new();
-    let cur = current.map_or(none, |p| p.snapshot.dir.clone());
-    snapshot::gc(&mounts_dir(cas), KEEP_MOUNTS, &cur)
-}
-
-/// A per-step overlay over a sealed rootfs: the step's `/`, writable, with
-/// every write landing in the upper dir.
+/// A per-step overlay over a served rootfs: the step's `/`, writable, with
+/// every write landing in an upper dir on a tmpfs.
 pub struct RootOverlay<'a> {
     overlay: sp_fs::Overlay,
+    served: sp_fs::Served,
+    tmpfs: sp_fs::Tmpfs,
     lower: &'a Tree,
 }
 
 impl<'a> RootOverlay<'a> {
-    /// Mounts the overlay under `dir/root` (`upper`, `work`, `merged`).
-    pub fn mount(rootfs: &'a Rootfs, dir: &Path) -> anyhow::Result<RootOverlay<'a>> {
+    /// Mounts under `dir/root`: the served rootfs at `lower`, a tmpfs at
+    /// `rw` (size half the bucketed RAM, so its limit is a function of the
+    /// key) holding `upper` and `work`, the overlay at `merged`.
+    pub fn mount(rootfs: &'a Rootfs, cas: &Cas, dir: &Path) -> anyhow::Result<RootOverlay<'a>> {
         let root = dir.join("root");
-        let overlay = sp_fs::overlay_dir(
-            &rootfs.dir(),
-            &root.join("upper"),
-            &root.join("work"),
+        let served = serve_tree(cas, &rootfs.tree, &root.join("lower"))?;
+        let gib = sp_sandbox::memory_gib().max(1);
+        let tmpfs = sp_fs::tmpfs(
+            &root.join("rw"),
+            &format!("size={}m,nr_inodes=0,mode=0755", gib * 512),
+        )
+        .context("mount the rootfs overlay's tmpfs")?;
+        let overlay = sp_fs::overlay(
+            &served,
+            &tmpfs.dir().join("upper"),
+            &tmpfs.dir().join("work"),
             &root.join("merged"),
         )
         .context("mount the rootfs overlay")?;
         Ok(RootOverlay {
             overlay,
-            lower: rootfs.tree(),
+            served,
+            tmpfs,
+            lower: &rootfs.tree,
         })
     }
 
@@ -412,10 +357,82 @@ impl<'a> RootOverlay<'a> {
 
     /// Unmounts and diffs the upper dir against the rootfs tree: the step's
     /// writes outside the workspace, paths relative to `/`, files stored in
-    /// the CAS. Same precondition as `sp_fs::Overlay::finish`: the step is
-    /// over.
+    /// the CAS. Sockets and fifos the step left behind are dropped first:
+    /// they hold no content, and a later step could not use them anyway.
+    /// Same precondition as `sp_fs::Overlay::finish`: the step is over.
     pub fn finish(self, cas: &Cas) -> anyhow::Result<Vec<Entry>> {
-        Ok(self.overlay.finish(self.lower, cas)?)
+        let upper = self.tmpfs.dir().join("upper");
+        let dropped = drop_special_files(&upper)?;
+        if dropped > 0 {
+            tracing::info!(target: "stillpass", dropped, "sockets and fifos left outside the workspace, not outputs");
+        }
+        let out = self.overlay.finish(self.lower, cas)?;
+        unserve(self.served)?;
+        self.tmpfs.unmount()?;
+        Ok(out)
+    }
+}
+
+/// Removes sockets and fifos under `dir`; returns how many.
+fn drop_special_files(dir: &Path) -> anyhow::Result<usize> {
+    use std::os::unix::fs::FileTypeExt;
+    let mut n = 0;
+    for item in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let item = item?;
+        let ft = item.file_type()?;
+        if ft.is_socket() || ft.is_fifo() {
+            fs::remove_file(item.path())?;
+            n += 1;
+        } else if ft.is_dir() {
+            n += drop_special_files(&item.path())?;
+        }
+    }
+    Ok(n)
+}
+
+/// A rootfs served read-only for a step that is never memoized (step A,
+/// with network): its writes outside the workspace fail, /tmp is a tmpfs.
+pub struct ReadOnlyRoot {
+    served: sp_fs::Served,
+}
+
+impl ReadOnlyRoot {
+    pub fn mount(rootfs: &Rootfs, cas: &Cas, dir: &Path) -> anyhow::Result<ReadOnlyRoot> {
+        Ok(ReadOnlyRoot {
+            served: serve_tree(cas, &rootfs.tree, &dir.join("root"))?,
+        })
+    }
+
+    pub fn dir(&self) -> &Path {
+        self.served.mountpoint()
+    }
+
+    pub fn unmount(self) -> anyhow::Result<()> {
+        unserve(self.served)
+    }
+}
+
+/// A pinned read-only tree (`put_tree`), served for binding into a step.
+pub struct PinnedTree {
+    served: sp_fs::Served,
+}
+
+impl PinnedTree {
+    /// Serves the tree `digest` names at `dir`.
+    pub fn mount(cas: &Cas, digest: &Hash, dir: &Path) -> anyhow::Result<PinnedTree> {
+        let tree = tree(cas, digest)?;
+        check_blobs(cas, &tree, &format!("tree {digest}"))?;
+        Ok(PinnedTree {
+            served: serve_tree(cas, &tree, dir)?,
+        })
+    }
+
+    pub fn dir(&self) -> &Path {
+        self.served.mountpoint()
+    }
+
+    pub fn unmount(self) -> anyhow::Result<()> {
+        unserve(self.served)
     }
 }
 
@@ -425,9 +442,9 @@ impl<'a> RootOverlay<'a> {
 /// container (`.dockerenv`, `/etc/hostname`, `/etc/hosts`,
 /// `/etc/resolv.conf`) are dropped or given fixed content, the kernel's and
 /// sandbox's directories (`/dev`, `/proc`, `/sys`, `/tmp`) are emptied, and
-/// the sandbox's mount points are created. Owners, setuid bits and xattrs
-/// are not part of a tree and are not kept: inside the sandbox every file
-/// belongs to the step user and nothing has capabilities.
+/// the sandbox's mount points are created. What a tree does not hold is not
+/// kept (see the module docs). An OCI digest given here is indexed and
+/// cannot later be re-pointed to another rootfs.
 pub fn import(
     cas: &Cas,
     src: &Path,
@@ -485,6 +502,18 @@ fn import_dir(
         entries: tree.iter().cloned().collect(),
     };
     let digest = cas.put(canonical_json(&doc)?.as_bytes())?;
+    // An OCI digest names one image, so it can only ever name one rootfs:
+    // the first import of it is trusted, a different one is refused, never
+    // silently re-pointed (a key found by OCI digest would change meaning).
+    if let Some(o) = oci
+        && let Ok(earlier) = fs::read_to_string(oci_dir(cas).join(&o["sha256:".len()..]))
+        && earlier.trim() != digest.to_string()
+    {
+        bail!(
+            "OCI image {o} was imported earlier as rootfs {}, and this export is {digest}: refusing to re-point it (same image, different filesystem: check the export)",
+            earlier.trim()
+        );
+    }
     let index = index_dir(cas);
     fs::create_dir_all(&index)?;
     let path = index.join(format!("{}.json", digest.hex()));
@@ -783,69 +812,73 @@ mod tests {
     }
 
     #[test]
-    fn open_materializes_once_and_reuses() {
+    fn open_checks_the_store_and_pins_the_platform() {
         let tmp = tempfile::tempdir().unwrap();
         let cas = Cas::open(tmp.path().join("cas")).unwrap();
         let a = tmp.path().join("a");
         export(&a, "ID=test\n");
         let r = import(&cas, &a, None, None).unwrap();
-        let first = open(&cas, &r.digest).unwrap();
-        assert!(!first.snapshot.reused);
-        let dir = first.dir();
-        assert!(
-            !dir.join(".complete").exists() && first.snapshot.dir.join(".complete").exists(),
-            "the marker is beside the rootfs, not in it"
-        );
-        assert_eq!(
-            fs::read_to_string(dir.join("etc/hostname")).unwrap(),
-            "stillpass\n"
-        );
-        assert_eq!(
-            fs::read_link(dir.join("bin")).unwrap().to_str(),
-            Some("usr/bin")
-        );
-        assert_eq!(
-            fs::metadata(dir.join("usr/bin/dash"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o755
-        );
-        assert!(dir.join("workspace").is_dir() && dir.join("dev").is_dir());
-        assert!(!dir.join("tmp/leftover").exists());
-        for d in [&dir, &dir.join("usr/bin"), &dir.join("tmp")] {
-            assert_eq!(
-                fs::metadata(d).unwrap().permissions().mode() & 0o777,
-                0o755,
-                "{}: the step user may write anywhere in its overlay",
-                d.display()
-            );
-        }
-        let again = open(&cas, &r.digest).unwrap();
-        assert!(again.snapshot.reused && again.dir() == dir);
-        let image = again.image().unwrap();
+        let opened = open(&cas, &r.digest).unwrap();
+        assert_eq!(opened.tree().len(), r.entries);
+        let runs = tmp.path().join("runs");
+        let image = opened.image(&cas, &runs).unwrap();
         assert_eq!((image.kind, image.digest), (ImageKind::Rootfs, r.digest));
         assert!(image.mounts.is_empty() && image.platform.cpus >= 1);
+        let host: std::collections::BTreeMap<_, _> = image.platform.host.iter().cloned().collect();
+        for k in [
+            "kernel release",
+            "kernel version",
+            "kernel config",
+            "memory GiB",
+            "cpus online",
+            "rlimit NOFILE",
+            "sysctl kernel.yama.ptrace_scope",
+            "status NoNewPrivs",
+            "fs store",
+            "fs runs",
+            "sandbox",
+        ] {
+            assert!(host.contains_key(k), "{k} not in the host class: {host:?}");
+        }
+        assert_eq!(host["rlimit CORE"], "0 0");
         assert!(open(&cas, &Hash::of(b"missing")).is_err());
         // A blob that is not a rootfs document is refused.
         let junk = cas.put(b"{\"v\":1}").unwrap();
         assert!(open(&cas, &junk).is_err());
-        drop((first, again));
-
-        // A snapshot another uid built would show the step nobody's files:
-        // refused (checkable only where this test may chown, i.e. as root).
-        let me = sp_sandbox::caller_uid();
-        if std::os::unix::fs::chown(&dir, Some(me + 1), None).is_ok() {
-            let e = open(&cas, &r.digest).err().expect("refused").to_string();
-            assert!(e.contains("belongs to uid"), "{e}");
-            std::os::unix::fs::chown(&dir, Some(me), None).unwrap();
-            assert!(open(&cas, &r.digest).is_ok());
-        }
+        // A rootfs whose blobs are not all in the store is refused up front.
+        let file = r.digest;
+        let partial = Tree::from_leaves([
+            Entry::file("bin/sh", Hash::of(b"never stored"), 0o755),
+            Entry::file("etc/passwd", file, 0o644),
+        ]);
+        let doc = Doc {
+            v: VERSION,
+            entries: partial.iter().cloned().collect(),
+        };
+        let d = cas.put(canonical_json(&doc).unwrap().as_bytes()).unwrap();
+        let e = open(&cas, &d).err().expect("refused").to_string();
+        assert!(e.contains("not in the store"), "{e}");
     }
 
     #[test]
-    fn put_tree_pins_any_tree_and_open_pinned_seals_it() {
+    fn an_oci_digest_cannot_be_re_pointed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let oci = format!("sha256:{}", "c".repeat(64));
+        let a = tmp.path().join("a");
+        export(&a, "ID=one\n");
+        let r = import(&cas, &a, None, Some(&oci)).unwrap();
+        // The same content again: fine.
+        assert_eq!(import(&cas, &a, None, Some(&oci)).unwrap().digest, r.digest);
+        let b = tmp.path().join("b");
+        export(&b, "ID=two\n");
+        let e = import(&cas, &b, None, Some(&oci)).unwrap_err().to_string();
+        assert!(e.contains("refusing to re-point"), "{e}");
+        assert_eq!(resolve(&cas, &oci).unwrap(), r.digest, "still the first");
+    }
+
+    #[test]
+    fn put_tree_pins_any_tree() {
         let tmp = tempfile::tempdir().unwrap();
         let cas = Cas::open(tmp.path().join("cas")).unwrap();
         let src = tmp.path().join("tools");
@@ -856,24 +889,8 @@ mod tests {
         let d = put_tree(&cas, &t).unwrap();
         assert_eq!(tree(&cas, &d).unwrap().len(), t.len());
         assert_eq!(put_tree(&cas, &t).unwrap(), d, "content-addressed");
-        let p = open_pinned(&cas, &d).unwrap();
-        assert_eq!(
-            fs::read_to_string(p.dir().join("bin/t")).unwrap(),
-            "#!/bin/sh\n"
-        );
-        assert_eq!(
-            fs::metadata(p.dir().join("bin"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o555,
-            "sealed: nobody writes into a pinned tree"
-        );
-        assert!(!p.dir().join(".complete").exists());
         // A tree naming a blob the store lacks is refused.
         let bad = Tree::from_leaves([Entry::file("x", Hash::of(b"absent"), 0o644)]);
         assert!(put_tree(&cas, &bad).is_err());
-        assert_eq!(gc_pinned(&cas, Some(&p)), 0);
     }
 }
