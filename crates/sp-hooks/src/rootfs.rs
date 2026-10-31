@@ -28,12 +28,38 @@ pub struct Rootfs {
     /// The image config's environment (PATH and friends).
     pub env: Vec<(String, String)>,
     pub is_alpine: bool,
+    /// How it was unpacked (`unpacker_id`): the same image unpacked another
+    /// way (another tar, other whiteout rules) is another root.
+    #[serde(default)]
+    pub unpacker: String,
+}
+
+/// The unpack rules of this module: bump when what a layer becomes on
+/// disk changes (whiteouts, permissions, ownership, what tar is told).
+pub const UNPACKER_VERSION: &str = "oci-tar-1";
+
+/// The unpacker's identity: `UNPACKER_VERSION` and the host tar that does
+/// the extraction (its `--version` line), which decides how a layer's
+/// entries land (sparse files, xattrs, links).
+pub fn unpacker_id() -> String {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let tar = Command::new("tar")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|t| t.lines().next().map(str::to_string))
+            .unwrap_or_else(|| "tar ?".into());
+        format!("{UNPACKER_VERSION} {tar}")
+    })
+    .clone()
 }
 
 impl Rootfs {
-    /// The step key's image pin.
+    /// The step key's image pin: the image digest and how it was unpacked.
     pub fn key(&self) -> Hash {
-        Hash::of(self.digest.as_bytes())
+        Hash::of(format!("{}\0{}", self.digest, self.unpacker).as_bytes())
     }
 }
 
@@ -155,8 +181,12 @@ impl OciRootfs {
         OciRootfs { root: root.into() }
     }
 
+    /// Where an image is unpacked: per digest and per unpacker, so a root
+    /// another unpacker made is never taken for this one's.
     fn dir_for(&self, digest: &str) -> PathBuf {
-        self.root.join(digest.replace(':', "-"))
+        let tag = &Hash::of(unpacker_id().as_bytes()).hex()[..12];
+        self.root
+            .join(format!("{}-u{tag}", digest.replace(':', "-")))
     }
 
     /// The host's platform as a registry names it.
@@ -208,6 +238,7 @@ impl OciRootfs {
                 dir: dest,
                 env: done.env,
                 is_alpine: done.is_alpine,
+                unpacker: unpacker_id(),
             });
         }
         let config: ConfigDoc = match &doc.config {
@@ -267,6 +298,7 @@ impl OciRootfs {
             dir: dest,
             env,
             is_alpine,
+            unpacker: unpacker_id(),
         })
     }
 }
@@ -297,6 +329,7 @@ impl OciRootfs {
             reference: format!("{}/{}@{}", r.registry, r.repository, done.digest),
             env: done.env,
             is_alpine: done.is_alpine,
+            unpacker: unpacker_id(),
         }))
     }
 }
@@ -695,6 +728,34 @@ impl Sha256 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_image_key_pins_the_unpacker() {
+        let r = |unpacker: &str| Rootfs {
+            digest: "sha256:abc".into(),
+            reference: "golang@sha256:abc".into(),
+            dir: PathBuf::from("/x"),
+            env: vec![],
+            is_alpine: false,
+            unpacker: unpacker.into(),
+        };
+        assert_eq!(
+            r("oci-tar-1 tar (GNU tar) 1.34").key(),
+            r("oci-tar-1 tar (GNU tar) 1.34").key()
+        );
+        assert_ne!(
+            r("oci-tar-1 tar (GNU tar) 1.34").key(),
+            r("oci-tar-1 tar (GNU tar) 1.35").key()
+        );
+        assert_ne!(r("oci-tar-1 x").key(), r("oci-tar-2 x").key());
+        assert!(unpacker_id().starts_with(UNPACKER_VERSION));
+        let dir = OciRootfs::new("/state/rootfs").dir_for("sha256:abc");
+        let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with("sha256-abc-u") && name.len() == "sha256-abc-u".len() + 12,
+            "{name}"
+        );
+    }
 
     #[test]
     fn image_refs() {
