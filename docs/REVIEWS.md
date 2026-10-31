@@ -46,3 +46,4 @@ arguments, then unsupported claims).
 
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
+| exp/runner rebased onto trust (sp-trust in hooks) | `main..86c4e3a` | merge after fixes: B1 withheld/placeholder env names missing from the key (false replay); M1 warm GOCACHE writable+unobserved in every step; M2 checkout memo keyed by sha only (cross-repo leak); M3 scan skips .github/ and *.txt; M4 workflow_run/issue_comment scoped trusted; M5 unpacker not in image key; minors listed in the fix request. Confirmed sound: decide() untouched, command-file canonicalization, evidence free of secrets | - | pending |
