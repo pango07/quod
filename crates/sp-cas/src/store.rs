@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -485,6 +486,60 @@ impl Cas {
     /// Writes a whole tree to `dest`.
     pub fn materialize(&self, tree: &Tree, dest: &Path) -> Result<(), CasError> {
         self.materialize_entries(tree.iter(), dest)
+    }
+
+    /// Like `materialize_entries`, but each file is a hard link to its blob
+    /// and the blob's mode is set to the entry's: a snapshot of exactly the
+    /// hashed content that costs one syscall per file. The store never
+    /// writes into an existing blob (new blobs arrive by rename), so the
+    /// view cannot change under a reader. Two entries with the same content
+    /// and different modes cannot share an inode; the second is copied.
+    /// Fails (EXDEV) when `dest` is on another filesystem than the store.
+    pub fn link_entries<'a>(
+        &self,
+        entries: impl IntoIterator<Item = &'a Entry>,
+        dest: &Path,
+    ) -> Result<(), CasError> {
+        fs::create_dir_all(dest).at(dest)?;
+        let (dirs, rest): (Vec<&Entry>, Vec<&Entry>) =
+            entries.into_iter().partition(|e| e.k == Kind::Dir);
+        for e in dirs {
+            let p = join(dest, &e.p);
+            fs::create_dir_all(&p).at(&p)?;
+        }
+        let mut linked: HashMap<Hash, u32> = HashMap::new();
+        for e in rest {
+            let p = join(dest, &e.p);
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent).at(parent)?;
+            }
+            match e.k {
+                Kind::File => {
+                    let h = e.h.expect("file entry without hash");
+                    let mode = e.m.unwrap_or(0o644);
+                    match linked.get(&h) {
+                        Some(m) if *m != mode => self.copy_out(&h, &p)?,
+                        _ => {
+                            let blob = self.blob_path(&h);
+                            fs::hard_link(&blob, &p).map_err(|e| match e.kind() {
+                                io::ErrorKind::NotFound => CasError::Missing(h),
+                                _ => CasError::Io {
+                                    path: p.clone(),
+                                    source: e,
+                                },
+                            })?;
+                            linked.insert(h, mode);
+                        }
+                    }
+                    fs::set_permissions(&p, fs::Permissions::from_mode(mode)).at(&p)?;
+                }
+                Kind::Symlink => {
+                    symlink(e.t.as_deref().expect("symlink entry without target"), &p).at(&p)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 

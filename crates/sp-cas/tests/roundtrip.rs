@@ -181,3 +181,51 @@ fn import_spike_repo() {
     );
     assert!(s.files > 0);
 }
+
+#[test]
+fn link_entries_is_a_snapshot_of_the_hashed_content() {
+    use std::os::unix::fs::MetadataExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    fs::create_dir_all(src.join("m@v1/sub")).unwrap();
+    fs::write(src.join("m@v1/a.go"), b"package m\n").unwrap();
+    fs::set_permissions(src.join("m@v1/a.go"), fs::Permissions::from_mode(0o444)).unwrap();
+    // Same content, different mode: cannot share an inode with a.go.
+    fs::write(src.join("m@v1/sub/run.sh"), b"package m\n").unwrap();
+    fs::set_permissions(
+        src.join("m@v1/sub/run.sh"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    symlink("a.go", src.join("m@v1/l")).unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let tree = cas.import_dir(&src).unwrap();
+
+    let snap = tmp.path().join("snap");
+    cas.link_entries(tree.iter(), &snap).unwrap();
+    assert_eq!(
+        cas.import_dir(&snap).unwrap(),
+        tree,
+        "the snapshot is the tree"
+    );
+    let a = fs::metadata(snap.join("m@v1/a.go")).unwrap();
+    let blob = fs::metadata(cas.blob_path(&tree.get("m@v1/a.go").unwrap().h.unwrap())).unwrap();
+    assert_eq!(a.ino(), blob.ino(), "a.go is a hard link to its blob");
+    assert_eq!(a.mode() & 0o777, 0o444);
+    let sh = fs::metadata(snap.join("m@v1/sub/run.sh")).unwrap();
+    assert_ne!(
+        sh.ino(),
+        blob.ino(),
+        "a second mode for the same content is a copy"
+    );
+    assert_eq!(sh.mode() & 0o777, 0o755);
+    assert_eq!(
+        fs::read_link(snap.join("m@v1/l")).unwrap().to_str(),
+        Some("a.go")
+    );
+
+    // Changing the source afterwards does not reach the snapshot.
+    fs::set_permissions(src.join("m@v1/a.go"), fs::Permissions::from_mode(0o644)).unwrap();
+    fs::write(src.join("m@v1/a.go"), b"package changed\n").unwrap();
+    assert_eq!(fs::read(snap.join("m@v1/a.go")).unwrap(), b"package m\n");
+}

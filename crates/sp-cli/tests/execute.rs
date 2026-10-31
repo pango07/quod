@@ -1,6 +1,10 @@
 //! T09: the execute path end to end.
 mod common;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
 use common::*;
+use sp_cas::Hash;
 
 #[test]
 fn execute_records_one_manifest_and_one_result() {
@@ -45,6 +49,81 @@ fn stillpass_errors_exit_2() {
     );
     assert_eq!(o.code, 2);
     assert!(o.stderr.contains("STILLPASS  ERROR"), "{}", o.stderr);
+}
+
+/// The sealed module cache is a snapshot of the imported tree: a change to
+/// the repo's copy while the step runs is neither seen by the step nor
+/// recorded, and the next run sees the changed tree as a miss.
+#[test]
+fn sealed_module_cache_is_a_snapshot() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    let modfile = ".stillpass/gomod/example.com/m@v1/a.txt";
+    env.write(modfile, "one\n");
+    std::fs::create_dir_all(env.repo.join(".stillpass/gomod/cache")).unwrap();
+    // The step reads the file well after the test has had time to change it,
+    // and writes into the carve-out, which must stay writable.
+    let step = format!("sleep 3; cat {modfile}; touch .stillpass/gomod/cache/lock");
+    let child = Command::new(env!("CARGO_BIN_EXE_stillpass"))
+        .arg("--state")
+        .arg(env.state())
+        .args(["run", "--repo", env.repo.to_str().unwrap(), "--step", &step])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The snapshot is built after the import and before the step starts.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let snapshots = std::fs::read_dir(env.state().join("runs"))
+            .map(|d| {
+                d.flatten()
+                    .filter(|r| r.path().join("sealed").is_dir())
+                    .count()
+            })
+            .unwrap_or(0);
+        if snapshots > 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no sealed snapshot appeared");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    env.write(modfile, "two\n");
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(
+        stderr.contains("STILLPASS  EXECUTED") && !stderr.contains("ERROR"),
+        "{stderr}"
+    );
+    assert_eq!(
+        out.stdout, b"one\n",
+        "the step read the snapshot, not the live file"
+    );
+    let json = scalar(&env, "SELECT json FROM manifests");
+    let want = format!(
+        "\"h\":\"{}\",\"k\":\"f\",\"m\":420,\"p\":\"{modfile}\"",
+        Hash::of(b"one\n")
+    );
+    assert!(
+        json.contains(&want),
+        "the manifest records what the step saw: {json}"
+    );
+    assert!(
+        json.contains("\"p\":\".stillpass/gomod/example.com/m@v1\""),
+        "{json}"
+    );
+
+    // The changed tree is a miss that names the file, and the step sees it.
+    let o = env.run_step(&step, &[]);
+    assert!(
+        o.executed() && o.stderr.contains(&format!("differed at {modfile}")),
+        "{}",
+        o.stderr
+    );
+    assert_eq!(o.stdout, b"two\n");
 }
 
 fn scalar(env: &Env, sql: &str) -> String {
