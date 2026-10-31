@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use clap::Args;
-use sp_cas::{Cas, Hash, Tree};
+use sp_cas::{Cas, Hash, Kind, Tree};
 use sp_key::{StepSpec, step_key};
 use sp_ledger::{Ledger, Lookup, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
@@ -164,6 +164,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         env,
         &dir,
         warm_dir.as_deref(),
+        &repo,
         &mut phases,
     );
     let (exit_code, signal, manifest, outputs, wall, stdout, stderr) = match outcome {
@@ -250,6 +251,7 @@ fn execute(
     env: Vec<(String, String)>,
     dir: &Path,
     warm: Option<&Path>,
+    repo: &Path,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -283,6 +285,25 @@ fn execute(
     phases.mount = t.elapsed();
 
     let t = Instant::now();
+    let sealed = sealed_modcache(spec, tree, repo);
+    if let Some(s) = &sealed {
+        // The module cache is nine tenths of the observer's traffic and its
+        // module@version directories never change once extracted: serve
+        // them from a plain read-only bind of the repo's copy and record
+        // the whole subtree instead. go writes under its cache/ directory,
+        // so that part stays on the observed overlay.
+        let ws = Path::new(sp_key::WORKSPACE);
+        mounts.push(Mount {
+            src: repo.join(&s.prefix),
+            dst: ws.join(&s.prefix),
+            writable: false,
+        });
+        mounts.push(Mount {
+            src: ov.merged().join(&s.carve_out),
+            dst: ws.join(&s.carve_out),
+            writable: true,
+        });
+    }
     let rs = RunSpec {
         cmd: spec.cmd.clone(),
         cwd: spec.cwd.clone(),
@@ -300,6 +321,9 @@ fn execute(
     let t = Instant::now();
     let outputs = ov.finish(tree, cas)?;
     let mut log = served.unmount()?;
+    if let Some(s) = &sealed {
+        log.extend(sealed_accesses(tree, &s.prefix, &s.carve_out));
+    }
     if warm.is_some() {
         // What a cached vet verdict may stand in for (see sp_key::go_source_file).
         sp_manifest::record_children(tree, &mut log, sp_key::go_source_file);
@@ -322,6 +346,51 @@ fn execute(
 
 fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
     Ok(step_key(spec)?)
+}
+
+/// A subtree served outside the observer and recorded whole.
+struct Sealed {
+    /// Workspace-relative path of the subtree.
+    prefix: String,
+    /// A directory under it that stays observed (the step writes there).
+    carve_out: String,
+}
+
+/// The step's module cache (GOMODCACHE under the workspace), if the tree
+/// has it with its cache/ directory (so go has somewhere to write) and the
+/// repo has it on disk. STILLPASS_SEAL_MODCACHE=0 turns sealing off (the
+/// bench's attribution series).
+fn sealed_modcache(spec: &StepSpec, tree: &Tree, repo: &Path) -> Option<Sealed> {
+    if std::env::var("STILLPASS_SEAL_MODCACHE").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let modcache = spec.env.iter().find(|(k, _)| k == "GOMODCACHE")?.1.as_str();
+    let prefix = modcache
+        .strip_prefix(sp_key::WORKSPACE)?
+        .strip_prefix('/')?
+        .trim_end_matches('/')
+        .to_string();
+    let carve_out = format!("{prefix}/cache");
+    let has_dir = |p: &str| tree.get(p).is_some_and(|e| e.k == Kind::Dir);
+    let ok = has_dir(&prefix)
+        && has_dir(&carve_out)
+        && std::fs::symlink_metadata(repo.join(&prefix)).is_ok_and(|m| m.is_dir());
+    ok.then_some(Sealed { prefix, carve_out })
+}
+
+/// Every tree entry at or under `prefix`, except those under `carve_out`,
+/// as accesses: what a sealed subtree records. Over-records by construction:
+/// any change under the prefix alters a recorded file, symlink or listing.
+fn sealed_accesses(tree: &Tree, prefix: &str, carve_out: &str) -> Vec<sp_manifest::Access> {
+    let (under, carve) = (format!("{prefix}/"), format!("{carve_out}/"));
+    tree.iter()
+        .filter(|e| e.p == prefix || e.p.starts_with(&under))
+        .filter(|e| e.p != carve_out && !e.p.starts_with(&carve))
+        .map(|e| sp_manifest::Access {
+            path: e.p.clone(),
+            kind: e.k,
+        })
+        .collect()
 }
 
 /// A step with network: runs directly on the repo, never memoized.
@@ -482,4 +551,49 @@ fn hostname() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sp_cas::Entry;
+
+    #[test]
+    fn sealed_accesses_cover_the_prefix_minus_the_carve_out() {
+        let tree = Tree::from_leaves([
+            Entry::file("go.mod", Hash::of(b"m"), 0o644),
+            Entry::file(".stillpass/gomod/a.b/c@v1/x.go", Hash::of(b"x"), 0o444),
+            Entry::symlink(".stillpass/gomod/a.b/c@v1/l", "x.go"),
+            Entry::file(
+                ".stillpass/gomod/cache/download/a.b/c/@v/v1.mod",
+                Hash::of(b"d"),
+                0o444,
+            ),
+            Entry::file(".stillpass/gomodx/y", Hash::of(b"y"), 0o644),
+        ]);
+        let spec = StepSpec::spike(Hash::of(b"i"), "go test ./...", &[]);
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".stillpass/gomod")).unwrap();
+        let s =
+            sealed_modcache(&spec, &tree, tmp.path()).expect("GOMODCACHE is under the workspace");
+        assert_eq!(
+            (s.prefix.as_str(), s.carve_out.as_str()),
+            (".stillpass/gomod", ".stillpass/gomod/cache")
+        );
+        let got: Vec<(String, Kind)> = sealed_accesses(&tree, &s.prefix, &s.carve_out)
+            .into_iter()
+            .map(|a| (a.path, a.kind))
+            .collect();
+        let want: Vec<(String, Kind)> = [
+            (".stillpass/gomod", Kind::Dir),
+            (".stillpass/gomod/a.b", Kind::Dir),
+            (".stillpass/gomod/a.b/c@v1", Kind::Dir),
+            (".stillpass/gomod/a.b/c@v1/l", Kind::Symlink),
+            (".stillpass/gomod/a.b/c@v1/x.go", Kind::File),
+        ]
+        .iter()
+        .map(|(p, k)| (p.to_string(), *k))
+        .collect();
+        assert_eq!(got, want);
+    }
 }
