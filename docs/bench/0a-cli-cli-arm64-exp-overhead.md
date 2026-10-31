@@ -155,6 +155,11 @@ mostly the round trip of the ~10k requests the repo's own sources and
 
 ## Round 3 (exp/overhead3): the observer on the ring
 
+Commit ids in the raw logs of this round predate the branch's rebase onto
+main 453ccc2: 54868c9 is now d3a829b, 2dfcf2d is c7910c0, and the
+pre-fix logs cited as 3dde4de are at 9b2dc4e. The code is unchanged by the
+rebase (main touched only README, REVIEWS, DECISIONS and the logo).
+
 `sp-fs` serves one model (`CasFs`) over two transports, chosen once per
 mount before the step starts: FUSE over io_uring when root,
 `fuse.enable_uring=Y`, io_uring with 128-byte SQEs works and the kernel
@@ -208,7 +213,7 @@ in `0a-cli-cli-arm64-exp-overhead3-ring-tests.log`:
 
 ### Acceptance, both ways
 
-`scripts/acceptance.sh /work/cli` at 2dfcf2d, once with
+`scripts/acceptance.sh /work/cli` at c7910c0 (2dfcf2d before the rebase), once with
 `STILLPASS_FUSE_TRANSPORT=uring` (forced: a ring that failed to come up
 would have been a Stillpass error, not a silent fallback) and once with
 `classic`, back to back, 14:40-15:11 UTC at load 16-48. Each log carries
@@ -228,7 +233,7 @@ Both record the same manifests (A1 `b3:23ea6595`, 29,878 inputs, on both).
 ### The earlier "ring is 40% slower" was the box
 
 The first acceptance runs of this branch (pre-fix code; the logs, since
-replaced, are in git at 3dde4de) had the ring well behind the forced classic transport: first
+replaced, are in git at 9b2dc4e) had the ring well behind the forced classic transport: first
 execution 23.5s against 16.4s, the A4-A6 executions 25.5-31.5s against
 16.2-16.3s, and A7 493s against 379s. A7 is the control. It mutates the
 recorded tree in memory and asks the matcher, with no FUSE involved
@@ -303,7 +308,7 @@ paired rounds (execution 32.5/34.7, 23.1/25.9, 43.8/51.8, 49.3/61.9,
 49.8/54.3, 25.6/36.2s); nice -10 beat nice 0 in five of six.
 
 Final, 8 interleaved runs per series, first dropped, load 42-105
-(`0a-cli-cli-arm64-exp-overhead3-bench.{md,log}`, 2dfcf2d, right after the
+(`0a-cli-cli-arm64-exp-overhead3-bench.{md,log}`, c7910c0, right after the
 two acceptance runs). The plain baseline itself ranged 18.5-50.4s, so the
 medians are noise-dominated; the paired rounds and the mechanism columns
 carry the result.
