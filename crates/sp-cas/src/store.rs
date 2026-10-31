@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -30,7 +29,10 @@ impl Write for HashingWriter<'_> {
 const STREAM_THRESHOLD: u64 = 1 << 20;
 
 /// The mode every blob gets, however it arrived (see `take_files`).
-const BLOB_MODE: u32 = 0o644;
+/// Every blob has this mode, however its bytes arrived: blobs are immutable,
+/// so read-only for everyone; and it is the mode the Go module cache gives
+/// its files, so a snapshot of one can hard-link blobs instead of copying.
+const BLOB_MODE: u32 = 0o444;
 
 /// A file's identity as `take_files` saw it. The inode says it is the same
 /// file; size and mtime say nothing wrote to it (rename and chmod change
@@ -194,6 +196,8 @@ impl Cas {
             return Ok((h, 0));
         }
         f.sync_data().at(&tmp)?;
+        f.set_permissions(fs::Permissions::from_mode(BLOB_MODE))
+            .at(&tmp)?;
         drop(f);
         let dest = self.blob_path(&h);
         let parent = dest.parent().unwrap();
@@ -326,7 +330,10 @@ impl Cas {
         fs::create_dir_all(parent).at(parent)?;
         let tmp = self.tmp_path(&h.hex());
         let mut f = fs::File::create(&tmp).at(&tmp)?;
-        write(&mut f).and_then(|()| f.sync_data()).at(&tmp)?;
+        write(&mut f)
+            .and_then(|()| f.sync_data())
+            .and_then(|()| f.set_permissions(fs::Permissions::from_mode(BLOB_MODE)))
+            .at(&tmp)?;
         drop(f);
         fs::rename(&tmp, &dest).at(&dest)
     }
@@ -488,13 +495,14 @@ impl Cas {
         self.materialize_entries(tree.iter(), dest)
     }
 
-    /// Like `materialize_entries`, but each file is a hard link to its blob
-    /// and the blob's mode is set to the entry's: a snapshot of exactly the
-    /// hashed content that costs one syscall per file. The store never
-    /// writes into an existing blob (new blobs arrive by rename), so the
-    /// view cannot change under a reader. Two entries with the same content
-    /// and different modes cannot share an inode; the second is copied.
-    /// Fails (EXDEV) when `dest` is on another filesystem than the store.
+    /// Like `materialize_entries`, but a file whose mode is the store's
+    /// (`BLOB_MODE`) is a hard link to its blob instead of a copy: a
+    /// snapshot of exactly the hashed content at one syscall per file. The
+    /// store never writes into an existing blob (new blobs arrive by
+    /// rename), so the view cannot change under a reader. A file with any
+    /// other mode is copied, because a hard link shares its inode's mode and
+    /// a blob may be linked from several snapshots: no snapshot ever changes
+    /// a blob's mode. Across filesystems (EXDEV) files are copied too.
     pub fn link_entries<'a>(
         &self,
         entries: impl IntoIterator<Item = &'a Entry>,
@@ -507,7 +515,6 @@ impl Cas {
             let p = join(dest, &e.p);
             fs::create_dir_all(&p).at(&p)?;
         }
-        let mut linked: HashMap<Hash, u32> = HashMap::new();
         for e in rest {
             let p = join(dest, &e.p);
             if let Some(parent) = p.parent() {
@@ -516,22 +523,28 @@ impl Cas {
             match e.k {
                 Kind::File => {
                     let h = e.h.expect("file entry without hash");
-                    let mode = e.m.unwrap_or(0o644);
-                    match linked.get(&h) {
-                        Some(m) if *m != mode => self.copy_out(&h, &p)?,
-                        _ => {
-                            let blob = self.blob_path(&h);
-                            fs::hard_link(&blob, &p).map_err(|e| match e.kind() {
-                                io::ErrorKind::NotFound => CasError::Missing(h),
-                                _ => CasError::Io {
-                                    path: p.clone(),
-                                    source: e,
-                                },
-                            })?;
-                            linked.insert(h, mode);
-                        }
+                    let mode = e.m.unwrap_or(BLOB_MODE);
+                    let blob = self.blob_path(&h);
+                    let blob_mode = fs::metadata(&blob)
+                        .map_err(|e| match e.kind() {
+                            io::ErrorKind::NotFound => CasError::Missing(h),
+                            _ => CasError::Io {
+                                path: blob.clone(),
+                                source: e,
+                            },
+                        })?
+                        .mode()
+                        & 0o777;
+                    let linked = blob_mode == mode
+                        && match fs::hard_link(&blob, &p) {
+                            Ok(()) => true,
+                            Err(e) if e.kind() == io::ErrorKind::CrossesDevices => false,
+                            Err(e) => return Err(e).at(&p),
+                        };
+                    if !linked {
+                        self.copy_out(&h, &p)?;
+                        fs::set_permissions(&p, fs::Permissions::from_mode(mode)).at(&p)?;
                     }
-                    fs::set_permissions(&p, fs::Permissions::from_mode(mode)).at(&p)?;
                 }
                 Kind::Symlink => {
                     symlink(e.t.as_deref().expect("symlink entry without target"), &p).at(&p)?;

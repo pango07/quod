@@ -74,13 +74,14 @@ fn sealed_module_cache_is_a_snapshot() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    // The snapshot is built after the import and before the step starts.
+    // The snapshot is built (renamed into place) after the import and
+    // before the step starts.
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let snapshots = std::fs::read_dir(env.state().join("runs"))
+        let snapshots = std::fs::read_dir(env.state().join("snapshots"))
             .map(|d| {
                 d.flatten()
-                    .filter(|r| r.path().join("sealed").is_dir())
+                    .filter(|r| !r.file_name().to_string_lossy().starts_with("tmp."))
                     .count()
             })
             .unwrap_or(0);
@@ -116,7 +117,8 @@ fn sealed_module_cache_is_a_snapshot() {
         "{json}"
     );
 
-    // The changed tree is a miss that names the file, and the step sees it.
+    // The changed tree is a miss that names the file, and the step sees it:
+    // another snapshot, since the subtree differs.
     let o = env.run_step(&step, &[]);
     assert!(
         o.executed() && o.stderr.contains(&format!("differed at {modfile}")),
@@ -124,6 +126,22 @@ fn sealed_module_cache_is_a_snapshot() {
         o.stderr
     );
     assert_eq!(o.stdout, b"two\n");
+    // A fresh key on the same tree reuses that snapshot.
+    let o = env.run_step(&step, &["--env", "STILLPASS_T=1"]);
+    assert!(o.executed() && o.stdout == b"two\n", "{}", o.stderr);
+    let events = std::fs::read_to_string(env.state().join("events.jsonl")).unwrap();
+    let snapshots: Vec<bool> = events
+        .lines()
+        .filter(|l| l.contains("\"message\":\"snapshot\""))
+        .map(|l| l.contains("\"reused\":true"))
+        .collect();
+    assert_eq!(snapshots, [false, false, true], "{events}");
+    assert_eq!(
+        std::fs::read_dir(env.state().join("snapshots"))
+            .unwrap()
+            .count(),
+        2
+    );
 }
 
 fn scalar(env: &Env, sql: &str) -> String {

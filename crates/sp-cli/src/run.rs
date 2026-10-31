@@ -11,6 +11,7 @@ use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Mount, RunSpec};
 
+use crate::snapshot;
 use crate::state::State;
 
 const FINGERPRINT_SH: &str = include_str!("../../../scripts/host-fingerprint.sh");
@@ -165,6 +166,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         env,
         &dir,
         warm_dir.as_deref(),
+        &state.snapshots_dir(),
         &mut phases,
     );
     let ex = match outcome {
@@ -257,6 +259,7 @@ struct Executed {
 /// With `warm`, that host directory is bound over the step's GOCACHE, on top
 /// of the overlay: Go reads and writes it directly, unobserved, and it
 /// persists for the next warm run.
+#[allow(clippy::too_many_arguments)] // one call site; the inputs of a run, each named
 fn execute(
     cas: &Cas,
     tree: &Tree,
@@ -264,6 +267,7 @@ fn execute(
     env: Vec<(String, String)>,
     dir: &Path,
     warm: Option<&Path>,
+    snapshots: &Path,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -296,7 +300,7 @@ fn execute(
     }
     // The warm GOCACHE bind and the sealed module cache are disjoint
     // subtrees of the workspace; both sit on top of the overlay.
-    let sealed = seal_modcache(spec, tree, cas, &dir.join("sealed"));
+    let sealed = seal_modcache(spec, tree, cas, snapshots);
     phases.mount = t.elapsed();
 
     let t = Instant::now();
@@ -339,6 +343,10 @@ fn execute(
     let mut log = served.unmount()?;
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(tree, &s.prefix, &s.carve_out));
+        let removed = snapshot::gc(snapshots, snapshot::KEEP, &s.snapshot)?;
+        if removed > 0 {
+            tracing::info!(target: "stillpass", removed, "snapshot gc");
+        }
     }
     if warm.is_some() {
         // What a cached vet verdict may stand in for (see sp_key::go_source_file).
@@ -380,19 +388,19 @@ struct Sealed {
     prefix: String,
     /// A directory under it that stays observed (the step writes there).
     carve_out: String,
-    /// Where the snapshot was built; the subtree is at `snapshot/prefix`.
+    /// The snapshot directory; the subtree is at `snapshot/prefix`.
     snapshot: PathBuf,
 }
 
 /// Seals the step's module cache (GOMODCACHE under the workspace) when the
 /// tree has it with its cache/ directory (so go has somewhere to write):
-/// hard-links its blobs into `dest`, so the step can only ever see the
-/// imported content whatever happens to the repo meanwhile. `None`, with a
-/// warning, when the store cannot be linked from `dest` (another
-/// filesystem): the module cache is then observed like everything else.
+/// the step reads an immutable snapshot of exactly the imported content
+/// (see `snapshot`), built once per distinct subtree under `snapshots` and
+/// reused across runs and commits. `None`, with a warning, when no snapshot
+/// could be made: the module cache is then observed like everything else.
 /// STILLPASS_SEAL_MODCACHE=0 turns sealing off (the bench's attribution
 /// series).
-fn seal_modcache(spec: &StepSpec, tree: &Tree, cas: &Cas, dest: &Path) -> Option<Sealed> {
+fn seal_modcache(spec: &StepSpec, tree: &Tree, cas: &Cas, snapshots: &Path) -> Option<Sealed> {
     if std::env::var("STILLPASS_SEAL_MODCACHE").is_ok_and(|v| v == "0") {
         return None;
     }
@@ -407,20 +415,25 @@ fn seal_modcache(spec: &StepSpec, tree: &Tree, cas: &Cas, dest: &Path) -> Option
     if !has_dir(&prefix) || !has_dir(&carve_out) {
         return None;
     }
-    // The carve-out directory itself is linked (empty) as the mount point.
+    // The carve-out directory itself is in the snapshot (empty) as the
+    // mount point; its contents are not part of the key.
     let (under, carve) = (format!("{prefix}/"), format!("{carve_out}/"));
-    let entries = tree
+    let entries: Vec<&sp_cas::Entry> = tree
         .iter()
-        .filter(|e| (e.p == prefix || e.p.starts_with(&under)) && !e.p.starts_with(&carve));
-    match cas.link_entries(entries, dest) {
-        Ok(()) => Some(Sealed {
-            prefix,
-            carve_out,
-            snapshot: dest.to_path_buf(),
-        }),
+        .filter(|e| (e.p == prefix || e.p.starts_with(&under)) && !e.p.starts_with(&carve))
+        .collect();
+    let t = Instant::now();
+    match snapshot::ensure(cas, &entries, snapshots) {
+        Ok(s) => {
+            tracing::info!(target: "stillpass", key = %s.key, reused = s.reused, entries = entries.len(), ms = t.elapsed().as_millis() as u64, "snapshot");
+            Some(Sealed {
+                prefix,
+                carve_out,
+                snapshot: s.dir,
+            })
+        }
         Err(e) => {
             tracing::warn!(error = %e, "module cache not sealed; observing it instead");
-            let _ = sp_cas::remove_any(dest);
             None
         }
     }
@@ -627,14 +640,16 @@ mod tests {
         for b in [b"m".as_slice(), b"x", b"d", b"y"] {
             cas.put(b).unwrap();
         }
-        let snap = tmp.path().join("sealed");
+        let root = tmp.path().join("snapshots");
         let s =
-            seal_modcache(&spec, &tree, &cas, &snap).expect("GOMODCACHE is under the workspace");
+            seal_modcache(&spec, &tree, &cas, &root).expect("GOMODCACHE is under the workspace");
         assert_eq!(
             (s.prefix.as_str(), s.carve_out.as_str()),
             (".stillpass/gomod", ".stillpass/gomod/cache")
         );
         // The snapshot holds the module dirs and an empty carve-out to mount over.
+        let snap = &s.snapshot;
+        assert_eq!(snap.parent(), Some(root.as_path()));
         assert_eq!(
             std::fs::read(snap.join(".stillpass/gomod/a.b/c@v1/x.go")).unwrap(),
             b"x"
@@ -646,6 +661,9 @@ mod tests {
             0
         );
         assert!(!snap.join("go.mod").exists() && !snap.join(".stillpass/gomodx").exists());
+        // A second tree with the same module cache reuses it.
+        let s2 = seal_modcache(&spec, &tree, &cas, &root).unwrap();
+        assert_eq!(&s2.snapshot, snap);
         let got: Vec<(String, Kind)> = sealed_accesses(&tree, &s.prefix, &s.carve_out)
             .into_iter()
             .map(|a| (a.path, a.kind))

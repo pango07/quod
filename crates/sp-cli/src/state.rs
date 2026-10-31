@@ -45,6 +45,12 @@ impl State {
         self.dir.join("events.jsonl")
     }
 
+    /// Immutable snapshots of sealed subtrees (see `snapshot`), one per
+    /// distinct subtree, hard-linked to the CAS so on the same filesystem.
+    pub fn snapshots_dir(&self) -> PathBuf {
+        self.dir.join("snapshots")
+    }
+
     /// The warm Go build cache for steps pinned to `image` (the toolchain):
     /// a persistent host directory the sandbox binds over GOCACHE.
     pub fn warm_gocache_dir(&self, image: &sp_cas::Hash) -> PathBuf {
