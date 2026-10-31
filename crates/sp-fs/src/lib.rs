@@ -52,9 +52,13 @@ pub struct ObserverStats {
     /// for lack of CAP_SYS_NICE.
     pub ring_nice: Option<i32>,
     pub ring_nice_denied: bool,
-    /// After a fallback: the FUSE connection id (its directory name under
-    /// /sys/fs/fuse/connections) of the ring mount that was abandoned and
-    /// seen torn down before the classic transport mounted.
+    /// After a fallback: the FUSE connection id (its directory name in
+    /// fusectl) of the ring mount that was abandoned before the classic
+    /// transport mounted. Before falling back, `serve` verified that every
+    /// ring thread ended, this connection was aborted and the ring's
+    /// private fusectl mount no longer listed it (by id and inode, so not a
+    /// reused id), the mount was unmounted outright, and the path held what
+    /// it held before.
     pub ring_abandoned_conn: Option<u64>,
     /// Times a serving thread found a model lock held by another.
     pub lock_contended: u64,

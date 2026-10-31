@@ -230,7 +230,7 @@ pub(crate) struct Stats {
     pub(crate) ring_nice: AtomicI32,
     pub(crate) ring_nice_denied: AtomicBool,
     /// The FUSE connection of a ring mount abandoned before serving (0:
-    /// none), which `uring::mount` saw destroyed.
+    /// none), which `uring::mount` saw gone from its private fusectl.
     abandoned_conn: AtomicU64,
     /// Times a serving thread found a model lock held by another.
     contended: AtomicU64,
@@ -1022,8 +1022,10 @@ pub fn serve_with(
             Ok(()) => match uring::mount(fs.clone(), mountpoint, opts) {
                 Ok(s) => Session::Uring(s),
                 // Only over a path the ring mount has fully left (`mount`
-                // checked it: unmounted, not detached, connection gone,
-                // every thread joined); never stacked on what it left.
+                // verified it: every ring thread ended, the connection
+                // aborted and gone from fusectl, the mount unmounted rather
+                // than detached, the path back to what it held); never
+                // stacked on what it left.
                 Err(MountError::Failed { error, conn }) => {
                     // Nothing was recorded (the step has not started).
                     if !fs.log_is_empty() {

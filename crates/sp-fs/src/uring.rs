@@ -14,9 +14,11 @@
 //! once with an error; an accepted one stays pending until a request
 //! arrives), then a statfs probe must come back over the ring: the kernel
 //! holds every request until each queue has an entry, so the probe returning
-//! over the ring proves the ring is ready. Any failure aborts and unmounts
-//! the mount and joins every thread; `serve` then mounts again with the
-//! classic transport. Only then is the mount marked ring-served.
+//! over the ring proves the ring is ready. Any failure aborts the
+//! connection (by id, through a private fusectl mount), joins every thread
+//! and unmounts the mount, and `mount` verifies that before it returns; only
+//! then does `serve` mount again with the classic transport (`MountError`).
+//! Only a mount that came up is marked ring-served.
 //!
 //! Once serving, a queue thread or the device reader that fails (an error
 //! completion, a panic, or on the device a reply the kernel refuses; over
@@ -41,7 +43,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -236,7 +238,18 @@ impl Shared {
         } else {
             tracing::warn!(error = %what, "FUSE over io_uring failed during setup");
         }
-        abort(self);
+        self.abort();
+    }
+
+    /// Aborts our connection by id through fusectl: every request waiting
+    /// on the mount, or held by a thread that will never answer it, fails
+    /// at once (ECONNABORTED/ENOTCONN), and every queue's commands and the
+    /// device read end. Works whatever covers or detaches the mount's path.
+    fn abort(&self) {
+        let m = &self.mount;
+        if let Err(e) = m.ctl.abort(m.conn, m.conn_ino) {
+            tracing::warn!(conn = m.conn, error = %e, "fusectl abort failed");
+        }
     }
 
     /// Setup is over: from here a failure is the run's.
@@ -274,11 +287,11 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Unmounts and waits for every thread (see `finish`). A plain unmount
-    /// that fails (the mount is busy) is the error returned, after the
-    /// connection is aborted and the mount removed anyway.
+    /// Unmounts and waits for every thread (see `finish`). An error when the
+    /// plain unmount failed (the mount was busy) or the teardown could not
+    /// be completed; the connection is aborted either way.
     pub(crate) fn umount_and_join(self) -> io::Result<()> {
-        let (r, _) = finish(&self.shared, self.threads, true);
+        let t = finish(&self.shared, self.threads, true);
         let per_queue: Vec<u64> = self
             .shared
             .per_queue
@@ -286,90 +299,273 @@ impl Session {
             .map(|n| n.load(Ordering::Relaxed))
             .collect();
         tracing::info!(target: "stillpass", per_queue = ?per_queue, "ring queues");
-        r
+        match (t.plain, t.incomplete) {
+            (Err(e), _) => Err(e),
+            (Ok(()), Some(why)) => Err(io::Error::other(format!(
+                "the ring mount was not torn down: {why}"
+            ))),
+            (Ok(()), None) => Ok(()),
+        }
     }
 }
 
+/// How a teardown went.
+struct Teardown {
+    /// The plain unmount's error, when one was tried and failed.
+    plain: io::Result<()>,
+    /// Why the teardown is incomplete; `None` when every serving thread
+    /// ended, our mount was unmounted outright (never detached, never by
+    /// acting on a mount that is not ours) and fusectl no longer lists our
+    /// connection.
+    incomplete: Option<String>,
+}
+
+/// Every serving thread gets this long to end once the connection is
+/// aborted (they end within milliseconds); a thread still running after it
+/// is left behind and the teardown is incomplete.
+const TEARDOWN_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long the destroyed connection may take to leave fusectl after the
+/// unmount (a stacked overlay's private copy of our mount is released from
+/// a workqueue, not inside its umount2).
+const CONN_GONE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Ends a ring mount and joins every thread it started. `plain` (a mount
-/// that served and did not fail): first a plain unmount, which ends every
-/// queue's commands and the device read itself. Otherwise, or if that
-/// fails: abort the connection, which fails every request and command and
-/// ends the device read, then join every thread (so none, the readiness
-/// probe included, still holds the mount), then unmount; only if something
-/// outside still holds the mount is it detached. Returns the plain
-/// unmount's error, if any, and whether the mount is gone outright (its
-/// superblock and connection destroyed before umount2 returned) rather
-/// than detached.
-fn finish(sh: &Shared, threads: Vec<JoinHandle<()>>, plain: bool) -> (io::Result<()>, bool) {
+/// that served and did not fail): first a plain unmount of our mount, which
+/// ends every queue's commands and the device read itself. Otherwise, or if
+/// that fails: abort the connection by id (fusectl), which fails every
+/// request and command and ends the device read, then join every thread
+/// (so none, the readiness probe included, still holds the mount), then
+/// unmount our mount; if something outside still holds it, it is detached
+/// and the teardown is incomplete. Every umount2 first checks that the top
+/// mount at the path is ours (by device number); a mount that is covered,
+/// gone, or not visible in mountinfo is never acted on.
+fn finish(sh: &Shared, threads: Vec<JoinHandle<()>>, plain: bool) -> Teardown {
     let failed = {
         let mut h = lock(&sh.health);
         h.phase = Phase::Stopping;
         !h.failures.is_empty()
     };
-    let mut result = Ok(());
     if plain && !failed {
-        match umount2(&sh.mountpoint, 0) {
-            Ok(()) => {
-                join(threads);
-                return (Ok(()), true);
-            }
-            Err(e) => result = Err(e),
+        let tried = match sh.mount.placement() {
+            Placement::Top => umount2(&sh.mountpoint, 0),
+            p => Err(io::Error::other(format!("not unmounted: our mount is {p}"))),
+        };
+        if tried.is_ok() {
+            let joined = join_within(threads, TEARDOWN_TIMEOUT);
+            return Teardown {
+                plain: Ok(()),
+                incomplete: verdict(sh, joined, Ok(())),
+            };
         }
+        sh.abort();
+        let joined = join_within(threads, TEARDOWN_TIMEOUT);
+        return Teardown {
+            plain: tried,
+            incomplete: verdict(sh, joined, unmount_ours(sh)),
+        };
     }
-    abort(sh);
-    join(threads);
-    let gone = !sh.mount.present()
-        || umount2(&sh.mountpoint, libc::MNT_FORCE).is_ok()
-        || !sh.mount.present();
-    if !gone {
-        let _ = umount2(&sh.mountpoint, libc::MNT_DETACH);
+    sh.abort();
+    let joined = join_within(threads, TEARDOWN_TIMEOUT);
+    Teardown {
+        plain: Ok(()),
+        incomplete: verdict(sh, joined, unmount_ours(sh)),
     }
-    (result, gone)
 }
 
-fn join(threads: Vec<JoinHandle<()>>) {
-    for t in threads {
+/// Unmounts our mount outright if it is the top mount at the path.
+fn unmount_ours(sh: &Shared) -> Result<(), String> {
+    match sh.mount.placement() {
+        Placement::Absent => Ok(()),
+        Placement::Top => match umount2(&sh.mountpoint, libc::MNT_FORCE) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Busy: something outside holds it. It is aborted and serves
+                // nothing; detach it so the path is free, and say so.
+                if sh.mount.placement() == Placement::Top {
+                    let _ = umount2(&sh.mountpoint, libc::MNT_DETACH);
+                }
+                Err(format!("it was busy ({e}) and could only be detached"))
+            }
+        },
+        p => Err(format!("it was not unmounted: our mount is {p}")),
+    }
+}
+
+fn verdict(sh: &Shared, joined: bool, unmounted: Result<(), String>) -> Option<String> {
+    if !joined {
+        return Some(format!(
+            "a serving thread was still running {TEARDOWN_TIMEOUT:?} after the abort"
+        ));
+    }
+    if let Err(why) = unmounted {
+        return Some(why);
+    }
+    let deadline = Instant::now() + CONN_GONE_TIMEOUT;
+    while sh.mount.conn_alive() {
+        if Instant::now() > deadline {
+            return Some(format!(
+                "fusectl still lists FUSE connection {} {CONN_GONE_TIMEOUT:?} after the unmount",
+                sh.mount.conn
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    None
+}
+
+/// Joins every thread that ends within `limit`; false if any did not (it
+/// is left running, detached).
+fn join_within(threads: Vec<JoinHandle<()>>, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    let mut left = threads;
+    loop {
+        let (done, running): (Vec<_>, Vec<_>) = left.into_iter().partition(|t| t.is_finished());
         // Every thread catches its own panics; a join error cannot carry
         // anything the failure record does not already have.
-        let _ = t.join();
+        for t in done {
+            let _ = t.join();
+        }
+        if running.is_empty() {
+            return true;
+        }
+        if Instant::now() > deadline {
+            return false;
+        }
+        left = running;
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
-/// Aborts the FUSE connection: every request waiting on the mount, or
-/// held by a thread that will never answer it, fails at once
-/// (ECONNABORTED/ENOTCONN), and every queue's commands and the device read
-/// end. umount2(MNT_FORCE) calls FUSE's umount_begin, which aborts the
-/// connection before the busy check, so this works with the overlay still
-/// stacked on the mount (the unmount itself may then fail; ignored).
-fn abort(sh: &Shared) {
-    if sh.mount.present() {
-        let _ = umount2(&sh.mountpoint, libc::MNT_FORCE);
+/// A private mount of fusectl, the kernel's list of FUSE connections: a
+/// directory per live connection, named by its id, with an `abort` file.
+/// The ring mounts one for its whole life, to abort its own connection by
+/// id (which cannot miss when the mount's path is covered or detached) and
+/// to see the connection destroyed. fusectl has one superblock however often
+/// it is mounted, so while this mount holds it a connection's directory
+/// keeps its inode number, and a reused id shows up with a new one.
+struct Ctl {
+    dir: PathBuf,
+}
+
+static CTL_SEQ: AtomicU64 = AtomicU64::new(0);
+
+impl Ctl {
+    fn mount() -> io::Result<Ctl> {
+        let dir = std::env::temp_dir().join(format!(
+            "stillpass-fusectl-{}-{}",
+            std::process::id(),
+            CTL_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&dir)?;
+        let target = CString::new(dir.as_os_str().as_bytes())?;
+        // SAFETY: every pointer is a valid NUL-terminated string that
+        // outlives the call; fusectl takes no mount data.
+        #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+        let rc = unsafe {
+            libc::mount(
+                c"fusectl".as_ptr(),
+                target.as_ptr(),
+                c"fusectl".as_ptr(),
+                libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+                std::ptr::null(),
+            )
+        };
+        if rc != 0 {
+            let e = io::Error::last_os_error();
+            let _ = std::fs::remove_dir(&dir);
+            return Err(e);
+        }
+        Ok(Ctl { dir })
+    }
+
+    /// The inode of connection `conn`'s directory, if the kernel lists it.
+    fn ino(&self, conn: u64) -> Option<u64> {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(self.dir.join(conn.to_string()))
+            .ok()
+            .map(|m| m.ino())
+    }
+
+    /// Aborts connection `conn` if its directory is still the one with
+    /// inode `ino`; otherwise the id is gone or someone else's now. The
+    /// `abort` file is opened through the checked directory itself, so the
+    /// check and the write name the same connection.
+    fn abort(&self, conn: u64, ino: u64) -> io::Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+        let d = match File::open(self.dir.join(conn.to_string())) {
+            Ok(d) => d,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        if d.metadata()?.ino() != ino {
+            return Ok(false);
+        }
+        let abort = format!("/proc/self/fd/{}/abort", d.as_raw_fd());
+        match std::fs::OpenOptions::new().write(true).open(abort) {
+            Ok(mut f) => f.write_all(b"1").map(|()| true),
+            // Destroyed since the check: nothing left to abort.
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 }
 
-/// Our mount among those at its path, by count and device number from
-/// /proc/self/mountinfo.
+impl Drop for Ctl {
+    fn drop(&mut self) {
+        let _ = umount2(&self.dir, libc::MNT_DETACH);
+        let _ = std::fs::remove_dir(&self.dir);
+    }
+}
+
+/// Where our mount stands among the mounts at its path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Placement {
+    /// The top mount at the path is ours (same device number).
+    Top,
+    /// Ours is there but another mount covers it.
+    Covered,
+    /// Ours is not at the path any more.
+    Absent,
+    /// /proc/self/mountinfo could not be read: nothing is assumed.
+    Unknown(String),
+}
+
+impl std::fmt::Display for Placement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Placement::Top => f.write_str("the top mount at its path"),
+            Placement::Covered => f.write_str("covered by another mount at its path"),
+            Placement::Absent => f.write_str("no longer at its path"),
+            Placement::Unknown(e) => write!(f, "unknown (/proc/self/mountinfo: {e})"),
+        }
+    }
+}
+
+/// Our mount: its path (canonical), how many mounts were there before it,
+/// its device number, and its FUSE connection (id and fusectl inode).
 struct OurMount {
     path: PathBuf,
     below: usize,
-    /// The FUSE connection id, as /sys/fs/fuse/connections names it (the
-    /// superblock's device number), once mounted.
-    conn: Option<u64>,
+    dev: (u32, u32),
+    conn: u64,
+    conn_ino: u64,
+    ctl: Arc<Ctl>,
 }
 
 impl OurMount {
-    fn present(&self) -> bool {
-        mounts_at(&self.path).map_or(true, |m| m.len() > self.below)
+    fn placement(&self) -> Placement {
+        match mounts_at(&self.path) {
+            Err(e) => Placement::Unknown(e.to_string()),
+            Ok(m) if m.last() == Some(&self.dev) && m.len() > self.below => Placement::Top,
+            Ok(m) if m.iter().skip(self.below).any(|d| *d == self.dev) => Placement::Covered,
+            Ok(_) => Placement::Absent,
+        }
     }
 
-    /// Whether the kernel still has the connection. Only visible when
-    /// fusectl is mounted at /sys/fs/fuse/connections; otherwise false.
-    fn conn_listed(&self) -> bool {
-        self.conn.is_some_and(|c| {
-            Path::new("/sys/fs/fuse/connections")
-                .join(c.to_string())
-                .exists()
-        })
+    /// Whether the kernel still has our connection (the same directory,
+    /// not a newer connection that reused the id).
+    fn conn_alive(&self) -> bool {
+        self.ctl.ino(self.conn) == Some(self.conn_ino)
     }
 }
 
@@ -418,19 +614,19 @@ fn unescape_mountinfo(b: &[u8]) -> Vec<u8> {
 }
 
 /// The kernel's dev_t for a mountinfo major:minor (MKDEV): the name of the
-/// connection's directory under /sys/fs/fuse/connections.
+/// connection's directory in fusectl.
 fn conn_id((major, minor): (u32, u32)) -> u64 {
     (u64::from(major) << 20) | u64::from(minor)
 }
 
 /// Why a ring mount did not come up, and whether what it left is gone.
 pub(crate) enum MountError {
-    /// The mount is unmounted, its connection (`conn`, when it got that
-    /// far) destroyed, every thread joined and the device closed: the
-    /// classic transport may take the path.
+    /// Torn down and verified (or never mounted, `conn` `None`): every
+    /// serving thread ended, the connection was aborted and fusectl no
+    /// longer lists it, our mount was unmounted outright, and the path holds
+    /// the mounts it held before. The classic transport may take the path.
     Failed { error: FsError, conn: Option<u64> },
-    /// The mount could only be detached, or something is still at the
-    /// path: no fallback, the mount is a Stillpass error.
+    /// Not all of that holds: no fallback, the mount is a Stillpass error.
     NotTornDown(FsError),
 }
 
@@ -442,35 +638,41 @@ impl MountError {
     }
 }
 
+/// What a failed setup leaves for `mount` to judge.
+#[derive(Default)]
+struct SetupReport {
+    conn: Option<u64>,
+    incomplete: Option<String>,
+}
+
 /// A mount that has not come up yet. Dropped before `done`, it ends the
-/// mount (`finish`: abort, join every thread it started, unmount), so a
-/// failed setup leaves nothing mounted, nothing running and the model
-/// unreferenced, and records whether the mount could only be detached.
+/// mount (`finish`: abort, join every thread it started, unmount) and
+/// reports whether that was complete, so a failed setup leaves nothing
+/// mounted, nothing running and the model unreferenced, or says it could
+/// not.
 struct Starting<'a> {
     shared: Arc<Shared>,
     threads: Vec<JoinHandle<()>>,
     done: bool,
-    /// Set false when the teardown could only detach the mount.
-    unmounted: &'a AtomicBool,
+    report: &'a Mutex<SetupReport>,
 }
 
 impl Drop for Starting<'_> {
     fn drop(&mut self) {
         if !self.done {
-            let (_, gone) = finish(&self.shared, std::mem::take(&mut self.threads), false);
-            if !gone {
-                self.unmounted.store(false, Ordering::Relaxed);
-            }
+            let t = finish(&self.shared, std::mem::take(&mut self.threads), false);
+            lock(self.report).incomplete = t.incomplete;
         }
     }
 }
 
 /// Mounts `fs` at `mountpoint` over the ring. On a failure, before this
-/// returns: the connection is aborted and the mount unmounted, every thread
-/// joined, the device closed, and that checked (`MountError::Failed`: the
-/// path holds exactly the mounts it held before, ours was unmounted rather
-/// than detached, and the kernel no longer lists its connection where
-/// fusectl shows connections). Anything less is `NotTornDown`. The model is
+/// returns, the ring mount is torn down and that is verified: every serving
+/// thread ended (within a time limit), the connection was aborted by id and
+/// a private fusectl mount no longer lists it, our mount was unmounted
+/// outright (not detached, and no umount2 acted on a mount that is not
+/// ours), and the path holds exactly the mounts it held before. That is
+/// `MountError::Failed`; anything less is `NotTornDown`. The model is
 /// untouched except for `set_granted`, which the classic transport sets
 /// again.
 pub(crate) fn mount(
@@ -488,27 +690,21 @@ pub(crate) fn mount(
     let below = mounts_at(&path)
         .map_err(|e| fail("read /proc/self/mountinfo", e))?
         .len();
-    let unmounted = AtomicBool::new(true);
-    let conn = Mutex::new(None);
-    let e = match try_mount(fs, mountpoint, &path, below, opts, &unmounted, &conn) {
+    let ctl = Arc::new(Ctl::mount().map_err(|e| fail("mount a private fusectl", e))?);
+    let report = Mutex::new(SetupReport::default());
+    let e = match try_mount(fs, mountpoint, &path, below, opts, &ctl, &report) {
         Ok(s) => return Ok(s),
         Err(e) => e,
     };
-    // try_mount's guard has run: aborted, unmounted, joined, and dropped
-    // the last reference to the device.
-    let conn = *lock(&conn);
-    let ours = OurMount { path, below, conn };
-    let left = mounts_at(&ours.path).map(|m| m.len());
-    let why = if !unmounted.load(Ordering::Relaxed) {
-        Some("it was busy and could only be detached".to_string())
-    } else if left.as_ref().map_or(true, |&n| n != below) {
-        Some(format!(
-            "the path holds {left:?} mounts, {below} before it was mounted"
-        ))
-    } else if ours.conn_listed() {
-        Some(format!("the kernel still lists FUSE connection {conn:?}"))
-    } else {
-        None
+    // try_mount's guard has run (finish) and the device is closed.
+    let SetupReport { conn, incomplete } = std::mem::take(&mut *lock(&report));
+    let left = mounts_at(&path).map(|m| m.len());
+    let why = match (incomplete, &left) {
+        (Some(why), _) => Some(why),
+        (None, Ok(n)) if *n == below => None,
+        (None, _) => Some(format!(
+            "the path holds {left:?} mounts, {below} before the ring mount"
+        )),
     };
     Err(match (why, conn) {
         (Some(why), _) => MountError::NotTornDown(FsError::Io {
@@ -518,7 +714,7 @@ pub(crate) fn mount(
         (None, Some(c)) => MountError::Failed {
             error: FsError::Io {
                 what: format!(
-                    "{e}; the ring mount (FUSE connection {c}) is unmounted and its connection gone"
+                    "{e}; torn down: every serving thread ended, FUSE connection {c} was aborted and fusectl no longer lists it, the mount was unmounted outright and the path holds its {below} earlier mount(s)"
                 ),
                 source: io::ErrorKind::Other.into(),
             },
@@ -528,6 +724,21 @@ pub(crate) fn mount(
     })
 }
 
+/// Our mount's identity right after mount(2): the top mount at the path,
+/// its connection id, and that connection's fusectl directory inode.
+fn identify(path: &Path, below: usize, ctl: &Ctl) -> io::Result<((u32, u32), u64, u64)> {
+    let m = mounts_at(path)?;
+    let dev = *m
+        .last()
+        .filter(|_| m.len() > below)
+        .ok_or_else(|| io::Error::other("the new mount is not in /proc/self/mountinfo"))?;
+    let conn = conn_id(dev);
+    let ino = ctl
+        .ino(conn)
+        .ok_or_else(|| io::Error::other(format!("fusectl does not list connection {conn}")))?;
+    Ok((dev, conn, ino))
+}
+
 #[allow(clippy::too_many_arguments)] // mount's state for its own failure check
 fn try_mount(
     fs: Arc<CasFs>,
@@ -535,8 +746,8 @@ fn try_mount(
     path: &Path,
     below: usize,
     opts: &Options,
-    unmounted: &AtomicBool,
-    conn_out: &Mutex<Option<u64>>,
+    ctl: &Arc<Ctl>,
+    report: &Mutex<SetupReport>,
 ) -> Result<Session, FsError> {
     let io = |what: &str| FsError::io(format!("{what} ({})", mountpoint.display()));
     let cpus = possible_cpus().map_err(io("possible CPUs"))?;
@@ -549,15 +760,23 @@ fn try_mount(
     do_mount(dev.as_raw_fd(), mountpoint, uid, gid).map_err(io("mount FUSE over io_uring"))?;
     // Ours is the topmost mount at the path now; nothing can be using it
     // yet (INIT is unanswered, so any request would wait).
-    let conn = mounts_at(path)
-        .ok()
-        .filter(|m| m.len() > below)
-        .and_then(|m| m.last().copied())
-        .map(conn_id);
-    *lock(conn_out) = conn;
+    let (mdev, conn, conn_ino) = match identify(path, below, ctl) {
+        Ok(id) => id,
+        Err(e) => {
+            // Without its device number nothing proves which mount at the
+            // path is ours, so none is unmounted: closing the device (on
+            // return) aborts the connection, and the mount is reported not
+            // torn down (a Stillpass error, no fallback).
+            lock(report).incomplete = Some(format!(
+                "could not identify the ring mount, so it was not unmounted: {e}"
+            ));
+            return Err(io("identify the ring mount")(e));
+        }
+    };
+    lock(report).conn = Some(conn);
     let nq = cpus.len();
     let mut st = Starting {
-        unmounted,
+        report,
         shared: Arc::new(Shared {
             fs,
             dev,
@@ -565,7 +784,10 @@ fn try_mount(
             mount: OurMount {
                 path: path.to_path_buf(),
                 below,
+                dev: mdev,
                 conn,
+                conn_ino,
+                ctl: ctl.clone(),
             },
             health: Mutex::new(Health {
                 phase: Phase::Setup,

@@ -81,6 +81,16 @@ impl FuseCtl {
         self.0.path().join(conn.to_string()).exists()
     }
 
+    /// The inode of connection `conn`'s directory: fusectl gives every new
+    /// connection a new one, so (id, inode) names one connection even when
+    /// a later mount reuses the id.
+    fn ino(&self, conn: u64) -> Option<u64> {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(self.0.path().join(conn.to_string()))
+            .ok()
+            .map(|m| m.ino())
+    }
+
     /// Whether fusectl lists a connection `conn` created before `t`:
     /// fusectl stamps a connection's directory with the time it was
     /// created, so one created after `t` is a reuse of the id by a newer
@@ -137,6 +147,25 @@ fn fixture() -> Fixture {
     Fixture { tmp, cas, tree }
 }
 
+/// How long a serve or an unmount may take before the test calls it a hang
+/// (a failed setup waits up to 10 s for its readiness probe).
+const LIMIT: Duration = Duration::from_secs(60);
+
+/// Runs `f` on its own thread and fails the test if it takes past `LIMIT`:
+/// a hang is a failure, not a stuck test run.
+fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(LIMIT)
+        .unwrap_or_else(|_| panic!("{what} still running after {LIMIT:?}: a hang"))
+}
+
+fn unmount(s: Served) -> Result<Vec<sp_manifest::Access>, String> {
+    within("unmount", move || s.unmount().map_err(|e| e.to_string()))
+}
+
 impl Fixture {
     fn serve(
         &self,
@@ -151,7 +180,10 @@ impl Fixture {
             fault,
             ..Options::default()
         };
-        sp_fs::serve_with(&self.tree, &self.cas, &mnt, &opts).map_err(|e| e.to_string())
+        let (tree, cas) = (self.tree.clone(), self.cas.clone());
+        within(&format!("serving {name}"), move || {
+            sp_fs::serve_with(&tree, &cas, &mnt, &opts).map_err(|e| e.to_string())
+        })
     }
 
     /// A healthy ring mount first, so a host without the ring fails here
@@ -168,7 +200,7 @@ impl Fixture {
         let mnt = s.mountpoint().to_path_buf();
         let conn = conn_at(&mnt);
         assert!(ctl.lists(conn), "fusectl does not list a live connection");
-        s.unmount().unwrap();
+        unmount(s).unwrap();
         let t = std::time::SystemTime::now();
         assert!(mounts_at(&mnt).is_empty() && !ctl.lists_since(conn, t));
     }
@@ -226,10 +258,7 @@ fn dies_mid_mount(fault: Fault, expect: &str) {
     );
     assert!(took < Duration::from_secs(30), "took {took:?}");
     let t = Instant::now();
-    let err = served
-        .unmount()
-        .expect_err("a dead queue thread must make the unmount an error")
-        .to_string();
+    let err = unmount(served).expect_err("a dead queue thread must make the unmount an error");
     assert!(
         t.elapsed() < Duration::from_secs(30),
         "unmount took {:?}",
@@ -321,7 +350,7 @@ fn falls_back(fault: Fault, why: &str) {
         Duration::from_secs(60),
     );
     assert!(ok);
-    let log = served.unmount().unwrap();
+    let log = unmount(served).unwrap();
     let classic = f.serve("classic", Transport::Classic, None).unwrap();
     let (ok, _) = bounded(
         classic.mountpoint(),
@@ -331,7 +360,7 @@ fn falls_back(fault: Fault, why: &str) {
     assert!(ok);
     assert_eq!(
         log,
-        classic.unmount().unwrap(),
+        unmount(classic).unwrap(),
         "the fallback logs as classic does"
     );
 }
@@ -346,4 +375,95 @@ fn a_refused_registration_falls_back_before_anything_is_served() {
 #[ignore = "needs FUSE over io_uring (root, fuse.enable_uring=Y); run with --ignored"]
 fn a_ring_that_never_becomes_ready_falls_back() {
     falls_back(Fault::Unready, "never became ready");
+}
+
+/// Holds the first mount that appears at `path` busy from another process:
+/// an O_PATH descriptor of its root (which sends FUSE nothing, so it cannot
+/// block on a ring that is not ready) given to a `sleep` as its stdin.
+/// Returns the holder and the held mount's (connection id, fusectl inode).
+fn hold_when_mounted(path: &Path, ctl: &FuseCtl) -> (std::process::Child, u64, u64) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let deadline = Instant::now() + Duration::from_secs(9);
+    while mounts_at(path).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "nothing was mounted at {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let root = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH)
+        .open(path)
+        .unwrap();
+    let conn = conn_at(path);
+    let ino = ctl.ino(conn).expect("fusectl lists the held connection");
+    let child = Command::new("sleep")
+        .arg("120")
+        .stdin(Stdio::from(root))
+        .spawn()
+        .unwrap();
+    (child, conn, ino)
+}
+
+/// A ring mount that something outside still holds when its setup fails
+/// cannot be unmounted, only detached, and its connection lives on (aborted)
+/// until the holder lets go. Falling back to classic then would put a new
+/// mount over a ring connection that still exists, so serve must refuse:
+/// a Stillpass error, nothing mounted at the path. This is checked from the
+/// outside (serve's result, mountinfo, the test's own fusectl), not by the
+/// code's wording; the teardown before this fix (abort, detach at once)
+/// reported such a mount as torn down and fell back.
+#[test]
+#[ignore = "needs FUSE over io_uring (root, fuse.enable_uring=Y); run with --ignored"]
+fn a_ring_mount_held_through_its_teardown_is_not_replaced() {
+    let _one = serial();
+    let f = fixture();
+    let ctl = FuseCtl::mount();
+    f.require_ring(&ctl);
+    let held = f.tmp.path().join("held");
+    fs::create_dir_all(&held).unwrap();
+    // The `unready` hook keeps the failing setup waiting 10 s for its
+    // probe: time to take hold of the mount before the teardown starts.
+    let (tree, cas, at) = (f.tree.clone(), f.cas.clone(), held.clone());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let opts = Options {
+            transport: Transport::Auto,
+            fault: Some(Fault::Unready),
+            ..Options::default()
+        };
+        let _ = tx.send(sp_fs::serve_with(&tree, &cas, &at, &opts).map(|s| s.stats()));
+    });
+    let (mut holder, conn, ino) = hold_when_mounted(&held, &ctl);
+    let served = rx.recv_timeout(LIMIT).expect("serve hung");
+    let alive = ctl.ino(conn) == Some(ino);
+    let mounted = mounts_at(&held);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    let err = match served {
+        Ok(stats) => panic!(
+            "serve fell back to classic ({stats:?}) while ring connection {conn} was still alive: {alive}"
+        ),
+        Err(e) => e.to_string(),
+    };
+    assert!(
+        alive,
+        "the held connection should still exist (aborted) while held"
+    );
+    assert!(
+        mounted.is_empty(),
+        "something is mounted at the path: {mounted:?}"
+    );
+    eprintln!("serve refused: {err}");
+    // Once released, the detached mount and its connection go.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ctl.ino(conn) == Some(ino) {
+        assert!(
+            Instant::now() < deadline,
+            "connection {conn} outlived its holder"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

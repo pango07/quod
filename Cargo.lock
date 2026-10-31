@@ -887,6 +887,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "libc",
  "serde_json",
  "sp-cas",
  "sp-fs",

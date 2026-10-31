@@ -91,6 +91,18 @@ struct Fixture {
     tree: Tree,
 }
 
+/// Runs `f` on its own thread and fails the test if it takes past a
+/// minute: a hang is a failure, not a stuck test run.
+fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let limit = std::time::Duration::from_secs(60);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("{what} still running after {limit:?}: a hang"))
+}
+
 fn ring_needed(what: &str, e: impl std::fmt::Display) -> ! {
     panic!(
         "FUSE over io_uring is unavailable here ({e}), so {what} cannot run: it compares the ring with the classic transport"
@@ -125,21 +137,27 @@ impl Fixture {
             passthrough,
             ..Options::default()
         };
-        let served = sp_fs::serve_with(&self.tree, &self.cas, &mnt, &opts)
-            .unwrap_or_else(|e| ring_needed("transports_log_identically", e));
-        let out = Command::new("sh")
-            .arg("-c")
-            .arg(script)
-            .current_dir(&mnt)
-            .output()
-            .unwrap();
+        let (tree, cas, at) = (self.tree.clone(), self.cas.clone(), mnt.clone());
+        let served = within(&format!("serving {name}"), move || {
+            sp_fs::serve_with(&tree, &cas, &at, &opts).map_err(|e| e.to_string())
+        })
+        .unwrap_or_else(|e| ring_needed("transports_log_identically", e));
+        let sh = script.to_string();
+        let out = within(&format!("{name}: {script}"), move || {
+            Command::new("sh")
+                .arg("-c")
+                .arg(&sh)
+                .current_dir(&mnt)
+                .output()
+                .unwrap()
+        });
         assert!(
             out.status.success(),
             "{script}: {}",
             String::from_utf8_lossy(&out.stderr)
         );
         let stats = served.stats();
-        let log = served.unmount().unwrap();
+        let log = within(&format!("unmounting {name}"), move || served.unmount()).unwrap();
         (String::from_utf8(out.stdout).unwrap(), log, stats)
     }
 }
