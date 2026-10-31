@@ -237,7 +237,8 @@ impl Cas {
             }
         }
 
-        let hashed = self.hash_files(&files)?;
+        let paths: Vec<PathBuf> = files.iter().map(|(_, p, _)| p.clone()).collect();
+        let hashed = self.put_files(&paths)?;
         for ((rel, _, mode), (h, new)) in files.into_iter().zip(hashed) {
             stats.new_bytes += new;
             leaves.push(Entry::file(rel, h, mode));
@@ -245,7 +246,9 @@ impl Cas {
         Ok((Tree::from_leaves(leaves), stats))
     }
 
-    fn hash_files(&self, files: &[(String, PathBuf, u32)]) -> Result<Vec<(Hash, u64)>, CasError> {
+    /// `put_file` for many files in parallel. Returns (hash, new bytes) in
+    /// input order.
+    pub fn put_files(&self, files: &[PathBuf]) -> Result<Vec<(Hash, u64)>, CasError> {
         let n = std::thread::available_parallelism()
             .map_or(4, |n| n.get())
             .min(16);
@@ -260,7 +263,7 @@ impl Cas {
                         if i >= files.len() || first_err.lock().unwrap().is_some() {
                             break;
                         }
-                        match self.put_file(&files[i].1) {
+                        match self.put_file(&files[i]) {
                             Ok(r) => out.lock().unwrap()[i] = Some(r),
                             Err(e) => {
                                 first_err.lock().unwrap().get_or_insert(e);

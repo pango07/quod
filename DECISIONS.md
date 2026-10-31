@@ -25,3 +25,9 @@ The Phase 0 handoff is the plan; this file is the record. One line each, dated.
 - 2026-10-30: bwrap's root tmpfs is remounted read-only, so writes outside /workspace and /tmp fail.
 - 2026-10-30: No auto_unmount: with it, fuser 0.18 mounts through fusermount3 and umount_and_join hangs on this kernel. Served's Drop unmounts on normal exit; a SIGKILLed run can leave a stale mount (fusermount3 -u).
 - 2026-10-30: Review checkpoint 1 (Fable, T01-T05): a mount serves exactly one step (no drain; kernel caches would hide a second step's reads); the log is read after the session joins; a file replacing a directory drops the directory's contents in Tree::with_outputs, and a path that is both a leaf and a directory panics; names containing tab or newline are refused at import and in outputs so listing hashes stay unambiguous; large files are hashed while being streamed into the store.
+- 2026-10-30: State (CAS, ledger, run dirs, events.jsonl) lives in --state, else $STILLPASS_HOME, else ~/.cache/stillpass. Structured run events go to events.jsonl so they never mix with step output.
+- 2026-10-30: --commit is a check, not a checkout: Stillpass refuses if HEAD differs, and never moves the user's checkout.
+- 2026-10-30: --allow-net steps (step A) run directly on the repo with egress, so their writes persist (the module cache), and are never memoized or observed.
+- 2026-10-30: The workspace a memoized step writes into is ephemeral in the spike: outputs are recorded in the CAS and the result, and the run dir is removed. Nothing later in the spike reads step B's outputs.
+- 2026-10-30: Banners: EXECUTED is a miss and REPLAYED is a hit (the acceptance table's MISS/HIT). Banners and receipts go to stderr; stdout is always exactly the step's stdout.
+- 2026-10-30: --env NAME=VALUE adds to the step key's env (needed for A6).

@@ -85,7 +85,13 @@ impl Overlay {
     pub fn finish(mut self, lower: &Tree, cas: &Cas) -> Result<Vec<Entry>, FsError> {
         self.unmount()?;
         let mut out = Vec::new();
-        walk(&self.upper, ROOT, lower, cas, &mut out)?;
+        let mut files = Vec::new();
+        walk(&self.upper, ROOT, lower, &mut out, &mut files)?;
+        // Store every output file in parallel, then fill in the hashes.
+        let paths: Vec<PathBuf> = files.iter().map(|(_, p)| p.clone()).collect();
+        for ((i, _), (h, _)) in files.iter().zip(cas.put_files(&paths)?) {
+            out[*i].h = Some(h);
+        }
         Ok(out)
     }
 
@@ -114,12 +120,14 @@ impl Drop for Overlay {
     }
 }
 
+/// Collects outputs into `out`; regular files get a placeholder hash and
+/// their (index in `out`, upper path) go to `files` for storing.
 fn walk(
     dir: &Path,
     rel: &str,
     lower: &Tree,
-    cas: &Cas,
     out: &mut Vec<Entry>,
+    files: &mut Vec<(usize, PathBuf)>,
 ) -> Result<(), FsError> {
     let mut items: Vec<_> = fs::read_dir(dir)
         .map_err(FsError::io(format!("read {}", dir.display())))?
@@ -157,7 +165,7 @@ fn walk(
                 }
                 out.push(Entry::dir(p.clone(), Hash::of(b"")));
             }
-            walk(&path, &p, lower, cas, out)?;
+            walk(&path, &p, lower, out, files)?;
         } else if ft.is_symlink() {
             let t = fs::read_link(&path)
                 .map_err(FsError::io(format!("readlink {}", path.display())))?;
@@ -168,9 +176,9 @@ fn walk(
             replace_dir(lower, &p, out);
             out.push(Entry::symlink(p, t));
         } else if ft.is_file() {
-            let (h, _) = cas.put_file(&path)?;
             replace_dir(lower, &p, out);
-            out.push(Entry::file(p, h, meta.mode()));
+            files.push((out.len(), path));
+            out.push(Entry::file(p, Hash::of(b""), meta.mode()));
         } else {
             return Err(FsError::Io {
                 what: format!("step created an unsupported file type at {p}"),
