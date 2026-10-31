@@ -402,3 +402,164 @@ fn a_ring_that_cannot_come_up_is_a_recorded_fallback() {
         "{obs}"
     );
 }
+
+/// This process's CPU time so far, (user, system) in ms, from
+/// /proc/self/stat (clock ticks at 100 Hz): the observer's threads, not the
+/// probe's child processes.
+fn own_cpu_ms() -> (u64, u64) {
+    let stat = fs::read_to_string("/proc/self/stat").unwrap();
+    let after = &stat[stat.rfind(')').unwrap() + 2..];
+    let f: Vec<&str> = after.split(' ').collect();
+    // Fields 14 and 15 of the line; the slice starts at field 3.
+    (
+        f[11].parse::<u64>().unwrap() * 10,
+        f[12].parse::<u64>().unwrap() * 10,
+    )
+}
+
+fn loadavg() -> String {
+    fs::read_to_string("/proc/loadavg")
+        .unwrap_or_default()
+        .split(' ')
+        .next()
+        .unwrap_or("?")
+        .to_string()
+}
+
+/// Per-request cost of the real observer on each transport: the spike
+/// repo's tree (STILLPASS_SPIKE_REPO) served, fresh mount per probe, 10k
+/// module-cache files stat'ed, cat'ed and listed, serially and from 18
+/// parallel processes, rounds alternating the transport order. Prints raw
+/// numbers (wall, requests, the observer threads' CPU, load) and asserts
+/// only that both transports logged the same accesses.
+/// `STILLPASS_SPIKE_REPO=... cargo test --release -p sp-cli --test transports per_request_cost -- --ignored --nocapture`
+#[test]
+#[ignore = "needs FUSE over io_uring and STILLPASS_SPIKE_REPO; run with --ignored"]
+fn per_request_cost() {
+    let repo = std::env::var("STILLPASS_SPIKE_REPO").expect("set STILLPASS_SPIKE_REPO");
+    let rounds: usize = std::env::var("STILLPASS_PROBE_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let tmp = tempfile::tempdir().unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let tree = cas
+        .import_dir(Path::new(&repo))
+        .unwrap()
+        .without_top_level(".git");
+    let files: Vec<&str> = tree
+        .iter()
+        .filter(|e| {
+            e.k == sp_cas::Kind::File
+                && e.p.starts_with(".stillpass/gomod/")
+                && !e.p.starts_with(".stillpass/gomod/cache/")
+        })
+        .take(10_000)
+        .map(|e| e.p.as_str())
+        .collect();
+    assert_eq!(files.len(), 10_000, "the module cache has too few files");
+    let list = tmp.path().join("files.txt");
+    fs::write(&list, files.join("\n") + "\n").unwrap();
+    let l = list.display();
+    let probes = [
+        (
+            "stat, serial",
+            format!("xargs -d '\\n' -a {l} stat -c %s >/dev/null"),
+        ),
+        (
+            "stat, 18 parallel",
+            format!("xargs -d '\\n' -a {l} -P 18 -n 100 stat -c %s >/dev/null"),
+        ),
+        (
+            "cat, serial",
+            format!("xargs -d '\\n' -a {l} cat >/dev/null"),
+        ),
+        (
+            "cat, 18 parallel",
+            format!("xargs -d '\\n' -a {l} -P 18 -n 100 cat >/dev/null"),
+        ),
+        ("ls -R", "ls -R .stillpass/gomod >/dev/null".to_string()),
+    ];
+    println!(
+        "per-request cost: {} files of {repo}, {rounds} rounds, nproc {}",
+        files.len(),
+        std::thread::available_parallelism().map_or(0, |n| n.get())
+    );
+    let mut n = 0;
+    for round in 1..=rounds {
+        for (name, script) in &probes {
+            // (label, transport, pinned, nice): the default ring, the
+            // classic transport, and the ring without each of its two
+            // scheduling choices.
+            let mut variants = vec![
+                (
+                    "uring",
+                    Transport::Uring,
+                    true,
+                    Options::default().uring_nice,
+                ),
+                ("classic", Transport::Classic, true, 0),
+                (
+                    "unpinned",
+                    Transport::Uring,
+                    false,
+                    Options::default().uring_nice,
+                ),
+                ("nice0", Transport::Uring, true, 0),
+            ];
+            variants.rotate_left(round % 4);
+            let mut logs = Vec::new();
+            for (label, transport, uring_pin, uring_nice) in variants {
+                n += 1;
+                let mnt = tmp.path().join(format!("m{n}"));
+                fs::create_dir_all(&mnt).unwrap();
+                let opts = Options {
+                    transport,
+                    uring_pin,
+                    uring_nice,
+                    ..Options::default()
+                };
+                let served = sp_fs::serve_with(&tree, &cas, &mnt, &opts)
+                    .unwrap_or_else(|e| ring_needed("per_request_cost", e));
+                let load = loadavg();
+                let cpu0 = own_cpu_ms();
+                let t = Instant::now();
+                let st = Command::new("sh")
+                    .arg("-c")
+                    .arg(script)
+                    .current_dir(&mnt)
+                    .status()
+                    .unwrap();
+                let wall = t.elapsed().as_secs_f64();
+                let cpu1 = own_cpu_ms();
+                assert!(st.success(), "{name}");
+                let s = served.stats();
+                let sch = served.sched();
+                logs.push(served.unmount().unwrap());
+                println!(
+                    "probe round={round} {name:<18} {label:<8} wall={wall:.3}s lookup={} open={} readdir={} getattr={} ring={} device={} batches={} full_batches={} ring_serve_us={} contended={} observer_cpu_ms={}/{} threads={} run_ms={} runq_wait_ms={} slices={} load={load}",
+                    s.lookup,
+                    s.open,
+                    s.readdir,
+                    s.getattr,
+                    s.ring_requests,
+                    s.device_requests,
+                    s.ring_batches,
+                    s.ring_full_batches,
+                    s.ring_serve_us,
+                    s.lock_contended,
+                    cpu1.0 - cpu0.0,
+                    cpu1.1 - cpu0.1,
+                    sch.threads,
+                    sch.run_ms,
+                    sch.wait_ms,
+                    sch.slices,
+                );
+            }
+            assert!(
+                logs.windows(2).all(|w| w[0] == w[1]),
+                "{name}: the transports logged differently"
+            );
+        }
+    }
+}

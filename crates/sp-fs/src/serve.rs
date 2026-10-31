@@ -29,7 +29,7 @@ use sp_cas::{Cas, Entry, Kind, ROOT, Tree, child_path};
 use sp_manifest::Access;
 
 use crate::uring;
-use crate::{FsError, ObserverStats};
+use crate::{FsError, ObserverStats, SchedStats};
 
 /// Entries never change during a step, so the kernel may cache them freely.
 /// Caching only removes repeat requests, which carry no new information.
@@ -110,6 +110,12 @@ pub struct Options {
     pub uring_pin: bool,
     /// Ring entries per queue (`STILLPASS_URING_DEPTH`, 1-64, default 4).
     pub uring_depth: usize,
+    /// Nice value of the ring queue threads (`STILLPASS_URING_NICE`,
+    /// -20..=19, default -10). A queue thread is pinned to the CPU whose
+    /// requests it serves, so on a loaded CPU it waits behind the step's
+    /// own processes; a lower nice value lets it run first. It runs for
+    /// microseconds per request.
+    pub uring_nice: i32,
     #[doc(hidden)]
     pub fault: Option<Fault>,
 }
@@ -121,6 +127,7 @@ impl Default for Options {
             passthrough: true,
             uring_pin: true,
             uring_depth: 4,
+            uring_nice: -10,
             fault: None,
         }
     }
@@ -138,6 +145,11 @@ impl Options {
                 .and_then(|v| v.parse().ok())
                 .filter(|n| (1..=64).contains(n))
                 .unwrap_or(d.uring_depth),
+            uring_nice: std::env::var("STILLPASS_URING_NICE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|n| (-20..=19).contains(n))
+                .unwrap_or(d.uring_nice),
             fault: Fault::from_env(),
         }
     }
@@ -199,6 +211,8 @@ pub(crate) struct Stats {
     pub(crate) ring_batches: AtomicU64,
     pub(crate) ring_full_batches: AtomicU64,
     pub(crate) ring_serve_ns: AtomicU64,
+    /// Times a serving thread found a model lock held by another.
+    contended: AtomicU64,
 }
 
 impl Stats {
@@ -221,6 +235,7 @@ impl Stats {
             ring_batches: g(&self.ring_batches),
             ring_full_batches: g(&self.ring_full_batches),
             ring_serve_us: g(&self.ring_serve_ns) / 1000,
+            lock_contended: g(&self.contended),
         }
     }
 
@@ -417,7 +432,7 @@ impl CasFs {
     /// userspace throughout. No passthrough handle exists yet at that point,
     /// so neither choice can conflict with an open file.
     fn passthrough(&self, ino: u64, n: &Node, register: Register) -> bool {
-        let mut mode = lock(&self.mode);
+        let mut mode = self.locked(&self.mode);
         if let Some(m) = *mode {
             return m;
         }
@@ -434,6 +449,19 @@ impl CasFs {
         m
     }
 
+    /// `lock`, counting the times another serving thread held it (lock
+    /// contention between serving threads is request latency).
+    fn locked<'a, T>(&self, m: &'a Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+        match m.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                self.stats.contended.fetch_add(1, Ordering::Relaxed);
+                lock(m)
+            }
+        }
+    }
+
     fn node(&self, ino: u64) -> Option<&Node> {
         self.nodes.get((ino as usize).wrapping_sub(1))
     }
@@ -441,13 +469,13 @@ impl CasFs {
     /// Every access the log keeps goes through here (and `record_absent`),
     /// with the requester attached.
     fn record(&self, req: &Req, ino: u64, kind: Kind) {
-        let mut log = lock(&self.log);
+        let mut log = self.locked(&self.log);
         log.present.insert((ino, kind));
         log.pids.insert(req.pid);
     }
 
     fn record_absent(&self, req: &Req, path: String) {
-        let mut log = lock(&self.log);
+        let mut log = self.locked(&self.log);
         log.absent.insert(path);
         log.pids.insert(req.pid);
     }
@@ -489,7 +517,7 @@ impl CasFs {
     /// use. The kernel takes its own reference to the blob, so the fd is
     /// closed again right away.
     fn backing_id(&self, ino: u64, n: &Node, register: Register) -> Result<Arc<Backing>, String> {
-        if let Some(id) = lock(&self.backing).get(&ino) {
+        if let Some(id) = self.locked(&self.backing).get(&ino) {
             return Ok(id.clone());
         }
         let file = self
@@ -498,7 +526,8 @@ impl CasFs {
             .map_err(|e| format!("open {}: {e}", n.entry.p))?;
         let id = register(&file)
             .map_err(|e| format!("register blob of {} for passthrough: {e}", n.entry.p))?;
-        Ok(lock(&self.backing)
+        Ok(self
+            .locked(&self.backing)
             .entry(ino)
             .or_insert_with(|| Arc::new(id))
             .clone())
@@ -595,7 +624,7 @@ impl CasFs {
                 return Err(libc::EIO);
             }
         };
-        lock(&self.open).insert(fh, Arc::new(file));
+        self.locked(&self.open).insert(fh, Arc::new(file));
         Ok(Opened { fh, backing: None })
     }
 
@@ -610,7 +639,7 @@ impl CasFs {
         self.stats.read.fetch_add(1, Ordering::Relaxed);
         self.record(req, ino, Kind::File);
         let n = self.node(ino).ok_or(libc::ENOENT)?;
-        let opened = lock(&self.open).get(&fh).cloned();
+        let opened = self.locked(&self.open).get(&fh).cloned();
         let file = match opened {
             Some(f) => f,
             // A handle this process holds no fd for (a passthrough handle
@@ -646,7 +675,7 @@ impl CasFs {
     }
 
     pub(crate) fn release(&self, fh: u64) {
-        lock(&self.open).remove(&fh);
+        self.locked(&self.open).remove(&fh);
     }
 
     pub(crate) fn opendir(&self, ino: u64) -> Result<(), i32> {
@@ -1011,6 +1040,11 @@ impl Served {
         self.stats.snapshot()
     }
 
+    /// The serving threads' scheduler statistics so far.
+    pub fn sched(&self) -> SchedStats {
+        serving_sched()
+    }
+
     /// Unmounts, waits for in-flight requests, and returns the log,
     /// deduplicated and sorted. An error, and no log, when the step may
     /// have seen anything but its inputs: an I/O error served to it, a
@@ -1022,12 +1056,14 @@ impl Served {
     /// any request reaching the log.
     pub fn unmount(mut self) -> Result<Vec<Access>, FsError> {
         let what = || format!("unmount {}", self.mountpoint.display());
+        // Before the teardown joins the threads it reads.
+        let sched = serving_sched();
         let unmounted = match self.session.take() {
             Some(s) => s.umount_and_join(),
             None => Ok(()),
         };
         let log = std::mem::take(&mut *lock(&self.log));
-        self.report(log.pids.len());
+        self.report(log.pids.len(), sched);
         if !log.io_errors.is_empty() {
             return Err(FsError::Io {
                 what: format!(
@@ -1057,7 +1093,7 @@ impl Served {
 
     /// One structured event with the request counts and this process's CPU
     /// time while mounted (nearly all of it is serving requests).
-    fn report(&self, pids: usize) {
+    fn report(&self, pids: usize, sched: SchedStats) {
         let s = self.stats.snapshot();
         let (user, sys) = cpu_ms();
         tracing::info!(
@@ -1080,11 +1116,46 @@ impl Served {
             ring_batches = s.ring_batches,
             ring_full_batches = s.ring_full_batches,
             ring_serve_us = s.ring_serve_us,
+            lock_contended = s.lock_contended,
             serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
             serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),
+            serve_threads = sched.threads,
+            serve_run_ms = sched.run_ms,
+            serve_runq_wait_ms = sched.wait_ms,
+            serve_slices = sched.slices,
             "observer"
         );
     }
+}
+
+/// Sums /proc/self/task/*/schedstat over the threads that serve requests.
+fn serving_sched() -> SchedStats {
+    let (mut s, mut run_ns, mut wait_ns) = (SchedStats::default(), 0, 0);
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else {
+        return s;
+    };
+    for t in tasks.flatten() {
+        let comm = std::fs::read_to_string(t.path().join("comm")).unwrap_or_default();
+        if !(comm.starts_with("fuser-") || comm.starts_with("sp-ring-")) {
+            continue;
+        }
+        let Ok(st) = std::fs::read_to_string(t.path().join("schedstat")) else {
+            continue;
+        };
+        let f: Vec<u64> = st
+            .split_whitespace()
+            .filter_map(|x| x.parse().ok())
+            .collect();
+        if let [run, wait, slices] = f[..] {
+            s.threads += 1;
+            run_ns += run;
+            wait_ns += wait;
+            s.slices += slices;
+        }
+    }
+    s.run_ms = run_ns / 1_000_000;
+    s.wait_ms = wait_ns / 1_000_000;
+    s
 }
 
 /// This process's CPU time so far (user, system) in milliseconds.

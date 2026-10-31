@@ -226,3 +226,15 @@ pub fn last_event(state: &Path, message: &str) -> Option<serde_json::Value> {
         .rev()
         .find(|e| e["message"] == message)
 }
+
+/// The raw JSON line of the last event with this message, as the binary
+/// wrote it.
+pub fn last_event_line(state: &Path, message: &str) -> Option<String> {
+    let needle = format!("\"message\":\"{message}\"");
+    fs::read_to_string(state.join("events.jsonl"))
+        .ok()?
+        .lines()
+        .rev()
+        .find(|l| l.contains(&needle))
+        .map(str::to_string)
+}

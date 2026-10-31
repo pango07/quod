@@ -47,6 +47,8 @@ pub struct ObserverStats {
     pub ring_batches: u64,
     pub ring_full_batches: u64,
     pub ring_serve_us: u64,
+    /// Times a serving thread found a model lock held by another.
+    pub lock_contended: u64,
 }
 
 impl ObserverStats {
@@ -56,6 +58,19 @@ impl ObserverStats {
     pub fn transport(&self) -> &'static str {
         if self.uring { "fuse-uring" } else { "fuse" }
     }
+}
+
+/// What the scheduler did with the threads serving requests (fuser's
+/// `fuser-N`, the ring's `sp-ring-*`), from /proc/self/task/*/schedstat:
+/// time on a CPU, time runnable but waiting for one, and timeslices. Ring
+/// queue threads are pinned, so their wait is the latency a loaded CPU adds
+/// to every request it raised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SchedStats {
+    pub threads: u64,
+    pub run_ms: u64,
+    pub wait_ms: u64,
+    pub slices: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -121,6 +136,7 @@ mod unsupported {
         pub passthrough: bool,
         pub uring_pin: bool,
         pub uring_depth: usize,
+        pub uring_nice: i32,
         #[doc(hidden)]
         pub fault: Option<Fault>,
     }
@@ -132,6 +148,7 @@ mod unsupported {
                 passthrough: true,
                 uring_pin: true,
                 uring_depth: 4,
+                uring_nice: -10,
                 fault: None,
             }
         }
@@ -166,6 +183,10 @@ mod unsupported {
 
         pub fn stats(&self) -> crate::ObserverStats {
             crate::ObserverStats::default()
+        }
+
+        pub fn sched(&self) -> crate::SchedStats {
+            crate::SchedStats::default()
         }
 
         pub fn unmount(self) -> Result<Vec<Access>, FsError> {

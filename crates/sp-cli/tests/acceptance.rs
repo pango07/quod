@@ -47,6 +47,12 @@ fn acceptance() {
     let inspect = env.stillpass(&["inspect", &key.to_string()]);
     assert!(String::from_utf8_lossy(&inspect.stdout).contains("1 manifest(s)"));
     println!("A1 ok: EXECUTED, one manifest");
+    // Which observer produced these results, in the binary's own words.
+    for message in ["observer", "run"] {
+        if let Some(line) = last_event_line(&env.state(), message) {
+            println!("A1 {message} event: {line}");
+        }
+    }
 
     // A2: second run on the same tree replays, byte-identical.
     let a2 = env.run_step(step, &[]);

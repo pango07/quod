@@ -373,6 +373,7 @@ pub(crate) fn mount(fs: Arc<CasFs>, mountpoint: &Path, opts: &Options) -> Result
             // CPUs; those queues get no traffic and stay unpinned.
             cpu: (opts.uring_pin && cpus.contains(&qid)).then_some(qid),
             depth: opts.uring_depth,
+            nice: opts.uring_nice,
             register: !(opts.fault == Some(Fault::Unready) && qid + 1 == nq),
             register_qid: if opts.fault == Some(Fault::Register) && qid == 0 {
                 u16::MAX
@@ -417,7 +418,7 @@ pub(crate) fn mount(fs: Arc<CasFs>, mountpoint: &Path, opts: &Options) -> Result
     sh.enter_serving().map_err(io("ring setup"))?;
     sh.fs.set_uring();
     st.done = true;
-    tracing::info!(target: "stillpass", queues = nq, depth = opts.uring_depth, pinned = opts.uring_pin, passthrough, "FUSE over io_uring");
+    tracing::info!(target: "stillpass", queues = nq, depth = opts.uring_depth, pinned = opts.uring_pin, nice = opts.uring_nice, passthrough, "FUSE over io_uring");
     Ok(Session {
         shared: sh,
         threads: std::mem::take(&mut st.threads),
@@ -1074,6 +1075,7 @@ struct QueueCfg {
     /// The CPU to pin to, if any.
     cpu: Option<usize>,
     depth: usize,
+    nice: i32,
     /// Whether to register at all (the `Unready` test hook skips one).
     register: bool,
     /// The queue id put in REGISTER (the `Register` test hook breaks it).
@@ -1104,6 +1106,17 @@ fn queue(sh: &Shared, cfg: &QueueCfg, report: &mut Report) -> io::Result<()> {
         && let Err(e) = pin_to_cpu(cpu)
     {
         tracing::warn!(qid = cfg.qid, cpu, error = %e, "ring queue thread not pinned");
+    }
+    if cfg.nice != 0 {
+        // SAFETY: gettid and setpriority have no memory preconditions; on
+        // Linux PRIO_PROCESS with a thread id sets that thread's nice value.
+        #[allow(unsafe_code)] // no safe std priority API
+        let rc = unsafe {
+            libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, cfg.nice)
+        };
+        if rc != 0 {
+            tracing::warn!(qid = cfg.qid, error = %io::Error::last_os_error(), "ring queue thread nice unchanged");
+        }
     }
     let fd = sh.dev.as_raw_fd();
     // The entries are declared before the ring, so they are dropped after
