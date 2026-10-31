@@ -29,6 +29,18 @@ pub fn overlay(
     work: &Path,
     merged: &Path,
 ) -> Result<Overlay, FsError> {
+    overlay_dir(served.mountpoint(), upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` with a plain directory as lower: a sealed
+/// rootfs snapshot, whose content is pinned by digest and so needs no
+/// observer. `finish` diffs the upper against that snapshot's tree.
+pub fn overlay_dir(
+    lower: &Path,
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
     for d in [upper, work, merged] {
         fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
     }
@@ -37,7 +49,7 @@ pub fn overlay(
         // copy up an empty file), no redirects (a renamed dir would arrive
         // without contents), no index.
         "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
-        served.mountpoint().display(),
+        lower.display(),
         upper.display(),
         work.display()
     );

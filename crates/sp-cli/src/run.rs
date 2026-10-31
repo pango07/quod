@@ -206,6 +206,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         stdout: ex.stdout,
         stderr: ex.stderr,
         outputs: ex.outputs,
+        root_outputs: Vec::new(),
         duration_ms: ex.wall.as_millis() as u64,
     };
     // One transaction: a result is never visible without the run row that

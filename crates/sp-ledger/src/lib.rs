@@ -27,6 +27,9 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE runs ADD COLUMN transport TEXT;
      ALTER TABLE runs ADD COLUMN observer TEXT;
      CREATE INDEX runs_by_transport ON runs (transport);",
+    // v3: the canonical JSON behind each step key, so a result's environment
+    // pin (rootfs digest or host fingerprint, platform) can be read back.
+    "CREATE TABLE step_keys (step_key TEXT PRIMARY KEY, json BLOB NOT NULL);",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -229,6 +232,28 @@ impl Ledger {
 
     pub fn put_result(&self, r: &StepResult) -> Result<(), LedgerError> {
         insert_result(&self.db, r)
+    }
+
+    /// Records the canonical JSON a step key was computed from (idempotent).
+    pub fn put_step_key(&self, step_key: &Hash, json: &str) -> Result<(), LedgerError> {
+        self.db.execute(
+            "INSERT OR IGNORE INTO step_keys (step_key, json) VALUES (?1, ?2)",
+            params![step_key.to_string(), json.as_bytes()],
+        )?;
+        Ok(())
+    }
+
+    /// The canonical JSON behind a step key, if this ledger recorded it.
+    pub fn step_key_json(&self, step_key: &Hash) -> Result<Option<String>, LedgerError> {
+        let json: Option<Vec<u8>> = self
+            .db
+            .query_row(
+                "SELECT json FROM step_keys WHERE step_key = ?1",
+                [step_key.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(json.map(|j| String::from_utf8_lossy(&j).into_owned()))
     }
 
     pub fn put_blob(&self, h: &Hash, size: u64, path: &str) -> Result<(), LedgerError> {
@@ -461,6 +486,7 @@ mod tests {
             stdout: Hash::of(b"out"),
             stderr: Hash::of(b""),
             outputs: vec![],
+            root_outputs: vec![],
             duration_ms: 1000,
         }
     }
@@ -478,14 +504,56 @@ mod tests {
         let p = tmp.path().join("ledger.sqlite");
         let l = Ledger::open(&p).unwrap();
         assert_eq!(l.schema_version().unwrap(), MIGRATIONS.len());
+        assert_eq!(MIGRATIONS.len(), 3);
         l.record_run("01RUN", Some("abc"), Some("box"), Observed::default())
             .unwrap();
+        let key = Hash::of(b"key");
+        l.put_step_key(&key, r#"{"image":{"kind":"rootfs"}}"#)
+            .unwrap();
+        l.put_step_key(&key, "other").unwrap();
         drop(l);
         let l = Ledger::open(&p).unwrap();
         assert_eq!(l.schema_version().unwrap(), MIGRATIONS.len());
         assert_eq!(
             l.run("01RUN").unwrap().unwrap().commit_sha.as_deref(),
             Some("abc")
+        );
+        assert_eq!(
+            l.step_key_json(&key).unwrap().as_deref(),
+            Some(r#"{"image":{"kind":"rootfs"}}"#),
+            "the first JSON recorded for a key stays"
+        );
+        assert_eq!(l.step_key_json(&Hash::of(b"none")).unwrap(), None);
+    }
+
+    /// A v2 ledger (transports, no key documents) migrates to v3 in place:
+    /// its runs keep their transports and key documents start empty.
+    #[test]
+    fn a_v2_ledger_migrates_to_v3() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        {
+            let db = Connection::open(&p).unwrap();
+            db.execute_batch(MIGRATIONS[0]).unwrap();
+            db.execute_batch(MIGRATIONS[1]).unwrap();
+            db.pragma_update(None, "user_version", 2).unwrap();
+            db.execute(
+                "INSERT INTO runs (id, started_at, transport) VALUES ('01OLD', 'x', 'fuse')",
+                [],
+            )
+            .unwrap();
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), 3);
+        assert_eq!(
+            l.run("01OLD").unwrap().unwrap().transport.as_deref(),
+            Some("fuse")
+        );
+        assert_eq!(l.step_key_json(&Hash::of(b"k")).unwrap(), None);
+        l.put_step_key(&Hash::of(b"k"), "{}").unwrap();
+        assert_eq!(
+            l.step_key_json(&Hash::of(b"k")).unwrap().as_deref(),
+            Some("{}")
         );
     }
 
@@ -507,7 +575,7 @@ mod tests {
             .unwrap();
         }
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 2);
+        assert_eq!(l.schema_version().unwrap(), MIGRATIONS.len());
         let old = l.run("r0").unwrap().unwrap();
         assert_eq!(
             (old.commit_sha.as_deref(), old.transport, old.observer),
@@ -559,8 +627,11 @@ mod tests {
         assert_eq!(l.purge_transport(None).unwrap(), 1);
         assert!(l.find_match(&key, &t).unwrap().hit.is_none());
         drop(l);
-        // Reopening a v2 ledger runs nothing again.
-        assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 2);
+        // Reopening a migrated ledger runs nothing again.
+        assert_eq!(
+            Ledger::open(&p).unwrap().schema_version().unwrap(),
+            MIGRATIONS.len()
+        );
     }
 
     /// An execution is recorded whole or not at all: when its result cannot

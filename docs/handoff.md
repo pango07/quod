@@ -210,13 +210,13 @@ Entry kinds: f file (content hash plus mode masked to 0o777), d directory (hash 
 Tree. The materialized workspace at step start: the commit's files plus outputs of earlier steps. Same entry shape as a manifest, covering every path. Produced by sp-cas import. Matching is for each manifest entry, the tree agrees: same hash and mode for f, same listing hash for d, no entry for a, same target for l. The first disagreement is returned as Mismatch { path, expected, actual } with a total count.
 Step result. What the step produced.
 
-outputs are the overlay upper dir diffed against the tree: files written or modified, plus x for deleted paths (whiteouts). stdout and stderr are blobs. run_id is a ULID.
+outputs are the overlay upper dir diffed against the tree: files written or modified, plus x for deleted paths (whiteouts). stdout and stderr are blobs. run_id is a ULID. Since result v2 (2026-10-31), root_outputs (present only when non-empty) are the same diff of the per-step overlay over the whole root filesystem in rootfs mode, /tmp included, paths relative to /: what the step wrote outside the workspace.
 Receipt. Plain text, printed before the replayed log. Hashes shown as the first 8 hex characters.
 
 On a miss the banner says EXECUTED and, when candidate manifests existed, names the first mismatch: closest manifest differed at pkg/cmd/root.go.
 Ledger (SQLite).
 
-Lookup: the 50 newest manifests for the step key, verified in order against the tree; the first match wins and its newest result is returned. Blobs live on disk at <cas>/<first 2 hex>/<hash>; the table is an index, not the store.
+Lookup: the 50 newest manifests for the step key, verified in order against the tree; the first match wins and its newest result is returned. Blobs live on disk at <cas>/<first 2 hex>/<hash>; the table is an index, not the store. Ledger v2 (2026-10-31) adds step_keys (step_key, json): the canonical JSON behind every key a run computed, so a result's environment pin can be read back (`stillpass inspect <step_key>`).
 
 ## Component specs
 Behavior and invariants per crate. Public API sketches are Rust signatures; names can change, shapes shouldn't.

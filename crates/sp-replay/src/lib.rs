@@ -131,6 +131,7 @@ mod tests {
                 Entry::dir(".stillpass/empty", Hash::of(b"")),
                 Entry::deleted("tmp/scratch"),
             ],
+            root_outputs: vec![],
             duration_ms: 252_310,
         }
     }
