@@ -1,0 +1,10 @@
+# The runner lab: the dev box plus what the official actions/runner needs
+# (.NET's native dependencies) and the tools the hooks shell out to.
+#   scripts/runner/lab.sh up        # one long-lived privileged container
+ARG BASE
+FROM ${BASE}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libicu72 liblttng-ust1 libkrb5-3 zlib1g libssl3 jq xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+# .NET inside a container: no systemd, no locale database.
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 RUNNER_ALLOW_RUNASROOT=1

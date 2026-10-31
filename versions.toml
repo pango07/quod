@@ -74,6 +74,15 @@ setup = "uv sync --frozen"
 step = "python -m pytest"
 touch = "starlette/routing.py"
 
+[actions_runner]
+# The official runner the stillpass runner drives (scripts/runner/install.sh).
+version = "2.338.2"
+
+[job_image]
+# The job container of the gate workflow: golang:1.27.3 (OCI index digest,
+# resolved to the linux/arm64 manifest at unpack).
+golang = "golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
+
 [firecracker]
 # 0b. Deferred (DECISIONS 2026-10-31: pinned OCI rootfs under bubblewrap first).
 version = ""

@@ -1,0 +1,31 @@
+[package]
+name = "sp-hooks"
+version = "0.0.0"
+description = "actions/runner container hooks: the official runner executes jobs, Stillpass executes steps."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sp-cas.workspace = true
+sp-key.workspace = true
+sp-manifest.workspace = true
+sp-fs.workspace = true
+sp-sandbox.workspace = true
+sp-ledger.workspace = true
+sp-replay.workspace = true
+sp-trust.workspace = true
+aho-corasick = "1"
+anyhow.workspace = true
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ulid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
