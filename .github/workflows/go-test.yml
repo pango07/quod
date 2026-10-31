@@ -3,6 +3,9 @@
 # (as uid 1001: cli/cli's permission tests fail as root).
 name: go-test
 on:
+  push:
+    branches: [runner-lab]
+    paths: [.github/workflows/go-test.yml]
   workflow_dispatch:
     inputs:
       commit:
@@ -22,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: cli/cli
-          ref: ${{ inputs.commit }}
+          ref: ${{ inputs.commit || '9490d204a2ba95434153dedce99898ce9f281426' }}
 
       - name: Set up Go
         uses: ./.github/actions/setup-go
@@ -33,7 +36,7 @@ jobs:
         run: go mod download
 
       - name: Run unit and integration tests
-        run: go test ${{ inputs.flags }} ./...
+        run: go test ${{ inputs.flags || '-count=1 -race -tags=integration' }} ./...
 
       - name: Build
         run: go build -v ./cmd/gh
