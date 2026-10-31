@@ -2,7 +2,9 @@ import Link from "next/link";
 import { CiJob } from "@/components/ci-job";
 import { Flow } from "@/components/flow";
 import { JoinForm } from "@/components/join-form";
+import { ManifestDemo } from "@/components/manifest-demo";
 import { Receipt } from "@/components/receipt";
+import { RunSequence } from "@/components/run-sequence";
 import { SiteFooter, SiteNav } from "@/components/site-nav";
 import { Terminal } from "@/components/terminal";
 import { TrustMeter } from "@/components/trust-meter";
@@ -51,7 +53,7 @@ export default function Home() {
           </div>
           <Flow />
           <p className="more">
-            <Link href="/under-the-hood">See how it works under the hood, in Rust</Link>
+            <a href="#hood">See it under the hood, in Rust</a>
           </p>
         </section>
 
@@ -61,6 +63,31 @@ export default function Home() {
             <p className="lede">Change a file, run the tests, and see what Quod reuses.</p>
           </div>
           <Terminal id="term-try" />
+        </section>
+
+        <section className="sec" id="hood">
+          <div className="sec-head">
+            <h2>Under the hood.</h2>
+            <p className="lede">
+              Quod is written in Rust. Here&rsquo;s what happens on every run, with the real code. Click a stage to stop
+              and read.
+            </p>
+          </div>
+          <RunSequence />
+        </section>
+
+        <section className="sec split">
+          <div className="sec-head">
+            <h2>It records what your step reads.</h2>
+            <p className="lede">
+              Nobody writes down a step&rsquo;s inputs. Quod records them while it runs: every file read, every folder
+              listed, and every file it looked for and didn&rsquo;t find. Try a change and see what Quod decides.
+            </p>
+            <p className="more">
+              <Link href="/under-the-hood">Read the deep dive: the hard parts and the code</Link>
+            </p>
+          </div>
+          <ManifestDemo />
         </section>
 
         <section className="sec split">

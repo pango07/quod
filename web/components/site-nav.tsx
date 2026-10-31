@@ -10,7 +10,7 @@ export function SiteNav() {
         </Link>
         <nav aria-label="Main">
           <Link href="/#how">How it works</Link>
-          <Link href="/under-the-hood">Under the hood</Link>
+          <Link href="/#hood">Under the hood</Link>
           <Link href="/#faq">FAQ</Link>
           <Link className="btn small" href="/#join">
             Join the waitlist
