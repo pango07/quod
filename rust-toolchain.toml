@@ -1,0 +1,4 @@
+# Mirrors versions.toml [rust]; rustup reads this file, nothing else does.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

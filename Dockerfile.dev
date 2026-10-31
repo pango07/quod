@@ -1,0 +1,17 @@
+# Linux dev box for the 0a spike. Run privileged with /dev/fuse:
+#   scripts/dev.sh <command>
+FROM debian:bookworm
+ARG GO_VERSION
+ARG RUST_TOOLCHAIN
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bubblewrap ca-certificates curl fuse3 git build-essential pkg-config \
+      sqlite3 util-linux procps time \
+    && rm -rf /var/lib/apt/lists/*
+RUN arch=$(dpkg --print-architecture) \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/cargo/bin:/usr/local/go/bin:$PATH \
+    RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
+      --default-toolchain "${RUST_TOOLCHAIN}" -c rustfmt -c clippy
+RUN echo user_allow_other >> /etc/fuse.conf
+WORKDIR /src

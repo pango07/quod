@@ -1,0 +1,16 @@
+[package]
+name = "sp-cli"
+version = "0.0.0"
+description = "The stillpass command line."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[[bin]]
+name = "stillpass"
+path = "src/main.rs"

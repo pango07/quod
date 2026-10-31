@@ -1,0 +1,12 @@
+[package]
+name = "sp-cas"
+version = "0.0.0"
+description = "Content-addressed blob store on local disk, keyed by BLAKE3, plus the tree data model."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

@@ -1,0 +1,26 @@
+# Every pinned version for the spike lives here. Nothing else states a version
+# (rust-toolchain.toml mirrors [rust] because rustup only reads that file).
+
+[rust]
+toolchain = "1.98.0"
+
+[go]
+# Matches the spike repo's go.mod `toolchain` line.
+version = "1.27.3"
+
+[spike_repo]
+url = "https://github.com/cli/cli"
+# Pinned for acceptance and overhead runs (trunk on 2026-10-30).
+commit = "9490d204a2ba95434153dedce99898ce9f281426"
+
+[firecracker]
+# 0b. Pinned when T13 starts.
+version = ""
+
+[virtiofsd]
+version = ""
+
+[guest]
+# BLAKE3 of the rootfs image produced by scripts/build-guest.sh (T13).
+rootfs_b3 = ""
+kernel = ""

@@ -1,0 +1,12 @@
+[package]
+name = "sp-fs"
+version = "0.0.0"
+description = "The observer: a read-only FUSE view of a CAS tree that logs every access."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
