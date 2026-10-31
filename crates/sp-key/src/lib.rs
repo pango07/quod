@@ -43,6 +43,38 @@ pub const DENYLIST: &[&str] = &[
 /// The working directory and root every spike step sees.
 pub const WORKSPACE: &str = "/workspace";
 
+/// What a warm-state step's env changes against `SPIKE_ENV`. Both turn off
+/// the parts of Go's cache that are not keyed by content, leaving the build
+/// cache (keyed by content hashes) as the warm state. Part of the key like
+/// every variable the step sees.
+///
+/// `-count=1` turns off Go's test-result cache: it decides whether a test's
+/// inputs changed from their size and mtime, and the observer serves every
+/// file with the same constant mtime, so with a warm cache it could replay a
+/// stale result for a changed fixture of the same size.
+///
+/// `goindex=0` turns off Go's module index: the file lists and build
+/// constraints of every module in GOMODCACHE, stored in GOCACHE keyed by the
+/// module's path on the assumption that the module cache never changes. A
+/// warm run using it never reads those directories, so the observer would
+/// record far fewer inputs than a cold run does (7k against 21k on cli/cli).
+pub const WARM_ENV: &[(&str, &str)] = &[("GOFLAGS", "-mod=mod -count=1"), ("GODEBUG", "goindex=0")];
+
+/// Is `name` a file the Go toolchain treats as source (go/build's extension
+/// set)? Warm runs over-record every such file in every directory the step
+/// listed: go test caches each package's vet verdict keyed by the files it
+/// compiled, but vet's buildtag check also parses the package's ignored
+/// files (excluded by a GOOS/GOARCH suffix, so nothing else ever opens
+/// them), and a cached verdict is reused whatever they now contain. With an
+/// empty cache the observer sees vet read them; with a full one it cannot.
+pub fn go_source_file(name: &str) -> bool {
+    const EXTS: &[&str] = &[
+        ".go", ".c", ".cc", ".cpp", ".cxx", ".m", ".s", ".S", ".sx", ".swig", ".swigcxx", ".syso",
+        ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90",
+    ];
+    EXTS.iter().any(|e| name.ends_with(e))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepSpec {
     /// The environment pin: rootfs digest (0b) or host fingerprint (0a).
@@ -92,6 +124,19 @@ impl StepSpec {
             env,
             roots: vec![WORKSPACE.to_string()],
         }
+    }
+
+    /// The spike step started warm: `spike` with `WARM_ENV` applied over the
+    /// Schemas env, so warm and cold results never share a key.
+    pub fn spike_warm(image: Hash, script: &str, extra_env: &[(String, String)]) -> StepSpec {
+        let mut spec = StepSpec::spike(image, script, extra_env);
+        for (name, value) in WARM_ENV {
+            match spec.env.iter_mut().find(|(k, _)| k == name) {
+                Some((_, v)) => *v = value.to_string(),
+                None => spec.env.push((name.to_string(), value.to_string())),
+            }
+        }
+        spec
     }
 
     /// Env sorted by name, after validation.
@@ -152,6 +197,55 @@ mod tests {
         assert!(j.starts_with(r#"{"cmd":["/bin/sh","-e","-c","go test ./..."],"cwd":"/workspace","env":[["CGO_ENABLED","0"],"#));
         assert!(j.contains(r#"["TZ","UTC"]],"image":"b3:"#));
         assert!(j.ends_with(r#""roots":["/workspace"],"v":1}"#));
+    }
+
+    #[test]
+    fn warm_differs_exactly_by_warm_env_and_in_the_key() {
+        let cold = spec();
+        let warm = StepSpec::spike_warm(Hash::of(b"image"), "go test ./...", &[]);
+        assert_ne!(step_key(&warm).unwrap(), step_key(&cold).unwrap());
+        let changed: Vec<(String, String)> = warm
+            .env
+            .iter()
+            .filter(|e| !cold.env.contains(e))
+            .cloned()
+            .collect();
+        let want: Vec<(String, String)> = WARM_ENV
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(changed, want);
+        assert_eq!(
+            warm.env.len(),
+            cold.env.len() + 1,
+            "GODEBUG is new, GOFLAGS replaced"
+        );
+        assert!(warm.normalized_env().is_ok());
+    }
+
+    #[test]
+    fn go_source_files() {
+        for yes in [
+            "a.go",
+            "a_windows.go",
+            "x_test.go",
+            "asm_amd64.s",
+            "t.h",
+            "lib.syso",
+        ] {
+            assert!(go_source_file(yes), "{yes}");
+        }
+        for no in [
+            "README.md",
+            "go.mod",
+            "go.sum",
+            "a.txt",
+            "Makefile",
+            "gofile",
+            ".go.swp",
+        ] {
+            assert!(!go_source_file(no), "{no}");
+        }
     }
 
     #[test]

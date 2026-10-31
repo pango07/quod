@@ -36,6 +36,12 @@ pub struct BenchArgs {
     /// Skip the hit-rate series (A11).
     #[arg(long)]
     no_hit_rate: bool,
+    /// Also measure miss latency on a one-file change, cold vs --warm.
+    #[arg(long)]
+    one_file: bool,
+    /// The file the one-file series appends a comment to before each pair.
+    #[arg(long, default_value = "api/client.go")]
+    touch: String,
     #[arg(long)]
     vm: bool,
     #[arg(long, default_value = "report.md")]
@@ -78,6 +84,11 @@ pub fn bench(state: &State, args: BenchArgs) -> anyhow::Result<u8> {
     }
     if !args.no_hit_rate {
         let (table, line) = hit_rate(&exe, &repo, &work, &args)?;
+        report += &table;
+        totals.push(line);
+    }
+    if args.one_file {
+        let (table, line) = one_file(&exe, &repo, &work, &args)?;
         report += &table;
         totals.push(line);
     }
@@ -337,6 +348,102 @@ fn hit_rate(
         "Hit rate (0a): {hits}/{} commits; {stillpass_s:.0}s with Stillpass vs {plain_s:.0}s plain, {saved:.1}% saved",
         commits.len()
     );
+    Ok((t, line))
+}
+
+/// Miss latency on a one-file change: cold (empty GOCACHE every run) vs warm
+/// (--warm, the build cache persisting), interleaved so both series see the
+/// same machine. The file changes before every pair, so every run is a miss.
+/// The first pair is dropped as warm-up; for the warm series it is also the
+/// run that fills the cache.
+fn one_file(
+    exe: &Path,
+    repo: &Path,
+    work: &Path,
+    args: &BenchArgs,
+) -> anyhow::Result<(String, String)> {
+    let tree = work.join("onefile-tree");
+    clone_at(repo, &tree, "HEAD")?;
+    copy_module_cache(repo, &tree)?;
+    run_setup(exe, &work.join("onefile-setup-state"), &tree, &args.setup)?;
+    let file = tree.join(&args.touch);
+    if !file.is_file() {
+        bail!("--touch {}: not a file in the tree", args.touch);
+    }
+    let cold_state = work.join("onefile-cold-state");
+    let warm_state = work.join("onefile-warm-state");
+    let (mut cold, mut warm) = (Vec::new(), Vec::new());
+    for i in 0..args.runs {
+        use std::io::Write as _;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file)?;
+        writeln!(f, "\n// stillpass bench: one-file change {i}")?;
+        drop(f);
+        let c = run_step(exe, &cold_state, &tree, &args.step, &[])?;
+        let w = run_step(exe, &warm_state, &tree, &args.step, &["--warm"])?;
+        for (s, name) in [(&c, "cold"), (&w, "warm")] {
+            if s.event["hit"].as_bool() != Some(false) || s.event["exit_code"].as_i64() != Some(0) {
+                bail!(
+                    "one-file {name} run {i} was not a passing miss: {}",
+                    s.event
+                );
+            }
+        }
+        eprintln!(
+            "one-file {}/{}: cold {:.1}s, warm {:.1}s",
+            i + 1,
+            args.runs,
+            c.wall.as_secs_f64(),
+            w.wall.as_secs_f64()
+        );
+        cold.push(c);
+        warm.push(w);
+    }
+    let walls =
+        |v: &[Sample]| -> Vec<f64> { v.iter().skip(1).map(|s| s.wall.as_secs_f64()).collect() };
+    let phase = |v: &[Sample], field: &str| -> f64 {
+        let xs: Vec<f64> = v
+            .iter()
+            .skip(1)
+            .map(|s| s.event[field].as_f64().unwrap_or(0.0) / 1000.0)
+            .collect();
+        median(&xs)
+    };
+    let (cw, ww) = (walls(&cold), walls(&warm));
+    let (cm, wm) = (median(&cw), median(&ww));
+    let mut t = String::new();
+    writeln!(t, "## Miss latency on a one-file change\n")?;
+    writeln!(
+        t,
+        "`{}` gets a comment appended before each pair, so every run is a miss. Cold starts with an empty GOCACHE; warm (`--warm`) starts with the build cache earlier warm runs left behind. {} pairs, first dropped as warm-up (for warm, the run that fills the cache). Interleaved.\n",
+        args.touch, args.runs
+    )?;
+    writeln!(
+        t,
+        "| Series | Median | p95 | Execution | Output diff | Runs (s) |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    writeln!(
+        t,
+        "| Cold miss | {cm:.2}s | {:.2}s | {:.2}s | {:.2}s | {} |",
+        p95(&cw),
+        phase(&cold, "exec_ms"),
+        phase(&cold, "diff_ms"),
+        list(&cw)
+    )?;
+    writeln!(
+        t,
+        "| Warm miss | {wm:.2}s | {:.2}s | {:.2}s | {:.2}s | {} |",
+        p95(&ww),
+        phase(&warm, "exec_ms"),
+        phase(&warm, "diff_ms"),
+        list(&ww)
+    )?;
+    writeln!(t, "| **Warm / cold** | **{:.2}x** | | | | |\n", wm / cm)?;
+    let line = format!(
+        "One-file miss ({}): cold {cm:.2}s, warm {wm:.2}s ({:.0}% of cold)",
+        args.touch,
+        wm / cm * 100.0
+    );
+    sp_cas::remove_any(&tree)?;
     Ok((t, line))
 }
 

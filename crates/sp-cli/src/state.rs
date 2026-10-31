@@ -45,6 +45,12 @@ impl State {
         self.dir.join("events.jsonl")
     }
 
+    /// The warm Go build cache for steps pinned to `image` (the toolchain):
+    /// a persistent host directory the sandbox binds over GOCACHE.
+    pub fn warm_gocache_dir(&self, image: &sp_cas::Hash) -> PathBuf {
+        self.dir.join("warm").join(image.hex()).join("gocache")
+    }
+
     /// Structured events go to events.jsonl (the bench harness reads them),
     /// never to the step's stdout or stderr.
     fn init_tracing(&self) -> anyhow::Result<()> {

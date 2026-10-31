@@ -235,9 +235,11 @@ fn acceptance() {
         let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}")]);
         assert!(fresh.executed());
         assert_eq!(
-            fresh.code, hit.code,
-            "A7b: {} changed the exit code; the observer missed a read",
-            e.p
+            fresh.code,
+            hit.code,
+            "A7b: {} changed the exit code; the observer missed a read, or a test is flaky. go test said:\n{}",
+            e.p,
+            failures(&fresh.stdout)
         );
         assert_eq!(
             normalize(&fresh.stdout),
@@ -250,14 +252,124 @@ fn acceptance() {
             e.p
         );
     }
+    // W: warm state (--warm). The build cache earlier warm runs left behind
+    // is bound over GOCACHE, unobserved, on the claim that a content-addressed
+    // cache cannot change a result. This audits the claim two ways. Results:
+    // on the same tree and after a one-file change, a warm execution must
+    // agree with a cold one on exit code and stdout up to durations, and the
+    // warm key must replay. Inputs (W4): a warm run with a full cache must
+    // read every path a run with the same env and an empty cache read (W1 is
+    // that run), so the cache never hides an input from the observer. W4 is
+    // what catches Go's path-keyed caches (the module index, the test-result
+    // cache); the warm env turns both off.
+    let cold = env.run_step(step, &[]);
+    assert!(cold.hit(), "W precondition: {}", cold.stderr);
+    let w1 = env.run_step(step, &["--warm"]);
+    assert!(
+        w1.executed() && w1.stderr.contains("warm build cache"),
+        "W1: {}",
+        w1.stderr
+    );
+    assert_eq!(w1.code, cold.code, "W1: exit code cold vs warm");
+    assert_eq!(
+        normalize(&w1.stdout),
+        normalize(&cold.stdout),
+        "W1: stdout cold vs warm"
+    );
+    let warm_key = newest_key(&env);
+    assert_ne!(warm_key, key, "W1: warm runs have their own step key");
+    println!("W1 ok: first warm run (empty cache) agrees with the cold record");
+    let src = std::fs::read_to_string(env.repo.join(&go_file)).unwrap();
+    env.write(&go_file, &format!("{src}\n// W edit\n"));
+    env.commit("W: one-file change");
+    let c2 = env.run_step(step, &[]);
+    let w2 = env.run_step(step, &["--warm"]);
+    assert!(
+        c2.executed() && w2.executed(),
+        "W2: {}\n{}",
+        c2.stderr,
+        w2.stderr
+    );
+    assert_eq!(w2.code, c2.code, "W2: exit code cold vs warm");
+    assert_eq!(
+        normalize(&w2.stdout),
+        normalize(&c2.stdout),
+        "W2: stdout cold vs warm after a one-file change"
+    );
+    let w3 = env.run_step(step, &["--warm"]);
+    assert!(w3.hit() && w3.stdout == w2.stdout, "W3: {}", w3.stderr);
+    println!("W2 ok: warm agrees with cold after a one-file change; W3 ok: the warm key replays");
+
+    // W4. An entry of the empty-cache manifest is covered by the full-cache
+    // manifest if the path is there, or if it is an `a` whose parent is
+    // there as a `d`: a listing that still matches implies the name is still
+    // absent. (The assembler probes `#include "textflag.h"` beside each .s
+    // file; with the asm action cached it never runs, but the directory it
+    // probed is listed either way.) Anything else is an input the cache hid.
+    // This is what found go test's cached vet verdict standing in for a read
+    // of the package's ignored files; warm runs now over-record those.
+    let warm = ledger().candidates(&warm_key, 2).unwrap();
+    let (full, empty) = (&warm[0], &warm[1]);
+    let full_dirs: BTreeSet<&str> = full
+        .entries
+        .iter()
+        .filter(|e| e.k == Kind::Dir)
+        .map(|e| e.p.as_str())
+        .collect();
+    let full_paths: BTreeSet<&str> = full.entries.iter().map(|e| e.p.as_str()).collect();
+    let (mut covered_by_listing, mut hidden) = (0, Vec::new());
+    for e in &empty.entries {
+        if full_paths.contains(e.p.as_str()) {
+            continue;
+        }
+        let (parent, _) = sp_cas::parent_and_name(&e.p);
+        if e.k == Kind::Absent && full_dirs.contains(parent) {
+            covered_by_listing += 1;
+        } else {
+            hidden.push(format!("{} {:?}", e.p, e.k));
+        }
+    }
     println!(
-        "acceptance: A1-A7 pass{}",
+        "W4: warm manifest has {} entries with a full cache, {} with an empty one; {} absent probes covered by their parent listing, {} hidden by the cache",
+        full.entries.len(),
+        empty.entries.len(),
+        covered_by_listing,
+        hidden.len()
+    );
+    assert!(
+        hidden.is_empty(),
+        "W4: the warm cache hid inputs from the observer: {:?}",
+        hidden.iter().take(10).collect::<Vec<_>>()
+    );
+    let cold_m = &ledger().candidates(&key, 1).unwrap()[0];
+    let only_cold = cold_m
+        .entries
+        .iter()
+        .filter(|e| !full_paths.contains(e.p.as_str()))
+        .count();
+    println!(
+        "W4 ok; for the record, the cold env records {} paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)",
+        only_cold
+    );
+
+    println!(
+        "acceptance: A1-A7 and W pass{}",
         if spike.is_some() {
             " on the spike repo"
         } else {
             ""
         }
     );
+}
+
+/// The step key of the newest manifest in the ledger.
+fn newest_key(env: &Env) -> Hash {
+    let out = std::process::Command::new("sqlite3")
+        .arg(env.state().join("ledger.sqlite"))
+        .arg("SELECT step_key FROM manifests ORDER BY created_at DESC, rowid DESC LIMIT 1")
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
 }
 
 fn only_key(env: &Env) -> Hash {
@@ -272,6 +384,16 @@ fn only_key(env: &Env) -> Hash {
         .collect();
     assert_eq!(keys.len(), 1, "{keys:?}");
     keys[0].parse().unwrap()
+}
+
+/// The lines of a go test log that name failures, for a panic message.
+fn failures(stdout: &[u8]) -> String {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter(|l| l.starts_with("FAIL") || l.starts_with("--- FAIL") || l.contains("panic:"))
+        .take(40)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// go test prints per-package durations; a fresh run differs only there.
