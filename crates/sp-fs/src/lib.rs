@@ -11,7 +11,7 @@ mod serve;
 #[cfg(target_os = "linux")]
 mod uring;
 #[cfg(target_os = "linux")]
-pub use serve::{Served, Transport, serve, serve_with};
+pub use serve::{Fault, Options, Served, Transport, serve, serve_with};
 
 #[cfg(target_os = "linux")]
 mod overlay;
@@ -32,11 +32,27 @@ pub struct ObserverStats {
     /// Reads of open files go kernel-to-blob and never arrive here.
     pub passthrough: bool,
     /// Requests arrive over io_uring rather than the /dev/fuse read loop.
+    /// Set only after every queue registered and a request came back over
+    /// the ring.
     pub uring: bool,
+    /// The ring was tried for this mount and abandoned before the step
+    /// started; the classic transport served all of it.
+    pub uring_fallback: bool,
+    /// Ring transport only: requests answered over the ring and over the
+    /// device (forgets and interrupts, which have no reply, not counted),
+    /// completion batches, batches in which every entry of the queue was
+    /// busy, and userspace time spent answering ring requests.
+    pub ring_requests: u64,
+    pub device_requests: u64,
+    pub ring_batches: u64,
+    pub ring_full_batches: u64,
+    pub ring_serve_us: u64,
 }
 
 impl ObserverStats {
-    /// The transport's name for the run event.
+    /// The transport that served the mount, as the run event and the
+    /// ledger name it: `fuse-uring` or `fuse` (classic, including a ring
+    /// that fell back).
     pub fn transport(&self) -> &'static str {
         if self.uring { "fuse-uring" } else { "fuse" }
     }
@@ -90,11 +106,48 @@ mod unsupported {
         }
     }
 
+    #[doc(hidden)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Fault {
+        Register,
+        Unready,
+        QueuePanic(u64),
+        QueueError(u64),
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Options {
+        pub transport: Transport,
+        pub passthrough: bool,
+        pub uring_pin: bool,
+        pub uring_depth: usize,
+        #[doc(hidden)]
+        pub fault: Option<Fault>,
+    }
+
+    impl Default for Options {
+        fn default() -> Options {
+            Options {
+                transport: Transport::Auto,
+                passthrough: true,
+                uring_pin: true,
+                uring_depth: 4,
+                fault: None,
+            }
+        }
+    }
+
+    impl Options {
+        pub fn from_env() -> Options {
+            Options::default()
+        }
+    }
+
     pub fn serve(_: &Tree, _: &Cas, _: &Path) -> Result<Served, FsError> {
         Err(FsError::Unsupported)
     }
 
-    pub fn serve_with(_: &Tree, _: &Cas, _: &Path, _: Transport) -> Result<Served, FsError> {
+    pub fn serve_with(_: &Tree, _: &Cas, _: &Path, _: &Options) -> Result<Served, FsError> {
         Err(FsError::Unsupported)
     }
 
@@ -131,4 +184,6 @@ mod unsupported {
     }
 }
 #[cfg(not(target_os = "linux"))]
-pub use unsupported::{Overlay, Served, Transport, overlay, serve, serve_with, syncfs};
+pub use unsupported::{
+    Fault, Options, Overlay, Served, Transport, overlay, serve, serve_with, syncfs,
+};

@@ -39,8 +39,9 @@ const ROOT_INO: u64 = 1;
 /// How requests reach the observer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {
-    /// The ring when the host offers it (`enable_uring`, root, io_uring),
-    /// else the classic device loop through fuser.
+    /// The ring when the host offers it (`enable_uring`, root, io_uring, a
+    /// FUSE minor the ring transport is tested against), else the classic
+    /// device loop through fuser.
     Auto,
     /// The classic `/dev/fuse` read/write loop (fuser).
     Classic,
@@ -55,6 +56,89 @@ impl Transport {
             Ok("classic") => Transport::Classic,
             Ok("uring") => Transport::Uring,
             _ => Transport::Auto,
+        }
+    }
+}
+
+/// Failures the ring transport can be made to suffer, so tests can prove
+/// each one ends in a fallback (before the step) or a Stillpass error
+/// (during it), never in a hang or a recorded result. Not for production.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// Queue 0 registers with a queue id the kernel refuses.
+    Register,
+    /// The last queue never registers, so the ring never becomes ready.
+    Unready,
+    /// Once serving, after this many ring requests are answered, the queue
+    /// thread that receives the next one panics before answering it.
+    QueuePanic(u64),
+    /// Once serving, after this many ring requests are answered, the queue
+    /// thread that receives the next one sees its completion as failed
+    /// (-EIO).
+    QueueError(u64),
+}
+
+impl Fault {
+    /// `STILLPASS_TEST_URING_FAULT`: `register`, `unready`, `panic[:N]`,
+    /// `error[:N]` (N requests answered first, default 0).
+    fn from_env() -> Option<Fault> {
+        let v = std::env::var("STILLPASS_TEST_URING_FAULT").ok()?;
+        let (kind, after) = match v.split_once(':') {
+            Some((k, n)) => (k.to_string(), n.parse().ok()?),
+            None => (v, 0),
+        };
+        match kind.as_str() {
+            "register" => Some(Fault::Register),
+            "unready" => Some(Fault::Unready),
+            "panic" => Some(Fault::QueuePanic(after)),
+            "error" => Some(Fault::QueueError(after)),
+            _ => None,
+        }
+    }
+}
+
+/// How a mount is served. `Options::from_env` is what `serve` uses.
+#[derive(Clone, Debug)]
+pub struct Options {
+    pub transport: Transport,
+    /// Kernel passthrough when the kernel grants it
+    /// (`STILLPASS_NO_PASSTHROUGH=1` turns it off, for bench attribution).
+    pub passthrough: bool,
+    /// Pin each ring queue thread to the CPU whose requests it serves
+    /// (`STILLPASS_URING_PIN=0` turns it off, for measurement).
+    pub uring_pin: bool,
+    /// Ring entries per queue (`STILLPASS_URING_DEPTH`, 1-64, default 4).
+    pub uring_depth: usize,
+    #[doc(hidden)]
+    pub fault: Option<Fault>,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options {
+            transport: Transport::Auto,
+            passthrough: true,
+            uring_pin: true,
+            uring_depth: 4,
+            fault: None,
+        }
+    }
+}
+
+impl Options {
+    pub fn from_env() -> Options {
+        let d = Options::default();
+        Options {
+            transport: Transport::from_env(),
+            passthrough: std::env::var_os("STILLPASS_NO_PASSTHROUGH").is_none(),
+            uring_pin: !std::env::var("STILLPASS_URING_PIN").is_ok_and(|v| v == "0"),
+            uring_depth: std::env::var("STILLPASS_URING_DEPTH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|n| (1..=64).contains(n))
+                .unwrap_or(d.uring_depth),
+            fault: Fault::from_env(),
         }
     }
 }
@@ -91,7 +175,7 @@ struct Log {
 /// Request counts, reported at unmount so the bench can see what the step
 /// actually asked the observer for.
 #[derive(Default)]
-struct Stats {
+pub(crate) struct Stats {
     lookup: AtomicU64,
     lookup_absent: AtomicU64,
     getattr: AtomicU64,
@@ -101,7 +185,20 @@ struct Stats {
     read_bytes: AtomicU64,
     readdir: AtomicU64,
     passthrough: AtomicBool,
+    /// Set only once every ring queue registered and a probe request came
+    /// back over the ring (see `uring::mount`).
     uring: AtomicBool,
+    /// The ring was tried for this mount and abandoned before the step.
+    uring_fallback: AtomicBool,
+    /// Ring transport: requests answered over the ring, requests answered
+    /// over the device (forgets and interrupts not counted, they have no
+    /// reply), completion batches, batches that found every entry of the
+    /// queue busy, and userspace time spent answering ring requests.
+    pub(crate) ring_requests: AtomicU64,
+    pub(crate) device_requests: AtomicU64,
+    pub(crate) ring_batches: AtomicU64,
+    pub(crate) ring_full_batches: AtomicU64,
+    pub(crate) ring_serve_ns: AtomicU64,
 }
 
 impl Stats {
@@ -118,6 +215,25 @@ impl Stats {
             readdir: g(&self.readdir),
             passthrough: self.passthrough.load(Ordering::Relaxed),
             uring: self.uring.load(Ordering::Relaxed),
+            uring_fallback: self.uring_fallback.load(Ordering::Relaxed),
+            ring_requests: g(&self.ring_requests),
+            device_requests: g(&self.device_requests),
+            ring_batches: g(&self.ring_batches),
+            ring_full_batches: g(&self.ring_full_batches),
+            ring_serve_us: g(&self.ring_serve_ns) / 1000,
+        }
+    }
+
+    /// Forgets what an abandoned ring setup counted.
+    fn reset_ring(&self) {
+        for a in [
+            &self.ring_requests,
+            &self.device_requests,
+            &self.ring_batches,
+            &self.ring_full_batches,
+            &self.ring_serve_ns,
+        ] {
+            a.store(0, Ordering::Relaxed);
         }
     }
 }
@@ -179,6 +295,8 @@ pub(crate) struct CasFs {
     /// an error this process never sees; switching modes mid-mount could
     /// therefore hide a failure from the log.
     mode: Mutex<Option<bool>>,
+    /// Whether to ask the kernel for passthrough at all.
+    want_passthrough: bool,
     stats: Arc<Stats>,
 }
 
@@ -188,6 +306,7 @@ impl CasFs {
         cas: Cas,
         log: Arc<Mutex<Log>>,
         stats: Arc<Stats>,
+        want_passthrough: bool,
     ) -> Result<CasFs, FsError> {
         let mut index: HashMap<&str, u64> = HashMap::new();
         let mut nodes = Vec::with_capacity(tree.len());
@@ -238,6 +357,7 @@ impl CasFs {
             backing: Mutex::new(HashMap::new()),
             granted: AtomicBool::new(false),
             mode: Mutex::new(None),
+            want_passthrough,
             stats,
         })
     }
@@ -252,15 +372,38 @@ impl CasFs {
 
     /// Whether the step wants passthrough at all (the bench's attribution
     /// series turns it off with STILLPASS_NO_PASSTHROUGH=1).
-    pub(crate) fn passthrough_wanted() -> bool {
-        std::env::var_os("STILLPASS_NO_PASSTHROUGH").is_none()
+    pub(crate) fn passthrough_wanted(&self) -> bool {
+        self.want_passthrough
+    }
+
+    pub(crate) fn stats(&self) -> &Stats {
+        &self.stats
     }
 
     /// Called by the transport after INIT: did the kernel grant passthrough.
-    pub(crate) fn set_granted(&self, granted: bool, uring: bool) {
+    pub(crate) fn set_granted(&self, granted: bool) {
         self.granted.store(granted, Ordering::Relaxed);
-        self.stats.uring.store(uring, Ordering::Relaxed);
-        tracing::info!(target: "stillpass", passthrough_granted = granted, uring, "observer init");
+        tracing::info!(target: "stillpass", passthrough_granted = granted, "observer init");
+    }
+
+    /// Called by the ring transport once every queue is registered and a
+    /// request has come back over the ring; never earlier.
+    pub(crate) fn set_uring(&self) {
+        self.stats.uring.store(true, Ordering::Relaxed);
+    }
+
+    /// The ring was abandoned before serving anything: the classic
+    /// transport takes over the whole mount.
+    fn ring_abandoned(&self) {
+        self.stats.uring.store(false, Ordering::Relaxed);
+        self.stats.uring_fallback.store(true, Ordering::Relaxed);
+        self.stats.reset_ring();
+    }
+
+    /// Whether anything has been recorded yet (a fallback must find none).
+    fn log_is_empty(&self) -> bool {
+        let log = lock(&self.log);
+        log.present.is_empty() && log.absent.is_empty() && log.io_errors.is_empty()
     }
 
     /// Kernel passthrough (Linux 6.9+): once a file is open, the kernel reads
@@ -274,7 +417,7 @@ impl CasFs {
     /// userspace throughout. No passthrough handle exists yet at that point,
     /// so neither choice can conflict with an open file.
     fn passthrough(&self, ino: u64, n: &Node, register: Register) -> bool {
-        let mut mode = self.mode.lock().unwrap();
+        let mut mode = lock(&self.mode);
         if let Some(m) = *mode {
             return m;
         }
@@ -298,20 +441,22 @@ impl CasFs {
     /// Every access the log keeps goes through here (and `record_absent`),
     /// with the requester attached.
     fn record(&self, req: &Req, ino: u64, kind: Kind) {
-        let mut log = self.log.lock().unwrap();
+        let mut log = lock(&self.log);
         log.present.insert((ino, kind));
         log.pids.insert(req.pid);
     }
 
     fn record_absent(&self, req: &Req, path: String) {
-        let mut log = self.log.lock().unwrap();
+        let mut log = lock(&self.log);
         log.absent.insert(path);
         log.pids.insert(req.pid);
     }
 
-    fn io_error(&self, what: String) {
+    /// Something the step saw, or may have seen, that is not its inputs.
+    /// Any makes the run a Stillpass error at unmount.
+    pub(crate) fn io_error(&self, what: String) {
         tracing::error!(error = %what, "I/O error served to the step");
-        self.log.lock().unwrap().io_errors.push(what);
+        lock(&self.log).io_errors.push(what);
     }
 
     fn attr(&self, ino: u64, n: &Node) -> FileAttr {
@@ -344,7 +489,7 @@ impl CasFs {
     /// use. The kernel takes its own reference to the blob, so the fd is
     /// closed again right away.
     fn backing_id(&self, ino: u64, n: &Node, register: Register) -> Result<Arc<Backing>, String> {
-        if let Some(id) = self.backing.lock().unwrap().get(&ino) {
+        if let Some(id) = lock(&self.backing).get(&ino) {
             return Ok(id.clone());
         }
         let file = self
@@ -353,10 +498,7 @@ impl CasFs {
             .map_err(|e| format!("open {}: {e}", n.entry.p))?;
         let id = register(&file)
             .map_err(|e| format!("register blob of {} for passthrough: {e}", n.entry.p))?;
-        Ok(self
-            .backing
-            .lock()
-            .unwrap()
+        Ok(lock(&self.backing)
             .entry(ino)
             .or_insert_with(|| Arc::new(id))
             .clone())
@@ -453,7 +595,7 @@ impl CasFs {
                 return Err(libc::EIO);
             }
         };
-        self.open.lock().unwrap().insert(fh, Arc::new(file));
+        lock(&self.open).insert(fh, Arc::new(file));
         Ok(Opened { fh, backing: None })
     }
 
@@ -468,7 +610,7 @@ impl CasFs {
         self.stats.read.fetch_add(1, Ordering::Relaxed);
         self.record(req, ino, Kind::File);
         let n = self.node(ino).ok_or(libc::ENOENT)?;
-        let opened = self.open.lock().unwrap().get(&fh).cloned();
+        let opened = lock(&self.open).get(&fh).cloned();
         let file = match opened {
             Some(f) => f,
             // A handle this process holds no fd for (a passthrough handle
@@ -504,7 +646,7 @@ impl CasFs {
     }
 
     pub(crate) fn release(&self, fh: u64) {
-        self.open.lock().unwrap().remove(&fh);
+        lock(&self.open).remove(&fh);
     }
 
     pub(crate) fn opendir(&self, ino: u64) -> Result<(), i32> {
@@ -571,8 +713,11 @@ fn req(r: &Request) -> Req {
 }
 
 /// The classic transport: fuser decodes requests from `/dev/fuse` and
-/// encodes the model's answers.
-impl Filesystem for CasFs {
+/// encodes the model's answers. The model is shared (`Arc`) so a mount the
+/// ring transport gave up on can be served classically by the same model.
+struct Classic(Arc<CasFs>);
+
+impl Filesystem for Classic {
     fn init(&mut self, _req: &Request, config: &mut KernelConfig) -> io::Result<()> {
         // Each is independent; a kernel without one just keeps the default.
         // PARALLEL_DIROPS: lookups in one directory need not serialize.
@@ -586,7 +731,7 @@ impl Filesystem for CasFs {
         ] {
             let _ = config.add_capabilities(cap);
         }
-        let granted = CasFs::passthrough_wanted()
+        let granted = self.0.passthrough_wanted()
             && config.add_capabilities(InitFlags::FUSE_PASSTHROUGH).is_ok();
         if granted {
             // 1: blobs live on a plain filesystem (depth 0), and overlayfs
@@ -595,26 +740,26 @@ impl Filesystem for CasFs {
                 .set_max_stack_depth(1)
                 .expect("1 is within the kernel's stacking limit");
         }
-        self.set_granted(granted, false);
+        self.0.set_granted(granted);
         Ok(())
     }
 
     fn lookup(&self, r: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
-        match CasFs::lookup(self, &req(r), parent.0, name.as_bytes()) {
+        match self.0.lookup(&req(r), parent.0, name.as_bytes()) {
             Ok((_, attr)) => reply.entry(&TTL, &attr, Generation(0)),
             Err(e) => reply.error(errno(e)),
         }
     }
 
     fn getattr(&self, r: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
-        match CasFs::getattr(self, &req(r), ino.0) {
+        match self.0.getattr(&req(r), ino.0) {
             Ok(attr) => reply.attr(&TTL, &attr),
             Err(e) => reply.error(errno(e)),
         }
     }
 
     fn readlink(&self, r: &Request, ino: INodeNo, reply: ReplyData) {
-        match CasFs::readlink(self, &req(r), ino.0) {
+        match self.0.readlink(&req(r), ino.0) {
             Ok(t) => reply.data(t.as_bytes()),
             Err(e) => reply.error(errno(e)),
         }
@@ -623,7 +768,7 @@ impl Filesystem for CasFs {
     fn open(&self, r: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         let register = |file: &File| reply.open_backing(file).map(Backing::Fuser);
         let read_only = flags.acc_mode() == OpenAccMode::O_RDONLY;
-        match CasFs::open(self, &req(r), ino.0, read_only, &register) {
+        match self.0.open(&req(r), ino.0, read_only, &register) {
             Ok(Opened {
                 fh,
                 backing: Some(b),
@@ -651,7 +796,7 @@ impl Filesystem for CasFs {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        match CasFs::read(self, &req(r), ino.0, fh.0, offset, size) {
+        match self.0.read(&req(r), ino.0, fh.0, offset, size) {
             Ok(data) => reply.data(&data),
             Err(e) => reply.error(errno(e)),
         }
@@ -667,12 +812,12 @@ impl Filesystem for CasFs {
         _flush: bool,
         reply: fuser::ReplyEmpty,
     ) {
-        CasFs::release(self, fh.0);
+        self.0.release(fh.0);
         reply.ok();
     }
 
     fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
-        match CasFs::opendir(self, ino.0) {
+        match self.0.opendir(ino.0) {
             Ok(()) => reply.opened(FileHandle(0), FopenFlags::empty()),
             Err(e) => reply.error(errno(e)),
         }
@@ -686,7 +831,7 @@ impl Filesystem for CasFs {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
-        match CasFs::readdir(self, &req(r), ino.0, offset) {
+        match self.0.readdir(&req(r), ino.0, offset) {
             Ok(entries) => {
                 for d in entries {
                     if reply.add(INodeNo(d.ino), d.off, d.kind, d.name) {
@@ -700,8 +845,8 @@ impl Filesystem for CasFs {
     }
 
     fn statfs(&self, _req: &Request, _ino: INodeNo, reply: fuser::ReplyStatfs) {
-        CasFs::statfs(self);
-        reply.statfs(0, 0, 0, self.file_count(), 0, 4096, 255, 4096);
+        self.0.statfs();
+        reply.statfs(0, 0, 0, self.0.file_count(), 0, 4096, 255, 4096);
     }
 
     fn getxattr(
@@ -726,6 +871,15 @@ enum Session {
     Uring(uring::Session),
 }
 
+impl Session {
+    fn umount_and_join(self) -> io::Result<()> {
+        match self {
+            Session::Fuser(s) => s.umount_and_join(),
+            Session::Uring(s) => s.umount_and_join(),
+        }
+    }
+}
+
 /// A mounted, logging, read-only view of a tree.
 pub struct Served {
     session: Option<Session>,
@@ -740,42 +894,65 @@ pub struct Served {
 }
 
 /// Mounts `tree` read-only at `mountpoint`, serving content from `cas`,
-/// over the transport `STILLPASS_FUSE_TRANSPORT` names (auto by default).
+/// with the options the environment names (`Options::from_env`).
 pub fn serve(tree: &Tree, cas: &Cas, mountpoint: &Path) -> Result<Served, FsError> {
-    serve_with(tree, cas, mountpoint, Transport::from_env())
+    serve_with(tree, cas, mountpoint, &Options::from_env())
 }
 
-/// `serve` over a chosen transport. `Auto` takes the ring when the host
-/// offers it and falls back to the classic loop before the step starts.
+/// `serve` with explicit options. The transport is chosen once, here,
+/// before the step starts, for the whole mount: `Auto` takes the ring when
+/// the host offers it and every queue comes up, else the classic loop; a
+/// ring that fails to come up is torn down first (nothing served, nothing
+/// recorded), so a mount is never served by both.
 pub fn serve_with(
     tree: &Tree,
     cas: &Cas,
     mountpoint: &Path,
-    transport: Transport,
+    opts: &Options,
 ) -> Result<Served, FsError> {
     let log = Arc::new(Mutex::new(Log::default()));
     let stats = Arc::new(Stats::default());
-    let fs = CasFs::new(tree, cas.clone(), log.clone(), stats.clone())?;
+    let fs = Arc::new(CasFs::new(
+        tree,
+        cas.clone(),
+        log.clone(),
+        stats.clone(),
+        opts.passthrough,
+    )?);
     let paths = fs
         .nodes
         .iter()
         .map(|n| (n.entry.p.clone(), n.entry.k))
         .collect();
-    let session = match transport {
+    let session = match opts.transport {
         Transport::Classic => Session::Fuser(mount_fuser(fs, mountpoint)?),
-        Transport::Uring => Session::Uring(uring::mount(Arc::new(fs), mountpoint)?),
+        Transport::Uring => {
+            uring::available().map_err(|why| FsError::Io {
+                what: format!("FUSE over io_uring at {}", mountpoint.display()),
+                source: io::Error::other(why),
+            })?;
+            Session::Uring(uring::mount(fs, mountpoint, opts)?)
+        }
         Transport::Auto => match uring::available() {
-            Ok(()) => {
-                let fs = Arc::new(fs);
-                match uring::mount(fs.clone(), mountpoint) {
-                    Ok(s) => Session::Uring(s),
-                    Err(e) => {
-                        tracing::warn!(error = %e, "FUSE over io_uring unavailable; using the classic transport");
-                        let fs = Arc::into_inner(fs).expect("the failed mount dropped its threads");
-                        Session::Fuser(mount_fuser(fs, mountpoint)?)
+            Ok(()) => match uring::mount(fs.clone(), mountpoint, opts) {
+                Ok(s) => Session::Uring(s),
+                Err(e) => {
+                    // `mount` unmounted and joined everything it started;
+                    // nothing was recorded (the step has not started).
+                    if !fs.log_is_empty() {
+                        return Err(FsError::Io {
+                            what: format!(
+                                "abandoned ring mount at {} logged accesses",
+                                mountpoint.display()
+                            ),
+                            source: io::Error::other(e.to_string()),
+                        });
                     }
+                    tracing::warn!(target: "stillpass", error = %e, "FUSE over io_uring failed to come up; the classic transport serves this mount");
+                    fs.ring_abandoned();
+                    Session::Fuser(mount_fuser(fs, mountpoint)?)
                 }
-            }
+            },
             Err(why) => {
                 tracing::info!(target: "stillpass", why, "classic FUSE transport");
                 Session::Fuser(mount_fuser(fs, mountpoint)?)
@@ -793,7 +970,7 @@ pub fn serve_with(
     })
 }
 
-fn mount_fuser(fs: CasFs, mountpoint: &Path) -> Result<BackgroundSession, FsError> {
+fn mount_fuser(fs: Arc<CasFs>, mountpoint: &Path) -> Result<BackgroundSession, FsError> {
     let mut config = Config::default();
     config.mount_options = vec![
         MountOption::FSName("stillpass".into()),
@@ -811,10 +988,17 @@ fn mount_fuser(fs: CasFs, mountpoint: &Path) -> Result<BackgroundSession, FsErro
             .min(16),
     );
     config.clone_fd = true;
-    fuser::spawn_mount(fs, mountpoint, &config).map_err(FsError::io(format!(
+    fuser::spawn_mount(Classic(fs), mountpoint, &config).map_err(FsError::io(format!(
         "mount FUSE at {}",
         mountpoint.display()
     )))
+}
+
+/// A lock that a panicking serving thread may have poisoned. The data is
+/// still what it was (every critical section is a few inserts), and the
+/// panic itself is recorded as a failure of the run.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Served {
@@ -828,7 +1012,9 @@ impl Served {
     }
 
     /// Unmounts, waits for in-flight requests, and returns the log,
-    /// deduplicated and sorted.
+    /// deduplicated and sorted. An error, and no log, when the step may
+    /// have seen anything but its inputs: an I/O error served to it, a
+    /// serving thread that died, a reply the kernel refused.
     ///
     /// A mount serves exactly one step. There is deliberately no way to
     /// drain the log and keep going: the kernel caches entries and
@@ -836,12 +1022,11 @@ impl Served {
     /// any request reaching the log.
     pub fn unmount(mut self) -> Result<Vec<Access>, FsError> {
         let what = || format!("unmount {}", self.mountpoint.display());
-        match self.session.take() {
-            Some(Session::Fuser(s)) => s.umount_and_join().map_err(FsError::io(what()))?,
-            Some(Session::Uring(s)) => s.umount_and_join().map_err(FsError::io(what()))?,
-            None => {}
-        }
-        let log = std::mem::take(&mut *self.log.lock().unwrap());
+        let unmounted = match self.session.take() {
+            Some(s) => s.umount_and_join(),
+            None => Ok(()),
+        };
+        let log = std::mem::take(&mut *lock(&self.log));
         self.report(log.pids.len());
         if !log.io_errors.is_empty() {
             return Err(FsError::Io {
@@ -853,6 +1038,7 @@ impl Served {
                 source: io::ErrorKind::Other.into(),
             });
         }
+        unmounted.map_err(FsError::io(what()))?;
         let mut out: Vec<Access> = log
             .present
             .into_iter()
@@ -878,6 +1064,7 @@ impl Served {
             target: "stillpass",
             mounted_ms = self.started.elapsed().as_millis() as u64,
             transport = s.transport(),
+            uring_fallback = s.uring_fallback,
             pids,
             passthrough = s.passthrough,
             lookup = s.lookup,
@@ -888,6 +1075,11 @@ impl Served {
             read = s.read,
             read_mb = s.read_bytes / (1 << 20),
             readdir = s.readdir,
+            ring_requests = s.ring_requests,
+            device_requests = s.device_requests,
+            ring_batches = s.ring_batches,
+            ring_full_batches = s.ring_full_batches,
+            ring_serve_us = s.ring_serve_us,
             serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
             serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),
             "observer"
@@ -918,14 +1110,8 @@ fn unsafe_zeroed() -> libc::rusage {
 
 impl Drop for Served {
     fn drop(&mut self) {
-        match self.session.take() {
-            Some(Session::Fuser(s)) => {
-                let _ = s.umount_and_join();
-            }
-            Some(Session::Uring(s)) => {
-                let _ = s.umount_and_join();
-            }
-            None => {}
+        if let Some(s) = self.session.take() {
+            let _ = s.umount_and_join();
         }
     }
 }

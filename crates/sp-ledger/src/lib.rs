@@ -20,6 +20,13 @@ const MIGRATIONS: &[&str] = &[
      CREATE TABLE results   (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL);
      CREATE INDEX results_by_key ON results (step_key, manifest_id, created_at DESC);
      CREATE TABLE blobs     (hash TEXT PRIMARY KEY, size INTEGER NOT NULL, path TEXT NOT NULL);",
+    // v2: which observer transport served each executed run (`fuse-uring`,
+    // `fuse`) and the full observer description, so results a transport
+    // produced can be found and purged. NULL: a replay (nothing observed),
+    // or a run recorded before v2 (transport unknown).
+    "ALTER TABLE runs ADD COLUMN transport TEXT;
+     ALTER TABLE runs ADD COLUMN observer TEXT;
+     CREATE INDEX runs_by_transport ON runs (transport);",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -65,6 +72,18 @@ pub struct RunRow {
     pub started_at: String,
     pub commit_sha: Option<String>,
     pub host: Option<String>,
+    /// The observer transport that served the run (`fuse-uring`, `fuse`);
+    /// `None` for a replay or a run recorded before schema v2.
+    pub transport: Option<String>,
+    /// The full observer description, e.g. `fuse-uring+passthrough+sealed`.
+    pub observer: Option<String>,
+}
+
+/// How an executed run was observed, stored with the run.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Observed<'a> {
+    pub transport: Option<&'a str>,
+    pub observer: Option<&'a str>,
 }
 
 impl Ledger {
@@ -116,10 +135,11 @@ impl Ledger {
         id: &str,
         commit_sha: Option<&str>,
         host: Option<&str>,
+        observed: Observed,
     ) -> Result<(), LedgerError> {
         self.db.execute(
-            "INSERT INTO runs (id, started_at, commit_sha, host) VALUES (?1, ?2, ?3, ?4)",
-            params![id, now_rfc3339(), commit_sha, host],
+            "INSERT INTO runs (id, started_at, commit_sha, host, transport, observer) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, now_rfc3339(), commit_sha, host, observed.transport, observed.observer],
         )?;
         Ok(())
     }
@@ -128,7 +148,7 @@ impl Ledger {
         Ok(self
             .db
             .query_row(
-                "SELECT id, started_at, commit_sha, host FROM runs WHERE id = ?1",
+                "SELECT id, started_at, commit_sha, host, transport, observer FROM runs WHERE id = ?1",
                 [id],
                 |r| {
                     Ok(RunRow {
@@ -136,10 +156,35 @@ impl Ledger {
                         started_at: r.get(1)?,
                         commit_sha: r.get(2)?,
                         host: r.get(3)?,
+                        transport: r.get(4)?,
+                        observer: r.get(5)?,
                     })
                 },
             )
             .optional()?)
+    }
+
+    /// Every result recorded by a run that `transport` observed (`None`:
+    /// results whose run has no transport, i.e. recorded before schema v2).
+    pub fn results_by_transport(
+        &self,
+        transport: Option<&str>,
+    ) -> Result<Vec<StepResult>, LedgerError> {
+        let mut st = self.db.prepare(
+            "SELECT r.json FROM results r JOIN runs u ON u.id = r.run_id WHERE u.transport IS ?1 ORDER BY r.created_at, r.rowid",
+        )?;
+        let rows = st.query_map([transport], |r| r.get::<_, Vec<u8>>(0))?;
+        rows.map(|j| Ok(serde_json::from_slice(&j?)?)).collect()
+    }
+
+    /// Deletes every result recorded by a run that `transport` observed and
+    /// returns how many. Their manifests stay but can no longer produce a
+    /// hit: a lookup replays only a manifest that still has a result.
+    pub fn purge_transport(&self, transport: Option<&str>) -> Result<usize, LedgerError> {
+        Ok(self.db.execute(
+            "DELETE FROM results WHERE run_id IN (SELECT id FROM runs WHERE transport IS ?1)",
+            [transport],
+        )?)
     }
 
     /// Stores a manifest and returns its id. Re-recording an identical
@@ -368,15 +413,90 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("ledger.sqlite");
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 1);
-        l.record_run("01RUN", Some("abc"), Some("box")).unwrap();
+        assert_eq!(l.schema_version().unwrap(), MIGRATIONS.len());
+        l.record_run("01RUN", Some("abc"), Some("box"), Observed::default())
+            .unwrap();
         drop(l);
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 1);
+        assert_eq!(l.schema_version().unwrap(), MIGRATIONS.len());
         assert_eq!(
             l.run("01RUN").unwrap().unwrap().commit_sha.as_deref(),
             Some("abc")
         );
+    }
+
+    /// A v1 ledger (before the transport was stored) migrates in place: its
+    /// runs keep everything and have no transport, which is how their
+    /// results are found (and purged) as "unknown transport".
+    #[test]
+    fn migrates_v1_and_finds_results_by_transport() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        {
+            let db = Connection::open(&p).unwrap();
+            db.execute_batch(MIGRATIONS[0]).unwrap();
+            db.pragma_update(None, "user_version", 1).unwrap();
+            db.execute(
+                "INSERT INTO runs (id, started_at, commit_sha, host) VALUES ('r0', 't', 'c0', 'h')",
+                [],
+            )
+            .unwrap();
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), 2);
+        let old = l.run("r0").unwrap().unwrap();
+        assert_eq!(
+            (old.commit_sha.as_deref(), old.transport, old.observer),
+            (Some("c0"), None, None)
+        );
+
+        let key = Hash::of(b"key");
+        let t = tree("v1");
+        let id = l.put_manifest(&manifest(&t, key), "r0").unwrap();
+        l.put_result(&result(key, id, "r0", 0)).unwrap();
+        for (run, transport, observer) in [
+            ("r1", "fuse-uring", "fuse-uring+passthrough+sealed"),
+            ("r2", "fuse", "fuse+uring-fallback+passthrough+sealed"),
+            ("r3", "fuse-uring", "fuse-uring+passthrough"),
+        ] {
+            l.record_run(
+                run,
+                None,
+                None,
+                Observed {
+                    transport: Some(transport),
+                    observer: Some(observer),
+                },
+            )
+            .unwrap();
+            l.put_result(&result(key, id, run, 0)).unwrap();
+        }
+        l.record_run("r4", None, None, Observed::default()).unwrap(); // a replay
+        assert_eq!(
+            l.run("r2").unwrap().unwrap().observer.as_deref(),
+            Some("fuse+uring-fallback+passthrough+sealed")
+        );
+        let runs = |tr: Option<&str>| -> Vec<String> {
+            l.results_by_transport(tr)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.run_id)
+                .collect()
+        };
+        assert_eq!(runs(Some("fuse-uring")), ["r1", "r3"]);
+        assert_eq!(runs(Some("fuse")), ["r2"]);
+        assert_eq!(runs(None), ["r0"]);
+
+        // Purging the ring's results leaves a hit only from the others.
+        assert_eq!(l.purge_transport(Some("fuse-uring")).unwrap(), 2);
+        assert!(runs(Some("fuse-uring")).is_empty());
+        assert_eq!(l.latest_result(&key, &id).unwrap().unwrap().run_id, "r2");
+        assert_eq!(l.purge_transport(Some("fuse")).unwrap(), 1);
+        assert_eq!(l.purge_transport(None).unwrap(), 1);
+        assert!(l.find_match(&key, &t).unwrap().hit.is_none());
+        drop(l);
+        // Reopening a v2 ledger runs nothing again.
+        assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 2);
     }
 
     #[test]

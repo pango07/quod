@@ -167,10 +167,16 @@ impl Env {
     }
 
     pub fn stillpass(&self, args: &[&str]) -> Out {
+        self.stillpass_in(&self.state(), args, &[])
+    }
+
+    /// `stillpass` with its own state dir and extra environment.
+    pub fn stillpass_in(&self, state: &Path, args: &[&str], envs: &[(&str, &str)]) -> Out {
         let out = Command::new(env!("CARGO_BIN_EXE_stillpass"))
             .arg("--state")
-            .arg(self.state())
+            .arg(state)
             .args(args)
+            .envs(envs.iter().copied())
             .output()
             .unwrap();
         let o = Out {
@@ -202,4 +208,21 @@ impl Env {
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, content).unwrap();
     }
+}
+
+/// The structured events a state dir's runs wrote, oldest first.
+pub fn events(state: &Path) -> Vec<serde_json::Value> {
+    fs::read_to_string(state.join("events.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+/// The last event with this message.
+pub fn last_event(state: &Path, message: &str) -> Option<serde_json::Value> {
+    events(state)
+        .into_iter()
+        .rev()
+        .find(|e| e["message"] == message)
 }

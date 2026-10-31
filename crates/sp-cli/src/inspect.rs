@@ -45,11 +45,12 @@ fn render(state: &State, id: &str, ledger: Option<&Path>) -> anyhow::Result<Stri
     };
     writeln!(
         o,
-        "run {}  started {}  commit {}  host {}",
+        "run {}  started {}  commit {}  host {}  observer {}",
         run.id,
         run.started_at,
         run.commit_sha.as_deref().unwrap_or("-"),
-        run.host.as_deref().unwrap_or("-")
+        run.host.as_deref().unwrap_or("-"),
+        run.observer.as_deref().unwrap_or("-")
     )?;
     for r in ledger.results_for_run(id)? {
         writeln!(o, "{}", serde_json::to_string_pretty(&r)?)?;
