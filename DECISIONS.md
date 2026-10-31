@@ -19,3 +19,7 @@ The Phase 0 handoff is the plan; this file is the record. One line each, dated.
 - 2026-10-30: Manifest::from_log errors on an access whose kind contradicts the tree, and keeps both entries if a lookup was ENOENT for a path the tree has (cannot match, so cannot false-hit).
 - 2026-10-30: Kernel overlayfs over the FUSE lower works on kernel 7.0 (Docker Desktop linuxkit); no copy-on-write fallback needed. The upper dir must not itself be on overlayfs, so dev runs set TMPDIR to an ext4 volume.
 - 2026-10-30: Outputs include `d` entries for directories the step created (so empty directories survive replay) and `x` then contents for opaque or type-replaced directories.
+- 2026-10-30: cli/cli verified as the spike repo: after go mod download, go test ./... passes offline in the sandbox (259 packages, ~15s on 18 arm64 cores).
+- 2026-10-30: Steps run as uid/gid 1001 (`runner`) inside the sandbox, with a fixed passwd/group bound over /etc: as root, cli/cli's permission tests fail, and ssh-keygen needs a passwd entry.
+- 2026-10-30: The host fingerprint includes a hash of the installed package list (dpkg), because host binaries outside the served tree (ssh, git, coreutils) are inputs the observer cannot see. /etc is bound read-only from the host and is a known unobserved gap for the spike.
+- 2026-10-30: bwrap's root tmpfs is remounted read-only, so writes outside /workspace and /tmp fail.

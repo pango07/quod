@@ -5,7 +5,7 @@ ARG GO_VERSION
 ARG RUST_TOOLCHAIN
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bubblewrap ca-certificates curl fuse3 git build-essential pkg-config \
-      sqlite3 util-linux procps time \
+      sqlite3 util-linux procps time openssh-client \
     && rm -rf /var/lib/apt/lists/*
 RUN arch=$(dpkg --print-architecture) \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" | tar -C /usr/local -xz
