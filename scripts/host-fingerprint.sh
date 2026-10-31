@@ -41,16 +41,37 @@ fi
 # tree. Each install root's listing (path, type, size, mtime, mode, link
 # target; for a directory only its path and mode, its entries are listed
 # anyway) is hashed, so any change to an installed toolchain file changes
-# every key (~70ms warm for all four roots). `__pycache__` is left out: the
+# every key. `__pycache__` directories are left out of the listing: the
 # stripped Python build ships no stdlib pycs, so any root python run outside
-# the sandbox writes some (fresh mtimes, and a directory mtime bump), and
-# they are a cache of the sources pinned here, validated on every import.
+# the sandbox writes some (fresh mtimes, and a directory mtime bump).
+# Of those pycs, timestamp and checked-hash ones are validated against their
+# (pinned) source on every import; an unchecked-hash pyc (PEP 552 flags=1) is
+# trusted as is, so those are pinned by content. The same walk lists them,
+# and Python starts only if there are any.
+pycs=$(mktemp)
+trap 'rm -f "$pycs" "$pycs".*' EXIT
 for t in /usr/local/go /usr/local/node /usr/local/python /usr/local/uv; do
   if [ -d "$t" ]; then
-    echo "tree $t $(find "$t" -name __pycache__ -prune -o -type d -printf '%P\td\t%m\n' \
+    echo "tree $t $(find "$t" \( -type d -name __pycache__ \) \
+      -o \( -path '*/__pycache__/*' -name '*.pyc' -type f -fprint0 "$pycs.${t##*/}" \) \
+      -o -path '*/__pycache__/*' \
+      -o -type d -printf '%P\td\t%m\n' \
       -o -printf '%P\t%y\t%s\t%T@\t%m\t%l\n' | LC_ALL=C sort | sha256sum | cut -c1-64)"
   fi
 done
+if [ -n "$(cat "$pycs".* 2>/dev/null | head -c1)" ]; then
+  echo "unchecked-pycs $(cat "$pycs".* | /usr/local/python/bin/python3 -I -B -c '
+import hashlib, sys
+for p in sorted(sys.stdin.buffer.read().split(b"\0")):
+    if p:
+        with open(p, "rb") as f:
+            head = f.read(16)
+            if len(head) >= 8 and int.from_bytes(head[4:8], "little") & 3 == 1:
+                print(p.decode(), hashlib.sha256(head + f.read()).hexdigest())
+' | sha256sum | cut -c1-64)"
+else
+  echo "unchecked-pycs $(printf '' | sha256sum | cut -c1-64)"
+fi
 echo "glibc $(getconf GNU_LIBC_VERSION 2>/dev/null || ldd --version 2>&1 | head -1)"
 echo "arch $(uname -m)"
 if [ -r /etc/os-release ]; then . /etc/os-release; echo "distro ${ID:-unknown} ${VERSION_ID:-unknown}"; fi
