@@ -13,5 +13,5 @@ fi
 tty=; [ -t 0 ] && tty=-it
 exec docker run --rm $tty --privileged --device /dev/fuse \
   -v "$root":/src -v stillpass-target:/src/target -v stillpass-work:/work \
-  -e CARGO_TARGET_DIR=/src/target -e STILLPASS_INTEGRATION="${STILLPASS_INTEGRATION:-1}" \
-  "$img" bash -c "$*"
+  -e CARGO_TARGET_DIR=/src/target -e TMPDIR=/work/tmp -e STILLPASS_INTEGRATION="${STILLPASS_INTEGRATION:-1}" \
+  "$img" bash -c "mkdir -p /work/tmp && $*"

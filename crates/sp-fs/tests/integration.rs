@@ -175,3 +175,79 @@ fn spike_repo_read_set_equals_file_set() {
     );
     assert_eq!(logged, files);
 }
+
+#[test]
+fn overlay_diff_reports_exactly_the_writes() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    sample(&tmp.path().join("src"));
+    fs::write(tmp.path().join("src/pkg/old.txt"), "old").unwrap();
+    fs::create_dir_all(tmp.path().join("src/gone/sub")).unwrap();
+    fs::write(tmp.path().join("src/gone/sub/f"), "f").unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let tree = cas.import_dir(&tmp.path().join("src")).unwrap();
+    let served = mounted(&tree, &cas, tmp.path());
+    let ov = sp_fs::overlay(
+        &served,
+        &tmp.path().join("upper"),
+        &tmp.path().join("work"),
+        &tmp.path().join("merged"),
+    )
+    .unwrap();
+    let _ = served.drain();
+    sh(
+        ov.merged(),
+        "echo new > created.txt && mkdir -p newdir/deep && echo d > newdir/deep/x \
+         && echo more >> go.mod && rm pkg/cmd/big.bin && mv pkg/old.txt pkg/renamed.txt \
+         && rm -r gone && chmod 755 pkg/cmd/root.go",
+    );
+    let log = served.drain();
+    let out = ov.finish(&tree, &cas).unwrap();
+    let got: Vec<(String, Kind)> = out.iter().map(|e| (e.p.clone(), e.k)).collect();
+    let want: Vec<(String, Kind)> = [
+        ("created.txt", Kind::File),
+        ("gone", Kind::Deleted),
+        ("go.mod", Kind::File),
+        ("newdir", Kind::Dir),
+        ("newdir/deep", Kind::Dir),
+        ("newdir/deep/x", Kind::File),
+        ("pkg/cmd/big.bin", Kind::Deleted),
+        ("pkg/cmd/root.go", Kind::File),
+        ("pkg/old.txt", Kind::Deleted),
+        ("pkg/renamed.txt", Kind::File),
+    ]
+    .iter()
+    .map(|(p, k)| (p.to_string(), *k))
+    .collect();
+    let mut got_sorted = got.clone();
+    got_sorted.sort();
+    let mut want_sorted = want.clone();
+    want_sorted.sort();
+    assert_eq!(got_sorted, want_sorted);
+    let gomod = out.iter().find(|e| e.p == "go.mod").unwrap();
+    assert_eq!(
+        cas.get(&gomod.h.unwrap()).unwrap().unwrap(),
+        b"module x\nmore\n"
+    );
+    assert_eq!(
+        out.iter().find(|e| e.p == "pkg/cmd/root.go").unwrap().m,
+        Some(0o755)
+    );
+
+    // Writes reach only the upper dir: the lower log never shows a path the
+    // step created as present, only as absent lookups.
+    for created in ["created.txt", "newdir", "newdir/deep/x", "pkg/renamed.txt"] {
+        assert!(
+            kinds_for(&log, created).iter().all(|k| *k == Kind::Absent),
+            "{created}: {log:?}"
+        );
+    }
+    assert!(fs::read_to_string(tmp.path().join("src/go.mod")).unwrap() == "module x\n");
+
+    // Applying the outputs to the tree reproduces the merged view.
+    let after = tree.with_outputs(&out);
+    assert!(after.get("gone").is_none() && after.get("gone/sub/f").is_none());
+    assert!(after.get("newdir/deep/x").is_some() && after.get("pkg/old.txt").is_none());
+}
