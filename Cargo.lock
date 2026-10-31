@@ -980,6 +980,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-trust"
+version = "0.0.0"
+dependencies = [
+ "sp-cas",
+ "sp-ledger",
+ "sp-manifest",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "sqlite-wasm-rs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

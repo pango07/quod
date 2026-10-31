@@ -19,6 +19,7 @@ sp-fs = { path = "crates/sp-fs" }
 sp-sandbox = { path = "crates/sp-sandbox" }
 sp-ledger = { path = "crates/sp-ledger" }
 sp-replay = { path = "crates/sp-replay" }
+sp-trust = { path = "crates/sp-trust" }
 
 anyhow = "1"
 blake3 = "1.8"
