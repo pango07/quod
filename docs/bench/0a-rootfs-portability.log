@@ -1,0 +1,52 @@
+# scripts/portability.sh on exp/rootfs, the code committed as 3bdfabe..fa7760a (before the host-fingerprint message change), 2026-10-31 13:19-13:22 UTC
+# STILLPASS_DEV_NS=rootfs CARGO_BUILD_JOBS=4 scripts/portability.sh
+start 2026-10-31T13:19:24Z
+== host 2 gets its own export of stillpass-rootfs:go1.27.3-bookworm-arm64
+
+== host 1 (scripts/dev.sh), shared state /work/portability-20261031T061925
+--- host: Debian GNU/Linux 12 (bookworm), ldd (Debian GLIBC 2.36-9+deb12u14) 2.36, bubblewrap 0.8.0, 181 packages, go on host: /usr/local/go/bin/go, kernel 7.0.14-linuxkit aarch64, load 66.68 34.38 26.60
+imported 24614 entries (21010 files, 441450803 bytes) in 10.1s into /work/portability-20261031T061925/cas
+imported 24637 entries (21028 files, 442513185 bytes) in 2.3s into /work/portability-20261031T061925/cas
+rootfs b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d, other b3:ab6d5d4247267b50d989f22a810686d555b40eaf19e3f5b721191c631a5e3788
+--- step A in the rootfs (network, not memoized)
+STILLPASS  EXECUTED  network allowed, not memoized
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  ran 8.2s
+--- step B with the pinned rootfs (EXECUTED expected)
+STILLPASS  EXECUTED
+  step b3:34021417  manifest b3:588da912  29,878 inputs recorded
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  14 outputs outside the workspace
+  no manifests for this step key
+  ran 37.4s
+stdout: 18160 bytes, sha256 14aee4e3bdff4a5d, 259 packages ok
+
+== host 2 (scripts/dev-host2.sh), sharing only /work/portability-20261031T061925
+--- host: Ubuntu 24.04.5 LTS, ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39, bubblewrap 0.9.0, 189 packages, go on host: none, kernel 7.0.14-linuxkit aarch64, load 67.84 42.17 30.00
+imported 24614 entries (21010 files, 441450803 bytes) in 10.2s into /work/private/cas
+own import of its own export: b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d (same digest)
+--- step A in the rootfs (network, not memoized)
+STILLPASS  EXECUTED  network allowed, not memoized
+  image rootfs b3:3500d167  aarch64 linux 7.0 18 cpus
+  ran 7.8s
+--- step B with the pinned rootfs (REPLAYED expected)
+STILLPASS  REPLAYED
+  proved by run 01M691WB on 2026-10-31 13:21 UTC
+  step b3:34021417  manifest b3:588da912  29,878 inputs matched
+  recorded 37.4s  replay 1.0s  saved 36.4s
+stdout: 18160 bytes, sha256 14aee4e3bdff4a5d, 259 packages ok
+--- step B with a different rootfs (MISS expected)
+STILLPASS  EXECUTED
+  image rootfs b3:ab6d5d42  aarch64 linux 7.0 18 cpus
+  no manifests for this step key
+  ran 42.7s
+--- step B on the host root (the fallback; this host has no Go)
+STILLPASS  ERROR (exit 2, not the step's result)
+exit=0 end 2026-10-31T13:22:26Z
+
+# host 2, --host-root stderr in full:
+STILLPASS  ERROR (exit 2, not the step's result)
+  host fingerprint failed: (empty; the script's `set -e` on `command -v go`; since this run it says "no go on PATH ...")
+
+# root_outputs of step B (host 1): cli/cli's tests leave these in /tmp
+f tmp/1097541888, f tmp/2271128334, f tmp/2489987739, f tmp/2699186108, f tmp/2940136227, f tmp/3591421898, f tmp/3670532459, d tmp/TestRunLocalInstalllocal_path_with_tilde_expansion104445599 (and 001, 001/.agents, f 001/.agents/.skill-lock.json), f tmp/empty.jsonl2403356001, f tmp/gh1733907754.json, f tmp/gh4214177100.json

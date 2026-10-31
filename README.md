@@ -40,5 +40,26 @@ scripts/dev.sh cargo test --workspace  # unit, property, golden, integration
 scripts/acceptance.sh                  # A1-A7 on the pinned spike repo
 ```
 
+## Portable proofs
+
+Steps run in a pinned root filesystem (`--rootfs DIGEST`, or
+`STILLPASS_ROOTFS`): an OCI image imported once into the store, with nothing
+of the host's userland visible and every write outside the workspace
+recorded. The key pins the rootfs digest and the host platform (arch, kernel
+major.minor, CPU features and count, page size), so a proof made on one
+machine holds on another with the same rootfs and platform:
+
+```sh
+STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh             # build, export, import; prints the digest
+STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh --extra jq  # a different rootfs (the miss case)
+scripts/dev.sh 'stillpass run --repo /work/cli --rootfs b3:... --step "go test ./..."'
+STILLPASS_DEV_NS=rootfs scripts/portability.sh              # Debian host and Ubuntu host, one ledger
+```
+
+Without a rootfs the key pins the host's fingerprint (`--host-root`), which
+does not travel; the result records which mode produced it
+(`stillpass inspect <step_key>`). A runner drives single steps through
+`stillpass step --request R --response O` (see `crates/sp-cli/src/step.rs`).
+
 The code still says `stillpass` (binary, crates, paths); the rename to `quod`
 lands in one sweep once the in-flight branches merge.
