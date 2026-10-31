@@ -357,41 +357,34 @@ impl Served {
         &self.mountpoint
     }
 
-    /// Everything logged so far, deduplicated, without clearing it.
-    pub fn accesses(&self) -> Vec<Access> {
-        let log = self.log.lock().unwrap();
-        let mut out: Vec<Access> = log
-            .present
-            .iter()
-            .map(|(ino, kind)| Access {
-                path: self.paths[*ino as usize - 1].0.clone(),
-                kind: *kind,
-            })
-            .chain(log.absent.iter().map(|p| Access {
-                path: p.clone(),
-                kind: Kind::Absent,
-            }))
-            .collect();
-        out.sort();
-        out
-    }
-
-    /// Takes the log, leaving it empty.
-    pub fn drain(&self) -> Vec<Access> {
-        let out = self.accesses();
-        *self.log.lock().unwrap() = Log::default();
-        out
-    }
-
-    /// Unmounts and returns the final log.
+    /// Unmounts, waits for in-flight requests, and returns the log,
+    /// deduplicated and sorted.
+    ///
+    /// A mount serves exactly one step. There is deliberately no way to
+    /// drain the log and keep going: the kernel caches entries and
+    /// attributes, so a second step on the same mount would read without
+    /// any request reaching the log.
     pub fn unmount(mut self) -> Result<Vec<Access>, FsError> {
-        let out = self.accesses();
         if let Some(s) = self.session.take() {
             s.umount_and_join().map_err(FsError::io(format!(
                 "unmount {}",
                 self.mountpoint.display()
             )))?;
         }
+        let log = std::mem::take(&mut *self.log.lock().unwrap());
+        let mut out: Vec<Access> = log
+            .present
+            .into_iter()
+            .map(|(ino, kind)| Access {
+                path: self.paths[ino as usize - 1].0.clone(),
+                kind,
+            })
+            .chain(log.absent.into_iter().map(|path| Access {
+                path,
+                kind: Kind::Absent,
+            }))
+            .collect();
+        out.sort();
         Ok(out)
     }
 }

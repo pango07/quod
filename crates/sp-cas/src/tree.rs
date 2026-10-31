@@ -104,7 +104,8 @@ impl Entry {
 }
 
 /// Hash of a directory listing: one `name<TAB>kind<LF>` line per child,
-/// sorted bytewise by name.
+/// sorted bytewise by name. Unambiguous only because names containing a tab
+/// or newline are refused everywhere a tree is built (see `valid_name`).
 pub fn listing_hash<'a>(children: impl IntoIterator<Item = (&'a str, Kind)>) -> Hash {
     let mut kids: Vec<(&str, Kind)> = children.into_iter().collect();
     kids.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
@@ -116,6 +117,12 @@ pub fn listing_hash<'a>(children: impl IntoIterator<Item = (&'a str, Kind)>) -> 
         buf.push('\n');
     }
     Hash::of(buf.as_bytes())
+}
+
+/// Names a tree may contain: UTF-8 (by type) and free of the listing
+/// separators, so two different listings never hash alike.
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['\t', '\n', '/', '\0'])
 }
 
 /// `parent/name`, with the root spelled `.`.
@@ -183,6 +190,12 @@ impl Tree {
             }
         }
         for (path, kids) in dirs {
+            if let Some(leaf) = entries.get(&path) {
+                panic!(
+                    "tree invariant: {:?} is both a {:?} and a directory",
+                    path, leaf.k
+                );
+            }
             let h = listing_hash(kids.iter().map(|(n, k)| (n.as_str(), *k)));
             entries.insert(path.clone(), Entry::dir(path, h));
         }
@@ -246,7 +259,14 @@ impl Tree {
                     let prefix = format!("{}/", o.p);
                     leaves.retain(|p, _| p != &o.p && !p.starts_with(&prefix));
                 }
-                Kind::File | Kind::Symlink | Kind::Dir => {
+                Kind::File | Kind::Symlink => {
+                    // Overlayfs writes no whiteout when a file replaces a
+                    // directory, so the directory's contents go here.
+                    let prefix = format!("{}/", o.p);
+                    leaves.retain(|p, _| !p.starts_with(&prefix));
+                    leaves.insert(o.p.clone(), o.clone());
+                }
+                Kind::Dir => {
                     leaves.insert(o.p.clone(), o.clone());
                 }
                 Kind::Absent => {}
@@ -305,6 +325,22 @@ mod tests {
         let t = t().without_top_level("a");
         assert!(t.get("a").is_none() && t.get("a/b/c.txt").is_none());
         assert!(t.get("a.b").is_some());
+    }
+
+    #[test]
+    fn file_replacing_a_directory_drops_its_contents() {
+        let t = t().with_outputs(&[Entry::file("a", Hash::of(b"x"), 0o644)]);
+        assert_eq!(t.get("a").unwrap().k, Kind::File);
+        assert!(t.get("a/b/c.txt").is_none() && t.get("a/b").is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "both")]
+    fn leaf_and_directory_at_one_path_is_refused() {
+        Tree::from_leaves([
+            Entry::file("a", Hash::of(b"x"), 0o644),
+            Entry::file("a/b", Hash::of(b"y"), 0o644),
+        ]);
     }
 
     #[test]

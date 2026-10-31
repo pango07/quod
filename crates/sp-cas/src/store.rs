@@ -7,6 +7,24 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::{Entry, Hash, Kind, ROOT, Tree, child_path};
 
+/// Writes everything it is given to the inner file while hashing it.
+struct HashingWriter<'a> {
+    file: &'a mut fs::File,
+    hasher: blake3::Hasher,
+}
+
+impl Write for HashingWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = self.file.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
 /// Files at or below this size are read whole; larger ones are streamed.
 const STREAM_THRESHOLD: u64 = 1 << 20;
 
@@ -16,6 +34,8 @@ pub enum CasError {
     Io { path: PathBuf, source: io::Error },
     #[error("path is not UTF-8: {0:?}")]
     NonUtf8(PathBuf),
+    #[error("file name contains a tab or newline, which listings cannot represent: {0:?}")]
+    BadName(PathBuf),
     #[error("unsupported file type (not a file, directory or symlink): {0:?}")]
     Unsupported(PathBuf),
     #[error("blob {0} is not in the store")]
@@ -103,16 +123,29 @@ impl Cas {
             self.write_blob(&h, |f| f.write_all(&bytes))?;
             return Ok((h, bytes.len() as u64));
         }
-        let mut hasher = blake3::Hasher::new();
-        hasher
-            .update_reader(fs::File::open(path).at(path)?)
-            .at(path)?;
-        let h = Hash::from_blake3(hasher.finalize());
+        // Stream once into a temp file while hashing, then rename to the hash
+        // of the bytes actually stored: a file changing underneath can never
+        // put wrong bytes under a hash.
+        let tmp = self.tmp_path("stream");
+        let mut f = fs::File::create(&tmp).at(&tmp)?;
+        let mut w = HashingWriter {
+            file: &mut f,
+            hasher: blake3::Hasher::new(),
+        };
+        let size = io::copy(&mut fs::File::open(path).at(path)?, &mut w).at(path)?;
+        let h = Hash::from_blake3(w.hasher.finalize());
         if self.has(&h) {
+            drop(f);
+            fs::remove_file(&tmp).at(&tmp)?;
             return Ok((h, 0));
         }
-        self.write_blob(&h, |f| io::copy(&mut fs::File::open(path)?, f).map(|_| ()))?;
-        Ok((h, meta.len()))
+        f.sync_data().at(&tmp)?;
+        drop(f);
+        let dest = self.blob_path(&h);
+        let parent = dest.parent().unwrap();
+        fs::create_dir_all(parent).at(parent)?;
+        fs::rename(&tmp, &dest).at(&dest)?;
+        Ok((h, size))
     }
 
     /// Copies a blob into `dest` (which must not exist).
@@ -142,17 +175,19 @@ impl Cas {
         let dest = self.blob_path(h);
         let parent = dest.parent().unwrap();
         fs::create_dir_all(parent).at(parent)?;
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let tmp = self.dir.join("tmp").join(format!(
-            "{}.{}.{}",
-            h.hex(),
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
+        let tmp = self.tmp_path(&h.hex());
         let mut f = fs::File::create(&tmp).at(&tmp)?;
         write(&mut f).and_then(|()| f.sync_data()).at(&tmp)?;
         drop(f);
         fs::rename(&tmp, &dest).at(&dest)
+    }
+
+    fn tmp_path(&self, tag: &str) -> PathBuf {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        self.dir
+            .join("tmp")
+            .join(format!("{tag}.{}.{seq}", std::process::id()))
     }
 
     pub fn import_dir(&self, root: &Path) -> Result<Tree, CasError> {
@@ -176,6 +211,9 @@ impl Cas {
                     .file_name()
                     .into_string()
                     .map_err(|_| CasError::NonUtf8(path.clone()))?;
+                if !crate::valid_name(&name) {
+                    return Err(CasError::BadName(path));
+                }
                 let child = child_path(&rel, &name);
                 let meta = fs::symlink_metadata(&path).at(&path)?;
                 let ft = meta.file_type();

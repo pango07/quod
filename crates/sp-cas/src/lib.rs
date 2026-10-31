@@ -13,4 +13,4 @@ pub use canon::{CanonError, canonical_json};
 pub use hash::{Hash, HashParseError};
 pub use store::remove_any;
 pub use store::{Cas, CasError, ImportStats};
-pub use tree::{Entry, Kind, ROOT, Tree, child_path, listing_hash, parent_and_name};
+pub use tree::{Entry, Kind, ROOT, Tree, child_path, listing_hash, parent_and_name, valid_name};

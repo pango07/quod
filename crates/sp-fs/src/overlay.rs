@@ -132,6 +132,12 @@ fn walk(
             what: format!("output name is not UTF-8: {n:?}"),
             source: std::io::ErrorKind::InvalidData.into(),
         })?;
+        if !sp_cas::valid_name(&name) {
+            return Err(FsError::Io {
+                what: format!("step created a name listings cannot represent: {name:?}"),
+                source: std::io::ErrorKind::InvalidData.into(),
+            });
+        }
         let p = child_path(rel, &name);
         let meta =
             fs::symlink_metadata(&path).map_err(FsError::io(format!("stat {}", path.display())))?;

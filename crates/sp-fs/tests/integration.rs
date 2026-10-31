@@ -51,9 +51,12 @@ fn sh(cwd: &Path, script: &str) -> std::process::Output {
 }
 
 fn mounted(tree: &Tree, cas: &Cas, tmp: &Path) -> sp_fs::Served {
-    let mnt = tmp.join("mnt");
-    fs::create_dir_all(&mnt).unwrap();
-    sp_fs::serve(tree, cas, &mnt).unwrap()
+    mounted_at(tree, cas, &tmp.join("mnt"))
+}
+
+fn mounted_at(tree: &Tree, cas: &Cas, mnt: &Path) -> sp_fs::Served {
+    fs::create_dir_all(mnt).unwrap();
+    sp_fs::serve(tree, cas, mnt).unwrap()
 }
 
 #[test]
@@ -99,24 +102,24 @@ fn ls_logs_one_listing_and_stat_of_missing_logs_one_absent() {
     sample(&tmp.path().join("src"));
     let cas = Cas::open(tmp.path().join("cas")).unwrap();
     let tree = cas.import_dir(&tmp.path().join("src")).unwrap();
-    let served = mounted(&tree, &cas, tmp.path());
-    // Settle the root first (the mount itself stats it), then measure.
-    sh(served.mountpoint(), "true");
-    let _ = served.drain();
+    // One mount per check: a mount serves one step, and kernel caching
+    // means a second command on the same mount would not be logged afresh.
+    let served = mounted_at(&tree, &cas, &tmp.path().join("m1"));
     let out = sh(served.mountpoint(), "ls pkg/cmd");
     assert_eq!(String::from_utf8_lossy(&out.stdout), "big.bin\nroot.go\n");
-    let log = served.drain();
+    let log = served.unmount().unwrap();
     assert_eq!(kinds_for(&log, "pkg/cmd"), [Kind::Dir]);
     assert!(
         kinds_for(&log, "pkg/cmd/root.go").is_empty(),
         "plain ls must not read children: {log:?}"
     );
 
+    let served = mounted_at(&tree, &cas, &tmp.path().join("m2"));
     sh(
         served.mountpoint(),
         "stat pkg/nope.go >/dev/null 2>&1 || true",
     );
-    let log = served.drain();
+    let log = served.unmount().unwrap();
     assert_eq!(kinds_for(&log, "pkg/nope.go"), [Kind::Absent]);
     assert_eq!(
         log.iter().filter(|a| a.kind == Kind::Absent).count(),
@@ -124,6 +127,7 @@ fn ls_logs_one_listing_and_stat_of_missing_logs_one_absent() {
         "{log:?}"
     );
 
+    let served = mounted_at(&tree, &cas, &tmp.path().join("m3"));
     // Writes are refused: this mount is read-only.
     assert!(fs::write(served.mountpoint().join("go.mod"), "x").is_err());
     let mnt = served.mountpoint().to_path_buf();
@@ -196,15 +200,14 @@ fn overlay_diff_reports_exactly_the_writes() {
         &tmp.path().join("merged"),
     )
     .unwrap();
-    let _ = served.drain();
     sh(
         ov.merged(),
         "echo new > created.txt && mkdir -p newdir/deep && echo d > newdir/deep/x \
          && echo more >> go.mod && rm pkg/cmd/big.bin && mv pkg/old.txt pkg/renamed.txt \
          && rm -r gone && chmod 755 pkg/cmd/root.go",
     );
-    let log = served.drain();
     let out = ov.finish(&tree, &cas).unwrap();
+    let log = served.unmount().unwrap();
     let got: Vec<(String, Kind)> = out.iter().map(|e| (e.p.clone(), e.k)).collect();
     let want: Vec<(String, Kind)> = [
         ("created.txt", Kind::File),
