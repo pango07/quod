@@ -14,7 +14,7 @@ pub use serve::{Served, serve};
 #[cfg(target_os = "linux")]
 mod overlay;
 #[cfg(target_os = "linux")]
-pub use overlay::{Overlay, overlay};
+pub use overlay::{Overlay, overlay, syncfs};
 
 /// How many requests of each kind the kernel sent the observer so far.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,6 +74,10 @@ mod unsupported {
         Err(FsError::Unsupported)
     }
 
+    pub fn syncfs(_: &Path) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+
     impl Served {
         pub fn mountpoint(&self) -> &Path {
             Path::new("/")
@@ -99,4 +103,4 @@ mod unsupported {
     }
 }
 #[cfg(not(target_os = "linux"))]
-pub use unsupported::{Overlay, Served, overlay, serve};
+pub use unsupported::{Overlay, Served, overlay, serve, syncfs};

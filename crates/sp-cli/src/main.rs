@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 mod bench;
 mod inspect;
 mod run;
+mod snapshot;
 mod state;
 
 /// Exit code for Stillpass's own failures, distinct from any step's.

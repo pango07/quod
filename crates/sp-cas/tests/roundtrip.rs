@@ -127,9 +127,9 @@ fn take_file_moves_new_blobs_and_leaves_duplicates() {
     assert!(out.join("dup").exists());
     assert_eq!(cas.get(&got[0].0).unwrap().unwrap(), b"fresh bytes");
     assert_eq!(cas.get(&got[1].0).unwrap().unwrap(), big);
-    // Whatever mode the step used, the blob has the store's.
+    // Whatever mode the step used, the blob has the store's: read-only.
     let mode = fs::metadata(cas.blob_path(&got[0].0)).unwrap().mode() & 0o777;
-    assert_eq!(mode, 0o644);
+    assert_eq!(mode, 0o444);
     // put_file of the same content agrees with the moved blob's hash.
     fs::write(out.join("again"), b"fresh bytes").unwrap();
     assert_eq!(cas.put_file(&out.join("again")).unwrap(), (got[0].0, 0));
@@ -224,6 +224,16 @@ fn link_entries_is_a_snapshot_of_the_hashed_content() {
         Some("a.go")
     );
 
+    // Linking never changes a blob's mode: a second snapshot wanting another
+    // mode for the same content copies instead (see link_entries).
+    assert_eq!(blob.mode() & 0o777, 0o444);
+    assert_eq!(
+        fs::metadata(cas.blob_path(&tree.get("m@v1/a.go").unwrap().h.unwrap()))
+            .unwrap()
+            .mode()
+            & 0o777,
+        0o444
+    );
     // Changing the source afterwards does not reach the snapshot.
     fs::set_permissions(src.join("m@v1/a.go"), fs::Permissions::from_mode(0o644)).unwrap();
     fs::write(src.join("m@v1/a.go"), b"package changed\n").unwrap();

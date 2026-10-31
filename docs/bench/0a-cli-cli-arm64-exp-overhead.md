@@ -94,6 +94,65 @@ Acceptance on the same tree: A1-A7 pass, A7 0 false hits over 29,879
 entries, A7b 10/10 (replay and fresh execution read the same 29,879 paths),
 W1-W4 pass with sealing on (`0a-cli-cli-arm64-exp-overhead-acceptance.log`).
 
+## Round 2 (exp/overhead2)
+
+### Shared snapshots
+
+The module-cache snapshot is built once per distinct subtree under
+`<cas>/snapshots/<key>` (inside the store: it is hard links into it) and
+reused across runs and commits by every process sharing the store (key:
+BLAKE3 over the format version and every entry's path, kind, hash, mode and
+target, length-prefixed). Three misses with distinct step keys on the same
+tree, load 5-7: build 778ms (26,637 entries), then reuse 3ms, 3ms; the mount
+phase went from ~800ms to 34ms. Later bench numbers are therefore the
+snapshot-warm steady state: a store that has seen the module cache once.
+
+### FUSE over io_uring (`crates/sp-uring-probe`)
+
+The same minimal read-only FUSE server with two transports, fresh mount per
+run (cold kernel caches), three interleaved rounds at load 1.5-8.4,
+reads served in userspace on both (`FUSE_NO_OPEN_SUPPORT`), ext4 for
+reference. Kernel 7.0.14-linuxkit, FUSE API 7.45, `enable_uring=Y`.
+
+| Probe | classic `/dev/fuse` | io_uring | ext4 |
+| --- | --- | --- | --- |
+| `stat` of 10k module-cache paths | 0.355, 0.355, 0.340s | 0.082, 0.079, 0.077s | 0.01s |
+| `cat` of the same 10k files | 1.090, 1.075, 1.082s | 0.228, 0.233, 0.231s | 0.07s |
+| `ls -R` of the module cache (4.6k dirs) | 0.494, 0.510, 0.512s | 0.085, 0.090, 0.099s | 0.01s |
+| `go list -deps -test ./...` | 3.071, 3.041, 3.047s | 0.800, 0.796, 0.831s | 0.51s |
+
+The ring cuts the per-request cost about 4.4x; Go's serial loading phase
+goes from +2.5s over ext4 to +0.3s. This is the transport the observer
+should move to; fuser 0.18 does not have it.
+
+### Paired bench, round 2
+
+`stillpass bench --no-hit-rate --interleave --runs 8`, plain vs the final
+observer (passthrough, sealed module cache from a shared snapshot, exp/misses
+output diff), on main 6372c70 plus exp/overhead2. Another agent kept the
+box at load average 19-37; the load was steady through rounds 2-6 (plain
+15.1-15.4s), so those pairs are the clean comparison.
+
+| | Plain | Observed | Execution | Overhead (wall / execution) |
+| --- | --- | --- | --- | --- |
+| All 7 non-warm-up runs, median | 15.26s | 18.14s | 16.73s | +18.9% / +9.6% |
+| Rounds 2-6 (steady load 19-31), median | 15.3s | 18.1s | 16.6s | +18% / +8.5% |
+
+Both rows are the snapshot-warm steady state (the module-cache snapshot
+already built in the shared store; mount 0.04s).
+
+Per run (execution; load after the run): plain 15.3 (19.0), 15.3 (21.9),
+15.1 (24.6), 15.2 (27.4), 15.4 (27.2), 15.7 (32.6), 18.4 (37.4); observed
+18.1 (16.7; 20.7), 18.3 (16.6; 25.5), 17.9 (16.4; 28.3), 17.8 (16.5; 30.7),
+18.1 (16.7; 31.1), 20.3 (18.6; 33.5), 20.7 (18.9; 36.4). Observed phase
+medians: import 0.41s, mount 0.04s, execution 16.73s, output diff 0.64s,
+ledger write 0.08s. The same bench with the snapshot rebuilt every run
+(before it moved into the store) read +22.1% wall, mount 0.87s.
+
+What is left: ~1.5s of execution, which the io_uring probe above says is
+mostly the round trip of the ~10k requests the repo's own sources and
+`gomod/cache` still send; ~0.6s of output diff; ~0.2-0.4s of import.
+
 ## Report as written by `stillpass bench` (all 7 non-warm-up runs, first bench, before the rebase)
 
 ## Machine

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Reports every row of the handoff's Environment table. Exit 1 if a 0a
-# requirement fails; 0b rows are reported but only warn.
+# requirement fails; 0b and opt rows are reported but only warn.
 set -u
 fail=0
 row() { # level name ok detail
   local mark
-  if [ "$3" = 1 ]; then mark=ok; elif [ "$1" = 0b ]; then mark=WARN; else mark=FAIL; fail=1; fi
+  if [ "$3" = 1 ]; then mark=ok; elif [ "$1" = 0b ] || [ "$1" = opt ]; then mark=WARN; else mark=FAIL; fail=1; fi
   printf '%-5s %-4s %-44s %s\n' "$mark" "$1" "$2" "$4"
 }
 has() { command -v "$1" >/dev/null 2>&1; }
@@ -25,6 +25,11 @@ want_go=$(sed -n '/^\[go\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/..
 have_go=$(go env GOVERSION 2>/dev/null)
 row 0a "go $want_go" "$([ "$have_go" = "go$want_go" ] && echo 1 || echo 0)" "$have_go"
 row 0a "sqlite3" "$(has sqlite3 && echo 1 || echo 0)" "$(sqlite3 --version 2>/dev/null | cut -d' ' -f1)"
+# Optional: FUSE over io_uring (Linux 6.14+, CONFIG_FUSE_IO_URING), a faster
+# observer transport. Off by default and not kept across a reboot (or a Docker
+# Desktop VM restart); turn on with:  echo Y > /sys/module/fuse/parameters/enable_uring
+eu=$(cat /sys/module/fuse/parameters/enable_uring 2>/dev/null || echo none)
+row opt "fuse enable_uring (optional)" "$([ "$eu" = Y ] && echo 1 || echo 0)" "$eu (echo Y > /sys/module/fuse/parameters/enable_uring)"
 row 0b "/dev/kvm writable" "$([ -w /dev/kvm ] && echo 1 || echo 0)" ""
 row 0b "firecracker" "$(has firecracker && echo 1 || echo 0)" "$(firecracker --version 2>/dev/null | head -1)"
 row 0b "virtiofsd" "$(has virtiofsd && echo 1 || echo 0)" "$(virtiofsd --version 2>/dev/null | head -1)"
