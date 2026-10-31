@@ -30,6 +30,7 @@ arguments, then unsupported claims).
 
 | exp/trust: trust layer, timeouts, panics, CLI (tip 16a6c83) | `merge-base(main)..16a6c83` | merge after fixes: HOME replayed but uncompared (go install into $HOME/go/bin); two identical flaky failures prove a failure; Stillpass conditions counted as step divergences, bar never decays; `needed` overflow. Absent-entry equivalence verified sound | - | pending |
 
+| exp/rootfs fixes (233179a): C1 process state pinned, C2 key v4 host class, served rootfs, portability restated | `b6c1bb8..233179a` | fixes reported; verification review after rebase onto main | - | pending |
 | exp/rootfs: pinned OCI rootfs, whole-root overlay, key v3 (tip a6f7632) | `ad16706..a6f7632` | merge after fixes, 2 critical: inherited umask/rlimits/signals neither keyed nor fixed; host properties constant per host (RAM, online CPUs, kernel build, sysctls, LSM, seccomp, fs type, bwrap) "left to audit" though audits can never see them; rootfs mtimes and readdir order leak host filesystem; portability claim overstated (one VM) | - | pending |
 
 | exp/runner: actions/runner container hooks (tip a2bc909) | `merge-base(main)..a2bc909` | DO NOT MERGE: uid not in key (false hit); offline sandbox results recorded as the step's (network failures, `\|\| true` side effects, missing .git, overridden workflow vars); raw pre-mask output of token-bearing steps stored; docker.sock bound into tainted steps; shared writable warm GOCACHE across forks; ref resolution can serve the wrong commit; gate logs not committed | - | pending |
