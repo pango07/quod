@@ -31,3 +31,4 @@ The Phase 0 handoff is the plan; this file is the record. One line each, dated.
 - 2026-10-30: The workspace a memoized step writes into is ephemeral in the spike: outputs are recorded in the CAS and the result, and the run dir is removed. Nothing later in the spike reads step B's outputs.
 - 2026-10-30: Banners: EXECUTED is a miss and REPLAYED is a hit (the acceptance table's MISS/HIT). Banners and receipts go to stderr; stdout is always exactly the step's stdout.
 - 2026-10-30: --env NAME=VALUE adds to the step key's env (needed for A6).
+- 2026-10-30: --outputs <dir> writes a step's outputs out on both execute and replay (eager); without it the ephemeral workspace is discarded, so a replay does not copy cli/cli's ~900 MB build cache.

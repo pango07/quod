@@ -1,0 +1,4 @@
+STILLPASS  REPLAYED
+  proved by run 01JCK3Q9 on 2026-11-14 09:12 UTC
+  step b3:4c1e9a07  manifest b3:9a07f2d1  2,314 inputs matched
+  recorded 4m12s  replay 0.4s  saved 4m11s

@@ -16,6 +16,7 @@ sp-manifest.workspace = true
 sp-fs.workspace = true
 sp-sandbox.workspace = true
 sp-ledger.workspace = true
+sp-replay.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true

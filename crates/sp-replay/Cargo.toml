@@ -10,3 +10,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+sp-cas.workspace = true
+sp-manifest.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

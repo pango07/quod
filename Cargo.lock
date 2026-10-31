@@ -882,6 +882,7 @@ dependencies = [
  "sp-key",
  "sp-ledger",
  "sp-manifest",
+ "sp-replay",
  "sp-sandbox",
  "tempfile",
  "tracing",
@@ -947,6 +948,12 @@ version = "0.0.0"
 [[package]]
 name = "sp-replay"
 version = "0.0.0"
+dependencies = [
+ "sp-cas",
+ "sp-manifest",
+ "tempfile",
+ "thiserror",
+]
 
 [[package]]
 name = "sp-sandbox"

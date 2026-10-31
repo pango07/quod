@@ -8,6 +8,7 @@ use sp_cas::{Cas, Hash, Tree};
 use sp_key::{StepSpec, step_key};
 use sp_ledger::{Ledger, Lookup, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
+use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Mount, RunSpec};
 
 use crate::state::State;
@@ -39,6 +40,10 @@ pub struct RunArgs {
     ledger: Option<PathBuf>,
     #[arg(long)]
     cas: Option<PathBuf>,
+    /// Also write the step's outputs into this directory (on execute and on
+    /// replay). By default the step's workspace is discarded after the step.
+    #[arg(long)]
+    outputs: Option<PathBuf>,
     /// Keep the run directory (lower, upper, merged) after the step.
     #[arg(long)]
     keep: bool,
@@ -75,6 +80,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             head.as_deref().unwrap_or("(not a git checkout)")
         );
     }
+    let wall_start = Instant::now();
     let extra_env = parse_env(&args.env)?;
     let image = host_image()?;
     let spec = StepSpec::spike(image, &args.step, &extra_env);
@@ -100,6 +106,36 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let t = Instant::now();
     let lookup = ledger.find_match(&key, &tree)?;
     phases.lookup = t.elapsed();
+
+    if let Some((manifest, result)) = &lookup.hit {
+        let mid = result.manifest_id;
+        if let Some(dir) = &args.outputs {
+            sp_replay::materialize_outputs(result, &cas, dir)?;
+        }
+        eprint!(
+            "{}",
+            sp_replay::receipt(result, manifest.entries.len(), wall_start.elapsed())
+        );
+        let code = sp_replay::replay_log(
+            result,
+            &cas,
+            &mut std::io::stdout().lock(),
+            &mut std::io::stderr().lock(),
+        )?;
+        ledger.record_run(&run_id, head.as_deref(), hostname().as_deref())?;
+        emit_event(
+            &run_id,
+            &key,
+            Some(&mid),
+            true,
+            &lookup,
+            &phases,
+            wall_start.elapsed(),
+            code,
+            manifest.entries.len(),
+        );
+        return Ok(exit_byte(code));
+    }
 
     let start = Instant::now();
     let dir = state.run_dir(&run_id);
@@ -131,6 +167,9 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     ledger.put_result(&result)?;
     ledger.record_run(&run_id, head.as_deref(), hostname().as_deref())?;
     phases.record = t.elapsed();
+    if let Some(out) = &args.outputs {
+        sp_replay::materialize_outputs(&result, &cas, out)?;
+    }
     if !args.keep {
         sp_cas::remove_any(&dir)?;
     }
@@ -356,28 +395,4 @@ fn hostname() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .map(|s| s.trim().to_string())
-}
-
-/// 2314 -> "2,314".
-pub fn group(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// 252.31s -> "4m12s", 0.42s -> "0.4s".
-pub fn fmt_duration(d: Duration) -> String {
-    let s = d.as_secs_f64();
-    if s < 60.0 {
-        format!("{s:.1}s")
-    } else {
-        let secs = d.as_secs();
-        format!("{}m{:02}s", secs / 60, secs % 60)
-    }
 }
