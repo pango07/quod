@@ -28,6 +28,27 @@ impl Write for HashingWriter<'_> {
 /// Files at or below this size are read whole; larger ones are streamed.
 const STREAM_THRESHOLD: u64 = 1 << 20;
 
+/// The mode every blob gets, however it arrived (see `take_file`).
+const BLOB_MODE: u32 = 0o644;
+
+/// BLAKE3 of everything `r` yields, read in large chunks so hashing a file
+/// already in the page cache is bound by the hash, not by syscalls.
+fn hash_reader(r: &mut impl io::Read) -> io::Result<Hash> {
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 256 << 10];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                hasher.update(&buf[..n]);
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(Hash::from_blake3(hasher.finalize()))
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CasError {
     #[error("{path}: {source}")]
@@ -148,6 +169,64 @@ impl Cas {
         Ok((h, size))
     }
 
+    /// Moves files into the store instead of copying them. For files the
+    /// caller owns and is finished with (an overlay upper dir): afterwards
+    /// each is gone unless its blob already existed, in which case it is left
+    /// alone. Returns (hash, new bytes) in input order.
+    ///
+    /// Three phases, so a blob name never points at bytes that are not on
+    /// disk (the same guarantee `put_file` gets from fsync and rename):
+    /// every file is hashed in place; `sync` is called once with the store's
+    /// directory and must flush that filesystem (the caller has syncfs(2));
+    /// then each new file is renamed to its blob path, a metadata operation.
+    /// Storing a step's outputs thus costs one read of the bytes and one
+    /// filesystem flush, not a second write and an fsync per file. Across
+    /// filesystems a file falls back to `put_file`, durable on its own.
+    pub fn take_files(
+        &self,
+        files: &[PathBuf],
+        sync: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<Vec<(Hash, u64)>, CasError> {
+        let hashed = self.par_map(files, |path| {
+            let mut f = fs::File::open(path).at(path)?;
+            let meta = f.metadata().at(path)?;
+            let h = hash_reader(&mut f).at(path)?;
+            let new = !self.has(&h);
+            // Every blob looks alike regardless of how it arrived: the mode a
+            // step gave its file must not decide whether the store can read it.
+            if new && meta.mode() & 0o777 != BLOB_MODE {
+                f.set_permissions(fs::Permissions::from_mode(BLOB_MODE))
+                    .at(path)?;
+            }
+            Ok((h, meta.len(), new))
+        })?;
+        let moves: Vec<(&Path, Hash)> = files
+            .iter()
+            .zip(&hashed)
+            .filter(|(_, (_, _, new))| *new)
+            .map(|(p, (h, _, _))| (p.as_path(), *h))
+            .collect();
+        if !moves.is_empty() {
+            sync(&self.dir).at(&self.dir)?;
+        }
+        self.par_map(&moves, |(path, h)| {
+            let dest = self.blob_path(h);
+            let parent = dest.parent().unwrap();
+            fs::create_dir_all(parent).at(parent)?;
+            match fs::rename(path, &dest) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+                    self.put_file(path).map(|_| ())
+                }
+                Err(e) => Err(e).at(&dest),
+            }
+        })?;
+        Ok(hashed
+            .into_iter()
+            .map(|(h, len, new)| (h, if new { len } else { 0 }))
+            .collect())
+    }
+
     /// Copies a blob into `dest` (which must not exist).
     pub fn copy_out(&self, h: &Hash, dest: &Path) -> Result<(), CasError> {
         let src = self.blob_path(h);
@@ -249,21 +328,31 @@ impl Cas {
     /// `put_file` for many files in parallel. Returns (hash, new bytes) in
     /// input order.
     pub fn put_files(&self, files: &[PathBuf]) -> Result<Vec<(Hash, u64)>, CasError> {
+        self.par_map(files, |p| self.put_file(p))
+    }
+
+    /// Applies `f` to every item on a pool of threads; results in input
+    /// order, the first error wins.
+    fn par_map<I: Sync, T: Send + Clone>(
+        &self,
+        items: &[I],
+        f: impl Fn(&I) -> Result<T, CasError> + Sync,
+    ) -> Result<Vec<T>, CasError> {
         let n = std::thread::available_parallelism()
             .map_or(4, |n| n.get())
             .min(16);
         let next = AtomicUsize::new(0);
-        let out: Mutex<Vec<Option<(Hash, u64)>>> = Mutex::new(vec![None; files.len()]);
+        let out: Mutex<Vec<Option<T>>> = Mutex::new(vec![None; items.len()]);
         let first_err: Mutex<Option<CasError>> = Mutex::new(None);
         std::thread::scope(|s| {
             for _ in 0..n {
                 s.spawn(|| {
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= files.len() || first_err.lock().unwrap().is_some() {
+                        if i >= items.len() || first_err.lock().unwrap().is_some() {
                             break;
                         }
-                        match self.put_file(&files[i]) {
+                        match f(&items[i]) {
                             Ok(r) => out.lock().unwrap()[i] = Some(r),
                             Err(e) => {
                                 first_err.lock().unwrap().get_or_insert(e);

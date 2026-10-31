@@ -4,9 +4,11 @@
 
 use std::ffi::CString;
 use std::fs;
+use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use sp_cas::{Cas, Entry, Hash, Kind, ROOT, Tree, child_path};
 
@@ -85,16 +87,46 @@ impl Overlay {
     /// whiteouts become `x`, directories absent from the lower tree become
     /// `d`, and an opaque directory becomes `x` followed by its contents.
     /// Renames are not reconstructed: they are an `x` plus a new path.
+    ///
+    /// Output files are moved into the CAS, not copied (the upper dir is the
+    /// step's and the step is over), and made durable with one filesystem
+    /// sync instead of an fsync per blob. When this returns, every blob the
+    /// outputs name is on disk, so a result naming them may be written.
     pub fn finish(mut self, lower: &Tree, cas: &Cas) -> Result<Vec<Entry>, FsError> {
+        let t = Instant::now();
         self.unmount()?;
+        let unmount = t.elapsed();
+        let t = Instant::now();
         let mut out = Vec::new();
         let mut files = Vec::new();
         walk(&self.upper, ROOT, lower, &mut out, &mut files)?;
+        let walk_t = t.elapsed();
+        let t = Instant::now();
         // Store every output file in parallel, then fill in the hashes.
         let paths: Vec<PathBuf> = files.iter().map(|(_, p)| p.clone()).collect();
-        for ((i, _), (h, _)) in files.iter().zip(cas.put_files(&paths)?) {
+        let mut bytes = 0;
+        let mut sync = Duration::ZERO;
+        let stored = cas.take_files(&paths, |dir| {
+            let t = Instant::now();
+            syncfs(dir)?;
+            sync = t.elapsed();
+            Ok(())
+        })?;
+        for ((i, _), (h, new)) in files.iter().zip(stored) {
             out[*i].h = Some(h);
+            bytes += new;
         }
+        tracing::debug!(
+            target: "stillpass",
+            outputs = out.len(),
+            files = files.len(),
+            new_bytes = bytes,
+            unmount_ms = unmount.as_secs_f64() * 1000.0,
+            walk_ms = walk_t.as_secs_f64() * 1000.0,
+            store_ms = (t.elapsed() - sync).as_secs_f64() * 1000.0,
+            sync_ms = sync.as_secs_f64() * 1000.0,
+            "overlay finish"
+        );
         Ok(out)
     }
 
@@ -190,6 +222,19 @@ fn walk(
                 source: std::io::ErrorKind::Unsupported.into(),
             });
         }
+    }
+    Ok(())
+}
+
+/// Flushes every dirty page and directory entry of the filesystem holding
+/// `dir` to disk. One call covers every output file about to become a blob.
+fn syncfs(dir: &Path) -> std::io::Result<()> {
+    let f = fs::File::open(dir)?;
+    // SAFETY: the descriptor is open and owned by `f` for the whole call.
+    #[allow(unsafe_code)] // syncfs(2) has no safe std wrapper
+    let rc = unsafe { libc::syncfs(f.as_raw_fd()) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }
