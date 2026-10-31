@@ -534,7 +534,9 @@ fn reports_erofs(path: &Path) -> anyhow::Result<bool> {
                 && !word(i.checked_sub(1).and_then(|j| window.get(j)))
                 && !word(window.get(i + ERRNO.len()))
         };
-        if window.windows(PHRASE.len()).any(|w| w.eq_ignore_ascii_case(PHRASE))
+        if window
+            .windows(PHRASE.len())
+            .any(|w| w.eq_ignore_ascii_case(PHRASE))
             || (0..window.len()).any(errno_at)
         {
             return Ok(true);
