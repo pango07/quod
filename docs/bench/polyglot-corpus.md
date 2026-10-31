@@ -36,9 +36,10 @@ part of the step, so of the key, and fixed for every run here.
 ## What generalized as-is
 
 Unchanged from the Go-only engine and doing its job on all three repos:
-the observer (FUSE over the CAS tree, passthrough reads; its one change is
-the content-derived mtime below), kernel overlayfs over it, the output diff, the manifest kinds (`f`, `d`,
-`a`, `l`) and the matching rule, the ledger, replay, the sandbox (uid 1001,
+the observer (FUSE over the CAS tree on either transport, io_uring or
+/dev/fuse, passthrough reads; its one change is the content-derived mtime
+below), kernel overlayfs over it, the output diff, the manifest kinds (`f`,
+`d`, `a`, `l`) and the matching rule, the ledger, replay, the sandbox (uid 1001,
 no network, fresh `/tmp`, read-only root), the sealed-prefix snapshot
 machinery, and A7/A7b. The one rule that carried the safety argument across
 languages is "a stat records the file's content hash": every cache in the
@@ -58,9 +59,8 @@ New, and generic (no language in run.rs, seal.rs, bench.rs or the suite):
   carve-outs, warm state with its cache-disabling knobs and over-record
   rule, `no_outputs_under`, and the suite's file picks. Go, Node and Python
   are three values of one struct; the step key names the toolchain (schema
-  v3, which collides with exp/rootfs's v3: the second to merge takes the
-  next version). The split driver is the one slot not filled (exp/split
-  owns it).
+  v4, on top of exp/rootfs's v3). The split driver is the one slot not
+  filled (exp/split owns it).
 - **Sealing by rule, not by GOMODCACHE**: a prefix is an env variable's
   directory (GOMODCACHE, VIRTUAL_ENV) or every directory of a name not
   nested in another (node_modules, so monorepos work), each with carve-outs
@@ -80,7 +80,12 @@ New, and generic (no language in run.rs, seal.rs, bench.rs or the suite):
   sealed snapshots, carry an mtime derived from their content hash
   (`sp_fs::content_mtime`, 58 bits of the hash) instead of one constant, so
   an mtime-keyed cache sees a new mtime whenever content changes;
-  directories a fixed time.
+  directories a fixed time. `CasFs::attr` applies it once and both
+  transports encode it (the io_uring transport's own attribute encoder
+  wrote zero times before; `transports_log_identically` now compares a
+  stat of every served entry across transports), and the served rootfs and
+  a runner's pinned mounts go through the same function: one file looks the
+  same wherever it is served.
 - **mtime-keyed caches never become outputs** (review fix): outputs under a
   profile's `no_outputs_under` patterns are dropped when recorded and when
   materialized.
@@ -195,12 +200,16 @@ only in the timing tokens each runner prints (go test's durations, Jest's
 
 All three rows are runs of this branch's final code, after the review
 fixes (content-derived mtimes, output filtering, EROFS taint, strict A7b
-normalizer), rebased on main: luxon and cli/cli with no other Jest or
-`go test` job of this experiment beside them, starlette beside luxon (one
-pytest job). Each repo had also passed with earlier states of the branch,
-with the same counts; one luxon acceptance run and one history run were
-lost to OOM kills of a Jest worker and repeated alone (DECISIONS.md). Log:
-`polyglot-acceptance.log`.
+normalizer) and rebased on main cfb1785 (exp/overhead3,
+fix/uring-fallback, exp/rootfs), in host mode (no pinned rootfs) on the
+io_uring transport (main's default): luxon and cli/cli with no other Jest
+or `go test` job of this experiment beside them, starlette beside luxon
+(one pytest job). Each repo had also passed, with the same counts, before
+that rebase (classic transport) and with earlier states of the branch; one
+luxon acceptance run and one history run were lost to OOM kills of a Jest
+worker and repeated alone (DECISIONS.md). Log: `polyglot-acceptance.log`;
+the rebase's other gates (lint per commit, the --ignored ring suites):
+`polyglot-rebase-gates.log`.
 
 Notes per repo:
 
@@ -227,9 +236,12 @@ per repo: plain (same sandbox, no FUSE, no overlay), observed, and observed
 with the dependency tree unsealed, alternating run by run, first run of each
 dropped. Load averages 33-74 (luxon) and 30-62 (starlette) throughout; full
 per-run tables in the per-repo reports. The benches ran on the branch
-before the review fixes; those add a content-derived mtime per attribute
-reply, timestamp-setting on new snapshot builds and the fingerprint's pyc
-scan (about 40 ms in median, measured paired), and were not re-benched.
+before the review fixes and on the classic /dev/fuse transport, before the
+rebase onto main's io_uring observer (now the default) and exp/rootfs. The
+fixes add a content-derived mtime per attribute reply, timestamp-setting
+on new snapshot builds and the fingerprint's pyc scan (about 40 ms in
+median, measured paired); none of it was re-benched, and the ring's effect
+on these suites is not measured.
 p95 is not reported: luxon's plain series has a 33.3s outlier that makes
 its p95 meaningless.
 
@@ -324,9 +336,11 @@ Why commits miss (first mismatching path of the closest manifest):
   readdir order under a sealed prefix is ext4's (hash order, seeded per
   filesystem), and Python's importlib.metadata and pluggy load plugins in
   that order. The same snapshot key can behave differently on another host:
-  a blocker for any shared or remote ledger until sealed prefixes and the
-  rootfs (exp/rootfs, same class) are served through one non-logging layer
-  with sorted readdir.
+  a blocker for any shared or remote ledger. exp/rootfs (merged before this
+  branch) serves the rootfs and a runner's pinned mounts from their blobs
+  through non-logging FUSE mounts with tree-order listings; serving sealed
+  prefixes the same way (a pinned tree whose digest is the snapshot key)
+  is the convergence, and closes this. Not done here.
 - **Writes into a sealed prefix fail.** A tool writing under node_modules
   or the venv outside the carve-outs (.prisma, .svelte-kit, .nx) gets EROFS
   where CI's write succeeds; such a run is shown and not memoized (it
