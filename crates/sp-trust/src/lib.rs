@@ -211,6 +211,15 @@ pub enum Decision {
     Execute(Reason),
 }
 
+/// What `Trust::record_replay` concluded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Replayed {
+    /// Recorded; the receipt's trust facts.
+    Replayed(Facts),
+    /// Decided otherwise inside the transaction: execute, for this reason.
+    Execute(Reason),
+}
+
 /// Identical executions a key's manifests need: the policy's count plus one
 /// for every divergence among the key's newest `TRAILING_AUDITS` audits, at
 /// most `MAX_EXTRA_PROOFS` more. A key that keeps diverging needs longer
@@ -870,16 +879,38 @@ impl<'a> Trust<'a> {
         })
     }
 
-    /// Records that a proven result was replayed.
-    pub fn record_replay(&self, step: &Step, manifest: &Hash) -> Result<Facts, TrustError> {
+    /// Records a replay, deciding again inside the transaction: between
+    /// `decide` and now another run may have quarantined the key or taken
+    /// the audit slot this hit was going to skip. `Execute` means the
+    /// caller must execute after all, for that reason.
+    pub fn record_replay(
+        &self,
+        step: &Step,
+        hit: &(Manifest, StepResult),
+    ) -> Result<Replayed, TrustError> {
+        let (m, r) = hit;
+        let mid = manifest_id(m)?;
+        let why = unprovable(&self.policy, r, self.cas)?;
         self.ledger.atomically(|l| {
-            let mut t = l
-                .trust(&step.key)?
-                .unwrap_or_else(|| TrustRow::new(step.key, Some(step.cmd)));
+            let trust = l.trust(&step.key)?;
+            let decision = decide(
+                &self.policy,
+                Some(HitView {
+                    run_id: &r.run_id,
+                    unprovable: why.as_deref(),
+                }),
+                trust.as_ref(),
+                l.proof(&step.key, &mid)?.as_ref(),
+                l.recent_divergences(&step.key, TRAILING_AUDITS)?,
+            );
+            if let Decision::Execute(reason) = decision {
+                return Ok(Replayed::Execute(reason));
+            }
+            let mut t = trust.unwrap_or_else(|| TrustRow::new(step.key, Some(step.cmd)));
             t.eligible += 1;
             t.replays += 1;
             l.put_trust(&t)?;
-            self.facts(&step.key, manifest)
+            Ok(Replayed::Replayed(self.facts(&step.key, &mid)?))
         })
     }
 
@@ -1379,18 +1410,19 @@ mod tests {
                 .map(|r| (self.manifest.clone(), r));
             let trust = Trust::new(&self.ledger, &self.cas, *policy).unwrap();
             let decision = trust.decide(&self.key, hit.as_ref()).unwrap();
-            let Decision::Execute(reason) = decision else {
-                trust
-                    .record_replay(
-                        &Step {
-                            key: self.key,
-                            cmd: "go test ./...",
-                            ignore: &[],
-                        },
-                        &self.mid,
-                    )
-                    .unwrap();
-                return Err(Decision::Replay);
+            let reason = match decision {
+                Decision::Execute(reason) => reason,
+                Decision::Replay => {
+                    let step = Step {
+                        key: self.key,
+                        cmd: "go test ./...",
+                        ignore: &[],
+                    };
+                    match trust.record_replay(&step, hit.as_ref().unwrap()).unwrap() {
+                        Replayed::Replayed(_) => return Err(Decision::Replay),
+                        Replayed::Execute(reason) => reason,
+                    }
+                }
             };
             // Disjoint fields: `trust` holds the ledger and the CAS.
             self.runs += 1;
@@ -1571,6 +1603,56 @@ mod tests {
         }
         let r = w.result(0, b"ok  \tpkg\t0.1s\n", vec![]);
         assert_eq!(unprovable(&REPLAY, &r, &w.cas).unwrap(), None);
+    }
+
+    /// A replay decided before another run quarantined the key (or took
+    /// its audit slot) is decided again when it is recorded, and executes.
+    #[test]
+    fn a_replay_is_decided_again_when_it_is_recorded() {
+        let mut w = World::new();
+        let ok = b"ok\n";
+        w.run(&REPLAY, 0, ok).unwrap();
+        w.run(&REPLAY, 0, ok).unwrap();
+        let hit = w
+            .ledger
+            .latest_result(&w.key, &w.mid)
+            .unwrap()
+            .map(|r| (w.manifest.clone(), r))
+            .unwrap();
+        let trust = Trust::new(&w.ledger, &w.cas, REPLAY).unwrap();
+        assert_eq!(trust.decide(&w.key, Some(&hit)).unwrap(), Decision::Replay);
+        // Meanwhile a parallel run quarantined the key.
+        let mut t = w.ledger.trust(&w.key).unwrap().unwrap();
+        t.state = TrustState::Quarantined;
+        w.ledger.put_trust(&t).unwrap();
+        let step = Step {
+            key: w.key,
+            cmd: "go test ./...",
+            ignore: &[],
+        };
+        assert!(matches!(
+            trust.record_replay(&step, &hit).unwrap(),
+            Replayed::Execute(Reason::Quarantined { .. })
+        ));
+        assert_eq!(w.ledger.trust(&w.key).unwrap().unwrap().replays, 0);
+        // Or took the audit slot: at rate 0.5 the second would-be hit is
+        // audited; a parallel run already served the first.
+        t.state = TrustState::Proven;
+        w.ledger.put_trust(&t).unwrap();
+        let half = Policy {
+            audit: 0.5,
+            ..REPLAY
+        };
+        let trust = Trust::new(&w.ledger, &w.cas, half).unwrap();
+        assert_eq!(trust.decide(&w.key, Some(&hit)).unwrap(), Decision::Replay);
+        assert!(matches!(
+            trust.record_replay(&step, &hit).unwrap(),
+            Replayed::Replayed(_)
+        ));
+        assert!(matches!(
+            trust.record_replay(&step, &hit).unwrap(),
+            Replayed::Execute(Reason::Audit { nth: 2 })
+        ));
     }
 
     /// A step printing random bytes never reaches two identical executions.

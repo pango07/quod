@@ -333,6 +333,7 @@ mod tests {
         std::fs::write(old.join("m@v1/a.go"), "a").unwrap();
         adopt_legacy(&old, &new).unwrap();
         assert!(new.join("m@v1/a.go").is_file() && !old.exists());
+        // Again, with a new legacy copy appearing: the adopted one stays.
         std::fs::create_dir_all(old.join("m@v2")).unwrap();
         adopt_legacy(&old, &new).unwrap();
         assert!(old.join("m@v2").is_dir(), "left alone");

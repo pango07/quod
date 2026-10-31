@@ -292,6 +292,16 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
     assert!(t.elapsed() < Duration::from_secs(60), "{:?}", t.elapsed());
     assert_eq!(env.manifests(), 0, "nothing recorded");
     assert!(o.stdout.is_empty());
+    // A network step honors the timeout too.
+    let t = Instant::now();
+    let n = env.run_step("sleep 120", &["--allow-net", "--timeout", "1s"]);
+    assert_eq!(n.code, 124, "{}", n.stderr);
+    assert!(
+        n.stderr.contains("TIMED OUT  the network step"),
+        "{}",
+        n.stderr
+    );
+    assert!(t.elapsed() < Duration::from_secs(60), "{:?}", t.elapsed());
 
     // A proven step that stops finishing (load, a slow observer, or the
     // step): not a result and not a divergence, but the expected result did
@@ -331,7 +341,7 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
     assert!(
         !status.contains("quarantined  ")
             && status.contains("0 quarantined")
-            && status.contains("2 timed out"),
+            && status.contains("3 timed out"),
         "{status}"
     );
     // It finishes again: two identical executions re-prove it, then it replays.

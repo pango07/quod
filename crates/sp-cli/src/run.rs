@@ -10,7 +10,7 @@ use sp_ledger::{Ledger, Lookup, Observed, RunFacts, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Killed, Limits, Mount, RunSpec};
-use sp_trust::{Decision, Step, Trust, Verdict};
+use sp_trust::{Decision, Replayed, Step, Trust, Verdict};
 
 use crate::deps::{self, Deps};
 use crate::rootfs::{self, Rootfs};
@@ -20,7 +20,9 @@ use crate::state::State;
 use crate::trust::{PolicyArgs, ignored_outputs, parse_timeout, shell_join};
 
 /// Exit code of a step Stillpass killed for running past --timeout (as
-/// timeout(1) does). Never a recorded result.
+/// timeout(1) does). Never a recorded result. A step can exit 124 by itself;
+/// the TIMED OUT banner on stderr, the run row's outcome `timeout` and the
+/// `run` event's `outcome` in events.jsonl tell the two apart.
 pub const EXIT_TIMEOUT: u8 = 124;
 
 #[derive(Args)]
@@ -270,6 +272,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let ledger = Ledger::open(&args.ledger.clone().unwrap_or_else(|| state.ledger_path()))?;
 
     if args.allow_net {
+        let timeout = (args.timeout > Duration::ZERO).then_some(args.timeout);
         return run_unobserved(
             state,
             &cas,
@@ -280,6 +283,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             pin.rootfs.as_ref(),
             &deps,
             &ledger,
+            timeout,
         );
     }
 
@@ -302,8 +306,21 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let decision = trust.decide(&key, lookup.hit.as_ref())?;
     phases.lookup = t.elapsed();
 
-    let reason = match decision {
+    // A replay is decided again as it is recorded (another run may have
+    // quarantined the key or taken the audit slot meanwhile); if that says
+    // execute, it executes.
+    let replayed = match decision {
         Decision::Replay => {
+            let hit = lookup.hit.as_ref().expect("a replay needs a hit");
+            match trust.record_replay(&tstep, hit)? {
+                Replayed::Replayed(facts) => Ok(facts),
+                Replayed::Execute(reason) => Err(reason),
+            }
+        }
+        Decision::Execute(reason) => Err(reason),
+    };
+    let reason = match replayed {
+        Ok(facts) => {
             let (manifest, result) = lookup.hit.as_ref().expect("a replay needs a hit");
             let mid = result.manifest_id;
             if let Some(dir) = &args.outputs {
@@ -316,7 +333,6 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                     dir,
                 )?;
             }
-            let facts = trust.record_replay(&tstep, &mid)?;
             let replay_wall = wall_start.elapsed();
             eprint!(
                 "{}",
@@ -356,7 +372,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             );
             return Ok(exit_byte(code));
         }
-        Decision::Execute(reason) => reason,
+        Err(reason) => reason,
     };
 
     let start = Instant::now();
@@ -499,6 +515,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // which results_by_transport and purge_transport find results through),
     // the manifest and the result commit together or not at all.
     let verdict = ledger.atomically(|l| -> anyhow::Result<Verdict> {
+        l.put_manifest(&ex.manifest, &info.run_id)?;
         let v = trust.record_execution(
             &tstep,
             &info.run_id,
@@ -861,6 +878,7 @@ fn run_unobserved(
     rootfs: Option<&Rootfs>,
     deps: &Deps,
     ledger: &Ledger,
+    timeout: Option<Duration>,
 ) -> anyhow::Result<u8> {
     let profile = spec.profile();
     // A network step fetches; let the tool reach its registry.
@@ -913,13 +931,38 @@ fn run_unobserved(
         }),
         identity: None,
     };
-    let r = sp_sandbox::run(&rs);
+    let r = sp_sandbox::run_with(
+        &rs,
+        &Limits {
+            timeout,
+            abort: None,
+        },
+    );
     if let Some(root) = root {
         root.unmount()?;
     }
     deps::after_network_step(repo);
     let r = r?;
     sp_cas::remove_any(&dir)?;
+    if r.killed == Some(Killed::Timeout) {
+        eprintln!(
+            "STILLPASS  TIMED OUT  the network step ran {} and was killed",
+            fmt_duration(r.wall)
+        );
+        eprintln!(
+            "  caches in {} (whatever it fetched stays)",
+            deps.root.display()
+        );
+        ledger.record_run_facts(&info.facts(
+            "timeout",
+            None,
+            Some(i32::from(EXIT_TIMEOUT)),
+            r.wall,
+            None,
+        ))?;
+        tracing::info!(target: "stillpass", run_id = %info.run_id, memoized = false, egress = true, outcome = "timeout", exit_code = i32::from(EXIT_TIMEOUT), wall_ms = r.wall.as_millis() as u64, "run");
+        return Ok(EXIT_TIMEOUT);
+    }
     eprintln!("STILLPASS  EXECUTED  network allowed, not memoized");
     eprintln!("  {}", image_line(&spec.image));
     eprintln!("  caches in {}", deps.root.display());

@@ -18,7 +18,11 @@ mod status;
 mod step;
 mod trust;
 
-/// Exit code for Stillpass's own failures, distinct from any step's.
+/// Exit code for Stillpass's own failures. A step can exit 2 by itself, so
+/// the code alone does not say whose failure it was: a Stillpass failure
+/// prints the `STILLPASS  ERROR` banner on stderr and writes an event with
+/// `outcome: "error"` to events.jsonl, and leaves no run row (every run that
+/// produced a step result has one, with its outcome).
 pub const EXIT_STILLPASS_ERROR: u8 = 2;
 
 #[derive(Parser)]
@@ -103,6 +107,9 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
+            // The machine-readable marker (tracing goes to events.jsonl once
+            // the state dir resolved; before that there is only the banner).
+            tracing::error!(target: "stillpass", outcome = "error", exit_code = EXIT_STILLPASS_ERROR, error = %format!("{e:#}"), "stillpass error");
             eprintln!("STILLPASS  ERROR (exit {EXIT_STILLPASS_ERROR}, not the step's result)");
             for cause in e.chain() {
                 eprintln!("  {cause}");
