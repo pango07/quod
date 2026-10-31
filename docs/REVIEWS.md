@@ -40,7 +40,7 @@ arguments, then unsupported claims).
 | exp/polyglot fixes (fcda366): content-derived mtimes, no_outputs_under enforced, strict normalizer, corrected docs | `1dbe6a2..fcda366` | fixes reported; must port content_mtime to the io_uring attr encoder on rebase; verification review after rebase | - | pending |
 | exp/polyglot: toolchain profiles, Node (luxon) and Python (starlette) | `merge-base(main)..1e92709` | merge after fixes, no false hit (stale-pyc refuted): mtime-keyed caches trusted under constant mtime record wrong results; sealed snapshots expose host readdir order (latent cross-host, same class as rootfs M1); unsupported "measured payoff" claims | - | pending |
 
-| fix/uring-fallback: refused-registration teardown (66be2b5) | `2a5fd10..66be2b5` | merge after fixes: "only our mount" unimplemented (umount2 acts on the top mount; compare device numbers); fusectl verification claimed but unmounted in the dev container; teardown unbounded | - | pending |
+| fix/uring-fallback: refused-registration teardown (66be2b5) | `2a5fd10..66be2b5` | merge after fixes: "only our mount" unimplemented (umount2 acts on the top mount; compare device numbers); fusectl verification claimed but unmounted in the dev container; teardown unbounded. All fixed in 42c1deb | `e422336` | pending |
 
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
