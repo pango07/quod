@@ -427,7 +427,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         unread.len(),
         picked.len()
     );
-    for (i, p) in picked.iter().enumerate() {
+    'sample: for (i, p) in picked.iter().enumerate() {
         assert!(
             !recorded.contains(p.as_str()) && env.repo.join(p).is_file(),
             "A7b: {p} must be an unread file of the tree"
@@ -441,93 +441,125 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
             "A7b: mutating unread {p} should replay: {}",
             hit.stderr
         );
-        let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}")]);
-        assert!(fresh.executed(), "A7b: {}", fresh.stderr);
-        // What each run read: the manifest the replay matched, found the way
-        // find_match finds it, and the manifest the fresh execution recorded.
-        let now = workspace_tree(&cas, &env.repo, &deps, profile);
-        let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
-        let hit_m = &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
-        let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
-        let (hp, fp) = (paths(hit_m), paths(&fresh_m));
-        // An absent probe one run made and the other did not is no evidence
-        // of a missed read when the other run recorded the parent's listing:
-        // that listing already pins the name as absent (the rule W4 uses).
-        // pytest's cache provider probes a random `pytest-cache-files-*`
-        // name in the workspace root on every run.
-        let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
-        let read_mutated = fp.contains(p.as_str());
-        let same_code = fresh.code == hit.code;
-        let same_out = normalize(tc, &fresh.stdout) == normalize(tc, &hit.stdout);
-        if same_code && same_out && !read_mutated && only_fresh.is_empty() && only_hit.is_empty() {
-            println!(
-                "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
-                fp.len().min(hp.len()),
-                if implied > 0 {
-                    format!(
-                        " ({implied} absent probes differ, each implied by the other run's listing)"
-                    )
-                } else {
-                    String::new()
-                }
+        for attempt in 0..2 {
+            let fresh = env.run_step(step, &["--env", &format!("STILLPASS_A7B={i}.{attempt}")]);
+            assert!(fresh.executed(), "A7b: {}", fresh.stderr);
+            // What each run read: the manifest the replay matched, found the
+            // way find_match finds it, and the manifest the fresh execution
+            // recorded.
+            let now = workspace_tree(&cas, &env.repo, &deps, profile);
+            let cands = ledger().candidates(&key, sp_ledger::CANDIDATES).unwrap();
+            let hit_m =
+                &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
+            let fresh_m = ledger().candidates(&newest_key(env), 1).unwrap().remove(0);
+            let (hp, fp) = (paths(hit_m), paths(&fresh_m));
+            // An absent probe one run made and the other did not is no
+            // evidence of a missed read when the other run recorded the
+            // parent's listing: that listing already pins the name as absent
+            // (the rule W4 uses). pytest's cache provider probes a random
+            // `pytest-cache-files-*` name in the workspace root on every run.
+            let (implied, only_fresh, only_hit) = differing_paths(&fresh_m, hit_m);
+            let read_mutated = fp.contains(p.as_str());
+            let same_code = fresh.code == hit.code;
+            let same_out = normalize(tc, &fresh.stdout) == normalize(tc, &hit.stdout);
+            if same_code
+                && same_out
+                && !read_mutated
+                && only_fresh.is_empty()
+                && only_hit.is_empty()
+            {
+                println!(
+                    "A7b ok: unread {p} mutated, replay agrees with a fresh execution, both read the same {} paths{}",
+                    fp.len().min(hp.len()),
+                    if implied > 0 {
+                        format!(
+                            " ({implied} absent probes differ, each implied by the other run's listing)"
+                        )
+                    } else {
+                        String::new()
+                    }
+                );
+                continue 'sample;
+            }
+            let dir = save_evidence(
+                &format!("a7b-{i}.{attempt}-{}", p.replace('/', "_")),
+                &[
+                    ("mutated", p.as_bytes()),
+                    ("hit.stdout", &hit.stdout),
+                    ("hit.stderr", hit.stderr.as_bytes()),
+                    ("fresh.stdout", &fresh.stdout),
+                    ("fresh.stderr", fresh.stderr.as_bytes()),
+                    (
+                        "hit.manifest.json",
+                        hit_m.canonical_json().unwrap().as_bytes(),
+                    ),
+                    (
+                        "fresh.manifest.json",
+                        fresh_m.canonical_json().unwrap().as_bytes(),
+                    ),
+                    (
+                        "manifest.diff",
+                        only_fresh
+                            .iter()
+                            .map(|p| format!("only-fresh {p}\n"))
+                            .chain(only_hit.iter().map(|p| format!("only-replayed {p}\n")))
+                            .collect::<String>()
+                            .as_bytes(),
+                    ),
+                ],
             );
-            continue;
+            let summary = format!(
+                "evidence in {}; the fresh execution read {} paths, the replayed manifest {}; {} only fresh read, {} only the replayed run read; fresh read the mutated file: {read_mutated}",
+                dir.display(),
+                fp.len(),
+                hp.len(),
+                only_fresh.len(),
+                only_hit.len()
+            );
+            assert!(
+                !read_mutated,
+                "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded: the observer under-recorded. {summary}"
+            );
+            // A fresh execution that was killed or timed out (the trust
+            // layer's KILL_MARKERS: cli/cli's TestHuhPrompterConfirm hangs
+            // to go test's 10-minute timeout under load) did not finish, so
+            // it is no evidence about the replay. Only when it read exactly
+            // the replayed manifest's paths, and not the mutated file, is it
+            // executed once more; the evidence of this attempt is kept.
+            let killed = sp_trust::KILL_MARKERS.iter().find(|m| {
+                let m = m.as_bytes();
+                fresh.stdout.windows(m.len()).any(|w| w == m)
+                    || fresh.stderr.as_bytes().windows(m.len()).any(|w| w == m)
+            });
+            if let Some(m) = killed
+                && attempt == 0
+                && only_fresh.is_empty()
+                && only_hit.is_empty()
+            {
+                println!(
+                    "A7b RETRY: {p}: the fresh execution did not finish ({m:?}) and read exactly the replayed manifest's paths; {summary}; executing it once more"
+                );
+                continue;
+            }
+            assert!(
+                same_code,
+                "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\nthe step said:\n{}",
+                fresh.code,
+                hit.code,
+                failures(&fresh.stdout)
+            );
+            assert!(
+                same_out,
+                "A7b: {p} changed the output: an unrecorded read or a flaky test. {summary}"
+            );
+            println!(
+                "A7b WARNING: unread {p} mutated, results agree, but the two executions read different paths: {summary}; first: {:?} {:?}",
+                only_fresh.first(),
+                only_hit.first()
+            );
+            continue 'sample;
         }
-        let dir = save_evidence(
-            &format!("a7b-{i}-{}", p.replace('/', "_")),
-            &[
-                ("mutated", p.as_bytes()),
-                ("hit.stdout", &hit.stdout),
-                ("hit.stderr", hit.stderr.as_bytes()),
-                ("fresh.stdout", &fresh.stdout),
-                ("fresh.stderr", fresh.stderr.as_bytes()),
-                (
-                    "hit.manifest.json",
-                    hit_m.canonical_json().unwrap().as_bytes(),
-                ),
-                (
-                    "fresh.manifest.json",
-                    fresh_m.canonical_json().unwrap().as_bytes(),
-                ),
-                (
-                    "manifest.diff",
-                    only_fresh
-                        .iter()
-                        .map(|p| format!("only-fresh {p}\n"))
-                        .chain(only_hit.iter().map(|p| format!("only-replayed {p}\n")))
-                        .collect::<String>()
-                        .as_bytes(),
-                ),
-            ],
-        );
-        let summary = format!(
-            "evidence in {}; the fresh execution read {} paths, the replayed manifest {}; {} only fresh read, {} only the replayed run read; fresh read the mutated file: {read_mutated}",
-            dir.display(),
-            fp.len(),
-            hp.len(),
-            only_fresh.len(),
-            only_hit.len()
-        );
-        assert!(
-            !read_mutated,
-            "A7b CRITICAL: the fresh execution read {p}, which the replayed manifest never recorded: the observer under-recorded. {summary}"
-        );
-        assert!(
-            same_code,
-            "A7b: {p} changed the exit code ({} fresh, {} replayed): an unrecorded read or a flaky test. {summary}\nthe step said:\n{}",
-            fresh.code,
-            hit.code,
-            failures(&fresh.stdout)
-        );
-        assert!(
-            same_out,
-            "A7b: {p} changed the output: an unrecorded read or a flaky test. {summary}"
-        );
-        println!(
-            "A7b WARNING: unread {p} mutated, results agree, but the two executions read different paths: {summary}; first: {:?} {:?}",
-            only_fresh.first(),
-            only_hit.first()
-        );
+        unreachable!("A7b: every attempt either passes, retries once, or fails an assertion");
     }
 
     if profile.warm.is_some() {
