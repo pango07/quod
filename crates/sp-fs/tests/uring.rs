@@ -17,6 +17,102 @@ use std::time::{Duration, Instant};
 use sp_cas::{Cas, Tree};
 use sp_fs::{Fault, Options, Served, Transport};
 
+/// The mounts at exactly `path` in this process's mount namespace, as
+/// device numbers (major, minor), from /proc/self/mountinfo field 5. Only
+/// this test's own paths are asked about, so a mount another test (running
+/// in parallel) holds at a path that merely contains the same name is never
+/// counted.
+fn mounts_at(path: &Path) -> Vec<(u32, u32)> {
+    let want = path.to_str().unwrap();
+    assert!(
+        !want.contains([' ', '\t', '\n', '\\']),
+        "mountinfo escapes {want:?}"
+    );
+    fs::read_to_string("/proc/self/mountinfo")
+        .unwrap()
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(' ').collect();
+            (f.get(4) == Some(&want)).then(|| {
+                let (a, b) = f[2].split_once(':').unwrap();
+                (a.parse().unwrap(), b.parse().unwrap())
+            })
+        })
+        .collect()
+}
+
+/// The FUSE connection id of the topmost mount at `path` (its directory
+/// name under fusectl: the superblock's dev_t, MKDEV(major, minor)).
+fn conn_at(path: &Path) -> u64 {
+    let (major, minor) = *mounts_at(path).last().expect("not a mount point");
+    (u64::from(major) << 20) | u64::from(minor)
+}
+
+/// One test at a time in this binary: each mounts and unmounts FUSE
+/// connections, and the kernel hands a freed connection id to the next
+/// mount, so a parallel test's new connection would look like a dead one
+/// that outlived its mount. (A freed id can still be reused by a mount
+/// elsewhere on the machine; `FuseCtl::lists_since` tells those apart.)
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A private mount of fusectl, which lists every FUSE connection the kernel
+/// still has (one directory per connection, gone when it is destroyed).
+struct FuseCtl(tempfile::TempDir);
+
+impl FuseCtl {
+    fn mount() -> FuseCtl {
+        let dir = tempfile::tempdir().unwrap();
+        let st = Command::new("mount")
+            .args(["-t", "fusectl", "none"])
+            .arg(dir.path())
+            .status()
+            .unwrap();
+        assert!(st.success(), "mount fusectl (needs root)");
+        FuseCtl(dir)
+    }
+
+    fn lists(&self, conn: u64) -> bool {
+        self.0.path().join(conn.to_string()).exists()
+    }
+
+    /// Whether fusectl lists a connection `conn` created before `t`:
+    /// fusectl stamps a connection's directory with the time it was
+    /// created, so one created after `t` is a reuse of the id by a newer
+    /// mount, not the connection that had it before.
+    fn lists_since(&self, conn: u64, t: std::time::SystemTime) -> bool {
+        match fs::metadata(self.0.path().join(conn.to_string())) {
+            Ok(m) => m.modified().map_or(true, |c| c <= t),
+            Err(_) => false,
+        }
+    }
+}
+
+impl Drop for FuseCtl {
+    fn drop(&mut self) {
+        let _ = Command::new("umount").arg(self.0.path()).status();
+    }
+}
+
+/// The connection id a failed ring mount's error names.
+fn named_conn(err: &str) -> u64 {
+    let at = err
+        .find("FUSE connection ")
+        .unwrap_or_else(|| panic!("no connection named in {err:?}"))
+        + "FUSE connection ".len();
+    err[at..]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
 fn sample(dir: &Path) {
     fs::create_dir_all(dir.join("pkg/cmd")).unwrap();
     fs::write(dir.join("go.mod"), "module x\n").unwrap();
@@ -60,14 +156,21 @@ impl Fixture {
 
     /// A healthy ring mount first, so a host without the ring fails here
     /// with a reason instead of passing a fallback test for the wrong one.
-    fn require_ring(&self) {
+    /// Also the control for `FuseCtl`: it lists this mount's connection
+    /// while mounted and not after.
+    fn require_ring(&self, ctl: &FuseCtl) {
         let s = self
             .serve("ring-check", Transport::Uring, None)
             .unwrap_or_else(|e| {
                 panic!("FUSE over io_uring is unavailable here, so this test cannot run: {e}")
             });
         assert!(s.stats().uring);
+        let mnt = s.mountpoint().to_path_buf();
+        let conn = conn_at(&mnt);
+        assert!(ctl.lists(conn), "fusectl does not list a live connection");
         s.unmount().unwrap();
+        let t = std::time::SystemTime::now();
+        assert!(mounts_at(&mnt).is_empty() && !ctl.lists_since(conn, t));
     }
 }
 
@@ -100,13 +203,16 @@ fn bounded(dir: &Path, script: &str, limit: Duration) -> (bool, Duration) {
 }
 
 fn dies_mid_mount(fault: Fault, expect: &str) {
+    let _one = serial();
     let f = fixture();
-    f.require_ring();
+    let ctl = FuseCtl::mount();
+    f.require_ring(&ctl);
     let served = f
         .serve("m", Transport::Uring, Some(fault))
         .expect("the fault fires only once serving");
     assert!(served.stats().uring);
     let mnt = served.mountpoint().to_path_buf();
+    let conn = conn_at(&mnt);
     // The first ring request kills its queue thread; the abort that follows
     // fails it and everything after it.
     let (ok, took) = bounded(
@@ -130,8 +236,12 @@ fn dies_mid_mount(fault: Fault, expect: &str) {
         t.elapsed()
     );
     assert!(err.contains(expect), "{err}");
-    let mounts = fs::read_to_string("/proc/self/mounts").unwrap();
-    assert!(!mounts.contains(mnt.to_str().unwrap()), "left mounted");
+    let t = std::time::SystemTime::now();
+    assert!(mounts_at(&mnt).is_empty(), "left mounted");
+    assert!(
+        !ctl.lists_since(conn, t),
+        "the dead ring's connection outlived the unmount"
+    );
 }
 
 #[test]
@@ -147,24 +257,64 @@ fn a_failed_completion_fails_the_step_and_the_unmount() {
 }
 
 fn falls_back(fault: Fault, why: &str) {
+    let _one = serial();
     let f = fixture();
-    f.require_ring();
-    // Forced, the ring's failure is the mount's.
+    let ctl = FuseCtl::mount();
+    f.require_ring(&ctl);
+    // Forced, the ring's failure is the mount's, and when serve returns the
+    // ring mount is gone from this test's own path and its connection from
+    // the kernel.
     let err = match f.serve("forced", Transport::Uring, Some(fault)) {
         Ok(_) => panic!("{fault:?}: a forced ring mount came up"),
         Err(e) => e,
     };
+    let returned = std::time::SystemTime::now();
     assert!(err.contains(why), "{err}");
-    let mounts = fs::read_to_string("/proc/self/mounts").unwrap();
+    // serve checked its own teardown: unmounted outright, not detached.
+    assert!(!err.contains("not torn down"), "{err}");
+    let forced = f.tmp.path().join("forced");
     assert!(
-        !mounts.contains("/forced"),
-        "a failed ring mount stayed mounted"
+        mounts_at(&forced).is_empty(),
+        "a failed ring mount stayed mounted at {}",
+        forced.display()
     );
-    // Auto: the classic transport serves the whole mount, and says so.
+    let conn = named_conn(&err);
+    assert!(
+        !ctl.lists_since(conn, returned),
+        "connection {conn} outlived the failed mount"
+    );
+    // Auto: the classic transport serves the whole mount, and says so. The
+    // ring mount it abandoned was torn down first: the path holds exactly
+    // one mount (classic's, not stacked on the ring's), and the abandoned
+    // connection is gone while classic's is live.
     let served = f.serve("auto", Transport::Auto, Some(fault)).unwrap();
+    let returned = std::time::SystemTime::now();
     let s = served.stats();
     assert!(!s.uring && s.uring_fallback, "{s:?}");
     assert_eq!((s.ring_requests, s.device_requests), (0, 0), "{s:?}");
+    let auto = served.mountpoint().to_path_buf();
+    assert_eq!(
+        mounts_at(&auto).len(),
+        1,
+        "the fallback stacked on the ring mount"
+    );
+    let ring = s
+        .ring_abandoned_conn
+        .expect("the abandoned ring connection");
+    let classic_conn = conn_at(&auto);
+    assert!(ctl.lists(classic_conn), "classic's connection is not live");
+    if classic_conn == ring {
+        // The kernel gave the abandoned connection's id to the classic
+        // mount. A FUSE mount's id is its superblock's anonymous device
+        // number, freed only when that superblock is killed, which is
+        // where the kernel destroys the connection (fuse_kill_sb_anon):
+        // the ring's connection was gone before classic mounted.
+    } else {
+        assert!(
+            !ctl.lists_since(ring, returned),
+            "the abandoned ring connection {ring} is alive"
+        );
+    }
     let (ok, _) = bounded(
         served.mountpoint(),
         "cat go.mod >/dev/null",

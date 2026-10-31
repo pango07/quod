@@ -52,6 +52,10 @@ pub struct ObserverStats {
     /// for lack of CAP_SYS_NICE.
     pub ring_nice: Option<i32>,
     pub ring_nice_denied: bool,
+    /// After a fallback: the FUSE connection id (its directory name under
+    /// /sys/fs/fuse/connections) of the ring mount that was abandoned and
+    /// seen torn down before the classic transport mounted.
+    pub ring_abandoned_conn: Option<u64>,
     /// Times a serving thread found a model lock held by another.
     pub lock_contended: u64,
 }

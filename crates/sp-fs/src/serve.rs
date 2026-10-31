@@ -28,7 +28,7 @@ use fuser::{
 use sp_cas::{Cas, Entry, Kind, ROOT, Tree, child_path};
 use sp_manifest::Access;
 
-use crate::uring;
+use crate::uring::{self, MountError};
 use crate::{FsError, ObserverStats, SchedStats};
 
 /// Entries never change during a step, so the kernel may cache them freely.
@@ -229,6 +229,9 @@ pub(crate) struct Stats {
     /// it was refused (no CAP_SYS_NICE).
     pub(crate) ring_nice: AtomicI32,
     pub(crate) ring_nice_denied: AtomicBool,
+    /// The FUSE connection of a ring mount abandoned before serving (0:
+    /// none), which `uring::mount` saw destroyed.
+    abandoned_conn: AtomicU64,
     /// Times a serving thread found a model lock held by another.
     contended: AtomicU64,
 }
@@ -254,6 +257,7 @@ impl Default for Stats {
             ring_serve_ns: AtomicU64::new(0),
             ring_nice: AtomicI32::new(i32::MIN),
             ring_nice_denied: AtomicBool::new(false),
+            abandoned_conn: AtomicU64::new(0),
             contended: AtomicU64::new(0),
         }
     }
@@ -281,6 +285,7 @@ impl Stats {
             ring_serve_us: g(&self.ring_serve_ns) / 1000,
             ring_nice: Some(self.ring_nice.load(Ordering::Relaxed)).filter(|&n| n != i32::MIN),
             ring_nice_denied: self.ring_nice_denied.load(Ordering::Relaxed),
+            ring_abandoned_conn: Some(g(&self.abandoned_conn)).filter(|&c| c != 0),
             lock_contended: g(&self.contended),
         }
     }
@@ -457,10 +462,13 @@ impl CasFs {
 
     /// The ring was abandoned before serving anything: the classic
     /// transport takes over the whole mount.
-    fn ring_abandoned(&self) {
+    fn ring_abandoned(&self, conn: Option<u64>) {
         self.stats.uring.store(false, Ordering::Relaxed);
         self.stats.uring_fallback.store(true, Ordering::Relaxed);
         self.stats.reset_ring();
+        self.stats
+            .abandoned_conn
+            .store(conn.unwrap_or(0), Ordering::Relaxed);
     }
 
     /// Whether anything has been recorded yet (a fallback must find none).
@@ -1008,27 +1016,30 @@ pub fn serve_with(
                 what: format!("FUSE over io_uring at {}", mountpoint.display()),
                 source: io::Error::other(why),
             })?;
-            Session::Uring(uring::mount(fs, mountpoint, opts)?)
+            Session::Uring(uring::mount(fs, mountpoint, opts).map_err(MountError::into_inner)?)
         }
         Transport::Auto => match uring::available() {
             Ok(()) => match uring::mount(fs.clone(), mountpoint, opts) {
                 Ok(s) => Session::Uring(s),
-                Err(e) => {
-                    // `mount` unmounted and joined everything it started;
-                    // nothing was recorded (the step has not started).
+                // Only over a path the ring mount has fully left (`mount`
+                // checked it: unmounted, not detached, connection gone,
+                // every thread joined); never stacked on what it left.
+                Err(MountError::Failed { error, conn }) => {
+                    // Nothing was recorded (the step has not started).
                     if !fs.log_is_empty() {
                         return Err(FsError::Io {
                             what: format!(
                                 "abandoned ring mount at {} logged accesses",
                                 mountpoint.display()
                             ),
-                            source: io::Error::other(e.to_string()),
+                            source: io::Error::other(error.to_string()),
                         });
                     }
-                    tracing::warn!(target: "stillpass", error = %e, "FUSE over io_uring failed to come up; the classic transport serves this mount");
-                    fs.ring_abandoned();
+                    tracing::warn!(target: "stillpass", error = %error, "FUSE over io_uring failed to come up; the classic transport serves this mount");
+                    fs.ring_abandoned(conn);
                     Session::Fuser(mount_fuser(fs, mountpoint)?)
                 }
+                Err(MountError::NotTornDown(e)) => return Err(e),
             },
             Err(why) => {
                 tracing::info!(target: "stillpass", why, "classic FUSE transport");
@@ -1166,6 +1177,7 @@ impl Served {
             ring_serve_us = s.ring_serve_us,
             ring_nice = s.ring_nice,
             ring_nice_denied = s.ring_nice_denied,
+            ring_abandoned_conn = s.ring_abandoned_conn,
             lock_contended = s.lock_contended,
             serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
             serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),
