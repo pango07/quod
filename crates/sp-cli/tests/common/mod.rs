@@ -154,19 +154,7 @@ impl Env {
     /// imported from STILLPASS_ROOTFS_SRC (the export tar or directory) and
     /// must come out at the digest STILLPASS_ROOTFS names.
     fn seed_rootfs(&self) {
-        let Ok(digest) = std::env::var("STILLPASS_ROOTFS") else {
-            return;
-        };
-        let src = std::env::var("STILLPASS_ROOTFS_SRC").expect(
-            "STILLPASS_ROOTFS is set: STILLPASS_ROOTFS_SRC must name the export it was imported from",
-        );
-        let out = self.stillpass(&["rootfs", "import", &src]);
-        assert_eq!(out.code, 0, "rootfs import: {}", out.stderr);
-        let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        assert_eq!(
-            got, digest,
-            "STILLPASS_ROOTFS_SRC imports to another digest"
-        );
+        seed_rootfs_in(&self.state());
     }
 
     pub fn commit(&self, msg: &str) {
@@ -196,6 +184,12 @@ impl Env {
 
     /// `stillpass` with its own state dir and extra environment.
     pub fn stillpass_in(&self, state: &Path, args: &[&str], envs: &[(&str, &str)]) -> Out {
+        // Every state dir a test runs in has the rootfs, not only the
+        // default one (a test comparing transports uses one state per
+        // transport).
+        if args.first() != Some(&"rootfs") {
+            seed_rootfs_in(state);
+        }
         let out = Command::new(env!("CARGO_BIN_EXE_stillpass"))
             .arg("--state")
             .arg(state)
@@ -232,6 +226,39 @@ impl Env {
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(p, content).unwrap();
     }
+}
+
+/// Rootfs mode: every `stillpass run` child inherits STILLPASS_ROOTFS, so
+/// that rootfs must be in the state dir's own store. It is imported from
+/// STILLPASS_ROOTFS_SRC (the export tar or directory), once per state dir,
+/// and must come out at the digest STILLPASS_ROOTFS names.
+pub fn seed_rootfs_in(state: &Path) {
+    let Ok(digest) = std::env::var("STILLPASS_ROOTFS") else {
+        return;
+    };
+    let hex = digest.strip_prefix("b3:").unwrap_or(&digest);
+    if state.join(format!("cas/rootfs/index/{hex}.json")).is_file() {
+        return;
+    }
+    let src = std::env::var("STILLPASS_ROOTFS_SRC").expect(
+        "STILLPASS_ROOTFS is set: STILLPASS_ROOTFS_SRC must name the export it was imported from",
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_stillpass"))
+        .arg("--state")
+        .arg(state)
+        .args(["rootfs", "import", &src])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "rootfs import: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        digest,
+        "STILLPASS_ROOTFS_SRC imports to another digest"
+    );
 }
 
 /// The structured events a state dir's runs wrote, oldest first.

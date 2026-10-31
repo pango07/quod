@@ -1,0 +1,37 @@
+# Ring transport gates on exp/rootfs rebased onto main 0297853, 2026-10-31 16:30-16:50 UTC, box at load 40-70.
+
+## transports_log_identically --ignored, host mode
+go test over fuse-uring: 17 inputs
+go test over fuse: 17 inputs
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 10.10s
+
+## transports_log_identically --ignored, rootfs mode (STILLPASS_ROOTFS set), after seeding every state dir
+go test over fuse-uring: 17 inputs
+go test over fuse: 17 inputs
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 45.26s
+
+## ring_faults --features fault-injection --ignored, host mode
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.09s
+
+## ring_faults --features fault-injection --ignored, rootfs mode, after seeding
+fault register transport Some("uring"): exit 2 in 309.977125ms
+STILLPASS  ERROR (exit 2, not the step's result)
+fault register transport None: exit 0 in 10.631414421s
+fault panic transport Some("uring"): exit 2 in 1.062689042s
+STILLPASS  ERROR (exit 2, not the step's result)
+STILLPASS  ERROR (exit 2, not the step's result)
+fault panic:73 transport Some("uring"): exit 2 in 866.077251ms
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 0 panicked: test hook: ring queue 0 dies holding a request: other error
+fault error:73 transport Some("uring"): exit 2 in 1.044913667s
+STILLPASS  ERROR (exit 2, not the step's result)
+  the observer served 1 I/O error(s) to the step, first: FUSE over io_uring: ring queue 1 failed: completion of entry 3: Input/output error (os error 5): other error
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 99.70s
+
+## sp-fs tests/uring.rs --features fault-injection --ignored (fails identically on main 0297853, see DECISIONS)
+thread 'a_refused_registration_falls_back_before_anything_is_served' (18516) panicked at crates/sp-fs/tests/uring.rs:159:5:
+a failed ring mount stayed mounted
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.16s
+# Rerun 3 more times on this branch: the same failure each time. On a clean export of main 0297853 (git archive main), same command:
+#   thread 'a_refused_registration_falls_back_before_anything_is_served' panicked at crates/sp-fs/tests/uring.rs:159:5: a failed ring mount stayed mounted
+#   test result: FAILED. 3 passed; 1 failed

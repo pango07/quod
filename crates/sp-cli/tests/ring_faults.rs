@@ -30,6 +30,8 @@ fn hooked(env: &Env, state: &Path, fault: &str, transport: Option<&str>) -> (Out
     if let Some(t) = transport {
         envs.push(("STILLPASS_FUSE_TRANSPORT".into(), t.into()));
     }
+    // Rootfs mode (STILLPASS_ROOTFS set): this state dir needs the rootfs too.
+    seed_rootfs_in(state);
     let (tx, rx) = std::sync::mpsc::channel();
     let (repo, st) = (env.repo.to_str().unwrap().to_string(), state.to_path_buf());
     let t = Instant::now();
