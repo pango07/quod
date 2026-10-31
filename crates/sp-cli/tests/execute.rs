@@ -81,7 +81,8 @@ fn sealed_module_cache_is_a_snapshot() {
         let snapshots = std::fs::read_dir(env.state().join("cas/snapshots"))
             .map(|d| {
                 d.flatten()
-                    .filter(|r| !r.file_name().to_string_lossy().starts_with("tmp."))
+                    .filter(|r| r.file_type().is_ok_and(|t| t.is_dir()))
+                    .filter(|r| r.path().join(".complete").is_file())
                     .count()
             })
             .unwrap_or(0);
@@ -139,6 +140,8 @@ fn sealed_module_cache_is_a_snapshot() {
     assert_eq!(
         std::fs::read_dir(env.state().join("cas/snapshots"))
             .unwrap()
+            .flatten()
+            .filter(|e| e.file_type().unwrap().is_dir())
             .count(),
         2
     );

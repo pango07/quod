@@ -315,7 +315,7 @@ fn execute(
         // observed overlay.
         let ws = Path::new(sp_key::WORKSPACE);
         mounts.push(Mount {
-            src: s.snapshot.join(&s.prefix),
+            src: s.snapshot.dir.join(&s.prefix),
             dst: ws.join(&s.prefix),
             writable: false,
         });
@@ -345,7 +345,8 @@ fn execute(
     let mut log = served.unmount()?;
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(tree, &s.prefix, &s.carve_out));
-        let removed = snapshot::gc(&snapshots, snapshot::KEEP, &s.snapshot)?;
+        // Housekeeping never fails a completed run (gc warns instead).
+        let removed = snapshot::gc(&snapshots, snapshot::KEEP, &s.snapshot.dir);
         if removed > 0 {
             tracing::info!(target: "stillpass", removed, "snapshot gc");
         }
@@ -390,8 +391,9 @@ struct Sealed {
     prefix: String,
     /// A directory under it that stays observed (the step writes there).
     carve_out: String,
-    /// The snapshot directory; the subtree is at `snapshot/prefix`.
-    snapshot: PathBuf,
+    /// The snapshot, shared-locked while held; the subtree is at
+    /// `snapshot.dir/prefix`.
+    snapshot: snapshot::Snapshot,
 }
 
 /// Seals the step's module cache (GOMODCACHE under the workspace) when the
@@ -431,7 +433,7 @@ fn seal_modcache(spec: &StepSpec, tree: &Tree, cas: &Cas, snapshots: &Path) -> O
             Some(Sealed {
                 prefix,
                 carve_out,
-                snapshot: s.dir,
+                snapshot: s,
             })
         }
         Err(e) => {
@@ -650,7 +652,7 @@ mod tests {
             (".stillpass/gomod", ".stillpass/gomod/cache")
         );
         // The snapshot holds the module dirs and an empty carve-out to mount over.
-        let snap = &s.snapshot;
+        let snap = &s.snapshot.dir;
         assert_eq!(snap.parent(), Some(root.as_path()));
         assert_eq!(
             std::fs::read(snap.join(".stillpass/gomod/a.b/c@v1/x.go")).unwrap(),
@@ -665,7 +667,7 @@ mod tests {
         assert!(!snap.join("go.mod").exists() && !snap.join(".stillpass/gomodx").exists());
         // A second tree with the same module cache reuses it.
         let s2 = seal_modcache(&spec, &tree, &cas, &root).unwrap();
-        assert_eq!(&s2.snapshot, snap);
+        assert_eq!(&s2.snapshot.dir, snap);
         let got: Vec<(String, Kind)> = sealed_accesses(&tree, &s.prefix, &s.carve_out)
             .into_iter()
             .map(|a| (a.path, a.kind))

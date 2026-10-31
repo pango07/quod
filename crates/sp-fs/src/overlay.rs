@@ -240,7 +240,7 @@ fn walk(
 
 /// Flushes every dirty page and directory entry of the filesystem holding
 /// `dir` to disk. One call covers every output file about to become a blob.
-fn syncfs(dir: &Path) -> std::io::Result<()> {
+pub fn syncfs(dir: &Path) -> std::io::Result<()> {
     let f = fs::File::open(dir)?;
     // SAFETY: the descriptor is open and owned by `f` for the whole call.
     #[allow(unsafe_code)] // syncfs(2) has no safe std wrapper
