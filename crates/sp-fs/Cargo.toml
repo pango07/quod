@@ -10,3 +10,14 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+sp-cas.workspace = true
+sp-manifest.workspace = true
+libc.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
