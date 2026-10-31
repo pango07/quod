@@ -24,6 +24,13 @@ if [ ! -x "$dir/run.sh" ]; then
   tarball="actions-runner-linux-$arch-$ver.tar.gz"
   echo "downloading actions/runner $ver ($arch)"
   curl -fsSL -o "/tmp/$tarball" "https://github.com/actions/runner/releases/download/v$ver/$tarball"
+  # The release notes' SHA-256, pinned in versions.toml: refuse anything else.
+  want=$(v actions_runner "sha256_$arch")
+  if [ -z "$want" ] || ! echo "$want  /tmp/$tarball" | sha256sum -c --quiet -; then
+    echo "actions/runner $ver ($arch): checksum does not match versions.toml" >&2
+    rm -f "/tmp/$tarball"
+    exit 1
+  fi
   tar -xzf "/tmp/$tarball" -C "$dir"
   rm -f "/tmp/$tarball"
 fi

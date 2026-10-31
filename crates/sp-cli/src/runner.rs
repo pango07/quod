@@ -90,17 +90,38 @@ fn runners_dir(state: &State) -> PathBuf {
     state.dir.join("runners")
 }
 
-fn pinned_version() -> anyhow::Result<String> {
+/// A key of versions.toml's `[actions_runner]` section.
+fn pinned(key: &str) -> anyhow::Result<String> {
     let mut in_section = false;
     for line in VERSIONS_TOML.lines() {
         let l = line.trim();
         if l.starts_with('[') {
             in_section = l == "[actions_runner]";
-        } else if in_section && let Some(v) = l.strip_prefix("version = ") {
+        } else if in_section && let Some(v) = l.strip_prefix(&format!("{key} = ")) {
             return Ok(v.trim_matches('"').to_string());
         }
     }
-    bail!("versions.toml has no [actions_runner] version")
+    bail!("versions.toml has no [actions_runner] {key}")
+}
+
+fn pinned_version() -> anyhow::Result<String> {
+    pinned("version")
+}
+
+/// The file's SHA-256 (sha256sum), hex.
+fn sha256(path: &Path) -> anyhow::Result<String> {
+    let out = Command::new("sha256sum")
+        .arg(path)
+        .output()
+        .context("sha256sum")?;
+    if !out.status.success() {
+        bail!("sha256sum {} failed", path.display());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string())
 }
 
 fn arch() -> anyhow::Result<&'static str> {
@@ -118,6 +139,7 @@ fn dist(base: &Path) -> anyhow::Result<PathBuf> {
     let dir = base.join("dist");
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(&name);
+    let want = pinned(&format!("sha256_{}", arch()?))?;
     if !path.is_file() {
         let url = format!("https://github.com/actions/runner/releases/download/v{ver}/{name}");
         eprintln!("downloading {url}");
@@ -132,6 +154,16 @@ fn dist(base: &Path) -> anyhow::Result<PathBuf> {
             bail!("download of {url} failed");
         }
         std::fs::rename(&tmp, &path)?;
+    }
+    // Checked every time it is used, not only when downloaded: a tarball
+    // replaced on disk is refused too.
+    let got = sha256(&path)?;
+    if got != want {
+        let _ = std::fs::remove_file(&path);
+        bail!(
+            "{} has SHA-256 {got}, versions.toml pins {want}; removed it",
+            path.display()
+        );
     }
     Ok(path)
 }
@@ -231,6 +263,12 @@ fn pool(state: &State, a: PoolArgs) -> anyhow::Result<u8> {
     }
     let base = runners_dir(state);
     let t = Instant::now();
+    // No job of this state can be running yet: whatever a runner killed
+    // with SIGKILL left behind (raw step output, job.json, mounts) goes.
+    let swept = sp_hooks::job::sweep_stale_jobs(&state.dir)?;
+    if swept > 0 {
+        eprintln!("removed {swept} job directory(ies) a killed runner left behind");
+    }
     for image in &a.images {
         let r = OciRootfs::new(state.dir.join("rootfs")).prepare(image)?;
         eprintln!("image {image} ready: {} at {}", r.digest, r.dir.display());
@@ -308,6 +346,25 @@ fn deregister(state: &State, a: DeregisterArgs) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_runner_release_is_pinned_by_checksum() {
+        assert_eq!(pinned_version().unwrap(), "2.338.2");
+        for a in ["x64", "arm64"] {
+            let sum = pinned(&format!("sha256_{a}")).unwrap();
+            assert!(
+                sum.len() == 64 && sum.bytes().all(|b| b.is_ascii_hexdigit()),
+                "{a}: {sum}"
+            );
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join("x");
+        std::fs::write(&f, "abc").unwrap();
+        assert_eq!(
+            sha256(&f).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn version_is_pinned() {

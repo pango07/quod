@@ -76,7 +76,11 @@ touch = "starlette/routing.py"
 
 [actions_runner]
 # The official runner the stillpass runner drives (scripts/runner/install.sh).
+# The release tarballs' SHA-256, as the release notes publish them; the pool
+# and install.sh refuse a download that does not match.
 version = "2.338.2"
+sha256_x64 = "baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40"
+sha256_arm64 = "670adb2f268fe21dcbb58b3db0e0aa9d5b3bddfe2c651481336e561ff86de945"
 
 [job_image]
 # The job container of the gate workflow: golang:1.27.3 (OCI index digest,
