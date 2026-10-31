@@ -5,16 +5,15 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use clap::Args;
 use sp_cas::{Cas, Hash, Kind, Tree};
-use sp_key::{StepSpec, step_key};
+use sp_key::{Image, StepSpec, step_key};
 use sp_ledger::{Ledger, Lookup, Observed, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
 use sp_sandbox::{Mount, RunSpec};
 
+use crate::rootfs::{self, Rootfs};
 use crate::snapshot;
 use crate::state::State;
-
-const FINGERPRINT_SH: &str = include_str!("../../../scripts/host-fingerprint.sh");
 
 #[derive(Args)]
 pub struct RunArgs {
@@ -59,11 +58,22 @@ pub struct RunArgs {
     /// directories, symlinks, whiteouts and duplicates of existing blobs.
     #[arg(long)]
     keep: bool,
+    /// Run in this pinned root filesystem instead of on the host's: a rootfs
+    /// digest (b3:...) or the OCI digest (sha256:...) of the image it was
+    /// imported from (`stillpass rootfs import`). The key's image is then
+    /// the digest, and the proof holds on any host with the same rootfs.
+    /// Default: $STILLPASS_ROOTFS.
+    #[arg(long, value_name = "DIGEST", conflicts_with = "host_root")]
+    rootfs: Option<String>,
+    /// Pin the host's own userland (its fingerprint) instead of a rootfs:
+    /// the fallback for hosts without one. Such a proof does not travel.
+    #[arg(long)]
+    host_root: bool,
 }
 
 /// Wall time per phase, reported in the run event.
 #[derive(Default, Debug)]
-struct Phases {
+pub(crate) struct Phases {
     import: Duration,
     lookup: Duration,
     mount: Duration,
@@ -94,24 +104,28 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     }
     let wall_start = Instant::now();
     let extra_env = parse_env(&args.env)?;
-    let image = host_image()?;
+    let cas = Cas::open(args.cas.clone().unwrap_or_else(|| state.cas_dir()))?;
+    // The environment pin: a rootfs (opened and sealed now, held for the
+    // run) or the host fingerprint.
+    let pin = rootfs::pin(&cas, args.rootfs.as_deref(), args.host_root)?;
+    let image = pin.image.clone();
     let warm = args.warm && !args.allow_net;
     let spec = if warm {
-        StepSpec::spike_warm(image, &args.step, &extra_env)?
+        StepSpec::spike_warm(image.clone(), &args.step, &extra_env)?
     } else {
-        StepSpec::spike(image, &args.step, &extra_env)
+        StepSpec::spike(image.clone(), &args.step, &extra_env)
     };
     let key = step_key(&spec)?;
     let env = spec.normalized_env()?;
     let run_id = ulid::Ulid::generate().to_string();
 
     if args.allow_net {
-        return run_unobserved(state, &repo, &spec, env, &run_id);
+        return run_unobserved(state, &repo, &spec, env, &run_id, pin.rootfs.as_ref());
     }
 
     let mut phases = Phases::default();
-    let cas = Cas::open(args.cas.clone().unwrap_or_else(|| state.cas_dir()))?;
     let ledger = Ledger::open(&args.ledger.clone().unwrap_or_else(|| state.ledger_path()))?;
+    ledger.put_step_key(&key, &sp_key::canonical_key_json(&spec)?)?;
 
     let t = Instant::now();
     let tree = cas
@@ -149,6 +163,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         emit_event(
             &run_id,
             &key,
+            &image,
             Some(&mid),
             true,
             &lookup,
@@ -164,7 +179,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 
     let start = Instant::now();
     let dir = state.run_dir(&run_id);
-    let warm_dir = warm.then(|| state.warm_gocache_dir(&image));
+    let warm_dir = if warm {
+        Some(state.warm_gocache_dir(&image.id()?))
+    } else {
+        None
+    };
     let outcome = execute(
         &cas,
         &tree,
@@ -172,6 +191,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         env,
         &dir,
         warm_dir.as_deref(),
+        pin.rootfs.as_ref(),
+        &[],
         &mut phases,
     );
     let ex = match outcome {
@@ -206,7 +227,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         stdout: ex.stdout,
         stderr: ex.stderr,
         outputs: ex.outputs,
-        root_outputs: Vec::new(),
+        root_outputs: ex.root_outputs,
         duration_ms: ex.wall.as_millis() as u64,
     };
     // One transaction: a result is never visible without the run row that
@@ -230,13 +251,21 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     if !args.keep {
         sp_cas::remove_any(&dir)?;
     }
+    if let Some(r) = &pin.rootfs {
+        let removed = rootfs::gc(&cas, r);
+        if removed > 0 {
+            tracing::info!(target: "stillpass", removed, "rootfs snapshot gc");
+        }
+    }
 
     eprint!(
         "{}",
         executed_banner(
             &key,
             &mid,
+            &image,
             &ex.manifest,
+            result.root_outputs.len(),
             &lookup,
             ex.wall,
             warm_dir.as_deref()
@@ -245,6 +274,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     emit_event(
         &run_id,
         &key,
+        &image,
         Some(&mid),
         false,
         &lookup,
@@ -259,37 +289,46 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 }
 
 /// What one execution produced, before anything is recorded.
-struct Executed {
-    exit_code: i32,
-    signal: Option<i32>,
-    manifest: Manifest,
-    outputs: Vec<sp_cas::Entry>,
-    wall: Duration,
-    stdout: Hash,
-    stderr: Hash,
+pub(crate) struct Executed {
+    pub(crate) exit_code: i32,
+    pub(crate) signal: Option<i32>,
+    pub(crate) manifest: Manifest,
+    pub(crate) outputs: Vec<sp_cas::Entry>,
+    /// Writes outside the workspace (rootfs mode only), relative to `/`.
+    pub(crate) root_outputs: Vec<sp_cas::Entry>,
+    pub(crate) wall: Duration,
+    pub(crate) stdout: Hash,
+    pub(crate) stderr: Hash,
     /// The transport that served the observer: `fuse-uring` or `fuse`.
-    transport: &'static str,
+    pub(crate) transport: &'static str,
     /// How the inputs were observed: the transport and how it ran
     /// (`ObserverStats::transport_detail`: the ring queue threads' nice
     /// value, `+uring-fallback` when the ring was tried and abandoned before
     /// the step so classic served all of it), `+passthrough` when the kernel
     /// read blobs directly and `+sealed` when the module cache was a
     /// snapshot outside the observer.
-    observer: String,
+    pub(crate) observer: String,
 }
 
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
 /// With `warm`, that host directory is bound over the step's GOCACHE, on top
 /// of the overlay: Go reads and writes it directly, unobserved, and it
-/// persists for the next warm run.
-#[allow(clippy::too_many_arguments)] // one call site; the inputs of a run, each named
-fn execute(
+/// persists for the next warm run. With `rootfs`, the step's `/` is a
+/// per-step overlay over that sealed rootfs and its writes outside the
+/// workspace become `root_outputs`; without, the host's system paths are
+/// bound read-only. `extra_mounts` are bound as given and never observed:
+/// only pinned trees whose digests are in `spec.image.mounts` belong there
+/// (`crate::step`).
+#[allow(clippy::too_many_arguments)] // two call sites; the inputs of a run, each named
+pub(crate) fn execute(
     cas: &Cas,
     tree: &Tree,
     spec: &StepSpec,
     env: Vec<(String, String)>,
     dir: &Path,
     warm: Option<&Path>,
+    rootfs: Option<&Rootfs>,
+    extra_mounts: &[Mount],
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -302,11 +341,16 @@ fn execute(
         &dir.join("work"),
         &dir.join("merged"),
     )?;
+    let root = match rootfs {
+        Some(r) => Some(rootfs::RootOverlay::mount(r, dir)?),
+        None => None,
+    };
     let mut mounts = vec![Mount {
         src: ov.merged().to_path_buf(),
         dst: sp_key::WORKSPACE.into(),
         writable: true,
     }];
+    mounts.extend(extra_mounts.iter().cloned());
     if let Some(warm) = warm {
         let gocache = env
             .iter()
@@ -358,7 +402,10 @@ fn execute(
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
         echo: true,
-        rootfs: None,
+        rootfs: root.as_ref().map(|o| sp_sandbox::RootFs {
+            dir: o.merged().to_path_buf(),
+            writable: true,
+        }),
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;
@@ -366,6 +413,10 @@ fn execute(
 
     let t = Instant::now();
     let outputs = ov.finish(tree, cas)?;
+    let root_outputs = match root {
+        Some(o) => o.finish(cas)?,
+        None => Vec::new(),
+    };
     let stats = served.stats();
     let mut log = served.unmount()?;
     if let Some(s) = &sealed {
@@ -400,6 +451,7 @@ fn execute(
         signal: r.signal,
         manifest,
         outputs,
+        root_outputs,
         wall: r.wall,
         stdout,
         stderr,
@@ -485,13 +537,16 @@ fn sealed_accesses(tree: &Tree, prefix: &str, carve_out: &str) -> Vec<sp_manifes
         .collect()
 }
 
-/// A step with network: runs directly on the repo, never memoized.
+/// A step with network: runs directly on the repo, never memoized. In a
+/// rootfs it runs on the sealed snapshot read-only (its writes outside the
+/// workspace are not kept) with the host's resolver bound in.
 fn run_unobserved(
     state: &State,
     repo: &Path,
     spec: &StepSpec,
     mut env: Vec<(String, String)>,
     run_id: &str,
+    rootfs: Option<&Rootfs>,
 ) -> anyhow::Result<u8> {
     // A network step fetches; let it reach the module proxy.
     for (k, v) in &mut env {
@@ -514,21 +569,44 @@ fn run_unobserved(
         stdout: dir.join("stdout"),
         stderr: dir.join("stderr"),
         echo: true,
-        rootfs: None,
+        rootfs: rootfs.map(|r| sp_sandbox::RootFs {
+            dir: r.dir().to_path_buf(),
+            writable: false,
+        }),
         identity: None,
     };
     let r = sp_sandbox::run(&rs)?;
     sp_cas::remove_any(&dir)?;
     eprintln!("STILLPASS  EXECUTED  network allowed, not memoized");
+    eprintln!("  {}", image_line(&spec.image));
     eprintln!("  ran {}", fmt_duration(r.wall));
     tracing::info!(target: "stillpass", run_id, memoized = false, egress = true, exit_code = r.exit_code, wall_ms = r.wall.as_millis() as u64, "run");
     Ok(exit_byte(r.exit_code))
 }
 
+/// The banner's environment line: what pinned the userland, and the
+/// platform.
+fn image_line(image: &Image) -> String {
+    let p = &image.platform;
+    let platform = format!("{} linux {} {} cpus", p.arch, p.kernel, p.cpus);
+    match image.kind {
+        sp_key::ImageKind::Rootfs => {
+            format!("image rootfs b3:{}  {platform}", image.digest.short())
+        }
+        sp_key::ImageKind::Host => format!(
+            "image host fingerprint b3:{}  {platform}  (not portable)",
+            image.digest.short()
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)] // one banner, every line named
 fn executed_banner(
     key: &Hash,
     mid: &Hash,
+    image: &Image,
     m: &Manifest,
+    root_outputs: usize,
     lookup: &Lookup,
     wall: Duration,
     warm: Option<&Path>,
@@ -540,6 +618,10 @@ fn executed_banner(
         mid.short(),
         group(m.entries.len())
     );
+    s += &format!("  {}\n", image_line(image));
+    if root_outputs > 0 {
+        s += &format!("  {} outputs outside the workspace\n", group(root_outputs));
+    }
     if let Some(w) = warm {
         s += &format!("  warm build cache {}\n", w.display());
     }
@@ -563,6 +645,7 @@ fn executed_banner(
 fn emit_event(
     run_id: &str,
     key: &Hash,
+    image: &Image,
     manifest: Option<&Hash>,
     hit: bool,
     lookup: &Lookup,
@@ -579,6 +662,11 @@ fn emit_event(
         target: "stillpass",
         run_id,
         step_key = %key,
+        image_kind = %image.kind,
+        image = %image.digest,
+        arch = %image.platform.arch,
+        kernel = %image.platform.kernel,
+        cpus = image.platform.cpus,
         manifest_id = manifest.map(|m| m.to_string()),
         hit,
         warm,
@@ -612,24 +700,6 @@ fn parse_env(pairs: &[String]) -> anyhow::Result<Vec<(String, String)>> {
             None => bail!("--env {p:?} is not NAME=VALUE"),
         })
         .collect()
-}
-
-/// The 0a environment pin: BLAKE3 of the host fingerprint script's output.
-fn host_image() -> anyhow::Result<Hash> {
-    let out = Command::new("/bin/bash")
-        .arg("-c")
-        .arg(FINGERPRINT_SH)
-        .env_clear()
-        .env("PATH", "/usr/local/go/bin:/usr/bin:/bin")
-        .output()
-        .context("run host fingerprint")?;
-    if !out.status.success() {
-        bail!(
-            "host fingerprint failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    Ok(Hash::of(&out.stdout))
 }
 
 fn git_head(repo: &Path) -> Option<String> {
@@ -668,7 +738,7 @@ mod tests {
             ),
             Entry::file(".stillpass/gomodx/y", Hash::of(b"y"), 0o644),
         ]);
-        let spec = StepSpec::spike(Hash::of(b"i"), "go test ./...", &[]);
+        let spec = StepSpec::spike(Image::rootfs(Hash::of(b"i")), "go test ./...", &[]);
         let tmp = tempfile::tempdir().unwrap();
         let cas = Cas::open(tmp.path().join("cas")).unwrap();
         for b in [b"m".as_slice(), b"x", b"d", b"y"] {

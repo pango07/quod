@@ -888,6 +888,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "serde",
  "serde_json",
  "sp-cas",
  "sp-fs",

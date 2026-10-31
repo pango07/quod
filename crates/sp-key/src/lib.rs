@@ -4,12 +4,191 @@
 //! The key is the identity of "this command in this environment," before any
 //! inputs are known.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sp_cas::{CanonError, Hash, canonical_json};
 
 /// Schema version of the step key JSON. v2 added `warm`: a warm-state step is
-/// a different key by construction, not only through the env it changes.
-pub const VERSION: u32 = 2;
+/// a different key by construction, not only through the env it changes. v3
+/// made `image` an object: what pinned the step's root (`kind`, `digest`),
+/// the read-only trees bound into it (`mounts`), and the host ABI no root
+/// filesystem can pin (`platform`).
+pub const VERSION: u32 = 3;
+
+/// How the environment outside the observed tree was pinned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageKind {
+    /// `digest` names a content-addressed root filesystem the step ran in
+    /// (`stillpass rootfs import`); nothing of the host's userland is
+    /// visible. Portable: any host with the same rootfs and platform
+    /// produces the key.
+    Rootfs,
+    /// `digest` is the BLAKE3 of the host fingerprint
+    /// (scripts/host-fingerprint.sh); the step ran on the host's /usr and
+    /// /etc. The fallback for hosts without the rootfs; not portable.
+    Host,
+}
+
+impl std::fmt::Display for ImageKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ImageKind::Rootfs => "rootfs",
+            ImageKind::Host => "host",
+        })
+    }
+}
+
+/// What the host's kernel and CPU show a step whatever its root filesystem:
+/// the values programs choose code paths by. Each one changes what a step
+/// can do or compute, deterministically, so each is part of the key. What a
+/// step can only print or race on (the kernel's patch level and build
+/// string, CPU model and clock, memory size, load, the clock) is left out
+/// and to audit; see DECISIONS.md for the enumeration.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Platform {
+    /// `uname -m`: `x86_64`, `aarch64`.
+    pub arch: String,
+    /// `uname -r` reduced to `major.minor`, e.g. `6.8`: the syscall set and
+    /// kernel features (Go and glibc compare exactly this).
+    pub kernel: String,
+    /// The CPU features user space dispatches on (aarch64: the auxv HWCAP
+    /// words; x86_64: also /proc/cpuinfo's flags), as the sandbox reports
+    /// them.
+    pub cpu_features: String,
+    /// CPUs the step may run on (its affinity mask): the default
+    /// parallelism of Go (GOMAXPROCS, `go test -p`) and of most build tools.
+    pub cpus: u32,
+    /// The kernel's page size (AT_PAGESZ): 4 KiB, 16 KiB or 64 KiB on arm64.
+    pub page_size: u64,
+}
+
+impl Platform {
+    /// `kernel_release` is the full `uname -r`; only major.minor is kept.
+    pub fn new(
+        arch: &str,
+        kernel_release: &str,
+        cpu_features: &str,
+        cpus: u32,
+        page_size: u64,
+    ) -> Platform {
+        Platform {
+            arch: arch.to_string(),
+            kernel: kernel_major_minor(kernel_release),
+            cpu_features: cpu_features.to_string(),
+            cpus,
+            page_size,
+        }
+    }
+}
+
+/// The environment pin: everything a step can read that is not in the
+/// observed tree. The digest covers the userland (a rootfs, or the host's
+/// fingerprint), `mounts` the read-only trees bound into it, `platform` what
+/// the kernel and CPU expose.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Image {
+    pub kind: ImageKind,
+    pub digest: Hash,
+    /// Read-only trees bound into the root, `[destination, tree digest]`:
+    /// pinned by content like the rootfs, never observed. Sorted by
+    /// destination in the key; a destination at or under an observed root
+    /// is an error. Empty for the CLI.
+    pub mounts: Vec<(String, Hash)>,
+    pub platform: Platform,
+}
+
+impl Image {
+    pub fn new(kind: ImageKind, digest: Hash, platform: Platform) -> Image {
+        Image {
+            kind,
+            digest,
+            mounts: Vec::new(),
+            platform,
+        }
+    }
+
+    /// For tests and goldens: a rootfs pin on a fixed aarch64 platform.
+    pub fn rootfs(digest: Hash) -> Image {
+        Image::new(ImageKind::Rootfs, digest, Platform::test_aarch64())
+    }
+
+    /// BLAKE3 of the image's canonical JSON (mounts sorted): names
+    /// host-side state that belongs to exactly one environment, such as the
+    /// warm build cache.
+    pub fn id(&self) -> Result<Hash, KeyError> {
+        let mut image = self.clone();
+        image.mounts = normalized_mounts(&self.mounts, &[])?;
+        Ok(Hash::of(canonical_json(&image)?.as_bytes()))
+    }
+}
+
+impl Platform {
+    /// A fixed aarch64 platform for tests and goldens (kernel 6.8, the
+    /// features of a Neoverse N1, 4 CPUs, 4 KiB pages).
+    pub fn test_aarch64() -> Platform {
+        Platform::new(
+            "aarch64",
+            "6.8.0-1021-azure",
+            "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs; hwcap=0x8fff hwcap2=0x0",
+            4,
+            4096,
+        )
+    }
+}
+
+/// `6.8.0-1021-azure` -> `6.8`; `7.0.14-linuxkit` -> `7.0`. Anything that
+/// is not `digits.digits...` is kept whole rather than guessed at.
+pub fn kernel_major_minor(release: &str) -> String {
+    let mut parts = release.split('.');
+    match (parts.next(), parts.next()) {
+        (Some(major), Some(minor))
+            if !major.is_empty() && major.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            let minor: String = minor.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if minor.is_empty() {
+                release.to_string()
+            } else {
+                format!("{major}.{minor}")
+            }
+        }
+        _ => release.to_string(),
+    }
+}
+
+/// Mounts sorted by destination, after validation: absolute, normalized
+/// (no `.`, `..`, empty components or trailing slash), not `/`, unique, and
+/// neither at nor under nor above one of `roots` (a pinned mount must not
+/// hide observed content, nor an observed root hide a pinned mount).
+fn normalized_mounts(
+    mounts: &[(String, Hash)],
+    roots: &[String],
+) -> Result<Vec<(String, Hash)>, KeyError> {
+    let mut m = mounts.to_vec();
+    m.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    for w in m.windows(2) {
+        if w[0].0 == w[1].0 {
+            return Err(KeyError::BadMount(w[0].0.clone(), "duplicate destination"));
+        }
+    }
+    let within = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/"));
+    for (dst, _) in &m {
+        let normal = dst.starts_with('/')
+            && dst.len() > 1
+            && dst[1..]
+                .split('/')
+                .all(|c| !c.is_empty() && c != "." && c != "..");
+        if !normal {
+            return Err(KeyError::BadMount(
+                dst.clone(),
+                "not an absolute, normalized path below /",
+            ));
+        }
+        if roots.iter().any(|r| within(dst, r) || within(r, dst)) {
+            return Err(KeyError::BadMount(dst.clone(), "overlaps an observed root"));
+        }
+    }
+    Ok(m)
+}
 
 /// The spike environment, exactly as the Schemas section lists it. Nothing
 /// from the host is ever inherited.
@@ -81,8 +260,9 @@ pub fn go_source_file(name: &str) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepSpec {
-    /// The environment pin: rootfs digest (0b) or host fingerprint (0a).
-    pub image: Hash,
+    /// The environment pin: rootfs digest or host fingerprint, pinned
+    /// mounts, and the platform.
+    pub image: Image,
     pub cmd: Vec<String>,
     pub cwd: String,
     /// Any order on input; sorted by name in the key.
@@ -100,6 +280,8 @@ pub enum KeyError {
     Denylisted(String),
     #[error("invalid env name {0:?}")]
     BadEnvName(String),
+    #[error("mount {0:?}: {1}")]
+    BadMount(String, &'static str),
     #[error("warm state needs {name}={want}, but the step sets {name}={have:?}")]
     WarmConflict {
         name: String,
@@ -113,7 +295,7 @@ pub enum KeyError {
 #[derive(Serialize)]
 struct KeyJson<'a> {
     v: u32,
-    image: Hash,
+    image: Image,
     cmd: &'a [String],
     cwd: &'a str,
     env: Vec<[&'a str; 2]>,
@@ -124,7 +306,7 @@ struct KeyJson<'a> {
 impl StepSpec {
     /// A spike step: `/bin/sh -e -c <script>` in `/workspace` with the
     /// Schemas env plus `extra_env`.
-    pub fn spike(image: Hash, script: &str, extra_env: &[(String, String)]) -> StepSpec {
+    pub fn spike(image: Image, script: &str, extra_env: &[(String, String)]) -> StepSpec {
         let mut env: Vec<(String, String)> = SPIKE_ENV
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -143,7 +325,7 @@ impl StepSpec {
     /// The spike step started warm: `spike`, marked warm in the key, with
     /// `WARM_GOFLAG` and `WARM_GODEBUG` merged into its env.
     pub fn spike_warm(
-        image: Hash,
+        image: Image,
         script: &str,
         extra_env: &[(String, String)],
     ) -> Result<StepSpec, KeyError> {
@@ -217,9 +399,13 @@ fn merge_knob(
 
 pub fn canonical_key_json(spec: &StepSpec) -> Result<String, KeyError> {
     let env = spec.normalized_env()?;
+    let image = Image {
+        mounts: normalized_mounts(&spec.image.mounts, &spec.roots)?,
+        ..spec.image.clone()
+    };
     let json = KeyJson {
         v: VERSION,
-        image: spec.image,
+        image,
         cmd: &spec.cmd,
         cwd: &spec.cwd,
         env: env.iter().map(|(k, v)| [k.as_str(), v.as_str()]).collect(),
@@ -238,22 +424,153 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
+    fn img() -> Image {
+        Image::rootfs(Hash::of(b"image"))
+    }
+
     fn spec() -> StepSpec {
-        StepSpec::spike(Hash::of(b"image"), "go test ./...", &[])
+        StepSpec::spike(img(), "go test ./...", &[])
     }
 
     #[test]
     fn json_shape() {
         let j = canonical_key_json(&spec()).unwrap();
         assert!(j.starts_with(r#"{"cmd":["/bin/sh","-e","-c","go test ./..."],"cwd":"/workspace","env":[["CGO_ENABLED","0"],"#));
-        assert!(j.contains(r#"["TZ","UTC"]],"image":"b3:"#));
-        assert!(j.ends_with(r#""roots":["/workspace"],"v":2,"warm":false}"#));
+        assert!(
+            j.contains(&format!(
+                r#"["TZ","UTC"]],"image":{{"digest":"{}","kind":"rootfs","mounts":[],"platform":{{"arch":"aarch64","cpu_features":"fp asimd "#,
+                Hash::of(b"image")
+            )),
+            "{j}"
+        );
+        assert!(
+            j.contains(r#"hwcap2=0x0","cpus":4,"kernel":"6.8","page_size":4096}},"roots""#),
+            "{j}"
+        );
+        assert!(j.ends_with(r#""roots":["/workspace"],"v":3,"warm":false}"#));
+        let mut host = StepSpec::spike(
+            Image::new(
+                ImageKind::Host,
+                Hash::of(b"fp"),
+                Platform::new("x86_64", "7.0.14-linuxkit", "fpu sse2", 18, 4096),
+            ),
+            "true",
+            &[],
+        );
+        host.image.mounts = vec![
+            ("/opt/z".into(), Hash::of(b"z")),
+            ("/opt/a".into(), Hash::of(b"a")),
+        ];
+        let j = canonical_key_json(&host).unwrap();
+        assert!(
+            j.contains(&format!(
+                r#""image":{{"digest":"{}","kind":"host","mounts":[["/opt/a","{}"],["/opt/z","{}"]],"platform":{{"arch":"x86_64","cpu_features":"fpu sse2","cpus":18,"kernel":"7.0","page_size":4096}}}}"#,
+                Hash::of(b"fp"),
+                Hash::of(b"a"),
+                Hash::of(b"z")
+            )),
+            "mounts sorted by destination: {j}"
+        );
+    }
+
+    #[test]
+    fn kernel_release_reduces_to_major_minor() {
+        assert_eq!(kernel_major_minor("6.8.0-1021-azure"), "6.8");
+        assert_eq!(kernel_major_minor("7.0.14-linuxkit"), "7.0");
+        assert_eq!(kernel_major_minor("5.15.0"), "5.15");
+        assert_eq!(kernel_major_minor("6.12"), "6.12");
+        // Not a dotted release: kept whole, never guessed at.
+        assert_eq!(kernel_major_minor("weird"), "weird");
+        assert_eq!(kernel_major_minor("6.x"), "6.x");
+        assert_eq!(kernel_major_minor(""), "");
+    }
+
+    #[test]
+    fn the_image_pins_kind_digest_mounts_and_platform() {
+        let base = step_key(&spec()).unwrap();
+        let changed = |f: &dyn Fn(&mut Image)| {
+            let mut s = spec();
+            f(&mut s.image);
+            step_key(&s).unwrap()
+        };
+        assert_ne!(
+            changed(&|i| i.kind = ImageKind::Host),
+            base,
+            "same digest, other kind"
+        );
+        assert_ne!(changed(&|i| i.digest = Hash::of(b"other")), base);
+        assert_ne!(changed(&|i| i.platform.arch = "x86_64".into()), base);
+        assert_ne!(changed(&|i| i.platform.kernel = "6.11".into()), base);
+        assert_ne!(changed(&|i| i.platform.cpu_features.push_str(" sve")), base);
+        assert_ne!(changed(&|i| i.platform.cpus = 2), base);
+        assert_ne!(changed(&|i| i.platform.page_size = 16384), base);
+        let m = |i: &mut Image| i.mounts = vec![("/opt/t".into(), Hash::of(b"t"))];
+        let with_mount = changed(&m);
+        assert_ne!(with_mount, base);
+        assert_ne!(
+            changed(&|i| i.mounts = vec![("/opt/t".into(), Hash::of(b"t2"))]),
+            with_mount,
+            "the mount's content is pinned"
+        );
+        assert_ne!(
+            changed(&|i| i.mounts = vec![("/opt/u".into(), Hash::of(b"t"))]),
+            with_mount,
+            "and where it is"
+        );
+        // Patch level and build are not part of the pin.
+        let p = |release: &str| Platform::new("aarch64", release, "fp", 4, 4096);
+        assert_eq!(p("6.8.0-1021-azure"), p("6.8.12-generic"));
+        assert_ne!(p("6.8.0-1021-azure"), p("6.9.0"));
+        // The image id follows the key's notion of equality.
+        let mut a = img();
+        a.mounts = vec![("/b".into(), Hash::of(b"b")), ("/a".into(), Hash::of(b"a"))];
+        let mut b = a.clone();
+        b.mounts.reverse();
+        assert_eq!(a.id().unwrap(), b.id().unwrap());
+        assert_ne!(a.id().unwrap(), img().id().unwrap());
+    }
+
+    #[test]
+    fn bad_mounts_are_errors() {
+        let bad = |dst: &str| {
+            let mut s = spec();
+            s.image.mounts = vec![(dst.into(), Hash::of(b"m"))];
+            step_key(&s)
+        };
+        for dst in [
+            "",
+            "/",
+            "opt",
+            "/opt/",
+            "/opt//x",
+            "/opt/./x",
+            "/opt/../x",
+            "/workspace",
+            "/workspace/sub",
+        ] {
+            assert!(
+                matches!(bad(dst), Err(KeyError::BadMount(..))),
+                "{dst:?} accepted"
+            );
+        }
+        // A mount above the observed root would hide it.
+        let mut s = spec();
+        s.roots = vec!["/w/repo".into()];
+        s.image.mounts = vec![("/w".into(), Hash::of(b"m"))];
+        assert!(matches!(step_key(&s), Err(KeyError::BadMount(..))));
+        assert!(bad("/workspacex").is_ok() && bad("/opt/x").is_ok());
+        let mut s = spec();
+        s.image.mounts = vec![
+            ("/opt/x".into(), Hash::of(b"1")),
+            ("/opt/x".into(), Hash::of(b"2")),
+        ];
+        assert!(matches!(step_key(&s), Err(KeyError::BadMount(..))));
     }
 
     #[test]
     fn warm_is_marked_in_the_key_and_merges_its_knobs() {
         let cold = spec();
-        let warm = StepSpec::spike_warm(Hash::of(b"image"), "go test ./...", &[]).unwrap();
+        let warm = StepSpec::spike_warm(img(), "go test ./...", &[]).unwrap();
         assert!(warm.warm && !cold.warm);
         assert_ne!(step_key(&warm).unwrap(), step_key(&cold).unwrap());
         assert!(
@@ -281,18 +598,15 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let merged =
-            StepSpec::spike_warm(Hash::of(b"i"), "true", &x(&[("GODEBUG", "http2debug=1")]))
-                .unwrap();
+            StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "http2debug=1")])).unwrap();
         assert_eq!(
             get(&merged, "GODEBUG").as_deref(),
             Some("http2debug=1,goindex=0")
         );
-        let same =
-            StepSpec::spike_warm(Hash::of(b"i"), "true", &x(&[("GODEBUG", "goindex=0")])).unwrap();
+        let same = StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "goindex=0")])).unwrap();
         assert_eq!(get(&same, "GODEBUG").as_deref(), Some("goindex=0"));
         // Asking for the opposite is refused, never silently overridden.
-        let conflict =
-            StepSpec::spike_warm(Hash::of(b"i"), "true", &x(&[("GODEBUG", "goindex=1")]));
+        let conflict = StepSpec::spike_warm(img(), "true", &x(&[("GODEBUG", "goindex=1")]));
         assert!(
             matches!(conflict, Err(KeyError::WarmConflict { ref name, .. }) if name == "GODEBUG"),
             "{conflict:?}"
@@ -333,11 +647,7 @@ mod tests {
 
     #[test]
     fn denylisted_env_is_an_error() {
-        let s = StepSpec::spike(
-            Hash::of(b"i"),
-            "true",
-            &[("GITHUB_RUN_ID".into(), "1".into())],
-        );
+        let s = StepSpec::spike(img(), "true", &[("GITHUB_RUN_ID".into(), "1".into())]);
         assert!(matches!(step_key(&s), Err(KeyError::Denylisted(_))));
     }
 
@@ -345,18 +655,11 @@ mod tests {
     fn every_field_changes_the_key() {
         let base = step_key(&spec()).unwrap();
         let mut s = spec();
-        s.image = Hash::of(b"other");
-        assert_ne!(step_key(&s).unwrap(), base);
-        let mut s = spec();
         s.warm = true;
         assert_ne!(step_key(&s).unwrap(), base);
-        let s = StepSpec::spike(Hash::of(b"image"), "go test ./... ", &[]);
+        let s = StepSpec::spike(img(), "go test ./... ", &[]);
         assert_ne!(step_key(&s).unwrap(), base);
-        let s = StepSpec::spike(
-            Hash::of(b"image"),
-            "go test ./...",
-            &[("X".into(), "1".into())],
-        );
+        let s = StepSpec::spike(img(), "go test ./...", &[("X".into(), "1".into())]);
         assert_ne!(step_key(&s).unwrap(), base);
         let mut s = spec();
         s.cwd = "/workspace/sub".into();

@@ -18,6 +18,17 @@ cd "$root"
 cargo build -q --release -p sp-cli
 state=$(mktemp -d)
 trap 'rm -rf "$state"' EXIT
+# Rootfs mode: STILLPASS_ROOTFS names the pinned rootfs and
+# STILLPASS_ROOTFS_SRC its export (scripts/build-rootfs.sh); every state dir
+# the suite makes imports it first. Without them the host is the pin.
+if [ -n "${STILLPASS_ROOTFS:-}" ]; then
+  : "${STILLPASS_ROOTFS_SRC:?STILLPASS_ROOTFS is set: STILLPASS_ROOTFS_SRC must name its export}"
+  echo "== rootfs mode: importing $STILLPASS_ROOTFS_SRC"
+  got=$(target/release/stillpass --state "$state" rootfs import "$STILLPASS_ROOTFS_SRC")
+  [ "$got" = "$STILLPASS_ROOTFS" ] || { echo "export imports to $got, not $STILLPASS_ROOTFS" >&2; exit 1; }
+else
+  echo "== host mode (no STILLPASS_ROOTFS): the key pins this host's fingerprint"
+fi
 echo "== step A: go mod download (network, not memoized)"
 target/release/stillpass --state "$state" run --repo "$repo" --commit "$commit" --allow-net --step "go mod download"
 # Step B starts from a tree whose only earlier output is the module cache.

@@ -50,6 +50,11 @@ pub struct BenchArgs {
     /// child's environment (repeatable), to attribute overhead to a mechanism.
     #[arg(long = "extra-series", value_name = "NAME=VALUE[,...]")]
     extra_series: Vec<String>,
+    /// A rootfs export (`docker export` tar or directory) to import into the
+    /// bench's store first, so a series with STILLPASS_ROOTFS=<its digest>
+    /// runs in it (rootfs mode against the host-root default).
+    #[arg(long, value_name = "PATH")]
+    rootfs_src: Option<PathBuf>,
     #[arg(long)]
     vm: bool,
     #[arg(long, default_value = "report.md")]
@@ -165,6 +170,27 @@ fn overhead(
     let mut events: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
     let mut observers: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
     let cas = work.join("overhead-cas");
+    if let Some(src) = &args.rootfs_src {
+        let out = Command::new(exe)
+            .arg("--state")
+            .arg(work.join("rootfs-import"))
+            .args(["rootfs", "import"])
+            .arg(src)
+            .arg("--cas")
+            .arg(&cas)
+            .output()?;
+        if !out.status.success() {
+            bail!(
+                "rootfs import {}: {}",
+                src.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        eprintln!(
+            "bench store has rootfs {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        );
+    }
     for (s, i) in order {
         let (label, env) = &series[s];
         let load_before = loadavg();

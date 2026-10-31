@@ -128,7 +128,9 @@ impl Env {
         let repo = tmp.path().join("repo");
         fs::create_dir(&repo).unwrap();
         go_module(&repo);
-        Env { tmp, repo }
+        let env = Env { tmp, repo };
+        env.seed_rootfs();
+        env
     }
 
     /// A scratch copy of an existing checkout (with .git and .stillpass).
@@ -142,7 +144,29 @@ impl Env {
             .status()
             .unwrap();
         assert!(st.success(), "copy {}", src.display());
-        Env { tmp, repo }
+        let env = Env { tmp, repo };
+        env.seed_rootfs();
+        env
+    }
+
+    /// Rootfs mode: every `stillpass run` child inherits STILLPASS_ROOTFS,
+    /// so that rootfs must be in this environment's own store. It is
+    /// imported from STILLPASS_ROOTFS_SRC (the export tar or directory) and
+    /// must come out at the digest STILLPASS_ROOTFS names.
+    fn seed_rootfs(&self) {
+        let Ok(digest) = std::env::var("STILLPASS_ROOTFS") else {
+            return;
+        };
+        let src = std::env::var("STILLPASS_ROOTFS_SRC").expect(
+            "STILLPASS_ROOTFS is set: STILLPASS_ROOTFS_SRC must name the export it was imported from",
+        );
+        let out = self.stillpass(&["rootfs", "import", &src]);
+        assert_eq!(out.code, 0, "rootfs import: {}", out.stderr);
+        let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(
+            got, digest,
+            "STILLPASS_ROOTFS_SRC imports to another digest"
+        );
     }
 
     pub fn commit(&self, msg: &str) {

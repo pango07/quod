@@ -13,8 +13,30 @@ url = "https://github.com/cli/cli"
 # Pinned for acceptance and overhead runs (trunk on 2026-10-30).
 commit = "9490d204a2ba95434153dedce99898ce9f281426"
 
+[rootfs]
+# The step rootfs (Dockerfile.rootfs, scripts/build-rootfs.sh): what the step
+# key's `image` field pins in rootfs mode. The base is debian:bookworm-slim by
+# OCI manifest digest per architecture; its packages (git, openssh-client,
+# ca-certificates) come from the Debian snapshot archive at `apt_snapshot`;
+# Go is the [go] version, its tarball checked against `go_sha256_*`.
+base = "debian:bookworm-slim"
+base_digest_arm64 = "sha256:7ccb8b5b60c7654f5b795d94ee7d751cd0811500803f0b09cefcd555e755a55a"
+base_digest_amd64 = "sha256:a3bba7dc7dbcc1f37c2856c51fc9a7fac96608f50cb87b1b4e4d8b8c85ae988e"
+apt_snapshot = "20261030T000000Z"
+go_sha256_arm64 = "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
+go_sha256_amd64 = "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
+# Stillpass digest of the imported rootfs (`stillpass rootfs import`): BLAKE3
+# of the canonical tree document, what the step key pins. Printed by
+# build-rootfs.sh; pass it as --rootfs (or STILLPASS_ROOTFS). The image id
+# beside it is the exported image's OCI config digest (`--rootfs sha256:...`
+# resolves to the same rootfs).
+digest_arm64 = "b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d"
+image_id_arm64 = "sha256:89658b74a5326b6e912ad7da13ae37a280d79d12d6da2555a33d3bf3b4a0085e"
+digest_amd64 = ""
+image_id_amd64 = ""
+
 [firecracker]
-# 0b. Pinned when T13 starts.
+# 0b. Deferred (DECISIONS 2026-10-31: pinned OCI rootfs under bubblewrap first).
 version = ""
 
 [virtiofsd]

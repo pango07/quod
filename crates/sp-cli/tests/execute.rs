@@ -147,6 +147,92 @@ fn sealed_module_cache_is_a_snapshot() {
     );
 }
 
+/// Rootfs mode with the real rootfs (STILLPASS_ROOTFS names an imported
+/// rootfs): the key's image is the rootfs on this platform, the host's
+/// userland is invisible, writes anywhere outside the workspace (/tmp
+/// included) are recorded as root outputs, and the same tree replays.
+#[test]
+fn rootfs_mode_pins_the_image_and_records_root_outputs() {
+    if !enabled() {
+        return;
+    }
+    let Ok(rootfs) = std::env::var("STILLPASS_ROOTFS") else {
+        eprintln!("STILLPASS_ROOTFS not set; skipping");
+        return;
+    };
+    let env = Env::new();
+    let step = "cat /etc/hostname; for p in /etc/fuse.conf /src /work /.complete /.dockerenv /sys/kernel; do test -e $p && echo LEAK $p; done; \
+                go version; git --version >/dev/null; \
+                echo marker > /opt/stillpass-marker; mkdir -p /home/runner/.cache && echo c > /home/runner/.cache/f; \
+                rm /etc/hosts; echo w > /workspace/out.txt; cat /etc/hostname > /tmp/x; true";
+    let o = env.run_step(step, &[]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(
+        o.executed() && o.stderr.contains("image rootfs b3:"),
+        "{}",
+        o.stderr
+    );
+    assert!(
+        o.stderr.contains("6 outputs outside the workspace"),
+        "{}",
+        o.stderr
+    );
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    assert!(stdout.starts_with("stillpass\ngo version go"), "{stdout}");
+    assert!(!stdout.contains("LEAK"), "{stdout}");
+    let result = scalar(&env, "SELECT json FROM results");
+    for want in [
+        "\"root_outputs\":[",
+        "\"k\":\"x\",\"p\":\"etc/hosts\"",
+        "\"k\":\"d\",\"p\":\"home/runner\"",
+        "\"k\":\"d\",\"p\":\"home/runner/.cache\"",
+        "\"k\":\"f\",\"m\":420,\"p\":\"home/runner/.cache/f\"",
+        "\"k\":\"f\",\"m\":420,\"p\":\"opt/stillpass-marker\"",
+        "\"k\":\"f\",\"m\":420,\"p\":\"tmp/x\"",
+        "\"p\":\"out.txt\"",
+    ] {
+        assert!(result.contains(want), "{want} not in {result}");
+    }
+    assert!(!result.contains("stillpass-started"), "{result}");
+    let key = scalar(&env, "SELECT step_key FROM manifests");
+    let i = env.stillpass(&["inspect", &key]);
+    let text = String::from_utf8_lossy(&i.stdout);
+    assert!(
+        text.contains("\"kind\": \"rootfs\"")
+            && text.contains(&format!("\"digest\": \"{rootfs}\""))
+            && text.contains("\"cpu_features\": ")
+            && text.contains("\"page_size\": "),
+        "{text}"
+    );
+    let h = env.run_step(step, &[]);
+    assert!(h.hit() && h.stdout == o.stdout, "{}", h.stderr);
+    // The host pin is another key with no proofs; the flag beats the variable.
+    let hm = env.run_step("true", &["--host-root"]);
+    assert!(
+        hm.executed()
+            && hm.stderr.contains("image host fingerprint")
+            && hm.stderr.contains("no manifests for this step key"),
+        "{}",
+        hm.stderr
+    );
+    let list = env.stillpass(&["rootfs", "list"]);
+    assert!(String::from_utf8_lossy(&list.stdout).contains(&rootfs));
+}
+
+#[test]
+fn an_unknown_rootfs_is_a_stillpass_error() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    let o = env.run_step("true", &["--rootfs", &format!("b3:{}", "0".repeat(64))]);
+    assert_eq!(o.code, 2);
+    assert!(o.stderr.contains("not in the store"), "{}", o.stderr);
+    let o = env.run_step("true", &["--rootfs", "latest"]);
+    assert_eq!(o.code, 2);
+    assert!(o.stderr.contains("neither a rootfs digest"), "{}", o.stderr);
+}
+
 fn scalar(env: &Env, sql: &str) -> String {
     let out = std::process::Command::new("sqlite3")
         .arg(env.state().join("ledger.sqlite"))

@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 mod bench;
 mod inspect;
+mod rootfs;
 mod run;
 mod snapshot;
 mod state;
@@ -42,6 +43,8 @@ enum Cmd {
         #[arg(long)]
         ledger: Option<PathBuf>,
     },
+    /// Pinned root filesystems for steps: import one, list them.
+    Rootfs(rootfs::RootfsArgs),
 }
 
 fn main() -> ExitCode {
@@ -54,6 +57,7 @@ fn main() -> ExitCode {
             Cmd::Inspect { id, ledger } => {
                 inspect::inspect(&state, &id, ledger.as_deref()).map(|()| 0)
             }
+            Cmd::Rootfs(args) => rootfs::cli(&state, args).map(|()| 0),
         }
     })();
     match result {
