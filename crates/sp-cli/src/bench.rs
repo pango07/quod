@@ -158,6 +158,7 @@ fn overhead(
             .collect()
     };
     let mut walls: Vec<Vec<f64>> = vec![Vec::new(); series.len()];
+    let mut loads: Vec<Vec<f64>> = vec![Vec::new(); series.len()];
     let mut events: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
     let cas = work.join("overhead-cas");
     for (s, i) in order {
@@ -184,19 +185,26 @@ fn overhead(
                 sp_cas::remove_any(&st)?;
                 let wall = r.wall.as_secs_f64();
                 eprintln!(
-                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s)",
+                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {:.1})",
                     i + 1,
                     args.runs,
-                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0
+                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0,
+                    loadavg()
                 );
                 events[s].push(r.event);
                 wall
             }
         };
         if env.is_none() {
-            eprintln!("overhead [{label}] {}/{}: {wall:.1}s", i + 1, args.runs);
+            eprintln!(
+                "overhead [{label}] {}/{}: {wall:.1}s (load {:.1})",
+                i + 1,
+                args.runs,
+                loadavg()
+            );
         }
         walls[s].push(wall);
+        loads[s].push(loadavg());
     }
 
     // The first run of each series is warm-up.
@@ -222,28 +230,30 @@ fn overhead(
     )?;
     writeln!(
         t,
-        "| Series | Median | p95 | Execution median | Runs (s) |\n| --- | --- | --- | --- | --- |"
+        "| Series | Median | p95 | Execution median | Runs (s) | Load average (1m) after each run |\n| --- | --- | --- | --- | --- | --- |"
     )?;
     writeln!(
         t,
-        "| {} | {pm:.2}s | {pp:.2}s | {pm:.2}s | {} |",
+        "| {} | {pm:.2}s | {pp:.2}s | {pm:.2}s | {} | {} |",
         series[0].0,
-        list(&w[0])
+        list(&w[0]),
+        list(&loads[0][1..])
     )?;
     for s in 1..series.len() {
         writeln!(
             t,
-            "| {} | {:.2}s | {:.2}s | {:.2}s | {} |",
+            "| {} | {:.2}s | {:.2}s | {:.2}s | {} | {} |",
             series[s].0,
             median(&w[s]),
             p95(&w[s]),
             exec_median(s),
-            list(&w[s])
+            list(&w[s]),
+            list(&loads[s][1..])
         )?;
     }
     writeln!(
         t,
-        "| **Overhead** | **{:+.1}%** | {:+.1}% | {:+.1}% | |",
+        "| **Overhead** | **{:+.1}%** | {:+.1}% | {:+.1}% | | |",
         ratio * 100.0,
         (op / pp - 1.0) * 100.0,
         (exec_median(1) / pm - 1.0) * 100.0
@@ -251,7 +261,7 @@ fn overhead(
     for s in 2..series.len() {
         writeln!(
             t,
-            "| Overhead, {} | {:+.1}% | {:+.1}% | {:+.1}% | |",
+            "| Overhead, {} | {:+.1}% | {:+.1}% | {:+.1}% | | |",
             &series[s].0["Observed, ".len()..],
             (median(&w[s]) / pm - 1.0) * 100.0,
             (p95(&w[s]) / pp - 1.0) * 100.0,
@@ -675,6 +685,14 @@ fn machine_table(state: &Path) -> anyhow::Result<String> {
         mem_kb as f64 / 1048576.0
     )?;
     Ok(t)
+}
+
+/// The one-minute load average, so a run can be told quiet from loaded.
+fn loadavg() -> f64 {
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|s| s.split_whitespace().next()?.parse().ok())
+        .unwrap_or(f64::NAN)
 }
 
 fn median(v: &[f64]) -> f64 {
