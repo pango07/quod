@@ -254,6 +254,18 @@ pub struct Env {
     pub repo: PathBuf,
     /// Passed as --toolchain to every run; detection is used when `None`.
     pub toolchain: Option<Toolchain>,
+    /// Flags `run_step` adds to every `stillpass run`. The default puts the
+    /// matcher's acceptance criteria (A1-A7, W) back on the spike's terms:
+    /// replay mode, a result replays after one execution, no audit
+    /// sampling. The trust suite clears this and sets the policy per call.
+    pub run_defaults: Vec<String>,
+}
+
+/// The spike's pre-trust semantics: a matching result replays at once.
+pub fn legacy_policy() -> Vec<String> {
+    ["--mode", "replay", "--proofs", "1", "--audit", "0"]
+        .map(String::from)
+        .to_vec()
 }
 
 impl Env {
@@ -276,6 +288,7 @@ impl Env {
             tmp,
             repo,
             toolchain: Some(tc),
+            run_defaults: legacy_policy(),
         };
         env.seed_rootfs();
         env
@@ -296,6 +309,7 @@ impl Env {
             tmp,
             repo,
             toolchain,
+            run_defaults: legacy_policy(),
         };
         env.seed_rootfs();
         env
@@ -378,8 +392,29 @@ impl Env {
         if let Some(tc) = self.toolchain {
             args.extend(["--toolchain", tc.name()]);
         }
+        args.extend(self.run_defaults.iter().map(String::as_str));
         args.extend_from_slice(extra);
         self.stillpass(&args)
+    }
+
+    /// `stillpass status --repo <repo>` as text.
+    pub fn status(&self) -> String {
+        let o = self.stillpass(&["status", "--repo", self.repo.to_str().unwrap()]);
+        assert_eq!(o.code, 0, "{}", o.stderr);
+        String::from_utf8_lossy(&o.stdout).into_owned()
+    }
+
+    /// The number of manifests in the ledger.
+    pub fn manifests(&self) -> u64 {
+        let out = Command::new("sqlite3")
+            .arg(self.state().join("ledger.sqlite"))
+            .arg("SELECT count(*) FROM manifests")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
     }
 
     pub fn write(&self, rel: &str, content: &str) {

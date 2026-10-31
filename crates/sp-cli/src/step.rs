@@ -276,6 +276,8 @@ fn execute_with_mounts(
         None,
         Some(root),
         &mounts,
+        // The runner owns the job's time limit.
+        None,
         &mut phases,
     );
     for p in pinned {

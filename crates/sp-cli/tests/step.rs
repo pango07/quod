@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use common::{enabled, mini_rootfs};
+use common::{enabled, legacy_policy, mini_rootfs};
 use serde_json::{Value, json};
 
 struct Api {
@@ -265,6 +265,8 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
         for p in /usr/local/go /etc/fuse.conf /src /work /sys/kernel /.complete /.dockerenv; do test -e $p && echo LEAK $p; done; \
         echo x > /opt/new; mkdir /home2; echo y > /home2/f; echo z > /tmp/z; rm /etc/os-release; echo w > a.out; \
         rm /opt/replace-me; mkfifo /opt/replace-me; mkfifo /opt/newfifo; true";
+    // The matcher's terms (a match replays at once), as env.run_step uses.
+    let legacy = legacy_policy();
     let run = |extra: &[&str]| {
         let mut args = vec![
             "run",
@@ -275,6 +277,7 @@ fn run_in_a_mini_rootfs_sees_no_host_and_records_writes_anywhere() {
             "--step",
             step,
         ];
+        args.extend(legacy.iter().map(String::as_str));
         args.extend_from_slice(extra);
         sp(&args)
     };

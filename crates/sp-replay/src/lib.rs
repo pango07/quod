@@ -17,10 +17,12 @@ pub enum ReplayError {
     Io(#[from] io::Error),
 }
 
-/// The receipt, exactly as the Schemas section prints it.
-pub fn receipt(result: &StepResult, inputs: usize, replay: Duration) -> String {
+/// The receipt, exactly as the Schemas section prints it, followed by one
+/// indented line per entry of `extra` (the trust facts, which the caller
+/// knows and this crate does not).
+pub fn receipt(result: &StepResult, inputs: usize, replay: Duration, extra: &[String]) -> String {
     let recorded = Duration::from_millis(result.duration_ms);
-    format!(
+    let mut s = format!(
         "STILLPASS  REPLAYED\n  proved by run {} on {}\n  step b3:{}  manifest b3:{}  {} inputs matched\n  recorded {}  replay {}  saved {}\n",
         &result.run_id[..result.run_id.len().min(8)],
         human_time(&result.recorded_at),
@@ -30,7 +32,13 @@ pub fn receipt(result: &StepResult, inputs: usize, replay: Duration) -> String {
         fmt_duration(recorded),
         fmt_duration(replay),
         fmt_duration(recorded.saturating_sub(replay)),
-    )
+    );
+    for line in extra {
+        s.push_str("  ");
+        s.push_str(line);
+        s.push('\n');
+    }
+    s
 }
 
 /// Writes the result's outputs into `workspace` (eagerly), applying
@@ -140,9 +148,14 @@ mod tests {
     fn receipt_matches_the_golden() {
         let tmp = tempfile::tempdir().unwrap();
         let cas = Cas::open(tmp.path()).unwrap();
-        let text = receipt(&result(&cas), 2314, Duration::from_millis(400));
+        let trust =
+            "trust: proven by 3 identical executions, audited 17 times, 0 divergences".to_string();
+        let text = receipt(&result(&cas), 2314, Duration::from_millis(400), &[trust]);
         let golden = include_str!("../../../fixtures/receipt.txt");
         assert_eq!(text, golden);
+        let bare = receipt(&result(&cas), 2314, Duration::from_millis(400), &[]);
+        assert_eq!(bare.lines().count(), 4);
+        assert!(golden.starts_with(&bare));
     }
 
     #[test]

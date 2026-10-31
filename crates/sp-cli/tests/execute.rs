@@ -325,6 +325,8 @@ fn a_parents_process_state_changes_nothing() {
             "--step".into(),
             step.into(),
         ];
+        // The matcher's terms, as env.run_step uses (a match replays at once).
+        args.extend(env.run_defaults.iter().cloned());
         args.extend(extra.iter().map(|s| s.to_string()));
         let out = Command::new("sh")
             .arg("-c")

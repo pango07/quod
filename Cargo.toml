@@ -23,7 +23,9 @@ sp-trust = { path = "crates/sp-trust" }
 
 anyhow = "1"
 blake3 = "1.8"
-clap = { version = "4.6", features = ["derive"] }
+# env: policy flags (--mode, --proofs, --audit, --timeout) also read
+# STILLPASS_* variables, so suites and the bench set them once.
+clap = { version = "4.6", features = ["derive", "env"] }
 fuser = { version = "0.18", default-features = false }
 io-uring = "0.7"
 libc = "0.2"

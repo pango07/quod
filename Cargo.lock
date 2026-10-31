@@ -897,6 +897,7 @@ dependencies = [
  "sp-manifest",
  "sp-replay",
  "sp-sandbox",
+ "sp-trust",
  "tempfile",
  "tracing",
  "tracing-subscriber",

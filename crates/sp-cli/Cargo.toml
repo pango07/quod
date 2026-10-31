@@ -17,6 +17,7 @@ sp-fs.workspace = true
 sp-sandbox.workspace = true
 sp-ledger.workspace = true
 sp-replay.workspace = true
+sp-trust.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 # The rootfs document and import record are serde types (rootfs.rs).
@@ -38,6 +39,10 @@ tempfile.workspace = true
 
 [[test]]
 name = "ring_faults"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "observer_faults"
 required-features = ["fault-injection"]
 
 [[bin]]

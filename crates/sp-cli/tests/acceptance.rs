@@ -165,6 +165,33 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         a2.stdout.len()
     );
 
+    // P1 (the trust layer, beyond the handoff). The criteria here run on
+    // the spike's terms (one execution proves a result); the default policy
+    // needs two identical executions. A second execution on the same tree,
+    // under the default policy (observe mode, so it executes), is compared
+    // with A1's: it must read an equivalent manifest and produce the same
+    // result up to go test durations, or this step could never be trusted.
+    let repo = env.repo.to_str().unwrap().to_string();
+    let p1 = env.stillpass(&[
+        "run", "--repo", &repo, "--step", step, "--mode", "observe", "--proofs", "2",
+    ]);
+    assert!(
+        p1.executed()
+            && p1.code == a1.code
+            && p1.stderr.contains("trust: proof 2 of 2")
+            && !p1.stderr.contains("DIVERGENCE"),
+        "P1: {}",
+        p1.stderr
+    );
+    println!(
+        "P1 ok: a second execution agreed with A1 ({}); proof 2 of 2 under the default policy",
+        if p1.stderr.contains("byte-identical") {
+            "byte-identical"
+        } else {
+            "identical up to go test durations"
+        }
+    );
+
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
     let cas = Cas::open(env.state().join("cas")).unwrap();

@@ -6,28 +6,44 @@ use anyhow::{Context, bail};
 use clap::Args;
 use sp_cas::{Cas, Hash, Tree};
 use sp_key::{Image, StepSpec, Toolchain, step_key};
-use sp_ledger::{Ledger, Lookup, Observed, now_rfc3339};
+use sp_ledger::{Ledger, Lookup, Observed, RunFacts, now_rfc3339};
 use sp_manifest::{Manifest, StepResult};
 use sp_replay::{fmt_duration, group};
-use sp_sandbox::{Mount, RunSpec};
+use sp_sandbox::{Killed, Limits, Mount, RunSpec};
+use sp_trust::{Decision, Step, Trust, Verdict};
 
 use crate::deps::{self, Deps};
 use crate::rootfs::{self, Rootfs};
 use crate::seal;
 use crate::snapshot;
 use crate::state::State;
+use crate::trust::{PolicyArgs, ignored_outputs, parse_timeout, shell_join};
+
+/// Exit code of a step Stillpass killed for running past --timeout (as
+/// timeout(1) does). Never a recorded result.
+pub const EXIT_TIMEOUT: u8 = 124;
 
 #[derive(Args)]
 pub struct RunArgs {
+    /// The step as a command line, after the flags: `stillpass run -- go
+    /// test ./...` (joined into one script, run as /bin/sh -e -c). The
+    /// alternative to --step.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "CMD"
+    )]
+    cmd: Vec<String>,
     /// The workspace: the repo checkout, plus outputs of earlier steps.
+    /// Defaults to the git toplevel of the current directory.
     #[arg(long)]
-    repo: PathBuf,
+    repo: Option<PathBuf>,
     /// Expected HEAD of --repo; refused if the checkout differs.
     #[arg(long)]
     commit: Option<String>,
     /// The step script, run as /bin/sh -e -c <script>.
     #[arg(long)]
-    step: String,
+    step: Option<String>,
     /// Allow network. Such a step runs directly on --repo (its writes
     /// persist), with its caches (GOMODCACHE, GOCACHE, HOME) in the state
     /// dir instead of the checkout, and is never memoized.
@@ -79,6 +95,12 @@ pub struct RunArgs {
     /// the fallback for hosts without one. Such a proof does not travel.
     #[arg(long)]
     host_root: bool,
+    #[command(flatten)]
+    policy: PolicyArgs,
+    /// Kill the step after this long (30m, 2s, 1h; 0 for no limit). A
+    /// timed-out step exits 124, is reported, and is never memoized.
+    #[arg(long, default_value = "30m", value_parser = parse_timeout, env = "STILLPASS_TIMEOUT")]
+    timeout: Duration,
 }
 
 /// Wall time per phase, reported in the run event.
@@ -92,16 +114,115 @@ pub(crate) struct Phases {
     record: Duration,
 }
 
+/// What every run row of this invocation shares.
+struct RunInfo {
+    run_id: String,
+    head: Option<String>,
+    host: Option<String>,
+    key: Hash,
+    /// The environment pin (rootfs or host fingerprint, with the platform).
+    image: Image,
+    repo_id: String,
+    repo_path: String,
+    mode: &'static str,
+}
+
+impl RunInfo {
+    fn facts<'a>(
+        &'a self,
+        outcome: &'a str,
+        manifest: Option<&'a Hash>,
+        exit_code: Option<i32>,
+        wall: Duration,
+        saved: Option<Duration>,
+    ) -> RunFacts<'a> {
+        RunFacts {
+            id: &self.run_id,
+            commit_sha: self.head.as_deref(),
+            host: self.host.as_deref(),
+            // A replay observes nothing; an execution sets its transport.
+            observed: Observed::default(),
+            step_key: Some(&self.key),
+            repo: Some(&self.repo_id),
+            repo_path: Some(&self.repo_path),
+            mode: Some(self.mode),
+            outcome: Some(outcome),
+            manifest_id: manifest,
+            exit_code,
+            wall_ms: Some(wall.as_millis() as u64),
+            saved_ms: saved.map(|d| d.as_millis() as u64),
+        }
+    }
+}
+
+/// The repo and the step script, from `--repo`/`--step` or their defaults
+/// (the git toplevel of the current directory; the trailing command). With
+/// the repo defaulted from a subdirectory, the script starts with a `cd`
+/// there, so `stillpass run -- go test ./...` tests what `go test ./...`
+/// would from that directory (and is its own step key).
+fn resolve_target(args: &RunArgs) -> anyhow::Result<(PathBuf, String)> {
+    let (repo, step) = resolve_parts(args)?;
+    if args.repo.is_some() {
+        return Ok((repo, step));
+    }
+    let cwd = std::env::current_dir()
+        .and_then(|d| d.canonicalize())
+        .context("current directory")?;
+    let top = repo
+        .canonicalize()
+        .with_context(|| format!("repo {}", repo.display()))?;
+    let rel = cwd.strip_prefix(&top).with_context(|| {
+        format!(
+            "{} is not under its git toplevel {}; give --repo",
+            cwd.display(),
+            top.display()
+        )
+    })?;
+    if rel.as_os_str().is_empty() {
+        return Ok((top, step));
+    }
+    let rel = rel
+        .to_str()
+        .context("the current directory's path is not UTF-8; give --repo")?;
+    Ok((
+        top,
+        format!("cd {}; {step}", shell_join(&[rel.to_string()])),
+    ))
+}
+
+fn resolve_parts(args: &RunArgs) -> anyhow::Result<(PathBuf, String)> {
+    let step = match (&args.step, args.cmd.is_empty()) {
+        (Some(s), true) => s.clone(),
+        (None, false) => shell_join(&args.cmd),
+        (Some(_), false) => {
+            bail!("give the step either as --step or as a trailing command, not both")
+        }
+        (None, true) => bail!(
+            "no step: give --step <script>, or the command after the flags (stillpass run -- go test ./...)"
+        ),
+    };
+    let repo = match &args.repo {
+        Some(r) => r.clone(),
+        None => {
+            let cwd = std::env::current_dir().context("current directory")?;
+            deps::toplevel(&cwd).context(
+                "--repo not given and the current directory is not inside a git checkout",
+            )?
+        }
+    };
+    Ok((repo, step))
+}
+
 pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     if args.vm {
         bail!(
             "--vm needs the 0b Firecracker backend (T13-T16), which is not built: this host has no /dev/kvm"
         );
     }
-    let repo = args
-        .repo
+    let (repo, step) = resolve_target(&args)?;
+    let repo = repo
         .canonicalize()
-        .with_context(|| format!("repo {}", args.repo.display()))?;
+        .with_context(|| format!("repo {}", repo.display()))?;
     let head = git_head(&repo);
     if let Some(want) = &args.commit
         && head.as_deref() != Some(want.as_str())
@@ -128,14 +249,25 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     };
     let warm = args.warm && !args.allow_net;
     let spec = if warm {
-        StepSpec::new_warm(toolchain, image.clone(), &args.step, &extra_env)?
+        StepSpec::new_warm(toolchain, image.clone(), &step, &extra_env)?
     } else {
-        StepSpec::new(toolchain, image.clone(), &args.step, &extra_env)
+        StepSpec::new(toolchain, image.clone(), &step, &extra_env)
     };
     let key = step_key(&spec)?;
     let env = spec.normalized_env()?;
-    let run_id = ulid::Ulid::generate().to_string();
-    let deps = Deps::new(state, &deps::repo_id(&repo), &image.id()?, toolchain);
+    let policy = args.policy.policy()?;
+    let info = RunInfo {
+        run_id: ulid::Ulid::generate().to_string(),
+        head,
+        host: hostname(),
+        key,
+        image: image.clone(),
+        repo_id: deps::repo_id(&repo),
+        repo_path: repo.display().to_string(),
+        mode: policy.mode.as_str(),
+    };
+    let deps = Deps::new(state, &info.repo_id, &image.id()?, toolchain);
+    let ledger = Ledger::open(&args.ledger.clone().unwrap_or_else(|| state.ledger_path()))?;
 
     if args.allow_net {
         return run_unobserved(
@@ -144,15 +276,22 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             &repo,
             &spec,
             env,
-            &run_id,
+            &info,
             pin.rootfs.as_ref(),
             &deps,
+            &ledger,
         );
     }
 
     let mut phases = Phases::default();
-    let ledger = Ledger::open(&args.ledger.clone().unwrap_or_else(|| state.ledger_path()))?;
     ledger.put_step_key(&key, &sp_key::canonical_key_json(&spec)?)?;
+    let trust = Trust::new(&ledger, &cas, policy)?;
+    let ignore = ignored_outputs(&env);
+    let tstep = Step {
+        key,
+        cmd: &step,
+        ignore: &ignore,
+    };
 
     let t = Instant::now();
     let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
@@ -160,54 +299,71 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 
     let t = Instant::now();
     let lookup = ledger.find_match(&key, &tree)?;
+    let decision = trust.decide(&key, lookup.hit.as_ref())?;
     phases.lookup = t.elapsed();
 
-    if let Some((manifest, result)) = &lookup.hit {
-        let mid = result.manifest_id;
-        if let Some(dir) = &args.outputs {
-            // Results recorded before a pattern existed may still hold one.
-            sp_replay::materialize_outputs(&without_forbidden(spec.profile(), result), &cas, dir)?;
+    let reason = match decision {
+        Decision::Replay => {
+            let (manifest, result) = lookup.hit.as_ref().expect("a replay needs a hit");
+            let mid = result.manifest_id;
+            if let Some(dir) = &args.outputs {
+                // Results recorded before a pattern existed may still hold one.
+                sp_replay::materialize_outputs(
+                    &without_forbidden(spec.profile(), result),
+                    &cas,
+                    dir,
+                )?;
+            }
+            let facts = trust.record_replay(&tstep, &mid)?;
+            let replay_wall = wall_start.elapsed();
+            eprint!(
+                "{}",
+                sp_replay::receipt(
+                    result,
+                    manifest.entries.len(),
+                    replay_wall,
+                    &[facts.receipt_line()]
+                )
+            );
+            let code = sp_replay::replay_log(
+                result,
+                &cas,
+                &mut std::io::stdout().lock(),
+                &mut std::io::stderr().lock(),
+            )?;
+            let saved = Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
+            ledger.record_run_facts(&info.facts(
+                "replayed",
+                Some(&mid),
+                Some(code),
+                replay_wall,
+                Some(saved),
+            ))?;
+            emit_event(
+                &info,
+                Some(&mid),
+                true,
+                "replayed",
+                &lookup,
+                &phases,
+                wall_start.elapsed(),
+                code,
+                manifest.entries.len(),
+                warm,
+                None,
+            );
+            return Ok(exit_byte(code));
         }
-        eprint!(
-            "{}",
-            sp_replay::receipt(result, manifest.entries.len(), wall_start.elapsed())
-        );
-        let code = sp_replay::replay_log(
-            result,
-            &cas,
-            &mut std::io::stdout().lock(),
-            &mut std::io::stderr().lock(),
-        )?;
-        // A replay observes nothing: no transport.
-        ledger.record_run(
-            &run_id,
-            head.as_deref(),
-            hostname().as_deref(),
-            Observed::default(),
-        )?;
-        emit_event(
-            &run_id,
-            &key,
-            &image,
-            Some(&mid),
-            true,
-            &lookup,
-            &phases,
-            wall_start.elapsed(),
-            code,
-            manifest.entries.len(),
-            warm,
-            None,
-        );
-        return Ok(exit_byte(code));
-    }
+        Decision::Execute(reason) => reason,
+    };
 
     let start = Instant::now();
-    let dir = state.run_dir(&run_id);
+    let dir = state.run_dir(&info.run_id);
     let warm_dir = match (warm, &spec.profile().warm) {
         (true, Some(w)) => Some(state.warm_cache_dir(&image.id()?, w.cache_env)),
         _ => None,
     };
+    let timeout = (args.timeout > Duration::ZERO).then_some(args.timeout);
     let outcome = execute(
         &cas,
         &tree,
@@ -217,6 +373,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         warm_dir.as_deref(),
         pin.rootfs.as_ref(),
         &[],
+        timeout,
         &mut phases,
     );
     let ex = match outcome {
@@ -228,14 +385,74 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             return Err(e);
         }
     };
+    if let Some(killed) = ex.killed {
+        if !args.keep {
+            sp_cas::remove_any(&dir)?;
+        }
+        if killed == Killed::Aborted {
+            bail!(
+                "the observer failed while the step ran; the step was aborted and nothing was recorded"
+            );
+        }
+        // Timed out: killed, reported, never memoized. If a result was
+        // expected (a proven or proving manifest), not finishing diverges
+        // from it, and the key is quarantined.
+        let what = format!("timed out after {}", fmt_duration(args.timeout));
+        eprintln!(
+            "STILLPASS  TIMED OUT  the step ran {} and was killed; not memoized",
+            fmt_duration(ex.wall)
+        );
+        if let Some(v) =
+            trust.record_incomplete(&tstep, &info.run_id, lookup.hit.as_ref(), &reason, &what)?
+        {
+            for l in v.lines() {
+                eprintln!("{}", indent(&l));
+            }
+        }
+        ledger.record_run_facts(&RunFacts {
+            observed: Observed {
+                transport: Some(ex.transport),
+                observer: Some(&ex.observer),
+            },
+            ..info.facts(
+                "timeout",
+                None,
+                Some(i32::from(EXIT_TIMEOUT)),
+                ex.wall,
+                None,
+            )
+        })?;
+        emit_event(
+            &info,
+            None,
+            false,
+            "timeout",
+            &lookup,
+            &phases,
+            start.elapsed(),
+            i32::from(EXIT_TIMEOUT),
+            0,
+            warm,
+            Some((ex.transport, &ex.observer)),
+        );
+        return Ok(EXIT_TIMEOUT);
+    }
     if let Some(sig) = ex.signal {
-        // Killed from outside (OOM, timeout, a signal): the step's own
-        // result is unknown, so it is reported and never memoized.
+        // Killed from outside (OOM, a signal): the step's own result is
+        // unknown, so it is reported and never memoized, and nothing is
+        // learned about the key.
         if !args.keep {
             sp_cas::remove_any(&dir)?;
         }
         eprintln!("STILLPASS  EXECUTED  killed by signal {sig}, not memoized");
         eprintln!("  ran {}", fmt_duration(ex.wall));
+        ledger.record_run_facts(&RunFacts {
+            observed: Observed {
+                transport: Some(ex.transport),
+                observer: Some(&ex.observer),
+            },
+            ..info.facts("killed", None, Some(ex.exit_code), ex.wall, None)
+        })?;
         return Ok(exit_byte(ex.exit_code));
     }
     if ex.sealed_write_failed {
@@ -252,7 +469,15 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             "  a directory the tool writes under a sealed prefix belongs in the profile's carve-outs"
         );
         eprintln!("  ran {}", fmt_duration(ex.wall));
-        tracing::warn!(target: "stillpass", run_id, "sealed prefix write failed; not memoized");
+        tracing::warn!(target: "stillpass", run_id = %info.run_id, "sealed prefix write failed; not memoized");
+        // Nothing is learned about the key: the result is not the step's.
+        ledger.record_run_facts(&RunFacts {
+            observed: Observed {
+                transport: Some(ex.transport),
+                observer: Some(&ex.observer),
+            },
+            ..info.facts("tainted", None, Some(ex.exit_code), ex.wall, None)
+        })?;
         return Ok(exit_byte(ex.exit_code));
     }
 
@@ -262,7 +487,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         v: sp_manifest::VERSION,
         step_key: key,
         manifest_id: mid,
-        run_id: run_id.clone(),
+        run_id: info.run_id.clone(),
         recorded_at: now_rfc3339(),
         exit_code: ex.exit_code,
         stdout: ex.stdout,
@@ -271,20 +496,38 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         root_outputs: ex.root_outputs,
         duration_ms: ex.wall.as_millis() as u64,
     };
-    // One transaction: a result is never visible without the run row that
-    // says which transport produced it (results_by_transport and
-    // purge_transport find results through it).
-    ledger.record_execution(
-        &run_id,
-        head.as_deref(),
-        hostname().as_deref(),
-        Observed {
-            transport: Some(ex.transport),
-            observer: Some(&ex.observer),
-        },
-        &ex.manifest,
-        &result,
-    )?;
+    // One transaction: the trust layer's verdict (proof streak, trust
+    // state, audit row), the run row (with the transport that observed it,
+    // which results_by_transport and purge_transport find results through),
+    // the manifest and the result commit together or not at all.
+    let verdict = ledger.atomically(|l| -> anyhow::Result<Verdict> {
+        let v = trust.record_execution(
+            &tstep,
+            &info.run_id,
+            &ex.manifest,
+            &result,
+            lookup.hit.as_ref(),
+            &reason,
+        )?;
+        l.record_execution_facts(
+            &RunFacts {
+                observed: Observed {
+                    transport: Some(ex.transport),
+                    observer: Some(&ex.observer),
+                },
+                ..info.facts(
+                    v.outcome(),
+                    Some(&mid),
+                    Some(ex.exit_code),
+                    ex.wall,
+                    v.would_have_saved,
+                )
+            },
+            &ex.manifest,
+            &result,
+        )?;
+        Ok(v)
+    })?;
     phases.record = t.elapsed();
     if let Some(out) = &args.outputs {
         sp_replay::materialize_outputs(&without_forbidden(spec.profile(), &result), &cas, out)?;
@@ -303,15 +546,15 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             result.root_outputs.len(),
             &lookup,
             ex.wall,
-            warm_dir.as_deref()
+            warm_dir.as_deref(),
+            &verdict
         )
     );
     emit_event(
-        &run_id,
-        &key,
-        &image,
+        &info,
         Some(&mid),
         false,
+        verdict.outcome(),
         &lookup,
         &phases,
         start.elapsed(),
@@ -327,6 +570,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 pub(crate) struct Executed {
     pub(crate) exit_code: i32,
     pub(crate) signal: Option<i32>,
+    /// Set when a limit killed the step (timeout, or the observer failing).
+    pub(crate) killed: Option<Killed>,
     pub(crate) manifest: Manifest,
     pub(crate) outputs: Vec<sp_cas::Entry>,
     /// Writes outside the workspace (rootfs mode only), relative to `/`.
@@ -356,7 +601,9 @@ pub(crate) struct Executed {
 /// host's system paths are
 /// bound read-only. `extra_mounts` are bound as given and never observed:
 /// only pinned trees whose digests are in `spec.image.mounts` belong there
-/// (`crate::step`).
+/// (`crate::step`). The sandbox kills the step after `timeout`, and as soon
+/// as the observer raises its abort flag (`unmount` then reports the
+/// failure as a Stillpass error).
 #[allow(clippy::too_many_arguments)] // two call sites; the inputs of a run, each named
 pub(crate) fn execute(
     cas: &Cas,
@@ -367,6 +614,7 @@ pub(crate) fn execute(
     warm: Option<&Path>,
     rootfs: Option<&Rootfs>,
     extra_mounts: &[Mount],
+    timeout: Option<Duration>,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     let t = Instant::now();
@@ -435,8 +683,25 @@ pub(crate) fn execute(
         }),
         identity: None,
     };
-    let r = sp_sandbox::run(&rs)?;
+    let limits = Limits {
+        timeout,
+        abort: Some(served.abort_flag()),
+    };
+    let r = sp_sandbox::run_with(&rs, &limits)?;
     phases.exec = t.elapsed();
+    if served
+        .abort_flag()
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        // The step ran against a failed observer (a panicking classic
+        // thread, a dying ring queue, any I/O error served) and was
+        // aborted: its outputs and its log mean nothing. Unmount the
+        // overlay, then the observer, which reports the failure
+        // (FsError::Fatal or FsError::Io).
+        drop(ov);
+        served.unmount()?;
+        bail!("the observer failed while the step ran; nothing was recorded");
+    }
 
     let t = Instant::now();
     let mut outputs = ov.finish(tree, cas)?;
@@ -492,6 +757,7 @@ pub(crate) fn execute(
         signal: r.signal,
         sealed_write_failed: !sealed.is_empty()
             && (reports_erofs(&dir.join("stdout"))? || reports_erofs(&dir.join("stderr"))?),
+        killed: r.killed,
         manifest,
         outputs,
         root_outputs,
@@ -575,9 +841,10 @@ fn run_unobserved(
     repo: &Path,
     spec: &StepSpec,
     mut env: Vec<(String, String)>,
-    run_id: &str,
+    info: &RunInfo,
     rootfs: Option<&Rootfs>,
     deps: &Deps,
+    ledger: &Ledger,
 ) -> anyhow::Result<u8> {
     let profile = spec.profile();
     // A network step fetches; let the tool reach its registry.
@@ -587,7 +854,7 @@ fn run_unobserved(
             None => env.push((name.to_string(), value.to_string())),
         }
     }
-    let dir = state.run_dir(run_id);
+    let dir = state.run_dir(&info.run_id);
     std::fs::create_dir_all(&dir)?;
     let root = match rootfs {
         Some(r) => Some(rootfs::ReadOnlyRoot::mount(r, cas, &dir)?),
@@ -641,7 +908,8 @@ fn run_unobserved(
     eprintln!("  {}", image_line(&spec.image));
     eprintln!("  caches in {}", deps.root.display());
     eprintln!("  ran {}", fmt_duration(r.wall));
-    tracing::info!(target: "stillpass", run_id, memoized = false, egress = true, exit_code = r.exit_code, wall_ms = r.wall.as_millis() as u64, "run");
+    ledger.record_run_facts(&info.facts("net", None, Some(r.exit_code), r.wall, None))?;
+    tracing::info!(target: "stillpass", run_id = %info.run_id, memoized = false, egress = true, exit_code = r.exit_code, wall_ms = r.wall.as_millis() as u64, "run");
     Ok(exit_byte(r.exit_code))
 }
 
@@ -661,6 +929,16 @@ fn image_line(image: &Image) -> String {
     }
 }
 
+/// Trust lines are indented under the banner; a DIVERGENCE block comes
+/// with its own header and indentation.
+fn indent(line: &str) -> String {
+    if line.starts_with("STILLPASS") || line.starts_with("  ") {
+        line.to_string()
+    } else {
+        format!("  {line}")
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // one banner, every line named
 fn executed_banner(
     key: &Hash,
@@ -671,8 +949,9 @@ fn executed_banner(
     lookup: &Lookup,
     wall: Duration,
     warm: Option<&Path>,
+    verdict: &Verdict,
 ) -> String {
-    let mut s = String::from("STILLPASS  EXECUTED\n");
+    let mut s = format!("STILLPASS  EXECUTED{}\n", verdict.headline());
     s += &format!(
         "  step b3:{}  manifest b3:{}  {} inputs recorded\n",
         key.short(),
@@ -686,17 +965,23 @@ fn executed_banner(
     if let Some(w) = warm {
         s += &format!("  warm build cache {}\n", w.display());
     }
-    match &lookup.closest {
-        Some((id, mm)) => {
-            s += &format!(
-                "  closest manifest b3:{} differed at {}\n",
-                id.short(),
-                mm.path
-            );
-            s += &format!("    {mm}\n");
+    if lookup.hit.is_none() {
+        match &lookup.closest {
+            Some((id, mm)) => {
+                s += &format!(
+                    "  closest manifest b3:{} differed at {}\n",
+                    id.short(),
+                    mm.path
+                );
+                s += &format!("    {mm}\n");
+            }
+            None if lookup.candidates == 0 => s += "  no manifests for this step key\n",
+            None => {}
         }
-        None if lookup.candidates == 0 => s += "  no manifests for this step key\n",
-        None => {}
+    }
+    for l in verdict.lines() {
+        s += &indent(&l);
+        s.push('\n');
     }
     s += &format!("  ran {}\n", fmt_duration(wall));
     s
@@ -704,11 +989,10 @@ fn executed_banner(
 
 #[allow(clippy::too_many_arguments)] // one flat event, every field named
 fn emit_event(
-    run_id: &str,
-    key: &Hash,
-    image: &Image,
+    info: &RunInfo,
     manifest: Option<&Hash>,
     hit: bool,
+    outcome: &str,
     lookup: &Lookup,
     p: &Phases,
     total: Duration,
@@ -721,15 +1005,17 @@ fn emit_event(
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     tracing::info!(
         target: "stillpass",
-        run_id,
-        step_key = %key,
-        image_kind = %image.kind,
-        image = %image.digest,
-        arch = %image.platform.arch,
-        kernel = %image.platform.kernel,
-        cpus = image.platform.cpus,
+        run_id = %info.run_id,
+        step_key = %info.key,
+        image_kind = %info.image.kind,
+        image = %info.image.digest,
+        arch = %info.image.platform.arch,
+        kernel = %info.image.platform.kernel,
+        cpus = info.image.platform.cpus,
         manifest_id = manifest.map(|m| m.to_string()),
         hit,
+        mode = info.mode,
+        outcome,
         warm,
         exit_code,
         inputs,
