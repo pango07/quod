@@ -31,7 +31,10 @@ pub fn overlay(
         fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
     }
     let opts = format!(
-        "lowerdir={},upperdir={},workdir={}",
+        // Pinned so the upper dir is plain files: no metacopy (a chmod would
+        // copy up an empty file), no redirects (a renamed dir would arrive
+        // without contents), no index.
+        "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
         served.mountpoint().display(),
         upper.display(),
         work.display()
@@ -153,7 +156,8 @@ fn walk(
         if ft.is_char_device() && meta.rdev() == 0 {
             out.push(Entry::deleted(p));
         } else if ft.is_dir() {
-            let opaque = is_opaque(&path);
+            refuse_markers(&path)?;
+            let opaque = is_opaque(&path)?;
             let existed = lower.get(&p).is_some_and(|e| e.k == Kind::Dir);
             if existed && opaque {
                 out.push(Entry::deleted(p.clone()));
@@ -176,6 +180,7 @@ fn walk(
             replace_dir(lower, &p, out);
             out.push(Entry::symlink(p, t));
         } else if ft.is_file() {
+            refuse_markers(&path)?;
             replace_dir(lower, &p, out);
             files.push((out.len(), path));
             out.push(Entry::file(p, Hash::of(b""), meta.mode()));
@@ -196,23 +201,64 @@ fn replace_dir(lower: &Tree, p: &str, out: &mut Vec<Entry>) {
     }
 }
 
-fn is_opaque(dir: &Path) -> bool {
-    let (Ok(path), Ok(name)) = (
-        CString::new(dir.as_os_str().as_bytes()),
-        CString::new("trusted.overlay.opaque"),
+/// Reads one xattr. `Ok(None)` when absent or unsupported; any other error
+/// is an error, never a silent "no".
+fn xattr(path: &Path, name: &str) -> Result<Option<Vec<u8>>, FsError> {
+    let (Ok(cpath), Ok(cname)) = (
+        CString::new(path.as_os_str().as_bytes()),
+        CString::new(name),
     ) else {
-        return false;
+        return Ok(None);
     };
-    let mut buf = [0u8; 4];
-    // SAFETY: path and name are valid C strings; buf is valid for its length.
+    let mut buf = [0u8; 256];
+    // SAFETY: cpath and cname are valid C strings; buf is valid for its length.
     #[allow(unsafe_code)] // lgetxattr(2) has no safe std wrapper
     let n = unsafe {
         libc::lgetxattr(
-            path.as_ptr(),
-            name.as_ptr(),
+            cpath.as_ptr(),
+            cname.as_ptr(),
             buf.as_mut_ptr().cast(),
             buf.len(),
         )
     };
-    n == 1 && buf[0] == b'y'
+    if n >= 0 {
+        return Ok(Some(buf[..n as usize].to_vec()));
+    }
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() {
+        Some(libc::ENODATA) | Some(libc::ENOTSUP) => Ok(None),
+        _ => Err(FsError::Io {
+            what: format!("read xattr {name} on {}", path.display()),
+            source: e,
+        }),
+    }
+}
+
+/// Overlay markers this diff cannot interpret. Both xattr namespaces are
+/// checked (trusted.* as root, user.* with userxattr).
+fn refuse_markers(path: &Path) -> Result<(), FsError> {
+    for ns in ["trusted", "user"] {
+        for m in ["redirect", "metacopy"] {
+            let name = format!("{ns}.overlay.{m}");
+            if xattr(path, &name)?.is_some() {
+                return Err(FsError::Io {
+                    what: format!(
+                        "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
+                        path.display()
+                    ),
+                    source: std::io::ErrorKind::Unsupported.into(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_opaque(dir: &Path) -> Result<bool, FsError> {
+    for name in ["trusted.overlay.opaque", "user.overlay.opaque"] {
+        if xattr(dir, name)?.is_some_and(|v| v == b"y") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

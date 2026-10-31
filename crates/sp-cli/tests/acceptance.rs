@@ -222,9 +222,9 @@ fn acceptance() {
     let stride = (unread.len() / samples.max(1)).max(1);
     for (i, e) in unread.iter().step_by(stride).take(samples).enumerate() {
         let path = env.repo.join(&e.p);
-        let mut bytes = std::fs::read(&path).unwrap();
-        bytes.push(b'\n');
-        std::fs::write(&path, &bytes).unwrap();
+        // Corrupt it outright: if the step secretly read this file, its
+        // result would certainly change (a cosmetic edit might not).
+        std::fs::write(&path, b"\x00STILLPASS_A7B corrupted\n").unwrap();
         let hit = env.run_step(step, &[]);
         assert!(
             hit.hit(),

@@ -14,16 +14,15 @@ if [ ! -d "$repo/.git" ]; then git clone -q "$url" "$repo"; fi
 git -C "$repo" fetch -q origin "$commit" 2>/dev/null || true
 git -C "$repo" checkout -q --detach "$commit"
 grep -qx '.stillpass/' "$repo/.git/info/exclude" || echo '.stillpass/' >> "$repo/.git/info/exclude"
-# Step B starts from a tree whose only earlier output is the module cache.
-rm -rf "$repo/.stillpass/gocache" "$repo/.stillpass/home"
-
 cd "$root"
 cargo build -q --release -p sp-cli
 state=$(mktemp -d)
 trap 'rm -rf "$state"' EXIT
 echo "== step A: go mod download (network, not memoized)"
 target/release/stillpass --state "$state" run --repo "$repo" --commit "$commit" --allow-net --step "go mod download"
+# Step B starts from a tree whose only earlier output is the module cache.
+rm -rf "$repo/.stillpass/gocache" "$repo/.stillpass/home"
 echo "== A1-A7 on $url@${commit:0:12}"
-STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-5}" \
+STILLPASS_INTEGRATION=1 STILLPASS_SPIKE_REPO="$repo" STILLPASS_A7B_SAMPLES="${STILLPASS_A7B_SAMPLES:-10}" \
   cargo test -q --release -p sp-cli --test acceptance -- --nocapture 2>&1 \
   | grep -E '^(A[0-9]|acceptance|\$ stillpass|STILLPASS|  )|panicked|FAILED|test result'

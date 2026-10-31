@@ -182,3 +182,34 @@ fn spike_repo_go_test_passes_offline() {
             .join("\n")
     );
 }
+
+#[test]
+fn a_sandbox_that_never_starts_the_step_is_an_error_not_a_result() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let mut s = spec(
+        &tmp.path().join("does-not-exist"),
+        tmp.path(),
+        "exit 0",
+        false,
+    );
+    s.cwd = "/workspace".into();
+    match run(&s) {
+        Err(sp_sandbox::SandboxError::DidNotStart { .. }) => {}
+        other => panic!("expected DidNotStart, got {other:?}"),
+    }
+}
+
+#[test]
+fn signal_deaths_are_reported() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let r = run(&spec(&ws, tmp.path(), "kill -9 $$", false)).unwrap();
+    assert_eq!((r.signal, r.exit_code), (Some(9), 137));
+}

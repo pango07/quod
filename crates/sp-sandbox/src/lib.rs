@@ -42,6 +42,8 @@ const GROUP: &str = "root:x:0:\nrunner:x:1001:\n";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunResult {
     pub exit_code: i32,
+    /// The signal that killed the step, if any (exit_code is then 128+sig).
+    pub signal: Option<i32>,
     pub wall: Duration,
 }
 
@@ -51,6 +53,10 @@ pub enum SandboxError {
     Io { what: String, source: io::Error },
     #[error("bubblewrap (bwrap) not found on PATH")]
     NoBwrap,
+    /// The sandbox failed before the step's command started, so its exit
+    /// code is bubblewrap's, not the step's. Never a step result.
+    #[error("the sandbox did not start the step (bwrap exit {exit_code}): {stderr}")]
+    DidNotStart { exit_code: i32, stderr: String },
 }
 
 fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> SandboxError {
@@ -61,6 +67,9 @@ fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> SandboxError {
 /// Read-only system paths visible inside the sandbox. The toolchain under
 /// /usr is pinned by the step key's image field, not observed.
 const SYSTEM_PATHS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"];
+
+/// Inside the sandbox: the file whose content proves the step started.
+const STARTED: &str = "/.stillpass-started";
 
 /// The uid and gid a step runs as inside the sandbox.
 pub const STEP_UID: &str = "1001";
@@ -110,12 +119,21 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
         let flag = if m.writable { "--bind" } else { "--ro-bind" };
         push(&[flag, &m.src.to_string_lossy(), &m.dst.to_string_lossy()]);
     }
+    if let Some(dir) = &spec.identity {
+        // Proof the step started: written by the wrapper right before it
+        // execs the step's command.
+        push(&["--bind", &dir.join("started").to_string_lossy(), STARTED]);
+    }
     // Everything not mounted above lives on bwrap's root tmpfs; freeze it.
     push(&["--remount-ro", "/", "--clearenv"]);
     for (k, v) in &spec.env {
         push(&["--setenv", k, v]);
     }
     push(&["--chdir", &spec.cwd, "--"]);
+    if spec.identity.is_some() {
+        let wrapper = format!("printf 1 > {STARTED} && exec \"$@\"");
+        push(&["/bin/sh", "-c", &wrapper, "sh"]);
+    }
     a.extend(spec.cmd.iter().cloned());
     a
 }
@@ -123,10 +141,20 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
 /// Runs `spec` under bubblewrap.
 pub fn run(spec: &RunSpec) -> Result<RunResult, SandboxError> {
     let bwrap = which("bwrap").ok_or(SandboxError::NoBwrap)?;
-    let ident = std::env::temp_dir().join(format!("stillpass-ident-{}", std::process::id()));
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let ident = std::env::temp_dir().join(format!("stillpass-ident-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&ident).map_err(io_err("create identity dir"))?;
     std::fs::write(ident.join("passwd"), PASSWD).map_err(io_err("write passwd"))?;
     std::fs::write(ident.join("group"), GROUP).map_err(io_err("write group"))?;
+    std::fs::write(ident.join("started"), "").map_err(io_err("write start sentinel"))?;
+    let result = run_inner(spec, bwrap, &ident);
+    let _ = std::fs::remove_dir_all(&ident);
+    result
+}
+
+fn run_inner(spec: &RunSpec, bwrap: PathBuf, ident: &Path) -> Result<RunResult, SandboxError> {
+    let ident = ident.to_path_buf();
     let spec = &RunSpec {
         identity: Some(ident),
         ..spec.clone()
@@ -158,10 +186,28 @@ pub fn run(spec: &RunSpec) -> Result<RunResult, SandboxError> {
         .map_err(io_err("capture stderr"))?;
     let wall = start.elapsed();
     use std::os::unix::process::ExitStatusExt;
-    let exit_code = status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
-    Ok(RunResult { exit_code, wall })
+    // bwrap is PID 1 and turns a child's signal death into exit 128+N, so
+    // those codes count as signals too (conservative: a step exiting 137
+    // on purpose is merely never memoized).
+    let signal = status.signal().or(match status.code() {
+        Some(c @ 129..=192) => Some(c - 128),
+        _ => None,
+    });
+    let exit_code = status.code().unwrap_or_else(|| 128 + signal.unwrap_or(0));
+    let started = std::fs::read(spec.identity.as_ref().unwrap().join("started"))
+        .map_err(io_err("read start sentinel"))?;
+    if started != b"1" {
+        let stderr = std::fs::read_to_string(&spec.stderr).unwrap_or_default();
+        return Err(SandboxError::DidNotStart {
+            exit_code,
+            stderr: stderr.trim().chars().take(2000).collect(),
+        });
+    }
+    Ok(RunResult {
+        exit_code,
+        signal,
+        wall,
+    })
 }
 
 fn tee(mut src: impl Read, mut file: File, mut echo: Option<impl Write>) -> io::Result<()> {

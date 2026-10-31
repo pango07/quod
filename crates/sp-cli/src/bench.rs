@@ -111,24 +111,41 @@ fn overhead(
     for i in 0..args.runs {
         let copy = work.join(format!("plain-{i}"));
         cp(&tree, &copy)?;
-        let env = plain_env(&copy);
-        let t = Instant::now();
-        let st = Command::new("/bin/sh")
-            .args(["-e", "-c", &args.step])
-            .current_dir(&copy)
-            .env_clear()
-            .envs(env)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()?;
-        plain.push(t.elapsed());
+        // Same sandbox, uid and env as the observed path; only the FUSE
+        // lower and the overlay are missing. That isolates the observer.
+        let out = work.join(format!("plain-{i}.log"));
+        let rs = sp_sandbox::RunSpec {
+            cmd: sp_key::shell_cmd(&args.step),
+            cwd: sp_key::WORKSPACE.into(),
+            env: sp_key::SPIKE_ENV
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            mounts: vec![sp_sandbox::Mount {
+                src: copy.clone(),
+                dst: sp_key::WORKSPACE.into(),
+                writable: true,
+            }],
+            egress: false,
+            stdout: out.with_extension("out"),
+            stderr: out.with_extension("err"),
+            echo: false,
+            identity: None,
+        };
+        let r = sp_sandbox::run(&rs)?;
+        if r.exit_code != 0 {
+            bail!(
+                "plain run {i} exited {}; the baseline must pass",
+                r.exit_code
+            );
+        }
+        plain.push(r.wall);
         sp_cas::remove_any(&copy)?;
         eprintln!(
-            "overhead plain {}/{}: {:.1}s exit {}",
+            "overhead plain {}/{}: {:.1}s",
             i + 1,
             args.runs,
-            plain[i].as_secs_f64(),
-            st.code().unwrap_or(-1)
+            r.wall.as_secs_f64()
         );
     }
 
@@ -145,8 +162,8 @@ fn overhead(
             &args.step,
             &["--cas", cas.to_str().unwrap()],
         )?;
-        if s.event["hit"].as_bool() != Some(false) {
-            bail!("observed run {i} was not a miss");
+        if s.event["hit"].as_bool() != Some(false) || s.event["exit_code"].as_i64() != Some(0) {
+            bail!("observed run {i} was not a passing miss: {}", s.event);
         }
         eprintln!(
             "overhead observed {}/{}: {:.1}s",
@@ -341,6 +358,11 @@ fn run_setup(exe: &Path, state: &Path, tree: &Path, step: &str) -> anyhow::Resul
     if !st.success() {
         bail!("step A failed in {}", tree.display());
     }
+    // Step B starts from a tree whose only earlier output is the module
+    // cache: no build cache, no per-day files Go writes under HOME.
+    for d in ["gocache", "home"] {
+        sp_cas::remove_any(&tree.join(".stillpass").join(d))?;
+    }
     Ok(())
 }
 
@@ -365,7 +387,8 @@ fn run_step(
         .stderr(Stdio::piped())
         .output()?;
     let wall = t.elapsed();
-    if out.status.code() == Some(crate::EXIT_STILLPASS_ERROR as i32) {
+    // By banner, not by exit code: a step may exit 2 itself.
+    if String::from_utf8_lossy(&out.stderr).contains("STILLPASS  ERROR") {
         bail!(
             "stillpass run failed: {}",
             String::from_utf8_lossy(&out.stderr)
@@ -382,16 +405,6 @@ fn run_step(
         wall,
         event: serde_json::from_str(line)?,
     })
-}
-
-/// The Schemas env with /workspace replaced by the tree's real path, for
-/// running without the sandbox's mount namespace.
-fn plain_env(tree: &Path) -> Vec<(String, String)> {
-    let ws = tree.to_str().unwrap();
-    sp_key::SPIKE_ENV
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.replace(sp_key::WORKSPACE, ws)))
-        .collect()
 }
 
 fn clone_at(repo: &Path, dest: &Path, rev: &str) -> anyhow::Result<()> {

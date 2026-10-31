@@ -140,7 +140,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let start = Instant::now();
     let dir = state.run_dir(&run_id);
     let outcome = execute(&cas, &tree, &spec, env, &dir, &mut phases);
-    let (exit_code, manifest, outputs, wall, stdout, stderr) = match outcome {
+    let (exit_code, signal, manifest, outputs, wall, stdout, stderr) = match outcome {
         Ok(v) => v,
         Err(e) => {
             if !args.keep {
@@ -149,6 +149,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             return Err(e);
         }
     };
+    if let Some(sig) = signal {
+        // Killed from outside (OOM, timeout, a signal): the step's own
+        // result is unknown, so it is reported and never memoized.
+        if !args.keep {
+            sp_cas::remove_any(&dir)?;
+        }
+        eprintln!("STILLPASS  EXECUTED  killed by signal {sig}, not memoized");
+        eprintln!("  ran {}", fmt_duration(wall));
+        return Ok(exit_byte(exit_code));
+    }
 
     let t = Instant::now();
     let mid = ledger.put_manifest(&manifest, &run_id)?;
@@ -189,7 +199,15 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     Ok(exit_byte(exit_code))
 }
 
-type Executed = (i32, Manifest, Vec<sp_cas::Entry>, Duration, Hash, Hash);
+type Executed = (
+    i32,
+    Option<i32>,
+    Manifest,
+    Vec<sp_cas::Entry>,
+    Duration,
+    Hash,
+    Hash,
+);
 
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
 fn execute(
@@ -239,7 +257,15 @@ fn execute(
     let (stdout, _) = cas.put_file(&dir.join("stdout"))?;
     let (stderr, _) = cas.put_file(&dir.join("stderr"))?;
     phases.diff = t.elapsed();
-    Ok((r.exit_code, manifest, outputs, r.wall, stdout, stderr))
+    Ok((
+        r.exit_code,
+        r.signal,
+        manifest,
+        outputs,
+        r.wall,
+        stdout,
+        stderr,
+    ))
 }
 
 fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
@@ -366,9 +392,11 @@ fn parse_env(pairs: &[String]) -> anyhow::Result<Vec<(String, String)>> {
 
 /// The 0a environment pin: BLAKE3 of the host fingerprint script's output.
 fn host_image() -> anyhow::Result<Hash> {
-    let out = Command::new("/bin/sh")
+    let out = Command::new("/bin/bash")
         .arg("-c")
         .arg(FINGERPRINT_SH)
+        .env_clear()
+        .env("PATH", "/usr/local/go/bin:/usr/bin:/bin")
         .output()
         .context("run host fingerprint")?;
     if !out.status.success() {

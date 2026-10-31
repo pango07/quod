@@ -37,6 +37,9 @@ struct Node {
 struct Log {
     present: HashSet<(u64, Kind)>,
     absent: HashSet<String>,
+    /// I/O errors served to the step. Any makes the run a Stillpass error:
+    /// the step saw a broken filesystem, not its inputs.
+    io_errors: Vec<String>,
 }
 
 struct CasFs {
@@ -204,6 +207,11 @@ impl Filesystem for CasFs {
             Ok(f) => f,
             Err(e) => {
                 tracing::error!(path = %n.entry.p, error = %e, "blob missing while serving");
+                self.log
+                    .lock()
+                    .unwrap()
+                    .io_errors
+                    .push(format!("open {}: {e}", n.entry.p));
                 return reply.error(Errno::EIO);
             }
         };
@@ -234,7 +242,17 @@ impl Filesystem for CasFs {
                 Ok(0) => break,
                 Ok(n) => filled += n,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => return reply.error(Errno::EIO),
+                Err(e) => {
+                    let path = self
+                        .node(ino)
+                        .map_or("?".to_string(), |n| n.entry.p.clone());
+                    self.log
+                        .lock()
+                        .unwrap()
+                        .io_errors
+                        .push(format!("read {path}: {e}"));
+                    return reply.error(Errno::EIO);
+                }
             }
         }
         reply.data(&buf[..filled]);
@@ -372,6 +390,16 @@ impl Served {
             )))?;
         }
         let log = std::mem::take(&mut *self.log.lock().unwrap());
+        if !log.io_errors.is_empty() {
+            return Err(FsError::Io {
+                what: format!(
+                    "the observer served {} I/O error(s) to the step, first: {}",
+                    log.io_errors.len(),
+                    log.io_errors[0]
+                ),
+                source: std::io::ErrorKind::Other.into(),
+            });
+        }
         let mut out: Vec<Access> = log
             .present
             .into_iter()
