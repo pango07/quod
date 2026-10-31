@@ -8,8 +8,9 @@
 //!   from the runner's externals) bound read-only and keyed by content, a
 //!   fixed hostname, /etc/hosts and resolv.conf. No network, and every
 //!   attempt to reach one is counted. The environment is the keyed one:
-//!   volatile names and GitHub tokens are withheld, the ACTIONS_* service
-//!   variables are unreachable placeholders, and values whose names say
+//!   volatile names and GitHub tokens are withheld (set, to a value that
+//!   works as nothing), the ACTIONS_* service variables are unreachable
+//!   placeholders, and values whose names say
 //!   they are secrets are given but salted in the key and masked in
 //!   everything stored.
 //! - **Network** (a JavaScript action or a network-rule script, second
@@ -44,6 +45,10 @@ use crate::trust;
 
 /// Inside the hermetic RUNNER_TEMP: the step's script.
 const SCRIPT: &str = "stillpass-step";
+
+/// The value a withheld variable has in a keyed step: set, so presence
+/// checks behave as on GitHub, and useless as a token, a sha or an id.
+pub const WITHHELD: &str = "stillpass-withheld";
 /// Inside RUNNER_TEMP: where the runner keeps per-step command files.
 const FILE_COMMANDS_DIR: &str = "_runner_file_commands";
 /// What an offline step resolves names with: an address with no route, so
@@ -78,8 +83,8 @@ pub struct Surface {
     /// were (withheld, or replaced by a placeholder), sorted: the
     /// manifest's present-but-unkeyed names.
     pub withheld: Vec<String>,
-    /// Of those, the ones the step did not get at all: a file naming one
-    /// means the step may have needed it.
+    /// Of those, the ones whose real value the step did not get (it got
+    /// `WITHHELD`): a file naming one means the step may have needed it.
     pub absent: Vec<String>,
     /// Hermetic and network: the command files at their fixed paths, to
     /// hand back to the runner after the step.
@@ -354,12 +359,17 @@ fn sealed(
         });
     }
 
-    // Withheld names go; ACTIONS_* service variables become placeholders.
+    // Withheld names keep their name with a value that does not work
+    // (`WITHHELD`), as ACTIONS_* service variables get placeholders: a step
+    // that checks whether one is set behaves as on GitHub (a test that
+    // skips without GITHUB_TOKEN runs), and a step that uses one fails or
+    // reaches for the network, which taints it. Their real values never
+    // reach a keyed step.
     let mut withheld: Vec<String> = Vec::new();
     let mut absent: Vec<String> = Vec::new();
     for (k, v) in env.clone() {
         if step::withheld(&k, &v) {
-            env.remove(&k);
+            env.insert(k.clone(), WITHHELD.to_string());
             withheld.push(k.clone());
             absent.push(k);
         } else if let Some(p) = step::placeholder(&k) {
@@ -376,7 +386,8 @@ fn sealed(
     let mut masks = Vec::new();
     let mut key_env = env.clone();
     for (k, v) in &env {
-        if !v.is_empty() && (step::secret_like(k) || step::looks_secret(v)) {
+        // The withheld placeholder is no secret, whatever its name.
+        if !v.is_empty() && v != WITHHELD && (step::secret_like(k) || step::looks_secret(v)) {
             masks.extend(secrets::masks_for(v));
             key_env.insert(k.clone(), secrets::salted(salt, k, v));
         }

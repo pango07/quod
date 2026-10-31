@@ -852,7 +852,13 @@ fn hooks_acceptance() {
             "B1 {what} present, again: replays its own result"
         );
     }
-    // The placeholder reaches the step, so its result really differs.
+    // Both variables reach the step as placeholders, so a job that has one
+    // gets the result GitHub would give it: the token test runs, the OIDC
+    // branch is taken. (Their real values never reach a keyed step.)
+    let with = r.job(token, &[gh_token]);
+    assert_eq!(String::from_utf8_lossy(&with.stdout), "ran with a token\n");
+    let without = r.job(token, &[]);
+    assert_eq!(String::from_utf8_lossy(&without.stdout), "SKIP: no token\n");
     let with = r.job(oidc, &[id_url]);
     assert_eq!(String::from_utf8_lossy(&with.stdout), "oidc\n");
     println!(
