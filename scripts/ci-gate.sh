@@ -119,6 +119,8 @@ setup() {
       go)
         $s rm -rf /usr/local/go
         curl -fsSL "https://go.dev/dl/go$(v go version).linux-$arch.tar.gz" | $s tar -C /usr/local -xz
+        # Ahead of the runner image's own Go on PATH (check-host.sh asks `go`).
+        [ -z "${GITHUB_PATH:-}" ] || echo /usr/local/go/bin >> "$GITHUB_PATH"
         /usr/local/go/bin/go version;;
       node)
         $s rm -rf /usr/local/node
@@ -173,7 +175,7 @@ summary() {
   echo '```text'
   grep -m1 '^host: ' "$log" || true
   local t
-  t=$(grep -o '"transport":"[a-z-]*"' "$log" | sort | uniq -c | awk '{gsub(/"transport":|"/,"",$2); printf "%s%s x%s", sep, $2, $1; sep=", "}')
+  t=$(grep -o '"transport":"[a-z-]*"' "$log" | sort | uniq -c | awk '{gsub(/"transport":|"/,"",$2); printf "%s%s x%s", sep, $2, $1; sep=", "}' || true)
   local fb; fb=$(grep -c '"uring_fallback":true' "$log" || true)
   [ -z "$t" ] || echo "observer transport: $t (uring fallbacks: $fb)"
   grep -E '^(merge gate|ci-gate [a-z-]+: exit|lint (ok|FAILED)|== )|SKIPPED|^(step A|A[0-9]+b?|P[0-9]|W[0-9]|T[0-9]+|G[0-9]|S[0-9]|manifest:)[: ].*(ok|false hits|skipped|entries)' "$log" \
