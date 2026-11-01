@@ -87,6 +87,11 @@ corpus() {
   section=$(corpus_section "$tc")
   url=$(v "$section" url); commit=$(v "$section" commit)
   dir=$(corpus_dir "$tc" "${2:-}")
+  # Owned by root, as in the dev container: the sandbox's step user maps to
+  # root outside, so a checkout the runner user owns is not writable to the
+  # step (npm ci: EACCES on /workspace/node_modules). A restored cache
+  # comes back owned by the runner user.
+  if [ -d "$dir" ] && [ "$(id -u)" = 0 ]; then chown -R 0:0 "$dir"; fi
   if [ ! -d "$dir/.git" ]; then git clone -q "$url" "$dir"; fi
   git -C "$dir" cat-file -e "$commit^{commit}" 2>/dev/null || git -C "$dir" fetch -q origin "$commit"
   git -C "$dir" checkout -q -B quod-acceptance "$commit"
@@ -114,6 +119,9 @@ setup() {
   # sandbox does not have: bwrap cannot bind the hooks surface's resolv.conf
   # over the dangling link ("Can't create file at /etc/resolv.conf"). A
   # regular file, as in the dev container (docs/ci.md: host differences).
+  # Root runs git in the runner user's checkout (and the runner user in
+  # root's corpora, for the cache): no "dubious ownership" refusals.
+  $s git config --system --add safe.directory '*'
   if [ -L /etc/resolv.conf ]; then
     $s cp --remove-destination "$(readlink -f /etc/resolv.conf)" /etc/resolv.conf
   fi
@@ -230,7 +238,7 @@ cmd=${1:-}; [ $# -gt 0 ] && shift
 case "$cmd" in
   host) host;;
   setup) setup "$@";;
-  corpus) corpus "${1:?corpus needs go, node, python or hooks}" "${2:-}";;
+  corpus) as_root corpus "$@"; corpus "${1:?corpus needs go, node, python or hooks}" "${2:-}";;
   lint) as_root lint "$@"; logged lint "$root/scripts/lint.sh";;
   merge-gate) as_root merge-gate "$@"; fingerprint_time; logged merge-gate "$root/scripts/merge-gate.sh";;
   hooks) as_root hooks "$@"; logged hooks hooks "$@";;
