@@ -135,6 +135,25 @@ export async function queuedJobs(teamId: TeamId, db?: Db): Promise<LiveJob[]> {
   return rows.map(liveJobFromRow);
 }
 
+/**
+ * The team's job changes stored in the last `windowMs` (by database time), as
+ * events, oldest version first. The live adapter replays these when a stream
+ * starts, so a change that committed while its snapshot was being taken is
+ * not lost; repeats are dropped by version downstream.
+ */
+export async function recentJobEvents(teamId: TeamId, windowMs: number, db?: Db): Promise<LiveJobEvent[]> {
+  const q = await resolve(db);
+  const rows = await q.query(`${JOB_SELECT} WHERE j.row_updated_at > now() - make_interval(secs => $2::double precision) ORDER BY j.version ASC LIMIT 1000`, [teamId, windowMs / 1000]);
+  return rows.map(jobEventFromRow);
+}
+
+/** The highest job version the team can see now (0 if none): a snapshot's stream position. */
+export async function maxJobVersion(teamId: TeamId, db?: Db): Promise<number> {
+  const q = await resolve(db);
+  const [row] = await q.query(`SELECT COALESCE(max(j.version), 0) AS v FROM (${JOB_SELECT}) j`, [teamId]);
+  return Number(row?.v ?? 0);
+}
+
 /** One job, if the team can see it. */
 export async function jobById(teamId: TeamId, jobId: number | string, db?: Db): Promise<LiveJob | null> {
   const id = typeof jobId === "number" ? jobId : /^\d{1,15}$/.test(jobId) ? Number(jobId) : NaN;

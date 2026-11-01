@@ -99,7 +99,23 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
             </dl>
           </div>
         ) : (
-          <EmptyState title="No runs yet">Push to {repo.defaultBranch}. The first run only watches and notes what each step reads.</EmptyState>
+          repo.summary.hasQuodData === false ? (
+            <EmptyState title="Appears once Quod runs in this repo">
+              {repo.summary.github?.latestRun ? (
+                <>
+                  Its CI shows above as it runs, from GitHub.{" "}
+                  <a href={repo.summary.github.latestRun.url} style={{ textDecoration: "underline" }}>
+                    Latest run on GitHub
+                  </a>
+                  .
+                </>
+              ) : (
+                "Its CI shows above as it runs, from GitHub."
+              )}
+            </EmptyState>
+          ) : (
+            <EmptyState title="No runs yet">Push to {repo.defaultBranch}. The first run only watches and notes what each step reads.</EmptyState>
+          )
         )}
       </section>
 
