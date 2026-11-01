@@ -93,3 +93,69 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 
 Members, invitations, SSO and directory sync are not in this API: they live
 in WorkOS and the app calls WorkOS directly (`lib/auth/directory.ts`).
+
+## Event sources: GitHub App
+
+Live CI job status comes from the Quod CI GitHub App's `workflow_job` and
+`workflow_run` webhooks, stored in Postgres by the app itself (not
+quod-server): `POST /api/github/webhook` writes, `lib/github/live.ts`
+reads. Types are in `lib/live-events.ts`; they mirror cloud/live's
+`LiveJob` and the `job.*` members of `LiveEvent` field for field, plus a
+few additions.
+
+**Server-side functions** (`lib/github/live.ts`). Each takes a `TeamId`,
+which only `teamIdOf(await requireTeam(slug))` makes (it is the team's
+WorkOS organization id). A team sees rows only through an installation
+linked to it, not uninstalled, in a repo still in that installation. No
+function takes an installation id from a client. `db` is optional (the
+app's database by default; PGlite in tests).
+
+| Function | Returns |
+| --- | --- |
+| `runningJobs(teamId)` | `LiveJob[]` in progress, newest first (last 24 h) |
+| `queuedJobs(teamId)` | `LiveJob[]` queued, waiting or pending, oldest first (last 24 h) |
+| `jobById(teamId, jobId)` | `LiveJob` or null |
+| `recentRuns(teamId, repo?, { limit })` | `LiveRun[]` newest first; `repo` is `owner/name` or a bare name |
+| `teamInstallations(teamId)` | linked installations and their repos |
+| `onTeamJobChange(teamId, { signal, after?, intervalMs? })` | `AsyncIterable<LiveJobEvent>` until `signal` aborts |
+| `jobEventFromRow(row)`, `jobEventFromPayload(payload, { version })` | the event for a stored row or a raw payload |
+
+**Event.** `LiveJobEvent = { id, at, type, job }`. `type` is `job.queued`
+(status queued, waiting, pending or requested), `job.started`
+(in_progress) or `job.finished` (completed). `id` is `gh-<version>`:
+increasing across all GitHub job changes, usable as the SSE id; pass the
+client's Last-Event-ID as `after` to resume. `at` is when Quod stored the
+change. A redelivery or a stale delivery produces no event.
+
+**`LiveJob`.** `id` (GitHub job id, string), `repoSlug` (the GitHub repo
+name), `repoName` (owner/name), `runNumber` (0 until the run's
+`workflow_run` delivery arrives; the job is re-announced then), `workflow`,
+`job`, `branch`, `sha`, `actor` (the run's actor, else the delivery's
+sender), `runner` (`ubuntu-latest`, or `[self-hosted, quod]` for several
+labels), `githubUrl`, `status` (`queued`, `in_progress`, `completed`),
+`conclusion` (`success`, `failure` incl. timed_out and startup_failure,
+`cancelled`; absent otherwise), `queuedAt`, `startedAt` (once running),
+`finishedAt`, `currentStep` (`{ index, name }`, the step GitHub reported in
+progress), `stepsTotal`. Additions: `source: "github"`, `runId`,
+`runAttempt`, `labels`, `githubConclusion` (as GitHub sent it),
+`runnerName`.
+
+**Granularity.** GitHub sends `workflow_job` on queued, waiting,
+in_progress and completed only, not per step. The step list in an in_progress
+payload may be partial; it is complete with completed. So
+`currentStep` from GitHub is coarse; Quod's own step events (runner hooks)
+are the fine-grained source for jobs that run Quod.
+
+**Ordering.** Deliveries can arrive late and out of order. Each job and
+run row only moves forward on (run attempt, status rank, payload time):
+queued-like 1, in_progress 2, completed 3. A late `in_progress` never
+overwrites `completed`; a re-run (new `run_attempt`) may move a run back
+to queued.
+
+**Change feed: polling, not LISTEN/NOTIFY.** `onTeamJobChange` polls
+`workflow_jobs.row_updated_at` every 2 s. Neon's pooled connections
+(PgBouncer, transaction mode) cannot LISTEN, and a direct connection held
+open per viewer would exhaust Neon's connection limit on serverless. Each
+poll looks back 15 s and yields only versions it has not yielded, so a
+write that commits after a later one is not missed. It is one query per
+poll per subscriber: share one feed per team per function instance.

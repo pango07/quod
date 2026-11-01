@@ -71,6 +71,66 @@ URLs; the pages read those names.
   steps (`flow.ts`), the session, WorkOS members, invitations and the Admin
   Portal.
 - `lib/dal.ts`: every page resolves its team here (membership check).
+- `lib/github/`: the Quod CI GitHub App: manifest setup, the webhook
+  receiver, installation linking, and `live.ts`, the queries and job events
+  for "Now running". `lib/live-events.ts` is the event shape.
+- `lib/db/`, `db/migrations/`: Postgres (Neon) and its migrations. See
+  "GitHub App setup" below.
 - `proxy.ts`: the Next.js 16 proxy (formerly middleware). It refreshes the
   AuthKit session and sends signed-out visitors to `/sign-in?returnTo=...`.
 - `next.config.ts`: the boot-time config check and security headers.
+
+## GitHub App setup
+
+The Quod CI GitHub App sends CI job status to Quod Cloud by webhook. It is
+created once, from the dashboard, with GitHub's App Manifest flow.
+
+**1. Database (engineer, once, after the product owner approves the SQL).**
+The tables are in `db/migrations/0001_github_app.sql`. With Neon's direct
+URL in your shell as `DATABASE_URL_UNPOOLED` (it is in Vercel):
+
+```sh
+npm run db:migrate -- --dry-run   # prints the target host and pending files; writes nothing
+npm run db:migrate                # applies them, each in its own transaction
+```
+
+**2. Vercel env (engineer).** Set `QUOD_OPERATOR_EMAILS` to the product
+owner's Quod sign-in email (comma-separated for more) and `APP_URL` to
+`https://app.quodci.com`, then redeploy. `DATABASE_URL` is already set by
+the Neon integration.
+
+**3. Create the App (product owner, on the phone).**
+
+1. In the phone's browser, sign in to github.com as **pango07**. The App
+   belongs to whichever account is signed in there.
+2. Open **app.quodci.com/setup/github-app** and sign in to Quod.
+3. Keep the name "Quod CI" (or change it) and tap **Create GitHub App**.
+4. GitHub opens. Tap **Create GitHub App for pango07**. If GitHub says the
+   name is taken, go back, change the name, and tap Create again.
+5. GitHub returns to Quod with six values, shown **once**. For each one,
+   tap **Copy**, then in Vercel open quod-cloud, Settings, Environment
+   Variables, and add it for Production. Mark the three secret ones
+   Sensitive: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
+   `GITHUB_APP_CLIENT_SECRET` (secret), `GITHUB_APP_WEBHOOK_SECRET`
+   (secret), `GITHUB_APP_PRIVATE_KEY` (secret, paste all of it including
+   the BEGIN and END lines). If you leave the page first, the values are
+   gone: on the App's GitHub settings page, generate a new private key and
+   client secret instead.
+6. In Vercel, **Redeploy** production.
+
+**4. Install it (any team admin).** Open **/github/link** in the dashboard
+and tap **Install on GitHub** (or go to github.com/apps/&lt;slug&gt;). Pick
+the account or organization and repositories, and authorize. GitHub comes
+back to `/github/installed`; Quod checks with GitHub that you may manage
+that installation and shows **Connect to &lt;team&gt;**. Tap it. The App is
+linked to the team you are viewing; switch teams first to link another.
+
+Linking requires (tested in `lib/github/link.test.ts`): you are an admin of
+the Quod team; GitHub lists the installation in your `/user/installations`;
+no other Quod team has it; and it is your own account, or you administer
+every repository it covers. Uninstalling on GitHub unlinks it.
+
+Locally: `npm run db:migrate -- --pglite ./.pglite`, then run
+`DATABASE_URL=pglite:./.pglite npm run dev`. The GitHub round trips need a
+real App, so locally the webhook (sign test payloads with your own
+`GITHUB_APP_WEBHOOK_SECRET`) and the pages' error states are what run.
