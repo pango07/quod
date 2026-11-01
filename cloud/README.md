@@ -86,18 +86,25 @@ The Quod CI GitHub App sends CI job status to Quod Cloud by webhook. It is
 created once, from the dashboard, with GitHub's App Manifest flow.
 
 **1. Database (engineer, once, after the product owner approves the SQL).**
-The tables are in `db/migrations/0001_github_app.sql`. With Neon's direct
-URL in your shell as `DATABASE_URL_UNPOOLED` (it is in Vercel):
+The tables are in `db/migrations/0001_github_app.sql` and
+`0002_github_app_review.sql`. With Neon's direct URL in your shell as
+`DATABASE_URL_UNPOOLED` (it is in Vercel):
 
 ```sh
 npm run db:migrate -- --dry-run   # prints the target host and pending files; writes nothing
 npm run db:migrate                # applies them, each in its own transaction
 ```
 
-**2. Vercel env (engineer).** Set `QUOD_OPERATOR_EMAILS` to the product
-owner's Quod sign-in email (comma-separated for more) and `APP_URL` to
-`https://app.quodci.com`, then redeploy. `DATABASE_URL` is already set by
-the Neon integration.
+**2. Vercel env (engineer).** Set these, then redeploy:
+
+- `QUOD_OPERATOR_EMAILS`: the product owner's Quod sign-in email
+  (comma-separated for more). Not secret.
+- `APP_URL`: `https://app.quodci.com`. Not secret.
+- `CRON_SECRET`: a random string of at least 16 characters, e.g. from
+  `openssl rand -hex 32`. Secret. Vercel Cron sends it to the reconcile job
+  (see "Lost webhooks" below).
+
+`DATABASE_URL` is already set by the Neon integration.
 
 **3. Create the App (product owner, on the phone).**
 
@@ -109,26 +116,57 @@ the Neon integration.
    name is taken, go back, change the name, and tap Create again.
 5. GitHub returns to Quod with six values, shown **once**. For each one,
    tap **Copy**, then in Vercel open quod-cloud, Settings, Environment
-   Variables, and add it for Production. Mark the three secret ones
-   Sensitive: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
-   `GITHUB_APP_CLIENT_SECRET` (secret), `GITHUB_APP_WEBHOOK_SECRET`
-   (secret), `GITHUB_APP_PRIVATE_KEY` (secret, paste all of it including
-   the BEGIN and END lines). If you leave the page first, the values are
-   gone: on the App's GitHub settings page, generate a new private key and
-   client secret instead.
+   Variables, and add it for Production:
+
+   | Variable | Secret? | In Vercel |
+   | --- | --- | --- |
+   | `GITHUB_APP_ID` | no | plain |
+   | `GITHUB_APP_SLUG` | no | plain |
+   | `GITHUB_APP_CLIENT_ID` | no | plain |
+   | `GITHUB_APP_CLIENT_SECRET` | **yes** | mark Sensitive |
+   | `GITHUB_APP_WEBHOOK_SECRET` | **yes** | mark Sensitive |
+   | `GITHUB_APP_PRIVATE_KEY` | **yes** | mark Sensitive; paste all of it, BEGIN and END lines included |
+
+   Leaving the page blanks the values, and they are not kept anywhere. If
+   that happens, generate a new private key and client secret on the App's
+   GitHub settings page instead.
 6. In Vercel, **Redeploy** production.
 
-**4. Install it (any team admin).** Open **/github/link** in the dashboard
-and tap **Install on GitHub** (or go to github.com/apps/&lt;slug&gt;). Pick
-the account or organization and repositories, and authorize. GitHub comes
-back to `/github/installed`; Quod checks with GitHub that you may manage
-that installation and shows **Connect to &lt;team&gt;**. Tap it. The App is
-linked to the team you are viewing; switch teams first to link another.
+**4. Install it (any team admin).** In the dashboard, open the team's
+**Settings**, then **GitHub**, and tap **Connect GitHub** (or open
+**/github/link** and tap **Install on GitHub**). Always start from Quod:
+the install carries a one-time state that ties GitHub's answer to your
+browser. Pick the account or organization and repositories, and authorize.
+GitHub comes back to `/github/installed`. Quod checks with GitHub that you
+may manage that installation, then shows **GitHub user X will connect Y**
+and **Connect to &lt;team&gt;**. Tap it. The App is linked to the team you
+are viewing; switch teams first to link another.
 
-Linking requires (tested in `lib/github/link.test.ts`): you are an admin of
-the Quod team; GitHub lists the installation in your `/user/installations`;
-no other Quod team has it; and it is your own account, or you administer
-every repository it covers. Uninstalling on GitHub unlinks it.
+Linking requires (tested in `lib/github/link.test.ts` and
+`flow-state.test.ts`):
+- GitHub's answer carries Quod's state for your browser. A code without it
+  is dropped and Quod asks GitHub again itself.
+- You are an admin of the Quod team.
+- GitHub lists the installation in your `/user/installations`.
+- No other Quod team has it.
+- It is your own account, or you administer every repository it covers.
+- The set of repositories has not changed between the check and your tap.
+
+To unlink, a team admin taps **Disconnect** in Settings, then GitHub; the
+App stays installed on GitHub. Uninstalling on GitHub also unlinks it.
+
+**Lost webhooks.** GitHub does not resend a failed webhook by itself.
+Every 15 minutes, Vercel Cron calls `/api/github/reconcile` (see
+`vercel.json`; it needs `CRON_SECRET`). That job:
+- asks GitHub to redeliver any App delivery of the last hour that never
+  succeeded;
+- reads back from GitHub any run or job still unfinished after 15 minutes
+  without an update;
+- deletes runs and jobs not updated for 30 days.
+
+When the App had no deliveries in that hour, the job does not touch the
+database, so Neon can stay scaled to zero. Vercel's Hobby plan only allows
+daily crons; on Pro the 15-minute schedule works as written.
 
 Locally: `npm run db:migrate -- --pglite ./.pglite`, then run
 `DATABASE_URL=pglite:./.pglite npm run dev`. The GitHub round trips need a

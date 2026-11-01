@@ -106,7 +106,7 @@ few additions.
 **Server-side functions** (`lib/github/live.ts`). Each takes a `TeamId`,
 which only `teamIdOf(await requireTeam(slug))` makes (it is the team's
 WorkOS organization id). A team sees rows only through an installation
-linked to it, not uninstalled, in a repo still in that installation. No
+linked to it, not uninstalled or suspended, in a repo still in that installation. No
 function takes an installation id from a client. `db` is optional (the
 app's database by default; PGlite in tests).
 
@@ -118,6 +118,7 @@ app's database by default; PGlite in tests).
 | `recentRuns(teamId, repo?, { limit })` | `LiveRun[]` newest first; `repo` is `owner/name` or a bare name |
 | `teamInstallations(teamId)` | linked installations and their repos |
 | `onTeamJobChange(teamId, { signal, after?, intervalMs? })` | `AsyncIterable<LiveJobEvent>` until `signal` aborts |
+| `subscribeTeamJobs(teamId, listener, opts?)` | an unsubscribe function; the team's shared poller calls `listener(event)` |
 | `jobEventFromRow(row)`, `jobEventFromPayload(payload, { version })` | the event for a stored row or a raw payload |
 
 **Event.** `LiveJobEvent = { id, at, type, job }`. `type` is `job.queued`
@@ -152,10 +153,39 @@ queued-like 1, in_progress 2, completed 3. A late `in_progress` never
 overwrites `completed`; a re-run (new `run_attempt`) may move a run back
 to queued.
 
-**Change feed: polling, not LISTEN/NOTIFY.** `onTeamJobChange` polls
-`workflow_jobs.row_updated_at` every 2 s. Neon's pooled connections
+**Change feed: polling, not LISTEN/NOTIFY.** Neon's pooled connections
 (PgBouncer, transaction mode) cannot LISTEN, and a direct connection held
-open per viewer would exhaust Neon's connection limit on serverless. Each
-poll looks back 15 s and yields only versions it has not yielded, so a
-write that commits after a later one is not missed. It is one query per
-poll per subscriber: share one feed per team per function instance.
+open per instance would keep Neon from scaling to zero. So the feed polls
+`workflow_jobs.row_updated_at`, with these rules:
+
+- **One poller per team per function instance**, however many viewers.
+  `subscribeTeamJobs(teamId, listener)` returns an unsubscribe function;
+  `onTeamJobChange` is one consumer of it. The poller starts with the
+  first subscriber and stops with the last. With no subscribers there are
+  no queries, and the pool closes idle connections after 20 s, so Neon can
+  scale to zero.
+- **One query per poll.** The database clock is folded into the row query,
+  so it also covers polls where nothing changed.
+- **Back-off when idle.** Every 2 s while jobs change; after 3 idle polls,
+  every 5 s; after 10, every 10 s. A change resets it.
+- **Look-back.** Each poll looks back 15 s by database time and yields only
+  versions it has not yielded, so a write that commits after a later one is
+  not missed.
+- **Resume.** `after` (Last-Event-ID) runs one catch-up query for that
+  consumer, without repeating what the shared poller then delivers.
+
+**Lost deliveries.** GitHub does not resend a failed webhook by itself.
+`/api/github/reconcile` (Vercel Cron, every 15 min, `CRON_SECRET`;
+`lib/github/reconcile.ts`) does three things:
+
+- It asks GitHub to redeliver App deliveries of the last hour that have no
+  successful attempt. Dedupe makes a redelivery that had in fact landed a
+  no-op.
+- It re-reads from GitHub's REST API any run, or the run of any job, still
+  unfinished and not updated for 15 minutes. The REST objects have the
+  webhook shape, so they go through the same monotonic upserts.
+- It prunes runs and jobs after 30 days and delivery ids after 7.
+
+The re-read and the prune run only when there were deliveries in the
+window, so an idle App never wakes the database. Rows of suspended
+installations are hidden from every query above.
