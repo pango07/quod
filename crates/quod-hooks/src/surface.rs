@@ -10,9 +10,9 @@
 //!   attempt to reach one is counted. The environment is the keyed one:
 //!   volatile names and GitHub tokens are withheld (set, to a value that
 //!   works as nothing), the ACTIONS_* service variables are unreachable
-//!   placeholders, and values whose names say
-//!   they are secrets are given but salted in the key and masked in
-//!   everything stored.
+//!   placeholders, and values classified as secrets (`secrets::classify`:
+//!   by name, shape, the workflow's provenance, or holding a known secret)
+//!   are given but salted in the key and masked in everything stored.
 //! - **Network** (a JavaScript action or a network-rule script, second
 //!   try, after it failed or reached for the network offline): the
 //!   hermetic surface plus egress, minus every secret: what it fetches may
@@ -122,9 +122,17 @@ pub struct Surface {
     /// Hermetic: the content identity of runner-provided files the step
     /// executes, appended to the key's command.
     pub key_extra: Vec<String>,
-    /// Secret values the step was given: masked in stored logs; outputs or
-    /// command files containing one are not stored.
+    /// Secret values the step was given, and the job's known secrets, in
+    /// every encoding: masked in stored logs; outputs or command files
+    /// containing one are not stored.
     pub masks: Vec<Vec<u8>>,
+    /// The names of the variables classified as secrets (`secrets::classify`).
+    pub classified: Vec<String>,
+    /// The classified values (for the job's known secrets).
+    pub secret_values: std::collections::BTreeSet<String>,
+    /// A classified variable too short to mask reliably: the step is not
+    /// recorded.
+    pub short_secret: Option<String>,
     /// Hermetic and network: the step's own RUNNER_TEMP on the host.
     pub temp: Option<PathBuf>,
     /// Why this step cannot be keyed (a workflow-set pin, a GOFLAGS or
@@ -166,7 +174,8 @@ fn workflow_sets(job: &Job, args: &ScriptStepArgs, name: &str, pin: &str) -> boo
         "RUNNER_TOOL_CACHE" => step::tool_dir(job).is_some_and(|t| t == v),
         _ => false,
     };
-    [job.env.get(name), args.environment_variables.get(name)]
+    let container = job.container_env();
+    [container.get(name), args.environment_variables.get(name)]
         .into_iter()
         .flatten()
         .any(|v| !runner_default(v) && v != pin)
@@ -193,7 +202,7 @@ fn base_env(
     // What the runner's docker hooks add to every job container.
     env.insert("GITHUB_ACTIONS".into(), "true".into());
     env.insert("CI".into(), "true".into());
-    env.extend(job.env.clone());
+    env.extend(job.container_env());
     env.extend(args.environment_variables.clone());
     let base_path = env
         .get("PATH")
@@ -312,7 +321,8 @@ pub fn network(
     // never uses) is dropped, not a reason to taint. If the step truly
     // needed the secret it will fail online, and the caller reports it a
     // tainted failure rather than run it again (never a repeated effect).
-    env.retain(|k, v| !(step::secret_like(k) || step::looks_secret(v)));
+    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
+    env.retain(|k, _| !c.is_secret(k));
     sealed(
         job,
         args,
@@ -410,20 +420,17 @@ fn sealed(
     withheld.sort();
     absent.sort();
 
-    // Secrets the step is given: by a telling name, or by a value that looks
-    // like a secret whatever its name (the protocol gives the hook no mask
-    // list). Salted in the key, masked in everything stored.
-    let mut masks = Vec::new();
+    // Secrets the step is given: by a telling name, a secret's shape, the
+    // workflow's provenance, or holding one of the job's known secrets (the
+    // protocol gives the hook no mask list). Salted in the key, masked in
+    // everything stored. Placeholders are no secrets, whatever their names.
+    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
     let mut key_env = env.clone();
-    for (k, v) in &env {
-        // The withheld placeholder is no secret, whatever its name.
-        if !v.is_empty() && v != WITHHELD && (step::secret_like(k) || step::looks_secret(v)) {
-            masks.extend(secrets::masks_for(v));
+    for k in &c.names {
+        if let Some(v) = env.get(k) {
             key_env.insert(k.clone(), secrets::salted(salt, k, v));
         }
     }
-    masks.sort_by_key(|b| std::cmp::Reverse(b.len()));
-    masks.dedup();
 
     let mut cmd = vec![args.entry_point.clone()];
     cmd.extend(args.entry_point_args.iter().cloned());
@@ -527,7 +534,10 @@ fn sealed(
         absent,
         files,
         key_extra,
-        masks,
+        masks: c.masks,
+        classified: c.names,
+        secret_values: c.values,
+        short_secret: c.short,
         temp: Some(temp),
         taint,
     })
@@ -536,6 +546,8 @@ fn sealed(
 /// The runner surface (see the module docs).
 pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
     let (env, mut taint) = base_env(job, args, false);
+    // Nothing of this surface is stored; its secrets mask what it reports.
+    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
     let env = finish_env(env, &mut taint);
     let mut cmd = vec![args.entry_point.clone()];
     cmd.extend(args.entry_point_args.iter().cloned());
@@ -585,7 +597,10 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
         absent: Vec::new(),
         files: Vec::new(),
         key_extra: Vec::new(),
-        masks: Vec::new(),
+        masks: c.masks,
+        classified: c.names,
+        secret_values: c.values,
+        short_secret: c.short,
         temp: None,
         taint,
     })
@@ -593,9 +608,10 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
 
 /// What a hermetic or network step left in its command files: appended to
 /// the runner's files for this step (the runner reads them after the hook)
-/// and, unless it holds a secret value, returned for the result. A
-/// directory the step wrote into, a rewritten runner file, or a secret in a
-/// command file is a taint.
+/// and, unless it holds a secret value, returned for the result, its blob
+/// in `cas` (the step's staging store: it reaches the shared store only
+/// with a recorded result). A directory the step wrote into, a rewritten
+/// runner file, or a secret in a command file (in any encoding) is a taint.
 pub fn hand_back(
     files: &[PinnedFile],
     cas: &Cas,
@@ -640,7 +656,7 @@ pub fn hand_back(
         if let Some(r) = &f.runner {
             append(r, bytes)?;
         }
-        if secrets::mask(bytes, masks) != bytes {
+        if secrets::holds(bytes, masks) {
             taint.push(format!("{} carries a secret value", f.name));
             continue;
         }
@@ -797,6 +813,39 @@ mod tests {
             std::fs::read(secret[0].runner.as_ref().unwrap()).unwrap(),
             b"t=hunter2hunter2\n"
         );
+    }
+
+    /// A secret in a GITHUB_OUTPUT heredoc, or base64-encoded in the step
+    /// summary, keeps the file out of the store like a plain one.
+    #[test]
+    fn a_secret_in_any_command_file_or_encoding_is_not_stored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let secret = "hunter2/hunter 2";
+        let masks = secrets::masks_for(secret);
+        let pinned = |name: &str, wrote: &str| {
+            let host = tmp.path().join(format!("{name}.pinned"));
+            std::fs::write(&host, wrote).unwrap();
+            PinnedFile {
+                name: name.into(),
+                host,
+                runner: None,
+                dir: false,
+                initial: vec![],
+            }
+        };
+        // base64("hunter2/hunter 2") and base64("user:hunter2/hunter 2").
+        for (name, wrote) in [
+            ("GITHUB_OUTPUT", "pw<<EOF_1\nhunter2/hunter 2\nEOF_1\n"),
+            ("GITHUB_STEP_SUMMARY", "aHVudGVyMi9odW50ZXIgMg==\n"),
+            ("GITHUB_OUTPUT", "auth=dXNlcjpodW50ZXIyL2h1bnRlciAy\n"),
+        ] {
+            let (cmds, taint) = hand_back(&[pinned(name, wrote)], &cas, &masks).unwrap();
+            assert!(
+                cmds.is_empty() && taint.len() == 1,
+                "{name} {wrote:?}: {taint:?}"
+            );
+        }
     }
 
     #[test]

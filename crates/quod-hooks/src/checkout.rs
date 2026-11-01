@@ -91,6 +91,73 @@ pub fn checkout(
     })
 }
 
+/// One commit in a repository's mirror, to read files of (the workflow a
+/// job runs, `provenance`). Nothing read here is served to a step.
+pub struct Commit {
+    mirror: PathBuf,
+    sha: String,
+}
+
+impl Commit {
+    /// The commit `sha` of `repository`, fetched into its mirror if it is
+    /// not there yet (by its id, else by `git_ref`, which must then hold
+    /// it), with the job's token when it has one.
+    pub fn fetch(
+        state_dir: &Path,
+        server_url: &str,
+        repository: &str,
+        sha: &str,
+        git_ref: &str,
+        token: Option<&str>,
+    ) -> anyhow::Result<Commit> {
+        if !is_sha(sha) {
+            bail!("{sha:?} is not a commit id");
+        }
+        let sha = sha.to_ascii_lowercase();
+        let url = format!("{}/{}", server_url.trim_end_matches('/'), repository);
+        let mirror = mirror_dir(state_dir, server_url, &repository.to_ascii_lowercase());
+        ensure_mirror(&mirror)?;
+        if !has_commit(&mirror, &sha) {
+            let auth = Auth::new(server_url, token);
+            if fetch(&mirror, &url, &sha, &auth).is_err() && git_ref.starts_with("refs/") {
+                let st = git(&mirror, Some(&auth))
+                    .args(["fetch", "-q", "--no-tags", "--depth=1", &url, git_ref])
+                    .stderr(Stdio::inherit())
+                    .status()
+                    .context("git fetch")?;
+                if !st.success() {
+                    bail!("git fetch {url} {git_ref} failed");
+                }
+            }
+            if !has_commit(&mirror, &sha) {
+                bail!("{url}: commit {sha} not found after fetch");
+            }
+        }
+        Ok(Commit { mirror, sha })
+    }
+
+    /// A file at the commit, by its repository path; `None` when there is
+    /// none (or the path leaves the repository).
+    pub fn read(&self, path: &str) -> Option<String> {
+        let path = path.trim_start_matches("./");
+        if path.is_empty()
+            || path.starts_with('/')
+            || path.split('/').any(|c| c == ".." || c.is_empty())
+        {
+            return None;
+        }
+        let out = git(&self.mirror, None)
+            .args(["cat-file", "blob", &format!("{}:{path}", self.sha)])
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8(out.stdout).ok())
+            .flatten()
+    }
+}
+
 /// The bare mirror of one repository on one server.
 fn mirror_dir(state_dir: &Path, server_url: &str, repository: &str) -> PathBuf {
     state_dir

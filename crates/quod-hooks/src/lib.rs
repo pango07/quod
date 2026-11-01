@@ -11,6 +11,7 @@ pub mod checkout;
 pub mod exec;
 pub mod job;
 pub mod protocol;
+pub mod provenance;
 pub mod rootfs;
 pub mod scan;
 pub mod seal;
@@ -38,6 +39,7 @@ pub fn run(
     platform: &HostClass,
 ) -> anyhow::Result<i32> {
     let input = Input::read(stdin)?;
+    check_state_format(state_dir)?;
     // Held for the whole invocation: the pool's sweep of stale jobs takes
     // it exclusively (`job::sweep_stale_jobs`).
     let _state = job::state_lock_shared(state_dir)?;
@@ -48,6 +50,52 @@ pub fn run(
         Command::RunContainerStep => {
             bail!("container actions (uses: docker://...) are not supported by the quod runner yet")
         }
+    }
+}
+
+/// The hooks' state format, in `<state>/format`. 2: classified secrets
+/// (provenance, encodings, staging; DECISIONS, MAJOR 1). A state written
+/// before it may hold secrets in the clear in its store, ledgers and
+/// events, so it is refused, never upgraded in place.
+pub const STATE_FORMAT: u32 = 2;
+
+/// What only the hooks write into a state: a state that has any of these
+/// and no `format` was written by a Quod from before `STATE_FORMAT` 2.
+const HOOKS_STATE: &[&str] = &["scopes", "jobs", "salt", "trees", "host-copies"];
+
+/// Stamps a new state with `STATE_FORMAT`, accepts a state that has it,
+/// and refuses any other with how to start over.
+pub fn check_state_format(state_dir: &Path) -> anyhow::Result<()> {
+    let p = state_dir.join("format");
+    let wipe = || {
+        format!(
+            "remove it (rm -rf {}) and start over: its store, ledgers and events may hold secrets in the clear",
+            state_dir.display()
+        )
+    };
+    match std::fs::read_to_string(&p) {
+        Ok(s) if s.trim() == STATE_FORMAT.to_string() => Ok(()),
+        Ok(s) => bail!(
+            "the Quod state {} has format {:?}; this quod reads format {STATE_FORMAT}: {}",
+            state_dir.display(),
+            s.trim(),
+            wipe()
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(old) = HOOKS_STATE.iter().find(|d| state_dir.join(d).exists()) {
+                bail!(
+                    "the Quod state {} was written before state format {STATE_FORMAT} (it has {old}/ and no format file): {}",
+                    state_dir.display(),
+                    wipe()
+                );
+            }
+            std::fs::create_dir_all(state_dir)?;
+            let tmp = state_dir.join(format!("format.tmp.{}", ulid::Ulid::generate()));
+            std::fs::write(&tmp, format!("{STATE_FORMAT}\n"))?;
+            std::fs::rename(&tmp, &p)?;
+            Ok(())
+        }
+        Err(e) => Err(e).with_context(|| format!("read {}", p.display())),
     }
 }
 
@@ -177,5 +225,28 @@ mod tests {
             "{e}"
         );
         assert!(!job::jobs_dir(tmp.path()).exists(), "no job directory");
+    }
+
+    /// A new state is stamped; one from before format 2 is refused with
+    /// how to start over; a stamped one is accepted.
+    #[test]
+    fn older_state_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        check_state_format(tmp.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("format")).unwrap(),
+            "2\n"
+        );
+        check_state_format(tmp.path()).unwrap();
+        let old = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(old.path().join("scopes/o_r/trusted")).unwrap();
+        let e = format!("{:#}", check_state_format(old.path()).unwrap_err());
+        assert!(
+            e.contains("before state format 2") && e.contains("rm -rf"),
+            "{e}"
+        );
+        std::fs::write(old.path().join("format"), "1\n").unwrap();
+        let e = format!("{:#}", check_state_format(old.path()).unwrap_err());
+        assert!(e.contains("format \"1\""), "{e}");
     }
 }

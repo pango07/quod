@@ -73,7 +73,10 @@ pub struct Job {
     /// GITHUB_WORKSPACE inside the container.
     pub working_directory: String,
     /// The container env from the workflow (`container.env`) plus what the
-    /// runner adds (HOME).
+    /// runner adds (HOME), as job.json keeps it: classified values salted
+    /// (every value until the first step has read the workflow's
+    /// provenance). The values themselves are in `secrets`, outside the
+    /// state (`container_env`).
     pub env: BTreeMap<String, String>,
     /// The runner's own mounts (the work directory, externals, the
     /// workflow's event and command files, HOME). The workflow's volumes
@@ -128,9 +131,20 @@ pub struct Job {
     /// found it: while it lives the job is live, and the sweep leaves it.
     #[serde(default)]
     pub owner: Option<Owner>,
+    /// Where the job's secrets come from, read from its workflow at the
+    /// first step (names only); `None` before that.
+    #[serde(default)]
+    pub provenance: Option<crate::provenance::Provenance>,
     /// The trees of action directories bound into this step (for the scan).
     #[serde(skip)]
     pub action_trees: BTreeMap<String, Tree>,
+    /// The job's known secrets, kept outside the state for its life.
+    #[serde(skip)]
+    secrets: secrets::JobSecrets,
+    /// This step's masks for what Quod writes about it (reasons, job.json,
+    /// events, the ledger): the job's secrets in every encoding.
+    #[serde(skip)]
+    masks: Vec<Vec<u8>>,
     #[serde(skip)]
     dir: PathBuf,
     #[serde(skip)]
@@ -173,6 +187,22 @@ impl Job {
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         let image = c.image.clone().context("job container without an image")?;
         let (uid, gid) = user_option(c.create_options.as_deref())?;
+        // Until the workflow's provenance is read (the first step), every
+        // container env value is salted in job.json; the values are kept
+        // outside the state.
+        let salt = secrets::salt(state_dir)?;
+        let salted_env = c
+            .environment_variables
+            .iter()
+            .map(|(k, v)| {
+                let v = if v.is_empty() {
+                    v.clone()
+                } else {
+                    secrets::salted(&salt, k, v)
+                };
+                (k.clone(), v)
+            })
+            .collect();
         let job = Job {
             id,
             image,
@@ -181,7 +211,7 @@ impl Job {
                 .working_directory
                 .clone()
                 .context("job container without a working directory")?,
-            env: c.environment_variables.clone(),
+            env: salted_env,
             system_mounts: c.system_mount_volumes.clone(),
             steps: 0,
             rootfs,
@@ -201,12 +231,189 @@ impl Job {
             hashes: BTreeMap::new(),
             platform: Some(platform),
             owner: Owner::of_this_hook(),
+            provenance: None,
             action_trees: BTreeMap::new(),
+            secrets: secrets::JobSecrets {
+                container_env: c.environment_variables.clone(),
+                values: Default::default(),
+            },
+            masks: Vec::new(),
             dir,
             state_dir: state_dir.to_path_buf(),
         };
+        job.save_secrets()?;
         job.save()?;
         Ok(job)
+    }
+
+    /// job.json holds classified container env values salted: a step must
+    /// never be given the salted form for the value. Fails when the job's
+    /// secrets kept outside the state are gone (a cleared shared memory).
+    fn check_secrets(&self) -> anyhow::Result<()> {
+        if let Some(k) = self.env.iter().find_map(|(k, v)| {
+            (v.starts_with("quod:secret:") && !self.secrets.container_env.contains_key(k))
+                .then_some(k)
+        }) {
+            bail!(
+                "the job's secrets kept outside the state are gone (the container env value of {k} among them): re-run the job"
+            );
+        }
+        Ok(())
+    }
+
+    /// The job container's env as the steps get it (the values, from the
+    /// job's secrets outside the state).
+    pub fn container_env(&self) -> BTreeMap<String, String> {
+        let mut env = self.env.clone();
+        env.extend(self.secrets.container_env.clone());
+        env
+    }
+
+    /// The provenance read at the first step (empty before).
+    pub fn provenance(&self) -> &crate::provenance::Provenance {
+        static NONE: std::sync::OnceLock<crate::provenance::Provenance> =
+            std::sync::OnceLock::new();
+        self.provenance
+            .as_ref()
+            .unwrap_or_else(|| NONE.get_or_init(Default::default))
+    }
+
+    /// The job's secrets known so far (values; never written to the state).
+    pub fn known_secrets(&self) -> &std::collections::BTreeSet<String> {
+        &self.secrets.values
+    }
+
+    fn save_secrets(&self) -> anyhow::Result<()> {
+        self.secrets.save(&self.state_dir, &self.dir, &self.id)
+    }
+
+    /// `s` with the job's secrets masked: anything Quod writes about a step.
+    pub fn mask(&self, s: &str) -> String {
+        secrets::mask_str(s, &self.masks)
+    }
+
+    fn add_masks(&mut self, masks: &[Vec<u8>]) {
+        self.masks.extend(masks.iter().cloned());
+        self.masks.sort_by_key(|b| std::cmp::Reverse(b.len()));
+        self.masks.dedup();
+    }
+
+    /// At each step: the job's secrets as this step's environment shows
+    /// them (`secrets::classify` over the container's env and the step's)
+    /// become what Quod masks in everything it writes about the step, and
+    /// join the known secrets; job.json keeps the container env with its
+    /// classified values salted.
+    fn learn_secrets(&mut self, env: &BTreeMap<String, String>) -> anyhow::Result<()> {
+        let container = self.container_env();
+        let c = secrets::classify(
+            container.iter().chain(env.iter()),
+            self.provenance(),
+            self.known_secrets(),
+        );
+        self.add_masks(&c.masks);
+        let salt = secrets::salt(&self.state_dir)?;
+        let shown: BTreeMap<String, String> = self
+            .secrets
+            .container_env
+            .iter()
+            .map(|(k, v)| {
+                let v = if c.is_secret(k) && !v.is_empty() {
+                    secrets::salted(&salt, k, v)
+                } else {
+                    v.clone()
+                };
+                (k.clone(), v)
+            })
+            .collect();
+        let new = !c.values.is_subset(&self.secrets.values);
+        self.env = shown;
+        if new {
+            self.secrets.values.extend(c.values);
+            self.save_secrets()?;
+        }
+        Ok(())
+    }
+
+    /// Reads where the job's secrets come from (`provenance`), once, at the
+    /// first step: the workflow at GITHUB_WORKFLOW_SHA from the repository's
+    /// mirror, local reusable workflows and actions from the same commit,
+    /// remote actions as the runner downloaded them. Anything that cannot
+    /// be read makes the job opaque.
+    fn ensure_provenance(&mut self, env: &BTreeMap<String, String>) {
+        if self.provenance.is_some() {
+            return;
+        }
+        let wref = env.get("GITHUB_WORKFLOW_REF").cloned().unwrap_or_default();
+        let p = match self.read_provenance(env, &wref) {
+            Ok(mut p) => {
+                p.workflow = format!(
+                    "{wref} at {}",
+                    env.get("GITHUB_WORKFLOW_SHA").map_or("?", String::as_str)
+                );
+                p
+            }
+            Err(e) => crate::provenance::Provenance::opaque(
+                wref.clone(),
+                format!("the workflow cannot be read ({e:#})"),
+            ),
+        };
+        tracing::info!(target: "quod", job = %self.id, workflow = %p.workflow, secret_names = p.names.len(), opaque = ?p.opaque, "provenance");
+        if let Some(why) = &p.opaque {
+            eprintln!("quod: this job is opaque, nothing it runs is recorded: {why}");
+        }
+        self.provenance = Some(p);
+    }
+
+    fn read_provenance(
+        &self,
+        env: &BTreeMap<String, String>,
+        wref: &str,
+    ) -> anyhow::Result<crate::provenance::Provenance> {
+        let (repo, path, git_ref) = crate::provenance::workflow_ref(wref)
+            .with_context(|| format!("GITHUB_WORKFLOW_REF {wref:?}"))?;
+        let sha = env
+            .get("GITHUB_WORKFLOW_SHA")
+            .context("no GITHUB_WORKFLOW_SHA")?;
+        let server = env
+            .get("GITHUB_SERVER_URL")
+            .map_or("https://github.com", String::as_str);
+        // The job's token, if the step carries one (checkout's input): a
+        // private repository's workflow needs it.
+        let token = env
+            .values()
+            .map(|v| v.trim())
+            .find(|v| step::holds_github_token(v) && !v.contains(char::is_whitespace));
+        let commit = checkout::Commit::fetch(&self.state_dir, server, &repo, sha, &git_ref, token)?;
+        let text = commit
+            .read(&path)
+            .with_context(|| format!("{path} not found at {sha}"))?;
+        let local = |p: &str| commit.read(p);
+        let actions = step::actions_dir(self).and_then(|d| self.host_path(&d));
+        let remote = |uses: &str| -> Option<String> {
+            let (name, r) = uses.rsplit_once('@')?;
+            let mut parts = name.splitn(3, '/');
+            let (owner, repo) = (parts.next()?, parts.next()?);
+            let sub = parts.next().unwrap_or("");
+            let mut dir = actions.clone()?.join(owner).join(repo).join(r);
+            for c in sub.split('/').filter(|c| !c.is_empty()) {
+                if c == ".." {
+                    return None;
+                }
+                dir.push(c);
+            }
+            ["action.yml", "action.yaml"]
+                .iter()
+                .find_map(|f| std::fs::read_to_string(dir.join(f)).ok())
+        };
+        Ok(crate::provenance::analyze(
+            &path,
+            &text,
+            &crate::provenance::Sources {
+                local: &local,
+                remote_action: &remote,
+            },
+            env.get("GITHUB_JOB").map(String::as_str),
+        ))
     }
 
     /// Decides the job's scope from the event (its name, GITHUB_EVENT_NAME,
@@ -283,6 +490,7 @@ impl Job {
         let mut job: Job = serde_json::from_slice(
             &std::fs::read(&p).with_context(|| format!("read {}", p.display()))?,
         )?;
+        job.secrets = secrets::JobSecrets::load(state_dir, &dir, id)?;
         job.dir = dir;
         job.state_dir = state_dir.to_path_buf();
         Ok(job)
@@ -384,6 +592,7 @@ impl Job {
             total_ms = total,
             "job"
         );
+        secrets::JobSecrets::remove(&self.state_dir, &self.dir, &self.id);
         if !policy.keep_jobs {
             quod_cas::remove_any(&self.dir)?;
         }
@@ -766,6 +975,9 @@ fn sweep_stale_jobs_waiting(state_dir: &Path, wait: Duration) -> anyhow::Result<
         }
     }
     for d in &stale {
+        if let Some(id) = d.file_name().and_then(|n| n.to_str()) {
+            secrets::JobSecrets::remove(state_dir, d, id);
+        }
         quod_cas::remove_any(d).with_context(|| format!("remove stale job {}", d.display()))?;
     }
     Ok(stale.len())
@@ -1002,6 +1214,9 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
     )?;
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
+    job.check_secrets()?;
+    job.ensure_provenance(&args.environment_variables);
+    job.learn_secrets(&args.environment_variables)?;
     job.steps += 1;
     job.totals.steps += 1;
     let n = job.steps;
@@ -1118,6 +1333,10 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
             let _ = std::fs::remove_file(step_dir.join(f));
         }
     }
+    // What a run staged and did not record is not kept.
+    for d in ["stage", "online/stage"] {
+        let _ = quod_cas::remove_any(&step_dir.join(d));
+    }
     job.totals.exec_ms += step_start.elapsed().as_millis() as u64;
     let t = &job.totals;
     job.summary(
@@ -1183,6 +1402,56 @@ fn withheld_key_line(names: &[String]) -> String {
     format!("{WITHHELD_KEY} {}", names.join(","))
 }
 
+/// A file entry's blob.
+fn file_blob(e: &Entry) -> Option<Hash> {
+    (e.k == EntryKind::File).then_some(e.h).flatten()
+}
+
+/// Moves blobs a run staged (`exec::Exec::stage`) into the shared store,
+/// once the run is recordable or its outputs carry the job. Durable before
+/// anything names them (`Cas::take_files`, one filesystem sync).
+fn promote(cas: &Cas, stage: &Cas, hashes: impl IntoIterator<Item = Hash>) -> anyhow::Result<()> {
+    let mut want = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut files = Vec::new();
+    for h in hashes {
+        if cas.has(&h) || !seen.insert(h) {
+            continue;
+        }
+        let p = stage.blob_path(&h);
+        if !p.is_file() {
+            bail!("blob {h} is neither staged nor in the store");
+        }
+        want.push(h);
+        files.push(p);
+    }
+    if files.is_empty() {
+        return Ok(());
+    }
+    let taken = cas.take_files(&files, quod_fs::syncfs)?;
+    for (w, (got, _)) in want.iter().zip(&taken) {
+        if w != got {
+            bail!("staged blob {w} hashed as {got}");
+        }
+    }
+    Ok(())
+}
+
+/// Values the run registered with `::add-mask::`: the job's secrets from
+/// now on (masked in everything written about it and every later step).
+fn learn_add_masks(job: &mut Job, ex: &Executed) -> anyhow::Result<()> {
+    if ex.add_masks.is_empty() {
+        return Ok(());
+    }
+    let mut masks = Vec::new();
+    for v in &ex.add_masks {
+        job.secrets.values.insert(v.clone());
+        masks.extend(secrets::masks_for(v));
+    }
+    job.add_masks(&masks);
+    job.save_secrets()
+}
+
 /// Whose copy of the checkout the host directory holds. It is reused only
 /// by a job of the scope and kind that made it: a runner-surface step of
 /// another scope (a fork's) or of a job that is not a writer (a pull
@@ -1204,6 +1473,7 @@ fn execute(
     args: &ScriptStepArgs,
     s: &Surface,
     cas: &Cas,
+    stage: &Cas,
     tree: &Tree,
     dir: &Path,
     keep: Keep,
@@ -1228,6 +1498,10 @@ fn execute(
     };
     exec::execute(&Exec {
         cas,
+        stage,
+        // A step given a classified secret, or any step of an opaque job
+        // (whose secrets Quod cannot name), stores no workspace outputs.
+        secret_given: !s.classified.is_empty() || job.provenance().opaque.is_some(),
         tree,
         rootfs: job.rootfs.as_ref(),
         root_layers: &job.root_layers,
@@ -1267,16 +1541,17 @@ fn keep_side_effects(
 ) -> anyhow::Result<()> {
     if let Some((upper, first)) = &ex.root_layer {
         job.root_layers.insert(0, upper.clone());
-        let why = format!("wrote outside the workspace ({first})");
+        let why = job.mask(&format!("wrote outside the workspace ({first})"));
         job.dirty.push(why.clone());
         reasons.push(why);
     }
     if let Some(l) = &ex.ws_layer {
         job.ws_layers.insert(0, l.clone());
-        let why = match &ex.secret_output {
-            Some(f) => format!("an output held a secret value ({f})"),
-            None => "a step that had the job's secrets wrote to the workspace".to_string(),
-        };
+        let why = job.mask(
+            ex.secret_output
+                .as_deref()
+                .unwrap_or("a step that had the job's secrets wrote to the workspace"),
+        );
         job.dirty.push(why.clone());
         reasons.push(why);
     }
@@ -1297,7 +1572,7 @@ fn keep_side_effects(
                     }
                 }
             }
-            let why = format!("left files in RUNNER_TEMP ({})", left.join(", "));
+            let why = job.mask(&format!("left files in RUNNER_TEMP ({})", left.join(", ")));
             job.dirty.push(why.clone());
             reasons.push(why);
         }
@@ -1319,10 +1594,12 @@ fn run_tainted(
     let s = surface::runner(job, args)?;
     let host_temp = step::temp_dir(job).and_then(|t| job.host_path(&t));
     let before = host_temp.as_deref().map(surface::temp_snapshot);
+    // Keep::Layer: nothing is stored, the staging store is never written.
     let ex = execute(
         job,
         args,
         &s,
+        cas,
         cas,
         tree,
         &dir.join("runner"),
@@ -1332,6 +1609,7 @@ fn run_tainted(
     )?;
     job.totals.executed += 1;
     job.totals.tainted += 1;
+    learn_add_masks(job, &ex)?;
     keep_side_effects(job, &ex, None, &mut taint)?;
     if let (Some(before), Some(ht)) = (before, host_temp.as_deref()) {
         let after = surface::temp_snapshot(ht);
@@ -1341,7 +1619,7 @@ fn run_tainted(
             .map(|(k, _)| k)
             .collect();
         if !changed.is_empty() {
-            let why = format!(
+            let why = job.mask(&format!(
                 "left files in RUNNER_TEMP ({})",
                 changed
                     .iter()
@@ -1349,7 +1627,7 @@ fn run_tainted(
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
+            ));
             job.dirty.push(why.clone());
             taint.push(why);
         }
@@ -1357,13 +1635,14 @@ fn run_tainted(
     if let Some(why) = &ex.resource_failure {
         taint.push(why.clone());
     }
-    let line = format!(
+    let taint: Vec<String> = taint.iter().map(|t| job.mask(t)).collect();
+    let line = job.mask(&format!(
         "[executed] `{}`: {} in {}; would replay: no, tainted: {}",
         step.label,
         if ex.exit_code == 0 { "ok" } else { "failed" },
         fmt_duration(ex.wall),
         taint.join("; ")
-    );
+    ));
     eprintln!("QUOD  EXECUTED  {line}");
     job.summary(&args.environment_variables, &format!("- {line}"));
     tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %step.log_label(), decision = "tainted", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
@@ -1395,14 +1674,30 @@ fn run_online(
     if !s.taint.is_empty() {
         return Ok(None);
     }
-    let ex = execute(job, args, &s, cas, tree, dir, Keep::Store, true, false)?;
+    let stage = Cas::open(dir.join("stage"))?;
+    let ex = execute(
+        job,
+        args,
+        &s,
+        cas,
+        &stage,
+        tree,
+        dir,
+        Keep::Store,
+        true,
+        false,
+    )?;
     let ok = ex.exit_code == 0 && ex.signal.is_none() && ex.resource_failure.is_none();
     job.totals.executed += 1;
     job.totals.tainted += 1;
+    learn_add_masks(job, &ex)?;
+    // Its writes carry the rest of the job (it held no secrets); its logs
+    // and command files are never stored.
     if let Some(outputs) = &ex.outputs {
+        promote(cas, &stage, outputs.iter().filter_map(file_blob))?;
         job.save_tree(&tree.with_outputs(outputs))?;
     }
-    let (_, file_taint) = surface::hand_back(&s.files, cas, &s.masks)?;
+    let (_, file_taint) = surface::hand_back(&s.files, &stage, &s.masks)?;
     taint.extend(file_taint);
     if let Some(why) = &ex.resource_failure {
         taint.push(why.clone());
@@ -1417,13 +1712,16 @@ fn run_online(
     }
     let runner_temp = step::temp_dir(job).and_then(|t| job.host_path(&t));
     keep_side_effects(job, &ex, s.temp.as_deref().map(|t| (t, runner_temp)), taint)?;
-    let line = format!(
+    for t in taint.iter_mut() {
+        *t = job.mask(t);
+    }
+    let line = job.mask(&format!(
         "[executed] `{}`: {} in {} with the network; would replay: no, tainted: {}",
         step.label,
         if ok { "ok" } else { "failed" },
         fmt_duration(ex.wall),
         taint.join("; ")
-    );
+    ));
     eprintln!("QUOD  EXECUTED  {line}");
     job.summary(&args.environment_variables, &format!("- {line}"));
     tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %step.log_label(), decision = "online", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
@@ -1454,12 +1752,27 @@ fn run_step(
     }
     let workspace = job.working_directory.clone();
     let h = surface::hermetic(job, args, step, step_dir, cas, salt)?;
+    // What this step was given joins the job's known secrets: later steps
+    // mask it, and treat a copy of it under another name as one.
+    job.add_masks(&h.masks);
+    if !h.secret_values.is_subset(job.known_secrets()) {
+        job.secrets.values.extend(h.secret_values.iter().cloned());
+        job.save_secrets()?;
+    }
     if !h.taint.is_empty() {
         return run_tainted(job, args, step, cas, &tree, step_dir, h.taint.clone());
     }
     let image = job.key_image()?;
     // The scope's warm build cache, only for a step that runs go.
-    let warm = step.runs_go() && h.env.iter().any(|(k, _)| k == "GOCACHE");
+    // Never for a step given a classified secret, nor in an opaque job (whose
+    // secrets Quod may not name): the warm cache outlives the job, and a
+    // derived form of a secret (compressed, in an object file) is not caught
+    // by the masks. Such a step builds with the observed cache in the
+    // workspace, whose writes become a job layer.
+    let warm = step.runs_go()
+        && h.env.iter().any(|(k, _)| k == "GOCACHE")
+        && h.classified.is_empty()
+        && job.provenance().opaque.is_none();
     // A job that is not a writer whose earlier step wrote its layer over the
     // warm cache: this step reads what that step's code put there, which no
     // key covers. It may replay what a clean run recorded; its own run is
@@ -1472,7 +1785,24 @@ fn run_step(
             format!(
                 "not recorded: an earlier step of this job wrote {p} into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)"
             )
-        });
+        })
+        // The workflow uses a secret in a way no name follows: no step of
+        // the job is recorded (each may still replay a clean job's result).
+        .or_else(|| {
+            job.provenance()
+                .opaque
+                .as_ref()
+                .map(|why| format!("not recorded: the job is opaque ({why})"))
+        })
+        .or_else(|| {
+            h.short_secret.as_ref().map(|n| {
+                format!(
+                    "not recorded: the secret in {n} is shorter than {} bytes, too short to mask reliably",
+                    secrets::MIN_SECRET_LEN
+                )
+            })
+        })
+        .map(|u| job.mask(&u));
     let mut key_cmd = step.cmd.clone();
     key_cmd.extend(h.key_extra.iter().cloned());
     // Volatile names are withheld or given fixed placeholders, and
@@ -1515,7 +1845,6 @@ fn run_step(
         warm,
     };
     let key = step_key(&spec)?;
-    ledger.put_step_key(&key, &quod_key::canonical_key_json(&spec)?)?;
     let keyed_env = spec.normalized_env()?.len();
     let run_id = ulid::Ulid::generate().to_string();
 
@@ -1621,12 +1950,15 @@ fn run_step(
 
     // Execute on the hermetic surface (observe mode, a miss, or an audit).
     // A step that may need the network is captured, not streamed, until it
-    // is known to have managed without.
+    // is known to have managed without. What it writes and prints is staged
+    // in the step's own store until the run is judged.
+    let stage = Cas::open(step_dir.join("stage"))?;
     let ex = execute(
         job,
         args,
         &h,
         cas,
+        &stage,
         &tree,
         step_dir,
         Keep::Store,
@@ -1652,13 +1984,14 @@ fn run_step(
         {
             tracing::warn!(target: "quod", dir = %dir.display(), error = %e, "warm build cache not wiped");
         }
-        eprintln!("quod: `{}`: {why}; {what}", step.label);
+        eprintln!("quod: `{}`: {}; {what}", step.label, job.mask(why));
     } else if job.warm_layer_written.is_none()
         && let Some(p) = &ex.warm_layer_written
     {
         job.warm_layer_written = Some(p.clone());
     }
 
+    learn_add_masks(job, &ex)?;
     // Reasons the offline run is not the step's result: it is run again.
     let mut again: Vec<String> = Vec::new();
     if ex.exit_code != 0 {
@@ -1741,23 +2074,15 @@ fn run_step(
         // memory) teaches nothing but restarts the streak; anything else is
         // the step behaving otherwise, a divergence. Not for a run that is
         // not recorded: it read what its own job wrote.
+        let again_why = job.mask(&again.join("; "));
         if let Some(hit) = lookup.hit.as_ref().filter(|_| unrecorded.is_none()) {
             if machine.is_some() || ex.signal.is_some() {
-                if let Some(line) = trust.record_incomplete(&tstep, Some(hit), &again.join("; "))? {
+                if let Some(line) = trust.record_incomplete(&tstep, Some(hit), &again_why)? {
                     eprintln!("quod: `{}`: {line}", step.label);
                 }
             } else {
                 let v = record_divergence(
-                    ledger,
-                    &trust,
-                    &tstep,
-                    job,
-                    mode,
-                    &run_id,
-                    hit,
-                    &reason,
-                    &again.join("; "),
-                    &ex,
+                    ledger, &trust, &tstep, job, mode, &run_id, hit, &reason, &again_why, &ex,
                 )?;
                 job.totals.audits += 1;
                 job.totals.divergences += 1;
@@ -1770,8 +2095,7 @@ fn run_step(
             print_captured(step_dir)?;
         }
         let note = format!(
-            "{}; ran again{}",
-            again.join("; "),
+            "{again_why}; ran again{}",
             if step.retry.is_some() && ex.exit_code != 0 {
                 " with the network"
             } else {
@@ -1805,12 +2129,34 @@ fn run_step(
     if step.retry.is_some() {
         print_captured(step_dir)?;
     }
-    let (commands, file_taint) = surface::hand_back(&h.files, cas, &h.masks)?;
+    let (commands, file_taint) = surface::hand_back(&h.files, &stage, &job.masks)?;
     let mut taint = file_taint;
     if let Some(why) = &ex.warm_violation {
         taint.push(why.clone());
     }
+    if !ex.add_masks.is_empty() {
+        taint.push("it registered a secret (::add-mask::)".to_string());
+    }
+    // A path it looked up (an absent one too) or wrote that holds a
+    // secret: the manifest would store it.
+    if ex
+        .log
+        .iter()
+        .any(|a| secrets::holds(a.path.as_bytes(), &job.masks))
+    {
+        taint.push("a path it looked up holds a secret value".to_string());
+    }
     if let Some(outputs) = &ex.outputs {
+        if outputs.iter().any(|e| {
+            secrets::holds(e.p.as_bytes(), &job.masks)
+                || e.t
+                    .as_ref()
+                    .is_some_and(|t| secrets::holds(t.as_bytes(), &job.masks))
+        }) {
+            taint.push("an output's name or link target holds a secret value".to_string());
+        }
+        // Its writes carry the rest of the job: into the store now.
+        promote(cas, &stage, outputs.iter().filter_map(file_blob))?;
         job.save_tree(&tree.with_outputs(outputs))?;
     }
     let runner_temp = step::temp_dir(job).and_then(|t| job.host_path(&t));
@@ -1840,17 +2186,14 @@ fn run_step(
     // (left a taint, wrote a secret to an output): with a hit, that is the
     // step behaving otherwise, a divergence; without one, it is merely not
     // recorded.
+    for t in taint.iter_mut() {
+        *t = job.mask(t);
+    }
     let not_recordable: Option<String> = match (&ex.outputs, ex.stdout, ex.stderr) {
         (Some(_), Some(_), Some(_)) if taint.is_empty() => None,
         (Some(_), Some(_), Some(_)) => Some(taint.join("; ")),
-        // Kept as a layer (an output held a secret).
-        _ => Some(
-            ex.secret_output
-                .as_ref()
-                .map_or("kept as a layer".to_string(), |p| {
-                    format!("wrote a secret value to {p}")
-                }),
-        ),
+        // Kept as a layer (a step given secrets wrote, or an output held one).
+        _ => Some(job.mask(ex.secret_output.as_deref().unwrap_or("kept as a layer"))),
     };
     let verdict = match (&not_recordable, &ex.outputs, ex.stdout, ex.stderr) {
         // Not recorded, not compared: no verdict.
@@ -1894,8 +2237,23 @@ fn run_step(
                 duration_ms: ex.wall.as_millis() as u64,
                 commands: commands.clone(),
             };
-            // One transaction: the trust verdict (proof streak, trust state,
-            // audit row), the run row, the manifest and the result.
+            // Recordable: what it printed and wrote to its command files
+            // into the store, then one transaction: the trust verdict (proof
+            // streak, trust state, audit row), the run row, the manifest and
+            // the result.
+            promote(
+                cas,
+                &stage,
+                [stdout, stderr]
+                    .into_iter()
+                    .chain(commands.iter().map(|c| c.h)),
+            )?;
+            // The key's JSON, written with the result only (a run that is
+            // not recorded may have shown a secret, `::add-mask::`, only as
+            // it ran), masked: its secrets are salted already; this catches
+            // one in the command. An opaque job records nothing, so never
+            // writes one.
+            ledger.put_step_key(&key, &job.mask(&quod_key::canonical_key_json(&spec)?))?;
             let v = ledger.atomically(|l| -> anyhow::Result<Verdict> {
                 l.put_manifest(&manifest, &run_id)?;
                 let v = trust.record_execution(
@@ -2049,18 +2407,18 @@ fn finish_report(
             format!("would replay: no, {u}")
         }),
     };
-    let line = format!(
+    let line = job.mask(&format!(
         "[executed] `{}`: {} in {}; {}{}",
         step.label,
         if ex.exit_code == 0 { "ok" } else { "failed" },
         fmt_duration(ex.wall),
         verdict_line,
         audit_note
-    );
+    ));
     eprintln!("QUOD  EXECUTED  {line}");
     if let Some(v) = verdict {
         for l in v.lines() {
-            eprintln!("  {l}");
+            eprintln!("  {}", job.mask(&l));
         }
     }
     job.summary(&args.environment_variables, &format!("- {line}"));
@@ -2076,7 +2434,7 @@ fn finish_report(
         would_replay = would,
         taint = ?taint,
         candidates,
-        first_mismatch = closest.as_ref().map(|(p, _)| p.clone()),
+        first_mismatch = closest.as_ref().map(|(p, _)| job.mask(p)),
         keyed_env,
         withheld = h.withheld.len(),
         inputs = ex.log.len(),

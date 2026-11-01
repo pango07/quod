@@ -56,7 +56,16 @@ pub enum Keep {
 }
 
 pub struct Exec<'a> {
+    /// The store the workspace tree is served from.
     pub cas: &'a Cas,
+    /// Where `Keep::Store` puts what the step wrote and printed: the step's
+    /// own staging store. Its blobs reach `cas` only once the caller has
+    /// judged the run recordable (or applies its outputs to the job's
+    /// tree), so a run set aside leaves nothing in the shared store.
+    pub stage: &'a Cas,
+    /// The step was given a classified secret (or the job is opaque): its
+    /// workspace writes are never stored, they stay a job-local layer.
+    pub secret_given: bool,
     pub tree: &'a Tree,
     /// The image root; `None` runs on the host's system paths (tests).
     pub rootfs: Option<&'a Rootfs>,
@@ -89,6 +98,11 @@ pub struct Exec<'a> {
     pub masks: &'a [Vec<u8>],
 }
 
+/// Is a step's workspace upper dir empty (it wrote nothing there)?
+fn upper_empty(upper: &Path) -> bool {
+    std::fs::read_dir(upper).map_or(true, |mut d| d.next().is_none())
+}
+
 pub struct Executed {
     pub exit_code: i32,
     pub signal: Option<i32>,
@@ -105,8 +119,11 @@ pub struct Executed {
     pub outputs: Option<Vec<Entry>>,
     /// The step's workspace upper dir, when kept as a layer and not empty.
     pub ws_layer: Option<PathBuf>,
-    /// An output file that contained a secret value (then kept as a layer).
+    /// Why the workspace writes were kept as a layer: an output that held a
+    /// secret value (its path, masked), or a step given secrets that wrote.
     pub secret_output: Option<String>,
+    /// Values the step registered with `::add-mask::` (stdout or stderr).
+    pub add_masks: Vec<String>,
     /// The step's root upper dir and the first path in it, if the step
     /// wrote outside the workspace.
     pub root_layer: Option<(PathBuf, String)>,
@@ -298,6 +315,26 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     };
     let r = quod_sandbox::run(&rs);
     let phases_exec = t.elapsed();
+    // A value the step registered with `::add-mask::` (the runner reads both
+    // streams) is a secret from now on: masked in what is stored of this
+    // run, and the run's workspace writes are kept as a layer.
+    let raw = |p: &Path| std::fs::read(p).unwrap_or_default();
+    let mut add_masks = secrets::add_masks(&raw(&rs.stdout));
+    add_masks.extend(secrets::add_masks(&raw(&rs.stderr)));
+    let mut masks = x.masks.to_vec();
+    for v in &add_masks {
+        masks.extend(secrets::masks_for(v));
+    }
+    masks.sort_by_key(|b| std::cmp::Reverse(b.len()));
+    masks.dedup();
+    let masks = masks.as_slice();
+    let secret_given = x.secret_given || !add_masks.is_empty();
+    // Before the outputs are diffed: that moves the step's files out of the
+    // upper dir into the staging store.
+    let placeholder_in = match (x.keep, &r) {
+        (Keep::Store, Ok(_)) => placeholder_in(&rs.stdout, &rs.stderr, &upper),
+        _ => None,
+    };
     let upper_dir = match &x.gocache {
         GoCache::Layered { lower, layer } => Some((lower.clone(), layer.join("upper"))),
         _ => None,
@@ -305,7 +342,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     let (warm_violation, warm_layer_written) = finish_warm_cache(
         warm_before.as_ref().and(gocache_dir.as_deref()),
         warm_before.as_ref(),
-        x.masks,
+        masks,
         upper_dir
             .as_ref()
             .zip(layer_before.as_ref())
@@ -318,19 +355,28 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     let t = Instant::now();
     let mut secret_output = None;
     let (outputs, ws_layer) = match (x.keep, &r) {
-        (Keep::Store, Ok(_)) => match secrets::file_containing(&upper, x.masks)? {
+        (Keep::Store, Ok(_)) if secret_given && !upper_empty(&upper) => {
+            secret_output = Some(match secrets::file_containing(&upper, masks)? {
+                Some(f) => format!("an output held a secret value ({})", f.display()),
+                None => {
+                    "a step given the job's secrets (or in an opaque job) wrote to the workspace"
+                        .to_string()
+                }
+            });
+            ov.release().context("unmount workspace overlay")?;
+            (None, Some(upper.clone()))
+        }
+        (Keep::Store, Ok(_)) => match secrets::file_containing(&upper, masks)? {
             Some(f) => {
-                secret_output = Some(
-                    f.strip_prefix(&upper)
-                        .unwrap_or(&f)
-                        .to_string_lossy()
-                        .into_owned(),
-                );
+                secret_output = Some(format!("an output held a secret value ({})", f.display()));
                 ov.release().context("unmount workspace overlay")?;
                 (None, Some(upper.clone()))
             }
             None => (
-                Some(ov.finish(x.tree, x.cas).context("diff workspace outputs")?),
+                Some(
+                    ov.finish(x.tree, x.stage)
+                        .context("diff workspace outputs")?,
+                ),
                 None,
             ),
         },
@@ -400,16 +446,12 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             root_layer = Some((root_upper.clone(), format!("/{first}")));
         }
     }
-    let placeholder_in = match (x.keep, &r) {
-        (Keep::Store, Ok(_)) => placeholder_in(&rs.stdout, &rs.stderr, &upper),
-        _ => None,
-    };
     let r = r?;
     let (stdout, stderr) = match x.keep {
         Keep::Store => {
             let put = |p: &Path| -> anyhow::Result<Hash> {
                 let raw = std::fs::read(p).with_context(|| format!("read {}", p.display()))?;
-                Ok(x.cas.put(&secrets::mask(&raw, x.masks))?)
+                Ok(x.stage.put(&secrets::mask(&raw, masks))?)
             };
             (Some(put(&rs.stdout)?), Some(put(&rs.stderr)?))
         }
@@ -434,6 +476,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         outputs,
         ws_layer,
         secret_output,
+        add_masks,
         root_layer,
         stdout,
         stderr,
@@ -989,6 +1032,26 @@ mod tests {
         assert!(
             go_cache_delta(c, &before, &[]).unwrap().is_some(),
             "fuzz/ written"
+        );
+    }
+
+    /// A secret base64-encoded into a `-d` output (an embedded config, a
+    /// `-ldflags -X` of an encoded value) is caught like a plain one.
+    #[test]
+    fn an_encoded_secret_in_a_cache_entry_is_caught() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let tmp = tempfile::tempdir().unwrap();
+        let c = tmp.path();
+        std::fs::create_dir_all(c.join("ab")).unwrap();
+        let before = go_cache_snapshot(c);
+        // base64("hunter2/hunter 2")
+        std::fs::write(c.join(format!("ab/{id}-d")), "cfg=aHVudGVyMi9odW50ZXIgMg==").unwrap();
+        let masks = secrets::masks_for("hunter2/hunter 2");
+        assert!(
+            go_cache_delta(c, &before, &masks)
+                .unwrap()
+                .is_some_and(|w| w.contains("secret")),
+            "a base64-encoded secret in a -d entry is caught"
         );
     }
 
