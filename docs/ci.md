@@ -139,11 +139,15 @@ Not cached, on purpose:
 | sudo | root already | sudo-rs ignores `-E`; `ci-gate.sh` passes the environment by name (without `GITHUB_ACTIONS`, quod-hooks' `no_worker_no_owner` fails) |
 | `/etc/resolv.conf` | a regular file | a symlink into `/run` (systemd-resolved), which the sandbox lacks; bwrap cannot bind the hooks surface's resolv.conf over it, so `setup` replaces the link with a copy. A Quod host-root run on any systemd-resolved host would hit the same: worth a fix in quod-hooks |
 | home | `/root` | `/home/runner` is 0750: corpora and state live under `/work`, owned by root, as in the container (the step user maps to root outside, so a runner-owned checkout is not writable to step A) |
-| host fingerprint | ~0.5 s | 11.8 s cold, 0.6 s warm: `ring_faults`' `a_ring_mount_held_through_its_teardown_fails_the_run` gives the run 9 s to mount its ring, which a cold first run missed twice. `ci-gate.sh` runs the fingerprint once before the merge gate (it prints the time), after which it passed |
+| host fingerprint | ~0.5 s | 12-24 s cold, 0.6-0.9 s warm: `ring_faults`' `a_ring_mount_held_through_its_teardown_fails_the_run` gives the run 9 s to mount its ring, which a cold first run missed twice. `ci-gate.sh` runs the fingerprint once before the merge gate (it prints the time), after which it passed twice |
 
-Flakes seen on the dev VM (`concurrent_opens_of_a_new_ledger_migrate_once`,
-`acceptance_python_fixture`'s P1 timing line) did not show in these runs;
-none seen that are GitHub-only besides the cold-fingerprint timing above.
+Flakes: the dev VM's `acceptance_python_fixture` P1 flake (unittest's "Ran 4
+tests in 0.001s" against "0.000s") failed lint once in four GitHub runs
+(41358369010); `concurrent_opens_of_a_new_ledger_migrate_once` did not show.
+Because `cargo test` stops at the first failing test binary, a lint run that
+fails early has not run the binaries after it; the summary's test totals
+say how far it got. Nothing GitHub-only besides the cold-fingerprint timing
+above.
 
 ## Minute budget
 
