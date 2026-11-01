@@ -309,7 +309,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     };
     // Unmounted here, before the workspace: a failure is a violation (the
     // caller discards the layer), never an early return.
-    let warm_violation = match gocache_ov.map(sp_fs::Overlay::release) {
+    let warm_violation = match gocache_ov.map(unmount_patiently) {
         Some(Err(e)) => warm_violation.or(Some(format!(
             "the job's layer over the warm build cache could not be unmounted ({e})"
         ))),
@@ -613,6 +613,24 @@ fn go_cache_delta(
     Ok(None)
 }
 
+/// Unmounts an overlay that may be busy for a moment: a process another
+/// thread of this one forks holds a copy of any descriptor open at that
+/// instant (one into the mount included) until it execs, and the kernel
+/// refuses the unmount meanwhile (EBUSY). Tries for up to a second.
+fn unmount_patiently(mut ov: sp_fs::Overlay) -> Result<(), sp_fs::FsError> {
+    let mut tries = 0;
+    loop {
+        match ov.unmount() {
+            Ok(()) => return Ok(()),
+            Err(_) if tries < 50 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Go trims its cache at most once a day, by the time in `trim.txt`, and a
 /// trim's deletions in a job's layer would be the job's own writes there
 /// (every later step unrecorded). The layer says the cache was trimmed
@@ -906,7 +924,8 @@ mod tests {
             let before = go_cache_snapshot(&upper);
             act(&merged);
             let w = layer_written(&lower, &upper, &before);
-            ov.release().unwrap();
+            // Other tests of this binary fork processes concurrently.
+            unmount_patiently(ov).unwrap();
             w
         };
         let set_mtime = |p: &Path| {
