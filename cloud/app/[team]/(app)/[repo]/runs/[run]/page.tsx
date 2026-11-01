@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { RerunButton } from "@/components/rerun-button";
+import { Elapsed, LiveRefresh } from "@/components/live/parts";
 import { RunSteps } from "@/components/run-steps";
 import { Dot } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -22,11 +23,14 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
   const fromUrl = Number(one(sp.step));
   const firstChanged = steps.findIndex((s) => s.why.kind === "changed" || s.why.kind === "paused" || (s.why.kind === "spot-check" && !s.why.identical));
   const firstReplay = steps.findIndex((s) => s.outcome === "replayed");
-  const initial = Number.isInteger(fromUrl) && fromUrl >= 1 && fromUrl <= steps.length ? fromUrl - 1 : firstChanged >= 0 ? firstChanged : Math.max(0, firstReplay);
+  const running = steps.findIndex((s) => s.outcome === "running");
+  const initial =
+    Number.isInteger(fromUrl) && fromUrl >= 1 && fromUrl <= steps.length ? fromUrl - 1 : running >= 0 ? running : firstChanged >= 0 ? firstChanged : Math.max(0, firstReplay);
   const spot = run.spotChecks === 0 ? "None" : run.spotChecks === run.spotChecksIdentical ? `${run.spotChecks}, identical` : `${run.spotChecks}, ${run.spotChecks - run.spotChecksIdentical} different`;
 
   return (
     <div className="page tight">
+      {run.status === "running" ? <LiveRefresh scope={{ kind: "run", repo: repoSlug, run: run.number }} /> : null}
       <div className="row-between" style={{ alignItems: "flex-start", gap: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
           <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.25 }}>{run.title}</h1>
@@ -54,8 +58,8 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
 
       <section aria-label="Time" className="stats sm">
         <div className="card stat">
-          <span className="label">Took</span>
-          <span className="value">{formatDuration(run.tookSeconds)}</span>
+          <span className="label">{run.status === "running" ? "Running for" : "Took"}</span>
+          <span className="value">{run.status === "running" ? <Elapsed since={run.startedAt} /> : formatDuration(run.tookSeconds)}</span>
         </div>
         <div className="card stat">
           <span className="label">Would have taken</span>

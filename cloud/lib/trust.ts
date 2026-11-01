@@ -39,9 +39,11 @@ export function trustMeaning(t: TrustState): string {
 
 const runRef = (n: number) => `#${n}`;
 
+export const OUTCOME_LABEL = { replayed: "Replayed", ran: "Ran", running: "Running", queued: "Queued" } as const;
+
 export interface Receipt {
   title: string;
-  state: "Replayed" | "Ran";
+  state: (typeof OUTCOME_LABEL)[keyof typeof OUTCOME_LABEL];
   tone: Tone;
   why: string;
   receipt: string;
@@ -52,7 +54,7 @@ export interface Receipt {
 /** The receipt and the "why" for a step in a run (Run.dc.html, right panel). */
 export function receiptFor(step: RunStep): Receipt {
   const w: StepWhy = step.why;
-  const base = { title: step.name, state: step.outcome === "replayed" ? "Replayed" : "Ran", tone: step.outcome === "replayed" ? "blue" : "gray" } as const;
+  const base = { title: step.name, state: OUTCOME_LABEL[step.outcome], tone: step.outcome === "replayed" || step.outcome === "running" ? "blue" : "gray" } as const;
   switch (w.kind) {
     case "replayed":
       return {
@@ -143,6 +145,22 @@ export function receiptFor(step: RunStep): Receipt {
         why: "Steps that use the network never replay: Quod cannot see what they send or receive.",
         receipt: "QUOD  network step · always runs",
         facts: [{ k: "Reason", v: "uses the network" }],
+      };
+    case "running":
+      return {
+        ...base,
+        stepKey: w.stepKey,
+        why: "Running now. Quod is watching what it reads; the receipt appears when it finishes.",
+        receipt: "QUOD  RUNNING",
+        facts: [{ k: "Started", v: "just now" }],
+      };
+    case "queued":
+      return {
+        ...base,
+        stepKey: w.stepKey,
+        why: "Waiting for the steps before it.",
+        receipt: "QUOD  QUEUED",
+        facts: [],
       };
     case "not-memoized":
       return {

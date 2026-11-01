@@ -27,10 +27,16 @@ export interface TeamContext {
   admin: boolean;
 }
 
-/** The team in the URL, if the viewer belongs to it. A team they do not belong to is a 404, not a 403. */
-export const requireTeam = cache(async (slug: string): Promise<TeamContext> => {
+/** The team, if the viewer belongs to it; null otherwise. For route handlers that answer 404 themselves. */
+export const findTeam = cache(async (slug: string): Promise<TeamContext | null> => {
   const [viewer, teams] = await Promise.all([getViewer(), getTeams()]);
   const team = teams.find((t) => t.slug === slug);
-  if (!team) notFound();
-  return { viewer, team, teams, admin: isAdmin(team.role) };
+  return team ? { viewer, team, teams, admin: isAdmin(team.role) } : null;
+});
+
+/** The team in the URL, if the viewer belongs to it. A team they do not belong to is a 404, not a 403. */
+export const requireTeam = cache(async (slug: string): Promise<TeamContext> => {
+  const ctx = await findTeam(slug);
+  if (!ctx) notFound();
+  return ctx;
 });

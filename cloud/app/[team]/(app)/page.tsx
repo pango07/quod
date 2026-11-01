@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { MinutesChart } from "@/components/charts";
+import { LiveRefresh, LiveTotals, NowRunning } from "@/components/live/parts";
 import { RangeToggle } from "@/components/range-toggle";
 import { RepoTable } from "@/components/repo-table";
-import { Dot, EmptyState, Stat } from "@/components/ui";
+import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
-import { formatCount, formatMinutes, formatPercent, formatUsd } from "@/lib/format";
+import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 
 export const metadata = { title: "Overview" };
@@ -14,7 +14,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team } = await requireTeam(slug);
-  const ov = await api().getOverview(team.slug, range);
+  const [ov, activity] = await Promise.all([api().getOverview(team.slug, range), api().getActivity(team.slug)]);
   const base = `/${team.slug}`;
 
   if (ov.repos.length === 0) {
@@ -51,39 +51,10 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         </div>
       </div>
 
-      <section aria-label="Totals" className="stats">
-        <Stat label="CI time saved" value={formatMinutes(t.savedMinutes)} note={`${formatCount(t.savedMinutes)} CI minutes you did not wait for`} />
-        <Stat label="Steps replayed" value={formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)} note={`${formatCount(t.stepsReplayed)} of ${formatCount(t.stepsTotal)} steps`} />
-        <Stat label="Est. runner cost saved" value={formatUsd(t.costSavedUsd)} note={`at $${t.usdPerMinute} per Linux minute`} />
-        <Stat
-          label="Wrong replays"
-          value={formatCount(t.wrongReplays)}
-          note={
-            t.spotChecks === t.spotChecksIdentical
-              ? `${formatCount(t.spotChecks)} spot checks, all identical`
-              : `${formatCount(t.spotChecks)} spot checks, ${formatCount(t.spotChecks - t.spotChecksIdentical)} different`
-          }
-        />
-      </section>
+      <NowRunning team={team.slug} initial={activity} />
+      <LiveRefresh scope={{ kind: "team" }} types={["run.started", "run.finished"]} />
 
-      <section className="card" aria-labelledby="minutes-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-        <div className="row-between">
-          <h2 id="minutes-h" className="h2">
-            CI minutes per day
-          </h2>
-          <div className="legend" aria-hidden="true">
-            <span>
-              <span className="swatch" style={{ background: "var(--blue)" }} />
-              Replayed (saved)
-            </span>
-            <span>
-              <span className="swatch" style={{ background: "var(--ran)" }} />
-              Ran
-            </span>
-          </div>
-        </div>
-        <MinutesChart days={ov.days} from={RANGE_FROM[range]} />
-      </section>
+      <LiveTotals totals={t} days={ov.days} from={RANGE_FROM[range]} />
 
       <div className="split">
         <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>

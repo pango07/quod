@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
 import { Logo, Sk } from "@/components/ui";
+import { LiveBadge } from "@/components/live/parts";
 import { CommandMenu } from "./command-menu";
 import { Crumbs } from "./crumbs";
 import { TeamSwitcher } from "./team-switcher";
@@ -37,6 +38,7 @@ export async function Topbar({ params }: { params: Promise<{ team: string }> }) 
             <span className="sr-only">Demo session: WorkOS is not configured, so you are signed in as a local demo user and the data is sample data.</span>
           </span>
         ) : null}
+        <LiveBadge />
         <CommandMenu team={team.slug} index={index} />
         <a className="docs-link" href="https://www.quodci.com/under-the-hood">
           Docs

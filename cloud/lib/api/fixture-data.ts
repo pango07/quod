@@ -22,10 +22,12 @@ import type {
   TrustState,
 } from "./types";
 
-/** The fixture clock. Every relative time ("4m ago") is measured from here. */
-export const AS_OF = "2026-11-01T16:00:00.000Z";
-const asOfMs = Date.parse(AS_OF);
-const ago = (minutes: number) => new Date(asOfMs - minutes * 60_000).toISOString();
+/**
+ * The fixture clock is the real clock: sample times ("4m ago") are measured
+ * back from now, so they sit next to the simulator's live runs (lib/live/sim.ts).
+ */
+export const asOf = () => new Date().toISOString();
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
 export const USD_PER_MINUTE = 0.008;
 
@@ -98,7 +100,7 @@ export function daysFor(range: Range): DayMinutes[] {
   const saved = spread(TOTALS[range].savedMinutes, sample(SEEDS[range], n));
   const ran = spread(Math.round(TOTALS[range].savedMinutes * 0.52), sample(RAN_SEEDS, n));
   return saved.map((replayedMinutes, i) => {
-    const d = new Date(asOfMs - (n - 1 - i) * 86_400_000);
+    const d = new Date(Date.now() - (n - 1 - i) * 86_400_000);
     return { day: d.toISOString().slice(0, 10), replayedMinutes, ranMinutes: ran[i] };
   });
 }
@@ -113,7 +115,7 @@ export const TRUST_COUNTS = { proven: 38, proving: 6, watching: 3 };
 
 // ---------------------------------------------------------------- Repositories
 
-interface StepSeed {
+export interface StepSeed {
   key: string;
   job: string;
   command: string;
@@ -128,7 +130,7 @@ interface StepSeed {
   network?: boolean;
 }
 
-interface RepoSeed {
+export interface RepoSeed {
   summary: RepoSummary;
   defaultBranch: string;
   firstRun: number;
@@ -152,7 +154,9 @@ export const REPOS: RepoSeed[] = [
       runner: "self-hosted",
       replayRate: 0.64,
       savedMinutes: 552,
-      lastRunAt: ago(4),
+      get lastRunAt() {
+        return ago(4);
+      },
       lastRunStatus: "passed",
       pausedSteps: 0,
     },
@@ -180,7 +184,9 @@ export const REPOS: RepoSeed[] = [
       runner: "github-hosted",
       replayRate: 0.71,
       savedMinutes: 340,
-      lastRunAt: ago(22),
+      get lastRunAt() {
+        return ago(22);
+      },
       lastRunStatus: "passed",
       pausedSteps: 0,
     },
@@ -205,7 +211,9 @@ export const REPOS: RepoSeed[] = [
       runner: "self-hosted",
       replayRate: 0.52,
       savedMinutes: 298,
-      lastRunAt: ago(58),
+      get lastRunAt() {
+        return ago(58);
+      },
       lastRunStatus: "passed",
       pausedSteps: 1,
     },
@@ -229,7 +237,9 @@ export const REPOS: RepoSeed[] = [
       runner: "github-hosted",
       replayRate: 0.39,
       savedMinutes: 94,
-      lastRunAt: ago(124),
+      get lastRunAt() {
+        return ago(124);
+      },
       lastRunStatus: "passed",
       pausedSteps: 0,
     },
@@ -270,7 +280,7 @@ const FULL = [92, 88, 95, 90, 86, 93, 97, 89, 91, 94, 88, 90, 96, 87, 92, 95, 89
 const WITH = [96, 22, 18, 85, 20, 17, 92, 19, 21, 16, 88, 18, 20, 15, 17, 90, 19, 16, 18, 21, 17, 86, 15, 16];
 export const RUNS_PER_REPO = FULL.length;
 
-const TITLES = [
+export const TITLES = [
   "web: plain-language copy a junior dev can follow",
   "docs: explain the trust meter",
   "hooks: keep step output when the runner restarts",
@@ -347,7 +357,7 @@ function run1842(repo: RepoSeed): RunDetail {
 
 function summaryOf(repo: RepoSeed, number: number, steps: RunStep[], time: Omit<RunTimePoint, "number">, commit?: string): RunSummary {
   const i = number - repo.firstRun;
-  const lastAgoMin = (Date.parse(AS_OF) - Date.parse(repo.summary.lastRunAt ?? AS_OF)) / 60_000;
+  const lastAgoMin = (Date.now() - Date.parse(repo.summary.lastRunAt ?? asOf())) / 60_000;
   const spot = steps.filter((s) => s.why.kind === "spot-check");
   return {
     repoSlug: repo.summary.slug,

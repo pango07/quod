@@ -12,10 +12,14 @@
 // may open any of their teams by URL without switching the session first.
 // ============================================================================
 
+import { SseDecoder } from "@/lib/live/sse";
 import { isSlug } from "@/lib/params";
 import { ApiForbiddenError, ApiInvalidRequestError } from "./types";
 import type {
+  Activity,
   CloudApi,
+  LiveEvent,
+  LiveScope,
   ConnectSetup,
   Host,
   OrgRef,
@@ -156,6 +160,40 @@ export class HttpCloudApi implements CloudApi {
   // PUT /v1/teams/:team/connect  { store, host } -> 204
   async saveConnectChoice(team: string, choice: { store: Store; host: Host }): Promise<void> {
     await this.request("PUT", `/teams/${id(team)}/connect`, choice);
+  }
+
+  // GET /v1/teams/:team/activity?repo= -> Activity (jobs queued or running now)
+  getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {
+    return this.must("GET", `/teams/${id(team)}/activity${opts.repo ? `?repo=${id(opts.repo)}` : ""}`);
+  }
+
+  // GET /v1/teams/:team/events?scope=... (text/event-stream). Each message: id, event = LiveEvent type, data = LiveEvent JSON.
+  // Resumes with Last-Event-ID. Ends when `signal` aborts or the server closes; the caller reconnects.
+  async *subscribe(team: string, scope: LiveScope, opts: { lastEventId?: string | null; signal: AbortSignal }): AsyncIterable<LiveEvent> {
+    const q = new URLSearchParams({ scope: scope.kind });
+    if (scope.kind !== "team") q.set("repo", id(scope.repo));
+    if (scope.kind === "run") q.set("run", runSeg(scope.run));
+    if (scope.kind === "step") q.set("key", id(scope.key));
+    const token = await this.accessToken();
+    const res = await fetch(new URL(`/v1/teams/${id(team)}/events?${q}`, this.baseUrl), {
+      headers: {
+        accept: "text/event-stream",
+        "quod-protocol": PROTOCOL,
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(opts.lastEventId ? { "last-event-id": opts.lastEventId } : {}),
+      },
+      signal: opts.signal,
+      cache: "no-store",
+    });
+    if (res.status === 401 || res.status === 403) throw new ApiForbiddenError("quod-server refused the event stream", res.status);
+    if (!res.ok || !res.body) throw new Error(`quod-server events: ${res.status}`);
+    const decoder = new SseDecoder();
+    const text = new TextDecoder();
+    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      for (const m of decoder.push(text.decode(chunk, { stream: true }))) {
+        if (m.event && m.data) yield JSON.parse(m.data) as LiveEvent;
+      }
+    }
   }
 
   // GET /v1/teams/:team/search-index -> SearchIndex

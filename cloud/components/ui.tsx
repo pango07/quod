@@ -38,8 +38,20 @@ export function TrustChip({ trust, dot = true }: { trust: TrustState; dot?: bool
   );
 }
 
-export function OutcomeChip({ outcome }: { outcome: "replayed" | "ran" }) {
-  return <span className={`chip ${outcome === "replayed" ? "blue" : ""}`}>{outcome === "replayed" ? "Replayed" : "Ran"}</span>;
+export function OutcomeChip({ outcome }: { outcome: "replayed" | "ran" | "running" | "queued" }) {
+  const label = { replayed: "Replayed", ran: "Ran", running: "Running", queued: "Queued" }[outcome];
+  return (
+    <span className={`chip ${outcome === "replayed" ? "blue" : outcome === "running" ? "running" : outcome === "queued" ? "queued" : ""}`}>
+      {outcome === "running" ? <span className="dot blue pulse sm" aria-hidden="true" /> : null}
+      {label}
+    </span>
+  );
+}
+
+/** The dot before a step: blue replayed, gray ran, pulsing blue running, hollow queued. */
+export function StepDot({ outcome }: { outcome: "replayed" | "ran" | "running" | "queued" }) {
+  const cls = outcome === "replayed" ? "blue" : outcome === "running" ? "blue pulse" : outcome === "queued" ? "hollow" : "gray";
+  return <span className={`dot lg ${cls}`} aria-hidden="true" />;
 }
 
 export function Stat({ label, value, note, muted }: { label: string; value: ReactNode; note?: ReactNode; muted?: boolean }) {

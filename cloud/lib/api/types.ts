@@ -163,12 +163,18 @@ export type StepWhy =
   /** Observe mode: it ran and was recorded. `couldHaveReplayed`: nothing it reads changed. */
   | { kind: "watching"; stepKey: string; couldHaveReplayed: boolean; recordedInputs: number }
   | { kind: "network" }
-  | { kind: "not-memoized"; what: "runner setup" | "checkout" | "cleanup" };
+  | { kind: "not-memoized"; what: "runner setup" | "checkout" | "cleanup" }
+  /** Live runs: the step is running now, or waits for the steps before it. */
+  | { kind: "running"; stepKey: string | null }
+  | { kind: "queued"; stepKey: string | null };
 
 export interface RunStep {
   name: string;
-  outcome: "replayed" | "ran";
+  /** "running" and "queued" only appear while the run is in progress. */
+  outcome: "replayed" | "ran" | "running" | "queued";
   seconds: number;
+  /** While running: when the step began, so the page can count up between events. */
+  startedAt?: string;
   why: StepWhy;
 }
 
@@ -303,6 +309,73 @@ export interface SearchIndex {
   steps: { repoSlug: string; key: string; command: string; trust: TrustState["kind"] }[];
 }
 
+// ---------------------------------------------------------------- Live: what is running, and the event stream
+
+/**
+ * One CI job, Quod or not. Will come from the GitHub App's workflow_job /
+ * workflow_run webhooks, merged with Quod's step events from the runner hooks.
+ */
+export interface LiveJob {
+  /** Stable id (GitHub's job id later). */
+  id: string;
+  repoSlug: string;
+  repoName: string;
+  runNumber: number;
+  workflow: string;
+  job: string;
+  branch: string;
+  sha: string;
+  actor: string;
+  /** runs-on label, e.g. "ubuntu-latest" or "[self-hosted, quod]". */
+  runner: string;
+  githubUrl: string;
+  status: "queued" | "in_progress" | "completed";
+  conclusion?: "success" | "failure" | "cancelled";
+  queuedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  /** From Quod's step events, when the job runs Quod. */
+  currentStep?: { index: number; name: string };
+  stepsTotal?: number;
+}
+
+/** Jobs queued or in progress now, for the first paint of "Now running". */
+export interface Activity {
+  asOf: string;
+  jobs: LiveJob[];
+  /** True when the data is the built-in simulator ("Sample data, simulated live"). */
+  simulated: boolean;
+}
+
+/** What a subscription covers: the whole team, one repo, one run, or one step key. */
+export type LiveScope = { kind: "team" } | { kind: "repo"; repo: string } | { kind: "run"; repo: string; run: number } | { kind: "step"; repo: string; key: string };
+
+export interface StatsDelta {
+  replayedMinutes: number;
+  ranMinutes: number;
+  stepsReplayed: number;
+  stepsTotal: number;
+  spotChecks: number;
+  spotChecksIdentical: number;
+}
+
+interface EventBase {
+  /** Opaque, increasing; sent as the SSE id so a client resumes with Last-Event-ID. */
+  id: string;
+  at: string;
+}
+
+/** quod.v1's event stream. Job events come from GitHub webhooks; run, step and trust events from Quod. */
+export type LiveEvent =
+  | (EventBase & { type: "job.queued" | "job.started" | "job.finished"; job: LiveJob })
+  | (EventBase & { type: "run.started" | "run.finished"; run: RunSummary })
+  | (EventBase & { type: "step.started"; repoSlug: string; run: number; jobId: string; index: number; name: string; stepKey: string | null })
+  | (EventBase & { type: "step.finished"; repoSlug: string; run: number; jobId: string; index: number; stepKey: string | null; step: RunStep })
+  | (EventBase & { type: "trust.changed"; repoSlug: string; key: string; trust: TrustState; event: TrustEvent })
+  | (EventBase & { type: "stats.updated"; repoSlug: string; day: string; delta: StatsDelta });
+
+export type LiveEventType = LiveEvent["type"];
+
 // ---------------------------------------------------------------- The interface
 
 export interface CloudApi {
@@ -331,6 +404,15 @@ export interface CloudApi {
   saveConnectChoice(team: string, choice: { store: Store; host: Host }): Promise<void>;
 
   getSearchIndex(team: string): Promise<SearchIndex>;
+
+  /** Jobs queued or running now (optionally one repo's). */
+  getActivity(team: string, opts?: { repo?: string }): Promise<Activity>;
+
+  /**
+   * Live events for a scope, from just after `lastEventId` (or from now).
+   * Ends when `signal` aborts. Over HTTP this is GET /v1/teams/:team/events (SSE).
+   */
+  subscribe(team: string, scope: LiveScope, opts: { lastEventId?: string | null; signal: AbortSignal }): AsyncIterable<LiveEvent>;
 }
 
 /** Thrown by an adapter when the backend refuses the viewer: 401 (sign in again) or 403 (not theirs). */

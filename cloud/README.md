@@ -74,3 +74,20 @@ URLs; the pages read those names.
 - `proxy.ts`: the Next.js 16 proxy (formerly middleware). It refreshes the
   AuthKit session and sends signed-out visitors to `/sign-in?returnTo=...`.
 - `next.config.ts`: the boot-time config check and security headers.
+- `lib/live/`: the live layer. `sim.ts` (the sample team's simulated CI, a
+  pure function of the clock), `sse.ts` (SSE framing), `stream.ts` (the
+  stream: snapshot, events, heartbeats, close before the function limit),
+  `scope.ts`. The browser side is `components/live/` (one EventSource per
+  tab, "Now running", the Live badge). The route is `app/[team]/events`.
+
+## Live
+
+Pages render on the server as before; the browser then opens
+`/[team]/events` (Server-Sent Events) and applies what happens on top:
+"Now running" (jobs in progress with their current step and a ticking time,
+and queued jobs with their wait), totals and the chart, repo last runs, the
+run page step by step, and step trust. The tab title shows "● 2 running".
+The header's Live badge says when the connection is reconnecting or paused
+(hidden tabs pause). On the sample team the runs are simulated and labelled
+"Sample data, simulated live"; set `QUOD_SIMULATE=0` to turn the simulator
+off.

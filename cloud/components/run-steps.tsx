@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
-import { Dot, OutcomeChip } from "@/components/ui";
+import { useEffect, useRef, useState } from "react";
+import { Elapsed } from "@/components/live/parts";
+import { OutcomeChip, StepDot } from "@/components/ui";
 import type { RunJob } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
 import { receiptFor } from "@/lib/trust";
@@ -16,8 +17,26 @@ export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: st
   const flat = jobs.flatMap((j, ji) => j.steps.map((s, si) => ({ s, ji, si })));
   const [sel, setSel] = useState(Math.min(Math.max(0, initial), flat.length - 1));
   const list = useRef<HTMLDivElement>(null);
-  const cur = flat[sel];
+  const cur = flat[Math.min(sel, flat.length - 1)];
   const r = receiptFor(cur.s);
+
+  // Steps whose state just changed get a brief highlight (none with prefers-reduced-motion; see CSS).
+  const outcomes = flat.map((f) => f.s.outcome).join(",");
+  const prev = useRef<string[] | null>(null);
+  const [fresh, setFresh] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const now = outcomes.split(",");
+    if (prev.current) {
+      const changed = new Set(now.flatMap((o, i) => (prev.current![i] !== o ? [i] : [])));
+      if (changed.size) {
+        setFresh(changed);
+        const t = setTimeout(() => setFresh(new Set()), 1400);
+        prev.current = now;
+        return () => clearTimeout(t);
+      }
+    }
+    prev.current = now;
+  }, [outcomes]);
 
   const pick = (i: number, focus = false) => {
     setSel(i);
@@ -45,6 +64,8 @@ export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: st
                   type="button"
                   className="step-btn"
                   aria-pressed={i === sel}
+                  data-state={s.outcome}
+                  data-fresh={fresh.has(i) ? "true" : undefined}
                   aria-controls="why-panel"
                   onClick={() => pick(i)}
                   onKeyDown={(e) => {
@@ -54,11 +75,11 @@ export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: st
                     }
                   }}
                 >
-                  <Dot tone={s.outcome === "replayed" ? "blue" : "gray"} size="lg" />
+                  <StepDot outcome={s.outcome} />
                   <span className="ellipsis">{s.name}</span>
                   <OutcomeChip outcome={s.outcome} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)", fontSize: 13 }}>
-                    {formatDuration(s.seconds)}
+                    {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <Elapsed since={s.startedAt} /> : formatDuration(s.seconds)}
                   </span>
                 </button>
               );

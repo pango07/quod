@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LiveRefresh } from "@/components/live/parts";
 import { History, ProofsCard } from "@/components/step-trust";
 import { Dot } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -22,6 +23,7 @@ export default async function StepPage({ params }: PageProps<"/[team]/[repo]/ste
 
   return (
     <div className="page tight">
+      <LiveRefresh scope={{ kind: "step", repo: repoSlug, key: step.key }} types={["trust.changed", "step.finished"]} />
       <div className="row-between" style={{ alignItems: "flex-start", gap: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 13, color: "var(--faint)" }}>{step.job}</span>

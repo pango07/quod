@@ -58,6 +58,8 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 | `GET /v1/teams/:team/connect` | | `ConnectSetup` | Connect |
 | `PUT /v1/teams/:team/connect` | `{ store, host }` | 204 | Connect (remembers the choice); team admins only |
 | `GET /v1/teams/:team/search-index` | | `SearchIndex` | ⌘K menu |
+| `GET /v1/teams/:team/activity` | `?repo=` | `Activity` | "Now running" first paint |
+| `GET /v1/teams/:team/events` | `?scope=` (below), `Last-Event-ID` header | `text/event-stream` | everything live |
 
 ## Shapes, by screen
 
@@ -90,6 +92,43 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 - **Connect** (`ConnectSetup`): the setup action name, runner labels,
   install command, a self-hosted server example, the first repo (or null)
   and the saved choice.
+
+## The event stream (quod.v1)
+
+`GET /v1/teams/{team}/events?scope=team|repo|run|step` streams Server-Sent
+Events so people can watch their CI as it runs. Scope parameters:
+`scope=repo&repo=`, `scope=run&repo=&run=`, `scope=step&repo=&key=`; the
+default is the whole team. Same authorization as every other endpoint.
+
+Each message is `id: <event id>`, `event: <type>`, `data: <LiveEvent JSON>`
+(`LiveEvent` in `lib/api/types.ts`). Ids are opaque to clients but must
+increase; a client that reconnects sends the last one as `Last-Event-ID` and
+gets every later event, so a reconnect loses nothing (the server keeps at
+least 5 minutes of history). Send `: ping` comments every 15 s, and close the
+stream from time to time rather than holding it forever; clients reconnect.
+quod-server can feed it from Postgres `LISTEN/NOTIFY` (or an outbox table read
+by id, which makes resuming trivial).
+
+| Event | Carries | Source |
+| --- | --- | --- |
+| `job.queued`, `job.started`, `job.finished` | `LiveJob`: workflow, job, branch, commit, actor, runner label, GitHub URL, queued/started/finished times, conclusion | GitHub App `workflow_job` / `workflow_run` webhooks: every job, with Quod or without |
+| `run.started`, `run.finished` | `RunSummary` | Quod runner hooks (first and last step of a run), cross-checked with `workflow_run` |
+| `step.started` | repo, run, job id, step index and name, step key | Quod runner hooks |
+| `step.finished` | the `RunStep`: outcome (replayed / ran), seconds, and the `why` (replayed, changed, spot check, paused, network...) | Quod runner hooks |
+| `trust.changed` | step key, new `TrustState`, the `TrustEvent` (spot check passed, paused, proven...) | quod-server's trust decisions |
+| `stats.updated` | repo, day, a `StatsDelta` (minutes replayed and ran, steps, spot checks) | quod-server, as steps finish |
+
+The two sources are merged by repo and run number: the GitHub App sees every
+job (including repos or jobs without Quod, and jobs still waiting for a
+runner); Quod adds the step-level detail for jobs it runs in. A job that only
+GitHub reports has no `currentStep`.
+
+The dashboard reads this through `CloudApi.subscribe(team, scope, { lastEventId, signal })`
+and re-serves it to the browser from `GET /[team]/events` (a Next.js route
+handler with the same session and membership check as the pages, closed
+after about 4 minutes, under the 300 s function limit). Until quod-server
+exists, the fixture adapter's simulator (`lib/live/sim.ts`) produces the same
+events from the clock for the sample team.
 
 Members, invitations, SSO and directory sync are not in this API: they live
 in WorkOS and the app calls WorkOS directly (`lib/auth/directory.ts`).

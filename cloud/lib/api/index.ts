@@ -1,5 +1,6 @@
 import "server-only";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { accessToken } from "@/lib/auth/session";
 import { FixtureCloudApi, newFixtureState, type FixtureState } from "./fixture";
 import { HttpCloudApi } from "./http";
@@ -29,7 +30,11 @@ function withRefusals(inner: CloudApi): CloudApi {
     get(target, prop, receiver) {
       const v = Reflect.get(target, prop, receiver);
       if (typeof v !== "function") return v;
+      // The stream is an async iterable, not a promise; the SSE route handles its errors.
+      if (prop === "subscribe") return v.bind(target);
       return async (...args: unknown[]) => {
+        // Live data is per request, never prerendered (the simulator reads the clock).
+        await connection();
         try {
           return await v.apply(target, args);
         } catch (e) {

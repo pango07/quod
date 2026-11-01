@@ -1,5 +1,5 @@
 // Team-level pages. These names can never be repository slugs (the backend reserves them).
-export const TEAM_PAGES = ["repositories", "runs", "trust", "runners", "usage", "settings", "connect"];
+export const TEAM_PAGES = ["repositories", "runs", "trust", "runners", "usage", "settings", "connect", "events"];
 
 export const NAV = [
   { href: "", label: "Overview", icon: "overview" },

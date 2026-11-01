@@ -3,7 +3,7 @@
 // Set QUOD_FIXTURE_DELAY_MS to slow every call down and watch the skeletons.
 
 import {
-  AS_OF,
+  asOf,
   CONNECT,
   daysFor,
   EMPTY_TOTALS,
@@ -18,7 +18,11 @@ import {
   TRUST_COUNTS,
   trustSeed,
 } from "./fixture-data";
+import { detailAt, eventsBetween, jobsAt, latestRun, runByNumber, runsStartedBetween, summaryAt, trustEventsFor } from "@/lib/live/sim";
 import type {
+  Activity,
+  LiveEvent,
+  LiveScope,
   CloudApi,
   ConnectSetup,
   Host,
@@ -43,6 +47,15 @@ type StepSeed = RepoSeed["steps"][number];
 
 /** The one team with sample data. Other teams are real but empty until a repo connects. */
 const SAMPLE_TEAM = "quodci";
+
+/** The sample team plays live CI runs (lib/live/sim.ts) unless QUOD_SIMULATE=0 turns it off. */
+const simulating = (team: string) => team === SAMPLE_TEAM && process.env.QUOD_SIMULATE !== "0";
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+  });
 
 const slugify = (s: string) =>
   s
@@ -96,6 +109,13 @@ export class FixtureCloudApi implements CloudApi {
     return s.trust;
   }
 
+  /** The repo's summary, with its last run taken from the simulator when it is live. */
+  private liveSummary(team: string, repo: RepoSeed, now = Date.now()): RepoSummary {
+    const latest = simulating(team) ? latestRun(repo.summary.slug, now) : null;
+    if (!latest) return { ...repo.summary };
+    return { ...repo.summary, lastRunAt: new Date(latest.startedAt).toISOString(), lastRunStatus: now < latest.finishedAt ? "running" : "passed" };
+  }
+
   private summaries(repo: RepoSeed): StepSummary[] {
     return repo.steps.filter((s) => !s.network).map((s) => stepSummary(repo, s, this.trustOf(repo, s)));
   }
@@ -147,7 +167,7 @@ export class FixtureCloudApi implements CloudApi {
     const repos = this.repos(team);
     if (repos.length === 0) {
       return {
-        asOf: AS_OF,
+        asOf: asOf(),
         totals: EMPTY_TOTALS(range),
         days: [],
         repos: [],
@@ -162,7 +182,7 @@ export class FixtureCloudApi implements CloudApi {
     const scaled: RepoSummary[] = repos.map((r, i) => {
       const saved = i === repos.length - 1 ? left : Math.round((r.summary.savedMinutes / base) * totals.savedMinutes);
       left -= saved;
-      return { ...r.summary, savedMinutes: saved };
+      return { ...this.liveSummary(team, r), savedMinutes: saved };
     });
     const paused = repos.flatMap((r) =>
       r.steps
@@ -170,7 +190,7 @@ export class FixtureCloudApi implements CloudApi {
         .map((s) => ({ repoSlug: r.summary.slug, repoName: r.summary.fullName, key: s.key, job: s.job, command: s.command })),
     );
     return {
-      asOf: AS_OF,
+      asOf: asOf(),
       totals,
       days: daysFor(range),
       repos: scaled,
@@ -181,7 +201,7 @@ export class FixtureCloudApi implements CloudApi {
 
   async listRepos(team: string): Promise<RepoSummary[]> {
     await this.tick();
-    return this.repos(team).map((r) => r.summary);
+    return this.repos(team).map((r) => this.liveSummary(team, r));
   }
 
   async getRepo(team: string, slug: string): Promise<RepoDetail | null> {
@@ -189,11 +209,13 @@ export class FixtureCloudApi implements CloudApi {
     const repo = this.repo(team, slug);
     if (!repo) return null;
     const last = repo.firstRun + RUNS_PER_REPO - 1;
+    const now = Date.now();
+    const live = simulating(team) ? latestRun(slug, now) : null;
     return {
-      asOf: AS_OF,
-      summary: repo.summary,
+      asOf: asOf(),
+      summary: this.liveSummary(team, repo, now),
       defaultBranch: repo.defaultBranch,
-      latestRun: runDetail(repo, last, this.needIn(repo)),
+      latestRun: live ? detailAt(live, now) : runDetail(repo, last, this.needIn(repo)),
       runTimes: runTimes(repo),
       steps: this.summaries(repo),
     };
@@ -202,14 +224,19 @@ export class FixtureCloudApi implements CloudApi {
   async listRuns(team: string, opts: { repo?: string; limit?: number } = {}): Promise<{ asOf: string; runs: RunSummary[] }> {
     await this.tick();
     const repos = opts.repo ? this.repos(team).filter((r) => r.summary.slug === opts.repo) : this.repos(team);
-    const runs = repos.flatMap((r) => this.runSummaries(r)).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-    return { asOf: AS_OF, runs: opts.limit ? runs.slice(0, opts.limit) : runs };
+    const now = Date.now();
+    const live = simulating(team) ? runsStartedBetween(now - 10 * 60_000, now, opts.repo).map((r) => summaryAt(r, now)) : [];
+    const runs = [...live, ...repos.flatMap((r) => this.runSummaries(r))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return { asOf: asOf(), runs: opts.limit ? runs.slice(0, opts.limit) : runs };
   }
 
   async getRun(team: string, slug: string, run: number): Promise<RunDetail | null> {
     await this.tick();
     const repo = this.repo(team, slug);
-    return repo ? runDetail(repo, run, this.needIn(repo)) : null;
+    if (!repo) return null;
+    const now = Date.now();
+    const live = simulating(team) ? runByNumber(slug, run, now) : null;
+    return live ? detailAt(live, now) : runDetail(repo, run, this.needIn(repo));
   }
 
   async listSteps(team: string, opts: { repo?: string } = {}): Promise<StepSummary[]> {
@@ -223,7 +250,9 @@ export class FixtureCloudApi implements CloudApi {
     const repo = this.repo(team, slug);
     const step = repo?.steps.find((s) => s.key === key && !s.network);
     if (!repo || !step) return null;
-    return { ...stepSummary(repo, step, this.trustOf(repo, step)), asOf: AS_OF, proofsNeeded: this.needIn(repo)(step), ...trustSeed(repo, step) };
+    const seed = trustSeed(repo, step);
+    const live = simulating(team) ? trustEventsFor(slug, key, Date.now()) : [];
+    return { ...stepSummary(repo, step, this.trustOf(repo, step)), asOf: asOf(), proofsNeeded: this.needIn(repo)(step), ...seed, history: [...live, ...seed.history] };
   }
 
   async setProofsNeeded(team: string, slug: string, key: string, need: number): Promise<StepTrust> {
@@ -264,6 +293,33 @@ export class FixtureCloudApi implements CloudApi {
   async saveConnectChoice(team: string, choice: { store: Store; host: Host }): Promise<void> {
     await this.tick();
     this.choices.set(team, choice);
+  }
+
+  async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {
+    await this.tick();
+    const now = Date.now();
+    return { asOf: new Date(now).toISOString(), jobs: simulating(team) ? jobsAt(now, opts.repo) : [], simulated: simulating(team) };
+  }
+
+  /** Polls the simulator's clock twice a second; a resume replays what was missed (up to 5 minutes). */
+  async *subscribe(team: string, scope: LiveScope, opts: { lastEventId?: string | null; signal: AbortSignal }): AsyncIterable<LiveEvent> {
+    if (!simulating(team)) {
+      // Nothing happens in a team without sample data: hold the stream open quietly.
+      while (!opts.signal.aborted) await sleep(5000, opts.signal);
+      return;
+    }
+    let cursor = opts.lastEventId ?? null;
+    let from = Date.now();
+    while (!opts.signal.aborted) {
+      const now = Date.now();
+      for (const e of eventsBetween(from, now, { lastEventId: cursor, scope })) {
+        if (opts.signal.aborted) return;
+        cursor = e.id;
+        yield e;
+      }
+      from = now;
+      await sleep(500, opts.signal);
+    }
   }
 
   async getSearchIndex(team: string): Promise<SearchIndex> {

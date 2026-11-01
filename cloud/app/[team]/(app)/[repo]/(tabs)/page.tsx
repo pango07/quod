@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { RunTimeChart } from "@/components/charts";
 import { RerunButton } from "@/components/rerun-button";
 import { StepsTable } from "@/components/steps-table";
-import { Dot, EmptyState, OutcomeChip } from "@/components/ui";
+import { LiveRefresh, NowRunning } from "@/components/live/parts";
+import { Dot, EmptyState, OutcomeChip, StepDot } from "@/components/ui";
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
 import { formatDuration, median, shortSha } from "@/lib/format";
@@ -16,7 +17,7 @@ const SHOWN = 6;
 export default async function RepoPage({ params, searchParams }: PageProps<"/[team]/[repo]">) {
   const [{ team: slug, repo: repoSlug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
-  const repo = await api().getRepo(team.slug, repoSlug);
+  const [repo, activity] = await Promise.all([api().getRepo(team.slug, repoSlug), api().getActivity(team.slug, { repo: repoSlug })]);
   if (!repo) notFound();
   const base = `/${team.slug}/${repo.summary.slug}`;
   const run = repo.latestRun;
@@ -33,6 +34,8 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
   return (
     <div className="page">
       <h1 className="sr-only">{repo.summary.fullName}</h1>
+      <LiveRefresh scope={{ kind: "repo", repo: repo.summary.slug }} />
+      <NowRunning team={team.slug} initial={activity} repo={repo.summary.slug} />
       <section className="card" aria-labelledby="latest-h" style={{ overflow: "hidden" }}>
         <div className="card-head ruled">
           <h2 id="latest-h" className="h2">
@@ -54,8 +57,8 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
               style={{ flex: "1 1 360px", minWidth: 0, border: "1px solid var(--rule)", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10, background: "var(--well)", margin: 0, listStyle: "none" }}
             >
               {steps.slice(0, SHOWN).map((s, i) => (
-                <li key={i} className="step-line">
-                  <Dot tone={s.outcome === "replayed" ? "blue" : "gray"} size="lg" />
+                <li key={i} className="step-line" data-state={s.outcome}>
+                  <StepDot outcome={s.outcome} />
                   <span className="ellipsis">{s.name}</span>
                   <OutcomeChip outcome={s.outcome} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)" }}>
@@ -78,6 +81,7 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
               <Fact k="Status">
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <Dot tone={run.status === "passed" ? "green" : run.status === "failed" ? "red" : "blue"} />
+                  {run.status === "running" ? <span className="sr-only">(updates live)</span> : null}
                   {run.status === "passed" ? "Passed" : run.status === "failed" ? "Failed" : "Running"}
                 </span>
               </Fact>
