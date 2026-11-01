@@ -8,19 +8,22 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:migrate": "node scripts/db-migrate.mjs"
   },
   "dependencies": {
     "@workos-inc/authkit-nextjs": "^4.6.2",
     "@workos-inc/node": "^12.1.0",
     "iron-session": "^8.0.4",
     "next": "16.4.3",
+    "postgres": "3.4.9",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
