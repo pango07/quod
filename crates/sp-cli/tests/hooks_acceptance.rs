@@ -453,6 +453,13 @@ fn hooks_acceptance() {
         1,
         "A1: one manifest"
     );
+    // N3: the key names the withheld variables under the v2 line (they are
+    // set to a placeholder, not removed as under v1).
+    let key_json = r.ledger().step_key_json(&key).unwrap().unwrap();
+    assert!(
+        key_json.contains("stillpass:withheld v2 "),
+        "A1: the key's withheld line is v2: {key_json}"
+    );
     println!("A1 ok: EXECUTED through the hooks, one manifest");
 
     // A2: the same tree again. Observe mode executes and says it would

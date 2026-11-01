@@ -1124,6 +1124,16 @@ fn host_copy(job: &Job, cas: &Cas, c: &checkout::CheckedOut) -> anyhow::Result<(
     Ok(())
 }
 
+/// The key's line naming the variables a keyed step does not get as they
+/// are. Versioned by what the step sees of them: v1 removed them, v2 sets
+/// them to `surface::WITHHELD`, so a result recorded under v1 (a step that
+/// found no token) never answers a v2 key.
+pub const WITHHELD_KEY: &str = "stillpass:withheld v2";
+
+fn withheld_key_line(names: &[String]) -> String {
+    format!("{WITHHELD_KEY} {}", names.join(","))
+}
+
 /// Whose copy of the checkout the host directory holds. It is reused only
 /// by a job of the scope and kind that made it: a runner-surface step of
 /// another scope (a fork's) or of a job that is not a writer (a pull
@@ -1443,7 +1453,7 @@ fn run_step(
     // GITHUB_TOKEN, an action that asks for an OIDC token only when
     // ACTIONS_ID_TOKEN_REQUEST_URL is set), so a result recorded without
     // one must not replay for a job that has it. Names only, never values.
-    key_cmd.push(format!("stillpass:withheld {}", unkeyed.join(",")));
+    key_cmd.push(withheld_key_line(&unkeyed));
     let spec = StepSpec {
         image,
         // The hooks build the whole env themselves; the toolchain names the
@@ -2257,6 +2267,22 @@ mod tests {
             tmp.path().join("_work/_temp/_github_workflow/event.json")
         );
         assert_eq!(job.host_path("/host/etc/passwd"), None);
+    }
+
+    /// N3: the withheld line is versioned, so keys recorded when withheld
+    /// names were removed (v1) never match keys under the placeholder.
+    #[test]
+    fn the_withheld_line_is_versioned() {
+        let names = ["GITHUB_SHA".to_string(), "GITHUB_TOKEN".to_string()];
+        assert_eq!(
+            withheld_key_line(&names),
+            "stillpass:withheld v2 GITHUB_SHA,GITHUB_TOKEN"
+        );
+        assert_ne!(
+            withheld_key_line(&names),
+            format!("stillpass:withheld {}", names.join(",")),
+            "not the v1 line"
+        );
     }
 
     /// N1: the host copy of the checkout is not shared between a writer and
