@@ -95,7 +95,7 @@ describe("GitHub jobs, live, end to end", { timeout: 30_000 }, () => {
     const sse = await reader(res);
     await sse.until((m) => m.some((x) => x.event === "snapshot"));
     const snapshot = JSON.parse(sse.got.find((x) => x.event === "snapshot")!.data) as Activity;
-    expect(snapshot.github).toEqual({ state: "linked", repos: 1 });
+    expect(snapshot.github).toEqual({ state: "linked", repos: 1, accounts: ["acme"] });
     expect(snapshot.jobs).toEqual([]);
     expect(splitCursor(snapshot.cursor).gh).toMatch(/^gh-\d+$/);
 

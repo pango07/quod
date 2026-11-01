@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { saveConnectChoice } from "@/lib/actions";
 import type { ConnectSetup, Host, Store } from "@/lib/api/types";
@@ -48,7 +47,15 @@ function Options<T extends string>({ label, options, value, onChange }: { label:
   );
 }
 
-/** Connect.dc.html: two choices, the workflow change they imply, and what happens next. */
+/** Where to join early access: the landing page's waitlist (web/app/page.tsx, section id "join"). */
+export const EARLY_ACCESS_URL = "https://www.quodci.com/#join";
+
+/**
+ * Connect.dc.html's Quod setup: two choices, the workflow change they imply,
+ * and what happens next. Not released yet (the setup action and the runner
+ * install do not exist), so it is shown as "Coming soon: early access":
+ * dimmed, the workflow change not selectable, and a link to join.
+ */
 export function ConnectFlow({ team, setup, initial, canSave }: { team: string; setup: ConnectSetup; initial: { store: Store; host: Host }; canSave: boolean }) {
   const [store, setStore] = useState(initial.store);
   const [host, setHost] = useState(initial.host);
@@ -66,7 +73,18 @@ export function ConnectFlow({ team, setup, initial, canSave }: { team: string; s
   };
 
   return (
-    <>
+    <section className="soon" aria-labelledby="soon-h" aria-describedby="soon-note">
+      <div className="soon-head">
+        <h2 id="soon-h" className="h2" style={{ fontSize: 17 }}>
+          Run Quod in your CI
+        </h2>
+        <span className="chip amber">Coming soon: early access</span>
+      </div>
+      <p id="soon-note" className="soon-banner" role="note">
+        This part doesn&apos;t work yet: the setup step and the runner install below aren&apos;t released. They show how it will work.{" "}
+        <a href={EARLY_ACCESS_URL}>Join early access</a> to be among the first teams to run it.
+      </p>
+      <div className="soon-body">
       {canSave ? null : (
         <p className="toast" role="note">
           You can compare both setups. Only team admins can save the team’s choice.
@@ -74,14 +92,14 @@ export function ConnectFlow({ team, setup, initial, canSave }: { team: string; s
       )}
       <section aria-labelledby="where" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h2 id="where" className="h2">
-          1. Where should Quod keep results?
+          2. Where should Quod keep results?
         </h2>
         <Options label="Where Quod keeps results" options={STORES} value={store} onChange={(s) => update(s, host)} />
       </section>
 
       <section aria-labelledby="runs" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h2 id="runs" className="h2">
-          2. Where do your jobs run?
+          3. Where do your jobs run?
         </h2>
         <Options label="Where your jobs run" options={HOSTS} value={host} onChange={(h) => update(store, h)} />
       </section>
@@ -89,13 +107,14 @@ export function ConnectFlow({ team, setup, initial, canSave }: { team: string; s
       <section aria-labelledby="change" className="card" style={{ overflow: "hidden" }}>
         <div className="card-head ruled" style={{ padding: "14px 18px" }}>
           <h2 id="change" className="h2" aria-live="polite">
-            3. {change.title}
+            4. {change.title} <span className="faint" style={{ fontWeight: 400, fontSize: 13 }}>(preview)</span>
           </h2>
           <span className="mono faint" style={{ fontSize: 12 }}>
             .github/workflows/ci.yml
           </span>
         </div>
-        <pre className="wf" aria-label="Workflow change">
+        {/* Not selectable: copying this into a workflow would break it until the action is released. */}
+        <pre className="wf no-copy" aria-label="Workflow change (preview; not released yet)" onCopy={(e) => e.preventDefault()}>
           {change.before}
           {change.minus ? (
             <span className="minus">
@@ -114,7 +133,7 @@ export function ConnectFlow({ team, setup, initial, canSave }: { team: string; s
 
       <section aria-labelledby="next" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h2 id="next" className="h2">
-          4. Push, and watch it learn
+          5. Push, and watch it learn
         </h2>
         <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
           {[
@@ -134,20 +153,15 @@ export function ConnectFlow({ team, setup, initial, canSave }: { team: string; s
         </ol>
       </section>
 
+      </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
         <a className="btn lg" href="https://www.quodci.com/under-the-hood">
           How it works
         </a>
-        {setup.firstRepo ? (
-          <Link className="btn solid lg" href={`/${team}/${setup.firstRepo.slug}`}>
-            Open {setup.firstRepo.fullName}
-          </Link>
-        ) : (
-          <Link className="btn solid lg" href={`/${team}`}>
-            Done, back to the dashboard
-          </Link>
-        )}
+        <a className="btn solid lg" href={EARLY_ACCESS_URL}>
+          Join early access
+        </a>
       </div>
-    </>
+    </section>
   );
 }

@@ -76,7 +76,7 @@ export class CompositeCloudApi implements CloudApi {
         .flatMap((i) => i.repos)
         .map((r) => ({ id: r.id, fullName: r.fullName, slug: r.fullName.split("/")[1] ?? "" }))
         .filter((r) => isSlug(r.slug) && !TEAM_PAGES.includes(r.slug) && !seen.has(r.slug) && (seen.add(r.slug), true));
-      return { link: { state: "linked", repos: repos.length }, teamId, db, repos };
+      return { link: { state: "linked", repos: repos.length, accounts: [...new Set(active.map((i) => i.account).filter(Boolean))] }, teamId, db, repos };
     } catch (e) {
       console.warn("[quod-cloud] github source unavailable", { error: e instanceof Error ? e.name : "unknown" });
       return { link: { state: "unavailable" }, teamId: null };
