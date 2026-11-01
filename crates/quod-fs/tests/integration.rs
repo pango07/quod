@@ -78,11 +78,19 @@ fn cat_every_file_logs_exactly_the_file_set() {
         fs::read_to_string(served.mountpoint().join("link")).unwrap(),
         "package cmd\n"
     );
-    // With kernel passthrough (Linux 6.9+, CAP_SYS_ADMIN) no read reaches
-    // userspace at all; the log below must be complete either way.
+    // By default opens are zero-message: the first OPEN is answered ENOSYS
+    // and the kernel sends no other, reading through its page cache. With
+    // kernel passthrough (Linux 6.9+, CAP_SYS_ADMIN, QUOD_FUSE_ZERO_OPEN=0)
+    // no read reaches userspace at all. The log below must be complete
+    // either way.
     let stats = served.stats();
     eprintln!("observer stats: {stats:?}");
-    assert!(stats.open >= 4, "{stats:?}");
+    if stats.zero_open {
+        assert_eq!(stats.open, 1, "{stats:?}");
+        assert!(!stats.passthrough, "{stats:?}");
+    } else {
+        assert!(stats.open >= 4, "{stats:?}");
+    }
     if stats.passthrough {
         assert_eq!(stats.read, 0, "passthrough reads must not reach userspace");
     } else {
@@ -320,4 +328,77 @@ fn a_steps_user_overlay_xattrs_mean_nothing() {
     served.unmount().unwrap();
     let got: Vec<(String, Kind)> = out.iter().map(|e| (e.p.clone(), e.k)).collect();
     assert_eq!(got, vec![("mine".to_string(), Kind::Dir)], "{got:?}");
+}
+
+/// Zero-message opens and opendirs only let the kernel skip requests that
+/// would record nothing new (`CasFs::record`): on the classic transport
+/// (what CI has), the same workloads log exactly the same accesses, and
+/// show the step the same bytes, with every open and opendir answered
+/// (with and without passthrough) as with the defaults. Each workload
+/// repeats its reads and listings, which the default mode serves from the
+/// kernel's caches. quod-cli's transports test compares the ring too.
+#[test]
+fn zero_message_opens_log_what_answered_opens_log() {
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    sample(&src);
+    for i in 0..300 {
+        fs::write(src.join(format!("pkg/f{i:03}.txt")), format!("{i}\n")).unwrap();
+    }
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let tree = cas.import_dir(&src).unwrap();
+    let workloads = [
+        "for i in 1 2 3; do find . -type f -exec cat {} + | cksum; done",
+        "for i in 1 2 3; do ls -lA . pkg pkg/cmd empty; ls -f pkg | sort | cksum; done",
+        "stat pkg/nope.go nope/x 2>&1; stat pkg/nope.go 2>&1; cat link; readlink link; true",
+        "dd if=pkg/cmd/big.bin bs=4096 skip=300 count=3 2>/dev/null | cksum; head -c 7 go.mod",
+    ];
+    let mut n = 0;
+    for script in workloads {
+        let mut seen: Vec<(String, quod_fs::Observed, quod_fs::ObserverStats)> = Vec::new();
+        for (zero, passthrough) in [(true, false), (false, true), (false, false)] {
+            n += 1;
+            let mnt = tmp.path().join(format!("m{n}"));
+            fs::create_dir_all(&mnt).unwrap();
+            let opts = quod_fs::Options {
+                transport: quod_fs::Transport::Classic,
+                passthrough,
+                zero_open: zero,
+                zero_opendir: zero,
+                xattr_enosys: zero,
+                ..quod_fs::Options::default()
+            };
+            let served = quod_fs::serve_with(&tree, &cas, &mnt, &opts).unwrap();
+            let out = sh(&mnt, script);
+            let stats = served.stats();
+            let log = served.unmount_observed().unwrap();
+            assert!(!log.accesses.is_empty(), "{script}: nothing logged");
+            seen.push((String::from_utf8(out.stdout).unwrap(), log, stats));
+        }
+        let (out, log, zs) = &seen[0];
+        assert!(zs.zero_open && zs.zero_opendir, "{zs:?}");
+        for (o, l, s) in &seen[1..] {
+            assert_eq!(o, out, "{script}: the step saw something else ({s:?})");
+            assert_eq!(
+                l.accesses, log.accesses,
+                "{script}: answered opens logged differently ({s:?})"
+            );
+            // These workloads read every file they open, so the files
+            // served bytes are the same set either way (with zero-message
+            // opens it comes from the READs; see `Options::zero_open`).
+            assert_eq!(l.opened, log.opened, "{script}: opened ({s:?})");
+        }
+        if script.contains("find . -type f") {
+            // 300-odd files read three times: one OPEN reached the observer.
+            assert_eq!(zs.open, 1, "{zs:?}");
+            assert!(seen[2].2.open >= 3 * 300, "{:?}", seen[2].2);
+        }
+        if script.contains("ls -f pkg") {
+            // The listings are read once, then from the kernel's cache.
+            assert!(zs.readdir < seen[2].2.readdir, "{zs:?} {:?}", seen[2].2);
+        }
+    }
 }

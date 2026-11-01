@@ -85,6 +85,10 @@ pub struct ObserverStats {
     pub ring_abandoned_conn: Option<u64>,
     /// Times a serving thread found a model lock held by another.
     pub lock_contended: u64,
+    /// The mount answered OPEN / OPENDIR with ENOSYS (zero-message opens,
+    /// `Options::zero_open` and `zero_opendir`).
+    pub zero_open: bool,
+    pub zero_opendir: bool,
 }
 
 impl ObserverStats {
@@ -206,6 +210,9 @@ mod unsupported {
         pub uring_pin: bool,
         pub uring_depth: usize,
         pub uring_nice: i32,
+        pub zero_open: bool,
+        pub zero_opendir: bool,
+        pub xattr_enosys: bool,
         #[cfg(feature = "fault-injection")]
         #[doc(hidden)]
         pub fault: Option<Fault>,
@@ -219,6 +226,9 @@ mod unsupported {
                 uring_pin: true,
                 uring_depth: 4,
                 uring_nice: -10,
+                zero_open: true,
+                zero_opendir: true,
+                xattr_enosys: true,
                 #[cfg(feature = "fault-injection")]
                 fault: None,
             }

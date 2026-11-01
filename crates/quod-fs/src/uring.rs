@@ -1073,6 +1073,7 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
     let req = Req {
         pid: u32_at(hdr, 32),
     };
+    fs.stats().op(opcode);
     let ok = |data: Vec<u8>| Some((0, data));
     let err = |e: i32| Some((-e, Vec::new()));
     match opcode {
@@ -1134,6 +1135,7 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
             ok(statfs_out(fs.file_count()))
         }
         // Overlayfs probes lower xattrs; it accepts ENOTSUP cleanly.
+        FUSE_GETXATTR | FUSE_LISTXATTR if fs.xattr_enosys => err(libc::ENOSYS),
         FUSE_GETXATTR | FUSE_LISTXATTR => err(libc::ENOTSUP),
         FUSE_FLUSH | FUSE_ACCESS => err(libc::ENOSYS),
         FUSE_FORGET | FUSE_BATCH_FORGET | FUSE_INTERRUPT => None,

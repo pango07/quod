@@ -261,7 +261,7 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
                 let load_after = loadavg();
                 let o = &r.observer;
                 eprintln!(
-                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {load_before:.1} -> {load_after:.1}; {}, {} ring / {} device requests, serving {}/{} ms user/sys, {} threads ran {} ms and waited {} ms for a CPU, {} lock waits)",
+                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {load_before:.1} -> {load_after:.1}; {}, {} ring / {} device requests, serving {}/{} ms user/sys, {} threads ran {} ms and waited {} ms for a CPU, {} lock waits; ring opcodes {})",
                     i + 1,
                     args.runs,
                     r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0,
@@ -274,6 +274,7 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
                     o["serve_run_ms"],
                     o["serve_runq_wait_ms"],
                     o["lock_contended"],
+                    o["ring_ops"].as_str().unwrap_or("-"),
                 );
                 observers[s].push(r.observer);
                 events[s].push(r.event);
@@ -354,6 +355,50 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         )?;
     }
     writeln!(t)?;
+    if args.interleave {
+        // Run i of every series ran back to back, so the ratio within a
+        // round cancels load that drifts between rounds.
+        writeln!(
+            t,
+            "Paired overhead (interleaved): per round, the series' run over that round's plain run, minus 1; median and the per-round values.\n\n| Series | Paired median | Per round |\n| --- | --- | --- |"
+        )?;
+        for s in 1..series.len() {
+            let r: Vec<f64> = w[s]
+                .iter()
+                .zip(&w[0])
+                .map(|(o, p)| (o / p - 1.0) * 100.0)
+                .collect();
+            writeln!(
+                t,
+                "| {} | {:+.1}% | {} |",
+                series[s].0,
+                median(&r),
+                r.iter()
+                    .map(|x| format!("{x:+.1}%"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?;
+        }
+        writeln!(t)?;
+    }
+    // The same tree and step, cold every time: an observer that drops or
+    // adds an access shows up as a second manifest id.
+    let mut ids: Vec<(String, usize)> = Vec::new();
+    for e in events.iter().flatten() {
+        let id = e["manifest_id"].as_str().unwrap_or("?").to_string();
+        match ids.iter_mut().find(|(k, _)| *k == id) {
+            Some((_, n)) => *n += 1,
+            None => ids.push((id, 1)),
+        }
+    }
+    writeln!(
+        t,
+        "Manifests recorded by every observed run of every series (warm-up included): {}.\n",
+        ids.iter()
+            .map(|(k, n)| format!("`{k}` x{n}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )?;
     writeln!(
         t,
         "How each observed series was served, from its run and observer events (medians over the same runs; requests answered over the ring and over /dev/fuse, the observer process's CPU time while mounted, and how long its serving threads were runnable but waiting for a CPU):\n"
@@ -400,19 +445,37 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         t,
         "| Phase | Median | Share of observed |\n| --- | --- | --- |"
     )?;
+    // Top-level phases sum to the run's wall but for process start and
+    // exit, which `unaccounted` is; indented rows are parts of the one
+    // above them.
+    let top = [
+        "setup_ms",
+        "import_ms",
+        "lookup_ms",
+        "mount_ms",
+        "exec_ms",
+        "diff_ms",
+        "record_ms",
+        "cleanup_ms",
+    ];
+    let secs = |e: &Value, f: &str| e[f].as_f64().unwrap_or(0.0) / 1000.0;
     for (name, field) in [
+        ("setup (store, pin, key, ledger)", "setup_ms"),
         ("import", "import_ms"),
         ("lookup", "lookup_ms"),
         ("mount", "mount_ms"),
+        ("- observer up", "serve_ms"),
+        ("- overlay", "overlay_ms"),
+        ("- sealed snapshots", "seal_ms"),
         ("execution", "exec_ms"),
         ("output diff", "diff_ms"),
+        ("- store outputs", "outputs_ms"),
+        ("- unmount", "unmount_ms"),
+        ("- manifest", "manifest_ms"),
         ("ledger write", "record_ms"),
+        ("cleanup (run dir)", "cleanup_ms"),
     ] {
-        let v: Vec<f64> = events[1]
-            .iter()
-            .skip(1)
-            .map(|s| s[field].as_f64().unwrap_or(0.0) / 1000.0)
-            .collect();
+        let v: Vec<f64> = events[1].iter().skip(1).map(|e| secs(e, field)).collect();
         writeln!(
             t,
             "| {name} | {:.2}s | {:.1}% |",
@@ -420,6 +483,18 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
             median(&v) / om * 100.0
         )?;
     }
+    let rest: Vec<f64> = events[1]
+        .iter()
+        .zip(&walls[1])
+        .skip(1)
+        .map(|(e, w)| w - top.iter().map(|f| secs(e, f)).sum::<f64>())
+        .collect();
+    writeln!(
+        t,
+        "| unaccounted (process start and exit) | {:.2}s | {:.1}% |",
+        median(&rest),
+        median(&rest) / om * 100.0
+    )?;
     writeln!(t)?;
     // What the step asked the observer for: absent lookups are the probe
     // storms (sys.path, node_modules resolution, config search) that turn

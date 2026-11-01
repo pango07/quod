@@ -143,7 +143,14 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     std::fs::create_dir_all(x.step_dir)?;
     let lower = x.step_dir.join("lower");
     std::fs::create_dir_all(&lower)?;
-    let served = quod_fs::serve(x.tree, x.cas, &lower).context("serve workspace")?;
+    // Every open must reach the observer here: the withheld-name scan
+    // exempts files the step was never served (`Observed::opened`), and
+    // zero-message opens would leave only the first OPEN and the READs.
+    let opts = quod_fs::Options {
+        zero_open: false,
+        ..quod_fs::Options::from_env()
+    };
+    let served = quod_fs::serve_with(x.tree, x.cas, &lower, &opts).context("serve workspace")?;
     let mut ws_lowers: Vec<&Path> = x.ws_layers.iter().map(PathBuf::as_path).collect();
     ws_lowers.push(served.mountpoint());
     let upper = x.step_dir.join("upper");

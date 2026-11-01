@@ -109,12 +109,27 @@ pub struct RunArgs {
 /// Wall time per phase, reported in the run event.
 #[derive(Default, Debug)]
 pub(crate) struct Phases {
+    /// Before the import: store, environment pin (host fingerprint or
+    /// rootfs), step key, ledger and trust.
+    setup: Duration,
     import: Duration,
     lookup: Duration,
     mount: Duration,
+    /// Parts of `mount`: the observer coming up (FUSE mount, ring queues,
+    /// INIT), the overlay, and the sealed snapshots.
+    serve: Duration,
+    overlay: Duration,
+    seal: Duration,
     exec: Duration,
     diff: Duration,
+    /// Parts of `diff`: storing the overlay's upper (the step's outputs),
+    /// the observer's unmount (with the log), and building the manifest.
+    outputs: Duration,
+    unmount: Duration,
+    manifest: Duration,
     record: Duration,
+    /// Removing the run directory after the run is recorded.
+    cleanup: Duration,
 }
 
 /// What every run row of this invocation shares.
@@ -291,6 +306,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let mut phases = Phases::default();
     ledger.put_step_key(&key, &quod_key::canonical_key_json(&spec)?)?;
     let trust = Trust::new(&ledger, &cas, policy)?;
+    phases.setup = wall_start.elapsed();
 
     let t = Instant::now();
     let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
@@ -577,9 +593,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             out,
         )?;
     }
+    let t = Instant::now();
     if !args.keep {
         quod_cas::remove_any(&dir)?;
     }
+    phases.cleanup = t.elapsed();
 
     eprint!(
         "{}",
@@ -670,12 +688,14 @@ pub(crate) fn execute(
     let lower = dir.join("lower");
     std::fs::create_dir_all(&lower)?;
     let served = quod_fs::serve(tree, cas, &lower)?;
+    phases.serve = t.elapsed();
     let ov = quod_fs::overlay(
         &served,
         &dir.join("upper"),
         &dir.join("work"),
         &dir.join("merged"),
     )?;
+    phases.overlay = t.elapsed() - phases.serve;
     let root = match rootfs {
         Some(r) => Some(rootfs::RootOverlay::mount(r, cas, dir)?),
         None => None,
@@ -712,7 +732,9 @@ pub(crate) fn execute(
     // configuration: a sealed and an observed run of one tree read
     // equivalent manifests, and neither can be mistaken for a divergence.
     let sealable = spec.profile().seals(tree);
+    let ts = Instant::now();
     let sealed = seal::seal(spec.profile(), tree, cas, &snapshots);
+    phases.seal = ts.elapsed();
     phases.mount = t.elapsed();
 
     let t = Instant::now();
@@ -764,6 +786,7 @@ pub(crate) fn execute(
 
     let t = Instant::now();
     let mut outputs = ov.finish(tree, cas)?;
+    phases.outputs = t.elapsed();
     // mtime-keyed caches never become recorded outputs (see
     // Profile::no_outputs_under); their blobs stay unreferenced in the store.
     let before = outputs.len();
@@ -780,7 +803,10 @@ pub(crate) fn execute(
         None => Vec::new(),
     };
     let stats = served.stats();
+    let tu = Instant::now();
     let mut log = served.unmount()?;
+    phases.unmount = tu.elapsed();
+    let tm = Instant::now();
     for s in &sealable {
         log.extend(seal::accesses(tree, s));
         // Each carve-out too, as the tree has it (a listing, or absent): a
@@ -804,15 +830,22 @@ pub(crate) fn execute(
         quod_manifest::record_children(tree, &mut log, w.over_record);
     }
     let manifest = Manifest::from_log(spec_key(spec)?, spec.roots.clone(), tree, log)?;
+    phases.manifest = tm.elapsed();
     // Blobs before the result that names them.
     let (stdout, _) = cas.put_file(&dir.join("stdout"))?;
     let (stderr, _) = cas.put_file(&dir.join("stderr"))?;
     phases.diff = t.elapsed();
     let observer = format!(
-        "{}{}{}",
+        "{}{}{}{}{}",
         stats.transport_detail(),
         if stats.passthrough {
             "+passthrough"
+        } else {
+            ""
+        },
+        if stats.zero_open { "+zero-open" } else { "" },
+        if stats.zero_opendir {
+            "+zero-opendir"
         } else {
             ""
         },
@@ -1161,12 +1194,20 @@ fn emit_event(
         candidates = lookup.candidates,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),
         recorded_ms = lookup.hit.as_ref().map(|(_, r)| r.duration_ms),
+        setup_ms = ms(p.setup),
         import_ms = ms(p.import),
         lookup_ms = ms(p.lookup),
         mount_ms = ms(p.mount),
+        serve_ms = ms(p.serve),
+        overlay_ms = ms(p.overlay),
+        seal_ms = ms(p.seal),
         exec_ms = ms(p.exec),
         diff_ms = ms(p.diff),
+        outputs_ms = ms(p.outputs),
+        unmount_ms = ms(p.unmount),
+        manifest_ms = ms(p.manifest),
         record_ms = ms(p.record),
+        cleanup_ms = ms(p.cleanup),
         total_ms = ms(total),
         "run"
     );
