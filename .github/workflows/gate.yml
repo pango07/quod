@@ -224,6 +224,9 @@ jobs:
           cache-dependency-path: cloud/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # The route types (PageProps, LayoutProps) are generated into .next/,
+      # which `next dev` and `next build` write and a fresh checkout lacks.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
