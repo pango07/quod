@@ -450,9 +450,15 @@ fn served_mtimes_follow_content() {
     let out = String::from_utf8_lossy(&o.stdout).to_string();
     let times: std::collections::BTreeMap<&str, &str> =
         out.lines().filter_map(|l| l.split_once(' ')).collect();
+    // Exact, not within a tolerance: content_mtime is whole microseconds
+    // because a filesystem may keep less than nanoseconds (GitHub-hosted
+    // runners kept the sealed copy's at 100 ns), and every filesystem keeps
+    // a microsecond, so the served file and its sealed copy show the very
+    // time content_mtime gives.
     let d = quod_fs::content_mtime(&Hash::of(b"x\n"))
         .duration_since(UNIX_EPOCH)
         .unwrap();
+    assert_eq!(d.subsec_nanos() % 1000, 0, "whole microseconds");
     let want = format!("{}.{:09}", d.as_secs(), d.subsec_nanos());
     assert_eq!(times["same1.txt"], want, "{out}");
     assert_eq!(times["same2.txt"], want, "{out}");

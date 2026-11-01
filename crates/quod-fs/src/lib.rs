@@ -28,7 +28,11 @@ pub use overlay::{
 /// stale entry once it came back into a tree: the edited source showed the
 /// same mtime. Seconds carry 28 bits of the content hash, so a tool that
 /// compares only whole seconds still tells contents apart (equal odds
-/// 2^-28), and nanoseconds 30 more. The base, 2000-01-01, keeps every served
+/// 2^-28), and the sub-second part about 20 bits more: whole microseconds,
+/// because not every filesystem keeps nanoseconds (GitHub-hosted runners'
+/// kernels stored a sealed snapshot's times at 100 ns, so .681121762
+/// read back as .681121800); a microsecond survives every one Quod serves
+/// from or writes to, so a file's time is the same wherever it is. The base, 2000-01-01, keeps every served
 /// file in the past and older than anything a step writes. `CasFs::attr`
 /// applies it (through `git::served_time`, which serves a git index later
 /// than every file), and both transports encode the times that returns. Sealed
@@ -37,7 +41,8 @@ pub use overlay::{
 pub fn content_mtime(content: &quod_cas::Hash) -> std::time::SystemTime {
     let b = content.as_bytes();
     let secs = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & ((1 << 28) - 1);
-    let nanos = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) % 1_000_000_000;
+    let micros = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) % 1_000_000;
+    let nanos = micros * 1000;
     std::time::UNIX_EPOCH + std::time::Duration::new(946_684_800 + u64::from(secs), nanos)
 }
 
@@ -374,6 +379,8 @@ mod tests {
             let d = t.duration_since(UNIX_EPOCH).unwrap();
             assert!(d >= Duration::from_secs(946_684_800));
             assert!(d < Duration::from_secs(946_684_800 + (1 << 28)));
+            // Whole microseconds, which every filesystem stores exactly.
+            assert_eq!(d.subsec_nanos() % 1000, 0);
         }
     }
 }

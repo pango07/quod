@@ -228,8 +228,8 @@ impl Cas {
     /// disk (the same guarantee `put_file` gets from fsync and rename):
     /// every file is hashed in place; `sync` is called once with the store's
     /// directory and must flush that filesystem (the caller has syncfs(2));
-    /// then each new file is moved to its blob path (linked, then unlinked
-    /// from where it was), a metadata operation.
+    /// then each new file is moved to its blob path, verified under a
+    /// staging name first (`move_in`), metadata operations only.
     /// Storing a step's outputs thus costs one read of the bytes and one
     /// filesystem flush, not a second write and an fsync per file. Across
     /// filesystems a file falls back to `put_file`, durable on its own.
@@ -237,8 +237,8 @@ impl Cas {
     /// The bytes under a blob name must be the bytes that were hashed. The
     /// caller guarantees nothing writes to these files any more; this
     /// method checks it: each file's identity (inode, size, mtime) is taken
-    /// before hashing and compared after hashing and again on the blob after
-    /// the move. Any difference removes the blob and fails with
+    /// before hashing and compared after hashing and again on the staged
+    /// name, before it gets the blob name. Any difference removes it and fails with
     /// `CasError::Changed`, so a run whose outputs moved under it records
     /// nothing. A file with more than one link is copied, not moved, since
     /// its other names could still write to it.
@@ -246,6 +246,18 @@ impl Cas {
         &self,
         files: &[PathBuf],
         sync: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<Vec<(Hash, u64)>, CasError> {
+        self.take_files_with(files, sync, &|_| {})
+    }
+
+    /// `take_files` with `staged` called for each new blob once it has its
+    /// staging name and before it is verified (tests look at the store
+    /// there).
+    fn take_files_with(
+        &self,
+        files: &[PathBuf],
+        sync: impl FnOnce(&Path) -> io::Result<()>,
+        staged: &(dyn Fn(&Hash) + Sync),
     ) -> Result<Vec<(Hash, u64)>, CasError> {
         let hashed = self.par_map(files, |path| {
             let mut f = fs::File::open(path).at(path)?;
@@ -282,56 +294,102 @@ impl Cas {
         if !moves.is_empty() {
             sync(&self.dir).at(&self.dir)?;
         }
-        self.par_map(&moves, |(path, t)| {
-            let changed = || CasError::Changed(path.to_path_buf());
-            if t.copy {
+        self.par_map(&moves, |(path, t)| self.move_in(path, t, &staged))?;
+        Ok(hashed
+            .into_iter()
+            .map(|t| (t.h, if t.new { t.stamp.size } else { 0 }))
+            .collect())
+    }
+
+    /// Moves one hashed file to its blob name. Nothing is ever visible under
+    /// the blob name unverified, and nothing another writer stored there is
+    /// ever replaced or removed:
+    ///
+    /// 1. the file gets a second name in the blob's own directory, a staging
+    ///    name no reader looks up (`.<hash>.<pid>.<seq>`): a link, or where
+    ///    links are refused (fs.protected_hardlinks, a filesystem without
+    ///    hard links, a full link count) a rename, which cannot replace
+    ///    anything under a fresh name;
+    /// 2. the staged inode is checked to be the one hashed, unchanged
+    ///    (ino, size, mtime), else it goes and the run fails;
+    /// 3. the staging name is linked to the blob name; EEXIST means another
+    ///    writer stored the same content meanwhile, which stays as it is.
+    ///    Where links are refused, a rename, only while the blob name is
+    ///    absent (without renameat2's RENAME_NOREPLACE a writer in between
+    ///    could still be replaced, by these same verified bytes, never
+    ///    removed);
+    /// 4. the staging name goes, then the file's own name.
+    ///
+    /// Links rather than one rename: a rename across directories takes the
+    /// filesystem-wide rename lock, and ten thousand of them (a Go build
+    /// cache's action entries, new on every run) serialized to ~0.4s; links
+    /// take only their directories' locks. A crash leaves at most a staging
+    /// name in the blob directory, never under a blob name.
+    fn move_in(
+        &self,
+        path: &Path,
+        t: &Taken,
+        staged: &(dyn Fn(&Hash) + Sync),
+    ) -> Result<(), CasError> {
+        let changed = || CasError::Changed(path.to_path_buf());
+        if t.copy {
+            return (self.put_file(path)?.0 == t.h)
+                .then_some(())
+                .ok_or_else(changed);
+        }
+        let dest = self.blob_path(&t.h);
+        let parent = dest.parent().unwrap();
+        fs::create_dir_all(parent).at(parent)?;
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let stage = parent.join(format!(
+            ".{}.{}.{}",
+            t.h.hex(),
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        // 1. A staging name.
+        let linked = match fs::hard_link(path, &stage) {
+            Ok(()) => true,
+            Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
                 return (self.put_file(path)?.0 == t.h)
                     .then_some(())
                     .ok_or_else(changed);
             }
-            let dest = self.blob_path(&t.h);
-            let parent = dest.parent().unwrap();
-            fs::create_dir_all(parent).at(parent)?;
-            // A link and an unlink rather than a rename: a rename across
-            // directories takes the filesystem-wide rename lock, so ten
-            // thousand of them (a Go build cache's action entries, new on
-            // every run) serialized to ~0.4s; links take only their
-            // directories' locks.
-            let linked = match fs::hard_link(path, &dest) {
-                Ok(()) => Ok(true),
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
-                // No link here (fs.protected_hardlinks refusing a file this
-                // process neither owns nor may write, a filesystem without
-                // hard links, a link count at its maximum): rename instead.
-                Err(_) => fs::rename(path, &dest).map(|()| false),
-            };
-            let linked = match linked {
-                Ok(linked) => linked,
-                // Another run stored the same content meanwhile: the blob
-                // exists, as if it had at hashing time.
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(_) => match fs::rename(path, &stage) {
+                Ok(()) => false,
                 Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
                     return (self.put_file(path)?.0 == t.h)
                         .then_some(())
                         .ok_or_else(changed);
                 }
-                Err(e) => return Err(e).at(&dest),
-            };
-            // The blob is the inode that was hashed, unchanged since; else
-            // it cannot stay under that name.
-            if Stamp::of(&fs::symlink_metadata(&dest).at(&dest)?) != t.stamp {
-                let _ = fs::remove_file(&dest);
-                return Err(changed());
+                Err(e) => return Err(e).at(&stage),
+            },
+        };
+        staged(&t.h);
+        // 2. The inode that was hashed, unchanged since.
+        if Stamp::of(&fs::symlink_metadata(&stage).at(&stage)?) != t.stamp {
+            let _ = fs::remove_file(&stage);
+            return Err(changed());
+        }
+        // 3. Under the blob name, unless someone stored it first.
+        match fs::hard_link(&stage, &dest) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(_) if !dest.exists() => {
+                fs::rename(&stage, &dest).at(&dest)?;
             }
-            if linked {
-                fs::remove_file(path).at(path)?;
-            }
-            Ok(())
-        })?;
-        Ok(hashed
-            .into_iter()
-            .map(|t| (t.h, if t.new { t.stamp.size } else { 0 }))
-            .collect())
+            Err(_) => {}
+        }
+        // 4. The staging name, then the file's own (a rename moved it).
+        match fs::remove_file(&stage) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).at(&stage),
+        }
+        if linked {
+            fs::remove_file(path).at(path)?;
+        }
+        Ok(())
     }
 
     /// Copies a blob into `dest` (which must not exist).
@@ -636,4 +694,92 @@ fn make_writable(dir: &Path) -> Result<(), CasError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod move_tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_under_the_blob_name_before_it_is_verified() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        fs::write(out.join("a"), b"a new output").unwrap();
+        let h = Hash::of(b"a new output");
+        let looked = AtomicU64::new(0);
+        let got = cas
+            .take_files_with(&[out.join("a")], |_| Ok(()), &|staged| {
+                assert_eq!(*staged, h);
+                // Between staging and the check: not visible as h yet.
+                assert!(!cas.has(staged), "the blob name exists before the check");
+                looked.fetch_add(1, Ordering::Relaxed);
+            })
+            .unwrap();
+        assert_eq!(looked.load(Ordering::Relaxed), 1);
+        assert_eq!(got, vec![(h, 12)]);
+        assert_eq!(cas.get(&h).unwrap().unwrap(), b"a new output");
+        assert!(!out.join("a").exists());
+        // Only the blob in its directory: no staging name left.
+        let dir = cas.blob_path(&h).parent().unwrap().to_path_buf();
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from(h.hex())]);
+        assert_eq!(fs::metadata(cas.blob_path(&h)).unwrap().nlink(), 1);
+    }
+
+    #[test]
+    fn a_file_changed_before_the_check_never_gets_the_blob_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let file = out.join("a");
+        fs::write(&file, b"hashed bytes").unwrap();
+        let h = Hash::of(b"hashed bytes");
+        let err = cas
+            .take_files_with(std::slice::from_ref(&file), |_| Ok(()), &|_| {
+                // A writer the caller did not stop: other bytes, other size.
+                let mut f = fs::OpenOptions::new().append(true).open(&file).unwrap();
+                f.write_all(b" and more").unwrap();
+            })
+            .unwrap_err();
+        assert!(matches!(err, CasError::Changed(_)), "{err}");
+        assert!(!cas.has(&h), "unverified bytes under the blob name");
+        let dir = cas.blob_path(&h).parent().unwrap().to_path_buf();
+        assert_eq!(
+            fs::read_dir(&dir).unwrap().count(),
+            0,
+            "no staging name left"
+        );
+    }
+
+    #[test]
+    fn a_blob_stored_meanwhile_is_left_as_it_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let out = tmp.path().join("out");
+        fs::create_dir(&out).unwrap();
+        fs::write(out.join("a"), b"same content").unwrap();
+        let h = Hash::of(b"same content");
+        let theirs = AtomicU64::new(0);
+        cas.take_files_with(&[out.join("a")], |_| Ok(()), &|staged| {
+            // Another writer stores the same content first.
+            cas.put(b"same content").unwrap();
+            let ino = fs::metadata(cas.blob_path(staged)).unwrap().ino();
+            theirs.store(ino, Ordering::Relaxed);
+        })
+        .unwrap();
+        let ino = theirs.load(Ordering::Relaxed);
+        assert_eq!(
+            fs::metadata(cas.blob_path(&h)).unwrap().ino(),
+            ino,
+            "theirs was replaced"
+        );
+        assert_eq!(cas.get(&h).unwrap().unwrap(), b"same content");
+    }
 }

@@ -141,10 +141,21 @@ impl Drop for RunDir {
 /// upper dir (`Cas::take_files` links, then unlinks); nothing may ever
 /// write through it, so it goes. Never fails a run: problems are warnings.
 fn sweep_runs(runs: &Path) {
+    sweep_runs_with(runs, &mount_points());
+}
+
+/// `sweep_runs` against a given list of mount points (as /proc lists them:
+/// absolute, symlinks resolved). `runs` is resolved the same way first, so
+/// a state dir given relative or through a symlink still sees what is
+/// mounted under its run directories.
+fn sweep_runs_with(runs: &Path, mounts: &[PathBuf]) {
+    let Ok(runs) = runs.canonicalize() else {
+        return;
+    };
+    let runs = runs.as_path();
     let Ok(entries) = std::fs::read_dir(runs) else {
         return;
     };
-    let mounts = mount_points();
     for e in entries.flatten() {
         let dir = e.path();
         let Some(id) = dir.file_name().and_then(|n| n.to_str()).map(String::from) else {
@@ -257,5 +268,41 @@ mod run_dir_tests {
             !runs.join("next.lock").exists(),
             "no directory, no lock file"
         );
+    }
+
+    /// A stale run directory with something mounted under it is left, also
+    /// when the state dir is reached through a symlink or a path with `..`
+    /// in it (mount points are absolute and resolved).
+    #[test]
+    fn a_mount_under_a_stale_run_dir_is_seen_through_a_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let state = State { dir: link.clone() };
+        let dead = state.claim_run_dir("dead", false).unwrap();
+        std::fs::create_dir_all(dead.path.join("merged")).unwrap();
+        std::mem::forget(dead); // as if killed
+        let lock = real.join("runs/dead.lock");
+        std::fs::remove_file(&lock).unwrap();
+        std::fs::write(&lock, b"").unwrap();
+        // What /proc/self/mountinfo would list: the resolved path.
+        let mounted = real.canonicalize().unwrap().join("runs/dead/merged");
+        for runs in [
+            link.join("runs"),
+            link.join("runs/../runs"),
+            real.join("runs"),
+        ] {
+            sweep_runs_with(&runs, std::slice::from_ref(&mounted));
+            assert!(
+                real.join("runs/dead/merged").exists(),
+                "swept a dir with a mount under it ({})",
+                runs.display()
+            );
+        }
+        // Unmounted, it goes.
+        sweep_runs_with(&link.join("runs"), &[]);
+        assert!(!real.join("runs/dead").exists());
     }
 }
