@@ -175,17 +175,35 @@ open per instance would keep Neon from scaling to zero. So the feed polls
   consumer, without repeating what the shared poller then delivers.
 
 **Lost deliveries.** GitHub does not resend a failed webhook by itself.
-`/api/github/reconcile` (Vercel Cron, every 15 min, `CRON_SECRET`;
-`lib/github/reconcile.ts`) does three things:
+`lib/github/reconcile.ts` heals them. A pass does two things:
 
-- It asks GitHub to redeliver App deliveries of the last hour that have no
-  successful attempt. Dedupe makes a redelivery that had in fact landed a
-  no-op.
-- It re-reads from GitHub's REST API any run, or the run of any job, still
-  unfinished and not updated for 15 minutes. The REST objects have the
-  webhook shape, so they go through the same monotonic upserts.
-- It prunes runs and jobs after 30 days and delivery ids after 7.
+- **Redeliver.** It lists the App's failed deliveries (App JWT,
+  `status=failure`) and asks GitHub to send again each GUID that Quod's
+  `deliveries` table never recorded. Dedupe makes a duplicate harmless.
+- **Re-read.** Any run, or the run of any job, still unfinished and not
+  updated (or checked) for 15 minutes is re-read from GitHub's REST API.
+  The REST objects have the webhook shape, so they go through the same
+  monotonic upserts. `reconciled_at` rotates long healthy runs to the back.
 
-The re-read and the prune run only when there were deliveries in the
-window, so an idle App never wakes the database. Rows of suspended
-installations are hidden from every query above.
+Two triggers, because Vercel Hobby allows one cron a day:
+
+- **Daily cron.** `/api/github/reconcile` (`vercel.json`, `CRON_SECRET`)
+  covers every team, the last 25 hours of failures, and retention (runs and
+  jobs after 30 days, delivery ids after 7).
+- **Lazy, while someone watches.** A team's shared poller calls the
+  reconcile hook on its first poll and then every 15 minutes per instance
+  (`PollOptions.reconcile`, default `lib/github/lazy-reconcile.ts`). The
+  hook runs in the background (Vercel `waitUntil`; the stream never awaits
+  it) and first claims the team's `reconcile_state` row with one atomic
+  statement:
+
+  ```sql
+  INSERT ... ON CONFLICT (key) DO UPDATE SET last_run_at = now()
+  WHERE last_run_at < now() - interval '15 minutes' RETURNING key
+  ```
+
+  So across all instances, a team is reconciled at most every 15 minutes,
+  scoped to its own installations, with the last 3 hours of failures.
+
+Nobody watching means nothing runs between daily passes, so Neon can scale
+to zero. Rows of suspended installations are hidden from every query above.

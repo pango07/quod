@@ -86,8 +86,9 @@ The Quod CI GitHub App sends CI job status to Quod Cloud by webhook. It is
 created once, from the dashboard, with GitHub's App Manifest flow.
 
 **1. Database (engineer, once, after the product owner approves the SQL).**
-The tables are in `db/migrations/0001_github_app.sql` and
-`0002_github_app_review.sql`. With Neon's direct URL in your shell as
+The tables are in `db/migrations/0001_github_app.sql`,
+`0002_github_app_review.sql` and `0003_reconcile_state.sql`. With Neon's
+direct URL in your shell as
 `DATABASE_URL_UNPOOLED` (it is in Vercel):
 
 ```sh
@@ -101,8 +102,8 @@ npm run db:migrate                # applies them, each in its own transaction
   (comma-separated for more). Not secret.
 - `APP_URL`: `https://app.quodci.com`. Not secret.
 - `CRON_SECRET`: a random string of at least 16 characters, e.g. from
-  `openssl rand -hex 32`. Secret. Vercel Cron sends it to the reconcile job
-  (see "Lost webhooks" below).
+  `openssl rand -hex 32`. Secret. Vercel Cron sends it to the daily
+  reconcile job (see "Lost webhooks" below).
 
 `DATABASE_URL` is already set by the Neon integration.
 
@@ -155,18 +156,26 @@ Linking requires (tested in `lib/github/link.test.ts` and
 To unlink, a team admin taps **Disconnect** in Settings, then GitHub; the
 App stays installed on GitHub. Uninstalling on GitHub also unlinks it.
 
-**Lost webhooks.** GitHub does not resend a failed webhook by itself.
-Every 15 minutes, Vercel Cron calls `/api/github/reconcile` (see
-`vercel.json`; it needs `CRON_SECRET`). That job:
-- asks GitHub to redeliver any App delivery of the last hour that never
-  succeeded;
-- reads back from GitHub any run or job still unfinished after 15 minutes
-  without an update;
-- deletes runs and jobs not updated for 30 days.
+**Lost webhooks.** GitHub does not resend a failed webhook by itself, so
+Quod reconciles in two ways. Each pass:
+- asks GitHub to redeliver App deliveries that failed and never reached
+  Quod's database;
+- reads back from GitHub any run or job of a linked repo still unfinished
+  after 15 minutes without an update.
 
-When the App had no deliveries in that hour, the job does not touch the
-database, so Neon can stay scaled to zero. Vercel's Hobby plan only allows
-daily crons; on Pro the 15-minute schedule works as written.
+The two triggers (Vercel Hobby allows one cron a day):
+- **Daily:** Vercel Cron calls `/api/github/reconcile` once a day
+  (`vercel.json`, about 06:17 UTC; Hobby may run it any time in that hour).
+  It needs `CRON_SECRET`. It covers every team and the last 25 hours of
+  failures, and deletes runs and jobs not updated for 30 days.
+- **While someone watches:** when a team's dashboard is open, its live
+  poller reconciles that team in the background, at most every 15 minutes.
+  The `reconcile_state` table holds the throttle, so several server
+  instances never double-run it.
+
+With nobody watching, nothing runs between daily passes, so Neon can stay
+scaled to zero. A failure while nobody watches heals at the latest at the
+next daily run, or as soon as someone opens the team.
 
 Locally: `npm run db:migrate -- --pglite ./.pglite`, then run
 `DATABASE_URL=pglite:./.pglite npm run dev`. The GitHub round trips need a
