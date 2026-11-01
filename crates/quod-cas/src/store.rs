@@ -220,7 +220,8 @@ impl Cas {
     /// disk (the same guarantee `put_file` gets from fsync and rename):
     /// every file is hashed in place; `sync` is called once with the store's
     /// directory and must flush that filesystem (the caller has syncfs(2));
-    /// then each new file is renamed to its blob path, a metadata operation.
+    /// then each new file is moved to its blob path (linked, then unlinked
+    /// from where it was), a metadata operation.
     /// Storing a step's outputs thus costs one read of the bytes and one
     /// filesystem flush, not a second write and an fsync per file. Across
     /// filesystems a file falls back to `put_file`, durable on its own.
@@ -229,7 +230,7 @@ impl Cas {
     /// caller guarantees nothing writes to these files any more; this
     /// method checks it: each file's identity (inode, size, mtime) is taken
     /// before hashing and compared after hashing and again on the blob after
-    /// the rename. Any difference removes the blob and fails with
+    /// the move. Any difference removes the blob and fails with
     /// `CasError::Changed`, so a run whose outputs moved under it records
     /// nothing. A file with more than one link is copied, not moved, since
     /// its other names could still write to it.
@@ -283,20 +284,39 @@ impl Cas {
             let dest = self.blob_path(&t.h);
             let parent = dest.parent().unwrap();
             fs::create_dir_all(parent).at(parent)?;
-            match fs::rename(path, &dest) {
-                Ok(()) => {}
+            // A link and an unlink rather than a rename: a rename across
+            // directories takes the filesystem-wide rename lock, so ten
+            // thousand of them (a Go build cache's action entries, new on
+            // every run) serialized to ~0.4s; links take only their
+            // directories' locks.
+            let linked = match fs::hard_link(path, &dest) {
+                // fs.protected_hardlinks refuses linking a file this
+                // process neither owns nor may write: rename it instead.
+                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                    fs::rename(path, &dest).map(|()| false)
+                }
+                r => r.map(|()| true),
+            };
+            let linked = match linked {
+                Ok(linked) => linked,
+                // Another run stored the same content meanwhile: the blob
+                // exists, as if it had at hashing time.
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(()),
                 Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
                     return (self.put_file(path)?.0 == t.h)
                         .then_some(())
                         .ok_or_else(changed);
                 }
                 Err(e) => return Err(e).at(&dest),
-            }
+            };
             // The blob is the inode that was hashed, unchanged since; else
             // it cannot stay under that name.
             if Stamp::of(&fs::symlink_metadata(&dest).at(&dest)?) != t.stamp {
                 let _ = fs::remove_file(&dest);
                 return Err(changed());
+            }
+            if linked {
+                fs::remove_file(path).at(path)?;
             }
             Ok(())
         })?;

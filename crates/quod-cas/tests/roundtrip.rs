@@ -127,6 +127,10 @@ fn take_file_moves_new_blobs_and_leaves_duplicates() {
     assert!(out.join("dup").exists());
     assert_eq!(cas.get(&got[0].0).unwrap().unwrap(), b"fresh bytes");
     assert_eq!(cas.get(&got[1].0).unwrap().unwrap(), big);
+    // Moved (linked, then unlinked from the output dir): one name left.
+    for g in &got[..2] {
+        assert_eq!(fs::metadata(cas.blob_path(&g.0)).unwrap().nlink(), 1);
+    }
     // Whatever mode the step used, the blob has the store's: read-only.
     let mode = fs::metadata(cas.blob_path(&got[0].0)).unwrap().mode() & 0o777;
     assert_eq!(mode, 0o444);
