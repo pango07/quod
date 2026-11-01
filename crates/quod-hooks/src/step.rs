@@ -77,12 +77,15 @@ impl Step {
         !self.taint.is_empty()
     }
 
-    /// The label for events.jsonl: a script's first line may hold anything
-    /// (an inline secret), so a script is logged by its hash.
-    pub fn log_label(&self) -> String {
+    /// The label for events.jsonl and the trust table: a script's first
+    /// line may hold anything (an inline secret), so a script is logged by
+    /// a hash keyed with the state's salt (a short unkeyed hash of a script
+    /// holding a low-entropy secret could be checked against guesses).
+    pub fn log_label(&self, salt: &[u8; 32]) -> String {
         match &self.kind {
             Kind::Script { text, .. } => {
-                format!("run: {}", quod_cas::Hash::of(text.as_bytes()).short())
+                let h = quod_cas::Hash::from_blake3(blake3::keyed_hash(salt, text.as_bytes()));
+                format!("run: {}", h.short())
             }
             _ => self.label.clone(),
         }

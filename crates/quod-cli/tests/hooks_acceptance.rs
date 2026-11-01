@@ -43,6 +43,43 @@ struct Runner {
     /// The event: its name (GITHUB_EVENT_NAME) and the payload the runner
     /// writes to `_temp/_github_workflow/event.json`.
     event: (&'static str, serde_json::Value),
+    /// The workflow file the job runs (GITHUB_WORKFLOW_REF), one of
+    /// `WORKFLOWS`, committed in the repository.
+    workflow: &'static str,
+    /// Keep job directories after cleanup (the policy's `keep_jobs`).
+    keep_jobs: bool,
+}
+
+/// The workflows the jobs claim to run (GITHUB_WORKFLOW_REF names one, at
+/// GITHUB_WORKFLOW_SHA): Quod reads the job's secret provenance from it.
+const WORKFLOWS: &[(&str, &str)] = &[
+    (
+        "quod-plain.yml",
+        "on: push\njobs:\n  test:\n    runs-on: [self-hosted, quod]\n    container: golang\n    steps:\n      - uses: actions/checkout@v4\n      - run: go test ./...\n",
+    ),
+    // S1: a secret mapped at the step.
+    (
+        "quod-s1.yml",
+        "on: push\njobs:\n  s:\n    runs-on: [self-hosted, quod]\n    container: golang\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./s.sh\n        env:\n          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}\n",
+    ),
+    // S2, S4: a secret under a plain name, mapped for the whole job.
+    (
+        "quod-s2.yml",
+        "on: push\njobs:\n  s:\n    runs-on: [self-hosted, quod]\n    container: golang\n    env:\n      APP_DSN: ${{ secrets.DSN }}\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./s.sh\n",
+    ),
+    // S3: every secret at once, which no name can follow.
+    (
+        "quod-s3.yml",
+        "on: push\njobs:\n  s:\n    runs-on: [self-hosted, quod]\n    container: golang\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./s.sh\n        env:\n          ALL: ${{ toJSON(secrets) }}\n",
+    ),
+];
+
+/// Commits `WORKFLOWS` into the repository the jobs check out.
+fn commit_workflows(env: &Env) {
+    for (name, text) in WORKFLOWS {
+        env.write(&format!(".github/workflows/{name}"), text);
+    }
+    env.commit("quod acceptance workflows");
 }
 
 /// A push to the default branch: a writer job of the trusted scope.
@@ -140,6 +177,8 @@ impl Runner {
             audit: 0.0,
             user: "--user 1001:1001",
             event: push_to_main(),
+            workflow: "quod-plain.yml",
+            keep_jobs: true,
         }
     }
 
@@ -167,7 +206,7 @@ impl Runner {
             "mode": self.mode,
             "proofs": self.proofs,
             "audit": self.audit,
-            "keep_jobs": true,
+            "keep_jobs": self.keep_jobs,
             "rootfs": if image().is_some() { "image" } else { "host" },
         });
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_quod"));
@@ -257,6 +296,10 @@ impl Runner {
             "GITHUB_SERVER_URL": format!("file://{}", self.env.tmp.path().display()),
             "GITHUB_SHA": self.head(),
             "GITHUB_REF": "refs/heads/main",
+            "GITHUB_WORKFLOW_REF": format!("o/r/.github/workflows/{}@refs/heads/main", self.workflow),
+            "GITHUB_WORKFLOW_SHA": self.head(),
+            // The job's id in its workflow (`WORKFLOWS`).
+            "GITHUB_JOB": if self.workflow == "quod-plain.yml" { "test" } else { "s" },
             "GITHUB_RUN_ID": format!("{}", 1000 + n),
             "GITHUB_RUN_ATTEMPT": "1",
             "RUNNER_TEMP": "/__w/_temp",
@@ -433,6 +476,7 @@ fn hooks_acceptance() {
     std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
     let step = std::env::var("QUOD_STEP").unwrap_or_else(|_| STEP_DEFAULT.into());
     let step = step.as_str();
+    commit_workflows(&env);
     let mut r = Runner::new(env);
 
     // A1: first job executes and records one manifest and result.
@@ -773,11 +817,17 @@ fn hooks_acceptance() {
         .iter()
         .filter(|e| {
             // Not .git: the checkout serves its own, and the files at those
-            // paths on disk are the test repository's.
+            // paths on disk are the test repository's. Not the workflows the
+            // jobs run (`WORKFLOWS`): Quod reads them for the job's secret
+            // provenance, and a mutated one that no longer parses makes the
+            // job opaque, as it must.
             e.k == Kind::File
                 && !recorded.contains(e.p.as_str())
                 && !e.p.starts_with(".quod/")
                 && !e.p.starts_with(".git/")
+                && !WORKFLOWS
+                    .iter()
+                    .any(|(w, _)| e.p == format!(".github/workflows/{w}"))
         })
         .filter(|e| r.env.repo.join(&e.p).is_file())
         .collect();
@@ -1424,6 +1474,7 @@ fn hooks_git_index() {
         env.write(".github/workflows/ci.yml", "name: ci\n");
         env.commit("a main package and a workflow");
     }
+    commit_workflows(&env);
     std::fs::create_dir_all(env.tmp.path().join("o")).unwrap();
     std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
     let (pkg, test) = if spike.is_some() {
@@ -1590,4 +1641,408 @@ fn hooks_git_index() {
         assert!(o.executed() && !o.replayed(), "G4 {what}: {}", o.stderr);
     }
     println!("hooks git index: G1-G4 pass");
+}
+
+/// The encodings a stored secret could take that the check below looks
+/// for, computed here independently of Quod's masker: the value, base64 at
+/// each byte offset (the aligned part, as it appears inside a longer
+/// stream), URL-encoded, JSON-escaped, hex in either case.
+fn encodings(secret: &str) -> Vec<(String, Vec<u8>)> {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let b = secret.as_bytes();
+    let mut out = vec![("plain".to_string(), b.to_vec())];
+    for shift in 0..3.min(b.len()) {
+        let body = &b[shift..];
+        let body = &body[..body.len() / 3 * 3];
+        let mut s = String::new();
+        for c in body.chunks(3) {
+            let n = (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2]);
+            for i in 0..4 {
+                s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            }
+        }
+        if s.len() >= 8 {
+            out.push((format!("base64+{shift}"), s.into_bytes()));
+        }
+    }
+    // Wrapped as GNU base64 (76 columns) and openssl (64) write it.
+    if let Some((_, whole)) = out.iter().find(|(w, _)| w == "base64+0").cloned() {
+        let mut full = whole.clone();
+        let padded = !b.len().is_multiple_of(3);
+        if padded {
+            // `whole` is the aligned core; the stream's own lines are what
+            // the tools print: rebuild the full encoding.
+            let mut s = String::new();
+            for c in b.chunks(3) {
+                let n = (u32::from(c[0]) << 16)
+                    | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+                    | u32::from(*c.get(2).unwrap_or(&0));
+                for i in 0..4 {
+                    if i <= c.len() {
+                        s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+                    } else {
+                        s.push('=');
+                    }
+                }
+            }
+            full = s.into_bytes();
+        }
+        for width in [64, 76] {
+            for (i, c) in full.chunks(width).enumerate() {
+                if c.len() >= 16 {
+                    out.push((format!("base64 wrapped at {width}, line {i}"), c.to_vec()));
+                }
+            }
+        }
+    }
+    let url: String = b
+        .iter()
+        .map(|&c| {
+            if c.is_ascii_alphanumeric() || b"-._~".contains(&c) {
+                (c as char).to_string()
+            } else {
+                format!("%{c:02X}")
+            }
+        })
+        .collect();
+    out.push(("url".into(), url.into_bytes()));
+    let json = serde_json::to_string(secret).unwrap();
+    out.push(("json".into(), json.as_bytes()[1..json.len() - 1].to_vec()));
+    let hex: String = b.iter().map(|c| format!("{c:02x}")).collect();
+    out.push(("hex".into(), hex.to_uppercase().into_bytes()));
+    out.push(("hex".into(), hex.into_bytes()));
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Every file under `dir` (the whole state: the store, the ledgers with
+/// their WAL and SHM files, events, seeds, jobs) whose name or content
+/// holds an encoding of `secret`, as `path: encoding`.
+fn leaks(dir: &Path, secret: &str) -> Vec<String> {
+    let enc = encodings(secret);
+    let has = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            let Ok(t) = e.file_type() else { continue };
+            let name = p.to_string_lossy().into_owned();
+            for (what, bytes) in &enc {
+                if has(name.as_bytes(), bytes) {
+                    found.push(format!("{name} (name): {what}"));
+                }
+            }
+            if t.is_dir() {
+                stack.push(p);
+            } else if t.is_file() {
+                let Ok(data) = std::fs::read(&p) else {
+                    continue;
+                };
+                for (what, bytes) in &enc {
+                    if has(&data, bytes) {
+                        found.push(format!("{name}: {what}"));
+                    }
+                }
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// MAJOR 1: a secret is never stored, under whatever name the workflow
+/// maps it, in whatever encoding GitHub masks it. Each job names its
+/// workflow (GITHUB_WORKFLOW_REF), which Quod reads at GITHUB_WORKFLOW_SHA
+/// to learn which variables carry secrets (`quod_hooks::provenance`).
+#[test]
+fn hooks_secrets() {
+    if !enabled() {
+        return;
+    }
+    let env = match std::env::var("QUOD_SPIKE_REPO") {
+        Ok(src) => Env::from_copy(Path::new(&src), Some(quod_key::Toolchain::Go)),
+        Err(_) => Env::new(),
+    };
+    std::fs::create_dir_all(env.tmp.path().join("o")).unwrap();
+    std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
+    commit_workflows(&env);
+    let mut r = Runner::new(env);
+    // Job directories go at cleanup, as in production: what is left is
+    // what Quod keeps.
+    r.keep_jobs = false;
+    // Every case runs and reports; the test fails at the end with all that
+    // failed (so a run on code without the fix shows each case).
+    let fails = std::cell::RefCell::new(Vec::<String>::new());
+    let check = |ok: bool, msg: String| {
+        if !ok {
+            eprintln!("FAIL {msg}");
+            fails.borrow_mut().push(msg);
+        }
+    };
+    let results = |r: &Runner| -> usize {
+        let out = Command::new("sqlite3")
+            .arg(r.scope().join("ledger.sqlite"))
+            .arg("SELECT count(*) FROM results")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    };
+    let no_leak = |r: &Runner, what: &str, secret: &str| {
+        let found = leaks(&r.state, secret);
+        check(
+            found.is_empty(),
+            format!("{what}: the state holds the secret: {found:#?}"),
+        );
+        // Nor does what a job keeps outside the state while it runs.
+        let shm: Vec<String> = std::fs::read_dir("/dev/shm")
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("quod-"))
+            .flat_map(|e| leaks(&e.path(), secret))
+            .collect();
+        check(
+            shm.is_empty(),
+            format!("{what}: /dev/shm holds the secret after cleanup: {shm:#?}"),
+        );
+    };
+    let not_recorded = |o: &StepOut, what: &str, why: &str| {
+        check(
+            !o.summary.contains("would replay: yes") && o.summary.contains(why),
+            format!("{what}: not recorded because {why:?}: {}", o.summary),
+        );
+    };
+
+    // S1: DB_PASSWORD mapped from a secret at the step. The step prints it
+    // raw and in base64 (alone, and as a docker `auth`), writes it to a
+    // file, to GITHUB_OUTPUT and the step summary, and as a file name.
+    r.workflow = "quod-s1.yml";
+    let pw = "hunter2/hunter 2";
+    let s1 = "printf 'raw=%s\\n' \"$DB_PASSWORD\"\n\
+              printf '%s' \"$DB_PASSWORD\" | base64\n\
+              printf 'user:%s' \"$DB_PASSWORD\" | base64\n\
+              printf '%s' \"$DB_PASSWORD\" > s1-secret.txt\n\
+              printf 'pw=%s\\n' \"$DB_PASSWORD\" >> \"$GITHUB_OUTPUT\"\n\
+              printf '%s' \"$DB_PASSWORD\" | base64 >> \"$GITHUB_STEP_SUMMARY\"\n\
+              mkdir -p \"s1-$DB_PASSWORD\"";
+    for _ in 0..2 {
+        let o = r.job(s1, &[("DB_PASSWORD", pw)]);
+        assert_eq!(o.code, 0, "S1: {}", o.stderr);
+        assert!(
+            String::from_utf8_lossy(&o.stdout).contains(pw),
+            "S1: the live step printed the value"
+        );
+    }
+    no_leak(&r, "S1", pw);
+    println!(
+        "S1 done: a step-mapped secret in stdout, base64, a file, GITHUB_OUTPUT, the summary and a file name"
+    );
+
+    // S2: a plain name (APP_DSN) mapped for the whole job: only the
+    // workflow says it is a secret. Printed, base64, absent lookups.
+    r.workflow = "quod-s2.yml";
+    let dsn = "s3cr3t-DSN value";
+    let s2 = "printf 'dsn=%s\\n' \"$APP_DSN\"\n\
+              printf '%s' \"$APP_DSN\" | base64\n\
+              test -e \"cfg-$APP_DSN\" || true\n\
+              cat \"cfg2-$APP_DSN\" 2>/dev/null || true";
+    for _ in 0..2 {
+        let o = r.job(s2, &[("APP_DSN", dsn)]);
+        assert_eq!(o.code, 0, "S2: {}", o.stderr);
+    }
+    no_leak(&r, "S2", dsn);
+    println!("S2 done: a job-mapped secret under a plain name");
+
+    // S3: toJSON(secrets) cannot be followed by name: the job is opaque,
+    // nothing is recorded.
+    r.workflow = "quod-s3.yml";
+    let n0 = results(&r);
+    for _ in 0..2 {
+        let o = r.job("echo s3-ok", &[("ALL", "{\"X\":\"s3-all-secrets-0001\"}")]);
+        assert_eq!(o.code, 0, "S3: {}", o.stderr);
+        not_recorded(&o, "S3", "opaque");
+    }
+    check(
+        results(&r) == n0,
+        format!("S3: {} results recorded", results(&r) - n0),
+    );
+    no_leak(&r, "S3", "s3-all-secrets-0001");
+    println!("S3 done: toJSON(secrets)");
+
+    // S4: the same step with two secret values: two keys; the same value
+    // again replays, its output masked.
+    r.workflow = "quod-s2.yml";
+    let (v1, v2) = ("first-value-s4-0001", "second-value-s4-0002");
+    let before = keys(&r).len();
+    let o = r.job("echo s4-$APP_DSN", &[("APP_DSN", v1)]);
+    assert_eq!(o.code, 0, "S4 v1: {}", o.stderr);
+    r.mode = "replay";
+    let o = r.job("echo s4-$APP_DSN", &[("APP_DSN", v1)]);
+    check(
+        o.replayed(),
+        format!("S4: the same value does not replay: {}", o.summary),
+    );
+    check(
+        String::from_utf8_lossy(&o.stdout).trim() == "s4-***",
+        format!(
+            "S4: the replay serves {:?}, not the masked output",
+            String::from_utf8_lossy(&o.stdout)
+        ),
+    );
+    let o = r.job("echo s4-$APP_DSN", &[("APP_DSN", v2)]);
+    check(
+        o.executed() && !o.replayed(),
+        format!("S4: another value replayed: {}", o.summary),
+    );
+    r.mode = "observe";
+    check(
+        keys(&r).len() == before + 2,
+        format!("S4: {} new keys for two values", keys(&r).len() - before),
+    );
+    no_leak(&r, "S4", v1);
+    no_leak(&r, "S4", v2);
+    println!("S4 done: two values, two keys; the same value replays");
+
+    // S5: a secret too short to mask reliably: never recorded.
+    r.workflow = "quod-s1.yml";
+    for _ in 0..2 {
+        let o = r.job("echo s5-ok", &[("DB_PASSWORD", "short1x")]);
+        assert_eq!(o.code, 0, "S5: {}", o.stderr);
+        not_recorded(&o, "S5", "shorter than 8");
+    }
+    println!("S5 done: a secret shorter than 8 bytes");
+
+    // S6: a value the step registers with ::add-mask:: is a secret from
+    // then on: the step is not recorded, its output not stored.
+    r.workflow = "quod-plain.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo '::add-mask::dyn-mask-value-0042'; echo v=dyn-mask-value-0042",
+            &[],
+        );
+        assert_eq!(o.code, 0, "S6: {}", o.stderr);
+        not_recorded(&o, "S6", "add-mask");
+    }
+    no_leak(&r, "S6", "dyn-mask-value-0042");
+    println!("S6 done: ::add-mask::");
+    // S7 (review of 5f0afd6, M4): a secret in a workflow command line
+    // (`::set-output`): replayed from the masked log it would set `***`.
+    r.workflow = "quod-s2.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo \"::set-output name=dsn::$APP_DSN\"; echo s7",
+            &[("APP_DSN", "s7-dsn-value-0007")],
+        );
+        assert_eq!(o.code, 0, "S7: {}", o.stderr);
+        not_recorded(&o, "S7", "workflow command line");
+    }
+    println!("S7 done: a secret in a workflow command line");
+
+    // S8 (M5): base64 of a key file, wrapped at 76 columns, to stdout and
+    // in a GITHUB_OUTPUT heredoc.
+    r.workflow = "quod-s1.yml";
+    let pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDx5kQ2bW9yZS1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OQ==\n-----END OPENSSH PRIVATE KEY-----";
+    // Each alone: either one keeps the other's run from being recorded.
+    for s8 in [
+        "printf '%s' \"$DB_PASSWORD\" > /tmp/key.pem\nbase64 /tmp/key.pem",
+        "printf '%s' \"$DB_PASSWORD\" > /tmp/key.pem\n\
+         { echo 'k<<EOF_8'; base64 /tmp/key.pem; echo EOF_8; } >> \"$GITHUB_OUTPUT\"",
+    ] {
+        for _ in 0..2 {
+            let o = r.job(s8, &[("DB_PASSWORD", pem)]);
+            assert_eq!(o.code, 0, "S8: {}", o.stderr);
+        }
+    }
+    no_leak(&r, "S8", pem);
+    println!("S8 done: wrapped base64 of a key");
+
+    // S9 (minor 2): with keep_jobs, a job that had secrets keeps no raw
+    // logs or layers.
+    r.keep_jobs = true;
+    let o = r.job(s1, &[("DB_PASSWORD", "s9-kept-job-secret")]);
+    assert_eq!(o.code, 0, "S9: {}", o.stderr);
+    r.keep_jobs = false;
+    no_leak(&r, "S9", "s9-kept-job-secret");
+    println!("S9 done: keep_jobs");
+
+    // S10 (M3): ::add-mask:: in the properties form, escaped as
+    // core.setSecret escapes (`%25` for %).
+    r.workflow = "quod-plain.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo '::add-mask k=v::s10%25mask-value'; echo 'v=s10%mask-value'",
+            &[],
+        );
+        assert_eq!(o.code, 0, "S10: {}", o.stderr);
+        not_recorded(&o, "S10", "add-mask");
+    }
+    no_leak(&r, "S10", "s10%mask-value");
+    println!("S10 done: ::add-mask:: with properties and escapes");
+
+    // S11 (M2): a password one step cuts out of a known secret (APP_DSN)
+    // into GITHUB_ENV, which the next step prints under that plain name.
+    r.workflow = "quod-s2.yml";
+    let dsn = ("APP_DSN", "postgres://u:s11-pa55word@h/db");
+    for _ in 0..2 {
+        r.prepare_job();
+        let co = r.checkout();
+        assert_eq!(co.code, 0, "S11 checkout: {}", co.stderr);
+        let cut = r.script(
+            "echo \"DB_PASS=$(printf '%s' \"$APP_DSN\" | sed 's#.*:\\(.*\\)@.*#\\1#')\" >> \"$GITHUB_ENV\"",
+            &[dsn],
+        );
+        assert_eq!(cut.code, 0, "S11 cut: {}", cut.stderr);
+        let o = r.script("echo \"pw=$DB_PASS\"", &[dsn, ("DB_PASS", "s11-pa55word")]);
+        assert_eq!(o.code, 0, "S11: {}", o.stderr);
+        r.cleanup_job();
+    }
+    no_leak(&r, "S11", "s11-pa55word");
+    println!("S11 done: a part of a known secret");
+
+    // S12 (R1, verification of 42c4498): configuration that a known secret
+    // also holds (`localhost` in the DSN) stays a plain value under the
+    // workflow's own name: recorded, and replayed unmasked.
+    let s12 = [
+        (
+            "APP_DSN",
+            "postgres://postgres:pw123456@localhost:5432/postgres",
+        ),
+        ("PGHOST", "localhost"),
+    ];
+    for i in 0..2 {
+        let o = r.job("echo \"host=$PGHOST\"", &s12);
+        assert_eq!(o.code, 0, "S12: {}", o.stderr);
+        if i == 1 {
+            check(
+                o.summary.contains("would replay: yes"),
+                format!(
+                    "S12: a step given only configuration is recorded: {}",
+                    o.summary
+                ),
+            );
+        }
+    }
+    r.mode = "replay";
+    let o = r.job("echo \"host=$PGHOST\"", &s12);
+    r.mode = "observe";
+    check(
+        o.replayed() && String::from_utf8_lossy(&o.stdout).contains("host=localhost"),
+        format!(
+            "S12: the replay serves {:?}, not GitHub's output",
+            String::from_utf8_lossy(&o.stdout)
+        ),
+    );
+    println!("S12 done: configuration inside a secret");
+    let fails = fails.into_inner();
+    assert!(fails.is_empty(), "hooks secrets failed: {fails:#?}");
+    println!("hooks secrets: S1-S12 pass");
 }
