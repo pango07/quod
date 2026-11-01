@@ -13,7 +13,7 @@ import { receiptFor } from "@/lib/trust";
  * why the selected one replayed or ran. The selection is kept in the URL (?step=).
  * Arrow keys move between steps.
  */
-export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: string; jobs: RunJob[]; initial: number }) {
+export function RunSteps({ team, repo, jobs, initial, asOf }: { team: string; repo: string; jobs: RunJob[]; initial: number; asOf: string }) {
   const flat = jobs.flatMap((j, ji) => j.steps.map((s, si) => ({ s, ji, si })));
   const [sel, setSel] = useState(Math.min(Math.max(0, initial), flat.length - 1));
   const list = useRef<HTMLDivElement>(null);
@@ -79,7 +79,7 @@ export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: st
                   <span className="ellipsis">{s.name}</span>
                   <OutcomeChip outcome={s.outcome} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)", fontSize: 13 }}>
-                    {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <Elapsed since={s.startedAt} /> : formatDuration(s.seconds)}
+                    {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <Elapsed since={s.startedAt} asOf={asOf} /> : formatDuration(s.seconds)}
                   </span>
                 </button>
               );

@@ -19,6 +19,8 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
   if (!run) notFound();
 
   const steps = run.jobs.flatMap((j) => j.steps);
+  // The render time, handed to the ticking clocks so server HTML and hydration agree.
+  const asOf = new Date().toISOString();
   // Default selection: the step from ?step=, else the first that ran because something changed, else the first replay.
   const fromUrl = Number(one(sp.step));
   const firstChanged = steps.findIndex((s) => s.why.kind === "changed" || s.why.kind === "paused" || (s.why.kind === "spot-check" && !s.why.identical));
@@ -59,7 +61,7 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
       <section aria-label="Time" className="stats sm">
         <div className="card stat">
           <span className="label">{run.status === "running" ? "Running for" : "Took"}</span>
-          <span className="value">{run.status === "running" ? <Elapsed since={run.startedAt} /> : formatDuration(run.tookSeconds)}</span>
+          <span className="value">{run.status === "running" ? <Elapsed since={run.startedAt} asOf={asOf} /> : formatDuration(run.tookSeconds)}</span>
         </div>
         <div className="card stat">
           <span className="label">Would have taken</span>
@@ -79,7 +81,7 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
         </div>
       </section>
 
-      <RunSteps team={team.slug} repo={repoSlug} jobs={run.jobs} initial={initial} />
+      <RunSteps team={team.slug} repo={repoSlug} jobs={run.jobs} initial={initial} asOf={asOf} />
     </div>
   );
 }

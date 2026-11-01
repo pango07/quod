@@ -10,9 +10,13 @@ import { formatCount, formatDuration, formatMinutes, formatPercent, formatUsd, s
 import { inScope } from "@/lib/live/scope";
 import { useLive, useLiveListener } from "./provider";
 
-/** The current time, ticking every `ms`. */
-function useNow(ms = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+/**
+ * The current time, ticking every `ms`. It starts at `start`, the server's
+ * render time, so the server HTML and the first client render show the same
+ * text (no hydration mismatch); the first tick then moves it to the browser clock.
+ */
+function useNow(start: string, ms = 1000): number {
+  const [now, setNow] = useState(() => Date.parse(start));
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), ms);
     return () => clearInterval(t);
@@ -20,10 +24,10 @@ function useNow(ms = 1000): number {
   return now;
 }
 
-/** Seconds since `since`, counting up every second (for running steps and runs). */
-export function Elapsed({ since }: { since: string }) {
-  const now = useNow();
-  return <span suppressHydrationWarning>{formatDuration(Math.max(0, (now - Date.parse(since)) / 1000))}</span>;
+/** Seconds since `since`, counting up every second (for running steps and runs). `asOf` is the server's render time. */
+export function Elapsed({ since, asOf }: { since: string; asOf: string }) {
+  const now = useNow(asOf);
+  return <>{formatDuration(Math.max(0, (now - Date.parse(since)) / 1000))}</>;
 }
 
 /** The header indicator: says honestly whether updates are flowing. */
@@ -76,7 +80,7 @@ export function LiveRefresh({ scope, types = TYPES_THAT_CHANGE_PAGES }: { scope:
 /** "Now running": jobs in progress (elapsed ticking, current step) and queued jobs (waiting time). */
 export function NowRunning({ team, initial, repo }: { team: string; initial: Activity; repo?: string }) {
   const live = useLive();
-  const now = useNow();
+  const now = useNow(initial.asOf);
   const all = live.jobs ?? initial.jobs;
   const jobs = repo ? all.filter((j) => j.repoSlug === repo) : all;
   const running = jobs.filter((j) => j.status === "in_progress");
@@ -138,8 +142,7 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
         </span>
         <span className="now-time mono" title={queued ? "Time waiting in the queue" : "Time running"}>
           <span className="sr-only">{queued ? "Queued for " : "Running for "}</span>
-          {/* The clock moves between server render and hydration; the count is meant to differ. */}
-          <span suppressHydrationWarning>{queued ? `queued ${elapsed}` : elapsed}</span>
+          {queued ? `queued ${elapsed}` : elapsed}
         </span>
       </Link>
     </li>
