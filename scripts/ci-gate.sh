@@ -106,6 +106,10 @@ setup() {
   local s=; [ "$(id -u)" = 0 ] || s=sudo
   $s apt-get update -qq
   $s apt-get install -y -qq --no-install-recommends bubblewrap fuse3 sqlite3 pkg-config >/dev/null
+  # /work as in the dev container: corpora and state where the sandbox can
+  # reach them (a runner's home is 0750).
+  $s mkdir -p /work/corpus /work/state /work/tmp
+  $s chown "$(id -u):$(id -g)" /work /work/corpus /work/state /work/tmp
   grep -qs '^user_allow_other' /etc/fuse.conf || echo user_allow_other | $s tee -a /etc/fuse.conf >/dev/null
   # Ubuntu restricts unprivileged user namespaces through AppArmor.
   $s sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true

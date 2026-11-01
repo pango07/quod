@@ -32,8 +32,11 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
-  # Outside the workspace, so neither checkout nor rust-cache touches it.
-  CORPUS: /home/runner/corpus/${{ inputs.corpus }}
+  # Under /work, as in the dev container (ci-gate.sh setup makes it): the
+  # sandbox cannot traverse /home/runner (0750), and neither checkout nor
+  # rust-cache touches /work. QUOD_HOME holds step A's dependency trees.
+  CORPUS: /work/corpus/${{ inputs.corpus }}
+  QUOD_HOME: /work/state
 
 jobs:
   run:
