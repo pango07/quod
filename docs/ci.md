@@ -137,7 +137,7 @@ Not cached, on purpose:
 | FUSE ring | `enable_uring` after each VM restart | present, off by default; `setup` turns it on, observer events say `fuse-uring`, no fallbacks |
 | file times | nanoseconds | 100 ns granularity: `served_mtimes_follow_content` and `transports_log_identically` fail (fix/cas-visibility) |
 | sudo | root already | sudo-rs ignores `-E`; `ci-gate.sh` passes the environment by name (without `GITHUB_ACTIONS`, quod-hooks' `no_worker_no_owner` fails) |
-| `/etc/resolv.conf` | a regular file | a symlink into `/run` (systemd-resolved), which the sandbox lacks; bwrap cannot bind the hooks surface's resolv.conf over it, so `setup` replaces the link with a copy. A Quod host-root run on any systemd-resolved host would hit the same: worth a fix in quod-hooks |
+| `/etc/resolv.conf` | a regular file | a symlink into `/run` (systemd-resolved), which the sandbox lacks. The sandbox binds onto where such a link leads (`quod_sandbox::sandbox_dest`, fix/sandbox-symlinked-etc), so `setup` leaves it as it is |
 | home | `/root` | `/home/runner` is 0750: corpora and state live under `/work`, owned by root, as in the container (the step user maps to root outside, so a runner-owned checkout is not writable to step A) |
 | host fingerprint | ~0.5 s | 12-24 s cold, 0.6-0.9 s warm: `ring_faults`' `a_ring_mount_held_through_its_teardown_fails_the_run` gives the run 9 s to mount its ring, which a cold first run missed twice. `ci-gate.sh` runs the fingerprint once before the merge gate (it prints the time), after which it passed twice |
 

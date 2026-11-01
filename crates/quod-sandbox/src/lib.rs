@@ -229,6 +229,93 @@ fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> SandboxError {
 /// observed.
 const SYSTEM_PATHS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"];
 
+/// What an offline step resolves names with: an address with no route, so a
+/// lookup fails at once (and counts as a network attempt) instead of
+/// reaching the host's resolver.
+pub const OFFLINE_RESOLV_CONF: &str = "nameserver 192.0.2.1\noptions attempts:1 timeout:1\n";
+/// The hosts file every offline step sees: the sandbox's own name resolves
+/// locally, as a container's does.
+pub const OFFLINE_HOSTS: &str =
+    "127.0.0.1\tlocalhost\n127.0.1.1\tquod\n::1\tlocalhost ip6-localhost ip6-loopback\n";
+
+/// Host /etc files a step must not see as the host has them: the
+/// fingerprint leaves their contents out (a container runtime rewrites them
+/// per container), so on the host root an offline step gets fixed ones
+/// (name, content). A rootfs import fixes them in the tree instead.
+const FIXED_ETC: &[(&str, &str)] = &[
+    ("hostname", "quod\n"),
+    ("hosts", OFFLINE_HOSTS),
+    ("resolv.conf", OFFLINE_RESOLV_CONF),
+    // The host's identity (systemd, D-Bus): fixed, valid in form.
+    ("machine-id", "71756f64000000000000000000000000\n"),
+];
+
+/// Where a mount onto `dst` lands in the sandbox: `dst` with every symlink on
+/// the way resolved as the sandbox sees it. bwrap creates a missing mount
+/// point by following the destination path, and a symlink there points into
+/// the sandbox's world, not the host's: on Ubuntu, /etc/resolv.conf is
+/// `../run/systemd/resolve/stub-resolv.conf`, whose directory does not exist
+/// in the sandbox, so binding onto /etc/resolv.conf failed ("Can't create
+/// file at /etc/resolv.conf"). Bound at the resolved path, the file appears
+/// where the symlink leads (bwrap creates the directories on its root
+/// tmpfs). Paths are resolved in the rootfs when there is one, else in the
+/// host's system paths (the only host directories the sandbox has); at most
+/// 40 symlinks, as the kernel.
+fn sandbox_dest(root: Option<&Path>, dst: &Path) -> PathBuf {
+    use std::collections::VecDeque;
+    use std::path::Component;
+    let on_disk = |p: &Path| -> Option<PathBuf> {
+        match root {
+            Some(r) => Some(r.join(p.strip_prefix("/").unwrap_or(p))),
+            None => SYSTEM_PATHS
+                .iter()
+                .any(|s| p.starts_with(s))
+                .then(|| p.to_path_buf()),
+        }
+    };
+    let mut out = PathBuf::from("/");
+    let mut rest: VecDeque<std::ffi::OsString> = VecDeque::new();
+    let push_all = |rest: &mut VecDeque<std::ffi::OsString>, p: &Path, front: bool| {
+        let names: Vec<std::ffi::OsString> = p
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(n) => Some(n.to_os_string()),
+                Component::ParentDir => Some("..".into()),
+                _ => None,
+            })
+            .collect();
+        if front {
+            for n in names.into_iter().rev() {
+                rest.push_front(n);
+            }
+        } else {
+            rest.extend(names);
+        }
+    };
+    push_all(&mut rest, dst, false);
+    let mut hops = 0;
+    while let Some(name) = rest.pop_front() {
+        if name == ".." {
+            out.pop();
+            continue;
+        }
+        let next = out.join(&name);
+        if hops < 40
+            && let Some(disk) = on_disk(&next)
+            && let Ok(target) = std::fs::read_link(&disk)
+        {
+            hops += 1;
+            if target.is_absolute() {
+                out = PathBuf::from("/");
+            }
+            push_all(&mut rest, &target, true);
+            continue;
+        }
+        out = next;
+    }
+    out
+}
+
 /// Inside the sandbox: the file whose content proves the step started. Under
 /// /dev (a tmpfs the sandbox makes) so that creating its mount point leaves
 /// no trace in a rootfs overlay's upper dir.
@@ -346,6 +433,12 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
     if spec.egress {
         push(&["--share-net"]);
     }
+    let root = spec.rootfs.as_ref().map(|r| r.dir.as_path());
+    let dest = |p: &str| {
+        sandbox_dest(root, Path::new(p))
+            .to_string_lossy()
+            .into_owned()
+    };
     match &spec.rootfs {
         Some(root) => {
             let flag = if root.writable { "--bind" } else { "--ro-bind" };
@@ -353,7 +446,7 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
             // A step with network needs the host's resolver, and only such
             // steps (never memoized) see anything of the host.
             if spec.egress && Path::new("/etc/resolv.conf").is_file() {
-                push(&["--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf"]);
+                push(&["--ro-bind", "/etc/resolv.conf", &dest("/etc/resolv.conf")]);
             }
         }
         None => {
@@ -377,7 +470,30 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
             push(&[
                 "--ro-bind",
                 &dir.join(f).to_string_lossy(),
-                &format!("/etc/{f}"),
+                &dest(&format!("/etc/{f}")),
+            ]);
+        }
+    }
+    if let (Some(dir), None, false) = (&spec.identity, &spec.rootfs, spec.egress) {
+        // The host root's /etc files whose contents are not keyed: fixed,
+        // where the host has them (the fingerprint keys which it has, and
+        // as what). A symlink's target is bound, created on the sandbox's
+        // root tmpfs when it is outside the host's system paths; one that
+        // is missing inside them stays missing (no mount point there).
+        for (f, _) in FIXED_ETC {
+            let etc = format!("/etc/{f}");
+            if std::fs::symlink_metadata(&etc).is_err() {
+                continue;
+            }
+            let to = sandbox_dest(None, Path::new(&etc));
+            let in_system = SYSTEM_PATHS.iter().any(|s| to.starts_with(s));
+            if in_system && !to.exists() {
+                continue;
+            }
+            push(&[
+                "--ro-bind",
+                &dir.join(f).to_string_lossy(),
+                &to.to_string_lossy(),
             ]);
         }
     }
@@ -389,7 +505,8 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
     }
     for m in &spec.mounts {
         let flag = if m.writable { "--bind" } else { "--ro-bind" };
-        push(&[flag, &m.src.to_string_lossy(), &m.dst.to_string_lossy()]);
+        let dst = sandbox_dest(root, &m.dst);
+        push(&[flag, &m.src.to_string_lossy(), &dst.to_string_lossy()]);
     }
     if let Some(dir) = &spec.identity {
         // Proof the step started: written by the wrapper right before it
@@ -468,6 +585,9 @@ pub fn run_with(spec: &RunSpec, limits: &Limits) -> Result<RunResult, SandboxErr
     std::fs::write(ident.join("group"), group).map_err(io_err("write group"))?;
     std::fs::write(ident.join("started"), "").map_err(io_err("write start sentinel"))?;
     std::fs::write(ident.join("net"), "").map_err(io_err("write network counters"))?;
+    for (f, content) in FIXED_ETC {
+        std::fs::write(ident.join(f), content).map_err(io_err("write a fixed /etc file"))?;
+    }
     let result = run_inner(spec, bwrap, &ident, limits);
     let _ = std::fs::remove_dir_all(&ident);
     result
@@ -1588,5 +1708,77 @@ mod tests {
             "{a:?}"
         );
         assert!(a.windows(2).any(|w| w == ["--hostname", HOSTNAME]));
+    }
+
+    /// A mount onto a path that is a symlink in the sandbox's world lands
+    /// where the symlink leads: Ubuntu's /etc/resolv.conf is
+    /// `../run/systemd/resolve/stub-resolv.conf`, dangling in the sandbox,
+    /// and bwrap could not create a mount point through it.
+    #[test]
+    fn a_mount_onto_a_symlinked_etc_file_lands_at_its_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir_all(root.join("etc")).unwrap();
+        std::fs::create_dir_all(root.join("usr/share/zoneinfo/Etc")).unwrap();
+        std::fs::write(root.join("usr/share/zoneinfo/Etc/UTC"), b"TZif").unwrap();
+        std::os::unix::fs::symlink(
+            "../run/systemd/resolve/stub-resolv.conf",
+            root.join("etc/resolv.conf"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("/usr/share/zoneinfo/Etc/UTC", root.join("etc/localtime"))
+            .unwrap();
+        std::os::unix::fs::symlink("hosts.real", root.join("etc/hosts")).unwrap();
+        std::fs::write(root.join("etc/hosts.real"), b"").unwrap();
+        // A loop is not followed forever.
+        std::os::unix::fs::symlink("loop", root.join("etc/loop")).unwrap();
+        let r = Some(root.as_path());
+        let d = |p: &str| sandbox_dest(r, Path::new(p));
+        assert_eq!(
+            d("/etc/resolv.conf"),
+            Path::new("/run/systemd/resolve/stub-resolv.conf")
+        );
+        assert_eq!(
+            d("/etc/localtime"),
+            Path::new("/usr/share/zoneinfo/Etc/UTC")
+        );
+        assert_eq!(d("/etc/hosts"), Path::new("/etc/hosts.real"));
+        assert_eq!(d("/etc/passwd"), Path::new("/etc/passwd"));
+        assert_eq!(d("/workspace"), Path::new("/workspace"));
+        let _ = d("/etc/loop");
+
+        let spec = RunSpec {
+            cmd: vec!["true".into()],
+            cwd: "/".into(),
+            env: vec![],
+            mounts: vec![Mount {
+                src: "/x/resolv.conf".into(),
+                dst: "/etc/resolv.conf".into(),
+                writable: false,
+            }],
+            egress: false,
+            stdout: "/dev/null".into(),
+            stderr: "/dev/null".into(),
+            echo: false,
+            rootfs: Some(RootFs {
+                dir: root.clone(),
+                writable: false,
+            }),
+            identity: None,
+            uid: None,
+            gid: None,
+            net_probe: false,
+        };
+        let a = bwrap_args(&spec);
+        assert!(
+            a.windows(3).any(|w| w
+                == [
+                    "--ro-bind",
+                    "/x/resolv.conf",
+                    "/run/systemd/resolve/stub-resolv.conf"
+                ]),
+            "{a:?}"
+        );
+        assert!(!a.iter().any(|x| x == "/etc/resolv.conf"), "{a:?}");
     }
 }

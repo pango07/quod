@@ -108,6 +108,21 @@ sec_etc() {
     | LC_ALL=C sort | sha256sum | cut -c1-64)"
 }
 job 13-etc sec_etc
+# The files left out above still have a form a step can see even where the
+# sandbox gives them fixed contents: a regular file, or a symlink and where
+# it leads (Ubuntu's resolv.conf points into /run/systemd/resolve, and the
+# sandbox's fixed file then appears there). Their forms, not contents.
+sec_etc_forms() {
+  local f forms=
+  for f in /etc/hostname /etc/hosts /etc/resolv.conf /etc/machine-id /etc/mtab; do
+    if [ -L "$f" ]; then forms="$forms$f -> $(readlink "$f")
+"; elif [ -e "$f" ]; then forms="$forms$f $(stat -c %F "$f")
+"; else forms="$forms$f absent
+"; fi
+  done
+  echo "etc-forms $(printf '%s' "$forms" | sha256sum | cut -c1-64)"
+}
+job 14-etc-forms sec_etc_forms
 for p in "${pids[@]}"; do wait "$p"; done
 # After the tree walks, which list the pycs.
 if [ -n "$(cat "$pycs".* 2>/dev/null | head -c1)" ]; then
