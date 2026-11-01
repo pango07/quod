@@ -1,0 +1,2 @@
+    stderr differs from line 7: "Ran 4 tests in 0.002s" vs "Ran 4 tests in 0.000s"
+    stderr differs from line 7: "Ran 4 tests in 0.002s" vs "Ran 4 tests in 0.000s"
