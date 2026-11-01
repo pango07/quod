@@ -10,6 +10,8 @@ import { handleWebhook } from "./webhook";
 // The pollers' default lazy-reconcile hook needs the App's credentials; reconcile.test.ts covers it.
 const lazyReconcileTeam = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("./lazy-reconcile", () => ({ lazyReconcileTeam }));
+// Likewise the step hook (lib/github/step-poll.test.ts covers it).
+vi.mock("./live-steps", () => ({ pollTeamStepsLive: vi.fn(async () => undefined) }));
 
 let db: Db;
 const TEAM = teamIdOf({ team: { orgId: "org_acme" } });
@@ -395,6 +397,22 @@ describe("review fixes", () => {
     unB();
     await new Promise((r) => setTimeout(r, 10));
     expect(activePollers(db)).toBe(0);
+  });
+
+  it("live steps: while watched, the poller asks for running jobs' steps on its interval, one pass at a time", async () => {
+    let release: () => void = () => {};
+    const steps = vi.fn(() => new Promise<void>((r) => (release = r)));
+    const un = subscribeTeamJobs(TEAM, () => {}, { db, intervalMs: 250, maxIntervalMs: 250, steps, stepsEveryMs: 1000, reconcile: null });
+    await new Promise((r) => setTimeout(r, 1400));
+    expect(steps).toHaveBeenCalledTimes(1); // the first pass is still running: no second one
+    release();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(steps).toHaveBeenCalledTimes(2);
+    expect(steps).toHaveBeenCalledWith("org_acme", db);
+    un();
+    release();
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(steps).toHaveBeenCalledTimes(2); // nobody watching: nothing more
   });
 
   it("M3: backs off from 2 s to 5 s to 10 s while nothing changes", () => {

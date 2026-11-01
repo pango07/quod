@@ -215,6 +215,52 @@ export async function listRunJobs(token: string, fullName: string, runId: number
   return (await paged<Record<string, unknown>>(url, token, "jobs", "list run jobs", f)).items;
 }
 
+/** What GitHub said about the rate limit on a response (null when it did not say). */
+export interface RateInfo {
+  remaining: number | null;
+  /** When the limit resets (ms since epoch). */
+  resetAt: number | null;
+  /** Retry-After, in ms. */
+  retryAfterMs: number | null;
+}
+
+export function rateInfo(h: Headers): RateInfo {
+  const n = (v: string | null) => (v !== null && /^\d{1,12}$/.test(v.trim()) ? Number(v.trim()) : null);
+  const remaining = n(h.get("x-ratelimit-remaining"));
+  const reset = n(h.get("x-ratelimit-reset"));
+  const retry = n(h.get("retry-after"));
+  return { remaining, resetAt: reset === null ? null : reset * 1000, retryAfterMs: retry === null ? null : retry * 1000 };
+}
+
+export type JobRead =
+  | { kind: "ok"; job: Record<string, unknown>; rate: RateInfo }
+  | { kind: "gone"; rate: RateInfo }
+  | { kind: "limited"; rate: RateInfo }
+  | { kind: "error"; status: number; rate: RateInfo };
+
+/**
+ * GET /repos/{owner}/{repo}/actions/jobs/{job_id}: one job with its steps,
+ * same shape as the webhook's workflow_job. Never throws on an HTTP status:
+ * 404/410 is "gone", 403/429 "limited" (rate or abuse limit), with the
+ * rate-limit headers either way.
+ */
+export async function getJob(token: string, fullName: string, jobId: number, f: Fetch = fetch): Promise<JobRead> {
+  const res = await f(`${GITHUB_API}/repos/${repoPath(fullName)}/actions/jobs/${jobId}`, { headers: headers(token), cache: "no-store" });
+  const rate = rateInfo(res.headers);
+  if (res.ok) return { kind: "ok", job: (await res.json()) as Record<string, unknown>, rate };
+  if (res.status === 404 || res.status === 410) return { kind: "gone", rate };
+  if (res.status === 403 || res.status === 429) return { kind: "limited", rate };
+  return { kind: "error", status: res.status, rate };
+}
+
+/** POST /app/installations/{id}/access_tokens, with its expiry (ms since epoch). */
+export async function installationTokenWithExpiry(jwt: string, installationId: number, f: Fetch = fetch): Promise<{ token: string; expiresAt: number }> {
+  const res = await f(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, { method: "POST", headers: headers(jwt), cache: "no-store" });
+  const body = await json<{ token: string; expires_at?: string }>(res, "installation token");
+  const exp = body.expires_at ? Date.parse(body.expires_at) : NaN;
+  return { token: body.token, expiresAt: Number.isFinite(exp) ? exp : Date.now() + 55 * 60_000 };
+}
+
 /** GET /installation/repositories: every repo in the installation. */
 export async function listInstallationRepos(instToken: string, f: Fetch = fetch) {
   return paged<GhRepoWithPermissions>(`${GITHUB_API}/installation/repositories`, instToken, "repositories", "list installation repos", f);

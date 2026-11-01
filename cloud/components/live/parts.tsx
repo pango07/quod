@@ -161,13 +161,13 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
           </span>
           <span className="cell-sub">
             {queued ? (
-              <>Waiting for a runner ({job.runner})</>
+              <>Waiting for a runner{job.runner ? ` (${job.runner})` : ""}</>
             ) : job.currentStep ? (
               <>
                 Step {job.currentStep.index + 1} of {job.stepsTotal ?? "?"} · <span className="mono">{job.currentStep.name}</span>
               </>
             ) : (
-              <>Starting on {job.runner}</>
+              <>{job.runner ? `Starting on ${job.runner}` : "Starting"}</>
             )}
           </span>
           <span className="cell-sub mono">

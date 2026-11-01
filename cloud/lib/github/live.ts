@@ -46,6 +46,24 @@ function liveConclusion(c: string | null | undefined): LiveJob["conclusion"] {
   return undefined;
 }
 
+/**
+ * A jsonb array column as read. Rows written before a45df10 ("cast jsonb
+ * parameters through text") hold the array as a jsonb string ("[...]"); those
+ * are parsed here, on read only (nothing rewrites them). Anything else is [].
+ */
+export function jsonArray(v: unknown): unknown[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v === "string") {
+    try {
+      const parsed: unknown = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function runnerLabel(labels: string[]): string {
   return labels.length === 1 ? labels[0] : labels.length ? `[${labels.join(", ")}]` : "";
 }
@@ -59,8 +77,8 @@ function currentStep(steps: GhStep[], status: LiveJobStatus): LiveJob["currentSt
 /** A stored job row (JOB_SELECT's columns) as a LiveJob. */
 export function liveJobFromRow(row: Row): LiveJob {
   const status = liveStatus(str(row.status));
-  const labels = Array.isArray(row.labels) ? (row.labels as unknown[]).map(String) : [];
-  const steps = Array.isArray(row.steps) ? (row.steps as GhStep[]) : [];
+  const labels = jsonArray(row.labels).map(String);
+  const steps = jsonArray(row.steps) as GhStep[];
   const conclusion = status === "completed" ? liveConclusion(row.conclusion as string | null) : undefined;
   const job: LiveJob = {
     id: String(row.id),
@@ -266,13 +284,25 @@ export interface PollOptions {
   reconcile?: ((teamId: TeamId, db: Db) => Promise<unknown>) | null;
   /** Default 15 minutes. */
   reconcileEveryMs?: number;
+  /**
+   * Called in the background while the poller runs, at most every
+   * `stepsEveryMs` per instance and never twice at once: reads the team's
+   * running jobs' steps from GitHub (webhooks do not report steps). Default:
+   * lib/github/live-steps.ts, whose row claims make it at most once per job
+   * per 15 s across instances. null turns it off.
+   */
+  steps?: ((teamId: TeamId, db: Db) => Promise<unknown>) | null;
+  /** Default 15 s. */
+  stepsEveryMs?: number;
 }
 
 type Listener = (e: LiveJobEvent) => void;
 
 const RECONCILE_EVERY_MS = 15 * 60_000;
+const STEPS_EVERY_MS = 15_000;
 
 const lazyReconcile = async (teamId: TeamId, db: Db) => (await import("./lazy-reconcile")).lazyReconcileTeam(teamId, db);
+const liveSteps = async (teamId: TeamId, db: Db) => (await import("./live-steps")).pollTeamStepsLive(teamId, db);
 
 /**
  * Keeps the function alive for background work when the platform supports
@@ -302,6 +332,9 @@ export interface Poller {
   lookback: number;
   /** When this instance may next ask for a lazy reconcile (ms); 0 = on the first poll. */
   nextReconcileAt: number;
+  /** When this instance may next read running jobs' steps (ms), and whether a pass is still running. */
+  nextStepsAt: number;
+  stepsBusy: boolean;
 }
 
 // Per database (tests use several) and per team. The poll interval, look-back and reconcile hook are the first subscriber's.
@@ -382,12 +415,16 @@ export function subscribeTeamJobs(teamId: TeamId, listener: Listener, opts: Poll
         max: Math.max(base, opts.maxIntervalMs ?? 10000),
         lookback: Math.max(base * 2, opts.lookbackMs ?? 15000),
         nextReconcileAt: 0,
+        nextStepsAt: 0,
+        stepsBusy: false,
       };
       byTeam.set(teamId, p);
       poller = p;
       const d = db;
       const reconcileFn = opts.reconcile === undefined ? lazyReconcile : opts.reconcile;
       const every = Math.max(1000, opts.reconcileEveryMs ?? RECONCILE_EVERY_MS);
+      const stepsFn = opts.steps === undefined ? liveSteps : opts.steps;
+      const stepsEvery = Math.max(1000, opts.stepsEveryMs ?? STEPS_EVERY_MS);
       const tick = async () => {
         if (p.stopped) return;
         try {
@@ -402,6 +439,12 @@ export function subscribeTeamJobs(teamId: TeamId, listener: Listener, opts: Poll
         if (reconcileFn && !p.stopped && Date.now() >= p.nextReconcileAt) {
           p.nextReconcileAt = Date.now() + every;
           void background(reconcileFn(teamId, d));
+        }
+        // Running jobs' steps from GitHub; what changed reaches the stream through the next polls.
+        if (stepsFn && !p.stopped && !p.stepsBusy && Date.now() >= p.nextStepsAt) {
+          p.nextStepsAt = Date.now() + stepsEvery;
+          p.stepsBusy = true;
+          void background(stepsFn(teamId, d).finally(() => (p.stepsBusy = false)));
         }
         if (!p.stopped) p.timer = setTimeout(tick, nextDelay(p));
       };

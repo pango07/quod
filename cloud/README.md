@@ -13,6 +13,14 @@ npm test           # unit tests (auth rules, returnTo and input checks, formatte
 npm run lint && npx tsc --noEmit && npm run build
 ```
 
+The database tests run on an in-memory PGlite by default. Production uses
+postgres.js, which encodes parameters differently (a jsonb bug once passed
+on PGlite and failed on Neon), so CI should also run them against a real
+Postgres: give the test job a Postgres service and set `TEST_DATABASE_URL`
+(e.g. `postgres://postgres:postgres@localhost:5432/postgres`). Each test
+file then migrates and uses a schema of its own, dropped at the end
+(`lib/db/testing.ts`). Never point it at a database that matters.
+
 `npm run dev` loads the committed `.env.development`, which opts in to a
 local demo user (`QUOD_AUTH=demo`) and sample data (`QUOD_API=fixture`).
 To sign in for real, copy `.env.example` to `.env.local` and fill in the
@@ -106,6 +114,13 @@ repo"). A team without one sees "Connect GitHub to see your CI live" (admins
 get the button; members are told to ask an admin). Without `DATABASE_URL`,
 or when the database does not answer, every page still renders and says so.
 
+GitHub's webhooks report a job when it is queued, starts and completes, not
+per step. So while someone watches a team, its live poller also reads the
+team's running jobs from GitHub's REST API about every 15 s (at most 10 jobs
+per pass, each job at most once per 15 s across server instances, backing
+off on 403/429 or a low `X-RateLimit-Remaining`), and "Step 3 of 8" moves
+with the job (`lib/github/step-poll.ts`). Nothing runs when nobody watches.
+
 To try it locally with PGlite and made-up jobs:
 
 ```sh
@@ -126,7 +141,8 @@ created once, from the dashboard, with GitHub's App Manifest flow.
 
 **1. Database (engineer, once, after the product owner approves the SQL).**
 The tables are in `db/migrations/0001_github_app.sql`,
-`0002_github_app_review.sql` and `0003_reconcile_state.sql`. With Neon's
+`0002_github_app_review.sql`, `0003_reconcile_state.sql` and
+`0004_step_polling.sql`. With Neon's
 direct URL in your shell as
 `DATABASE_URL_UNPOOLED` (it is in Vercel):
 

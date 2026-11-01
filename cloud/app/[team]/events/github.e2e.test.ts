@@ -18,6 +18,7 @@ import { SseDecoder, type SseMessage } from "@/lib/live/sse";
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), connection: async () => {} }));
 vi.mock("@/lib/github/lazy-reconcile", () => ({ lazyReconcileTeam: vi.fn(async () => undefined) }));
+vi.mock("@/lib/github/live-steps", () => ({ pollTeamStepsLive: vi.fn(async () => undefined) }));
 const findTeam = vi.fn();
 vi.mock("@/lib/dal", () => ({ findTeam: (...a: unknown[]) => findTeam(...a), isStillMember: async () => true }));
 let cloud: CompositeCloudApi;

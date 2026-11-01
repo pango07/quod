@@ -31,8 +31,10 @@ function wrap(sql: Sql): Queryable {
   };
 }
 
-export function postgresDb(url: string, opts: { max?: number } = {}): Db {
+export function postgresDb(url: string, opts: { max?: number; searchPath?: string } = {}): Db {
   const sql = postgres(url, {
+    // Tests: each test file gets its own schema (lib/db/testing.ts).
+    ...(opts.searchPath ? { connection: { search_path: opts.searchPath } } : {}),
     max: opts.max ?? 3,
     prepare: false,
     idle_timeout: 20,
