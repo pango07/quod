@@ -110,6 +110,13 @@ setup() {
   # reach them (a runner's home is 0750).
   $s mkdir -p /work/corpus /work/state /work/tmp
   $s chown "$(id -u):$(id -g)" /work /work/corpus /work/state /work/tmp
+  # systemd-resolved makes /etc/resolv.conf a symlink into /run, which the
+  # sandbox does not have: bwrap cannot bind the hooks surface's resolv.conf
+  # over the dangling link ("Can't create file at /etc/resolv.conf"). A
+  # regular file, as in the dev container (docs/ci.md: host differences).
+  if [ -L /etc/resolv.conf ]; then
+    $s cp --remove-destination "$(readlink -f /etc/resolv.conf)" /etc/resolv.conf
+  fi
   grep -qs '^user_allow_other' /etc/fuse.conf || echo user_allow_other | $s tee -a /etc/fuse.conf >/dev/null
   # Ubuntu restricts unprivileged user namespaces through AppArmor.
   $s sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 2>/dev/null || true
