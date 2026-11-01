@@ -47,6 +47,10 @@ corpus repos pinned in `versions.toml` (cli/cli, moment/luxon,
 encode/starlette); results in `docs/bench/polyglot-corpus.md`. The
 pinned rootfs below holds only Go, so Node and Python steps pin the host.
 
+The heavy gates (lint, merge gate, hooks and CLI acceptance) also run on
+GitHub's runners: `gh workflow run gate.yml --ref <branch>`; see
+`docs/ci.md` for what each job proves, its duration and the minute budget.
+
 ## Portable proofs
 
 Steps can run in a pinned root filesystem (`--rootfs DIGEST`, or
