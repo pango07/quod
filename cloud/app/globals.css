@@ -298,6 +298,16 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
 }
 .cmdk-list .menu-item:hover:not([data-active="true"]) { background: transparent }
 
+/* Connect page: the Quod setup that is not released yet (components/connect-flow.tsx) */
+.soon { display: flex; flex-direction: column; gap: 20px; border: 1px dashed var(--edge); border-radius: 14px; padding: 20px }
+.soon-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap }
+.soon-banner { font-size: 14px; line-height: 1.6; color: var(--amber-text); background: var(--amber-bg); border: 1px solid var(--amber-line); border-radius: 10px; padding: 12px 14px }
+.soon-banner a { color: var(--text); text-decoration: underline; text-underline-offset: 3px }
+.soon-body { display: flex; flex-direction: column; gap: 28px; opacity: .6 }
+.soon-body:focus-within, .soon-body:hover { opacity: .8 }
+.no-copy { user-select: none; -webkit-user-select: none }
+@media (max-width: 480px) { .soon { padding: 16px 12px } }
+
 /* GitHub App status on Overview (components/github-status.tsx) */
 .github-cta { padding: 20px; display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap }
 

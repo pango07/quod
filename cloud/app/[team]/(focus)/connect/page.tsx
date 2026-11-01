@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { ConnectFlow } from "@/components/connect-flow";
+import { ConnectGitHubStep } from "@/components/connect-github";
 import { Logo, Sk } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Host, Store } from "@/lib/api/types";
@@ -32,7 +33,7 @@ export default function ConnectPage(props: PageProps<"/[team]/connect">) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <h1 style={{ fontSize: 32, fontWeight: 600, letterSpacing: "-0.03em" }}>Connect a repository</h1>
           <p className="muted" style={{ fontSize: 15 }}>
-            About two minutes. Your workflows stay the same.
+            Connect GitHub to watch your CI live today. Running Quod in your CI is in early access.
           </p>
         </div>
         <Suspense fallback={<FlowSkeleton />}>
@@ -65,10 +66,15 @@ async function BackLink({ params }: { params: Promise<{ team: string }> }) {
 async function Flow({ params, searchParams }: PageProps<"/[team]/connect">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const { team, admin } = await requireTeam(slug);
-  const setup = await api().getConnectSetup(team.slug);
+  const [setup, activity] = await Promise.all([api().getConnectSetup(team.slug), api().getActivity(team.slug)]);
   const store = (one(sp.store) === "self" ? "self" : one(sp.store) === "cloud" ? "cloud" : (setup.saved?.store ?? "cloud")) as Store;
   const host = (one(sp.host) === "own" ? "own" : one(sp.host) === "github" ? "github" : (setup.saved?.host ?? "github")) as Host;
-  return <ConnectFlow team={team.slug} setup={setup} initial={{ store, host }} canSave={admin} />;
+  return (
+    <>
+      <ConnectGitHubStep team={team.slug} link={activity.github} admin={admin} />
+      <ConnectFlow team={team.slug} setup={setup} initial={{ store, host }} canSave={admin} />
+    </>
+  );
 }
 
 function FlowSkeleton() {

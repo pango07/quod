@@ -349,8 +349,8 @@ export interface LiveJob {
 
 /** Whether a team's CI comes in from the GitHub App, and if not, why. */
 export type GitHubLink =
-  /** An installation is linked; `repos` it can see. */
-  | { state: "linked"; repos: number }
+  /** An installation is linked; `repos` it can see; the GitHub `accounts` (users or orgs) it is installed on. */
+  | { state: "linked"; repos: number; accounts: string[] }
   /** Nothing linked yet. `canInstall`: the App is set up on this deploy. */
   | { state: "unlinked"; canInstall: boolean }
   /** No database on this deploy (DATABASE_URL unset). */
