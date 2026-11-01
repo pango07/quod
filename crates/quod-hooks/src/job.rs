@@ -316,6 +316,19 @@ impl Job {
         tree_from_json(&std::fs::read(self.tree_path())?)
     }
 
+    /// The tree a step of this job is served, looked up against and
+    /// recorded against: the job's tree with its git index refreshed for
+    /// the step's identity (`quod_fs::git`), so `git status` takes the
+    /// served stat data as a fresh checkout's and reads no unchanged file.
+    pub fn step_tree(&self, cas: &Cas) -> anyhow::Result<Tree> {
+        let tree = self.load_tree()?;
+        let (uid, gid) = quod_sandbox::step_ids(Some(self.uid.unwrap_or(0)), self.gid);
+        let (tree, r) =
+            quod_fs::git::refresh_index(&tree, cas, uid, gid).context("refresh the git index")?;
+        tracing::info!(target: "quod", job = %self.id, refresh = ?r, "git index");
+        Ok(tree)
+    }
+
     pub fn save_tree(&self, tree: &Tree) -> anyhow::Result<()> {
         let tmp = self.dir.join("tree.json.tmp");
         std::fs::write(&tmp, tree_to_json(tree)?)?;
@@ -1009,7 +1022,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
         Kind::CheckoutPost if job.checkout_fallback => {
             // The real action ran; its post step removes the credentials it
             // persisted.
-            let tree = job.load_tree()?;
+            let tree = job.step_tree(&cas)?;
             run_tainted(
                 &mut job,
                 &args,
@@ -1078,7 +1091,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
         }
         Kind::Action(a) if step.tainted() && a.name.starts_with("actions/checkout@") => {
             job.checkout_fallback = true;
-            let tree = job.load_tree()?;
+            let tree = job.step_tree(&cas)?;
             run_tainted(
                 &mut job,
                 &args,
@@ -1431,7 +1444,7 @@ fn run_step(
     salt: &[u8; 32],
 ) -> anyhow::Result<i32> {
     let t0 = Instant::now();
-    let tree = job.load_tree()?;
+    let tree = job.step_tree(cas)?;
     let load_ms = t0.elapsed().as_millis() as u64;
     if policy.keep_jobs {
         std::fs::write(step_dir.join("tree.json"), tree_to_json(&tree)?)?;
@@ -1685,13 +1698,17 @@ fn run_step(
         // From the sealed module cache, which is recorded whole rather than
         // as read, only Go sources: code that could read the environment
         // (its data files, a sigstore example JSON, a go-gh workflow, name
-        // GITHUB_SHA and friends without anything reading them).
+        // GITHUB_SHA and friends without anything reading them). Not the
+        // files whose content the step was never served (`ex.unopened`:
+        // only stat()ed, as `git status` does every tracked file over a
+        // served index, or over-recorded and never opened): a stat shows
+        // no names.
         let file_hash = |e: &Entry| (e.k == EntryKind::File).then_some(e.h).flatten();
         let sealed = format!("{STATE_SUBDIR}/gomod/");
         let mut files: BTreeMap<String, Hash> = ex
             .log
             .iter()
-            .filter(|a| a.kind == EntryKind::File)
+            .filter(|a| a.kind == EntryKind::File && !ex.unopened.contains(&a.path))
             .filter(|a| !a.path.starts_with(&sealed) || quod_key::go_source_file(&a.path))
             .filter(|a| scan::may_drive_a_program(&a.path))
             .filter_map(|a| {

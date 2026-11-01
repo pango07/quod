@@ -195,7 +195,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
     let cas = Cas::open(env.state().join("cas")).unwrap();
-    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
+    let tree = workspace_tree(&cas, env, &deps, profile);
     let sealed: usize = profile
         .seals(&tree)
         .iter()
@@ -337,7 +337,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     println!("A6 ok: different key, no manifests");
 
     // A7: every recorded input, mutated, misses. Zero false hits.
-    let tree = workspace_tree(&cas, &env.repo, &deps, profile);
+    let tree = workspace_tree(&cas, env, &deps, profile);
     let cands = ledger().candidates(&key, quod_ledger::CANDIDATES).unwrap();
     let base = first_match(&cands, &tree).expect("A7: the current tree must match before mutating");
     let m = &cands[base];
@@ -412,6 +412,9 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
         .iter()
         .filter(|e| e.k == Kind::File && !recorded.contains(e.p.as_str()))
         .filter(|e| !e.p.starts_with(".quod/"))
+        // Not .git: the served one is built from the checkout's, not
+        // served as it is on disk.
+        .filter(|e| !e.p.starts_with(".git/"))
         .collect();
     let stride = (unread.len() / samples.max(1)).max(1);
     let extra = std::env::var("QUOD_A7B_EXTRA").unwrap_or_default();
@@ -447,7 +450,7 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
             // What each run read: the manifest the replay matched, found the
             // way find_match finds it, and the manifest the fresh execution
             // recorded.
-            let now = workspace_tree(&cas, &env.repo, &deps, profile);
+            let now = workspace_tree(&cas, env, &deps, profile);
             let cands = ledger().candidates(&key, quod_ledger::CANDIDATES).unwrap();
             let hit_m =
                 &cands[first_match(&cands, &now).expect("A7b: the replay matched a manifest")];
@@ -764,11 +767,14 @@ fn newest_run(env: &Env) -> String {
 
 /// The tree `quod run` serves an observed step: the checkout without
 /// `.git` and `.quod/`, with the profile's dependency trees (its seed
-/// dirs under `.quod/`) grafted in from the deps dir. The same
-/// construction as crates/quod-cli/src/deps.rs; A7 asserts the result matches
-/// the recorded manifest before mutating anything, so a drift between the
-/// two fails loudly instead of testing the wrong tree.
-fn workspace_tree(cas: &Cas, repo: &Path, deps: &Path, profile: &quod_key::Profile) -> Tree {
+/// dirs under `.quod/`) grafted in from the deps dir, and the served `.git`
+/// (`quod __served-git`) with its index refreshed for the step's uid. The
+/// same construction as crates/quod-cli/src/deps.rs and gitdir.rs; A7
+/// asserts the result matches the recorded manifest before mutating
+/// anything, so a drift between the two fails loudly instead of testing the
+/// wrong tree.
+fn workspace_tree(cas: &Cas, env: &Env, deps: &Path, profile: &quod_key::Profile) -> Tree {
+    let repo = &env.repo;
     let mut tree = cas
         .import_dir(repo)
         .unwrap()
@@ -783,6 +789,16 @@ fn workspace_tree(cas: &Cas, repo: &Path, deps: &Path, profile: &quod_key::Profi
         if dir.is_dir() {
             tree = tree.merged_at(&format!(".quod/{name}"), &cas.import_dir(&dir).unwrap());
         }
+    }
+    // Last: the refresh serves inode numbers of the whole tree.
+    let out = env.quod(&["__served-git", "--repo", &repo.to_string_lossy()]);
+    assert_eq!(out.code, 0, "__served-git: {}", out.stderr);
+    let dot: Vec<Entry> = serde_json::from_slice(&out.stdout).unwrap();
+    if !dot.is_empty() {
+        tree = tree.merged_at(".git", &Tree::from_leaves(dot));
+        tree = quod_fs::git::refresh_index(&tree, cas, 1001, 1001)
+            .unwrap()
+            .0;
     }
     tree
 }

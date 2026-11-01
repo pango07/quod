@@ -13,6 +13,7 @@ use quod_sandbox::{Killed, Limits, Mount, RunSpec};
 use quod_trust::{Decision, Replayed, Step, Trust, Verdict};
 
 use crate::deps::{self, Deps};
+use crate::gitdir;
 use crate::rootfs::{self, Rootfs};
 use crate::seal;
 use crate::snapshot;
@@ -293,6 +294,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 
     let t = Instant::now();
     let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
+    // The .git a plain checkout of this commit has, its index refreshed for
+    // the step's identity (`execute` runs it as the sandbox's default).
+    let (uid, gid) = quod_sandbox::step_ids(None, None);
+    let tree = gitdir::graft(&cas, &state.dir, &repo, tree, uid, gid)?;
     phases.import = t.elapsed();
     let ignore = ignored_outputs(spec.profile(), &env, &tree);
     let tstep = Step {

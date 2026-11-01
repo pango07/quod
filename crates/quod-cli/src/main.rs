@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 mod bench;
 mod deps;
+mod gitdir;
 mod inspect;
 mod profile;
 mod rootfs;
@@ -81,6 +82,15 @@ enum Cmd {
     /// Quod itself inside the sandbox; see rootfs::platform).
     #[command(name = "__host-probe", hide = true)]
     HostProbe,
+    /// Internal: print the `.git` `quod run` serves for a checkout (see
+    /// gitdir.rs) as tree entries (JSON, paths relative to `.git`), before
+    /// its index is refreshed; the acceptance suite rebuilds the served
+    /// tree with it.
+    #[command(name = "__served-git", hide = true)]
+    ServedGit {
+        #[arg(long)]
+        repo: PathBuf,
+    },
     /// Print the toolchain profile a repo runs under, as NAME='VALUE' lines
     /// a shell can eval: toolchain, default setup and test steps, the
     /// directories to clear after setup, the sealed prefixes.
@@ -120,6 +130,16 @@ fn main() -> ExitCode {
                 Cmd::Rootfs(args) => rootfs::cli(&state, args).map(|()| 0),
                 Cmd::Step(args) => step::cli(&state, args),
                 Cmd::HostProbe => rootfs::host_probe(),
+                Cmd::ServedGit { repo } => {
+                    let cas = quod_cas::Cas::open(state.cas_dir())?;
+                    let repo = repo.canonicalize()?;
+                    let entries: Vec<quod_cas::Entry> =
+                        gitdir::served_git(&cas, &state.dir, &repo)?
+                            .map(|t| t.iter().cloned().collect())
+                            .unwrap_or_default();
+                    println!("{}", serde_json::to_string(&entries)?);
+                    Ok(0)
+                }
                 Cmd::Profile(args) => profile::profile(args).map(|()| 0),
             }
         }));

@@ -244,7 +244,13 @@ fn normalized_mounts(
 /// workspace state `.quod/` (GOCACHE, GOMODCACHE, GOPATH, HOME, the npm,
 /// pip and uv caches, the venv) and the run id variable is `QUOD_RUN_ID`;
 /// the schema is v5's.
-pub const VERSION: u32 = 6;
+/// v7 (2026-10-31, exp/git-index) changes what a step is shown, not the
+/// schema: a git index at `.git/index` is served with an mtime after every
+/// file's (it was a content mtime among them), and is refreshed against
+/// the served tree; `quod run` serves a `.git` (it served none); the hooks'
+/// branch checkouts have a symbolic HEAD. A result recorded under v6 saw
+/// another world and must not replay.
+pub const VERSION: u32 = 7;
 
 /// Variables whose values change on every run. Putting one in a key would
 /// make every run a miss, or, if normalized silently, hide a real input, so
@@ -538,7 +544,7 @@ mod tests {
         assert!(j.contains(
             r#"["GOMODCACHE","/workspace/.quod/gomod"],["GOPATH","/workspace/.quod/gopath"],"#
         ));
-        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":6,"warm":false}"#));
+        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":7,"warm":false}"#));
         let mut host = StepSpec::new(
             Toolchain::Go,
             Image::new(

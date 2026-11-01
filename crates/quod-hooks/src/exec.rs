@@ -95,6 +95,11 @@ pub struct Executed {
     pub wall: Duration,
     /// What the step read, after sealing and warm-state over-recording.
     pub log: Vec<Access>,
+    /// Files in `log` whose content the step was never served: it looked
+    /// them up or stat()ed them through the observer, or they are
+    /// over-recorded go sources it never opened. The withheld-name scan
+    /// skips them; the manifest records them like any other.
+    pub unopened: BTreeSet<String>,
     /// Keep::Store: the workspace outputs, in the store. `None` when the
     /// writes were kept as a layer instead.
     pub outputs: Option<Vec<Entry>>,
@@ -336,7 +341,22 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         }
     };
     let stats = served.stats();
-    let mut log = served.unmount().context("unmount observer")?;
+    let observed = served.unmount_observed().context("unmount observer")?;
+    let mut log = observed.accesses;
+    // Files the step saw only as attributes (looked up, stat()ed: git
+    // status over a served index), never as bytes. Still recorded as their
+    // content; the withheld-name scan skips them, since no program can
+    // learn a variable's name from a stat.
+    let file_paths = |log: &[Access]| -> BTreeSet<String> {
+        log.iter()
+            .filter(|a| a.kind == quod_cas::Kind::File)
+            .map(|a| a.path.clone())
+            .collect()
+    };
+    let mut unopened: BTreeSet<String> = file_paths(&log)
+        .into_iter()
+        .filter(|p| !observed.opened.contains(p))
+        .collect();
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(x.tree, &s.prefix, &s.carve_out));
         let removed = snapshot::gc(&snapshots, snapshot::KEEP, &s.snapshot.dir);
@@ -346,7 +366,24 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     }
     if x.gocache != GoCache::None && x.keep == Keep::Store {
         // What a cached vet verdict may stand in for (see quod_key::go_source_file).
+        let before = file_paths(&log);
         quod_manifest::record_children(x.tree, &mut log, quod_key::go_source_file);
+        // Recorded so that a change to them misses; no code of theirs runs
+        // in this step: whatever the go command compiles it opens (package
+        // loading reads every file's header, the action id hashes every
+        // compiled file, on a full cache hit too), and a vet verdict is
+        // diagnostics, not a program. Only the unopened ones join.
+        unopened.extend(
+            file_paths(&log)
+                .into_iter()
+                .filter(|p| !before.contains(p) && !observed.opened.contains(p)),
+        );
+    }
+    // A sealed prefix is bound over the observed tree: the observer never
+    // sees it opened, so none of it is exempt from the scan.
+    if let Some(s) = &sealed {
+        let under = format!("{}/", s.prefix);
+        unopened.retain(|p| *p != s.prefix && !p.starts_with(&under));
     }
     let mut root_layer = None;
     if let Some(o) = root_ov {
@@ -393,6 +430,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         signal: r.signal,
         wall: r.wall,
         log,
+        unopened,
         outputs,
         ws_layer,
         secret_output,
