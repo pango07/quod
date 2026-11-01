@@ -140,10 +140,17 @@ pub fn identity_files(uid: u32, gid: u32) -> (String, String) {
     (passwd, group)
 }
 
+/// The uid and gid a step given `RunSpec::uid` and `RunSpec::gid` runs as,
+/// which is also the owner it sees of every file the observer serves (the
+/// sandbox maps the caller's ids onto them): what a served index records.
+pub fn step_ids(uid: Option<u32>, gid: Option<u32>) -> (u32, u32) {
+    let uid = uid.unwrap_or(DEFAULT_UID);
+    (uid, gid.unwrap_or(uid))
+}
+
 impl RunSpec {
     fn uid_gid(&self) -> (u32, u32) {
-        let uid = self.uid.unwrap_or(DEFAULT_UID);
-        (uid, self.gid.unwrap_or(uid))
+        step_ids(self.uid, self.gid)
     }
 }
 

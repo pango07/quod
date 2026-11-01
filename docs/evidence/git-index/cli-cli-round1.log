@@ -1,0 +1,164 @@
+== before
+== main 2a24fd8, CLI: what quod run serves a go build on cli/cli
+QUOD  moved /work/tmp/tmp.sCm6FCekko/repo/.quod/gomod out of the checkout to /work/tmp/tmp.sCm6FCekko/state/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/go/gomod
+/bin/sh: 1: git status --porcelain 2>&1 | head -3; go build -o .quod/out/gh ./cmd/gh && echo "go version -m vcs lines: $(go version -m .quod/out/gh | grep -c vcs)": not found
+QUOD  EXECUTED
+  step b3:817758da  manifest b3:adffe193  26,640 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  ran 0.0s
+== main 2a24fd8, hooks: hooks_git_index in measure mode (QUOD_GIT_INDEX_MEASURE=1)
+G1 go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 7.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+G1 vcs: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+G1 manifest (entries, files): 10224, 7341; observer: 9764 lookups, 21249 opens, 0 MiB read
+G0 git status re-checked: refresh/sum_scan:1545
+G1 next job, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .quod/gomod/cache/download/github.com/cli [directory listing changed (directory listing b3:534971b9 -> directory listing b3:2158f969), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .quod/gomod/cache/download/github.com/cli [directory listing changed (directory listing b3:534971b9 -> directory listing b3:2158f969), 1 more] (1 of 1 identical proofs)
+G1 same commit again, go build: QUOD  REPLAYED
+G2 go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 1.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+G2 same commit again, go test: QUOD  REPLAYED
+G3 README commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:bff5972b mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:bff5972b mode 644)] (1 of 1 identical proofs)
+G3 README commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:bff5972b mode 644), 6 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:bff5972b mode 644), 6 more] (1 of 1 identical proofs)
+G4 .github commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:bff5972b mode 644 -> file b3:187b8f8f mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:bff5972b mode 644 -> file b3:187b8f8f mode 644)] (1 of 1 identical proofs)
+G4 Go source commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:187b8f8f mode 644 -> file b3:5a0a61ac mode 644), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:187b8f8f mode 644 -> file b3:5a0a61ac mode 644), 1 more] (1 of 1 identical proofs)
+G4 Go source commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:bff5972b mode 644 -> file b3:5a0a61ac mode 644), 9 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:bff5972b mode 644 -> file b3:5a0a61ac mode 644), 9 more] (1 of 1 identical proofs)
+G4 go.mod commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:5a0a61ac mode 644 -> file b3:a390a395 mode 644), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:5a0a61ac mode 644 -> file b3:a390a395 mode 644), 1 more] (1 of 1 identical proofs)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 34.19s
+== after
+== exp/git-index, CLI: tests/git_index.rs on the tiny module and cli/cli
+  trust: proof 1 of 1; replay needs 1 identical execution
+  trust: proof 1 of 1; replay needs 1 identical execution
+clean: git status --porcelain identical (0 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=false
+  trust: proof 1 of 1; replay needs 1 identical execution
+clean: git status re-checked no entry (refresh/sum_scan:0)
+  closest manifest b3:424d9ff3 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:11031c81 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: modified: git status --porcelain identical (1 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=true
+  closest manifest b3:4c7a4631 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:9f5f743d differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: modified + untracked: git status --porcelain identical (2 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=true
+  closest manifest b3:3f18a39a differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:018008b0 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: staged + untracked: git status --porcelain identical (2 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=true
+  closest manifest b3:ac2931d7 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:2ce19480 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: deleted: git status --porcelain identical (1 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=true
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+clean again: git status --porcelain identical (0 lines); go version -m identical: build	vcs.revision=40f8bd436426ef419e588d2e0afe78d124ef986d, build	vcs.time=2026-11-01T03:23:20Z, build	vcs.modified=false
+  trust: proof 1 of 1; replay needs 1 identical execution
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+docs/notes.txt-only commit: `go test ./...` REPLAYED
+  closest manifest b3:d831fb03 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+docs/notes.txt-only commit: go build EXECUTED (its binary embeds the new vcs.revision)
+  closest manifest b3:4e98990f differed at calc/calc.go
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:f1b7d693 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:76d9a3e9 differed at go.mod
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:e5415497 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+calc/calc.go and go.mod commits: `go test ./...` and go build EXECUTED
+  trust: proof 1 of 1; replay needs 1 identical execution
+  trust: proof 1 of 1; replay needs 1 identical execution
+clean: git status --porcelain identical (0 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+  trust: proof 1 of 1; replay needs 1 identical execution
+clean: git status re-checked no entry (refresh/sum_scan:0)
+  closest manifest b3:1622abb1 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:aae05f28 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: modified: git status --porcelain identical (1 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=true
+  closest manifest b3:f00bf996 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:b70596cd differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: modified + untracked: git status --porcelain identical (2 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=true
+  closest manifest b3:382d124c differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:061d210f differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: staged + untracked: git status --porcelain identical (2 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=true
+  closest manifest b3:b2bf05b4 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:c451ee71 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+dirty: deleted: git status --porcelain identical (1 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=true
+  closest manifest b3:7d7e4718 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:2febc941 differed at .
+  trust: proof 1 of 1; replay needs 1 identical execution
+clean again: git status --porcelain identical (0 lines); go version -m identical: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+  trust: proof 1 of 1; replay needs 1 identical execution
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  closest manifest b3:0dafc5be differed at .git/objects/pack
+  trust: proof 1 of 1; replay needs 1 identical execution
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+QUOD  REPLAYED
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+README.md-only commit: `go test ./pkg/cmdutil/...` REPLAYED
+  closest manifest b3:fc745678 differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:feb80666 differed at .git/objects/pack
+  trust: proof 1 of 1; replay needs 1 identical execution
+README.md-only commit: go build EXECUTED (its binary embeds the new vcs.revision)
+  closest manifest b3:7b90966a differed at api/client.go
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:3b62ab0b differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:9b04c63e differed at go.mod
+  trust: proof 1 of 1; replay needs 1 identical execution
+  closest manifest b3:2bed51ca differed at .git/index
+  trust: proof 1 of 1; replay needs 1 identical execution
+api/client.go and go.mod commits: `go test ./pkg/cmdutil/...` and go build EXECUTED
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 208.34s
+== exp/git-index, hooks: hooks_git_index
+G1 go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.7s; would replay: no, first run of this step (1 of 1 identical proofs)
+G1 vcs: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+G1 manifest (entries, files): 9733, 7343; observer: 9273 lookups, 19668 opens, 0 MiB read
+G0 git status re-checked: refresh/sum_scan:0
+G1 next job, go build: QUOD  REPLAYED
+G1 same commit again, go build: QUOD  REPLAYED
+G2 go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 1.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+G2 same commit again, go test: QUOD  REPLAYED
+G3 README commit, go test: QUOD  REPLAYED
+G3 README commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:68bdcc82 mode 644 -> file b3:a32c575c mode 644), 6 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:68bdcc82 mode 644 -> file b3:a32c575c mode 644), 6 more] (1 of 1 identical proofs)
+G4 .github commit, go test: QUOD  REPLAYED
+G4 Go source commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at pkg/cmdutil/args.go [file content changed (file b3:1d18957c mode 644 -> file b3:dfea2af8 mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at pkg/cmdutil/args.go [file content changed (file b3:1d18957c mode 644 -> file b3:dfea2af8 mode 644)] (1 of 1 identical proofs)
+G4 Go source commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:a32c575c mode 644 -> file b3:e9306f6b mode 644), 10 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:a32c575c mode 644 -> file b3:e9306f6b mode 644), 10 more] (1 of 1 identical proofs)
+G4 go.mod commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.3s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:4dafe338 mode 644 -> file b3:35b4b42b mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.3s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:4dafe338 mode 644 -> file b3:35b4b42b mode 644)] (1 of 1 identical proofs)
+hooks git index: G1-G4 pass
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 30.69s

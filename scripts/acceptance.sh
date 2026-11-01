@@ -24,7 +24,11 @@ repo=${2:-${QUOD_SPIKE_DIR:-$root/target/corpus-$tc}}
 "$root/scripts/check-host.sh" >/dev/null || { "$root/scripts/check-host.sh"; exit 1; }
 if [ ! -d "$repo/.git" ]; then git clone -q "$url" "$repo"; fi
 git -C "$repo" fetch -q origin "$commit" 2>/dev/null || true
-git -C "$repo" checkout -q --detach "$commit"
+# On a branch at the commit, as a developer's checkout is: quod run serves
+# HEAD as the checkout has it, and a detached HEAD holds the commit, which
+# A3's new commit changes (cli/cli's tests read HEAD through git's
+# repository discovery).
+git -C "$repo" checkout -q -B quod-acceptance "$commit"
 # A legacy `.quod/` the state dir already supersedes stays in the
 # checkout (adoption never overwrites); the suite's `git add -A` must not
 # commit it.

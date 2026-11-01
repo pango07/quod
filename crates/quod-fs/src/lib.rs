@@ -6,12 +6,13 @@
 //! classification is unclear, record the most specific kind that is
 //! certainly true, or record both.
 
+pub mod git;
 #[cfg(target_os = "linux")]
 mod serve;
 #[cfg(target_os = "linux")]
 mod uring;
 #[cfg(target_os = "linux")]
-pub use serve::{Fault, Options, Served, Transport, serve, serve_with};
+pub use serve::{Fault, Observed, Options, Served, Transport, serve, serve_with};
 
 #[cfg(target_os = "linux")]
 mod overlay;
@@ -29,7 +30,8 @@ pub use overlay::{
 /// compares only whole seconds still tells contents apart (equal odds
 /// 2^-28), and nanoseconds 30 more. The base, 2000-01-01, keeps every served
 /// file in the past and older than anything a step writes. `CasFs::attr`
-/// applies it, and both transports encode the times that returns. Sealed
+/// applies it (through `git::served_time`, which serves a git index later
+/// than every file), and both transports encode the times that returns. Sealed
 /// snapshot files get the same times, so a file looks the same wherever it
 /// is served.
 pub fn content_mtime(content: &quod_cas::Hash) -> std::time::SystemTime {
@@ -301,6 +303,15 @@ mod unsupported {
         pub fn unmount(self) -> Result<Vec<Access>, FsError> {
             Err(FsError::Unsupported)
         }
+
+        pub fn unmount_observed(self) -> Result<Observed, FsError> {
+            Err(FsError::Unsupported)
+        }
+    }
+
+    pub struct Observed {
+        pub accesses: Vec<Access>,
+        pub opened: std::collections::BTreeSet<String>,
     }
 
     impl Overlay {
@@ -327,8 +338,8 @@ mod unsupported {
 }
 #[cfg(not(target_os = "linux"))]
 pub use unsupported::{
-    Fault, Options, Overlay, Served, Tmpfs, Transport, is_opaque_dir, overlay, overlay_dir,
-    overlay_layers, serve, serve_with, syncfs, tmpfs, xattrs,
+    Fault, Observed, Options, Overlay, Served, Tmpfs, Transport, is_opaque_dir, overlay,
+    overlay_dir, overlay_layers, serve, serve_with, syncfs, tmpfs, xattrs,
 };
 
 #[cfg(test)]

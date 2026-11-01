@@ -8,7 +8,7 @@
 //! logged. Which transport serves a mount is decided once, in `serve`,
 //! before the step starts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
@@ -26,7 +26,7 @@ use fuser::{
     OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, ReplyXattr, Request,
     SessionACL,
 };
-use quod_cas::{Cas, Entry, Kind, ROOT, Tree, child_path};
+use quod_cas::{Cas, Entry, Kind, Tree, child_path};
 use quod_manifest::Access;
 
 use crate::uring::{self, MountError};
@@ -278,6 +278,8 @@ pub(crate) struct Req {
 }
 
 struct Node {
+    /// The inode number served for it (`git::inode_numbers`).
+    ino: u64,
     entry: Entry,
     size: u64,
     parent: u64,
@@ -291,6 +293,11 @@ struct Node {
 struct Log {
     present: HashSet<(u64, Kind)>,
     absent: HashSet<String>,
+    /// Files whose content was served: opened, or read through a handle.
+    /// Every way to a file's content goes through an open (read, mmap,
+    /// exec, an overlayfs copy-up), so a file not here was only looked up
+    /// or stat()ed: the step saw its attributes, never its bytes.
+    opened: HashSet<u64>,
     /// The processes that asked. Attribution per process is later work;
     /// the set is what the seam carries today.
     pids: HashSet<u32>,
@@ -462,6 +469,8 @@ pub(crate) struct CasFs {
     /// Index `ino - 1`. Inode numbers come from the tree's sorted order, so
     /// they are stable across lookups by construction (overlayfs needs that).
     nodes: Vec<Node>,
+    /// Served inode number to index in `nodes`.
+    by_ino: HashMap<u64, usize>,
     cas: Cas,
     log: Arc<Mutex<Log>>,
     open: Mutex<HashMap<u64, Arc<File>>>,
@@ -499,10 +508,11 @@ impl CasFs {
         want_passthrough: bool,
     ) -> Result<CasFs, FsError> {
         let mut index: HashMap<&str, u64> = HashMap::new();
+        let mut by_ino: HashMap<u64, usize> = HashMap::with_capacity(tree.len());
         let mut nodes = Vec::with_capacity(tree.len());
-        // The root first, so it gets inode 1; then the rest in path order.
-        let root = tree.get(ROOT).expect("tree without a root");
-        for e in std::iter::once(root).chain(tree.iter().filter(|e| e.p != ROOT)) {
+        // The root first, so it gets inode 1; then the rest in path order
+        // (`git::inode_numbers`, which the served git index agrees with).
+        for (e, ino) in crate::git::inode_numbers(tree) {
             let size = match e.k {
                 Kind::File => {
                     let h = e.h.expect("file entry without hash");
@@ -513,8 +523,10 @@ impl CasFs {
                 Kind::Symlink => e.t.as_ref().map_or(0, |t| t.len() as u64),
                 _ => 0,
             };
-            index.insert(e.p.as_str(), nodes.len() as u64 + 1);
+            index.insert(e.p.as_str(), ino);
+            by_ino.insert(ino, nodes.len());
             nodes.push(Node {
+                ino,
                 entry: e.clone(),
                 size,
                 parent: ROOT_INO,
@@ -525,9 +537,8 @@ impl CasFs {
             let (parent, name) = quod_cas::parent_and_name(&nodes[i].entry.p);
             let (parent, name) = (index[parent], name.to_string());
             nodes[i].parent = parent;
-            nodes[parent as usize - 1]
-                .children
-                .push((name, i as u64 + 1));
+            let child = nodes[i].ino;
+            nodes[by_ino[&parent]].children.push((name, child));
         }
         for n in &mut nodes {
             n.children
@@ -538,6 +549,7 @@ impl CasFs {
         let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
         Ok(CasFs {
             nodes,
+            by_ino,
             cas,
             log,
             open: Mutex::new(HashMap::new()),
@@ -643,7 +655,7 @@ impl CasFs {
     }
 
     fn node(&self, ino: u64) -> Option<&Node> {
-        self.nodes.get((ino as usize).wrapping_sub(1))
+        self.by_ino.get(&ino).map(|&i| &self.nodes[i])
     }
 
     /// Every access the log keeps goes through here (and `record_absent`),
@@ -677,11 +689,9 @@ impl CasFs {
             _ => (FileType::RegularFile, n.entry.m.unwrap_or(0o644) as u16, 1),
         };
         // The tree has no times. Files get one derived from their content
-        // (see `content_mtime`); directories and symlinks a fixed one.
-        let time = match (n.entry.k, n.entry.h) {
-            (Kind::File, Some(h)) => crate::content_mtime(&h),
-            _ => UNIX_EPOCH,
-        };
+        // (see `content_mtime`, and `git::served_time` for a git index);
+        // directories and symlinks a fixed one.
+        let time = crate::git::served_time(&n.entry);
         FileAttr {
             ino: INodeNo(ino),
             size: n.size,
@@ -740,7 +750,7 @@ impl CasFs {
         });
         match found {
             Some(ino) => {
-                let n = &self.nodes[ino as usize - 1];
+                let n = self.node(ino).expect("a child's inode is served");
                 if self.fault.as_deref() == Some(n.entry.p.as_str()) {
                     panic!(
                         "injected fault ({}) on lookup of {}",
@@ -797,6 +807,7 @@ impl CasFs {
             return Err(libc::EROFS);
         }
         self.record(req, ino, Kind::File);
+        self.locked(&self.log).opened.insert(ino);
         let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
         if self.passthrough(ino, n, register) {
             return match self.backing_id(ino, n, register) {
@@ -833,6 +844,7 @@ impl CasFs {
     ) -> Result<Vec<u8>, i32> {
         self.stats.read.fetch_add(1, Ordering::Relaxed);
         self.record(req, ino, Kind::File);
+        self.locked(&self.log).opened.insert(ino);
         let n = self.node(ino).ok_or(libc::ENOENT)?;
         let opened = self.locked(&self.open).get(&fh).cloned();
         let file = match opened {
@@ -901,7 +913,7 @@ impl CasFs {
             .map(|(i, (name, child))| DirEnt {
                 ino: child,
                 off: i as u64 + 1,
-                kind: match self.nodes[child as usize - 1].entry.k {
+                kind: match self.node(child).expect("a listed inode is served").entry.k {
                     Kind::Dir => FileType::Directory,
                     Kind::Symlink => FileType::Symlink,
                     _ => FileType::RegularFile,
@@ -1123,6 +1135,14 @@ impl Session {
 }
 
 /// A mounted, logging, read-only view of a tree.
+/// What a step did on its mount: the access log, and the files whose content
+/// it was served (opened or read; a file only looked up or stat()ed is in
+/// the log, as its content, but not here).
+pub struct Observed {
+    pub accesses: Vec<Access>,
+    pub opened: BTreeSet<String>,
+}
+
 pub struct Served {
     session: Option<Session>,
     log: Arc<Mutex<Log>>,
@@ -1132,7 +1152,7 @@ pub struct Served {
     /// This process's (user, system) CPU time at mount, to report the
     /// delta: while mounted, the process does little besides serving.
     cpu_at_mount: (u64, u64),
-    paths: Vec<(String, Kind)>,
+    paths: HashMap<u64, (String, Kind)>,
     mountpoint: PathBuf,
 }
 
@@ -1167,7 +1187,7 @@ pub fn serve_with(
     let paths = fs
         .nodes
         .iter()
-        .map(|n| (n.entry.p.clone(), n.entry.k))
+        .map(|n| (n.ino, (n.entry.p.clone(), n.entry.k)))
         .collect();
     let session = match opts.transport {
         Transport::Classic => Session::Fuser(mount_fuser(fs, mountpoint)?),
@@ -1290,7 +1310,12 @@ impl Served {
     /// drain the log and keep going: the kernel caches entries and
     /// attributes, so a second step on the same mount would read without
     /// any request reaching the log.
-    pub fn unmount(mut self) -> Result<Vec<Access>, FsError> {
+    pub fn unmount(self) -> Result<Vec<Access>, FsError> {
+        self.unmount_observed().map(|o| o.accesses)
+    }
+
+    /// `unmount`, with the files whose content was served (`Observed`).
+    pub fn unmount_observed(mut self) -> Result<Observed, FsError> {
         let what = || format!("unmount {}", self.mountpoint.display());
         // Before the teardown joins the threads it reads.
         let sched = serving_sched();
@@ -1314,11 +1339,16 @@ impl Served {
             });
         }
         unmounted.map_err(FsError::io(what()))?;
+        let opened: BTreeSet<String> = log
+            .opened
+            .iter()
+            .map(|ino| self.paths[ino].0.clone())
+            .collect();
         let mut out: Vec<Access> = log
             .present
             .into_iter()
             .map(|(ino, kind)| Access {
-                path: self.paths[ino as usize - 1].0.clone(),
+                path: self.paths[&ino].0.clone(),
                 kind,
             })
             .chain(log.absent.into_iter().map(|path| Access {
@@ -1327,7 +1357,10 @@ impl Served {
             }))
             .collect();
         out.sort();
-        Ok(out)
+        Ok(Observed {
+            accesses: out,
+            opened,
+        })
     }
 
     /// One structured event with the request counts and this process's CPU

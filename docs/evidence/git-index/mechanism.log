@@ -1,0 +1,49 @@
+# exp/git-index: the mechanism, outside and inside Quod, on cli/cli 9490d204a2ba.
+# Dev container (scripts/dev.sh): Linux 7.0.14-linuxkit aarch64, git 2.39.5, go1.27.3.
+# Scripts: probes/*.sh (run as `bash /src/.probe/<name>.sh` in the container).
+
+## probes/mech.sh: the git commands go runs (a plain clone, detached at the commit)
+== git 2.39.5, go go1.27.3
+== tracked files: 1545
+== go build -x ./cmd/gh: the git commands go runs (cwd elided)
+      git status --porcelain
+      git -c log.showsignature=false log -1 --format=%H:%ct
+      git -c log.showsignature=false log --no-decorate -n1 '--format=format:%H %ct %D' --end-of-options 9490d204a2ba --
+      git -c log.showsignature=false log --no-decorate -n1 '--format=format:%H %ct %D' --end-of-options 9490d204a2ba95434153dedce99898ce9f281426 --
+== go test -x -run XXX ./pkg/cmdutil: git commands (go test does not stamp)
+   (none)
+
+## probes/t2.sh: how many entries `git status --porcelain` re-checks by reading the file (trace2)
+== checkout index:
+..read/cache_nr:1545
+..refresh/sum_lstat:0
+..refresh/sum_scan:0
+== read-tree index (what the hooks' checkout served: zero stat data; GIT_OPTIONAL_LOCKS=0 as the hooks set):
+..read/cache_nr:1545
+..refresh/sum_lstat:1545
+..refresh/sum_scan:1545
+
+## probes/who.sh: git invocations by `go test ./...` whose cwd is in the checkout (a logging git on PATH)
+## (repository discovery: each reads .git/HEAD and the config; 601 invocations in all, the rest in temp repos)
+      4 <repo>/pkg/cmd/auth/shared/gitcredentials :: config credential.https://github.com.helper
+      3 <repo>/pkg/cmd/auth/shared/gitcredentials :: credential reject
+      3 <repo>/pkg/cmd/auth/shared/gitcredentials :: credential approve
+      2 <repo>/pkg/cmd/issue/create :: rev-parse --show-toplevel
+      2 <repo>/pkg/cmd/auth/shared/gitcredentials :: credential fill
+      2 <repo>/pkg/cmd/auth/shared/gitcredentials :: config credential.helper
+      (and `config --global ...`, and `-C <temp repo> ...` from pkg/cmd/repo/sync)
+
+## probes/stat.sh: what a step sees for stat(2) through the workspace overlay (quod run, main 2a24fd8)
+## tree order: . a b dir dir/c; inode numbers then were tree positions
+a ino=2 dev=68 uid=1001 gid=1001 mtime=1139380238.358814105 ctime=1139380238.358814105 size=6 mode=81a4
+b ino=3 dev=68 uid=1001 gid=1001 mtime=1115499174.001859395 ctime=1115499174.001859395 size=6 mode=81a4
+dir ino=3 dev=66 uid=1001 gid=1001 mtime=0.000000000 ctime=0.000000000 size=0 mode=41ed
+dir/c ino=5 dev=68 uid=1001 gid=1001 mtime=1088555716.681121762 ctime=1088555716.681121762 size=2 mode=81a4
+uid=1001(runner) gid=1001(runner) groups=1001(runner)
+(non-directories: st_ino is the observer's number, st_dev overlayfs's per-layer pseudo device; directories are overlayfs's own)
+
+## The hooks before this branch (docs/evidence/rename/hooks-acceptance-go.log.gz, gate (b) on main):
+## go test missed on every commit at .git/HEAD (a detached HEAD holds the sha)
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 7.8s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:e3c942e7 mode 644)] (1 of 1 identical proofs)
+A3 ok: README-only commit missed on the commit's .git only, never on README.md
+(and each of the ten A7b samples: "closest manifest differed at .git/HEAD")

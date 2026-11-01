@@ -43,18 +43,21 @@ pub fn checkout(
     let mirror = mirror_dir(state_dir, &inputs.server_url, &repo);
     ensure_mirror(&mirror)?;
     let auth = Auth::new(&inputs.server_url, inputs.token.as_deref());
-    let (sha, ref_output) = resolve(inputs, &url, &mirror, &auth)?;
+    let (sha, ref_output, head) = resolve(inputs, &url, &mirror, &auth)?;
     // The memo is per (server, repository, commit): a commit id names the
     // same content in every fork, but the served .git names its origin, and
     // a repository must never be served a commit it does not have. v3: per
     // repository. Served only when this repository's own mirror has the
     // commit (it was fetched from this repository's URL); otherwise it is
     // fetched with the job's token, which proves the token can read it.
+    // v4: per HEAD too (a branch checkout's symbolic HEAD and branch, or
+    // the detached commit); v5: a pull request's remote-tracking ref, and
+    // packs written by one thread.
     let memo = state_dir
         .join("trees")
         .join(safe_path(&inputs.server_url))
         .join(safe_path(&repo))
-        .join(format!("{sha}.v3.json"));
+        .join(format!("{sha}.{}.v5.json", head.tag()));
     if has_commit(&mirror, &sha)
         && let Ok(bytes) = std::fs::read(&memo)
         && let Ok(tree) = tree_from_json(&bytes)
@@ -73,9 +76,10 @@ pub fn checkout(
             bail!("{url}: commit {sha} not found after fetch");
         }
     }
-    let tree = import_commit(cas, &mirror, &sha, &url, state_dir)?;
+    let tree = import_commit(cas, &mirror, &sha, &head, &url, state_dir)?;
     std::fs::create_dir_all(memo.parent().unwrap())?;
-    let tmp = memo.with_extension("json.tmp");
+    // Unique: two jobs may check the same commit out at once.
+    let tmp = memo.with_extension(format!("json.tmp.{}", ulid::Ulid::generate()));
     std::fs::write(&tmp, tree_to_json(&tree)?)?;
     std::fs::rename(&tmp, &memo)?;
     Ok(CheckedOut {
@@ -144,13 +148,54 @@ impl Auth {
     }
 }
 
-/// The commit and the `ref` output.
+/// What HEAD names after the checkout, as actions/checkout leaves it: a
+/// branch (`checkout -B <branch> refs/remotes/origin/<branch>`) for a ref
+/// under refs/heads/; for a pull request's ref (refs/pull/N/merge), HEAD
+/// detached at the commit with `refs/remotes/pull/N/merge` naming it (the
+/// remote-tracking ref actions/checkout fetches it to); the commit itself,
+/// detached, for a sha, a tag or any other ref. (A tag event's
+/// `refs/tags/<t>` is not created: actions/checkout fetches the tag object
+/// itself, which the mirror's fetch by commit does not have; recorded as a
+/// follow-up in DECISIONS.md.)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Head {
+    Branch(String),
+    /// Detached, with this remote-tracking ref at the commit.
+    Pull(String),
+    Detached,
+}
+
+impl Head {
+    fn of_ref(full: &str) -> Head {
+        if let Some(b) = full.strip_prefix("refs/heads/")
+            && !b.is_empty()
+        {
+            return Head::Branch(b.to_string());
+        }
+        match full.strip_prefix("refs/pull/") {
+            Some(p) if !p.is_empty() => Head::Pull(format!("refs/remotes/pull/{p}")),
+            _ => Head::Detached,
+        }
+    }
+
+    /// For the memo's file name: which HEAD the tree has.
+    fn tag(&self) -> String {
+        let h = |s: &str| quod_cas::Hash::of(s.as_bytes()).hex()[..16].to_string();
+        match self {
+            Head::Branch(b) => format!("b-{}", h(b)),
+            Head::Pull(r) => format!("p-{}", h(r)),
+            Head::Detached => "detached".into(),
+        }
+    }
+}
+
+/// The commit, the `ref` output and what HEAD names.
 fn resolve(
     inputs: &CheckoutInputs,
     url: &str,
     mirror: &Path,
     auth: &Auth,
-) -> anyhow::Result<(String, String)> {
+) -> anyhow::Result<(String, String, Head)> {
     let r = inputs.reference.trim();
     let own = inputs
         .repository
@@ -180,6 +225,7 @@ fn resolve(
             return Ok((
                 inputs.github_sha.to_ascii_lowercase(),
                 inputs.github_ref.clone(),
+                Head::of_ref(&inputs.github_ref),
             ));
         }
         let sha = exact("HEAD").with_context(|| format!("{url}: no HEAD"))?;
@@ -188,10 +234,11 @@ fn resolve(
             .find(|(n, _)| n == "symref:HEAD")
             .map(|(_, t)| t.clone())
             .unwrap_or_default();
-        return Ok((sha, target));
+        let head = Head::of_ref(&target);
+        return Ok((sha, target, head));
     }
     if is_sha(r) {
-        return Ok((r.to_ascii_lowercase(), String::new()));
+        return Ok((r.to_ascii_lowercase(), String::new(), Head::Detached));
     }
     let candidates: Vec<String> = if r.starts_with("refs/") {
         vec![r.to_string()]
@@ -201,7 +248,7 @@ fn resolve(
     for c in candidates {
         // A tag's peeled commit, else the ref itself.
         if let Some(sha) = exact(&format!("{c}^{{}}")).or_else(|| exact(&c)) {
-            return Ok((sha, r.to_string()));
+            return Ok((sha, r.to_string(), Head::of_ref(&c)));
         }
     }
     bail!("{url}: no branch or tag named {r:?}")
@@ -301,6 +348,7 @@ fn import_commit(
     cas: &Cas,
     mirror: &Path,
     sha: &str,
+    head: &Head,
     url: &str,
     state_dir: &Path,
 ) -> anyhow::Result<Tree> {
@@ -322,7 +370,7 @@ fn import_commit(
                 bail!("git {} {sha} failed", args[0]);
             }
         }
-        git_dir(&scratch, mirror, sha, url)?;
+        git_dir(&scratch, mirror, sha, head, url)?;
         Ok(cas.import_dir(&scratch)?)
     })();
     let _ = quod_cas::remove_any(&scratch);
@@ -330,14 +378,21 @@ fn import_commit(
     result
 }
 
-/// A `.git` for the checkout, as actions/checkout leaves one for a commit
-/// (detached HEAD, `origin` the repository, depth 1), and nothing that
-/// would make it differ from run to run or leak: no credentials (persisted
-/// credentials would be a secret in the tree), no FETCH_HEAD (it names the
-/// mirror's host path), no reflogs (times and identities), no hook samples.
-/// It is part of the tree, so everything a step reads in it is observed:
-/// go build's VCS stamping, `git describe`, `git status`.
-fn git_dir(work: &Path, mirror: &Path, sha: &str, url: &str) -> anyhow::Result<()> {
+/// A `.git` for the checkout, as actions/checkout leaves one (`origin` the
+/// repository, depth 1; for a branch, the branch checked out from
+/// `refs/remotes/origin/<branch>` with its upstream set, HEAD naming it;
+/// otherwise HEAD detached at the commit), and nothing that would make it
+/// differ from run to run or leak: no credentials (persisted credentials
+/// would be a secret in the tree), no FETCH_HEAD (it names the mirror's
+/// host path), no reflogs (times and identities), no hook samples. It is
+/// part of the tree, so everything a step reads in it is observed: go
+/// build's VCS stamping, `git describe`, `git status`. A symbolic HEAD is
+/// also what lets a step that only finds the repository (git's discovery
+/// reads HEAD, not the branch) replay across commits of the branch, as on
+/// GitHub; whatever resolves HEAD reads the branch's ref, recorded too.
+/// The index is `read-tree`'s, without stat data; each step is served it
+/// refreshed against its own tree (`quod_fs::git::refresh_index`).
+fn git_dir(work: &Path, mirror: &Path, sha: &str, head: &Head, url: &str) -> anyhow::Result<()> {
     let run = |args: &[&str]| -> anyhow::Result<()> {
         let st = Command::new("git")
             .arg("-C")
@@ -362,7 +417,16 @@ fn git_dir(work: &Path, mirror: &Path, sha: &str, url: &str) -> anyhow::Result<(
     run(&["config", "gc.auto", "0"])?;
     run(&["remote", "add", "origin", url])?;
     let mirror = mirror.to_string_lossy().into_owned();
+    // Always a pack, never loose objects: .git/objects lists the same
+    // names for every commit, so a step that only finds the repository
+    // (git checks objects/ exists) does not depend on the commit.
     run(&[
+        "-c",
+        "fetch.unpackLimit=1",
+        // One pack-objects thread: the same pack for a commit on every
+        // runner (see quod-cli's gitdir.rs).
+        "-c",
+        "pack.threads=1",
         "fetch",
         "-q",
         "--no-tags",
@@ -371,7 +435,24 @@ fn git_dir(work: &Path, mirror: &Path, sha: &str, url: &str) -> anyhow::Result<(
         &mirror,
         sha,
     ])?;
-    run(&["update-ref", "--no-deref", "HEAD", sha])?;
+    match head {
+        Head::Branch(b) => {
+            let (remote, local) = (
+                format!("refs/remotes/origin/{b}"),
+                format!("refs/heads/{b}"),
+            );
+            run(&["update-ref", &remote, sha])?;
+            run(&["update-ref", &local, sha])?;
+            run(&["symbolic-ref", "HEAD", &local])?;
+            run(&["config", &format!("branch.{b}.remote"), "origin"])?;
+            run(&["config", &format!("branch.{b}.merge"), &local])?;
+        }
+        Head::Pull(r) => {
+            run(&["update-ref", r, sha])?;
+            run(&["update-ref", "--no-deref", "HEAD", sha])?;
+        }
+        Head::Detached => run(&["update-ref", "--no-deref", "HEAD", sha])?,
+    }
     run(&["read-tree", sha])?;
     for leftover in ["FETCH_HEAD", "logs", "ORIG_HEAD"] {
         let p = work.join(".git").join(leftover);
@@ -539,13 +620,13 @@ mod tests {
         );
         assert_eq!(c.tree.get("run.sh").unwrap().m, Some(0o755));
         // A .git as actions/checkout leaves one, without credentials or
-        // anything that varies: detached HEAD at the commit, origin set.
-        assert_eq!(
-            cas.get(&c.tree.get(".git/HEAD").unwrap().h.unwrap())
-                .unwrap()
-                .unwrap(),
-            format!("{head}\n").as_bytes()
-        );
+        // anything that varies: the branch checked out from origin's, HEAD
+        // naming it, origin set.
+        let file = |t: &Tree, p: &str| cas.get(&t.get(p).unwrap().h.unwrap()).unwrap().unwrap();
+        assert_eq!(file(&c.tree, ".git/HEAD"), b"ref: refs/heads/main\n");
+        for r in [".git/refs/heads/main", ".git/refs/remotes/origin/main"] {
+            assert_eq!(file(&c.tree, r), format!("{head}\n").as_bytes(), "{r}");
+        }
         assert!(c.tree.get(".git/FETCH_HEAD").is_none() && c.tree.get(".git/logs").is_none());
         assert_eq!(
             cas.get(&c.tree.get(".git/info/exclude").unwrap().h.unwrap())
@@ -561,19 +642,26 @@ mod tests {
         )
         .unwrap();
         assert!(
-            config.contains("[remote \"origin\"]") && !config.contains("extraheader"),
+            config.contains("[remote \"origin\"]")
+                && config.contains("[branch \"main\"]")
+                && config.contains("merge = refs/heads/main")
+                && !config.contains("extraheader"),
             "{config}"
         );
         let again = checkout(&state, &cas, &inputs).unwrap();
         assert!(again.memo && again.tree == c.tree);
         assert_eq!(c.ref_output, "main");
-        // By sha, without a ref: the ref output is empty.
+        // By sha, without a ref: the ref output is empty, HEAD detached at
+        // the commit, a tree of its own (not the branch's memo).
         let by_sha = CheckoutInputs {
             reference: head.clone(),
             ..inputs.clone()
         };
         let s = checkout(&state, &cas, &by_sha).unwrap();
-        assert!(s.memo && s.ref_output.is_empty());
+        assert!(!s.memo && s.ref_output.is_empty());
+        assert_eq!(file(&s.tree, ".git/HEAD"), format!("{head}\n").as_bytes());
+        assert!(s.tree.get(".git/refs/heads/main").is_none());
+        assert!(checkout(&state, &cas, &by_sha).unwrap().memo);
         // Exact names only: a prefix of a branch is no branch, and a full
         // ref name works.
         let prefix = CheckoutInputs {
@@ -586,6 +674,21 @@ mod tests {
             ..inputs.clone()
         };
         assert_eq!(checkout(&state, &cas, &full).unwrap().sha, head);
+        // A pull request's merge ref (the workflow's own, no ref input):
+        // detached at the commit, refs/remotes/pull/7/merge naming it.
+        let pr = CheckoutInputs {
+            reference: String::new(),
+            github_sha: head.clone(),
+            github_ref: "refs/pull/7/merge".into(),
+            ..inputs.clone()
+        };
+        let p = checkout(&state, &cas, &pr).unwrap();
+        assert_eq!(file(&p.tree, ".git/HEAD"), format!("{head}\n").as_bytes());
+        assert_eq!(
+            file(&p.tree, ".git/refs/remotes/pull/7/merge"),
+            format!("{head}\n").as_bytes()
+        );
+        assert!(p.tree.get(".git/refs/heads/main").is_none());
         // A repository the token cannot read gets nothing, not even the memo.
         let unreadable = CheckoutInputs {
             repository: "o/missing".into(),

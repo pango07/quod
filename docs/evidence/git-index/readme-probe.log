@@ -1,0 +1,10 @@
+# probes/readme.sh on cli/cli 9490d204 (a branch at the commit), this branch's quod:
+# each package recorded twice (proof, then replay), then a README.md-only commit.
+QUOD  EXECUTED
+QUOD  REPLAYED
+QUOD  EXECUTED
+QUOD  REPLAYED
+== ./internal/skills/... after a README.md commit
+QUOD  REPLAYED
+== ./pkg/cmd/skills/... after a README.md commit
+QUOD  REPLAYED

@@ -171,6 +171,10 @@ pub fn run_step(
             .without_top_level(".git"),
         Source::Tree(h) => rootfs::tree(cas, h)?,
     };
+    // A tree with a git index (a runner's checkout) is served it refreshed
+    // against the tree for the step's identity, the sandbox's default.
+    let (uid, gid) = quod_sandbox::step_ids(None, None);
+    let (tree, _) = quod_fs::git::refresh_index(&tree, cas, uid, gid)?;
     // Run directories live beside this one; their filesystem is part of the
     // host class.
     let runs = run_dir.parent().unwrap_or(run_dir);

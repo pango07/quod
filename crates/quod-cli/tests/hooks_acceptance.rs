@@ -1381,3 +1381,213 @@ fn normalize(stdout: &[u8]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+/// The observer's request counts for the last workspace mount (its event
+/// in events.jsonl): lookups, opens, MiB read.
+fn last_mount(r: &Runner) -> (u64, u64, u64) {
+    let events = std::fs::read_to_string(r.state.join("events.jsonl")).unwrap_or_default();
+    let ev: serde_json::Value = events
+        .lines()
+        .rev()
+        .filter(|l| l.contains("\"mounted_ms\""))
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .next()
+        .unwrap_or_default();
+    let f = |k: &str| {
+        ev["fields"][k]
+            .as_u64()
+            .or_else(|| ev[k].as_u64())
+            .unwrap_or(0)
+    };
+    (f("lookup"), f("open"), f("read_mb"))
+}
+
+/// G1-G4: go build (which stamps VCS information by running `git status`)
+/// and go test through the hooks over the served index (DECISIONS.md,
+/// exp/git-index). With QUOD_GIT_INDEX_MEASURE=1 it only prints what it
+/// sees, for the same numbers on a branch without the served index.
+#[test]
+fn hooks_git_index() {
+    if !enabled() {
+        return;
+    }
+    let measure = std::env::var("QUOD_GIT_INDEX_MEASURE").is_ok_and(|v| v == "1");
+    let spike = std::env::var("QUOD_SPIKE_REPO").ok();
+    let env = match &spike {
+        Some(src) => Env::from_copy(Path::new(src), Some(quod_key::Toolchain::Go)),
+        None => Env::new(),
+    };
+    // A branch to push to, as on GitHub (the suite's copy may be detached).
+    git(&env.repo, &["checkout", "-q", "-B", "main"]);
+    if spike.is_none() {
+        env.write("cmd/x/main.go", "package main\n\nfunc main() {}\n");
+        env.write(".github/workflows/ci.yml", "name: ci\n");
+        env.commit("a main package and a workflow");
+    }
+    std::fs::create_dir_all(env.tmp.path().join("o")).unwrap();
+    std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
+    let (pkg, test) = if spike.is_some() {
+        (
+            "./cmd/gh",
+            "go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...",
+        )
+    } else {
+        ("./cmd/x", "go test ./...")
+    };
+    let build = format!(
+        "go build -o bin/out {pkg} && go version -m bin/out | grep -E 'vcs\\.' | sed 's/^[[:space:]]*//'"
+    );
+    let mut r = Runner::new(env);
+    let report = |what: &str, o: &StepOut| {
+        let line = o
+            .stderr
+            .lines()
+            .find(|l| l.contains("QUOD  EXECUTED") || l.contains("QUOD  REPLAYED"))
+            .unwrap_or("")
+            .to_string();
+        println!("{what}: {line}");
+        for l in o
+            .stderr
+            .lines()
+            .filter(|l| l.contains("ran again") || l.contains("differed at"))
+        {
+            println!("  {l}");
+        }
+    };
+    let manifest_size = |r: &Runner| {
+        let m = r.ledger().candidates(&newest_key(r), 1).unwrap().remove(0);
+        let files = m.entries.iter().filter(|e| e.k == Kind::File).count();
+        (m.entries.len(), files)
+    };
+
+    // G1: go build records (no taint from a file git only stat()ed) and
+    // stamps the commit; git opens no file it has an entry for.
+    let g1 = r.job(&build, &[]);
+    report("G1 go build", &g1);
+    let (lookups, opens, mb) = last_mount(&r);
+    let stamp = String::from_utf8_lossy(&g1.stdout).to_string();
+    println!("G1 vcs: {}", stamp.lines().collect::<Vec<_>>().join(", "));
+    let recorded = !g1.stderr.contains("ran again");
+    let sizes = recorded.then(|| manifest_size(&r));
+    println!(
+        "G1 manifest (entries, files): {}; observer: {lookups} lookups, {opens} opens, {mb} MiB read",
+        sizes.map_or("not recorded".into(), |(a, b)| format!("{a}, {b}"))
+    );
+    // G0: what git does over the served checkout: entries it re-checked by
+    // reading the file (trace2's refresh/sum_scan; 0 in a fresh checkout).
+    let g0 = r.job(
+        "GIT_TRACE2_PERF=1 git status --porcelain 2>&1 >/dev/null | grep -o 'refresh/sum_scan:[0-9]*'",
+        &[],
+    );
+    let scans = String::from_utf8_lossy(&g0.stdout).to_string();
+    println!(
+        "G0 git status re-checked: {}",
+        scans.split_whitespace().collect::<Vec<_>>().join(" ")
+    );
+    r.mode = "replay";
+    // The first build put the module cache's download directory in the
+    // workspace state the next job starts from: one more run, then the
+    // same commit replays.
+    let g1a = r.job(&build, &[]);
+    report("G1 next job, go build", &g1a);
+    let g1b = r.job(&build, &[]);
+    report("G1 same commit again, go build", &g1b);
+    let g2t = r.job(test, &[]);
+    report("G2 go test", &g2t);
+    let g2tb = r.job(test, &[]);
+    report("G2 same commit again, go test", &g2tb);
+
+    // G3: a README-only commit: go test replays (HEAD names the branch);
+    // go build runs (its binary embeds the new revision) and misses on .git.
+    let readme = std::fs::read_to_string(r.env.repo.join("README.md")).unwrap_or_default();
+    r.env.write("README.md", &format!("{readme}\nG3 edit\n"));
+    r.env.commit("G3: README only");
+    let g3t = r.job(test, &[]);
+    report("G3 README commit, go test", &g3t);
+    let g3b = r.job(&build, &[]);
+    report("G3 README commit, go build", &g3b);
+    // G4: an edited .github file, then a Go source and go.mod: go test
+    // replays the first and runs the others; go build runs.
+    let wf = std::fs::read_dir(r.env.repo.join(".github/workflows"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.is_file())
+        .min()
+        .expect("a workflow file");
+    let text = std::fs::read_to_string(&wf).unwrap();
+    std::fs::write(&wf, format!("{text}\n# G4 edit\n")).unwrap();
+    r.env.commit("G4: a .github file");
+    let g4t = r.job(test, &[]);
+    report("G4 .github commit, go test", &g4t);
+    let src = if spike.is_some() {
+        "pkg/cmdutil/args.go"
+    } else {
+        "calc/calc.go"
+    };
+    let text = std::fs::read_to_string(r.env.repo.join(src)).unwrap();
+    r.env.write(src, &format!("{text}\n// G4 edit\n"));
+    r.env.commit("G4: a Go source");
+    let g4s = r.job(test, &[]);
+    report("G4 Go source commit, go test", &g4s);
+    let g4b = r.job(&build, &[]);
+    report("G4 Go source commit, go build", &g4b);
+    let gomod = std::fs::read_to_string(r.env.repo.join("go.mod")).unwrap();
+    r.env.write("go.mod", &format!("{gomod}\n// G4 edit\n"));
+    r.env.commit("G4: go.mod");
+    let g4m = r.job(test, &[]);
+    report("G4 go.mod commit, go test", &g4m);
+    // G5 (reported, not asserted): go build in a job that has GITHUB_TOKEN,
+    // which offline steps are not given: the withheld-name scan then reads
+    // every file the step was served. Which file it names, if any.
+    let g5 = r.job(
+        &build,
+        &[("GITHUB_TOKEN", "ghs_0123456789abcdefghijABCDEFGHIJ0123")],
+    );
+    report("G5 go build with GITHUB_TOKEN withheld", &g5);
+    for l in g5.stderr.lines().filter(|l| l.contains("names ")) {
+        println!("  {l}");
+    }
+    if measure {
+        return;
+    }
+    assert!(g1.executed() && g1.code == 0, "G1: {}", g1.stderr);
+    assert!(recorded, "G1: go build must be recorded: {}", g1.stderr);
+    assert!(
+        stamp.contains("vcs.revision=") && stamp.contains("vcs.modified=false"),
+        "G1: {stamp}"
+    );
+    assert!(
+        !scans.trim().is_empty() && scans.split_whitespace().all(|s| s == "refresh/sum_scan:0"),
+        "G0: git re-checked entries over the served index: {scans}"
+    );
+    assert!(
+        g1b.replayed(),
+        "G1: the same commit replays: {}",
+        g1b.stderr
+    );
+    assert!(g2tb.replayed(), "G2: {}", g2tb.stderr);
+    assert!(
+        g3t.replayed(),
+        "G3: a README commit replays go test: {}",
+        g3t.stderr
+    );
+    assert!(g3b.executed() && !g3b.replayed(), "G3: {}", g3b.stderr);
+    assert!(
+        g3b.stderr.contains("differed at .git/"),
+        "G3: go build misses on .git: {}",
+        g3b.stderr
+    );
+    assert!(
+        g4t.replayed(),
+        "G4: a .github commit replays go test: {}",
+        g4t.stderr
+    );
+    for (what, o) in [
+        ("Go source, go test", &g4s),
+        ("Go source, go build", &g4b),
+        ("go.mod, go test", &g4m),
+    ] {
+        assert!(o.executed() && !o.replayed(), "G4 {what}: {}", o.stderr);
+    }
+    println!("hooks git index: G1-G4 pass");
+}
