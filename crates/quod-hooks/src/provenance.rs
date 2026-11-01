@@ -62,6 +62,11 @@ pub struct Provenance {
     /// Why the job is opaque, if it is.
     #[serde(default)]
     pub opaque: Option<String>,
+    /// The names (upper-cased) the workflow assigns from a step's or a
+    /// job's outputs (`steps.X.outputs.Y`, `needs.X.outputs.Y`): what a
+    /// step computed, which may be a part it cut out of a secret.
+    #[serde(default)]
+    pub derived: BTreeSet<String>,
 }
 
 impl Provenance {
@@ -70,6 +75,7 @@ impl Provenance {
             workflow: workflow.into(),
             names: BTreeMap::new(),
             opaque: Some(why.into()),
+            derived: BTreeSet::new(),
         }
     }
 
@@ -173,6 +179,8 @@ struct Facts {
     env_dynamic: bool,
     /// A function call.
     call: bool,
+    /// The steps or needs context (outputs a step computed).
+    outputs: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -260,6 +268,8 @@ fn facts(expr: &str) -> Facts {
                     f.whole = Some("the secrets context as a whole (toJSON(secrets) or the like)")
                 }
             }
+        } else if id.eq_ignore_ascii_case("steps") || id.eq_ignore_ascii_case("needs") {
+            f.outputs = true;
         } else if id.eq_ignore_ascii_case("env") {
             match member {
                 Some(n) => f.env.push(n),
@@ -846,7 +856,20 @@ pub fn analyze(path: &str, text: &str, src: &Sources, job: Option<&str>) -> Prov
             _ => None,
         };
     }
+    let derived = w
+        .uses
+        .iter()
+        .filter(|u| exprs(u).any(|f| f.outputs))
+        .filter_map(|u| match &u.place {
+            Place::Env(n) => Some(n.to_ascii_uppercase()),
+            Place::Input { uses, name } if w.kinds.get(uses) == Some(&ActionKind::Env) => {
+                Some(input_env(name))
+            }
+            _ => None,
+        })
+        .collect();
     Provenance {
+        derived,
         workflow: String::new(),
         // Kept when opaque too: what the job's steps are given is still
         // classified (salted, masked, kept out of the network surface).

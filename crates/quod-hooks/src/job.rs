@@ -159,6 +159,11 @@ pub struct Job {
     /// recorded.
     #[serde(default)]
     pub short_secret: Option<String>,
+    /// The names earlier steps set in GITHUB_ENV (names only): a value
+    /// under one of them that a known secret holds is a part a step cut out
+    /// of it (`secrets::classify_with`).
+    #[serde(default)]
+    pub set_by_steps: std::collections::BTreeSet<String>,
     #[serde(skip)]
     dir: PathBuf,
     #[serde(skip)]
@@ -255,6 +260,7 @@ impl Job {
             salt,
             had_secrets: false,
             short_secret: None,
+            set_by_steps: Default::default(),
             dir,
             state_dir: state_dir.to_path_buf(),
         };
@@ -322,10 +328,11 @@ impl Job {
     /// classified values salted.
     fn learn_secrets(&mut self, env: &BTreeMap<String, String>) -> anyhow::Result<()> {
         let container = self.container_env();
-        let c = secrets::classify(
+        let c = secrets::classify_with(
             container.iter().chain(env.iter()),
             self.provenance(),
             self.known_secrets(),
+            &self.set_by_steps,
         );
         self.add_masks(&c.masks);
         let salt = secrets::salt(&self.state_dir)?;
@@ -1402,6 +1409,13 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
             let _ = std::fs::remove_file(step_dir.join(f));
         }
     }
+    // The names this step set in GITHUB_ENV, as the runner will read them
+    // (whatever surface wrote or replayed them into its file).
+    if let Some(f) = env_in.get("GITHUB_ENV").and_then(|p| job.command_file(p))
+        && let Ok(b) = std::fs::read(&f)
+    {
+        job.set_by_steps.extend(surface::env_file_names(&b));
+    }
     // What a run staged and did not record is not kept.
     for d in ["stage", "online/stage"] {
         let _ = quod_cas::remove_any(&step_dir.join(d));
@@ -2225,6 +2239,18 @@ fn run_step(
     }
     let (commands, file_taint) = surface::hand_back(&h.files, &stage, &job.masks)?;
     let mut taint = file_taint;
+    // A part of a secret it hands on to later steps (a password cut out of
+    // a known DATABASE_URL into GITHUB_ENV): no encoding of the secret
+    // matches it, so the file is checked against the secrets themselves.
+    let whole: Vec<&str> = job
+        .known_secrets()
+        .iter()
+        .chain(h.secret_values.iter())
+        .map(String::as_str)
+        .collect();
+    if let Some(f) = surface::part_handed_on(&h.files, &whole) {
+        taint.push(format!("{f} carries a part of a secret value"));
+    }
     if let Some(why) = &ex.warm_violation {
         taint.push(why.clone());
     }

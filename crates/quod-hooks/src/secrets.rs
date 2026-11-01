@@ -138,20 +138,6 @@ fn encodings(v: &str) -> Vec<Vec<u8>> {
     // Base64 at the three byte offsets, as the runner does (full, padded),
     // plus unpadded, the aligned core (whole 3-byte groups only) and
     // base64url of that core.
-    // Wrapped as GNU base64 (76 columns) and openssl or PEM (64) write it,
-    // from the value's start: each whole line, and the last.
-    let whole = base64(b, STD);
-    for width in [64, 76] {
-        if whole.len() > width {
-            out.extend(
-                whole
-                    .as_bytes()
-                    .chunks(width)
-                    .filter(|c| c.len() >= MIN_SECRET_LEN)
-                    .map(|c| String::from_utf8_lossy(c).into_owned()),
-            );
-        }
-    }
     for shift in 0..3 {
         let body = if b.len() > shift { &b[shift..] } else { b };
         let full = base64(body, STD);
@@ -280,7 +266,12 @@ fn base64(bytes: &[u8], alphabet: &[u8; 64]) -> String {
     out
 }
 
-/// `bytes` with every occurrence of a mask replaced by `***`.
+/// `bytes` with every occurrence of a mask replaced by `***`, also where a
+/// base64 stream is wrapped over lines (`base64` at 76 columns, openssl and
+/// PEM at 64, any width): each run of lines of base64 characters alone is
+/// matched as one string, so the secret's encoding is found whatever its
+/// offset in the stream or its length; what it covers is masked on each line
+/// it spans, the line breaks kept.
 pub fn mask(bytes: &[u8], masks: &[Vec<u8>]) -> Vec<u8> {
     if masks.is_empty() {
         return bytes.to_vec();
@@ -289,12 +280,80 @@ pub fn mask(bytes: &[u8], masks: &[Vec<u8>]) -> Vec<u8> {
         .match_kind(aho_corasick::MatchKind::LeftmostLongest)
         .build(masks)
         .expect("mask patterns");
+    let covered = covered(&ac, bytes);
+    if !covered.iter().any(|&c| c) {
+        return bytes.to_vec();
+    }
     let mut out = Vec::with_capacity(bytes.len());
-    ac.replace_all_with_bytes(bytes, &mut out, |_, _, dst| {
-        dst.extend_from_slice(b"***");
-        true
-    });
+    let mut i = 0;
+    while i < bytes.len() {
+        if covered[i] {
+            out.extend_from_slice(b"***");
+            while i < bytes.len() && covered[i] {
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
     out
+}
+
+/// Which bytes of `bytes` a match covers: direct matches, and matches in
+/// the joined view of each wrapped base64 run (its line breaks never
+/// covered).
+fn covered(ac: &AhoCorasick, bytes: &[u8]) -> Vec<bool> {
+    let mut cov = vec![false; bytes.len()];
+    for m in ac.find_iter(bytes) {
+        cov[m.start()..m.end()].iter_mut().for_each(|c| *c = true);
+    }
+    for (joined, map) in base64_runs(bytes) {
+        for m in ac.find_iter(&joined) {
+            for &at in &map[m.start()..m.end()] {
+                cov[at] = true;
+            }
+        }
+    }
+    cov
+}
+
+/// The runs of two or more consecutive lines made of base64 characters
+/// only (standard or URL alphabet, `=`; a trailing CR allowed), each joined
+/// without its line breaks, with the offset in `bytes` of every joined byte.
+fn base64_runs(bytes: &[u8]) -> Vec<(Vec<u8>, Vec<usize>)> {
+    let b64 = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'=' | b'-' | b'_');
+    let mut runs = Vec::new();
+    let mut cur: (Vec<u8>, Vec<usize>, usize) = (Vec::new(), Vec::new(), 0);
+    let mut flush = |cur: &mut (Vec<u8>, Vec<usize>, usize)| {
+        if cur.2 >= 2 {
+            runs.push((std::mem::take(&mut cur.0), std::mem::take(&mut cur.1)));
+        }
+        *cur = (Vec::new(), Vec::new(), 0);
+    };
+    let mut start = 0;
+    for end in bytes
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| **b == b'\n')
+        .map(|(i, _)| i)
+        .chain(std::iter::once(bytes.len()))
+    {
+        let mut line = &bytes[start..end];
+        if line.last() == Some(&b'\r') {
+            line = &line[..line.len() - 1];
+        }
+        if !line.is_empty() && line.iter().all(|&c| b64(c)) {
+            cur.0.extend_from_slice(line);
+            cur.1.extend(start..start + line.len());
+            cur.2 += 1;
+        } else {
+            flush(&mut cur);
+        }
+        start = end + 1;
+    }
+    flush(&mut cur);
+    runs
 }
 
 /// A reason, a path or a log line with its secrets masked: what may go
@@ -308,12 +367,20 @@ pub fn mask_str(s: &str, masks: &[Vec<u8>]) -> String {
 
 /// Does `bytes` hold a mask?
 pub fn holds(bytes: &[u8], masks: &[Vec<u8>]) -> bool {
-    !masks.is_empty()
-        && AhoCorasick::new(masks)
-            .expect("mask patterns")
-            .find(bytes)
-            .is_some()
+    if masks.is_empty() {
+        return false;
+    }
+    let ac = AhoCorasick::new(masks).expect("mask patterns");
+    ac.find(bytes).is_some()
+        || base64_runs(bytes)
+            .iter()
+            .any(|(joined, _)| ac.find(joined).is_some())
 }
+
+/// Files up to this size are read whole by `file_containing`, so a wrapped
+/// base64 stream in them is matched across its lines; larger ones are
+/// streamed, direct matches only.
+const WHOLE_FILE: u64 = 64 << 20;
 
 /// The first entry under `dir` that carries a mask: in a file's content,
 /// in any entry's name or its path from `dir` (a step can write a secret as
@@ -348,8 +415,14 @@ pub fn file_containing(dir: &Path, masks: &[Vec<u8>]) -> anyhow::Result<Option<P
                     return Ok(Some(report(&path)));
                 }
             } else if t.is_file() {
-                let f = std::fs::File::open(&path)?;
-                if ac.stream_find_iter(f).next().is_some() {
+                let found = if e.metadata()?.len() <= WHOLE_FILE {
+                    holds(&std::fs::read(&path)?, masks)
+                } else {
+                    ac.stream_find_iter(std::fs::File::open(&path)?)
+                        .next()
+                        .is_some()
+                };
+                if found {
                     return Ok(Some(report(&path)));
                 }
             }
@@ -399,19 +472,37 @@ fn exempt(name: &str, value: &str) -> bool {
         || step::placeholder(name).is_some_and(|p| p == value)
 }
 
-/// Classifies a step's environment (see the module docs): by name, by
-/// shape, by provenance, and by its relation to a known secret of the job
-/// (equal, holding one, or held by one: a password a step cut out of a
-/// known DATABASE_URL); then any value holding, or held by, a classified
-/// one. `known` is the job's secrets so far (`JobSecrets::values`).
+/// `classify_with` for an environment no step has set anything in.
 pub fn classify<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
 ) -> Classified {
+    classify_with(env, provenance, known, &BTreeSet::new())
+}
+
+/// Classifies a step's environment (see the module docs): by name, by
+/// shape, by provenance, and by its relation to a known secret of the job
+/// (equal to one, or holding one); then any value holding a classified one.
+/// A value held by a known or classified secret (a password a step cut out
+/// of a known DATABASE_URL) is one only under a name a step set: one in
+/// `set_by_steps` (an earlier step's GITHUB_ENV), or one the workflow
+/// assigns from a step's outputs (`Provenance::derived`). A name the
+/// workflow or the runner sets otherwise is configuration, even when a
+/// secret also holds its value (`production` in a dotenv secret,
+/// `localhost` in a DSN). Such a held-by value is a secret of its step
+/// only, never one of the job's (`strong`): nothing cascades from it.
+/// `known` is the job's secrets so far (`JobSecrets::values`).
+pub fn classify_with<'a>(
+    env: impl IntoIterator<Item = (&'a String, &'a String)>,
+    provenance: &Provenance,
+    known: &BTreeSet<String>,
+    set_by_steps: &BTreeSet<String>,
+) -> Classified {
     let env: Vec<(&String, &String)> = env.into_iter().collect();
+    let computed =
+        |k: &str| set_by_steps.contains(k) || provenance.derived.contains(&k.to_ascii_uppercase());
     let long = |s: &&String| s.len() >= MIN_SECRET_LEN;
-    let related = |v: &str, s: &str| v == s || v.contains(s) || s.contains(v);
     let known_long: Vec<&String> = known.iter().filter(long).collect();
     let mut c = Classified::default();
     // name -> certain?
@@ -422,15 +513,18 @@ pub fn classify<'a>(
         }
         let strong = provenance.names_secret(k)
             || known.contains(v.as_str())
-            || known_long.iter().any(|s| v.contains(s.as_str()))
-            || (v.len() >= MIN_SECRET_LEN && known_long.iter().any(|s| s.contains(v.as_str())));
-        if strong || step::secret_like(k) || step::looks_secret(v) {
+            || known_long.iter().any(|s| v.contains(s.as_str()));
+        let held = v.len() >= MIN_SECRET_LEN
+            && computed(k)
+            && known_long.iter().any(|s| s.contains(v.as_str()));
+        if strong || held || step::secret_like(k) || step::looks_secret(v) {
             names.insert((*k).clone(), strong);
         }
     }
     // A value holding a classified one (a copy under another name, a URL
-    // with a password in it), or held by one, is one too; certain as the
-    // value it relates to.
+    // with a password in it) is one too, certain as the value it holds; one
+    // held by a classified value, under a name a step set, is one of this
+    // step's.
     let first: Vec<(String, bool)> = env
         .iter()
         .filter_map(|(k, v)| names.get(k.as_str()).map(|s| ((*v).clone(), *s)))
@@ -440,8 +534,10 @@ pub fn classify<'a>(
         if exempt(k, v) || names.contains_key(k.as_str()) || v.len() < MIN_SECRET_LEN {
             continue;
         }
-        if let Some((_, s)) = first.iter().find(|(c, _)| related(v, c)) {
+        if let Some((_, s)) = first.iter().find(|(c, _)| v.contains(c.as_str())) {
             names.insert((*k).clone(), *s);
+        } else if computed(k) && first.iter().any(|(c, _)| c.contains(v.as_str())) {
+            names.insert((*k).clone(), false);
         }
     }
     let mut values: BTreeMap<String, bool> = BTreeMap::new();
@@ -941,22 +1037,108 @@ mod tests {
     #[test]
     fn a_part_of_a_known_secret_is_one() {
         let known: BTreeSet<String> = ["postgres://u:pa55word-x9@h/db".to_string()].into();
-        let c = classify(
+        // An earlier step cut the password out into GITHUB_ENV as DB_PASS.
+        let set: BTreeSet<String> = ["DB_PASS".to_string()].into();
+        let c = classify_with(
             &env(&[("DB_PASS", "pa55word-x9"), ("SHORT", "u")]),
             &Provenance::default(),
             &known,
+            &set,
         );
         assert_eq!(c.names, ["DB_PASS"]);
-        let c = classify(
+        assert!(c.strong.is_empty(), "a secret of its step, not of the job");
+        let c = classify_with(
             &env(&[
                 ("APP_DSN", "postgres://u:pa55word-x9@h/db"),
                 ("DB_PASS", "pa55word-x9"),
             ]),
             &prov(&["APP_DSN"]),
             &BTreeSet::new(),
+            &set,
         );
         assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
         assert_eq!(mask_str("pw=pa55word-x9", &c.masks), "pw=***");
+        // The workflow assigns it from a step's output.
+        let mut p = prov(&["APP_DSN"]);
+        p.derived.insert("DB_PASS".to_string());
+        let c = classify(
+            &env(&[
+                ("APP_DSN", "postgres://u:pa55word-x9@h/db"),
+                ("DB_PASS", "pa55word-x9"),
+            ]),
+            &p,
+            &BTreeSet::new(),
+        );
+        assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
+    }
+
+    /// R1 (verification of 42c4498): configuration a structured secret
+    /// happens to hold (a dotenv blob, a DSN) is no secret under a name the
+    /// workflow or the runner sets: the reviewer's probe.
+    #[test]
+    fn configuration_inside_a_secret_is_not_one() {
+        let known: BTreeSet<String> = [
+            "NODE_ENV=production\nAPI_URL=https://api.example.com\nDB_PASSWORD=Zx9-very-secret-77\nREGION=us-east-1\nGITHUB_REPOSITORY=acme/webapp\n".to_string(),
+            "postgres://postgres:pw123456@localhost:5432/postgres".to_string(),
+        ]
+        .into();
+        let e = env(&[
+            ("NODE_ENV", "production"),
+            ("REGION", "us-east-1"),
+            ("GITHUB_REPOSITORY", "acme/webapp"),
+            ("PGHOST", "localhost"),
+            ("PGUSER", "postgres"),
+            ("SERVICE", "api.example.com"),
+            ("CI", "true"),
+        ]);
+        let c = classify(&e, &Provenance::default(), &known);
+        assert!(c.names.is_empty(), "{:?}", c.names);
+        assert!(c.strong.is_empty());
+        let line = "deploying to production in us-east-1 for acme/webapp";
+        assert_eq!(mask_str(line, &c.masks), line);
+        // In the same step as the DSN itself, under the workflow's names.
+        let mut e2 = e.clone();
+        e2.insert(
+            "DATABASE_URL".into(),
+            "postgres://postgres:pw123456@localhost:5432/postgres".into(),
+        );
+        let c = classify(&e2, &prov(&["DATABASE_URL"]), &BTreeSet::new());
+        assert_eq!(c.names, ["DATABASE_URL"]);
+    }
+
+    /// M5 (verification of 42c4498): base64 wrapped at 64 or 76 columns
+    /// with the secret at any offset and of any length: `echo "$S" |
+    /// base64` (a trailing newline) for 100- and 101-byte secrets, and a
+    /// `user:` prefix.
+    #[test]
+    fn wrapped_base64_at_any_offset() {
+        let wrap = |s: &str, w: usize| -> String {
+            s.as_bytes()
+                .chunks(w)
+                .map(|c| format!("{}\n", String::from_utf8_lossy(c)))
+                .collect()
+        };
+        let base = "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef";
+        for sec in [format!("{base}g"), format!("{base}gh"), base.to_string()] {
+            let m = masks_for(&sec);
+            for input in [format!("{sec}\n"), format!("user:{sec}"), sec.clone()] {
+                let enc = b64(input.as_bytes());
+                for w in [64, 76] {
+                    let out = String::from_utf8(mask(wrap(&enc, w).as_bytes(), &m)).unwrap();
+                    let joined: String = out.lines().collect();
+                    for win in enc.as_bytes().windows(12) {
+                        let win = std::str::from_utf8(win).unwrap();
+                        assert!(
+                            !joined.contains(win),
+                            "len {} {:?} at {w}: {win} left in {out}",
+                            sec.len(),
+                            &input[..5]
+                        );
+                    }
+                    assert_eq!(out.lines().count(), wrap(&enc, w).lines().count());
+                }
+            }
+        }
     }
 
     /// M3 (review of 5f0afd6): `::add-mask::` as the runner parses it: the

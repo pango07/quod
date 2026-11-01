@@ -323,7 +323,12 @@ pub fn network(
     // never uses) is dropped, not a reason to taint. If the step truly
     // needed the secret it will fail online, and the caller reports it a
     // tainted failure rather than run it again (never a repeated effect).
-    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
+    let c = secrets::classify_with(
+        &env,
+        job.provenance(),
+        job.known_secrets(),
+        &job.set_by_steps,
+    );
     env.retain(|k, _| !c.is_secret(k));
     sealed(
         job,
@@ -426,7 +431,12 @@ fn sealed(
     // workflow's provenance, or holding one of the job's known secrets (the
     // protocol gives the hook no mask list). Salted in the key, masked in
     // everything stored. Placeholders are no secrets, whatever their names.
-    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
+    let c = secrets::classify_with(
+        &env,
+        job.provenance(),
+        job.known_secrets(),
+        &job.set_by_steps,
+    );
     let mut key_env = env.clone();
     for k in &c.names {
         if let Some(v) = env.get(k) {
@@ -550,7 +560,12 @@ fn sealed(
 pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
     let (env, mut taint) = base_env(job, args, false);
     // Nothing of this surface is stored; its secrets mask what it reports.
-    let c = secrets::classify(&env, job.provenance(), job.known_secrets());
+    let c = secrets::classify_with(
+        &env,
+        job.provenance(),
+        job.known_secrets(),
+        &job.set_by_steps,
+    );
     let env = finish_env(env, &mut taint);
     let mut cmd = vec![args.entry_point.clone()];
     cmd.extend(args.entry_point_args.iter().cloned());
@@ -731,6 +746,89 @@ pub fn temp_snapshot(host_temp: &Path) -> BTreeMap<String, (u64, i64, i64)> {
     out
 }
 
+/// The values a command file (GITHUB_ENV, GITHUB_OUTPUT, GITHUB_STATE)
+/// sets: each `NAME=value`'s value and each heredoc's body.
+pub fn command_values(bytes: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut lines = text.lines();
+    let mut out = Vec::new();
+    while let Some(line) = lines.next() {
+        let line = line.trim_end_matches('\r');
+        let eq = line.find('=');
+        if let Some(h) = line.find("<<").filter(|h| eq.is_none_or(|e| *h < e)) {
+            let d = &line[h + 2..];
+            let mut body = Vec::new();
+            for l in lines.by_ref() {
+                let l = l.trim_end_matches('\r');
+                if l == d {
+                    break;
+                }
+                body.push(l);
+            }
+            out.push(body.join("\n"));
+        } else if let Some(e) = eq {
+            out.push(line[e + 1..].to_string());
+        }
+    }
+    out
+}
+
+/// A pinned command file's value (GITHUB_ENV, GITHUB_OUTPUT, GITHUB_STATE)
+/// of `MIN_SECRET_LEN` bytes or more that one of `secrets` holds: a part a
+/// step cut out of a secret and hands on to later steps. The file's name.
+pub fn part_handed_on(files: &[PinnedFile], secrets: &[&str]) -> Option<String> {
+    files
+        .iter()
+        .filter(|f| {
+            !f.dir
+                && matches!(
+                    f.name.as_str(),
+                    "GITHUB_ENV" | "GITHUB_OUTPUT" | "GITHUB_STATE"
+                )
+        })
+        .find(|f| {
+            let all = std::fs::read(&f.host).unwrap_or_default();
+            let added = all.get(f.initial.len()..).unwrap_or(&[]);
+            command_values(added).iter().any(|v| {
+                let v = v.trim();
+                v.len() >= secrets::MIN_SECRET_LEN && secrets.iter().any(|s| s.contains(v))
+            })
+        })
+        .map(|f| f.name.clone())
+}
+
+/// The names a GITHUB_ENV file sets, as the runner reads it: `NAME=value`
+/// lines and `NAME<<DELIMITER` heredocs (skipped to their delimiter).
+pub fn env_file_names(bytes: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut lines = text.lines();
+    let mut out = Vec::new();
+    while let Some(line) = lines.next() {
+        let line = line.trim_end_matches('\r');
+        let (name, delim) = match (line.find('='), line.find("<<")) {
+            (Some(e), Some(h)) if h < e => (&line[..h], Some(&line[h + 2..])),
+            (Some(e), _) => (&line[..e], None),
+            (None, Some(h)) => (&line[..h], Some(&line[h + 2..])),
+            (None, None) => continue,
+        };
+        if !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            out.push(name.to_string());
+        }
+        if let Some(d) = delim {
+            for l in lines.by_ref() {
+                if l.trim_end_matches('\r') == d {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn append(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     std::fs::OpenOptions::new()
@@ -850,6 +948,22 @@ mod tests {
                 "{name} {wrote:?}: {taint:?}"
             );
         }
+    }
+
+    #[test]
+    fn command_file_values() {
+        assert_eq!(
+            command_values(b"A=1\nB<<EOF_x\nl1\nl2\nEOF_x\nC=x=y\n"),
+            ["1", "l1\nl2", "x=y"]
+        );
+    }
+
+    #[test]
+    fn env_file_names_as_the_runner_reads_them() {
+        assert_eq!(
+            env_file_names(b"A=1\nDB_PASS<<EOF_x\nX=not a name\nEOF_x\nB=x=y\n\nC<<D\r\nD\r\n"),
+            ["A", "DB_PASS", "B", "C"]
+        );
     }
 
     #[test]

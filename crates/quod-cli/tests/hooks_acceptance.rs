@@ -1988,22 +1988,61 @@ fn hooks_secrets() {
     no_leak(&r, "S10", "s10%mask-value");
     println!("S10 done: ::add-mask:: with properties and escapes");
 
-    // S11 (M2): a password cut out of a known secret (APP_DSN) under a
-    // plain name.
+    // S11 (M2): a password one step cuts out of a known secret (APP_DSN)
+    // into GITHUB_ENV, which the next step prints under that plain name.
     r.workflow = "quod-s2.yml";
+    let dsn = ("APP_DSN", "postgres://u:s11-pa55word@h/db");
     for _ in 0..2 {
-        let o = r.job(
-            "echo \"pw=$DB_PASS\"",
-            &[
-                ("APP_DSN", "postgres://u:s11-pa55word@h/db"),
-                ("DB_PASS", "s11-pa55word"),
-            ],
+        r.prepare_job();
+        let co = r.checkout();
+        assert_eq!(co.code, 0, "S11 checkout: {}", co.stderr);
+        let cut = r.script(
+            "echo \"DB_PASS=$(printf '%s' \"$APP_DSN\" | sed 's#.*:\\(.*\\)@.*#\\1#')\" >> \"$GITHUB_ENV\"",
+            &[dsn],
         );
+        assert_eq!(cut.code, 0, "S11 cut: {}", cut.stderr);
+        let o = r.script("echo \"pw=$DB_PASS\"", &[dsn, ("DB_PASS", "s11-pa55word")]);
         assert_eq!(o.code, 0, "S11: {}", o.stderr);
+        r.cleanup_job();
     }
     no_leak(&r, "S11", "s11-pa55word");
     println!("S11 done: a part of a known secret");
+
+    // S12 (R1, verification of 42c4498): configuration that a known secret
+    // also holds (`localhost` in the DSN) stays a plain value under the
+    // workflow's own name: recorded, and replayed unmasked.
+    let s12 = [
+        (
+            "APP_DSN",
+            "postgres://postgres:pw123456@localhost:5432/postgres",
+        ),
+        ("PGHOST", "localhost"),
+    ];
+    for i in 0..2 {
+        let o = r.job("echo \"host=$PGHOST\"", &s12);
+        assert_eq!(o.code, 0, "S12: {}", o.stderr);
+        if i == 1 {
+            check(
+                o.summary.contains("would replay: yes"),
+                format!(
+                    "S12: a step given only configuration is recorded: {}",
+                    o.summary
+                ),
+            );
+        }
+    }
+    r.mode = "replay";
+    let o = r.job("echo \"host=$PGHOST\"", &s12);
+    r.mode = "observe";
+    check(
+        o.replayed() && String::from_utf8_lossy(&o.stdout).contains("host=localhost"),
+        format!(
+            "S12: the replay serves {:?}, not GitHub's output",
+            String::from_utf8_lossy(&o.stdout)
+        ),
+    );
+    println!("S12 done: configuration inside a secret");
     let fails = fails.into_inner();
     assert!(fails.is_empty(), "hooks secrets failed: {fails:#?}");
-    println!("hooks secrets: S1-S11 pass");
+    println!("hooks secrets: S1-S12 pass");
 }
