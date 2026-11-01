@@ -88,6 +88,11 @@ pub struct Job {
     /// `owner/repo` (lowercase) from the event, and the trust scope.
     pub repository: String,
     pub scope_name: String,
+    /// A push, workflow_dispatch or schedule on the repository's default
+    /// branch: the one kind of job whose steps may write the scope's warm
+    /// build cache and persisted workspace (see `scope_of`).
+    #[serde(default)]
+    pub writer: bool,
     /// Set by the first step: `<state>/scopes/<repo>/<trust>`.
     pub scope: Option<PathBuf>,
     /// Earlier steps' writes outside the workspace, newest first: layers
@@ -165,6 +170,7 @@ impl Job {
             gid,
             repository: String::new(),
             scope_name: String::new(),
+            writer: false,
             scope: None,
             root_layers: Vec::new(),
             ws_layers: Vec::new(),
@@ -201,7 +207,11 @@ impl Job {
         let event = step::workflow_dir(self)
             .and_then(|d| self.host_path(&format!("{d}/event.json")))
             .and_then(|p| std::fs::read(p).ok());
-        let (repository, scope_name) = scope_of(event_name, event.as_deref());
+        let ScopeOf {
+            repository,
+            name: scope_name,
+            writer,
+        } = scope_of(event_name, event.as_deref());
         let repo_slug = slug(if repository.is_empty() {
             "unknown"
         } else {
@@ -215,6 +225,7 @@ impl Job {
         std::fs::create_dir_all(&scope)?;
         self.repository = repository;
         self.scope_name = scope_name;
+        self.writer = writer;
         self.scope = Some(scope);
         // A scope's first job starts from the operator's seed for the
         // repository (`<state>/seeds/<repo>/.stillpass/{gomod,tool}`, a
@@ -235,7 +246,7 @@ impl Job {
             }
         };
         self.save_tree(&with_state_dirs(cas, &tree)?)?;
-        tracing::info!(target: "stillpass", job = %self.id, repository = %self.repository, scope = %self.scope_name, "scope");
+        tracing::info!(target: "stillpass", job = %self.id, repository = %self.repository, scope = %self.scope_name, writer = self.writer, "scope");
         Ok(())
     }
 
@@ -543,17 +554,45 @@ fn slug(s: &str) -> String {
         .collect()
 }
 
-/// The job's repository and trust scope. Trusted: an event that runs the
-/// repository's own code by its own hand (push, workflow_dispatch,
-/// schedule), or a pull request or workflow_run whose head repository is
-/// proven the base repository. A pull request or workflow_run from another
-/// repository: that fork's own scope (`fork-<owner_repo>`, `fork-unknown`
-/// when the head is gone). Anything else (issue_comment, release, an event
-/// whose payload does not say): `unverified`. Untrusted scopes never share a
-/// ledger, warm cache, module cache or workspace with the trusted one.
-fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> (String, String) {
+/// A job's repository (lowercase `owner/repo`), its trust scope, and
+/// whether it may write the scope's shared state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScopeOf {
+    repository: String,
+    name: String,
+    writer: bool,
+}
+
+/// The job's repository and trust scope, from the event payload (the
+/// runner's event.json) and the event name (GITHUB_EVENT_NAME, which comes
+/// from the step's environment and so is never trusted alone).
+///
+/// Trusted: an event that runs the repository's own code by its own hand
+/// (push, workflow_dispatch, schedule), or a pull request or workflow_run
+/// whose head repository is proven the base repository. The name must fit
+/// the payload: a payload carrying `pull_request` or `workflow_run` is
+/// never a push, dispatch or schedule; a push's has `pusher`, `after` and
+/// `ref`, a schedule's `schedule`, a dispatch's `inputs`. A pull request or
+/// workflow_run from another repository: that fork's own scope
+/// (`fork-<owner_repo>`, `fork-unknown` when the head is gone). Anything
+/// else (issue_comment, release, a name the payload does not fit, a
+/// payload that does not name its repository): `unverified`. Untrusted
+/// scopes never share a ledger, warm cache, module cache or workspace with
+/// the trusted one.
+///
+/// Writer: a push or workflow_dispatch whose `ref` is the repository's
+/// default branch, or a schedule (which GitHub runs only on the default
+/// branch). Only a writer's steps write the scope's warm build cache and
+/// persisted workspace; every other job, a same-repository pull request's
+/// included, works on a copy of them that is discarded.
+fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> ScopeOf {
+    let unverified = |repository: String| ScopeOf {
+        repository,
+        name: "unverified".into(),
+        writer: false,
+    };
     let Some(v) = event.and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok()) else {
-        return (String::new(), "unverified".into());
+        return unverified(String::new());
     };
     let name = |v: &serde_json::Value| {
         v.get("full_name")
@@ -561,35 +600,63 @@ fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> (String, String) 
             .map(str::to_ascii_lowercase)
     };
     let Some(repo) = v.get("repository").and_then(name) else {
-        return (String::new(), "unverified".into());
+        return unverified(String::new());
     };
-    let by_head = |head: Option<String>| match head {
-        Some(h) if h == repo => "trusted".to_string(),
-        Some(h) => format!("fork-{}", slug(&h)),
-        // A deleted fork: no head repository to trust.
-        None => "fork-unknown".to_string(),
+    let has = |k: &str| v.get(k).is_some();
+    let object = |k: &str| v.get(k).is_some_and(|x| x.is_object());
+    let string = |k: &str| v.get(k).is_some_and(|x| x.is_string());
+    let by_head = |head: Option<String>| ScopeOf {
+        name: match head {
+            Some(h) if h == repo => "trusted".to_string(),
+            Some(h) => format!("fork-{}", slug(&h)),
+            // A deleted fork: no head repository to trust.
+            None => "fork-unknown".to_string(),
+        },
+        repository: repo.clone(),
+        writer: false,
     };
-    let scope = match event_name {
-        Some("push" | "workflow_dispatch" | "schedule") => "trusted".to_string(),
+    let on_default_branch = || {
+        let default = v
+            .get("repository")
+            .and_then(|r| r.get("default_branch"))
+            .and_then(|b| b.as_str())
+            .filter(|b| !b.is_empty());
+        let r#ref = v.get("ref").and_then(|r| r.as_str());
+        matches!((default, r#ref), (Some(d), Some(r)) if r.strip_prefix("refs/heads/") == Some(d))
+    };
+    let trusted = |writer: bool| ScopeOf {
+        repository: repo.clone(),
+        name: "trusted".into(),
+        writer,
+    };
+    let (pr, run) = (has("pull_request"), has("workflow_run"));
+    match event_name {
         Some(
             "pull_request"
             | "pull_request_target"
             | "pull_request_review"
             | "pull_request_review_comment",
-        ) => by_head(
+        ) if object("pull_request") && !run => by_head(
             v.get("pull_request")
                 .and_then(|pr| pr.get("head"))
                 .and_then(|h| h.get("repo"))
                 .and_then(name),
         ),
-        Some("workflow_run") => by_head(
+        Some("workflow_run") if object("workflow_run") && !pr => by_head(
             v.get("workflow_run")
                 .and_then(|w| w.get("head_repository"))
                 .and_then(name),
         ),
-        _ => "unverified".to_string(),
-    };
-    (repo, scope)
+        // Never a push, dispatch or schedule if the payload is a pull
+        // request's or a workflow run's.
+        _ if pr || run => unverified(repo.clone()),
+        Some("push") if object("pusher") && string("after") && string("ref") => {
+            trusted(on_default_branch())
+        }
+        Some("workflow_dispatch") if has("inputs") => trusted(on_default_branch()),
+        Some("schedule") if string("schedule") => trusted(true),
+        _ => unverified(repo.clone()),
+    }
 }
 
 /// `--user UID[:GID]` (or `-u`) in docker create options. Other options are
@@ -1883,58 +1950,175 @@ mod tests {
 
     #[test]
     fn scopes_from_events() {
+        let scope = |name: Option<&str>, payload: &[u8]| {
+            let s = scope_of(name, Some(payload));
+            (s.name, s.writer)
+        };
         let push = Some("push");
-        assert_eq!(scope_of(push, None), (String::new(), "unverified".into()));
         assert_eq!(
-            scope_of(push, Some(b"not json")),
-            (String::new(), "unverified".into())
+            scope_of(push, None),
+            ScopeOf {
+                repository: String::new(),
+                name: "unverified".into(),
+                writer: false
+            }
         );
-        let repo = br#"{"repository":{"full_name":"Pango07/Stillpass"}}"#;
-        for trusted in ["push", "workflow_dispatch", "schedule"] {
-            assert_eq!(
-                scope_of(Some(trusted), Some(repo)),
-                ("pango07/stillpass".into(), "trusted".into()),
-                "{trusted}"
-            );
-        }
-        // The same payload under an event that does not run the repository's
-        // own code by its own hand, or with no event name at all.
+        assert_eq!(scope_of(push, Some(b"not json")).name, "unverified");
+        let on_main = br#"{"repository":{"full_name":"Pango07/Stillpass","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{"name":"p"}}"#;
+        assert_eq!(
+            scope_of(push, Some(on_main)),
+            ScopeOf {
+                repository: "pango07/stillpass".into(),
+                name: "trusted".into(),
+                writer: true
+            }
+        );
+        // Trusted but not a writer: another branch, a tag, no default branch named.
+        let branch = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/feature","after":"abc","pusher":{}}"#;
+        assert_eq!(scope(push, branch), ("trusted".into(), false));
+        let tag = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/tags/main","after":"abc","pusher":{}}"#;
+        assert_eq!(scope(push, tag), ("trusted".into(), false));
+        let nameless = br#"{"repository":{"full_name":"o/r"},"ref":"refs/heads/main","after":"abc","pusher":{}}"#;
+        assert_eq!(scope(push, nameless), ("trusted".into(), false));
+        let dispatch_main = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","inputs":null,"workflow":".github/workflows/ci.yml"}"#;
+        let dispatch_branch = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/runner-lab","inputs":{"x":"1"}}"#;
+        assert_eq!(
+            scope(Some("workflow_dispatch"), dispatch_main),
+            ("trusted".into(), true)
+        );
+        assert_eq!(
+            scope(Some("workflow_dispatch"), dispatch_branch),
+            ("trusted".into(), false)
+        );
+        let schedule = br#"{"repository":{"full_name":"o/r"},"schedule":"0 4 * * *"}"#;
+        assert_eq!(scope(Some("schedule"), schedule), ("trusted".into(), true));
+        // An event that does not run the repository's own code by its own
+        // hand, or no event name at all.
         for other in [Some("issue_comment"), Some("release"), Some("issues"), None] {
-            assert_eq!(scope_of(other, Some(repo)).1, "unverified", "{other:?}");
+            assert_eq!(
+                scope(other, on_main),
+                ("unverified".into(), false),
+                "{other:?}"
+            );
         }
         // A comment on a pull request: unverified, whatever it carries.
         let comment = br#"{"repository":{"full_name":"o/r"},"issue":{"pull_request":{"url":"x"}},"comment":{}}"#;
         assert_eq!(
-            scope_of(Some("issue_comment"), Some(comment)).1,
-            "unverified"
+            scope(Some("issue_comment"), comment),
+            ("unverified".into(), false)
         );
-        let same = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"O/R"}}}}"#;
+
+        let same = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","pull_request":{"head":{"repo":{"full_name":"O/R"}}}}"#;
         assert_eq!(
             scope_of(Some("pull_request"), Some(same)),
-            ("o/r".into(), "trusted".into())
+            ScopeOf {
+                repository: "o/r".into(),
+                name: "trusted".into(),
+                writer: false
+            },
+            "a same-repository pull request is trusted, never a writer"
         );
         let fork = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"evil/r"}}}}"#;
-        assert_eq!(scope_of(Some("pull_request"), Some(fork)).1, "fork-evil_r");
         assert_eq!(
-            scope_of(Some("pull_request_target"), Some(fork)).1,
-            "fork-evil_r"
+            scope(Some("pull_request"), fork),
+            ("fork-evil_r".into(), false)
         );
-        // A pull_request payload under a trusted event name is still a push.
+        assert_eq!(
+            scope(Some("pull_request_target"), fork),
+            ("fork-evil_r".into(), false)
+        );
         let gone = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":null}}}"#;
-        assert_eq!(scope_of(Some("pull_request"), Some(gone)).1, "fork-unknown");
+        assert_eq!(scope(Some("pull_request"), gone).0, "fork-unknown");
         // workflow_run: by the head repository of the run that triggered it.
         let run_fork = br#"{"repository":{"full_name":"o/r"},"workflow_run":{"head_repository":{"full_name":"evil/r"}}}"#;
-        assert_eq!(
-            scope_of(Some("workflow_run"), Some(run_fork)).1,
-            "fork-evil_r"
-        );
+        assert_eq!(scope(Some("workflow_run"), run_fork).0, "fork-evil_r");
         let run_same = br#"{"repository":{"full_name":"o/r"},"workflow_run":{"head_repository":{"full_name":"o/r"}}}"#;
-        assert_eq!(scope_of(Some("workflow_run"), Some(run_same)).1, "trusted");
-        let run_none = br#"{"repository":{"full_name":"o/r"},"workflow_run":{}}"#;
         assert_eq!(
-            scope_of(Some("workflow_run"), Some(run_none)).1,
-            "fork-unknown"
+            scope(Some("workflow_run"), run_same),
+            ("trusted".into(), false)
         );
+        let run_none = br#"{"repository":{"full_name":"o/r"},"workflow_run":{}}"#;
+        assert_eq!(scope(Some("workflow_run"), run_none).0, "fork-unknown");
+    }
+
+    /// MAJOR 4: GITHUB_EVENT_NAME is in the step's environment, which a
+    /// workflow's `env:` may set; the payload is the runner's. A forged name
+    /// never trusts a payload it does not fit.
+    #[test]
+    fn a_forged_event_name_trusts_nothing() {
+        let scope = |name: &str, payload: &[u8]| {
+            let s = scope_of(Some(name), Some(payload));
+            (s.name, s.writer)
+        };
+        let unverified = ("unverified".to_string(), false);
+        // A same-repository pull request on main, a fork's, and a workflow
+        // run, each carrying push-looking fields too.
+        let pr_same = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{},"inputs":{},"schedule":"x","pull_request":{"head":{"repo":{"full_name":"o/r"}}}}"#;
+        let pr_fork = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{},"pull_request":{"head":{"repo":{"full_name":"evil/r"}}}}"#;
+        let run = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{},"workflow_run":{"head_repository":{"full_name":"o/r"}}}"#;
+        for forged in ["push", "workflow_dispatch", "schedule"] {
+            for payload in [&pr_same[..], &pr_fork[..], &run[..]] {
+                assert_eq!(
+                    scope(forged, payload),
+                    unverified,
+                    "{forged} over {}",
+                    String::from_utf8_lossy(payload)
+                );
+            }
+        }
+        // A name the payload's shape does not fit.
+        let push_main = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{}}"#;
+        let dispatch_main = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","inputs":{}}"#;
+        let schedule =
+            br#"{"repository":{"full_name":"o/r","default_branch":"main"},"schedule":"0 4 * * *"}"#;
+        let comment = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","issue":{},"comment":{}}"#;
+        assert_eq!(
+            scope("schedule", push_main),
+            unverified,
+            "a push is no schedule"
+        );
+        assert_eq!(
+            scope("workflow_dispatch", push_main),
+            unverified,
+            "a push is no dispatch"
+        );
+        assert_eq!(
+            scope("push", dispatch_main),
+            unverified,
+            "a dispatch is no push"
+        );
+        assert_eq!(
+            scope("schedule", dispatch_main),
+            unverified,
+            "a dispatch is no schedule"
+        );
+        assert_eq!(scope("push", schedule), unverified, "a schedule is no push");
+        assert_eq!(
+            scope("workflow_dispatch", schedule),
+            unverified,
+            "a schedule is no dispatch"
+        );
+        for forged in ["push", "workflow_dispatch", "schedule"] {
+            assert_eq!(
+                scope(forged, comment),
+                unverified,
+                "{forged} over an issue comment"
+            );
+        }
+        // A push missing one of its fields.
+        for partial in [
+            &br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc"}"#[..],
+            br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","pusher":{}}"#,
+            br#"{"repository":{"full_name":"o/r","default_branch":"main"},"after":"abc","pusher":{}}"#,
+            br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":"p"}"#,
+        ] {
+            assert_eq!(scope("push", partial), unverified, "{}", String::from_utf8_lossy(partial));
+        }
+        // A pull request name over a push, or over a payload that is both.
+        assert_eq!(scope("pull_request", push_main), unverified);
+        let both = br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"o/r"}}},"workflow_run":{"head_repository":{"full_name":"o/r"}}}"#;
+        assert_eq!(scope("pull_request", both), unverified);
+        assert_eq!(scope("workflow_run", both), unverified);
     }
 
     #[test]
