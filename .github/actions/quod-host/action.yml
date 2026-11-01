@@ -1,0 +1,26 @@
+name: quod host
+description: >
+  Makes a GitHub runner the dev container's equal for the gates: FUSE,
+  bubblewrap, the FUSE ring when the kernel has it, the pinned toolchains at
+  /usr/local (scripts/ci-gate.sh setup), and the pinned Rust toolchain.
+  Prints the kernel, CPUs and which FUSE transport the observer can use.
+inputs:
+  toolchains:
+    description: Space-separated toolchains to install at /usr/local (go node python)
+    required: false
+    default: go
+runs:
+  using: composite
+  steps:
+    - name: host packages, FUSE, ring, toolchains
+      shell: bash
+      run: scripts/ci-gate.sh setup ${{ inputs.toolchains }}
+    - name: host report (kernel, transport, check-host)
+      shell: bash
+      run: scripts/ci-gate.sh host
+    - name: rust toolchain (rust-toolchain.toml)
+      shell: bash
+      run: |
+        ch=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+        rustup toolchain install "$ch" --profile minimal -c rustfmt -c clippy --no-self-update
+        cargo --version
