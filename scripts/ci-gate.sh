@@ -156,8 +156,21 @@ setup() {
   done
 }
 
+# The host fingerprint every `quod run` computes before it mounts (toolchain
+# binaries, npm, the package list), timed. Run cold it also warms the page
+# cache for the gate that follows (docs/ci.md: ring_faults' 9 s window).
+fingerprint_time() {
+  local t0 t1
+  t0=$(date +%s%N)
+  bash "$root/scripts/host-fingerprint.sh" >/dev/null 2>&1 || true
+  t1=$(date +%s%N)
+  echo "host fingerprint: $(( (t1 - t0) / 1000000 )) ms"
+}
+
 host() {
   host_line
+  fingerprint_time
+  fingerprint_time
   if [ "$(cat "$ring_param" 2>/dev/null)" = Y ]; then
     echo "transport: FUSE over io_uring available (the observer uses it as root, else classic /dev/fuse)"
   else
@@ -219,7 +232,7 @@ case "$cmd" in
   setup) setup "$@";;
   corpus) corpus "${1:?corpus needs go, node, python or hooks}" "${2:-}";;
   lint) as_root lint "$@"; logged lint "$root/scripts/lint.sh";;
-  merge-gate) as_root merge-gate "$@"; logged merge-gate "$root/scripts/merge-gate.sh";;
+  merge-gate) as_root merge-gate "$@"; fingerprint_time; logged merge-gate "$root/scripts/merge-gate.sh";;
   hooks) as_root hooks "$@"; logged hooks hooks "$@";;
   acceptance) as_root acceptance "$@"; logged "acceptance-${1:-go}" acceptance "$@";;
   summary) summary "${1:?summary needs a gate name}";;
