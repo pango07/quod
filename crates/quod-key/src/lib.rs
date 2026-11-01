@@ -250,7 +250,11 @@ fn normalized_mounts(
 /// the served tree; `quod run` serves a `.git` (it served none); the hooks'
 /// branch checkouts have a symbolic HEAD. A result recorded under v6 saw
 /// another world and must not replay.
-pub const VERSION: u32 = 7;
+/// v8 (2026-11-01, fix/cas-visibility) changes what a step is shown again:
+/// served files' content-derived times are whole microseconds (they had
+/// nanoseconds, which some filesystems round on a sealed snapshot), so
+/// every file a step stats shows another time than under v7.
+pub const VERSION: u32 = 8;
 
 /// Variables whose values change on every run. Putting one in a key would
 /// make every run a miss, or, if normalized silently, hide a real input, so
@@ -544,7 +548,7 @@ mod tests {
         assert!(j.contains(
             r#"["GOMODCACHE","/workspace/.quod/gomod"],["GOPATH","/workspace/.quod/gopath"],"#
         ));
-        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":7,"warm":false}"#));
+        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":8,"warm":false}"#));
         let mut host = StepSpec::new(
             Toolchain::Go,
             Image::new(
