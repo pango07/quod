@@ -119,11 +119,11 @@ pub fn import_workspace(
     deps: &Deps,
     profile: &Profile,
 ) -> anyhow::Result<Tree> {
+    // The checkout's .git (served separately, gitdir) and Quod's own
+    // directory are not walked or hashed at all.
     let mut tree = cas
-        .import_dir(repo)
-        .context("import workspace")?
-        .without_top_level(".git")
-        .without_top_level(DOT);
+        .import_dir_except(repo, &[".git", DOT])
+        .context("import workspace")?;
     for name in served(profile) {
         let dir = deps.dir(name);
         adopt_legacy(&repo.join(DOT).join(name), &dir)?;

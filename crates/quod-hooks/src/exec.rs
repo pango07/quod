@@ -160,7 +160,14 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     std::fs::create_dir_all(x.step_dir)?;
     let lower = x.step_dir.join("lower");
     std::fs::create_dir_all(&lower)?;
-    let served = quod_fs::serve(x.tree, x.cas, &lower).context("serve workspace")?;
+    // Every open must reach the observer here: the withheld-name scan
+    // exempts files the step was never served (`Observed::opened`), and
+    // zero-message opens would leave only the first OPEN and the READs.
+    let opts = quod_fs::Options {
+        zero_open: false,
+        ..quod_fs::Options::from_env()
+    };
+    let served = quod_fs::serve_with(x.tree, x.cas, &lower, &opts).context("serve workspace")?;
     let mut ws_lowers: Vec<&Path> = x.ws_layers.iter().map(PathBuf::as_path).collect();
     ws_lowers.push(served.mountpoint());
     let upper = x.step_dir.join("upper");
@@ -399,9 +406,12 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             .map(|a| a.path.clone())
             .collect()
     };
+    // Unknown (a mount with zero-message opens, which this one is not):
+    // every file counts as opened, so none is exempt from the scan.
+    let opened = |p: &String| observed.opened.as_ref().is_none_or(|o| o.contains(p));
     let mut unopened: BTreeSet<String> = file_paths(&log)
         .into_iter()
-        .filter(|p| !observed.opened.contains(p))
+        .filter(|p| !opened(p))
         .collect();
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(x.tree, &s.prefix, &s.carve_out));
@@ -422,7 +432,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         unopened.extend(
             file_paths(&log)
                 .into_iter()
-                .filter(|p| !before.contains(p) && !observed.opened.contains(p)),
+                .filter(|p| !before.contains(p) && !opened(p)),
         );
     }
     // A sealed prefix is bound over the observed tree: the observer never

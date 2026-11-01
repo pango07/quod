@@ -2383,8 +2383,8 @@ fn run_step(
             // one in the command. An opaque job records nothing, so never
             // writes one.
             ledger.put_step_key(&key, &job.mask(&quod_key::canonical_key_json(&spec)?))?;
+            // (record_execution_facts inserts the manifest.)
             let v = ledger.atomically(|l| -> anyhow::Result<Verdict> {
-                l.put_manifest(&manifest, &run_id)?;
                 let v = trust.record_execution(
                     &tstep,
                     &run_id,

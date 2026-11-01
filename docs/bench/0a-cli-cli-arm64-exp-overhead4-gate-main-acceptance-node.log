@@ -1,0 +1,79 @@
+# main 2a24fd8: scripts/acceptance.sh node (2026-11-01T05:09:12Z)
+ 05:09:12 up 23:47,  0 user,  load average: 3.71, 2.33, 4.03
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (node): npm ci (network, not memoized; deps in /work/state/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
+npm warn deprecated rollup-plugin-terser@7.0.2: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-terser
+npm warn deprecated codecov@3.8.3: https://about.codecov.io/blog/codecov-uploader-deprecation-plan/
+
+> luxon@3.7.2 prepare
+> husky install
+
+husky - Git hooks installed
+
+added 1050 packages in 6s
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   core-js@3.27.0 (postinstall: node -e "try{require('./postinstall')}catch(e){}")
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node
+  ran 5.8s
+== A1-A7 on https://github.com/moment/luxon@f427515a38f6 (node profile), step: export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4
+$ quod run --repo /work/tmp/.tmpFVCQXt/repo --step true --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures --allow-net
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node
+  ran 0.0s
+step A ok: dependency trees in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node, none in the checkout
+$ quod run --repo /work/tmp/.tmpFVCQXt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.3s
+$ quod inspect b3:e60f855c512cc604d149970f3f1e6c363f5f02e001b2439f1da8740bac63673b
+A1 ok: EXECUTED, one manifest, 47 outputs, none under ["node_modules/.cache", ".eslintcache", ".stylelintcache"]
+A1 observer event: {"timestamp":"2026-11-01T05:09:40.438575Z","level":"INFO","message":"observer","mounted_ms":4820,"transport":"fuse-uring","uring_fallback":false,"pids":18,"passthrough":true,"lookup":187,"lookup_absent":87,"getattr":1,"readlink":0,"open":1707,"read":0,"read_mb":0,"readdir":14,"ring_requests":3740,"device_requests":0,"ring_batches":3750,"ring_full_batches":18,"ring_serve_us":3056,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":3,"serve_user_ms":69,"serve_sys_ms":926,"serve_threads":19,"serve_run_ms":14,"serve_runq_wait_ms":7,"serve_slices":3801,"target":"quod"}
+A1 run event: {"timestamp":"2026-11-01T05:09:40.581198Z","level":"INFO","message":"run","run_id":"01M6AR6KZ4PRZMSQBPCYK7FT79","step_key":"b3:e60f855c512cc604d149970f3f1e6c363f5f02e001b2439f1da8740bac63673b","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:1c045abdde4f01c44775114d4dac058d700d59afccbf6466c6c54af1981af7a0","hit":false,"mode":"replay","outcome":"miss","warm":false,"exit_code":0,"inputs":24984,"transport":"fuse-uring","observer":"fuse-uring+nice-10+passthrough+sealed","candidates":0,"import_ms":2297.3820429999996,"lookup_ms":0.459125,"mount_ms":1571.913667,"exec_ms":3260.3925010000003,"diff_ms":28.599,"record_ms":131.908041,"total_ms":4993.222794,"target":"quod"}
+$ quod run --repo /work/tmp/.tmpFVCQXt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6AR6K on 2026-11-01 05:09 UTC
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs matched
+  recorded 3.3s  replay 0.8s  saved 2.5s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+A2 ok: REPLAYED, exit 0 and 4859 stdout bytes identical
+$ quod run --repo /work/tmp/.tmpFVCQXt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --mode observe --proofs 2
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6AR6K on identical inputs
+    stderr differs from line 8: "PASS test/interval/many.test.js" vs "PASS test/datetime/math.test.js"
+    outputs differ at 28 path(s): build/coverage/clover.xml changed, build/coverage/lcov-report/index.html changed, build/coverage/lcov-report/src/datetime.js.html changed, ...
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.3s
+thread 'acceptance' (701) panicked at crates/quod-cli/tests/acceptance.rs:178:5:
+P1: QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6AR6K on identical inputs
+    stderr differs from line 8: "PASS test/interval/many.test.js" vs "PASS test/datetime/math.test.js"
+    outputs differ at 28 path(s): build/coverage/clover.xml changed, build/coverage/lcov-report/index.html changed, build/coverage/lcov-report/src/datetime.js.html changed, ...
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.3s
+acceptance --- FAILED
+    acceptance
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 14.68s
+rc=101

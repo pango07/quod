@@ -2,11 +2,14 @@
 //! `/dev/fuse` loop, against each other.
 //!
 //! `transports_log_identically` runs the same workloads on a fresh ring
-//! mount and a fresh classic mount and asserts the step saw the same thing
-//! (stdout, including a stat of every entry: size, mode and times) and the
-//! observer logged the same accesses, checks both serve content-derived file
-//! times, then runs the tiny Go
-//! module's `go test ./...` through the CLI on each and asserts identical
+//! mount and a fresh classic mount, in each of the observer's modes (the
+//! default zero-message opens and opendirs; opens answered with
+//! passthrough; opens answered for userspace reads), and asserts the step
+//! saw the same thing (stdout, including a stat of every entry: size, mode
+//! and times) and the observer logged the same accesses, across transports
+//! and across modes; checks both serve content-derived file times, then
+//! runs the tiny Go module's `go test ./...` through the CLI on each
+//! transport in the default and the opened mode and asserts identical
 //! manifests. `per_request_cost` times the transports against each other.
 //! The ring's failure paths are in ring_faults.rs (`fault-injection`).
 //!
@@ -101,6 +104,32 @@ struct Fixture {
     tree: Tree,
 }
 
+/// How the observer answers opens: the default (zero-message opens and
+/// opendirs, xattr ENOSYS), or every open and opendir answered, with or
+/// without passthrough.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mode {
+    ZeroMessage,
+    Passthrough,
+    Userspace,
+}
+
+impl Mode {
+    const ALL: [Mode; 3] = [Mode::ZeroMessage, Mode::Passthrough, Mode::Userspace];
+
+    fn options(self, transport: Transport) -> Options {
+        let opened = self != Mode::ZeroMessage;
+        Options {
+            transport,
+            passthrough: self == Mode::Passthrough,
+            zero_open: !opened,
+            zero_opendir: !opened,
+            xattr_enosys: !opened,
+            ..Options::default()
+        }
+    }
+}
+
 /// Runs `f` on its own thread and fails the test if it takes past a
 /// minute: a hang is a failure, not a stuck test run.
 fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
@@ -137,16 +166,12 @@ impl Fixture {
         &self,
         name: &str,
         transport: Transport,
-        passthrough: bool,
+        mode: Mode,
         script: &str,
     ) -> (String, Vec<quod_manifest::Access>, ObserverStats) {
         let mnt = self.tmp.path().join(name);
         fs::create_dir_all(&mnt).unwrap();
-        let opts = Options {
-            transport,
-            passthrough,
-            ..Options::default()
-        };
+        let opts = mode.options(transport);
         let (tree, cas, at) = (self.tree.clone(), self.cas.clone(), mnt.clone());
         let served = within(&format!("serving {name}"), move || {
             quod_fs::serve_with(&tree, &cas, &at, &opts).map_err(|e| e.to_string())
@@ -177,14 +202,16 @@ impl Fixture {
 fn transports_log_identically() {
     let f = Fixture::new();
     let mut n = 0;
-    for passthrough in [true, false] {
-        for (name, script) in WORKLOADS {
+    // Per workload, what the first mode saw and logged: every other mode
+    // must match it (the kernel's caches may only drop repeats).
+    let mut first: Vec<(String, Vec<quod_manifest::Access>)> = Vec::new();
+    for mode in Mode::ALL {
+        for (w, (name, script)) in WORKLOADS.iter().enumerate() {
             n += 1;
-            let (ring_out, ring_log, rs) =
-                f.run(&format!("r{n}"), Transport::Uring, passthrough, script);
+            let (ring_out, ring_log, rs) = f.run(&format!("r{n}"), Transport::Uring, mode, script);
             let (classic_out, classic_log, cs) =
-                f.run(&format!("c{n}"), Transport::Classic, passthrough, script);
-            eprintln!("{name} (passthrough {passthrough}): ring {rs:?}\n  classic {cs:?}");
+                f.run(&format!("c{n}"), Transport::Classic, mode, script);
+            eprintln!("{name} ({mode:?}): ring {rs:?}\n  classic {cs:?}");
             // The ring half really ran on the ring, the classic half did not.
             assert!(rs.uring && !rs.uring_fallback, "{name}: {rs:?}");
             // The queue threads run at the nice value asked for (root).
@@ -205,13 +232,35 @@ fn transports_log_identically() {
             );
             assert!(!ring_log.is_empty(), "{name}: nothing logged");
             assert_eq!(rs.passthrough, cs.passthrough, "{name}");
+            assert_eq!(rs.zero_open, mode == Mode::ZeroMessage, "{name}");
+            assert_eq!(cs.zero_opendir, mode == Mode::ZeroMessage, "{name}");
             if *name == "find and cat" {
-                if passthrough {
-                    assert!(rs.passthrough, "{rs:?}");
+                match mode {
+                    Mode::Passthrough => assert!(rs.passthrough, "{rs:?}"),
+                    _ => {
+                        // Userspace reads: the READ path served 3 MiB.
+                        assert!(rs.read > 0 && rs.read_bytes >= 3 << 20, "{rs:?}");
+                        assert!(cs.read > 0 && cs.read_bytes >= 3 << 20, "{cs:?}");
+                    }
+                }
+                if mode == Mode::ZeroMessage {
+                    // One OPEN reached the observer, answered ENOSYS; the
+                    // kernel sent no other for the 700-odd files read.
+                    assert_eq!((rs.open, cs.open), (1, 1), "{rs:?}\n{cs:?}");
                 } else {
-                    // Userspace reads: the ring's READ path served 3 MiB.
-                    assert!(rs.read > 0 && rs.read_bytes >= 3 << 20, "{rs:?}");
-                    assert!(cs.read > 0 && cs.read_bytes >= 3 << 20, "{cs:?}");
+                    assert!(rs.open > 700 && cs.open > 700, "{rs:?}\n{cs:?}");
+                }
+            }
+            match first.get(w) {
+                None => first.push((ring_out, ring_log)),
+                Some((out, log)) => {
+                    assert_eq!(&ring_out, out, "{name}: {mode:?} saw something else");
+                    assert_eq!(
+                        &ring_log,
+                        log,
+                        "{name}: {mode:?} logged differently from {:?}",
+                        Mode::ALL[0]
+                    );
                 }
             }
         }
@@ -238,15 +287,23 @@ fn transports_log_identically() {
     let script =
         "stat -c '%n %s %.9X %.9Y %.9Z' go.mod pkg/cmd/root.go; stat -c '%n %.9Y' pkg link";
     for (name, transport) in [("rt", Transport::Uring), ("ct", Transport::Classic)] {
-        let (out, _, _) = f.run(name, transport, true, script);
+        let (out, _, _) = f.run(name, transport, Mode::ZeroMessage, script);
         assert_eq!(out, want, "{transport:?}: served times");
     }
 
-    // go test on the tiny module, through the CLI, once per transport.
+    // go test on the tiny module, through the CLI, once per transport and
+    // per way of answering opens.
     let env = Env::new();
     let mut manifests = Vec::new();
-    for (transport, want) in [("uring", "fuse-uring"), ("classic", "fuse")] {
-        let state = env.tmp.path().join(format!("state-{transport}"));
+    for ((transport, want), opened) in [("uring", "fuse-uring"), ("classic", "fuse")]
+        .into_iter()
+        .flat_map(|t| [(t, false), (t, true)])
+    {
+        let toggle = if opened { "0" } else { "1" };
+        let state = env.tmp.path().join(format!(
+            "state-{transport}-{}",
+            if opened { "opened" } else { "zero" }
+        ));
         let o = env.quod_in(
             &state,
             &[
@@ -256,7 +313,12 @@ fn transports_log_identically() {
                 "--step",
                 "go test ./...",
             ],
-            &[("QUOD_FUSE_TRANSPORT", transport)],
+            &[
+                ("QUOD_FUSE_TRANSPORT", transport),
+                ("QUOD_FUSE_ZERO_OPEN", toggle),
+                ("QUOD_FUSE_ZERO_OPENDIR", toggle),
+                ("QUOD_FUSE_XATTR_ENOSYS", toggle),
+            ],
         );
         if o.code == 2 && transport == "uring" {
             ring_needed("transports_log_identically", &o.stderr);
@@ -269,8 +331,11 @@ fn transports_log_identically() {
         } else {
             format!("{want}+")
         };
-        assert!(
-            run["observer"].as_str().unwrap().starts_with(&detail),
+        let observer = run["observer"].as_str().unwrap();
+        assert!(observer.starts_with(&detail), "{run}");
+        assert_eq!(
+            observer.contains("+zero-open+zero-opendir"),
+            !opened,
             "{run}"
         );
         let obs = last_event(&state, "observer").unwrap();
@@ -286,14 +351,21 @@ fn transports_log_identically() {
         assert_eq!(row.transport.as_deref(), Some(want));
         let key: Hash = run["step_key"].as_str().unwrap().parse().unwrap();
         let m = ledger.candidates(&key, 1).unwrap().remove(0);
-        eprintln!("go test over {want}: {} inputs", m.entries.len());
+        eprintln!(
+            "go test over {observer}: {} inputs, {} opens, {} readdirs",
+            m.entries.len(),
+            obs["open"],
+            obs["readdir"]
+        );
         manifests.push(m);
     }
     assert!(manifests[0].entries.len() > 10);
-    assert_eq!(
-        manifests[0], manifests[1],
-        "go test recorded different manifests over the two transports"
-    );
+    for m in &manifests[1..] {
+        assert_eq!(
+            &manifests[0], m,
+            "go test recorded different manifests over the transports and open modes"
+        );
+    }
 }
 
 /// This process's CPU time so far, (user, system) in ms, from

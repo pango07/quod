@@ -243,18 +243,20 @@ fn git_out(repo: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// `tree` (a workspace without `.git`) with the served `.git` grafted in
-/// and its index refreshed for a step running as `uid`:`gid`.
+/// and its index refreshed for a step running as `uid`:`gid`. `served` is
+/// `served_git(cas, state_dir, repo)`, which reads only the checkout's
+/// `.git` and the state dir, so a caller may compute it beside the
+/// workspace import.
 pub fn graft(
     cas: &Cas,
-    state_dir: &Path,
-    repo: &Path,
+    served: anyhow::Result<Option<Tree>>,
     tree: Tree,
     uid: u32,
     gid: u32,
 ) -> anyhow::Result<Tree> {
     // A checkout this cannot serve gets no .git, as before this was served
     // at all: the step runs, and says why.
-    let dot = match served_git(cas, state_dir, repo) {
+    let dot = match served {
         Ok(Some(dot)) => dot,
         Ok(None) => return Ok(tree),
         Err(e) => {
@@ -375,7 +377,7 @@ mod tests {
         let cas = Cas::open(state.join("cas")).unwrap();
         let ws = || Tree::from_leaves([Entry::file("a", cas.put(b"a\n").unwrap(), 0o644)]);
         let grafted = |repo: &Path, state: &Path| {
-            graft(&cas, state, repo, ws(), 1001, 1001)
+            graft(&cas, served_git(&cas, state, repo), ws(), 1001, 1001)
                 .unwrap()
                 .get(".git")
                 .is_some()

@@ -1,0 +1,168 @@
+# scripts/acceptance.sh python (2026-11-01T04:37:54Z, exp/overhead4 2efeba4)
+ 04:37:54 up 23:17,  0 user,  load average: 9.48, 13.84, 10.99
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (python): uv sync --frozen (network, not memoized; deps in /work/state/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+Using CPython 3.12.16 interpreter at: /usr/local/python/bin/python3
+Creating virtual environment at: .quod/venv
+   Building starlette @ file:///workspace
+Downloading pygments (1.2MiB)
+Downloading zensical (14.6MiB)
+Downloading mypy (13.6MiB)
+Downloading ast-serialize (1.2MiB)
+Downloading ruff (9.5MiB)
+Downloading cryptography (4.5MiB)
+Downloading mkdocs (3.7MiB)
+   Building forbiddenfruit==0.1.4
+ Downloaded pygments
+ Downloaded ast-serialize
+      Built starlette @ file:///workspace
+      Built forbiddenfruit==0.1.4
+ Downloaded mkdocs
+ Downloaded cryptography
+ Downloaded ruff
+ Downloaded mypy
+ Downloaded zensical
+Prepared 85 packages in 5.55s
+Installed 85 packages in 656ms
+Bytecode compiled 2500 files in 219ms
+ + anyio==4.15.1
+ + ast-serialize==0.6.0
+ + attrs==25.3.0
+ + backports-zstd==1.7.0
+ + blockbuster==1.5.28
+ + certifi==2026.10.19
+ + cffi==2.0.0
+ + charset-normalizer==3.4.3
+ + click==8.2.1
+ + coverage==7.16.1
+ + cryptography==50.0.0
+ + deepmerge==2.0
+ + docutils==0.22
+ + forbiddenfruit==0.1.4
+ + ghp-import==2.1.0
+ + griffelib==2.0.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpcore2==2.13.1
+ + httpx==0.28.1
+ + httpx2==2.13.1
+ + id==1.5.0
+ + idna==3.18
+ + importlib-metadata==9.0.1
+ + iniconfig==2.1.0
+ + itsdangerous==2.2.0
+ + jaraco-classes==3.4.0
+ + jaraco-context==6.0.1
+ + jaraco-functools==4.3.0
+ + jeepney==0.9.0
+ + jinja2==3.1.6
+ + keyring==25.6.0
+ + librt==0.13.0
+ + markdown==3.9
+ + markdown-it-py==4.0.0
+ + markupsafe==3.0.2
+ + mdurl==0.1.2
+ + mergedeep==1.3.4
+ + mkdocs==1.6.1
+ + mkdocs-autorefs==1.4.3
+ + mkdocs-get-deps==0.2.0
+ + mkdocstrings==1.0.6
+ + mkdocstrings-python==2.0.9
+ + more-itertools==10.8.0
+ + mypy==2.3.1
+ + mypy-extensions==1.1.0
+ + nh3==0.3.0
+ + opentelemetry-api==1.45.1
+ + opentelemetry-sdk==1.45.1
+ + opentelemetry-semantic-conventions==0.66b1
+ + outcome==1.3.0.post0
+ + packaging==26.2
+ + pathspec==1.0.4
+ + platformdirs==4.4.0
+ + pluggy==1.6.0
+ + pycparser==2.22
+ + pygments==2.20.0
+ + pymdown-extensions==11.0.1
+ + pytest==9.1.1
+ + pytest-codspeed==5.0.3
+ + python-dateutil==2.9.0.post0
+ + python-multipart==0.0.32
+ + pyyaml==6.0.3
+ + pyyaml-env-tag==1.1
+ + readme-renderer==44.0
+ + requests==2.33.0
+ + requests-toolbelt==1.0.0
+ + rfc3986==2.0.0
+ + rich==15.0.0
+ + ruff==0.16.8
+ + secretstorage==3.3.3
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sortedcontainers==2.4.0
+ + starlette==1.10.0 (from file:///workspace)
+ + tomli==2.4.1
+ + trio==0.34.0
+ + truststore==0.10.4
+ + twine==7.0.0
+ + types-pyyaml==6.0.12.20260906
+ + typing-extensions==4.16.0
+ + urllib3==2.8.0
+ + watchdog==6.0.0
+ + zensical==0.0.65
+ + zipp==3.23.0
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python
+  ran 6.6s
+== A1-A7 on https://github.com/encode/starlette@2745bbc5afa2 (python profile), step: python -m pytest
+$ quod run --repo /work/tmp/.tmpO67vRJ/repo --step true --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures --allow-net
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python
+  ran 0.0s
+step A ok: dependency trees in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python, none in the checkout
+$ quod run --repo /work/tmp/.tmpO67vRJ/repo --step python -m pytest --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:2d9c7f35  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 6.8s
+$ quod inspect b3:21d68c46fc7a6b39a87f1e7c5f28f556089ae3a710e7aaed8e1531eea2e01736
+A1 ok: EXECUTED, one manifest, 7 outputs, none under ["__pycache__", ".mypy_cache", ".ruff_cache"]
+A1 observer event: {"timestamp":"2026-11-01T04:38:15.307244Z","level":"INFO","message":"observer","mounted_ms":7974,"transport":"fuse-uring","uring_fallback":false,"pids":3,"passthrough":false,"lookup":235,"lookup_absent":78,"getattr":1,"readlink":0,"open":1,"read":74,"read_mb":0,"readdir":26,"ring_requests":342,"device_requests":0,"ring_batches":360,"ring_full_batches":18,"ring_serve_us":992,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":0,"ring_ops":"1:235,3:1,14:1,15:74,17:2,22:1,25:1,27:1,28:26","serve_user_ms":61,"serve_sys_ms":604,"serve_threads":19,"serve_run_ms":4,"serve_runq_wait_ms":0,"serve_slices":418,"target":"quod"}
+A1 run event: {"timestamp":"2026-11-01T04:38:15.416806Z","level":"INFO","message":"run","run_id":"01M6APCZB3ZHQ1THRM11SAH8TE","step_key":"b3:21d68c46fc7a6b39a87f1e7c5f28f556089ae3a710e7aaed8e1531eea2e01736","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:2d9c7f35b0ef6dfe25856a0450f2eb09563c064d166508f0a38dab6290b9db60","hit":false,"mode":"replay","outcome":"miss","warm":false,"exit_code":0,"inputs":25325,"transport":"fuse-uring","observer":"fuse-uring+nice-10+zero-open+zero-opendir+sealed","candidates":0,"setup_ms":276.094375,"import_ms":2904.143959,"lookup_ms":0.34725,"mount_ms":1172.5524169999999,"serve_ms":28.775333,"overlay_ms":0.722042,"seal_ms":1143.052417,"exec_ms":6817.884461000001,"diff_ms":23.336959,"outputs_ms":3.426167,"unmount_ms":10.535167,"manifest_ms":8.280041,"record_ms":98.863459,"cleanup_ms":0.174541,"total_ms":8113.034712,"target":"quod"}
+$ quod run --repo /work/tmp/.tmpO67vRJ/repo --step python -m pytest --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6APCZ on 2026-11-01 04:38 UTC
+  step b3:21d68c46  manifest b3:2d9c7f35  25,325 inputs matched
+  recorded 6.8s  replay 0.5s  saved 6.3s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+A2 ok: REPLAYED, exit 0 and 4179 stdout bytes identical
+$ quod run --repo /work/tmp/.tmpO67vRJ/repo --step python -m pytest --mode observe --proofs 2
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:397c3267  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6APCZ on identical inputs
+    stdout differs from line 57: "======================= 1414 passed, 2 xfailed in 6.34s ========================" vs "======================= 1414 passed, 2 xfailed in 6.35s ========================"
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 6.8s
+thread 'acceptance' (663185) panicked at crates/quod-cli/tests/acceptance.rs:178:5:
+P1: QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:397c3267  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6APCZ on identical inputs
+    stdout differs from line 57: "======================= 1414 passed, 2 xfailed in 6.34s ========================" vs "======================= 1414 passed, 2 xfailed in 6.35s ========================"
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 6.8s
+acceptance --- FAILED
+    acceptance
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 19.88s
+rc=101
+ 04:38:23 up 23:18,  0 user,  load average: 7.08, 12.85, 10.75

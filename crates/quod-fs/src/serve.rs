@@ -220,6 +220,29 @@ pub struct Options {
     /// own processes; a lower nice value lets it run first. It runs for
     /// microseconds per request.
     pub uring_nice: i32,
+    /// Zero-message opens, off by default (`QUOD_FUSE_ZERO_OPEN=1` turns
+    /// them on): measured on cli/cli's go test they gained nothing over
+    /// answered opens with passthrough, alone or with two steps at once,
+    /// and lost on a read-heavy step (every READ comes through this
+    /// process). Kept as an option. The first OPEN is answered ENOSYS, which the kernel
+    /// takes as success and as "never send OPEN or RELEASE again"
+    /// (`fc->no_open`); its handles then default to FOPEN_KEEP_CACHE, so a
+    /// file's pages are read from here once. Excludes passthrough, whose
+    /// backing file is set up in the OPEN reply. Loses nothing from the
+    /// log: an open records `(inode, f)`, which the lookup that made the
+    /// inode known to the kernel recorded already (see `CasFs::record`).
+    pub zero_open: bool,
+    /// Zero-message opendirs (`QUOD_FUSE_ZERO_OPENDIR=0` turns it off):
+    /// OPENDIR answered ENOSYS (`fc->no_opendir`), whose default handle
+    /// flags (FOPEN_KEEP_CACHE | FOPEN_CACHE_DIR) let the kernel cache a
+    /// listing after its first READDIRs. A cached listing was filled by
+    /// READDIRs that recorded `(inode, d)`; repeats add nothing.
+    pub zero_opendir: bool,
+    /// GETXATTR and LISTXATTR answered ENOSYS (`QUOD_FUSE_XATTR_ENOSYS=0`
+    /// turns it off) rather than ENOTSUP: the kernel stops asking
+    /// (`fc->no_getxattr`, `fc->no_listxattr`) and answers EOPNOTSUPP
+    /// itself, the same errno. Xattrs are not inputs.
+    pub xattr_enosys: bool,
     #[cfg(feature = "fault-injection")]
     #[doc(hidden)]
     pub fault: Option<Fault>,
@@ -233,6 +256,9 @@ impl Default for Options {
             uring_pin: true,
             uring_depth: 4,
             uring_nice: -10,
+            zero_open: false,
+            zero_opendir: true,
+            xattr_enosys: true,
             #[cfg(feature = "fault-injection")]
             fault: None,
         }
@@ -256,6 +282,9 @@ impl Options {
                 .and_then(|v| v.parse().ok())
                 .filter(|n| (-20..=19).contains(n))
                 .unwrap_or(d.uring_nice),
+            zero_open: flag("QUOD_FUSE_ZERO_OPEN", d.zero_open),
+            zero_opendir: flag("QUOD_FUSE_ZERO_OPENDIR", d.zero_opendir),
+            xattr_enosys: flag("QUOD_FUSE_XATTR_ENOSYS", d.xattr_enosys),
             #[cfg(feature = "fault-injection")]
             fault: Fault::from_env(),
         }
@@ -267,6 +296,15 @@ impl Options {
         return self.fault;
         #[cfg(not(feature = "fault-injection"))]
         None
+    }
+}
+
+/// A boolean option from the environment: `1` on, `0` off, else `default`.
+fn flag(name: &str, default: bool) -> bool {
+    match std::env::var(name).as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => default,
     }
 }
 
@@ -296,7 +334,10 @@ struct Log {
     /// Files whose content was served: opened, or read through a handle.
     /// Every way to a file's content goes through an open (read, mmap,
     /// exec, an overlayfs copy-up), so a file not here was only looked up
-    /// or stat()ed: the step saw its attributes, never its bytes.
+    /// or stat()ed: the step saw its attributes, never its bytes. That
+    /// holds only while every open reaches the observer: with zero-message
+    /// opens the kernel sends the first OPEN and then only READs, so
+    /// `Observed::opened` is `None` for such a mount.
     opened: HashSet<u64>,
     /// The processes that asked. Attribution per process is later work;
     /// the set is what the seam carries today.
@@ -342,7 +383,19 @@ pub(crate) struct Stats {
     abandoned_conn: AtomicU64,
     /// Times a serving thread found a model lock held by another.
     contended: AtomicU64,
+    /// Ring transport: requests by opcode (index = FUSE opcode, the last
+    /// slot for any opcode beyond), to attribute round trips.
+    pub(crate) ops: [AtomicU64; OPS],
+    zero_open: AtomicBool,
+    zero_opendir: AtomicBool,
 }
+
+/// Opcode slots in `Stats::ops`; FUSE opcodes are below 64 but CUSE_INIT.
+pub(crate) const OPS: usize = 64;
+
+/// Blob fds `CasFs::read` keeps for handle-less reads; past this many the
+/// cache starts over (well under a default 1024-fd limit).
+const BLOB_FDS: usize = 256;
 
 impl Default for Stats {
     fn default() -> Stats {
@@ -367,6 +420,9 @@ impl Default for Stats {
             ring_nice_denied: AtomicBool::new(false),
             abandoned_conn: AtomicU64::new(0),
             contended: AtomicU64::new(0),
+            ops: std::array::from_fn(|_| AtomicU64::new(0)),
+            zero_open: AtomicBool::new(false),
+            zero_opendir: AtomicBool::new(false),
         }
     }
 }
@@ -395,7 +451,27 @@ impl Stats {
             ring_nice_denied: self.ring_nice_denied.load(Ordering::Relaxed),
             ring_abandoned_conn: Some(g(&self.abandoned_conn)).filter(|&c| c != 0),
             lock_contended: g(&self.contended),
+            zero_open: self.zero_open.load(Ordering::Relaxed),
+            zero_opendir: self.zero_opendir.load(Ordering::Relaxed),
         }
+    }
+
+    /// Counts one request by opcode (ring transport).
+    pub(crate) fn op(&self, opcode: u32) {
+        self.ops[(opcode as usize).min(OPS - 1)].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The nonzero opcode counts as `opcode:count,...`.
+    fn ops_summary(&self) -> String {
+        self.ops
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| {
+                let n = a.load(Ordering::Relaxed);
+                (n > 0).then(|| format!("{i}:{n}"))
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     /// Forgets what an abandoned ring setup counted.
@@ -411,6 +487,9 @@ impl Stats {
         }
         self.ring_nice.store(i32::MIN, Ordering::Relaxed);
         self.ring_nice_denied.store(false, Ordering::Relaxed);
+        for a in &self.ops {
+            a.store(0, Ordering::Relaxed);
+        }
     }
 }
 
@@ -489,8 +568,21 @@ pub(crate) struct CasFs {
     /// an error this process never sees; switching modes mid-mount could
     /// therefore hide a failure from the log.
     mode: Mutex<Option<bool>>,
-    /// Whether to ask the kernel for passthrough at all.
+    /// Whether to ask the kernel for passthrough at all (unless opens are
+    /// zero-message, see `passthrough_wanted`).
     want_passthrough: bool,
+    /// Zero-message opens and opendirs as asked for (`Options`), and as in
+    /// force: set at INIT (`set_kernel_support`), only where the kernel
+    /// offers them (FUSE_NO_OPEN_SUPPORT, FUSE_NO_OPENDIR_SUPPORT); on a
+    /// kernel without, an ENOSYS answer would reach the step as an error.
+    zero_open_wanted: bool,
+    zero_opendir_wanted: bool,
+    zero_open: AtomicBool,
+    zero_opendir: AtomicBool,
+    pub(crate) xattr_enosys: bool,
+    /// Blob fds for reads without a handle (zero-message opens: the kernel
+    /// sends READs with fh 0), one per inode, at most `BLOB_FDS` at once.
+    blobs: Mutex<HashMap<u64, Arc<File>>>,
     stats: Arc<Stats>,
     fatal: Arc<Fatal>,
     /// Test-only (`fault-injection`): the path whose lookup panics (see
@@ -505,7 +597,7 @@ impl CasFs {
         log: Arc<Mutex<Log>>,
         stats: Arc<Stats>,
         fatal: Arc<Fatal>,
-        want_passthrough: bool,
+        opts: &Options,
     ) -> Result<CasFs, FsError> {
         let mut index: HashMap<&str, u64> = HashMap::new();
         let mut by_ino: HashMap<u64, usize> = HashMap::with_capacity(tree.len());
@@ -559,7 +651,13 @@ impl CasFs {
             backing: Mutex::new(HashMap::new()),
             granted: AtomicBool::new(false),
             mode: Mutex::new(None),
-            want_passthrough,
+            want_passthrough: opts.passthrough,
+            zero_open_wanted: opts.zero_open,
+            zero_opendir_wanted: opts.zero_opendir,
+            zero_open: AtomicBool::new(false),
+            zero_opendir: AtomicBool::new(false),
+            xattr_enosys: opts.xattr_enosys,
+            blobs: Mutex::new(HashMap::new()),
             stats,
             fatal,
             fault: fault_path(),
@@ -574,10 +672,35 @@ impl CasFs {
         self.nodes.len() as u64
     }
 
-    /// Whether the step wants passthrough at all (the bench's attribution
-    /// series turns it off with QUOD_NO_PASSTHROUGH=1).
+    /// Whether to ask for passthrough at INIT: wanted (the bench's
+    /// attribution series turns it off with QUOD_NO_PASSTHROUGH=1), and
+    /// opens are answered (zero-message opens have no OPEN reply to set a
+    /// backing file in). Called after `set_kernel_support`.
     pub(crate) fn passthrough_wanted(&self) -> bool {
-        self.want_passthrough
+        self.want_passthrough && !self.zero_open()
+    }
+
+    /// Called by the transport at INIT with what the kernel offers: whether
+    /// it supports zero-message opens and opendirs. Each is in force only if
+    /// asked for and offered.
+    pub(crate) fn set_kernel_support(&self, no_open: bool, no_opendir: bool) {
+        let open = self.zero_open_wanted && no_open;
+        let opendir = self.zero_opendir_wanted && no_opendir;
+        if (self.zero_open_wanted && !no_open) || (self.zero_opendir_wanted && !no_opendir) {
+            tracing::info!(target: "quod", no_open, no_opendir, "the kernel lacks zero-message opens; answering them");
+        }
+        self.zero_open.store(open, Ordering::Relaxed);
+        self.zero_opendir.store(opendir, Ordering::Relaxed);
+        self.stats.zero_open.store(open, Ordering::Relaxed);
+        self.stats.zero_opendir.store(opendir, Ordering::Relaxed);
+    }
+
+    pub(crate) fn zero_open(&self) -> bool {
+        self.zero_open.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn zero_opendir(&self) -> bool {
+        self.zero_opendir.load(Ordering::Relaxed)
     }
 
     pub(crate) fn stats(&self) -> &Stats {
@@ -660,6 +783,21 @@ impl CasFs {
 
     /// Every access the log keeps goes through here (and `record_absent`),
     /// with the requester attached.
+    ///
+    /// What lets the kernel answer repeats itself (entry and attribute
+    /// TTLs, zero-message open and opendir, the listing and page caches)
+    /// without losing anything: every request on an inode records the same
+    /// thing, `(ino, its own kind)` (lookup, getattr, readlink, open, read
+    /// and readdir all do; open and readlink only for a file and a symlink,
+    /// which is that kind), and the kernel knows an inode other than the
+    /// root only from a LOOKUP reply, which recorded it. Neither transport
+    /// asks for READDIRPLUS or export support, the two other ways to make
+    /// an inode known, and the mount is read-only (no create, mkdir,
+    /// symlink or link). The root is recorded by its first getattr or
+    /// readdir, which the kernel cannot answer from a cache it has not
+    /// filled. So once an inode is known, any request the kernel would
+    /// have sent for it can only re-insert what `present` already holds.
+    /// Only `pids` (not part of the log) misses the later requesters.
     fn record(&self, req: &Req, ino: u64, kind: Kind) {
         let mut log = self.locked(&self.log);
         log.present.insert((ino, kind));
@@ -808,6 +946,11 @@ impl CasFs {
         }
         self.record(req, ino, Kind::File);
         self.locked(&self.log).opened.insert(ino);
+        if self.zero_open() {
+            // The kernel takes ENOSYS as success with no handle and sends
+            // no further OPEN or RELEASE on this mount (`fc->no_open`).
+            return Err(libc::ENOSYS);
+        }
         let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
         if self.passthrough(ino, n, register) {
             return match self.backing_id(ino, n, register) {
@@ -847,13 +990,23 @@ impl CasFs {
         self.locked(&self.log).opened.insert(ino);
         let n = self.node(ino).ok_or(libc::ENOENT)?;
         let opened = self.locked(&self.open).get(&fh).cloned();
-        let file = match opened {
+        let cached = || self.locked(&self.blobs).get(&ino).cloned();
+        let file = match opened.or_else(cached) {
             Some(f) => f,
-            // A handle this process holds no fd for (a passthrough handle
-            // the kernel chose to read through anyway, or a handle-less read
-            // on a transport without open support): serve it from the blob.
+            // A handle this process holds no fd for (a zero-message open's
+            // fh 0, a passthrough handle the kernel chose to read through
+            // anyway): serve it from the blob, whose fd is kept for the
+            // inode's next READ.
             None => match n.entry.h.map(|h| self.cas.open_blob(&h)) {
-                Some(Ok(f)) => Arc::new(f),
+                Some(Ok(f)) => {
+                    let f = Arc::new(f);
+                    let mut blobs = self.locked(&self.blobs);
+                    if blobs.len() >= BLOB_FDS {
+                        blobs.clear();
+                    }
+                    blobs.insert(ino, f.clone());
+                    f
+                }
                 Some(Err(e)) => {
                     self.io_error(format!("read {}: {e}", n.entry.p));
                     return Err(libc::EIO);
@@ -887,6 +1040,10 @@ impl CasFs {
 
     pub(crate) fn opendir(&self, ino: u64) -> Result<(), i32> {
         match self.node(ino) {
+            // As for zero_open: no further OPENDIR or RELEASEDIR
+            // (`fc->no_opendir`), and the kernel's default handle flags
+            // cache the listing.
+            Some(n) if n.entry.k == Kind::Dir && self.zero_opendir() => Err(libc::ENOSYS),
             Some(n) if n.entry.k == Kind::Dir => Ok(()),
             Some(_) => Err(libc::ENOTDIR),
             None => Err(libc::ENOENT),
@@ -931,8 +1088,19 @@ impl CasFs {
     }
 }
 
+/// The xattr answer: ENOSYS makes the kernel stop asking (and answer
+/// EOPNOTSUPP itself, which is ENOTSUP).
+fn xattr_errno(fs: &CasFs) -> Errno {
+    if fs.xattr_enosys {
+        Errno::ENOSYS
+    } else {
+        Errno::ENOTSUP
+    }
+}
+
 fn errno(e: i32) -> Errno {
     match e {
+        libc::ENOSYS => Errno::ENOSYS,
         libc::ENOENT => Errno::ENOENT,
         libc::EISDIR => Errno::EISDIR,
         libc::EROFS => Errno::EROFS,
@@ -958,15 +1126,20 @@ impl Filesystem for Classic {
         // Each is independent; a kernel without one just keeps the default.
         // PARALLEL_DIROPS: lookups in one directory need not serialize.
         // CACHE_SYMLINKS: the kernel keeps a target after the first readlink.
-        // NO_OPENDIR_SUPPORT: readdir is what the log needs; skip the opendir
-        // round trip.
         for cap in [
             InitFlags::FUSE_PARALLEL_DIROPS,
             InitFlags::FUSE_CACHE_SYMLINKS,
-            InitFlags::FUSE_NO_OPENDIR_SUPPORT,
         ] {
             let _ = config.add_capabilities(cap);
         }
+        // Whether this kernel takes an ENOSYS answer to OPEN / OPENDIR as
+        // "no more of these" (zero-message opens); before passthrough,
+        // which zero-message opens exclude.
+        let caps = config.capabilities();
+        self.0.set_kernel_support(
+            caps.contains(InitFlags::FUSE_NO_OPEN_SUPPORT),
+            caps.contains(InitFlags::FUSE_NO_OPENDIR_SUPPORT),
+        );
         let granted = self.0.passthrough_wanted()
             && config.add_capabilities(InitFlags::FUSE_PASSTHROUGH).is_ok();
         if granted {
@@ -1112,11 +1285,11 @@ impl Filesystem for Classic {
         reply: ReplyXattr,
     ) {
         // Overlayfs probes lower xattrs; it accepts ENOTSUP cleanly.
-        reply.error(Errno::ENOTSUP);
+        reply.error(xattr_errno(&self.0));
     }
 
     fn listxattr(&self, _req: &Request, _ino: INodeNo, _size: u32, reply: ReplyXattr) {
-        reply.error(Errno::ENOTSUP);
+        reply.error(xattr_errno(&self.0));
     }
 }
 
@@ -1137,10 +1310,13 @@ impl Session {
 /// A mounted, logging, read-only view of a tree.
 /// What a step did on its mount: the access log, and the files whose content
 /// it was served (opened or read; a file only looked up or stat()ed is in
-/// the log, as its content, but not here).
+/// the log, as its content, but not here). `opened` is `None` when the mount
+/// had zero-message opens in force: the kernel then sent one OPEN and READs
+/// only, so which files were opened is unknown (the access log is complete
+/// either way, see `CasFs::record`).
 pub struct Observed {
     pub accesses: Vec<Access>,
-    pub opened: BTreeSet<String>,
+    pub opened: Option<BTreeSet<String>>,
 }
 
 pub struct Served {
@@ -1182,7 +1358,7 @@ pub fn serve_with(
         log.clone(),
         stats.clone(),
         fatal.clone(),
-        opts.passthrough,
+        opts,
     )?);
     let paths = fs
         .nodes
@@ -1339,11 +1515,12 @@ impl Served {
             });
         }
         unmounted.map_err(FsError::io(what()))?;
-        let opened: BTreeSet<String> = log
-            .opened
-            .iter()
-            .map(|ino| self.paths[ino].0.clone())
-            .collect();
+        let opened = (!self.stats.zero_open.load(Ordering::Relaxed)).then(|| {
+            log.opened
+                .iter()
+                .map(|ino| self.paths[ino].0.clone())
+                .collect::<BTreeSet<String>>()
+        });
         let mut out: Vec<Access> = log
             .present
             .into_iter()
@@ -1392,6 +1569,7 @@ impl Served {
             ring_nice_denied = s.ring_nice_denied,
             ring_abandoned_conn = s.ring_abandoned_conn,
             lock_contended = s.lock_contended,
+            ring_ops = self.stats.ops_summary(),
             serve_user_ms = user.saturating_sub(self.cpu_at_mount.0),
             serve_sys_ms = sys.saturating_sub(self.cpu_at_mount.1),
             serve_threads = sched.threads,

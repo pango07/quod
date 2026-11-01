@@ -184,6 +184,14 @@ impl Cas {
             self.write_blob(&h, |f| f.write_all(&bytes))?;
             return Ok((h, bytes.len() as u64));
         }
+        // Hash in place first: a blob the store already has (nearly every
+        // file of an unchanged dependency tree) costs one read, no copy.
+        // The bytes hashed are what the caller's tree records, as for a
+        // small file read once.
+        let h = hash_reader(&mut fs::File::open(path).at(path)?).at(path)?;
+        if self.has(&h) {
+            return Ok((h, 0));
+        }
         // Stream once into a temp file while hashing, then rename to the hash
         // of the bytes actually stored: a file changing underneath can never
         // put wrong bytes under a hash.
@@ -220,7 +228,8 @@ impl Cas {
     /// disk (the same guarantee `put_file` gets from fsync and rename):
     /// every file is hashed in place; `sync` is called once with the store's
     /// directory and must flush that filesystem (the caller has syncfs(2));
-    /// then each new file is renamed to its blob path, a metadata operation.
+    /// then each new file is moved to its blob path (linked, then unlinked
+    /// from where it was), a metadata operation.
     /// Storing a step's outputs thus costs one read of the bytes and one
     /// filesystem flush, not a second write and an fsync per file. Across
     /// filesystems a file falls back to `put_file`, durable on its own.
@@ -229,7 +238,7 @@ impl Cas {
     /// caller guarantees nothing writes to these files any more; this
     /// method checks it: each file's identity (inode, size, mtime) is taken
     /// before hashing and compared after hashing and again on the blob after
-    /// the rename. Any difference removes the blob and fails with
+    /// the move. Any difference removes the blob and fails with
     /// `CasError::Changed`, so a run whose outputs moved under it records
     /// nothing. A file with more than one link is copied, not moved, since
     /// its other names could still write to it.
@@ -283,20 +292,39 @@ impl Cas {
             let dest = self.blob_path(&t.h);
             let parent = dest.parent().unwrap();
             fs::create_dir_all(parent).at(parent)?;
-            match fs::rename(path, &dest) {
-                Ok(()) => {}
+            // A link and an unlink rather than a rename: a rename across
+            // directories takes the filesystem-wide rename lock, so ten
+            // thousand of them (a Go build cache's action entries, new on
+            // every run) serialized to ~0.4s; links take only their
+            // directories' locks.
+            let linked = match fs::hard_link(path, &dest) {
+                Ok(()) => Ok(true),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+                // No link here (fs.protected_hardlinks refusing a file this
+                // process neither owns nor may write, a filesystem without
+                // hard links, a link count at its maximum): rename instead.
+                Err(_) => fs::rename(path, &dest).map(|()| false),
+            };
+            let linked = match linked {
+                Ok(linked) => linked,
+                // Another run stored the same content meanwhile: the blob
+                // exists, as if it had at hashing time.
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(()),
                 Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
                     return (self.put_file(path)?.0 == t.h)
                         .then_some(())
                         .ok_or_else(changed);
                 }
                 Err(e) => return Err(e).at(&dest),
-            }
+            };
             // The blob is the inode that was hashed, unchanged since; else
             // it cannot stay under that name.
             if Stamp::of(&fs::symlink_metadata(&dest).at(&dest)?) != t.stamp {
                 let _ = fs::remove_file(&dest);
                 return Err(changed());
+            }
+            if linked {
+                fs::remove_file(path).at(path)?;
             }
             Ok(())
         })?;
@@ -355,9 +383,20 @@ impl Cas {
         self.import_dir_stats(root).map(|(t, _)| t)
     }
 
+    /// `import_dir` without the named top-level entries, which are neither
+    /// read nor stored (a checkout's `.git`, for a caller that serves its
+    /// own): the tree `import_dir(root)` gives with them removed.
+    pub fn import_dir_except(&self, root: &Path, skip: &[&str]) -> Result<Tree, CasError> {
+        self.import_dir_walk(root, skip).map(|(t, _)| t)
+    }
+
     /// Walks `root`, stores every regular file and returns the tree. Skips
     /// nothing; `.git` included.
     pub fn import_dir_stats(&self, root: &Path) -> Result<(Tree, ImportStats), CasError> {
+        self.import_dir_walk(root, &[])
+    }
+
+    fn import_dir_walk(&self, root: &Path, skip: &[&str]) -> Result<(Tree, ImportStats), CasError> {
         let mut stats = ImportStats::default();
         let mut files: Vec<(String, PathBuf, u32)> = Vec::new();
         let mut leaves: Vec<Entry> = Vec::new();
@@ -372,6 +411,9 @@ impl Cas {
                     .file_name()
                     .into_string()
                     .map_err(|_| CasError::NonUtf8(path.clone()))?;
+                if rel == ROOT && skip.contains(&name.as_str()) {
+                    continue;
+                }
                 if !crate::valid_name(&name) {
                     return Err(CasError::BadName(path));
                 }

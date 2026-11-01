@@ -93,6 +93,7 @@ const FUSE_PARALLEL_DIROPS: u32 = 1 << 18;
 const FUSE_MAX_PAGES: u32 = 1 << 22;
 const FUSE_CACHE_SYMLINKS: u32 = 1 << 23;
 const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24;
+const FUSE_NO_OPEN_SUPPORT: u32 = 1 << 17;
 const FUSE_INIT_EXT: u32 = 1 << 30;
 /// Bits 37 and 41 of the 64-bit flag word live in `flags2`.
 const FUSE_PASSTHROUGH_2: u32 = 1 << (37 - 32);
@@ -803,7 +804,7 @@ fn try_mount(
         done: false,
     };
     let sh = st.shared.clone();
-    let passthrough = init(&sh.dev, sh.fs.passthrough_wanted()).map_err(io("FUSE init"))?;
+    let passthrough = init(&sh.dev, &sh.fs).map_err(io("FUSE init"))?;
     sh.fs.set_granted(passthrough);
     check_sqe_layout().map_err(io("io_uring SQE layout"))?;
 
@@ -996,7 +997,7 @@ fn write_reply(dev: &File, unique: u64, error: i32, data: &[u8]) -> io::Result<(
 /// The INIT handshake. Returns whether the kernel granted passthrough.
 /// Declines (and fails) unless the kernel offers the ring at a minor this
 /// file encodes for.
-fn init(dev: &File, want_passthrough: bool) -> io::Result<bool> {
+fn init(dev: &File, fs: &CasFs) -> io::Result<bool> {
     let mut buf = vec![0u8; 8192];
     let n = read_dev(dev, &mut buf)?;
     if n < IN_HEADER + 20 || u32_at(&buf, 4) != FUSE_INIT {
@@ -1024,7 +1025,13 @@ fn init(dev: &File, want_passthrough: bool) -> io::Result<bool> {
     if minor < MIN_MINOR || flags2 & FUSE_OVER_IO_URING_2 == 0 {
         return decline("the kernel does not offer FUSE over io_uring".into());
     }
-    let passthrough = want_passthrough && flags2 & FUSE_PASSTHROUGH_2 != 0;
+    // What the kernel offers decides whether zero-message opens are in
+    // force, before passthrough, which they exclude.
+    fs.set_kernel_support(
+        flags & FUSE_NO_OPEN_SUPPORT != 0,
+        flags & FUSE_NO_OPENDIR_SUPPORT != 0,
+    );
+    let passthrough = fs.passthrough_wanted() && flags2 & FUSE_PASSTHROUGH_2 != 0;
     let want2 = FUSE_OVER_IO_URING_2 | if passthrough { FUSE_PASSTHROUGH_2 } else { 0 };
     let out = init_out(
         minor.min(TESTED_MINOR),
@@ -1073,6 +1080,7 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
     let req = Req {
         pid: u32_at(hdr, 32),
     };
+    fs.stats().op(opcode);
     let ok = |data: Vec<u8>| Some((0, data));
     let err = |e: i32| Some((-e, Vec::new()));
     match opcode {
@@ -1134,6 +1142,7 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
             ok(statfs_out(fs.file_count()))
         }
         // Overlayfs probes lower xattrs; it accepts ENOTSUP cleanly.
+        FUSE_GETXATTR | FUSE_LISTXATTR if fs.xattr_enosys => err(libc::ENOSYS),
         FUSE_GETXATTR | FUSE_LISTXATTR => err(libc::ENOTSUP),
         FUSE_FLUSH | FUSE_ACCESS => err(libc::ENOSYS),
         FUSE_FORGET | FUSE_BATCH_FORGET | FUSE_INTERRUPT => None,

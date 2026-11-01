@@ -1,0 +1,52 @@
+# scripts/lint.sh on aff9f0d (2026-11-01T18:56:43Z)
+lint ok
+rc=0
+# scripts/lint.sh on 8416958 (2026-11-01T18:58:51Z)
+---- tests::concurrent_opens_of_a_new_ledger_migrate_once stdout ----
+thread 'tests::concurrent_opens_of_a_new_ledger_migrate_once' (99910) panicked at crates/quod-ledger/src/lib.rs:1122:42:
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+error: test failed, to rerun pass `-p quod-ledger --lib`
+lint FAILED: unit tests (full output in /work/gates7/lint-test-8416958.log)
+rc=1
+# scripts/lint.sh on 8416958-r2 (2026-11-01T19:00:49Z)
+lint ok
+rc=0
+# scripts/lint.sh on 4a4d152 (2026-11-01T19:02:38Z)
+lint ok
+rc=0
+# scripts/lint.sh on e0071d1 (2026-11-01T19:04:29Z)
+lint ok
+rc=0
+# scripts/lint.sh on 0092714 (2026-11-01T19:06:17Z)
+---- tests::concurrent_opens_of_a_new_ledger_migrate_once stdout ----
+thread 'tests::concurrent_opens_of_a_new_ledger_migrate_once' (102411) panicked at crates/quod-ledger/src/lib.rs:1122:42:
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+error: test failed, to rerun pass `-p quod-ledger --lib`
+lint FAILED: unit tests (full output in /work/gates7/lint-test-0092714.log)
+rc=1
+# scripts/lint.sh on 0092714-r2 (2026-11-01T19:08:08Z)
+---- acceptance_python_fixture stdout ----
+thread 'acceptance_python_fixture' (9034) panicked at crates/quod-cli/tests/acceptance.rs:178:5:
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.45s
+error: test failed, to rerun pass `-p quod-cli --test acceptance`
+lint FAILED: unit tests (full output in /work/gates7/lint-test-0092714-r2.log)
+rc=1
+# scripts/lint.sh on 0092714-r3 (2026-11-01T19:08:55Z)
+lint ok
+rc=0
+# scripts/lint.sh on 950b497 (2026-11-01T19:10:40Z)
+---- tests::concurrent_opens_of_a_new_ledger_migrate_once stdout ----
+thread 'tests::concurrent_opens_of_a_new_ledger_migrate_once' (104179) panicked at crates/quod-ledger/src/lib.rs:1122:42:
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+error: test failed, to rerun pass `-p quod-ledger --lib`
+lint FAILED: unit tests (full output in /work/gates7/lint-test-950b497.log)
+rc=1
+# scripts/lint.sh on 950b497-r2 (2026-11-01T19:12:34Z)
+lint ok
+rc=0
+# scripts/lint.sh on 582aba3 (2026-11-01T19:14:20Z)
+lint ok
+rc=0
+# scripts/lint.sh on 9fa400d (2026-11-01T19:16:12Z)
+lint ok
+rc=0
