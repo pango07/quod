@@ -1323,6 +1323,14 @@ pub fn probe_in_sandbox(program: &Path, args: &[&str]) -> Result<String, Sandbox
             .as_nanos()
     ));
     std::fs::create_dir_all(&dir).map_err(io_err("create probe dir"))?;
+    // The binary goes in through the probe dir, not from where it is
+    // installed: the sandbox may not be allowed to traverse that path (a
+    // home directory of mode 0750, as on GitHub's hosted runners, read by
+    // root inside a user namespace). A hard link where it can, else a copy.
+    let staged = dir.join("quod-probe");
+    if std::fs::hard_link(program, &staged).is_err() {
+        std::fs::copy(program, &staged).map_err(io_err("stage the probe binary"))?;
+    }
     let mut cmd: Vec<String> = [
         "/bin/sh",
         "-c",
@@ -1337,7 +1345,7 @@ pub fn probe_in_sandbox(program: &Path, args: &[&str]) -> Result<String, Sandbox
         cwd: "/".into(),
         env: vec![("PATH".into(), "/usr/bin:/bin".into())],
         mounts: vec![Mount {
-            src: program.to_path_buf(),
+            src: staged,
             dst: "/quod-probe".into(),
             writable: false,
         }],
