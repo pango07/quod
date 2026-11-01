@@ -20,6 +20,7 @@ arguments, then unsupported claims).
 | exp/overhead2: shared snapshots, io_uring probe | merged `28964c8` | 1 critical, 2 major | `9465426`, `c095e2f` |
 | exp/split (first version, pre-rebase) | `3eb2f63..493cfca` | 4 major | re-reviewed by Opus, below |
 | cloud/: Quod Cloud dashboard (Next.js, WorkOS AuthKit) | `8204478..39a4524` | no blockers; 3 major (path injection via run number, demo/fixtures inferred from NODE_ENV, roles for re-run and Connect), minors; M1-M3 fixed | `fe2db8a` |
+| cloud/own-sign-in: our own sign-in pages on WorkOS User Management | `41af13a` | 1 blocker (open redirect: returnTo normalized to //host), 2 major (resend without a user id; pending cookie over 4 KB), minors; B1, M1, M2 and minors fixed | `99dfc10` |
 
 ## Reviewed by Opus: Fable re-review pending
 
