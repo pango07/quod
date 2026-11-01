@@ -14,5 +14,5 @@ export async function migratedDb(): Promise<Db> {
 
 /** Empties the app tables (keeps schema_migrations and the sequence). */
 export async function truncateAll(db: Db): Promise<void> {
-  await db.exec("TRUNCATE installations, repos, workflow_runs, workflow_jobs, deliveries");
+  await db.exec("TRUNCATE installations, repos, workflow_runs, workflow_jobs, deliveries, reconcile_state");
 }

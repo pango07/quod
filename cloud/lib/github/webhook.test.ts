@@ -7,6 +7,10 @@ import { disconnectInstallation, linkInstallation, pruneOld } from "./store";
 import { teamIdOf, type TeamId } from "./team";
 import { handleWebhook } from "./webhook";
 
+// The pollers' default lazy-reconcile hook needs the App's credentials; reconcile.test.ts covers it.
+const lazyReconcileTeam = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("./lazy-reconcile", () => ({ lazyReconcileTeam }));
+
 let db: Db;
 const TEAM = teamIdOf({ team: { orgId: "org_acme" } });
 const OTHER = teamIdOf({ team: { orgId: "org_other" } });
@@ -370,6 +374,7 @@ describe("review fixes", () => {
 
   it("M3: subscribers of a team share one poller, which stops with the last", async () => {
     await link();
+    lazyReconcileTeam.mockClear();
     const a: string[] = [];
     const b: string[] = [];
     const unA = subscribeTeamJobs(TEAM, (e) => a.push(e.job.id), { db, intervalMs: 250 });
@@ -381,6 +386,9 @@ describe("review fixes", () => {
     await new Promise((r) => setTimeout(r, 600));
     expect(a).toEqual(["31"]);
     expect(b).toEqual(["31"]);
+    // The default lazy-reconcile hook ran once for the team's one poller.
+    expect(lazyReconcileTeam).toHaveBeenCalledTimes(1);
+    expect(lazyReconcileTeam).toHaveBeenCalledWith("org_acme", db);
     unA();
     await new Promise((r) => setTimeout(r, 10));
     expect(activePollers(db)).toBe(1);

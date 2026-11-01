@@ -217,9 +217,37 @@ export interface PollOptions {
   /** How far back each poll looks, to catch writes that committed out of version order. Default 15 s. */
   lookbackMs?: number;
   db?: Db;
+  /**
+   * Called in the background while the poller runs (someone is watching), at
+   * most every `reconcileEveryMs` per instance: lazy GitHub reconciliation.
+   * Default: lib/github/lazy-reconcile.ts, whose database claim makes it at
+   * most once per 15 minutes per team across instances. null turns it off.
+   */
+  reconcile?: ((teamId: TeamId, db: Db) => Promise<unknown>) | null;
+  /** Default 15 minutes. */
+  reconcileEveryMs?: number;
 }
 
 type Listener = (e: LiveJobEvent) => void;
+
+const RECONCILE_EVERY_MS = 15 * 60_000;
+
+const lazyReconcile = async (teamId: TeamId, db: Db) => (await import("./lazy-reconcile")).lazyReconcileTeam(teamId, db);
+
+/**
+ * Keeps the function alive for background work when the platform supports
+ * it (Vercel's waitUntil; a no-op elsewhere). The promise runs either way and
+ * is never awaited by the stream.
+ */
+async function background(task: Promise<unknown>): Promise<void> {
+  const settled = task.catch(() => undefined);
+  try {
+    const { waitUntil } = await import("@vercel/functions");
+    waitUntil(settled);
+  } catch {
+    // not on Vercel: the promise still runs
+  }
+}
 
 export interface Poller {
   listeners: Set<Listener>;
@@ -232,9 +260,11 @@ export interface Poller {
   base: number;
   max: number;
   lookback: number;
+  /** When this instance may next ask for a lazy reconcile (ms); 0 = on the first poll. */
+  nextReconcileAt: number;
 }
 
-// Per database (tests use several) and per team. The poll interval and look-back are the first subscriber's.
+// Per database (tests use several) and per team. The poll interval, look-back and reconcile hook are the first subscriber's.
 const pollers = new WeakMap<Db, Map<string, Poller>>();
 let defaultDb: Db | null = null;
 
@@ -311,10 +341,13 @@ export function subscribeTeamJobs(teamId: TeamId, listener: Listener, opts: Poll
         base,
         max: Math.max(base, opts.maxIntervalMs ?? 10000),
         lookback: Math.max(base * 2, opts.lookbackMs ?? 15000),
+        nextReconcileAt: 0,
       };
       byTeam.set(teamId, p);
       poller = p;
       const d = db;
+      const reconcileFn = opts.reconcile === undefined ? lazyReconcile : opts.reconcile;
+      const every = Math.max(1000, opts.reconcileEveryMs ?? RECONCILE_EVERY_MS);
       const tick = async () => {
         if (p.stopped) return;
         try {
@@ -324,6 +357,11 @@ export function subscribeTeamJobs(teamId: TeamId, listener: Listener, opts: Poll
         } catch (e) {
           p.idle += 1;
           console.warn("[quod-cloud] live poll failed", { error: e instanceof Error ? e.name : "unknown" });
+        }
+        // Someone is watching: heal this team's lost deliveries and stuck jobs now and then, off the stream's path.
+        if (reconcileFn && !p.stopped && Date.now() >= p.nextReconcileAt) {
+          p.nextReconcileAt = Date.now() + every;
+          void background(reconcileFn(teamId, d));
         }
         if (!p.stopped) p.timer = setTimeout(tick, nextDelay(p));
       };

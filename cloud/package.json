@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/db-migrate.mjs"
   },
   "dependencies": {
+    "@vercel/functions": "3.9.11",
     "@workos-inc/authkit-nextjs": "^4.6.2",
     "@workos-inc/node": "^12.1.0",
     "iron-session": "^8.0.4",

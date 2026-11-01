@@ -78,7 +78,7 @@ export function githubForReconcile(config: GitHubAppConfig): ReconcileGitHub {
     return t;
   };
   return {
-    listDeliveries: (since) => gh.listAppHookDeliveries(jwt(), since),
+    listFailedDeliveries: (since) => gh.listAppHookDeliveries(jwt(), since, { failuresOnly: true }),
     redeliver: (id) => gh.redeliver(jwt(), id),
     getRun: async (id, fullName, runId) => gh.getRun(await tokenFor(id), fullName, runId),
     listRunJobs: async (id, fullName, runId) => gh.listRunJobs(await tokenFor(id), fullName, runId),

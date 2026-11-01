@@ -176,9 +176,9 @@ export function nextLink(link: string | null): string | null {
  * GET /app/hook/deliveries (App JWT), newest first, back to `sinceMs`.
  * GitHub does not redeliver failed webhooks by itself; this is how Quod finds them.
  */
-export async function listAppHookDeliveries(jwt: string, sinceMs: number, f: Fetch = fetch): Promise<HookDelivery[]> {
+export async function listAppHookDeliveries(jwt: string, sinceMs: number, opts: { failuresOnly?: boolean } = {}, f: Fetch = fetch): Promise<HookDelivery[]> {
   const out: HookDelivery[] = [];
-  let url: string | null = `${GITHUB_API}/app/hook/deliveries?per_page=100`;
+  let url: string | null = `${GITHUB_API}/app/hook/deliveries?per_page=100${opts.failuresOnly ? "&status=failure" : ""}`;
   for (let page = 0; url && page < MAX_PAGES; page++) {
     if (!url.startsWith(`${GITHUB_API}/`)) break; // only follow GitHub's own links
     const res: Response = await f(url, { headers: headers(jwt), cache: "no-store" });
