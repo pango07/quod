@@ -318,18 +318,31 @@ fn covered(ac: &AhoCorasick, bytes: &[u8]) -> Vec<bool> {
     cov
 }
 
-/// The runs of two or more consecutive lines made of base64 characters
-/// only (standard or URL alphabet, `=`; a trailing CR allowed), each joined
-/// without its line breaks, with the offset in `bytes` of every joined byte.
+/// The runs of two or more consecutive lines of a base64 stream, each
+/// joined without its line breaks, with the offset in `bytes` of every
+/// joined byte. A line of the stream is base64 characters (standard or URL
+/// alphabet, `=`) after its leading whitespace (an indented YAML block,
+/// `sed 's/^/    /'`), a trailing CR allowed. A run may begin with the
+/// base64 tail of a line that is not all base64 (`auth: <base64>`) and end
+/// with the base64 head of the line after it.
 fn base64_runs(bytes: &[u8]) -> Vec<(Vec<u8>, Vec<usize>)> {
     let b64 = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'=' | b'-' | b'_');
     let mut runs = Vec::new();
-    let mut cur: (Vec<u8>, Vec<usize>, usize) = (Vec::new(), Vec::new(), 0);
-    let mut flush = |cur: &mut (Vec<u8>, Vec<usize>, usize)| {
-        if cur.2 >= 2 {
+    // (joined, offsets, pieces, whole lines): a run needs two pieces, one
+    // of them a whole line, so two lines of ordinary text never make one.
+    type Run = (Vec<u8>, Vec<usize>, usize, usize);
+    let mut cur: Run = (Vec::new(), Vec::new(), 0, 0);
+    let mut flush = |cur: &mut Run| {
+        if cur.2 >= 2 && cur.3 >= 1 {
             runs.push((std::mem::take(&mut cur.0), std::mem::take(&mut cur.1)));
         }
-        *cur = (Vec::new(), Vec::new(), 0);
+        *cur = (Vec::new(), Vec::new(), 0, 0);
+    };
+    let push = |cur: &mut Run, from: usize, part: &[u8], whole: bool| {
+        cur.0.extend_from_slice(part);
+        cur.1.extend(from..from + part.len());
+        cur.2 += 1;
+        cur.3 += usize::from(whole);
     };
     let mut start = 0;
     for end in bytes
@@ -343,12 +356,27 @@ fn base64_runs(bytes: &[u8]) -> Vec<(Vec<u8>, Vec<usize>)> {
         if line.last() == Some(&b'\r') {
             line = &line[..line.len() - 1];
         }
-        if !line.is_empty() && line.iter().all(|&c| b64(c)) {
-            cur.0.extend_from_slice(line);
-            cur.1.extend(start..start + line.len());
-            cur.2 += 1;
+        let lead = line.iter().take_while(|c| c.is_ascii_whitespace()).count();
+        let (from, body) = (start + lead, &line[lead..]);
+        if !body.is_empty() && body.iter().all(|&c| b64(c)) {
+            push(&mut cur, from, body, true);
         } else {
+            // The stream's last line may be the head of this one.
+            let head = body.iter().take_while(|&&c| b64(c)).count();
+            if cur.2 >= 1 && head > 0 {
+                push(&mut cur, from, &body[..head], false);
+            }
             flush(&mut cur);
+            // And its first line the tail of this one.
+            let tail = body.iter().rev().take_while(|&&c| b64(c)).count();
+            if tail > 0 {
+                push(
+                    &mut cur,
+                    from + body.len() - tail,
+                    &body[body.len() - tail..],
+                    false,
+                );
+            }
         }
         start = end + 1;
     }
@@ -1136,6 +1164,46 @@ mod tests {
                         );
                     }
                     assert_eq!(out.lines().count(), wrap(&enc, w).lines().count());
+                }
+            }
+        }
+    }
+
+    /// Final verification of f357bba: wrapped base64 indented (a YAML
+    /// block, `sed 's/^/    /'`, a tab) or after a prefix on its first line
+    /// (`echo "auth: $(base64 f)"`).
+    #[test]
+    fn indented_and_prefixed_wrapped_base64() {
+        let base = "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abc";
+        for sec in [base.to_string(), format!("{base}d"), format!("{base}de")] {
+            let m = masks_for(&sec);
+            let enc = b64(sec.as_bytes());
+            for w in [64, 76] {
+                let lines: Vec<String> = enc
+                    .as_bytes()
+                    .chunks(w)
+                    .map(|c| String::from_utf8_lossy(c).into_owned())
+                    .collect();
+                let forms = [
+                    lines.iter().map(|l| format!("  {l}\n")).collect::<String>(),
+                    lines.iter().map(|l| format!("    {l}\n")).collect(),
+                    lines.iter().map(|l| format!("\t{l}\n")).collect(),
+                    format!("auth: {}\n", lines.join("\n")),
+                    format!("data:\n  key: {}\n  other: x\n", lines.join("\n  ")),
+                ];
+                for text in forms {
+                    assert!(holds(text.as_bytes(), &m), "{} at {w}: {text}", sec.len());
+                    let out = String::from_utf8(mask(text.as_bytes(), &m)).unwrap();
+                    let joined: String = out.split_whitespace().collect();
+                    for win in enc.as_bytes().windows(12) {
+                        let win = std::str::from_utf8(win).unwrap();
+                        assert!(
+                            !joined.contains(win),
+                            "{} at {w}: {win} left in {out}",
+                            sec.len()
+                        );
+                    }
+                    assert_eq!(out.lines().count(), text.lines().count());
                 }
             }
         }

@@ -63,8 +63,10 @@ pub struct Provenance {
     #[serde(default)]
     pub opaque: Option<String>,
     /// The names (upper-cased) the workflow assigns from a step's or a
-    /// job's outputs (`steps.X.outputs.Y`, `needs.X.outputs.Y`): what a
-    /// step computed, which may be a part it cut out of a secret.
+    /// job's outputs (`steps.X.outputs.Y`, `needs.X.outputs.Y`), or from a
+    /// composite action's or reusable workflow's inputs (`inputs.X`, which a
+    /// caller may fill from outputs): what a step computed, which may be a
+    /// part it cut out of a secret.
     #[serde(default)]
     pub derived: BTreeSet<String>,
 }
@@ -268,7 +270,12 @@ fn facts(expr: &str) -> Facts {
                     f.whole = Some("the secrets context as a whole (toJSON(secrets) or the like)")
                 }
             }
-        } else if id.eq_ignore_ascii_case("steps") || id.eq_ignore_ascii_case("needs") {
+        } else if id.eq_ignore_ascii_case("steps")
+            || id.eq_ignore_ascii_case("needs")
+            || id.eq_ignore_ascii_case("inputs")
+        {
+            // What a step computed, or what a composite action's or a
+            // reusable workflow's caller passed in (possibly that).
             f.outputs = true;
         } else if id.eq_ignore_ascii_case("env") {
             match member {
@@ -1125,6 +1132,26 @@ jobs:
             Some("migrate"),
         );
         assert!(p.opaque.is_some(), "{p:?}");
+    }
+
+    /// Final verification of f357bba: a composite action's input carries
+    /// a step's output inside, so its inner env name is computed too.
+    #[test]
+    fn composite_inputs_are_computed_names() {
+        let comp = "inputs:\n  pw:\n    required: true\nruns:\n  using: composite\n  steps:\n    - run: ./use.sh\n      shell: bash\n      env:\n        DB_PASS: ${{ inputs.pw }}\n";
+        let wf = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - id: x\n        run: ./cut.sh\n      - uses: o/act@v1\n        with:\n          pw: ${{ steps.x.outputs.pw }}\n";
+        let p = with(wf, &[], &[("o/act@v1", comp)]);
+        assert_eq!(p.opaque, None);
+        assert!(p.derived.contains("DB_PASS"), "{p:?}");
+        // And a reusable workflow's input.
+        let callee = "on:\n  workflow_call:\n    inputs:\n      pw:\n        type: string\njobs:\n  b:\n    runs-on: x\n    steps:\n      - run: ./use.sh\n        env:\n          DB_PASS: ${{ inputs.pw }}\n";
+        let p = with_job(
+            "on: push\njobs:\n  call:\n    uses: ./.github/workflows/c.yml\n    with:\n      pw: ${{ needs.cut.outputs.pw }}\n",
+            &[(".github/workflows/c.yml", callee)],
+            &[],
+            Some("b"),
+        );
+        assert!(p.derived.contains("DB_PASS"), "{p:?}");
     }
 
     /// The reviewer's probes that are not bypasses, kept as tests: spaced
