@@ -184,6 +184,14 @@ impl Cas {
             self.write_blob(&h, |f| f.write_all(&bytes))?;
             return Ok((h, bytes.len() as u64));
         }
+        // Hash in place first: a blob the store already has (nearly every
+        // file of an unchanged dependency tree) costs one read, no copy.
+        // The bytes hashed are what the caller's tree records, as for a
+        // small file read once.
+        let h = hash_reader(&mut fs::File::open(path).at(path)?).at(path)?;
+        if self.has(&h) {
+            return Ok((h, 0));
+        }
         // Stream once into a temp file while hashing, then rename to the hash
         // of the bytes actually stored: a file changing underneath can never
         // put wrong bytes under a hash.
@@ -290,12 +298,12 @@ impl Cas {
             // every run) serialized to ~0.4s; links take only their
             // directories' locks.
             let linked = match fs::hard_link(path, &dest) {
-                // fs.protected_hardlinks refuses linking a file this
-                // process neither owns nor may write: rename it instead.
-                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                    fs::rename(path, &dest).map(|()| false)
-                }
-                r => r.map(|()| true),
+                Ok(()) => Ok(true),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+                // No link here (fs.protected_hardlinks refusing a file this
+                // process neither owns nor may write, a filesystem without
+                // hard links, a link count at its maximum): rename instead.
+                Err(_) => fs::rename(path, &dest).map(|()| false),
             };
             let linked = match linked {
                 Ok(linked) => linked,
@@ -375,9 +383,20 @@ impl Cas {
         self.import_dir_stats(root).map(|(t, _)| t)
     }
 
+    /// `import_dir` without the named top-level entries, which are neither
+    /// read nor stored (a checkout's `.git`, for a caller that serves its
+    /// own): the tree `import_dir(root)` gives with them removed.
+    pub fn import_dir_except(&self, root: &Path, skip: &[&str]) -> Result<Tree, CasError> {
+        self.import_dir_walk(root, skip).map(|(t, _)| t)
+    }
+
     /// Walks `root`, stores every regular file and returns the tree. Skips
     /// nothing; `.git` included.
     pub fn import_dir_stats(&self, root: &Path) -> Result<(Tree, ImportStats), CasError> {
+        self.import_dir_walk(root, &[])
+    }
+
+    fn import_dir_walk(&self, root: &Path, skip: &[&str]) -> Result<(Tree, ImportStats), CasError> {
         let mut stats = ImportStats::default();
         let mut files: Vec<(String, PathBuf, u32)> = Vec::new();
         let mut leaves: Vec<Entry> = Vec::new();
@@ -392,6 +411,9 @@ impl Cas {
                     .file_name()
                     .into_string()
                     .map_err(|_| CasError::NonUtf8(path.clone()))?;
+                if rel == ROOT && skip.contains(&name.as_str()) {
+                    continue;
+                }
                 if !crate::valid_name(&name) {
                     return Err(CasError::BadName(path));
                 }

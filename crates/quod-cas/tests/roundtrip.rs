@@ -243,3 +243,39 @@ fn link_entries_is_a_snapshot_of_the_hashed_content() {
     fs::write(src.join("m@v1/a.go"), b"package changed\n").unwrap();
     assert_eq!(fs::read(snap.join("m@v1/a.go")).unwrap(), b"package m\n");
 }
+
+#[test]
+fn import_dir_except_is_import_dir_without_those_top_level_entries() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cas = Cas::open(tmp.path().join("cas")).unwrap();
+    let src = tmp.path().join("src");
+    for p in [
+        ".git/objects/ab/cd",
+        ".git/HEAD",
+        "a/.git",
+        "b.txt",
+        ".quod/x/y",
+        "gitx",
+    ] {
+        let p = src.join(p);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, p.to_string_lossy().as_bytes()).unwrap();
+    }
+    // A large file (streamed) whose blob the store already has.
+    let big = vec![7u8; (2 << 20) + 1];
+    fs::write(src.join("big"), &big).unwrap();
+    let known = cas.put(&big).unwrap();
+    let whole = cas.import_dir(&src).unwrap();
+    let cas2 = Cas::open(tmp.path().join("cas2")).unwrap();
+    let except = cas2.import_dir_except(&src, &[".git", ".quod"]).unwrap();
+    assert_eq!(
+        except,
+        whole.without_top_level(".git").without_top_level(".quod")
+    );
+    // Not stored: no blob of the skipped files in the second store.
+    let head = quod_cas::Hash::of(src.join(".git/HEAD").to_string_lossy().as_bytes());
+    assert!(!cas2.has(&head) && cas.has(&head));
+    // A nested .git is an ordinary entry.
+    assert!(except.get("a/.git").is_some());
+    assert_eq!(cas.put_file(&src.join("big")).unwrap(), (known, 0));
+}
