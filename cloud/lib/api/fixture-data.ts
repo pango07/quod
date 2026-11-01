@@ -350,7 +350,7 @@ function run1842(repo: RepoSeed): RunDetail {
   ];
   return {
     ...summaryOf(repo, 1842, steps, { withQuodSeconds: 62, withoutSeconds: 400 }, "7c8e644b2d19a0f3c55e81d7a6b4f90e12c3d8a1"),
-    githubUrl: "https://github.com/pango07/stillpass",
+    githubUrl: "https://github.com/pango07/quod",
     jobs: [{ name: "check / ubuntu-24.04", steps }],
   };
 }
