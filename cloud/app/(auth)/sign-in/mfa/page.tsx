@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 import { Suspense } from "react";
 import { StepExpired } from "@/components/auth/expired";
 import { StartOver, TotpForm } from "@/components/auth/flows";
@@ -21,11 +22,13 @@ async function Mfa({ searchParams }: PageProps<"/sign-in/mfa">) {
   const preview = previewOf(sp.preview);
   const pending: Pick<Pending, "step" | "totp"> | null = isDemo()
     ? preview === "enroll"
-      ? { step: "mfa-enroll", totp: { qrCode: "", secret: "JBSWY3DPEHPK3PXP" } }
+      ? { step: "mfa-enroll", totp: { uri: "otpauth://totp/Quod:jamie%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Quod", secret: "JBSWY3DPEHPK3PXP" } }
       : { step: "mfa-challenge" }
     : await readPending();
   if (!pending || (pending.step !== "mfa-enroll" && pending.step !== "mfa-challenge")) return <StepExpired />;
   const enroll = pending.step === "mfa-enroll";
+  // The cookie holds only the otpauth URI; the QR code is drawn here (an SVG of the URI, no outside service).
+  const qr = enroll && pending.totp ? await QRCode.toString(pending.totp.uri, { type: "svg", margin: 1, errorCorrectionLevel: "M" }) : null;
   const demo = isDemo() ? <DemoNote previews={[{ href: "/sign-in/mfa?preview=enroll", label: "set up" }, { href: "/sign-in/mfa", label: "code" }]} /> : null;
 
   return (
@@ -41,15 +44,7 @@ async function Mfa({ searchParams }: PageProps<"/sign-in/mfa">) {
     >
       {enroll && pending.totp ? (
         <>
-          {pending.totp.qrCode ? (
-            // A data: URL from WorkOS; not worth next/image.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img className="auth-qr" src={pending.totp.qrCode} alt="QR code to add Quod to your authenticator app" />
-          ) : (
-            <div className="auth-qr" role="img" aria-label="QR code (preview)" style={{ display: "grid", placeItems: "center", color: "#000", fontSize: 13 }}>
-              QR code
-            </div>
-          )}
+          {qr ? <div className="auth-qr" role="img" aria-label="QR code to add Quod to your authenticator app" dangerouslySetInnerHTML={{ __html: qr }} /> : null}
           <p className="auth-secret">
             <span className="sr-only">Or type this key into the app: </span>
             {pending.totp.secret}

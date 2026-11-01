@@ -3,7 +3,7 @@
 
 /** Where to go after signing in: a same-origin path only, else "/". Never an open redirect. */
 export function sanitizeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 2048) return "/";
+  if (typeof value !== "string" || value.length === 0 || value.length > 1024) return "/";
   // Only absolute paths; "//host" and "/\host" are protocol-relative in browsers.
   if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
   // No control characters or backslashes anywhere (browsers treat "\" like "/").
@@ -16,6 +16,8 @@ export function sanitizeReturnTo(value: unknown): string {
   }
   if (url.origin !== "https://quod.invalid") return "/";
   const path = url.pathname + url.search + url.hash;
+  // Check the result, not just the input: dot segments can normalize "/..//evil.com" to "//evil.com".
+  if (!/^\/(?![/\\])/.test(path) || /[\u0000-\u001f\u007f\\]/.test(path)) return "/";
   // Sending someone back to a sign-in page after signing in would loop.
   if (/^\/(sign-in|sign-up|verify-email|reset-password|invite|callback|signed-out)(\/|$|\?|#)/.test(path)) return "/";
   return path;

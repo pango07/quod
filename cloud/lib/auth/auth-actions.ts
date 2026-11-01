@@ -8,7 +8,23 @@
 import { getWorkOS } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 import { authMode } from "./config";
-import { clientId, clientInfo, fromError, GENERIC, readPending, startRedirect, type Outcome, finish, clearPending } from "./flow";
+import {
+  attempt,
+  clearPending,
+  clientId,
+  clientInfo,
+  GENERIC,
+  RATE_LIMITED,
+  readPending,
+  savePending,
+  startRedirect,
+  TRY_AGAIN,
+  userIdForEmail,
+  organizationsOf,
+  type Outcome,
+  STEP_PATH,
+} from "./flow";
+import { RateLimiter, TtlCache } from "./limits";
 import { checkCode, checkEmail, checkId, checkName, checkNewPassword, checkPassword, checkToken, sanitizeReturnTo } from "./validate";
 
 export interface FormState {
@@ -26,7 +42,7 @@ export interface FormState {
 const DEMO: FormState = { error: "Demo session: WorkOS is not configured here, so nothing was sent. Open the dashboard instead." };
 const isDemo = () => authMode() === "demo";
 
-/** Ends a successful action: navigate, or show the message. */
+/** Ends an action: navigate, or show the message. */
 function settle(o: Outcome, extra: FormState = {}): FormState {
   if (o.kind === "error") return { ...extra, error: o.message };
   redirect(o.to);
@@ -37,20 +53,48 @@ const str = (form: FormData, key: string) => {
   return typeof v === "string" ? v : "";
 };
 
+const status = (e: unknown) => (e as { status?: number })?.status;
+
+function invitationFrom(form: FormData): string | undefined {
+  if (!form.get("invitationToken")) return undefined;
+  const t = checkToken(form.get("invitationToken"));
+  return t.ok ? t.value : undefined;
+}
+
+const codeSent = (email: string) => `We emailed a 6-digit code to ${email}. It works for 10 minutes.`;
+
+// ---------------------------------------------------------------- Anonymous-traffic guards
+
+// Per server instance (best effort on serverless); WorkOS still rate-limits for real.
+const ssoByDomain = new TtlCache<string | null>(5 * 60_000, 5000);
+const emailStepLimit = new RateLimiter(20, 60_000);
+const codeLimit = new RateLimiter(5, 60_000);
+
+async function ipKey(): Promise<string> {
+  return (await clientInfo()).ipAddress ?? "unknown";
+}
+
 // ---------------------------------------------------------------- Sign in
 
-/** Does this email's domain belong to an organization with an active SSO connection? */
+/** Does this email's domain belong to an organization with an active SSO connection? Cached 5 minutes per domain. */
 async function ssoOrganizationFor(email: string): Promise<string | null> {
   const domain = email.split("@")[1];
+  const cached = ssoByDomain.get(domain);
+  if (cached !== undefined) return cached;
   const workos = getWorkOS();
+  let found: string | null = null;
   const orgs = await workos.organizations.listOrganizations({ domains: [domain], limit: 5 });
   for (const org of orgs.data) {
     const verified = org.domains.some((d) => d.domain.toLowerCase() === domain && d.state === "verified");
     if (!verified) continue;
     const connections = await workos.sso.listConnections({ organizationId: org.id, limit: 10 });
-    if (connections.data.some((c) => c.state === "active")) return org.id;
+    if (connections.data.some((c) => c.state === "active")) {
+      found = org.id;
+      break;
+    }
   }
-  return null;
+  ssoByDomain.set(domain, found);
+  return found;
 }
 
 /** Step 1: the email. SSO domains go straight to their identity provider. */
@@ -58,14 +102,17 @@ export async function continueWithEmail(_prev: FormState, form: FormData): Promi
   const email = checkEmail(form.get("email"));
   if (!email.ok) return { error: email.error, field: "email" };
   if (isDemo()) return { step: "password", email: email.value };
+  if (!emailStepLimit.take(await ipKey())) return { error: RATE_LIMITED, field: "email" };
   const returnTo = sanitizeReturnTo(form.get("returnTo"));
-  let org: string | null = null;
+  let url: string | null = null;
   try {
-    org = await ssoOrganizationFor(email.value);
+    const org = await ssoOrganizationFor(email.value);
+    if (org) url = await startRedirect({ organizationId: org }, returnTo, { loginHint: email.value });
   } catch (e) {
-    console.warn("[quod-cloud] SSO lookup failed", { status: (e as { status?: number })?.status });
+    // The lookup is a convenience: on failure, carry on to the password step (SSO-only orgs answer sso_required there).
+    console.warn("[quod-cloud] SSO lookup failed", { status: status(e) });
   }
-  if (org) redirect(await startRedirect({ organizationId: org }, returnTo, { loginHint: email.value }));
+  if (url) redirect(url);
   return { step: "password", email: email.value };
 }
 
@@ -76,42 +123,30 @@ export async function signInWithPassword(_prev: FormState, form: FormData): Prom
   if (!pw.ok) return { error: pw.error, field: "password", step: "password", email: email.value };
   if (isDemo()) return { ...DEMO, step: "password", email: email.value };
   const returnTo = sanitizeReturnTo(form.get("returnTo"));
-  const invitation = form.get("invitationToken") ? checkToken(form.get("invitationToken")) : null;
-  const invitationToken = invitation?.ok ? invitation.value : undefined;
-  let outcome: Outcome;
-  try {
-    const res = await getWorkOS().userManagement.authenticateWithPassword({
-      clientId: clientId(),
-      email: email.value,
-      password: pw.value,
-      invitationToken,
-      ...(await clientInfo()),
-    });
-    outcome = await finish(res, returnTo);
-  } catch (e) {
-    outcome = await fromError(e, { returnTo, email: email.value, invitationToken }, "That email and password don't match. Try again, or sign in with a code.");
-  }
+  const invitationToken = invitationFrom(form);
+  const info = await clientInfo();
+  const outcome = await attempt(
+    () => getWorkOS().userManagement.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info }),
+    { returnTo, email: email.value, invitationToken },
+    "That email and password don't match. Try again, or sign in with a code.",
+  );
   return settle(outcome, { step: "password", email: email.value, field: "password" });
 }
 
-/** Magic Auth: email a one-time code. The answer is the same whether or not the account exists. */
+/** Magic Auth: email a one-time code (it also creates the account if there is none). */
 export async function sendSignInCode(_prev: FormState, form: FormData): Promise<FormState> {
   const email = checkEmail(form.get("email"));
   if (!email.ok) return { error: email.error, field: "email" };
   if (isDemo()) return { ...DEMO, step: "password", email: email.value };
-  const invitation = form.get("invitationToken") ? checkToken(form.get("invitationToken")) : null;
+  if (!codeLimit.take(await ipKey())) return { error: RATE_LIMITED, step: "code", email: email.value };
   try {
-    await getWorkOS().userManagement.createMagicAuth({
-      email: email.value,
-      invitationToken: invitation?.ok ? invitation.value : undefined,
-      ...(await clientInfo()),
-    });
+    await getWorkOS().userManagement.createMagicAuth({ email: email.value, invitationToken: invitationFrom(form), ...(await clientInfo()) });
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 429) return { error: "Too many codes asked for. Wait a minute, then try again.", step: "password", email: email.value };
-    console.warn("[quod-cloud] magic auth code not sent", { status });
+    if (status(e) === 429) return { error: RATE_LIMITED, step: "password", email: email.value };
+    console.warn("[quod-cloud] magic auth code not sent", { status: status(e) });
+    return { error: TRY_AGAIN, step: "password", email: email.value };
   }
-  return { step: "code", email: email.value, notice: `If ${email.value} can sign in, a 6-digit code is on its way. It works for 10 minutes.` };
+  return { step: "code", email: email.value, notice: codeSent(email.value) };
 }
 
 export async function signInWithCode(_prev: FormState, form: FormData): Promise<FormState> {
@@ -121,34 +156,14 @@ export async function signInWithCode(_prev: FormState, form: FormData): Promise<
   if (!code.ok) return { error: code.error, field: "code", step: "code", email: email.value };
   if (isDemo()) return { ...DEMO, step: "code", email: email.value };
   const returnTo = sanitizeReturnTo(form.get("returnTo"));
-  const invitation = form.get("invitationToken") ? checkToken(form.get("invitationToken")) : null;
-  const invitationToken = invitation?.ok ? invitation.value : undefined;
-  let outcome: Outcome;
-  try {
-    const res = await getWorkOS().userManagement.authenticateWithMagicAuth({
-      clientId: clientId(),
-      email: email.value,
-      code: code.value,
-      invitationToken,
-      ...(await clientInfo()),
-    });
-    outcome = await finish(res, returnTo);
-  } catch (e) {
-    outcome = await fromError(e, { returnTo, email: email.value, invitationToken }, "That code didn't work. Check it, or send a new one.");
-  }
+  const invitationToken = invitationFrom(form);
+  const info = await clientInfo();
+  const outcome = await attempt(
+    () => getWorkOS().userManagement.authenticateWithMagicAuth({ clientId: clientId(), email: email.value, code: code.value, invitationToken, ...info }),
+    { returnTo, email: email.value, invitationToken },
+    "That code didn't work. Check it, or send a new one.",
+  );
   return settle(outcome, { step: "code", email: email.value, field: "code" });
-}
-
-const PROVIDERS = { github: "GitHubOAuth", google: "GoogleOAuth" } as const;
-
-/** "Continue with GitHub / Google". */
-export async function continueWithProvider(_prev: FormState, form: FormData): Promise<FormState> {
-  const provider = PROVIDERS[str(form, "provider") as keyof typeof PROVIDERS];
-  if (!provider) return { error: GENERIC };
-  if (isDemo()) return DEMO;
-  const returnTo = sanitizeReturnTo(form.get("returnTo"));
-  const invitation = form.get("invitationToken") ? checkToken(form.get("invitationToken")) : null;
-  redirect(await startRedirect({ provider }, returnTo, { invitationToken: invitation?.ok ? invitation.value : undefined }));
 }
 
 /** The sign-in form: one action, the button pressed says which step ran. */
@@ -167,8 +182,31 @@ export async function signIn(prev: FormState, form: FormData): Promise<FormState
   }
 }
 
+const PROVIDERS = { github: "GitHubOAuth", google: "GoogleOAuth" } as const;
+
+/** "Continue with GitHub / Google". */
+export async function continueWithProvider(_prev: FormState, form: FormData): Promise<FormState> {
+  const provider = PROVIDERS[str(form, "provider") as keyof typeof PROVIDERS];
+  if (!provider) return { error: GENERIC };
+  if (isDemo()) return DEMO;
+  let url: string;
+  try {
+    url = await startRedirect({ provider }, sanitizeReturnTo(form.get("returnTo")), { invitationToken: invitationFrom(form) });
+  } catch (e) {
+    console.warn("[quod-cloud] could not start provider sign-in", { status: status(e) });
+    return { error: TRY_AGAIN };
+  }
+  redirect(url);
+}
+
 // ---------------------------------------------------------------- Sign up
 
+/**
+ * New account: create the user, then sign in (which usually asks for the email
+ * code). A taken email lands on the same "check your email" page: unless the
+ * password is already theirs, we email that address a Magic Auth code, which
+ * the same page accepts. Only the inbox owner can tell the difference.
+ */
 export async function signUp(_prev: FormState, form: FormData): Promise<FormState> {
   const values = { firstName: str(form, "firstName").slice(0, 100), lastName: str(form, "lastName").slice(0, 100), email: str(form, "email").slice(0, 254) };
   const first = checkName(form.get("firstName"), "first name");
@@ -180,68 +218,86 @@ export async function signUp(_prev: FormState, form: FormData): Promise<FormStat
   const pw = checkNewPassword(form.get("password"));
   if (!pw.ok) return { error: pw.error, field: "password", values };
   if (isDemo()) return { ...DEMO, values };
+  if (!emailStepLimit.take(await ipKey())) return { error: RATE_LIMITED, values };
+
   const returnTo = sanitizeReturnTo(form.get("returnTo"));
-  const invitation = form.get("invitationToken") ? checkToken(form.get("invitationToken")) : null;
-  const invitationToken = invitation?.ok ? invitation.value : undefined;
+  const invitationToken = invitationFrom(form);
   const info = await clientInfo();
-  const workos = getWorkOS();
+  const um = getWorkOS().userManagement;
+  const ctx = { returnTo, email: email.value, invitationToken };
+  const signInNow = () => um.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info });
 
+  let exists: boolean;
   try {
-    await workos.userManagement.createUser({ email: email.value, password: pw.value, firstName: first.value, lastName: last.value, ...info });
+    exists = (await userIdForEmail(email.value)) !== undefined;
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 429) return { error: "Too many attempts. Wait a minute, then try again." };
-    // An existing account is not announced: carry on, and the sign-in below either works or fails generically.
-    console.warn("[quod-cloud] create user failed", { status, code: (e as { code?: string })?.code });
+    console.warn("[quod-cloud] sign-up lookup failed", { status: status(e) });
+    return { error: status(e) === 429 ? RATE_LIMITED : TRY_AGAIN, values };
   }
 
-  let outcome: Outcome;
-  try {
-    const res = await workos.userManagement.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info });
-    outcome = await finish(res, returnTo);
-  } catch (e) {
-    outcome = await fromError(
-      e,
-      { returnTo, email: email.value, invitationToken },
-      "We couldn't create that account. If you already have one, sign in or reset your password.",
-    );
+  if (!exists) {
+    try {
+      await um.createUser({ email: email.value, password: pw.value, firstName: first.value, lastName: last.value, ...info });
+    } catch (e) {
+      if (status(e) === 429) return { error: RATE_LIMITED, values };
+      // Most often the password policy (WorkOS checks breached and weak passwords).
+      console.warn("[quod-cloud] create user failed", { status: status(e), code: (e as { code?: string })?.code });
+      return { error: "We couldn't create the account with that password. Try a longer one that you don't use anywhere else.", field: "password", values };
+    }
+    return settle(await attempt(signInNow, ctx), { values });
   }
-  return settle(outcome, { values });
+
+  // Taken email. Their own password simply signs them in; anything else gets the neutral code page.
+  const tried = await attempt(signInNow, ctx);
+  if (tried.kind !== "error") return settle(tried, { values });
+  try {
+    await um.createMagicAuth({ email: email.value, invitationToken, ...info });
+  } catch (e) {
+    console.warn("[quod-cloud] magic auth code not sent", { status: status(e) });
+  }
+  await savePending({ step: "verify-email", via: "magic", token: "", returnTo, email: email.value, invitationToken });
+  redirect(STEP_PATH["verify-email"]);
 }
 
 // ---------------------------------------------------------------- Pending steps
+
+const EXPIRED: FormState = { error: "This step expired. Sign in again." };
 
 export async function verifyEmail(_prev: FormState, form: FormData): Promise<FormState> {
   const code = checkCode(form.get("code"));
   if (!code.ok) return { error: code.error, field: "code" };
   if (isDemo()) return DEMO;
   const pending = await readPending();
-  if (!pending || pending.step !== "verify-email") return { error: "This step expired. Sign in again." };
-  let outcome: Outcome;
-  try {
-    const res = await getWorkOS().userManagement.authenticateWithEmailVerification({
-      clientId: clientId(),
-      code: code.value,
-      pendingAuthenticationToken: pending.token,
-      ...(await clientInfo()),
-    });
-    outcome = await finish(res, pending.returnTo);
-  } catch (e) {
-    outcome = await fromError(e, { returnTo: pending.returnTo, email: pending.email }, "That code didn't work. Check it, or send a new one.");
-  }
+  if (!pending || pending.step !== "verify-email") return EXPIRED;
+  const info = await clientInfo();
+  const um = getWorkOS().userManagement;
+  const ctx = { returnTo: pending.returnTo, email: pending.email, invitationToken: pending.invitationToken };
+  const outcome =
+    pending.via === "magic"
+      ? await attempt(() => um.authenticateWithMagicAuth({ clientId: clientId(), email: pending.email ?? "", code: code.value, invitationToken: pending.invitationToken, ...info }), ctx, "That code didn't work. Check it, or send a new one.")
+      : await attempt(() => um.authenticateWithEmailVerification({ clientId: clientId(), code: code.value, pendingAuthenticationToken: pending.token, ...info }), ctx, "That code didn't work. Check it, or send a new one.");
   return settle(outcome, { field: "code" });
 }
 
 export async function resendVerification(): Promise<FormState> {
   if (isDemo()) return DEMO;
   const pending = await readPending();
-  if (!pending?.userId || pending.step !== "verify-email") return { error: "This step expired. Sign in again." };
+  if (!pending || pending.step !== "verify-email") return EXPIRED;
+  if (!codeLimit.take(await ipKey())) return { error: RATE_LIMITED };
+  const um = getWorkOS().userManagement;
   try {
-    await getWorkOS().userManagement.sendVerificationEmail({ userId: pending.userId });
+    if (pending.via === "magic") {
+      await um.createMagicAuth({ email: pending.email ?? "", invitationToken: pending.invitationToken, ...(await clientInfo()) });
+    } else {
+      // WorkOS's email_verification_required answer does not always name the user; look it up by email.
+      const userId = pending.userId ?? (await userIdForEmail(pending.email));
+      if (!userId) return EXPIRED;
+      await um.sendVerificationEmail({ userId });
+    }
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 429) return { error: "Too many codes asked for. Wait a minute, then try again." };
-    console.warn("[quod-cloud] verification email not sent", { status });
+    if (status(e) === 429) return { error: RATE_LIMITED };
+    console.warn("[quod-cloud] code not resent", { status: status(e) });
+    return { error: TRY_AGAIN };
   }
   return { notice: "A new code is on its way." };
 }
@@ -251,20 +307,18 @@ export async function chooseOrganization(_prev: FormState, form: FormData): Prom
   if (!org.ok) return { error: org.error };
   if (isDemo()) return DEMO;
   const pending = await readPending();
-  if (!pending || pending.step !== "select-org") return { error: "This step expired. Sign in again." };
-  if (!pending.organizations?.some((o) => o.id === org.value)) return { error: "Choose one of the options." };
-  let outcome: Outcome;
+  if (!pending?.userId || pending.step !== "select-org") return EXPIRED;
   try {
-    const res = await getWorkOS().userManagement.authenticateWithOrganizationSelection({
-      clientId: clientId(),
-      organizationId: org.value,
-      pendingAuthenticationToken: pending.token,
-      ...(await clientInfo()),
-    });
-    outcome = await finish(res, pending.returnTo);
+    if (!(await organizationsOf(pending.userId)).some((o) => o.id === org.value)) return { error: "Choose one of the options." };
   } catch (e) {
-    outcome = await fromError(e, { returnTo: pending.returnTo, email: pending.email });
+    console.warn("[quod-cloud] membership check failed", { status: status(e) });
+    return { error: TRY_AGAIN };
   }
+  const info = await clientInfo();
+  const outcome = await attempt(
+    () => getWorkOS().userManagement.authenticateWithOrganizationSelection({ clientId: clientId(), organizationId: org.value, pendingAuthenticationToken: pending.token, ...info }),
+    { returnTo: pending.returnTo, email: pending.email },
+  );
   return settle(outcome);
 }
 
@@ -273,20 +327,14 @@ export async function verifyTotp(_prev: FormState, form: FormData): Promise<Form
   if (!code.ok) return { error: code.error, field: "code" };
   if (isDemo()) return DEMO;
   const pending = await readPending();
-  if (!pending?.challengeId || (pending.step !== "mfa-challenge" && pending.step !== "mfa-enroll")) return { error: "This step expired. Sign in again." };
-  let outcome: Outcome;
-  try {
-    const res = await getWorkOS().userManagement.authenticateWithTotp({
-      clientId: clientId(),
-      code: code.value,
-      pendingAuthenticationToken: pending.token,
-      authenticationChallengeId: pending.challengeId,
-      ...(await clientInfo()),
-    });
-    outcome = await finish(res, pending.returnTo);
-  } catch (e) {
-    outcome = await fromError(e, { returnTo: pending.returnTo, email: pending.email }, "That code didn't work. Codes change every 30 seconds; try the current one.");
-  }
+  if (!pending?.challengeId || (pending.step !== "mfa-challenge" && pending.step !== "mfa-enroll")) return EXPIRED;
+  const challengeId = pending.challengeId;
+  const info = await clientInfo();
+  const outcome = await attempt(
+    () => getWorkOS().userManagement.authenticateWithTotp({ clientId: clientId(), code: code.value, pendingAuthenticationToken: pending.token, authenticationChallengeId: challengeId, ...info }),
+    { returnTo: pending.returnTo, email: pending.email },
+    "That code didn't work. Codes change every 30 seconds; try the current one.",
+  );
   return settle(outcome, { field: "code" });
 }
 
@@ -301,13 +349,13 @@ export async function requestPasswordReset(_prev: FormState, form: FormData): Pr
   const email = checkEmail(form.get("email"));
   if (!email.ok) return { error: email.error, field: "email" };
   if (isDemo()) return DEMO;
+  if (!codeLimit.take(await ipKey())) return { error: RATE_LIMITED, field: "email" };
   try {
     await getWorkOS().userManagement.createPasswordReset({ email: email.value });
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 429) return { error: "Too many attempts. Wait a minute, then try again." };
+    if (status(e) === 429) return { error: RATE_LIMITED };
     // No account, or anything else: the answer below is the same.
-    console.warn("[quod-cloud] password reset not created", { status });
+    console.warn("[quod-cloud] password reset not created", { status: status(e) });
   }
   return { notice: `If ${email.value} has an account, a link to reset its password is on its way. It works for 15 minutes.` };
 }
@@ -318,24 +366,17 @@ export async function resetPassword(_prev: FormState, form: FormData): Promise<F
   const pw = checkNewPassword(form.get("password"));
   if (!pw.ok) return { error: pw.error, field: "password" };
   if (isDemo()) return DEMO;
-  const workos = getWorkOS();
+  const um = getWorkOS().userManagement;
   let email: string;
   try {
-    const { user } = await workos.userManagement.resetPassword({ token: token.value, newPassword: pw.value });
-    email = user.email;
+    email = (await um.resetPassword({ token: token.value, newPassword: pw.value })).user.email;
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 429) return { error: "Too many attempts. Wait a minute, then try again." };
-    console.warn("[quod-cloud] password reset failed", { status });
-    return { error: "This link expired or was already used. Ask for a new one." };
+    if (status(e) === 429) return { error: RATE_LIMITED };
+    console.warn("[quod-cloud] password reset failed", { status: status(e) });
+    return { error: "This link expired or was already used, or the password was refused. Ask for a new link, or try a longer password." };
   }
-  let outcome: Outcome;
-  try {
-    const res = await workos.userManagement.authenticateWithPassword({ clientId: clientId(), email, password: pw.value, ...(await clientInfo()) });
-    outcome = await finish(res, "/");
-  } catch (e) {
-    outcome = await fromError(e, { returnTo: "/", email });
-    if (outcome.kind === "error") redirect("/sign-in?reset=1");
-  }
+  const info = await clientInfo();
+  const outcome = await attempt(() => um.authenticateWithPassword({ clientId: clientId(), email, password: pw.value, ...info }), { returnTo: "/", email });
+  if (outcome.kind === "error") redirect("/sign-in?reset=1");
   return settle(outcome);
 }

@@ -26,6 +26,17 @@ describe("sanitizeReturnTo: same-origin paths only", () => {
     }
   });
 
+  it("refuses paths that only become protocol-relative after dot-segment normalization (review B1)", () => {
+    for (const bad of ["/..//evil.com", "/.//evil.com", "/a/..//evil.com", "/%2e%2e//evil.com", "/.%2e//evil.com", "/..//evil.com/.."]) {
+      expect(sanitizeReturnTo(bad), bad).toBe("/");
+    }
+    // Whatever comes out is a path on this site: one leading slash, never two.
+    for (const p of ["/x/..//y", "/./x", "/x/./..//./z", "/%2E%2E//evil.com", "/..%2f/evil.com"]) {
+      const out = sanitizeReturnTo(p);
+      expect(out.startsWith("/") && !out.startsWith("//") && !out.startsWith("/\\"), `${p} -> ${out}`).toBe(true);
+    }
+  });
+
   it("keeps an encoded newline encoded (it stays a path on this site)", () => {
     expect(sanitizeReturnTo("/%0a/evil")).toBe("/%0a/evil");
   });
@@ -33,7 +44,7 @@ describe("sanitizeReturnTo: same-origin paths only", () => {
   it("refuses non-strings, huge values and backslashes anywhere", () => {
     expect(sanitizeReturnTo(undefined)).toBe("/");
     expect(sanitizeReturnTo(["/x"])).toBe("/");
-    expect(sanitizeReturnTo(`/${"a".repeat(3000)}`)).toBe("/");
+    expect(sanitizeReturnTo(`/${"a".repeat(1100)}`)).toBe("/");
     expect(sanitizeReturnTo("/a\\b")).toBe("/");
   });
 

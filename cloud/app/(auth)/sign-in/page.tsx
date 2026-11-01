@@ -21,7 +21,7 @@ export default function SignInPage(props: PageProps<"/sign-in">) {
 const PREVIEWS: Record<string, FormState> = {
   password: { step: "password", email: DEMO_EMAIL },
   "wrong-password": { step: "password", email: DEMO_EMAIL, field: "password", error: "That email and password don't match. Try again, or sign in with a code." },
-  code: { step: "code", email: DEMO_EMAIL, notice: `If ${DEMO_EMAIL} can sign in, a 6-digit code is on its way. It works for 10 minutes.` },
+  code: { step: "code", email: DEMO_EMAIL, notice: `We emailed a 6-digit code to ${DEMO_EMAIL}. It works for 10 minutes.` },
   "rate-limited": { step: "password", email: DEMO_EMAIL, error: "Too many attempts. Wait a minute, then try again." },
 };
 

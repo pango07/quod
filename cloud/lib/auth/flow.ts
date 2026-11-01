@@ -3,13 +3,14 @@ import { getWorkOS, saveSession } from "@workos-inc/authkit-nextjs";
 import { AuthenticationException, type AuthenticationResponse } from "@workos-inc/node";
 import { sealData, unsealData } from "iron-session";
 import { cookies, headers } from "next/headers";
+import { assertCookieFits, UNSUPPORTED_MESSAGE, UNSUPPORTED_STEPS } from "./limits";
 
 // Our own sign-in on the WorkOS User Management APIs. The session cookie is
 // AuthKit's (saveSession), so the proxy, withAuth and requireTeam work as before.
 // Nothing here logs a password, a code or a token.
 
 const PENDING_COOKIE = "quod-auth-pending";
-const OAUTH_COOKIE = "quod-auth-oauth";
+const OAUTH_COOKIE = "quod-auth-oauth"; // suffixed with the flow's state id, one cookie per flow
 const TTL = 600; // seconds
 
 const password = () => {
@@ -35,40 +36,69 @@ export async function clientInfo(): Promise<{ ipAddress?: string; userAgent?: st
   return { ipAddress: ip || undefined, userAgent: ua.slice(0, 512) || undefined };
 }
 
-// ---------------------------------------------------------------- Pending authentication
+const log = (what: string, e: unknown) => {
+  const err = e as { status?: number; code?: string; rawData?: { code?: string; error?: string } };
+  console.warn(`[quod-cloud] ${what}`, { status: err?.status, code: err?.code ?? err?.rawData?.code ?? err?.rawData?.error });
+};
 
-export type PendingStep = "verify-email" | "select-org" | "mfa-enroll" | "mfa-challenge";
+// ---------------------------------------------------------------- Sealed cookies
 
-export interface Pending {
-  step: PendingStep;
-  token: string;
-  returnTo: string;
-  email?: string;
-  userId?: string;
-  organizations?: { id: string; name: string }[];
-  challengeId?: string;
-  totp?: { qrCode: string; secret: string };
-}
+type Purpose = "quod-pending" | "quod-oauth";
 
-async function setSealed(name: string, value: unknown) {
-  const sealed = await sealData(value, { password: password(), ttl: TTL });
+async function setSealed(name: string, purpose: Purpose, value: object) {
+  const sealed = await sealData({ ...value, purpose }, { password: password(), ttl: TTL });
+  assertCookieFits(name, sealed);
   (await cookies()).set(name, sealed, { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: TTL });
 }
 
-async function readSealed<T>(name: string): Promise<T | null> {
+async function readSealed<T extends object>(name: string, purpose: Purpose): Promise<T | null> {
   const raw = (await cookies()).get(name)?.value;
   if (!raw) return null;
   try {
-    const v = await unsealData<T>(raw, { password: password(), ttl: TTL });
-    return v && Object.keys(v as object).length ? v : null;
+    const v = await unsealData<T & { purpose?: Purpose }>(raw, { password: password(), ttl: TTL });
+    // A blob sealed for one purpose is never accepted as the other.
+    return v && v.purpose === purpose ? v : null;
   } catch {
     return null;
   }
 }
 
-export const readPending = () => readSealed<Pending>(PENDING_COOKIE);
-export const savePending = (p: Pending) => setSealed(PENDING_COOKIE, p);
+// ---------------------------------------------------------------- Pending authentication
+
+export type PendingStep = "verify-email" | "select-org" | "mfa-enroll" | "mfa-challenge";
+
+/** Only small values: the org list and QR code are fetched or drawn when the page renders. */
+export interface Pending {
+  step: PendingStep;
+  /** WorkOS pending_authentication_token; empty for a Magic Auth verify step. */
+  token: string;
+  returnTo: string;
+  email?: string;
+  userId?: string;
+  /** verify-email: "magic" means the code is a Magic Auth code (sign-up with a taken email). */
+  via?: "verification" | "magic";
+  invitationToken?: string;
+  challengeId?: string;
+  /** mfa-enroll: the otpauth:// URI (drawn as a QR code) and its secret. */
+  totp?: { uri: string; secret: string };
+}
+
+export const readPending = () => readSealed<Pending>(PENDING_COOKIE, "quod-pending");
+export const savePending = (p: Pending) => setSealed(PENDING_COOKIE, "quod-pending", p);
 export const clearPending = async () => (await cookies()).delete(PENDING_COOKIE);
+
+/** The WorkOS user for an email, when a step needs the id and WorkOS didn't send it. */
+export async function userIdForEmail(email: string | undefined): Promise<string | undefined> {
+  if (!email) return undefined;
+  const page = await getWorkOS().userManagement.listUsers({ email, limit: 1 });
+  return page.data[0]?.id;
+}
+
+/** The organizations a pending sign-in may pick from, read from WorkOS (never from the cookie). */
+export async function organizationsOf(userId: string): Promise<{ id: string; name: string }[]> {
+  const page = await getWorkOS().userManagement.listOrganizationMemberships({ userId, statuses: ["active"], limit: 100 });
+  return page.data.map((m) => ({ id: m.organizationId, name: m.organizationName }));
+}
 
 // ---------------------------------------------------------------- Redirect flows (OAuth, SSO)
 
@@ -79,6 +109,8 @@ interface OAuthState {
   invitationToken?: string;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export type RedirectTarget = { provider: "GitHubOAuth" | "GoogleOAuth" } | { organizationId: string } | { connectionId: string };
 
 /** Starts GitHub, Google or SSO sign-in with PKCE. Returns the URL to send the browser to. */
@@ -86,7 +118,7 @@ export async function startRedirect(target: RedirectTarget, returnTo: string, op
   const workos = getWorkOS();
   const pkce = await workos.pkce.generate();
   const state = crypto.randomUUID();
-  await setSealed(OAUTH_COOKIE, { state, verifier: pkce.codeVerifier, returnTo, invitationToken: opts.invitationToken } satisfies OAuthState);
+  await setSealed(`${OAUTH_COOKIE}-${state}`, "quod-oauth", { state, verifier: pkce.codeVerifier, returnTo, invitationToken: opts.invitationToken } satisfies OAuthState);
   return workos.userManagement.getAuthorizationUrl({
     ...target,
     clientId: clientId(),
@@ -98,12 +130,13 @@ export async function startRedirect(target: RedirectTarget, returnTo: string, op
   });
 }
 
-/** For /callback: the stored flow when `state` matches, consumed once. */
+/** For /callback: the flow stored under this state, consumed once. Two tabs never share a cookie. */
 export async function takeOAuthState(state: string | null): Promise<OAuthState | null> {
-  const stored = await readSealed<OAuthState>(OAUTH_COOKIE);
-  if (!stored || !state || stored.state !== state) return null;
-  (await cookies()).delete(OAUTH_COOKIE);
-  return stored;
+  if (!state || !UUID.test(state)) return null;
+  const name = `${OAUTH_COOKIE}-${state}`;
+  const stored = await readSealed<OAuthState>(name, "quod-oauth");
+  (await cookies()).delete(name);
+  return stored && stored.state === state ? stored : null;
 }
 
 // ---------------------------------------------------------------- Outcomes
@@ -117,15 +150,45 @@ export const STEP_PATH: Record<PendingStep, string> = {
   "mfa-challenge": "/sign-in/mfa",
 };
 
-/** A signed-in response: set AuthKit's session cookie and go to returnTo. */
-export async function finish(response: AuthenticationResponse, returnTo: string): Promise<{ kind: "done"; to: string }> {
-  await saveSession(response, redirectUri() || "http://localhost:3000/callback");
+export const GENERIC = "That didn't work. Check what you typed and try again.";
+export const RATE_LIMITED = "Too many attempts. Wait a minute, then try again.";
+export const TRY_AGAIN = "Something went wrong on our side. Try again in a moment.";
+
+/** A signed-in response: seal only what the session needs (never upstream OAuth tokens), then go to returnTo. */
+export async function finish(r: AuthenticationResponse, returnTo: string): Promise<{ kind: "done"; to: string }> {
+  await saveSession(
+    { accessToken: r.accessToken, refreshToken: r.refreshToken, user: r.user, impersonator: r.impersonator, authenticationMethod: r.authenticationMethod },
+    redirectUri() || "http://localhost:3000/callback",
+  );
   await clearPending();
   return { kind: "done", to: returnTo };
 }
 
-export const GENERIC = "That didn't work. Check what you typed and try again.";
-export const RATE_LIMITED = "Too many attempts. Wait a minute, then try again.";
+export interface Ctx {
+  returnTo: string;
+  email?: string;
+  invitationToken?: string;
+}
+
+/**
+ * Runs a WorkOS authenticate call, then saves the session. The two are kept
+ * apart: a failure after WorkOS said yes (JWKS, network, cookie) says "try
+ * again", never "wrong password".
+ */
+export async function attempt(run: () => Promise<AuthenticationResponse>, ctx: Ctx, fallback = GENERIC): Promise<Outcome> {
+  let res: AuthenticationResponse;
+  try {
+    res = await run();
+  } catch (e) {
+    return fromError(e, ctx, fallback);
+  }
+  try {
+    return await finish(res, ctx.returnTo);
+  } catch (e) {
+    log("session not saved after a successful sign-in", e);
+    return { kind: "error", message: TRY_AGAIN };
+  }
+}
 
 interface ErrorShape {
   status?: number;
@@ -138,58 +201,75 @@ interface ErrorShape {
  * a pending step (stored sealed in a cookie); everything else becomes a
  * generic message that never says whether an account exists.
  */
-export async function fromError(e: unknown, ctx: { returnTo: string; email?: string; invitationToken?: string }, fallback = GENERIC): Promise<Outcome> {
+export async function fromError(e: unknown, ctx: Ctx, fallback = GENERIC): Promise<Outcome> {
   const err = e as ErrorShape;
   if (err?.status === 429) return { kind: "error", message: RATE_LIMITED };
 
-  if (e instanceof AuthenticationException || (e as { name?: string })?.name === "AuthenticationException") {
-    const ae = e as AuthenticationException;
-    const raw = (ae.rawData ?? {}) as unknown as Record<string, unknown>;
-    const token = ae.pendingAuthenticationToken ?? (raw.pending_authentication_token as string | undefined);
-    const user = raw.user as { id?: string; email?: string } | undefined;
-    const base = { token: token ?? "", returnTo: ctx.returnTo, email: user?.email ?? ctx.email, userId: user?.id };
-    const code = (raw.code as string | undefined) ?? (raw.error as string | undefined);
+  if (!(e instanceof AuthenticationException || (e as { name?: string })?.name === "AuthenticationException")) {
+    log("sign-in step failed", e);
+    return { kind: "error", message: fallback };
+  }
 
+  const ae = e as AuthenticationException;
+  const raw = (ae.rawData ?? {}) as unknown as Record<string, unknown>;
+  const code = (raw.code as string | undefined) ?? (raw.error as string | undefined) ?? ae.code;
+  const token = ae.pendingAuthenticationToken ?? (raw.pending_authentication_token as string | undefined) ?? "";
+  const user = raw.user as { id?: string; email?: string } | undefined;
+  // email_verification_required carries `email` (and not always `user`); others carry `user`.
+  const email = (raw.email as string | undefined) ?? user?.email ?? ctx.email;
+  const base = { token, returnTo: ctx.returnTo, email, userId: user?.id, invitationToken: ctx.invitationToken };
+
+  try {
     if (code === "sso_required") {
       const connection = (raw.connection_ids as string[] | undefined)?.[0];
-      if (connection) return { kind: "redirect", to: await startRedirect({ connectionId: connection }, ctx.returnTo, { invitationToken: ctx.invitationToken, loginHint: ctx.email }) };
+      if (connection) return { kind: "redirect", to: await startRedirect({ connectionId: connection }, ctx.returnTo, { invitationToken: ctx.invitationToken, loginHint: email }) };
       return { kind: "error", message: "Your organization signs in with SSO. Ask your IT admin for the sign-in link." };
     }
-    if (!token) return { kind: "error", message: fallback };
-
+    if (code && UNSUPPORTED_STEPS.has(code)) {
+      console.warn("[quod-cloud] unsupported sign-in step", { code });
+      return { kind: "error", message: UNSUPPORTED_MESSAGE };
+    }
+    if (!token) {
+      log("pending step without a token", e);
+      return { kind: "error", message: fallback };
+    }
     if (code === "email_verification_required") {
-      await savePending({ ...base, step: "verify-email" });
+      await savePending({ ...base, step: "verify-email", via: "verification" });
       return { kind: "pending", to: STEP_PATH["verify-email"] };
     }
     if (code === "organization_selection_required") {
-      const organizations = ((raw.organizations as { id: string; name: string }[] | undefined) ?? []).slice(0, 50).map((o) => ({ id: o.id, name: o.name }));
-      await savePending({ ...base, step: "select-org", organizations });
+      // Only the user id goes in the cookie; the page lists their organizations from WorkOS.
+      const userId = base.userId ?? (await userIdForEmail(email));
+      if (!userId) return { kind: "error", message: TRY_AGAIN };
+      await savePending({ ...base, userId, step: "select-org" });
       return { kind: "pending", to: STEP_PATH["select-org"] };
     }
+    const mfa = getWorkOS().multiFactorAuth;
     if (code === "mfa_challenge") {
       const factor = (raw.authentication_factors as { id: string; type: string }[] | undefined)?.find((f) => f.type === "totp");
-      if (!factor) return { kind: "error", message: fallback };
-      const challenge = await getWorkOS().multiFactorAuth.challengeFactor({ authenticationFactorId: factor.id });
+      if (!factor) return { kind: "error", message: UNSUPPORTED_MESSAGE };
+      const challenge = await mfa.challengeFactor({ authenticationFactorId: factor.id });
       await savePending({ ...base, step: "mfa-challenge", challengeId: challenge.id });
       return { kind: "pending", to: STEP_PATH["mfa-challenge"] };
     }
-    if (code === "mfa_enrollment" && user?.id) {
-      // Enroll an authenticator app (TOTP) for this user, then ask for its first code.
-      const { data } = await getWorkOS().post<{
-        authentication_factor: { totp: { qr_code: string; secret: string } };
-        authentication_challenge: { id: string };
-      }>(`/user_management/users/${encodeURIComponent(user.id)}/auth_factors`, { type: "totp", totp_issuer: "Quod", totp_user: user.email ?? ctx.email ?? "" });
+    if (code === "mfa_enrollment") {
+      const userId = base.userId ?? (await userIdForEmail(email));
+      if (!userId) return { kind: "error", message: TRY_AGAIN };
+      const { authenticationFactor, authenticationChallenge } = await mfa.createUserAuthFactor({ userId, type: "totp", totpIssuer: "Quod", totpUser: email });
       await savePending({
         ...base,
+        userId,
         step: "mfa-enroll",
-        challengeId: data.authentication_challenge.id,
-        totp: { qrCode: data.authentication_factor.totp.qr_code, secret: data.authentication_factor.totp.secret },
+        challengeId: authenticationChallenge.id,
+        totp: { uri: authenticationFactor.totp.uri, secret: authenticationFactor.totp.secret },
       });
       return { kind: "pending", to: STEP_PATH["mfa-enroll"] };
     }
+  } catch (inner) {
+    log(`could not start the ${code} step`, inner);
+    return { kind: "error", message: TRY_AGAIN };
   }
 
-  // Log the kind of failure only: never the request body (it holds the password or code).
-  console.warn("[quod-cloud] sign-in step failed", { status: err?.status, code: err?.code ?? (err?.rawData?.code as string | undefined) });
-  return { kind: "error", message: fallback };
+  console.warn("[quod-cloud] unknown sign-in step", { code });
+  return { kind: "error", message: UNSUPPORTED_MESSAGE };
 }

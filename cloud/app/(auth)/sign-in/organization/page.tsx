@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { StepExpired } from "@/components/auth/expired";
 import { OrganizationPicker, StartOver } from "@/components/auth/flows";
 import { AuthShell, AuthSkeleton, DemoNote } from "@/components/auth/shell";
-import { readPending } from "@/lib/auth/flow";
+import { organizationsOf, readPending } from "@/lib/auth/flow";
 import { isDemo } from "@/lib/auth/pages";
 
 export const metadata = { title: "Choose a team" };
@@ -22,10 +22,22 @@ const DEMO_ORGS = [
 ];
 
 // WorkOS answered "organization_selection_required": this account is in several organizations.
+// The cookie holds only the user id; the list comes from WorkOS here, so it is always current.
 async function Organization() {
   await connection(); // reads the sealed pending cookie: per request
-  const pending = isDemo() ? { organizations: DEMO_ORGS } : await readPending();
-  if (!pending?.organizations?.length || (!isDemo() && "step" in pending && pending.step !== "select-org")) return <StepExpired />;
+  let organizations: { id: string; name: string }[] = [];
+  if (isDemo()) {
+    organizations = DEMO_ORGS;
+  } else {
+    const pending = await readPending();
+    if (!pending?.userId || pending.step !== "select-org") return <StepExpired />;
+    try {
+      organizations = await organizationsOf(pending.userId);
+    } catch (e) {
+      console.warn("[quod-cloud] could not list organizations", { status: (e as { status?: number })?.status });
+    }
+  }
+  if (!organizations.length) return <StepExpired />;
   return (
     <AuthShell
       title="Choose a team"
@@ -33,7 +45,7 @@ async function Organization() {
       footer={<StartOver />}
       aside={isDemo() ? <DemoNote /> : null}
     >
-      <OrganizationPicker organizations={pending.organizations} />
+      <OrganizationPicker organizations={organizations} />
     </AuthShell>
   );
 }
