@@ -309,11 +309,21 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     phases.setup = wall_start.elapsed();
 
     let t = Instant::now();
-    let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;
-    // The .git a plain checkout of this commit has, its index refreshed for
-    // the step's identity (`execute` runs it as the sandbox's default).
+    // The .git a plain checkout of this commit has (a shallow fetch into
+    // the store when the state dir has no memo of it) is independent of the
+    // workspace import: both run at once.
+    let (tree, served) = std::thread::scope(|s| {
+        let served = s.spawn(|| gitdir::served_git(&cas, &state.dir, &repo));
+        let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile());
+        let served = served
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("serving the .git panicked")));
+        (tree, served)
+    });
+    // Its index refreshed for the step's identity (`execute` runs it as the
+    // sandbox's default).
     let (uid, gid) = quod_sandbox::step_ids(None, None);
-    let tree = gitdir::graft(&cas, &state.dir, &repo, tree, uid, gid)?;
+    let tree = gitdir::graft(&cas, served, tree?, uid, gid)?;
     phases.import = t.elapsed();
     let ignore = ignored_outputs(spec.profile(), &env, &tree);
     let tstep = Step {
