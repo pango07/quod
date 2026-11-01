@@ -13,6 +13,7 @@
   "dependencies": {
     "@workos-inc/authkit-nextjs": "^4.6.2",
     "@workos-inc/node": "^12.1.0",
+    "iron-session": "^8.0.4",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -1,5 +1,6 @@
 import "server-only";
 import { getWorkOS, withAuth } from "@workos-inc/authkit-nextjs";
+import { redirect } from "next/navigation";
 import { cache } from "react";
 import { authMode } from "./config";
 import { DEMO_VIEWER } from "./demo";
@@ -8,13 +9,15 @@ import type { Membership, Viewer } from "./types";
 /**
  * The signed-in viewer for this request, read once per request. Throws when
  * sign-in is misconfigured (production with no WorkOS config never gets here
- * as a guest). Redirects to AuthKit when there is no session.
+ * as a guest). Sends a signed-out viewer to our own /sign-in (the proxy
+ * normally does that first).
  */
 export const getViewer = cache(async (): Promise<Viewer> => {
   if (authMode() === "demo") return DEMO_VIEWER;
 
-  const auth = await withAuth({ ensureSignedIn: true });
+  const auth = await withAuth();
   const { user } = auth;
+  if (!user) redirect("/sign-in");
   const memberships = await listMemberships(user.id);
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
   return {

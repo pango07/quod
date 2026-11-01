@@ -1,10 +1,13 @@
 import { authkit, handleAuthkitProxy } from "@workos-inc/authkit-nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveAuthMode } from "@/lib/auth/config";
+import { sanitizeReturnTo } from "@/lib/auth/validate";
 
 // Next.js 16 proxy (formerly middleware). Every page needs a signed-in
-// viewer except the sign-in routes themselves.
-const PUBLIC = new Set(["/callback", "/sign-in", "/signed-out"]);
+// viewer except our sign-in pages and the OAuth callback. Signed-out
+// visitors go to our own /sign-in, never to a hosted page.
+const PUBLIC = ["/callback", "/sign-in", "/sign-up", "/verify-email", "/reset-password", "/invite", "/signed-out"];
+const isPublic = (path: string) => PUBLIC.some((p) => path === p || path.startsWith(`${p}/`));
 
 export default async function proxy(request: NextRequest) {
   const mode = resolveAuthMode(process.env);
@@ -17,9 +20,13 @@ export default async function proxy(request: NextRequest) {
 
   if (mode.kind === "demo") return NextResponse.next();
 
-  const { session, headers, authorizationUrl } = await authkit(request);
-  if (!session.user && !PUBLIC.has(request.nextUrl.pathname) && authorizationUrl) {
-    return handleAuthkitProxy(request, headers, { redirect: authorizationUrl });
+  // authkit() reads and refreshes the session cookie; we do not use its hosted sign-in URL.
+  const { session, headers } = await authkit(request);
+  const path = request.nextUrl.pathname;
+  if (!session.user && !isPublic(path)) {
+    const returnTo = sanitizeReturnTo(path + request.nextUrl.search);
+    const to = returnTo === "/" ? "/sign-in" : `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
+    return handleAuthkitProxy(request, headers, { redirect: to });
   }
   return handleAuthkitProxy(request, headers);
 }
