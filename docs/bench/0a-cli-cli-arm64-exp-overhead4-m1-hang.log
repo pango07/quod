@@ -1,0 +1,18 @@
+# The first M1 attempt (two cli/cli misses at once) held the heavy lock ~2h until the coordinator stopped it.
+# Both quod runs had finished: each state's events.jsonl ends with its "run" event (exit 0) and stderr with
+# "ran 28.6s". The script's bash sat in `wait`. The script started with `exec > >(tee -a $log) 2>&1`.
+# In bash 5.2 a bare `wait` also waits for that process substitution, which never exits:
+#   .scratch/waittest.sh in the dev image:
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+bare wait: rc=124 (124 = hung until timeout)
+wait by pid returned
+wait by pid: rc=0
+# The defunct bwrap/go processes were orphans of the finished sandboxes, reparented to the container's pid 1
+# (the `bash -c` that ran flock), which reaps only when its foreground child ends.
+# Reproduction of the workload itself with a bound (hang.sh: two `quod run` misses of go test ./..., fresh
+# states, one shared --cas, ring transport, zero-message opens, killed if still running after 240s):
+zero-shared: both finished in 40s
+"manifest_id":"b3:dfebb5b8 "exit_code":0   ran 32.7s
+"manifest_id":"b3:dfebb5b8 "exit_code":0   ran 32.7s
+# Fix: the measurement script redirects with `exec >> $log 2>&1`, waits by pid, and bounds every run with
+# timeout. The second attempt's 12 concurrent pairs all finished (0092714's parent tree; -m1.log).

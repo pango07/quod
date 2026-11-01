@@ -115,3 +115,32 @@ Manifest identity on the rebased tree: all 30 observed runs of r5 (main, branch,
 Remaining 1.57s and what it would take: as above (setup's node-binary hash; recording the build cache, an ignored output; rehashing ~30k files per import), plus the `.git` served per run: in CI with a persistent state dir the objects memo hits and most of it goes; the bench's fresh state dir pays the shallow fetch every run.
 
 Gates on the rebased tree (d2cdd23, `-rebased-*.log`): lint ok on every rebased code commit; cli/cli acceptance A1-A6, P1, A7 0 false hits (23,983 f + 5,336 d + 620 a), A7b 10/10, W1-W4, T1-T11, ring T7 ok; merge gate ok on its second run, the first stopped in lint on an intermittent workspace test failure that main 0652921 shows too (`-rebased-lint-flake.log`; DECISIONS has the detail).
+
+## Review fixes (main 834961b)
+
+An adversarial review found no false-replay path and asked for fixes (DECISIONS.md, 2026-11-01). The one that changes numbers: **zero-message opens are off by default** (`QUOD_FUSE_ZERO_OPEN=1` turns them on). Zero-message opendirs and xattr ENOSYS stay on. Measured with the cached blob fds (`-m1*.log`, `-r7*`):
+
+| Workload | Answered opens + passthrough (default) | Zero-message opens | |
+| --- | --- | --- | --- |
+| cli/cli go test, quiet, r7 (execution median) | 15.52s, wall 16.90s (+9.7%, paired +9.8%) | 15.40s, wall 16.72s (+8.5%, paired +8.6%) | zero-message 0.12-0.18s faster |
+| cli/cli go test, two at once (pair wall median of 6, load 30-73) | 29.10s | 29.18s | even |
+| cli/cli in rootfs mode (execution median of 6, interleaved) | 16.04s | 16.02s | even |
+| read-heavy step: 300 x 2 MiB read 3 times + sha256 (execution median of 6) | 1.20s | 1.34s | zero-message 12% slower: every READ comes through the observer |
+
+In r5, before the fd cache, the two were even on cli/cli (16.99s vs 17.01s). So zero-message opens gain about a point on cli/cli now, are even under contention and in rootfs mode, and lose on a read-heavy step. The default stays on passthrough; whether to flip it is a decision for main. The served rootfs always answers opens.
+
+Before/after, session r7 (load before the first run 0.96; 24-35 during, from the benchmark's own `go test`; main's series and the branch's run back to back, each interleaved with its own plain runs, not interleaved with each other):
+
+| Series | Plain | Observed | Median | Max (of 9) | Paired median |
+| --- | --- | --- | --- | --- | --- |
+| main 834961b | 15.44s | 17.84s | +15.6% | +16.7% | +15.3% |
+| **exp/overhead4 9fa400d** | 15.40s | 16.90s | **+9.7%** | +10.2% | **+9.8%** |
+| exp/overhead4, `QUOD_FUSE_ZERO_OPEN=1` | | 16.72s | +8.5% | +9.5% | +8.6% |
+
+"Max" is the slowest of the 9 measured runs (the earlier tables' "p95" was the same nearest-rank statistic, which for fewer than 20 runs is the maximum). Phases, branch: setup 0.33s, import 0.38s, mount 0.05s, execution +0.12s over plain, store outputs 0.41s, ledger 0.13s, cleanup 0.06s; observed - plain = 1.50s. Main: import 0.64s, output diff 0.69s, ledger 0.19s, setup and cleanup in "unaccounted" 0.65s, execution +0.11s. All 30 observed runs recorded manifest `b3:e0c80a33...ed5ff0`. The serving CPU column is the observer process's whole getrusage while mounted (output storing included), not the serving threads alone.
+
+Import: 0.64s (main) -> 0.38s, all of it from building the served `.git` beside the import (r5 was already 0.38s). Skipping the checkout's `.git` in the walk and hashing large files before copying did not move this phase on cli/cli: the import waits for the concurrent shallow fetch anyway. On the read-heavy repo the import was 13.8s per run, nearly all of it the served `.git`'s shallow fetch of 600 MiB of blobs into a fresh state dir; the objects memo would hit with a persistent state dir.
+
+The first M1 attempt held the heavy lock for ~2h: the measurement script, not Quod. Its `wait` also waited for an `exec > >(tee ...)` process substitution (bash 5.2), which never ends; both quod runs had finished (`-m1-hang.log`). Two concurrent runs sharing a store, re-run with a bound: both done in 40s, exit 0, same manifest. Every run is now bounded by `timeout`.
+
+Gates on 9fa400d (`-review-*.log`): scripts/lint.sh (main's, which names failing tests) on every code commit; merge gate ok; cli/cli acceptance A1-A7 with 0 false hits (23,983 f + 5,336 d + 620 a), P1, A7b 10/10, W1-W4, T1-T11, ring T7; luxon (node) A1-A7 with 0 false hits (22,053 f + 2,805 d + 87 a + 39 l), A7b 10/10; starlette (python) A1-A7 with 0 false hits (24,265 f + 982 d + 78 a + 4 l), A7b 9/9 (its tree has 9 unread files). P1 is skipped on those two (`QUOD_SKIP_P1=1`, new): it diverges there on non-deterministic output, identically on main.
