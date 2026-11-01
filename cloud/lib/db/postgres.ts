@@ -8,10 +8,21 @@ import type { Db, Queryable, Row } from "./types";
 
 type Sql = postgres.Sql | postgres.TransactionSql;
 
+/**
+ * Callers pass jsonb parameters as JSON text (`$2::jsonb` with JSON.stringify),
+ * which PGlite parses as given. The `postgres` driver instead asks the server
+ * for each parameter's type and, for jsonb, JSON-encodes the value again: the
+ * array `[1,2]` would be stored as the string "[1,2]". Casting through text
+ * keeps the parameter a plain string, so both drivers store the same thing.
+ */
+export function jsonbAsText(text: string): string {
+  return text.replace(/(\$\d+)::jsonb\b/g, "$1::text::jsonb");
+}
+
 function wrap(sql: Sql): Queryable {
   return {
     async query<T = Row>(text: string, params: unknown[] = []) {
-      const rows = await sql.unsafe(text, params as postgres.ParameterOrJSON<never>[]);
+      const rows = await sql.unsafe(jsonbAsText(text), params as postgres.ParameterOrJSON<never>[]);
       return rows as unknown as T[];
     },
     async exec(text: string) {
