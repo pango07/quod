@@ -1,0 +1,281 @@
+// The fixture adapter: CloudApi over the prototypes' sample data, in memory.
+// Changes (proofs needed, onboarding choice) last until the process restarts.
+// Set QUOD_FIXTURE_DELAY_MS to slow every call down and watch the skeletons.
+
+import {
+  AS_OF,
+  CONNECT,
+  daysFor,
+  EMPTY_TOTALS,
+  REPOS,
+  RUNNERS,
+  RUNS_PER_REPO,
+  runDetail,
+  runTimes,
+  stepSummary,
+  TEAMS,
+  totalsFor,
+  TRUST_COUNTS,
+  trustSeed,
+} from "./fixture-data";
+import type {
+  CloudApi,
+  ConnectSetup,
+  Host,
+  OrgRef,
+  Overview,
+  Range,
+  RepoDetail,
+  RepoSummary,
+  RunDetail,
+  RunSummary,
+  SearchIndex,
+  StepSummary,
+  StepTrust,
+  Store,
+  Team,
+  TeamHealth,
+  TrustState,
+} from "./types";
+
+type RepoSeed = (typeof REPOS)[number];
+type StepSeed = RepoSeed["steps"][number];
+
+/** The one team with sample data. Other teams are real but empty until a repo connects. */
+const SAMPLE_TEAM = "quodci";
+
+const slugify = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "team";
+
+export interface FixtureState {
+  proofs: Map<string, number>;
+  choices: Map<string, { store: Store; host: Host }>;
+}
+
+export const newFixtureState = (): FixtureState => ({ proofs: new Map(), choices: new Map() });
+
+export class FixtureCloudApi implements CloudApi {
+  private readonly proofs: Map<string, number>;
+  private readonly choices: Map<string, { store: Store; host: Host }>;
+
+  /** `state` holds what the UI changed; pass the same object to keep it across instances. */
+  constructor(
+    state: FixtureState = newFixtureState(),
+    private readonly delayMs = Number(process.env.QUOD_FIXTURE_DELAY_MS ?? 0),
+  ) {
+    this.proofs = state.proofs;
+    this.choices = state.choices;
+  }
+
+  private async tick() {
+    if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs));
+  }
+
+  private repos(team: string): RepoSeed[] {
+    return team === SAMPLE_TEAM ? REPOS : [];
+  }
+
+  private repo(team: string, slug: string): RepoSeed | undefined {
+    return this.repos(team).find((r) => r.summary.slug === slug);
+  }
+
+  private need = (s: StepSeed): number => {
+    const base = s.trust.kind === "paused" || s.trust.kind === "proving" ? s.trust.need : 2;
+    return this.proofs.get(s.key) ?? base;
+  };
+
+  private trustOf(s: StepSeed): TrustState {
+    const need = this.need(s);
+    if (s.trust.kind === "paused") return { ...s.trust, need, consistent: Math.min(s.trust.consistent, need) };
+    if (s.trust.kind === "proving") return { ...s.trust, need, have: Math.min(s.trust.have, need) };
+    return s.trust;
+  }
+
+  private summaries(repo: RepoSeed): StepSummary[] {
+    return repo.steps.filter((s) => !s.network).map((s) => stepSummary(repo, s, this.trustOf(s)));
+  }
+
+  private runSummaries(repo: RepoSeed): RunSummary[] {
+    const out: RunSummary[] = [];
+    for (let n = repo.firstRun + RUNS_PER_REPO - 1; n >= repo.firstRun; n--) {
+      const d = runDetail(repo, n, this.need);
+      if (d) {
+        const { jobs: _jobs, githubUrl: _url, ...summary } = d;
+        void _jobs;
+        void _url;
+        out.push(summary);
+      }
+    }
+    return out;
+  }
+
+  async resolveTeams(orgs: OrgRef[]): Promise<Team[]> {
+    await this.tick();
+    const taken = new Set<string>();
+    return orgs.map((org) => {
+      const known = TEAMS.find((t) => t.orgId === org.orgId);
+      if (known) {
+        taken.add(known.slug);
+        return known;
+      }
+      let slug = slugify(org.name);
+      for (let i = 2; taken.has(slug) || TEAMS.some((t) => t.slug === slug); i++) slug = `${slugify(org.name)}-${i}`;
+      taken.add(slug);
+      return { slug, name: org.name, plan: "Hobby", orgId: org.orgId } satisfies Team;
+    });
+  }
+
+  async getTeamHealth(team: string): Promise<TeamHealth> {
+    await this.tick();
+    const repos = this.repos(team);
+    const all = totalsFor("90d");
+    return {
+      wrongReplays: repos.length ? all.wrongReplays : 0,
+      spotChecks: repos.length ? all.spotChecks : 0,
+      pausedSteps: repos.reduce((a, r) => a + r.steps.filter((s) => s.trust.kind === "paused").length, 0),
+      repos: repos.length,
+    };
+  }
+
+  async getOverview(team: string, range: Range): Promise<Overview> {
+    await this.tick();
+    const repos = this.repos(team);
+    if (repos.length === 0) {
+      return {
+        asOf: AS_OF,
+        totals: EMPTY_TOTALS(range),
+        days: [],
+        repos: [],
+        trust: { proven: 0, proving: 0, watching: 0, spotChecksPassed: 0, paused: [] },
+        runners: [],
+      };
+    }
+    const totals = totalsFor(range);
+    // Repo savings are given for 7 days; scale them so they add up to the range's total.
+    const base = repos.reduce((a, r) => a + r.summary.savedMinutes, 0);
+    let left = totals.savedMinutes;
+    const scaled: RepoSummary[] = repos.map((r, i) => {
+      const saved = i === repos.length - 1 ? left : Math.round((r.summary.savedMinutes / base) * totals.savedMinutes);
+      left -= saved;
+      return { ...r.summary, savedMinutes: saved };
+    });
+    const paused = repos.flatMap((r) =>
+      r.steps
+        .filter((s) => s.trust.kind === "paused")
+        .map((s) => ({ repoSlug: r.summary.slug, repoName: r.summary.fullName, key: s.key, job: s.job, command: s.command })),
+    );
+    return {
+      asOf: AS_OF,
+      totals,
+      days: daysFor(range),
+      repos: scaled,
+      trust: { ...TRUST_COUNTS, spotChecksPassed: totals.spotChecksIdentical, paused },
+      runners: RUNNERS.map((r) => ({ ...r })),
+    };
+  }
+
+  async listRepos(team: string): Promise<RepoSummary[]> {
+    await this.tick();
+    return this.repos(team).map((r) => r.summary);
+  }
+
+  async getRepo(team: string, slug: string): Promise<RepoDetail | null> {
+    await this.tick();
+    const repo = this.repo(team, slug);
+    if (!repo) return null;
+    const last = repo.firstRun + RUNS_PER_REPO - 1;
+    return {
+      asOf: AS_OF,
+      summary: repo.summary,
+      defaultBranch: repo.defaultBranch,
+      latestRun: runDetail(repo, last, this.need),
+      runTimes: runTimes(repo),
+      steps: this.summaries(repo),
+    };
+  }
+
+  async listRuns(team: string, opts: { repo?: string; limit?: number } = {}): Promise<{ asOf: string; runs: RunSummary[] }> {
+    await this.tick();
+    const repos = opts.repo ? this.repos(team).filter((r) => r.summary.slug === opts.repo) : this.repos(team);
+    const runs = repos.flatMap((r) => this.runSummaries(r)).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return { asOf: AS_OF, runs: opts.limit ? runs.slice(0, opts.limit) : runs };
+  }
+
+  async getRun(team: string, slug: string, run: number): Promise<RunDetail | null> {
+    await this.tick();
+    const repo = this.repo(team, slug);
+    return repo ? runDetail(repo, run, this.need) : null;
+  }
+
+  async listSteps(team: string, opts: { repo?: string } = {}): Promise<StepSummary[]> {
+    await this.tick();
+    const repos = opts.repo ? this.repos(team).filter((r) => r.summary.slug === opts.repo) : this.repos(team);
+    return repos.flatMap((r) => this.summaries(r));
+  }
+
+  async getStepTrust(team: string, slug: string, key: string): Promise<StepTrust | null> {
+    await this.tick();
+    const repo = this.repo(team, slug);
+    const step = repo?.steps.find((s) => s.key === key && !s.network);
+    if (!repo || !step) return null;
+    return { ...stepSummary(repo, step, this.trustOf(step)), asOf: AS_OF, proofsNeeded: this.need(step), ...trustSeed(repo, step) };
+  }
+
+  async setProofsNeeded(team: string, slug: string, key: string, need: number): Promise<StepTrust> {
+    if (!Number.isInteger(need) || need < 2 || need > 10) throw new Error("Proofs needed must be a whole number from 2 to 10.");
+    const repo = this.repo(team, slug);
+    if (!repo?.steps.some((s) => s.key === key)) throw new Error("No such step.");
+    this.proofs.set(key, need);
+    const trust = await this.getStepTrust(team, slug, key);
+    if (!trust) throw new Error("No such step.");
+    return trust;
+  }
+
+  async requestRerunWithoutQuod(team: string, slug: string, run: number): Promise<{ accepted: boolean; message: string }> {
+    await this.tick();
+    if (!this.repo(team, slug)) return { accepted: false, message: "No such repository." };
+    return {
+      accepted: true,
+      message: `Sample data: nothing was sent to GitHub. With quod-server connected, run #${run} starts again with every step executed.`,
+    };
+  }
+
+  async listRunners(team: string) {
+    await this.tick();
+    return team === SAMPLE_TEAM ? RUNNERS.map((r) => ({ ...r })) : [];
+  }
+
+  async getConnectSetup(team: string): Promise<ConnectSetup> {
+    await this.tick();
+    const first = this.repos(team)[0];
+    return {
+      ...CONNECT,
+      runnerLabels: [...CONNECT.runnerLabels],
+      firstRepo: first ? { slug: first.summary.slug, fullName: first.summary.fullName } : null,
+      saved: this.choices.get(team) ?? null,
+    };
+  }
+
+  async saveConnectChoice(team: string, choice: { store: Store; host: Host }): Promise<void> {
+    await this.tick();
+    this.choices.set(team, choice);
+  }
+
+  async getSearchIndex(team: string): Promise<SearchIndex> {
+    await this.tick();
+    const repos = this.repos(team);
+    return {
+      repos: repos.map((r) => ({ slug: r.summary.slug, fullName: r.summary.fullName })),
+      runs: repos.flatMap((r) =>
+        this.runSummaries(r)
+          .slice(0, 6)
+          .map((x) => ({ repoSlug: x.repoSlug, number: x.number, title: x.title, status: x.status })),
+      ),
+      steps: repos.flatMap((r) => this.summaries(r).map((s) => ({ repoSlug: s.repoSlug, key: s.key, command: s.command, trust: s.trust.kind }))),
+    };
+  }
+}
