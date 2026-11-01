@@ -33,8 +33,15 @@ die() { echo "ci-gate: $*" >&2; exit 2; }
 # Re-run as root in CI; a no-op on the dev box, which is root already.
 as_root() {
   if [ "$(id -u)" = 0 ] || [ "${CI:-}" != true ]; then return 0; fi
-  local rc=0
-  sudo -E env "PATH=$PATH" "HOME=$HOME" "$0" "$@" || rc=$?
+  # The environment by name: Ubuntu 26.04's sudo (sudo-rs) ignores -E.
+  # GITHUB_* matters to the tests too (quod-hooks' no_worker_no_owner).
+  local rc=0 n vars=()
+  for n in $(compgen -e); do
+    case "$n" in
+      PATH|HOME|CI|LANG|TMPDIR|QUOD_*|CARGO_*|RUSTUP_*|RUST_*|GITHUB_*|RUNNER_*|GO*) vars+=("$n=${!n}");;
+    esac
+  done
+  sudo env "${vars[@]}" "$0" "$@" || rc=$?
   sudo chown -R "$(id -u):$(id -g)" "$root/target" "${CARGO_HOME:-$HOME/.cargo}" 2>/dev/null || true
   exit "$rc"
 }
