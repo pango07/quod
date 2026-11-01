@@ -143,6 +143,14 @@ export class FixtureCloudApi implements CloudApi {
         taken.add(known.slug);
         return known;
       }
+      // Sample data is opt-in (QUOD_API=fixture), and teams are only created in
+      // the WorkOS dashboard, so a real Organization named like a sample team
+      // (e.g. "quodci") is that team: it shows the sample data under its own org id.
+      const sample = TEAMS.find((t) => t.slug === slugify(org.name) && !taken.has(t.slug));
+      if (sample) {
+        taken.add(sample.slug);
+        return { ...sample, name: org.name, orgId: org.orgId };
+      }
       let slug = slugify(org.name);
       for (let i = 2; taken.has(slug) || TEAMS.some((t) => t.slug === slug); i++) slug = `${slugify(org.name)}-${i}`;
       taken.add(slug);

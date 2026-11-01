@@ -15,6 +15,15 @@ describe("fixture adapter", () => {
     }
   });
 
+  it("a real Organization named like the sample team is that team, under its own org id", async () => {
+    const [team, other] = await api.resolveTeams([
+      { orgId: "org_real", name: "quodci" },
+      { orgId: "org_other", name: "Acme" },
+    ]);
+    expect(team).toMatchObject({ slug: "quodci", orgId: "org_real" });
+    expect(other).toMatchObject({ slug: "acme", orgId: "org_other" });
+  });
+
   it("serves run #1842 as the design shows it", async () => {
     const run = await api.getRun("quodci", "quod", 1842);
     expect(run?.tookSeconds).toBe(62);
