@@ -1,0 +1,7 @@
+# scripts/merge-gate.sh (2026-11-01T13:23:26Z, exp/overhead4 d2cdd23 on main 0652921)
+ 13:23:26 up 26 min,  0 user,  load average: 2.27, 7.88, 11.33
+fatal: git upload-pack: not our ref f813395133d3afbc14db5bb6cf5ab831e9ba7dd7
+fatal: remote error: upload-pack: not our ref f813395133d3afbc14db5bb6cf5ab831e9ba7dd7
+error: test failed, to rerun pass `-p quod-ledger --lib`
+rc=101
+ 13:25:00 up 27 min,  0 user,  load average: 6.11, 7.43, 10.82

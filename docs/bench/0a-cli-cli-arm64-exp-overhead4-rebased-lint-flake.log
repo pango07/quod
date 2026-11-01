@@ -1,0 +1,17 @@
+== main lint.sh round 1
+error: test failed, to rerun pass `-p quod-cli --test acceptance`
+== branch lint.sh round 1
+fatal: remote error: upload-pack: not our ref e37fe12f28f6921c54df5a2503dd9c485244869d
+lint ok
+== main lint.sh round 2
+fatal: remote error: upload-pack: not our ref 628746b750d7518ba66bde2a21fb3768db61402e
+lint ok
+== branch lint.sh round 2
+fatal: remote error: upload-pack: not our ref e2fd5914751d3e79391058263d14429f13385d21
+lint ok
+== main lint.sh round 3
+fatal: remote error: upload-pack: not our ref 411d56765f0ba1f4c1f8de8bbcc32074a507fc45
+lint ok
+== branch lint.sh round 3
+fatal: remote error: upload-pack: not our ref 07bb356b8a53d6e91ad239fde67eb2e132d3cc23
+lint ok

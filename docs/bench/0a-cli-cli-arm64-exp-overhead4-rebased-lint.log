@@ -1,0 +1,26 @@
+# scripts/lint.sh on 6696a9f (2026-11-01T05:43:04Z)
+fatal: git upload-pack: not our ref e992c3a136a9a5529773394247082a9bc70ddc52
+fatal: remote error: upload-pack: not our ref e992c3a136a9a5529773394247082a9bc70ddc52
+lint ok
+rc=0
+# scripts/lint.sh on 388c12b (2026-11-01T05:45:33Z)
+error: test failed, to rerun pass `-p quod-cli --test acceptance`
+rc=101
+# scripts/lint.sh on 388c12b-retry (2026-11-01T05:48:48Z)
+error: test failed, to rerun pass `-p quod-cli --bin quod`
+rc=101
+# scripts/lint.sh on 388c12b-r3 (2026-11-01T05:59:16Z)
+fatal: git upload-pack: not our ref e3a1644ef1fd1972d8a27bf60312c880af759131
+fatal: remote error: upload-pack: not our ref e3a1644ef1fd1972d8a27bf60312c880af759131
+lint ok
+rc=0
+# scripts/lint.sh on db4d1b1 (2026-11-01T06:38:04Z)
+fatal: git upload-pack: not our ref 195909e0dec11ab0b1951556c15a8a0f79917070
+fatal: remote error: upload-pack: not our ref 195909e0dec11ab0b1951556c15a8a0f79917070
+lint ok
+rc=0
+# scripts/lint.sh on c5 (2026-11-01T13:18:55Z)
+fatal: git upload-pack: not our ref 82a2a23a5c014b08093739bbb9d08460cf31a15c
+fatal: remote error: upload-pack: not our ref 82a2a23a5c014b08093739bbb9d08460cf31a15c
+lint ok
+rc=0

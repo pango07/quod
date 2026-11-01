@@ -2,7 +2,7 @@
 
 cli/cli at `9490d204a2ba`, step B `go test ./...` (step A `go mod download`), Docker Desktop arm64 VM (18 cores, 7.7 GiB, kernel 7.0.14-linuxkit), FUSE over io_uring enabled. Branch `exp/overhead4` from main `2a24fd8`.
 
-**Result: first-run overhead +6.9% median, +8.0% p95 (paired per round +7.6%), down from +12.1% / +14.1% (paired +12.5%) for main measured in the same session.** Target under 10%: met on a quiet box.
+**Result, rebased onto main `0652921` (exp/git-index), session r5: first-run overhead +10.2% median, +8.0% p95, paired per round +9.5% (plain 15.42s, observed 16.99s), down from main's +14.8% / +16.3% / paired +15.7% (plain 15.59s, observed 17.90s) in the same session.** On the tree before the rebase (main `2a24fd8`, session r2) it was +6.9% / +8.0% / paired +7.6% against main's +12.1%. The target (under 10%) is met on the paired measure and missed by 0.2 points on the median after the rebase: exp/git-index added ~0.3-0.4s per run (serving the `.git`, its index refreshed), of which this branch wins back ~0.24s by building it beside the import. See "Rebased onto 0652921" at the end.
 
 ## Protocol
 
@@ -87,3 +87,31 @@ On 2efeba4, raw logs `0a-cli-cli-arm64-exp-overhead4-gate-*.log`:
 - scripts/merge-gate.sh (io_uring enabled): ok.
 - cli/cli acceptance: A1-A6, P1 ok; A7 0 false hits (23,939 f + 5,320 d + 621 a mutations); A7b 10/10; W1-W4, T1-T11, ring T7 ok.
 - luxon (node) and starlette (python): A1, A2 ok, P1 fails on output nondeterminism (Jest order and coverage timestamps; pytest's duration line), identically on main 2a24fd8. Manifests: luxon's identical on main and branch; starlette's five runs (main x2, branch x2, branch with answered opens) differ only in pytest's random tempfile probe (`-python-manifests.log`).
+
+## Rebased onto 0652921
+
+main moved to `0652921` (exp/git-index: the observer serves a `.git` with its index refreshed for the served files, path-derived inode numbers, step key v7). Two consequences here:
+
+- **The withheld-name scan needs every open.** exp/git-index added `Observed::opened` (files whose bytes were served), which quod-hooks' withheld-name scan uses to exempt files the step only stat()ed. Zero-message opens deliver only the first OPEN and then READs, so that set would shrink to the files actually read. The access log is unaffected (see `CasFs::record`), but the scan's exemption would widen, so quod-hooks serves with `zero_open: false` (its zero-message opendirs and xattr ENOSYS stay); `quod run`, which has no such scan, keeps zero-message opens. The mode test now also asserts that, for workloads that read what they open, the opened set is the same in all three modes.
+- **Import grew** from 0.21s to 0.51-0.62s (main's own phase). `served_git` (the commit's objects, by a shallow fetch into the store unless the state dir has a memo; the bench's fresh state dirs never do) depends only on the checkout and the state dir, so it now runs on a thread beside the workspace import (commit `d2cdd23`): import 0.51s (r4) -> 0.38s (r5).
+
+Sessions on the rebased tree (raw: `-r4.log`, `-r5.log`, reports `-r{4,5}-{before,after}.md`):
+
+| Session | Binary | Plain median | Observed median | p95 overhead | Median overhead | Paired | Load (1m) during |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| r4 (VM just restarted, faster) | main 0652921 | 14.06s | 16.34s | +10.4% | +16.2% | +16.4% | 14-32 |
+| r4 | branch 6d8928a (no import change) | 14.05s | 15.67s | +11.7% | +11.5% | +11.7% | 25-32 |
+| r4 | branch, answered opens | | 15.68s | +12.1% | +11.7% | +11.9% | |
+| r5 | main 0652921 | 15.59s | 17.90s | +16.3% | +14.8% | +15.7% | 24-33 |
+| r5 | **branch d2cdd23** | 15.42s | 16.99s | +8.0% | **+10.2%** | **+9.5%** | 26-36 |
+| r5 | branch d2cdd23, answered opens | | 17.01s | +8.0% | +10.3% | +9.5% | |
+
+(r3, the first session after the rebase, is not used: from its third round on every run, plain included, took ~24% longer, 15.6s -> 19.4s, a box-wide slowdown with the lock held; its raw log is kept as `-r3.log`.) Load before each session's first run: r4 0.4, r5 15.5 (the merge gate and acceptance had just finished under the same lock).
+
+Phases, r5 median: setup 0.32s, import 0.38s, mount 0.05s, execution 15.59s (+0.17s over plain), store outputs 0.39s, unmount 0.01s, manifest 0.01s, ledger 0.14s, cleanup 0.06s, unaccounted 0.01s; observed - plain = 1.57s. Main r5: import 0.62s, output diff 0.69s, ledger 0.19s, unaccounted (setup and cleanup) 0.61s, execution +0.30s.
+
+Manifest identity on the rebased tree: all 30 observed runs of r5 (main, branch, branch with answered opens) and all 30 of r4 recorded `b3:e0c80a33...ed5ff0` (29,937 inputs). Requests: 6,117 ring requests against 70,892 with answered opens; run-queue wait of the serving threads 9 ms against 188 ms.
+
+Remaining 1.57s and what it would take: as above (setup's node-binary hash; recording the build cache, an ignored output; rehashing ~30k files per import), plus the `.git` served per run: in CI with a persistent state dir the objects memo hits and most of it goes; the bench's fresh state dir pays the shallow fetch every run.
+
+Gates on the rebased tree (d2cdd23, `-rebased-*.log`): lint ok on every rebased code commit; cli/cli acceptance A1-A6, P1, A7 0 false hits (23,983 f + 5,336 d + 620 a), A7b 10/10, W1-W4, T1-T11, ring T7 ok; merge gate ok on its second run, the first stopped in lint on an intermittent workspace test failure that main 0652921 shows too (`-rebased-lint-flake.log`; DECISIONS has the detail).
