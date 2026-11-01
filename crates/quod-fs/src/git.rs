@@ -13,10 +13,14 @@
 //!
 //! Why recording stays correct. The observer records every lookup and
 //! getattr of a file as the file's content hash (`f`), not as its
-//! attributes: the attributes it serves are a function of the content
-//! (`content_mtime`, the blob's size), so a stat already distinguishes
-//! contents, and a program that trusts stat data (git, a build cache) is
-//! keyed on exactly what decides it. Serving matching stat data therefore
+//! attributes. Of the attributes it serves, mtime, ctime and size are a
+//! function of the content (`content_mtime`, the blob's size), so a stat
+//! already distinguishes contents; st_ino (and the d_ino of a listing) is a
+//! function of the path alone, with collisions probed in path order
+//! (`inode_numbers`), mode of the tree entry, uid and gid of the step. A
+//! program that trusts stat data (git, a build cache) is therefore keyed on
+//! at most what the content hash, the path and the tree decide, all of which
+//! the manifest records. Serving matching stat data therefore
 //! changes which files git reads, never what the manifest says it depends
 //! on: every tracked path git lstat()s is still an `f` entry with its
 //! content hash, and the index itself, which git reads, is one too.
@@ -148,8 +152,8 @@ pub fn refresh_index(
     let mut bytes = cas
         .get(&h)?
         .ok_or(FsError::Cas(quod_cas::CasError::Missing(h)))?;
-    let entries = match parse(&bytes) {
-        Ok(e) => e,
+    let (entries, extensions) = match parse(&bytes) {
+        Ok(p) => p,
         Err(why) => return Ok((tree.clone(), Refresh::Unchanged(why))),
     };
     let inos: std::collections::HashMap<&str, u64> = inode_numbers(tree)
@@ -183,13 +187,29 @@ pub fn refresh_index(
             }
         }
     }
+    // The optional extensions that hold state about the work tree other
+    // than the entries' stat data are dropped, as git drops a stale one:
+    // the untracked cache (directory stat data: served directories have the
+    // epoch mtime and stable inode numbers, so a carried-over cache would
+    // never be invalidated, and a user's names another machine), the
+    // fsmonitor token, and the offset tables of the end-of-index and
+    // index-entry-offset extensions (EOIE hashes the extension headers
+    // that follow). The rest (TREE, REUC, link, sdir) holds no stat data
+    // and is kept as it is.
+    const DROP: &[&[u8; 4]] = &[b"UNTR", b"FSMN", b"EOIE", b"IEOT"];
     let body = bytes.len() - 20;
-    if bytes[body..] != [0u8; 20] {
-        // An all-zero trailer (index.skipHash) stays zero.
-        let sum = sha1(&bytes[..body]);
-        bytes[body..].copy_from_slice(&sum);
+    let zero_trailer = bytes[body..] == [0u8; 20];
+    let end = extensions.first().map_or(body, |(_, r)| r.start);
+    let mut out = bytes[..end].to_vec();
+    for (sig, r) in &extensions {
+        if !DROP.contains(&sig) {
+            out.extend_from_slice(&bytes[r.clone()]);
+        }
     }
-    let refreshed = cas.put(&bytes)?;
+    // An all-zero trailer (index.skipHash) stays zero.
+    let sum = if zero_trailer { [0u8; 20] } else { sha1(&out) };
+    out.extend_from_slice(&sum);
+    let refreshed = cas.put(&out)?;
     let mode = entry.m.unwrap_or(0o644);
     Ok((
         tree.with_leaf_changed(Entry::file(INDEX, refreshed, mode)),
@@ -289,11 +309,10 @@ impl IndexEntry {
     }
 }
 
-/// The entries of an index file (versions 2, 3 and 4), after checking its
-/// header and SHA-1 trailer. Extensions are not interpreted: they hold no
-/// per-entry stat data this code serves (the untracked cache's directory
-/// stat data is validated by git itself and recomputed on a mismatch).
-fn parse(b: &[u8]) -> Result<Vec<IndexEntry>, String> {
+/// The entries and extensions of an index file (versions 2, 3 and 4), after
+/// checking its header and SHA-1 trailer. Extensions are only located, not
+/// interpreted (`refresh_index` keeps or drops them whole).
+fn parse(b: &[u8]) -> Result<(Vec<IndexEntry>, Vec<Extension>), String> {
     if b.len() < 12 + 20 || &b[..4] != b"DIRC" {
         return Err("not a git index".into());
     }
@@ -375,8 +394,25 @@ fn parse(b: &[u8]) -> Result<Vec<IndexEntry>, String> {
             path,
         });
     }
-    Ok(out)
+    // Extensions: a 4-byte signature, a 4-byte length, the data.
+    let mut extensions = Vec::new();
+    while pos < body {
+        if pos + 8 > body {
+            return Err("truncated index extension".into());
+        }
+        let sig: [u8; 4] = b[pos..pos + 4].try_into().unwrap();
+        let next = pos + 8 + be32(pos + 4) as usize;
+        if next > body {
+            return Err("truncated index extension".into());
+        }
+        extensions.push((sig, pos..next));
+        pos = next;
+    }
+    Ok((out, extensions))
 }
+
+/// An index extension: its signature and where it lies in the file.
+type Extension = ([u8; 4], std::ops::Range<usize>);
 
 /// git's varint (varint.c): seven bits per byte, most significant first,
 /// each continuation adding one.
@@ -688,7 +724,7 @@ mod tests {
         );
         let out = cas.get(&t.get(INDEX).unwrap().h.unwrap()).unwrap().unwrap();
         assert_eq!(&out[out.len() - 20..], &sha1(&out[..out.len() - 20]));
-        let parsed = parse(&out).unwrap();
+        let parsed = parse(&out).unwrap().0;
         let ino = |p: &str| {
             inode_numbers(&t)
                 .into_iter()
@@ -718,7 +754,7 @@ mod tests {
         assert_eq!(be32(&out, l + 20), ino("link"));
         assert_eq!(be32(&out, l + 36), 5);
         // Everything else is unchanged: modes, ids, paths.
-        for (x, y) in parse(&index).unwrap().iter().zip(&parsed) {
+        for (x, y) in parse(&index).unwrap().0.iter().zip(&parsed) {
             assert_eq!((x.mode, x.oid, &x.path), (y.mode, y.oid, &y.path));
         }
         // Idempotent.
@@ -726,6 +762,41 @@ mod tests {
         assert_eq!(again.get(INDEX), t.get(INDEX));
         // The index is served after every file.
         assert!(served_time(t.get(INDEX).unwrap()) > served_time(t.get("a.txt").unwrap()));
+    }
+
+    #[test]
+    fn work_tree_extensions_are_dropped_and_the_rest_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("cas")).unwrap();
+        let mut index = index_v2(&[("a", 0o100644, b"a\n")]);
+        index.truncate(index.len() - 20);
+        let ext = |sig: &[u8; 4], data: &[u8]| {
+            let mut e = sig.to_vec();
+            e.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            e.extend_from_slice(data);
+            e
+        };
+        let (tree_ext, untr) = (ext(b"TREE", b"\0-1 0\n"), ext(b"UNTR", b"stale dir stat"));
+        index.extend_from_slice(&tree_ext);
+        index.extend_from_slice(&untr);
+        index.extend_from_slice(&ext(b"FSMN", b"token"));
+        let sum = sha1(&index);
+        index.extend_from_slice(&sum);
+        let tree = Tree::from_leaves([
+            Entry::file(INDEX, cas.put(&index).unwrap(), 0o644),
+            Entry::file("a", cas.put(b"a\n").unwrap(), 0o644),
+        ]);
+        let (t, r) = refresh_index(&tree, &cas, 0, 0).unwrap();
+        assert!(
+            matches!(r, Refresh::Refreshed(Refreshed { matched: 1, .. })),
+            "{r:?}"
+        );
+        let out = cas.get(&t.get(INDEX).unwrap().h.unwrap()).unwrap().unwrap();
+        let (_, exts) = parse(&out).unwrap();
+        let sigs: Vec<[u8; 4]> = exts.iter().map(|(s, _)| *s).collect();
+        assert_eq!(sigs, [*b"TREE"], "UNTR and FSMN dropped, TREE kept");
+        assert_eq!(&out[exts[0].1.clone()], &tree_ext[..]);
+        assert_eq!(&out[out.len() - 20..], &sha1(&out[..out.len() - 20]));
     }
 
     #[test]

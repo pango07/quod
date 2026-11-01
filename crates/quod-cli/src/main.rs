@@ -134,7 +134,10 @@ fn main() -> ExitCode {
                     let cas = quod_cas::Cas::open(state.cas_dir())?;
                     let repo = repo.canonicalize()?;
                     let entries: Vec<quod_cas::Entry> =
-                        gitdir::served_git(&cas, &state.dir, &repo)?
+                        // As `graft`: a checkout it cannot serve gets none.
+                        gitdir::served_git(&cas, &state.dir, &repo)
+                            .ok()
+                            .flatten()
                             .map(|t| t.iter().cloned().collect())
                             .unwrap_or_default();
                     println!("{}", serde_json::to_string(&entries)?);

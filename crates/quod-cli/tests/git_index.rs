@@ -168,6 +168,63 @@ fn served_git_index() {
         "go test ./...",
     );
 
+    // An initialized submodule: its .git file points into .git/modules,
+    // which is not served, so no .git is: go build still succeeds, without
+    // a VCS stamp, as before any .git was served (not "error obtaining VCS
+    // status").
+    let lib = tmp.path().join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("data.txt"), "lib\n").unwrap();
+    git(&lib, &["init", "-q", "-b", "main"]);
+    git(&lib, &["add", "-A"]);
+    git(
+        &lib,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "lib",
+        ],
+    );
+    git(
+        &src,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            lib.to_str().unwrap(),
+            "third_party/lib",
+        ],
+    );
+    git(
+        &src,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "submodule",
+        ],
+    );
+    let sub = Env::from_copy(&src, Some(Toolchain::Go));
+    let o = sub.run_step(BUILD, &[]);
+    assert_eq!(o.code, 0, "go build with a submodule: {}", o.stderr);
+    assert!(
+        o.stderr.contains("no .git served") && o.stderr.contains("submodule"),
+        "{}",
+        o.stderr
+    );
+    println!("initialized submodule: no .git served, go build ok");
+
     if let Ok(spike) = std::env::var("QUOD_SPIKE_REPO") {
         let env = Env::from_copy(Path::new(&spike), Some(Toolchain::Go));
         // On a branch, as a developer's checkout is (the suite's copy is

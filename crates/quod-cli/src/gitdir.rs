@@ -8,7 +8,7 @@
 //! It is made of:
 //! - the commit's objects at depth 1 (a shallow fetch from the checkout into
 //!   a scratch repository, imported once per commit and memoized at
-//!   `<state>/gitdirs/<sha>.v1.json`), with a fixed config (no remote, no
+//!   `<state>/gitdirs/<sha>.v2.json`), with a fixed config (no remote, no
 //!   user settings) and no reflogs;
 //! - HEAD as the checkout has it: `ref: refs/heads/<branch>` with that
 //!   branch at the commit, or the commit itself when detached;
@@ -33,11 +33,34 @@ use quod_cas::{Cas, Entry, Tree};
 
 /// The served `.git`, as a tree rooted at the `.git` directory itself, or
 /// `None` when `repo` is not a git checkout with a commit checked out (then
-/// no `.git` is served, as before).
+/// no `.git` is served, as before). An error for a checkout this cannot
+/// serve faithfully (`graft` then serves no `.git` and says why): `repo`
+/// below the checkout's top level (the index's paths are the top level's),
+/// an initialized submodule (its `.git` file points into `.git/modules/`,
+/// which is not served, and `git status` would fail where it works on
+/// disk), a repository whose objects are not SHA-1, a fetch that fails.
 pub fn served_git(cas: &Cas, state_dir: &Path, repo: &Path) -> anyhow::Result<Option<Tree>> {
     let Some(sha) = git_out(repo, &["rev-parse", "--verify", "-q", "HEAD^{commit}"]) else {
         return Ok(None);
     };
+    let top = git_out(repo, &["rev-parse", "--show-toplevel"])
+        .map(PathBuf::from)
+        .context("the checkout's top level")?;
+    if top.canonicalize()? != repo.canonicalize()? {
+        bail!(
+            "{} is below the checkout's top level {}",
+            repo.display(),
+            top.display()
+        );
+    }
+    if let Some(f) = git_out(repo, &["rev-parse", "--show-object-format"])
+        && f != "sha1"
+    {
+        bail!("the repository's objects are {f}, not sha1");
+    }
+    if let Some(sub) = populated_gitlink(repo) {
+        bail!("{sub} is an initialized submodule (its .git/modules is not served)");
+    }
     let git_dir = PathBuf::from(
         git_out(repo, &["rev-parse", "--absolute-git-dir"]).context("the checkout's git dir")?,
     );
@@ -106,10 +129,14 @@ pub fn served_git(cas: &Cas, state_dir: &Path, repo: &Path) -> anyhow::Result<Op
 /// The commit's objects and the fixed parts of the `.git` (config,
 /// shallow, the empty refs), from the memo or a shallow fetch.
 fn objects(cas: &Cas, state_dir: &Path, repo: &Path, sha: &str) -> anyhow::Result<Tree> {
-    let memo = state_dir.join("gitdirs").join(format!("{sha}.v1.json"));
+    let memo = state_dir.join("gitdirs").join(format!("{sha}.v2.json"));
     if let Ok(bytes) = std::fs::read(&memo)
         && let Ok(entries) = serde_json::from_slice::<Vec<Entry>>(&bytes)
-        && entries.iter().all(|e| e.h.is_none_or(|h| cas.has(&h)))
+        // Files only: a directory's hash is its listing, never a blob.
+        && entries
+            .iter()
+            .filter(|e| e.k == quod_cas::Kind::File)
+            .all(|e| e.h.is_some_and(|h| cas.has(&h)))
     {
         return Ok(Tree::from_leaves(entries));
     }
@@ -142,12 +169,17 @@ fn objects(cas: &Cas, state_dir: &Path, repo: &Path, sha: &str) -> anyhow::Resul
         let url = format!("file://{}", repo.display());
         // A pack, never loose objects (see quod-hooks' checkout). The local
         // upload-pack inherits `-c`: HEAD's commit by id, advertised or not
-        // (a detached HEAD's, a commit no ref names).
+        // (a detached HEAD's, a commit no ref names); one pack-objects
+        // thread, so the pack's bytes and name are the same for a commit
+        // in every state directory (a step reading objects, go build's git
+        // log, then matches across them).
         run(&[
             "-c",
             "fetch.unpackLimit=1",
             "-c",
             "uploadpack.allowAnySHA1InWant=true",
+            "-c",
+            "pack.threads=1",
             "fetch",
             "-q",
             "--no-tags",
@@ -175,6 +207,27 @@ fn objects(cas: &Cas, state_dir: &Path, repo: &Path, sha: &str) -> anyhow::Resul
     Ok(tree)
 }
 
+/// The first gitlink in the index whose work tree is checked out (holds a
+/// `.git`): an initialized submodule.
+fn populated_gitlink(repo: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["ls-files", "--stage", "-z"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.stdout
+        .split(|&b| b == 0)
+        .filter_map(|rec| std::str::from_utf8(rec).ok())
+        .filter_map(|rec| rec.split_once('\t'))
+        .filter(|(meta, _)| meta.starts_with("160000 "))
+        .map(|(_, path)| path)
+        .find(|path| repo.join(path).join(".git").exists())
+        .map(String::from)
+}
+
 /// `git -C repo <args>`'s trimmed stdout, if it succeeded with output.
 fn git_out(repo: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
@@ -199,8 +252,16 @@ pub fn graft(
     uid: u32,
     gid: u32,
 ) -> anyhow::Result<Tree> {
-    let Some(dot) = served_git(cas, state_dir, repo)? else {
-        return Ok(tree);
+    // A checkout this cannot serve gets no .git, as before this was served
+    // at all: the step runs, and says why.
+    let dot = match served_git(cas, state_dir, repo) {
+        Ok(Some(dot)) => dot,
+        Ok(None) => return Ok(tree),
+        Err(e) => {
+            eprintln!("QUOD  note: no .git served: {e:#}");
+            tracing::warn!(target: "quod", error = %format!("{e:#}"), "no .git served");
+            return Ok(tree);
+        }
     };
     let tree = tree.merged_at(".git", &dot);
     let (tree, r) =
@@ -257,12 +318,115 @@ mod tests {
         for d in ["refs", "refs/tags", "objects/pack"] {
             assert_eq!(t.get(d).map(|e| e.k), Some(quod_cas::Kind::Dir), "{d}");
         }
-        assert!(state.join(format!("gitdirs/{sha}.v1.json")).is_file());
+        assert!(state.join(format!("gitdirs/{sha}.v2.json")).is_file());
         // Detached: HEAD is the commit, no branch.
         git(&repo, &["checkout", "-q", "--detach"]);
         let d = served_git(&cas, &state, &repo).unwrap().unwrap();
         assert_eq!(file(&d, "HEAD"), format!("{sha}\n"));
         assert!(d.get("refs/heads/main").is_none());
         assert_eq!(d.get("refs/heads").map(|e| e.k), Some(quod_cas::Kind::Dir));
+    }
+
+    fn committed(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        git(dir, &["init", "-q", "-b", "main"]);
+        for i in 0..150 {
+            std::fs::write(dir.join(format!("f{i}")), format!("{i}\n")).unwrap();
+        }
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-q", "-m", "one"]);
+    }
+
+    #[test]
+    fn the_objects_memo_is_reused_and_packs_do_not_depend_on_the_fetch() {
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        committed(&repo);
+        let pack = |state: &Path| -> Vec<Entry> {
+            let cas = Cas::open(state.join("cas")).unwrap();
+            let t = served_git(&cas, state, &repo).unwrap().unwrap();
+            t.iter()
+                .filter(|e| e.p.starts_with("objects/pack/"))
+                .cloned()
+                .collect()
+        };
+        let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+        let first = pack(&a);
+        assert!(first.iter().any(|e| e.p.ends_with(".pack")), "{first:?}");
+        // The same commit fetched into another state: the same pack.
+        assert_eq!(pack(&b), first);
+        // A second call in one state uses the memo: with no room to fetch
+        // (tmp/ is a file now), it still serves, the same objects.
+        let _ = quod_cas::remove_any(&a.join("tmp"));
+        std::fs::write(a.join("tmp"), "not a directory").unwrap();
+        assert_eq!(pack(&a), first);
+    }
+
+    #[test]
+    fn what_it_cannot_serve_gets_no_git_and_the_step_still_runs() {
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let state = tmp.path().join("state");
+        let cas = Cas::open(state.join("cas")).unwrap();
+        let ws = || Tree::from_leaves([Entry::file("a", cas.put(b"a\n").unwrap(), 0o644)]);
+        let grafted = |repo: &Path, state: &Path| {
+            graft(&cas, state, repo, ws(), 1001, 1001)
+                .unwrap()
+                .get(".git")
+                .is_some()
+        };
+        // An initialized submodule: its .git file points into the
+        // superproject's .git/modules, which is not served.
+        let sub = tmp.path().join("sub");
+        committed(&sub);
+        let sup = tmp.path().join("sup");
+        committed(&sup);
+        git(
+            &sup,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                sub.to_str().unwrap(),
+                "vendored",
+            ],
+        );
+        git(&sup, &["commit", "-q", "-m", "submodule"]);
+        let e = served_git(&cas, &state, &sup).unwrap_err().to_string();
+        assert!(e.contains("vendored") && e.contains("submodule"), "{e}");
+        assert!(!grafted(&sup, &state));
+        // Not initialized (a fresh clone without --recurse-submodules): an
+        // empty directory git status handles, served as usual.
+        let clone = tmp.path().join("clone");
+        git(
+            tmp.path(),
+            &[
+                "clone",
+                "-q",
+                sup.to_str().unwrap(),
+                clone.to_str().unwrap(),
+            ],
+        );
+        assert!(grafted(&clone, &state));
+        // --repo below the top level: the index's paths are the top level's.
+        std::fs::create_dir_all(sup.join("deep")).unwrap();
+        let e = served_git(&cas, &state, &sup.join("deep"))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("below the checkout's top level"), "{e}");
+        assert!(!grafted(&sup.join("deep"), &state));
+        // A fetch that cannot happen (no room for its scratch repository):
+        // no .git, not a failed run.
+        let blocked = tmp.path().join("blocked");
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(blocked.join("tmp"), "not a directory").unwrap();
+        assert!(!grafted(&clone, &blocked));
     }
 }
