@@ -75,8 +75,11 @@ pub struct Job {
     /// The container env from the workflow (`container.env`) plus what the
     /// runner adds (HOME).
     pub env: BTreeMap<String, String>,
+    /// The runner's own mounts (the work directory, externals, the
+    /// workflow's event and command files, HOME). The workflow's volumes
+    /// are refused at prepare_job; a `user_mounts` an older job.json may
+    /// carry is ignored.
     pub system_mounts: Vec<protocol::Mount>,
-    pub user_mounts: Vec<protocol::Mount>,
     /// How many steps ran so far.
     pub steps: u32,
     /// The unpacked image; `None` in host-root mode (tests).
@@ -158,12 +161,19 @@ impl Job {
         rootfs: Option<Rootfs>,
         platform: Platform,
     ) -> anyhow::Result<Job> {
+        // prepare_job refuses volumes first; this is the second line.
+        if let Some(m) = c.user_mount_volumes.first() {
+            bail!(
+                "container volume {} is not supported by the stillpass runner",
+                m.target_volume_path
+            );
+        }
         let id = ulid::Ulid::generate().to_string();
         let dir = jobs_dir(state_dir).join(&id);
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         let image = c.image.clone().context("job container without an image")?;
         let (uid, gid) = user_option(c.create_options.as_deref())?;
-        let mut job = Job {
+        let job = Job {
             id,
             image,
             is_alpine: rootfs.as_ref().is_some_and(|r| r.is_alpine),
@@ -173,7 +183,6 @@ impl Job {
                 .context("job container without a working directory")?,
             env: c.environment_variables.clone(),
             system_mounts: c.system_mount_volumes.clone(),
-            user_mounts: c.user_mount_volumes.clone(),
             steps: 0,
             rootfs,
             uid,
@@ -196,12 +205,6 @@ impl Job {
             dir,
             state_dir: state_dir.to_path_buf(),
         };
-        if !job.user_mounts.is_empty() {
-            job.dirty.push(format!(
-                "user volume {} is not observed",
-                job.user_mounts[0].target_volume_path
-            ));
-        }
         job.save()?;
         Ok(job)
     }
@@ -387,8 +390,10 @@ impl Job {
         {
             return None;
         }
+        // The runner's mounts only: event.json, RUNNER_TEMP, the tool cache
+        // and the workspace are where the runner put them.
         let mut best: Option<(&protocol::Mount, &str)> = None;
-        for m in self.system_mounts.iter().chain(&self.user_mounts) {
+        for m in &self.system_mounts {
             let t = m.target_volume_path.trim_end_matches('/');
             let rest = if container_path == t {
                 Some("")
@@ -1099,9 +1104,7 @@ fn host_copy(job: &Job, cas: &Cas, c: &checkout::CheckedOut) -> anyhow::Result<(
         .state_dir
         .join("host-copies")
         .join(slug(&host.to_string_lossy()));
-    // The copy is reused only by a job of the scope that made it: a
-    // runner-surface step of another scope (a fork's) could have changed it.
-    let stamp = format!("{} {} {}", job.repository, job.scope_name, c.sha);
+    let stamp = host_copy_stamp(job, &c.sha);
     let current = std::fs::read_to_string(&marker).unwrap_or_default();
     let populated = std::fs::read_dir(&host).is_ok_and(|mut d| d.next().is_some());
     if current.trim() == stamp && populated {
@@ -1119,6 +1122,20 @@ fn host_copy(job: &Job, cas: &Cas, c: &checkout::CheckedOut) -> anyhow::Result<(
     std::fs::write(&marker, &stamp)?;
     tracing::info!(target: "stillpass", job = %job.id, ms = t.elapsed().as_millis() as u64, "host checkout copy");
     Ok(())
+}
+
+/// Whose copy of the checkout the host directory holds. It is reused only
+/// by a job of the scope and kind that made it: a runner-surface step of
+/// another scope (a fork's) or of a job that is not a writer (a pull
+/// request of the repository itself) could have changed it, and the runner
+/// reads local actions from it.
+fn host_copy_stamp(job: &Job, sha: &str) -> String {
+    format!(
+        "{} {} {} {sha}",
+        job.repository,
+        job.scope_name,
+        if job.writer { "writer" } else { "reader" }
+    )
 }
 
 /// The run of one step on one surface.
@@ -2169,6 +2186,95 @@ mod tests {
         std::fs::write(job.join("step-001/stdout"), "raw output").unwrap();
         assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 1);
         assert!(!job.exists());
+    }
+
+    fn job_with_workflow_mount(tmp: &Path) -> Job {
+        let work = tmp.join("_work");
+        for d in ["_temp/_github_workflow", "o/r"] {
+            std::fs::create_dir_all(work.join(d)).unwrap();
+        }
+        let m = |s: &str, t: &str| protocol::Mount {
+            source_volume_path: work.join(s).to_string_lossy().into_owned(),
+            target_volume_path: t.into(),
+            read_only: false,
+        };
+        let c = Container {
+            image: Some("golang@sha256:x".into()),
+            working_directory: Some("/__w/o/r".into()),
+            system_mount_volumes: vec![
+                m("", "/__w"),
+                m("_temp", "/__w/_temp"),
+                m("_temp/_github_workflow", "/github/workflow"),
+            ],
+            ..Container::default()
+        };
+        Job::create(&tmp.join("state"), &c, None, Platform::test_aarch64()).unwrap()
+    }
+
+    /// N1: a volume never reaches a job. Job::create refuses one (behind
+    /// prepare_job's refusal), and paths resolve through the runner's own
+    /// mounts only: a `user_mounts` onto /github/workflow/event.json that a
+    /// job.json carries cannot replace the payload the scope is read from.
+    #[test]
+    fn volumes_never_reach_a_job() {
+        let tmp = tempfile::tempdir().unwrap();
+        let c = Container {
+            image: Some("golang@sha256:x".into()),
+            working_directory: Some("/__w/o/r".into()),
+            user_mount_volumes: vec![protocol::Mount {
+                source_volume_path: "/".into(),
+                target_volume_path: "/host".into(),
+                read_only: false,
+            }],
+            ..Container::default()
+        };
+        let Err(e) = Job::create(
+            &tmp.path().join("state"),
+            &c,
+            None,
+            Platform::test_aarch64(),
+        ) else {
+            panic!("a container volume is refused");
+        };
+        assert!(e.to_string().contains("/host"), "{e}");
+        assert!(!jobs_dir(&tmp.path().join("state")).exists());
+
+        let job = job_with_workflow_mount(tmp.path());
+        let forged = tmp.path().join("forged");
+        std::fs::create_dir_all(&forged).unwrap();
+        std::fs::write(forged.join("event.json"), "{}").unwrap();
+        let p = job.dir().join("job.json");
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        v["user_mounts"] = serde_json::json!([{
+            "source_volume_path": forged.join("event.json"),
+            "target_volume_path": "/github/workflow/event.json",
+            "read_only": false
+        }]);
+        std::fs::write(&p, v.to_string()).unwrap();
+        let job = Job::load(&tmp.path().join("state"), &job.id).unwrap();
+        assert_eq!(
+            job.host_path("/github/workflow/event.json").unwrap(),
+            tmp.path().join("_work/_temp/_github_workflow/event.json")
+        );
+        assert_eq!(job.host_path("/host/etc/passwd"), None);
+    }
+
+    /// N1: the host copy of the checkout is not shared between a writer and
+    /// a job that is not one, nor between scopes.
+    #[test]
+    fn the_host_copy_stamp_names_the_kind_of_job() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut job = job_with_workflow_mount(tmp.path());
+        job.repository = "o/r".into();
+        job.scope_name = "trusted".into();
+        job.writer = true;
+        let writer = host_copy_stamp(&job, "abc");
+        job.writer = false;
+        let reader = host_copy_stamp(&job, "abc");
+        job.scope_name = "fork-evil_r".into();
+        let fork = host_copy_stamp(&job, "abc");
+        assert!(writer != reader && reader != fork && writer != fork);
+        assert!(writer.ends_with("abc") && writer.contains("writer"));
     }
 
     /// MINOR 6: the sweep leaves a job whose owner still runs, and never

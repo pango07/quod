@@ -510,7 +510,7 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
     let mut cmd = vec![args.entry_point.clone()];
     cmd.extend(args.entry_point_args.iter().cloned());
     let mut mounts: Vec<Mount> = Vec::new();
-    for m in job.system_mounts.iter().chain(&job.user_mounts) {
+    for m in &job.system_mounts {
         if m.target_volume_path
             .trim_end_matches('/')
             .ends_with("docker.sock")

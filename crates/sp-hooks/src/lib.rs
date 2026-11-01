@@ -78,6 +78,21 @@ fn prepare_job(
     let container = args
         .container
         .context("this runner requires a job container (ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER)")?;
+    // A volume is a host path the workflow names, bound into the job: on
+    // the runner's surface writable, where the step runs as root. A fork's
+    // `volumes: ['/:/host']` would reach every scope, the seeds, the store
+    // and this binary. Refused, like services, before anything is made.
+    if !container.user_mount_volumes.is_empty() {
+        bail!(
+            "container volumes are not supported by the stillpass runner ({})",
+            container
+                .user_mount_volumes
+                .iter()
+                .map(|m| m.target_volume_path.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let image = container
         .image
         .clone()
@@ -123,4 +138,46 @@ fn cleanup_job(state_dir: &Path, input: &Input, policy: &Policy) -> anyhow::Resu
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// N1: a job whose container names volumes is refused at prepare_job,
+    /// before a job directory or an image exists.
+    #[test]
+    fn container_volumes_are_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = serde_json::json!({
+            "command": "prepare_job",
+            "responseFile": tmp.path().join("response.json"),
+            "state": {},
+            "args": {
+                "container": {
+                    "image": "golang@sha256:x",
+                    "workingDirectory": "/__w/o/r",
+                    "systemMountVolumes": [],
+                    "userMountVolumes": [
+                        {"sourceVolumePath": "/", "targetVolumePath": "/host", "readOnly": false}
+                    ]
+                },
+                "services": []
+            }
+        });
+        let probe: &HostClass = &|_, _| panic!("the host is never probed for a refused job");
+        let e = run(
+            tmp.path(),
+            &mut input.to_string().as_bytes(),
+            &Policy::default(),
+            probe,
+        )
+        .unwrap_err();
+        let e = format!("{e:#}");
+        assert!(
+            e.contains("container volumes are not supported") && e.contains("(/host)"),
+            "{e}"
+        );
+        assert!(!job::jobs_dir(tmp.path()).exists(), "no job directory");
+    }
 }
