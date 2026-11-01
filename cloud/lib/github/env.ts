@@ -27,7 +27,11 @@ const v = (env: Env, k: string) => env[k]?.trim() ?? "";
 /** A PEM pasted into a one-line env field has literal "\n"s; restore them. */
 export function normalizePem(pem: string): string {
   const t = pem.trim();
-  return t.includes("\\n") && !t.includes("\n") ? t.replace(/\\n/g, "\n") : t;
+  if (t.includes("\\n") && !t.includes("\n")) return t.replace(/\\n/g, "\n");
+  // Pasted on one line (phones turn the line breaks into spaces): rebuild it.
+  const m = !t.includes("\n") && t.match(/^(-----BEGIN [A-Z ]+-----)\s*([A-Za-z0-9+/=\s]+?)\s*(-----END [A-Z ]+-----)$/);
+  if (m) return [m[1], ...(m[2].replace(/\s+/g, "").match(/.{1,64}/g) ?? []), m[3]].join("\n");
+  return t;
 }
 
 /** The App's config, or null with the missing names. */

@@ -91,6 +91,10 @@ describe("operators and App config", () => {
   it("needs all six GITHUB_APP_* values, and restores newlines in a pasted key", () => {
     expect(githubAppConfig({ GITHUB_APP_ID: "1" })).toMatchObject({ ok: false });
     expect(normalizePem("-----BEGIN RSA PRIVATE KEY-----\\nabc\\n-----END RSA PRIVATE KEY-----")).toBe("-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----");
+    const body = "A".repeat(70) + "B".repeat(10);
+    expect(normalizePem(`-----BEGIN RSA PRIVATE KEY----- ${body.slice(0, 40)} ${body.slice(40)} -----END RSA PRIVATE KEY-----`)).toBe(
+      `-----BEGIN RSA PRIVATE KEY-----\n${body.slice(0, 64)}\n${body.slice(64)}\n-----END RSA PRIVATE KEY-----`,
+    );
   });
 
   it("lists the six values to paste, marking the secrets", () => {

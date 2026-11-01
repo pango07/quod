@@ -48,7 +48,7 @@ export async function confirmLink(): Promise<void> {
       );
     }
   } catch (e) {
-    console.warn("[quod-cloud] github link failed", { installationId: claim.installationId, error: e instanceof Error ? e.name : "unknown" });
+    console.warn("[quod-cloud] github link failed", { installationId: claim.installationId, ...errorInfo(e) });
     redirect("/github/link?error=github");
   }
   await clearClaim();
@@ -80,4 +80,11 @@ export async function disconnectGitHub(slug: string, _prev: DisconnectResult, fo
   console.info("[quod-cloud] github installation disconnected", { installationId: Number(raw), team: team.orgId });
   revalidatePath(`/${team.slug}/settings`);
   return { ok: true, message: "Disconnected. To remove the App from GitHub too, uninstall it in GitHub's settings." };
+}
+
+/** What failed, for the log: class, status or code, and the message, never a request or a secret. */
+function errorInfo(e: unknown): Record<string, unknown> {
+  if (!(e instanceof Error)) return { error: "unknown" };
+  const x = e as Error & { status?: number; code?: string };
+  return { error: e.constructor?.name || e.name, status: x.status, code: x.code, message: e.message.slice(0, 200) };
 }
