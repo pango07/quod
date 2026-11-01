@@ -38,6 +38,9 @@ pub fn run(
     platform: &HostClass,
 ) -> anyhow::Result<i32> {
     let input = Input::read(stdin)?;
+    // Held for the whole invocation: the pool's sweep of stale jobs takes
+    // it exclusively (`job::sweep_stale_jobs`).
+    let _state = job::state_lock_shared(state_dir)?;
     match input.command {
         Command::PrepareJob => prepare_job(state_dir, &input, policy, platform),
         Command::CleanupJob => cleanup_job(state_dir, &input, policy),

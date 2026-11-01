@@ -121,6 +121,10 @@ pub struct Job {
     /// once at prepare_job the way `stillpass run` does).
     #[serde(default)]
     pub platform: Option<Platform>,
+    /// The runner's worker process this job runs under, as prepare_job
+    /// found it: while it lives the job is live, and the sweep leaves it.
+    #[serde(default)]
+    pub owner: Option<Owner>,
     /// The trees of action directories bound into this step (for the scan).
     #[serde(skip)]
     pub action_trees: BTreeMap<String, Tree>,
@@ -187,6 +191,7 @@ impl Job {
             started_ms: now_ms(),
             hashes: BTreeMap::new(),
             platform: Some(platform),
+            owner: Owner::of_this_hook(),
             action_trees: BTreeMap::new(),
             dir,
             state_dir: state_dir.to_path_buf(),
@@ -521,43 +526,196 @@ fn import_persisted(cas: &Cas, dir: &Path) -> anyhow::Result<Tree> {
     Ok(Tree::from_leaves(leaves))
 }
 
-/// Removes every job directory under `state_dir`, unmounting what is still
-/// mounted in them first (deepest first, lazily). For the pool's start,
-/// when no job of this state can be running: a runner killed with SIGKILL
-/// never reaches cleanup_job, and its job directory keeps the steps' raw
-/// output, its job.json and the overlay and FUSE mounts. Returns how many
-/// job directories it removed.
+/// A process, by pid and start time (so a reused pid is not it).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owner {
+    pub pid: u32,
+    /// Clock ticks after boot (field 22 of /proc/<pid>/stat).
+    pub start: u64,
+}
+
+impl Owner {
+    /// The runner's worker process this hook runs under: the nearest
+    /// ancestor named `Runner.Worker` (the shim's node process is in
+    /// between), or else the parent (a test harness).
+    pub fn of_this_hook() -> Option<Owner> {
+        let parent = std::os::unix::process::parent_id();
+        let mut pid = parent;
+        for _ in 0..8 {
+            if pid <= 1 {
+                break;
+            }
+            if std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .is_ok_and(|c| c.trim_end() == "Runner.Worker")
+            {
+                return Owner::of(pid);
+            }
+            match proc_stat(pid) {
+                Some(st) => pid = st.ppid,
+                None => break,
+            }
+        }
+        Owner::of(parent)
+    }
+
+    pub fn of(pid: u32) -> Option<Owner> {
+        proc_stat(pid).map(|st| Owner {
+            pid,
+            start: st.start,
+        })
+    }
+
+    /// Still running: the same pid with the same start time, not a zombie.
+    pub fn alive(&self) -> bool {
+        proc_stat(self.pid).is_some_and(|st| st.start == self.start && st.state != 'Z')
+    }
+}
+
+struct ProcStat {
+    state: char,
+    ppid: u32,
+    start: u64,
+}
+
+/// State, parent and start time from /proc/<pid>/stat (the fields after the
+/// parenthesised comm, which may itself hold spaces and parentheses).
+fn proc_stat(pid: u32) -> Option<ProcStat> {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let f: Vec<&str> = s[s.rfind(')')? + 1..].split_whitespace().collect();
+    Some(ProcStat {
+        state: f.first()?.chars().next()?,
+        ppid: f.get(1)?.parse().ok()?,
+        start: f.get(19)?.parse().ok()?,
+    })
+}
+
+/// The state directory's lock. Every hook invocation holds it shared
+/// (`lib::run`), the sweep exclusively: a sweep never runs while a hook is
+/// mid-way (a prepare_job that has made its job directory but not yet said
+/// who owns it, a step with its mounts up). Between a live job's hooks no
+/// lock is held; its owner (`Owner`) is what keeps it from the sweep.
+pub fn state_lock_shared(state_dir: &Path) -> anyhow::Result<std::fs::File> {
+    let f = open_state_lock(state_dir)?;
+    f.lock_shared()
+        .context("lock the state directory (shared)")?;
+    Ok(f)
+}
+
+fn open_state_lock(state_dir: &Path) -> anyhow::Result<std::fs::File> {
+    std::fs::create_dir_all(state_dir)?;
+    let p = state_dir.join("hooks.lock");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&p)
+        .with_context(|| format!("open {}", p.display()))
+}
+
+/// A path field of /proc/self/mountinfo, whose space, tab, newline and
+/// backslash are written as octal escapes (`\040`, `\011`, `\012`, `\134`).
+fn unescape_mountinfo(field: &str) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+    let b = field.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let octal = b
+            .get(i + 1..i + 4)
+            .filter(|d| d.iter().all(|c| (b'0'..=b'7').contains(c)));
+        match octal {
+            Some(d) if b[i] == b'\\' => {
+                let v = d.iter().fold(0u32, |n, c| n * 8 + u32::from(c - b'0'));
+                match u8::try_from(v) {
+                    Ok(byte) => {
+                        out.push(byte);
+                        i += 4;
+                    }
+                    Err(_) => {
+                        out.push(b[i]);
+                        i += 1;
+                    }
+                }
+            }
+            _ => {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+    }
+    PathBuf::from(std::ffi::OsString::from_vec(out))
+}
+
+/// Removes the job directories under `state_dir` whose owner (the runner's
+/// worker process that ran prepare_job) is gone, unmounting what is still
+/// mounted in them first (deepest first, lazily): a runner killed with
+/// SIGKILL never reaches cleanup_job, and its job directory keeps the
+/// steps' raw output, its job.json and the overlay and FUSE mounts. A job
+/// whose worker still runs (another pool on this state, a worker that
+/// outlived its listener) is left alone. Takes the state lock exclusively,
+/// waiting up to a minute for running hooks; if they do not finish, sweeps
+/// nothing. Returns how many job directories it removed.
 pub fn sweep_stale_jobs(state_dir: &Path) -> anyhow::Result<usize> {
+    sweep_stale_jobs_waiting(state_dir, Duration::from_secs(60))
+}
+
+fn sweep_stale_jobs_waiting(state_dir: &Path, wait: Duration) -> anyhow::Result<usize> {
     let jobs = jobs_dir(state_dir);
     let Ok(rd) = std::fs::read_dir(&jobs) else {
         return Ok(0);
     };
-    let prefix = format!("{}/", jobs.display());
-    let mut mounts: Vec<String> = std::fs::read_to_string("/proc/self/mountinfo")
+    let lock = open_state_lock(state_dir)?;
+    let t = Instant::now();
+    loop {
+        match lock.try_lock() {
+            Ok(()) => break,
+            Err(std::fs::TryLockError::WouldBlock) if t.elapsed() < wait => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                eprintln!(
+                    "stillpass: hooks of this state are still running after {}s; stale jobs not swept",
+                    wait.as_secs()
+                );
+                return Ok(0);
+            }
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(e).context("lock the state directory (exclusive)");
+            }
+        }
+    }
+    let owner = |dir: &Path| -> Option<Owner> {
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("job.json")).ok()?).ok()?;
+        serde_json::from_value(v.get("owner")?.clone()).ok()
+    };
+    let stale: Vec<PathBuf> = rd
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.path())
+        .filter(|d| !owner(d).is_some_and(|o| o.alive()))
+        .collect();
+    let mut mounts: Vec<PathBuf> = std::fs::read_to_string("/proc/self/mountinfo")
         .unwrap_or_default()
         .lines()
-        .filter_map(|l| l.split(' ').nth(4).map(str::to_string))
-        .filter(|m| m.starts_with(&prefix))
+        .filter_map(|l| l.split(' ').nth(4).map(unescape_mountinfo))
+        .filter(|m| stale.iter().any(|d| m.starts_with(d)))
         .collect();
-    mounts.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    mounts.sort_by_key(|m| std::cmp::Reverse(m.as_os_str().len()));
     for m in &mounts {
         let st = std::process::Command::new("umount")
             .arg("-l")
             .arg(m)
             .status();
         if !st.is_ok_and(|s| s.success()) {
-            tracing::warn!(target: "stillpass", mount = %m, "stale job mount not unmounted");
+            tracing::warn!(target: "stillpass", mount = %m.display(), "stale job mount not unmounted");
         }
     }
-    let mut removed = 0;
-    for e in rd.flatten() {
-        if e.file_type().is_ok_and(|t| t.is_dir()) {
-            sp_cas::remove_any(&e.path())
-                .with_context(|| format!("remove stale job {}", e.path().display()))?;
-            removed += 1;
-        }
+    for d in &stale {
+        sp_cas::remove_any(d).with_context(|| format!("remove stale job {}", d.display()))?;
     }
-    Ok(removed)
+    Ok(stale.len())
 }
 
 pub(crate) fn jobs_dir(state_dir: &Path) -> PathBuf {
@@ -2011,6 +2169,63 @@ mod tests {
         std::fs::write(job.join("step-001/stdout"), "raw output").unwrap();
         assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 1);
         assert!(!job.exists());
+    }
+
+    /// MINOR 6: the sweep leaves a job whose owner still runs, and never
+    /// runs while a hook holds the state.
+    #[test]
+    fn the_sweep_spares_live_jobs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let me = Owner::of(std::process::id()).expect("this process");
+        assert!(me.alive());
+        let job = |id: &str, owner: Option<Owner>| {
+            let d = jobs_dir(tmp.path()).join(id);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(
+                d.join("job.json"),
+                serde_json::json!({ "owner": owner }).to_string(),
+            )
+            .unwrap();
+            d
+        };
+        let live = job("01LIVE", Some(me));
+        // The same pid started at another time: a reused pid, gone.
+        let reused = job(
+            "01REUSED",
+            Some(Owner {
+                start: me.start + 1,
+                ..me
+            }),
+        );
+        let ownerless = job("01OLD", None);
+        // A hook holding the state: the sweep waits, then sweeps nothing.
+        let held = state_lock_shared(tmp.path()).unwrap();
+        assert_eq!(
+            sweep_stale_jobs_waiting(tmp.path(), Duration::from_millis(300)).unwrap(),
+            0
+        );
+        assert!(reused.exists() && ownerless.exists());
+        drop(held);
+        assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 2);
+        assert!(live.exists() && !reused.exists() && !ownerless.exists());
+    }
+
+    #[test]
+    fn mountinfo_paths_are_unescaped() {
+        assert_eq!(
+            unescape_mountinfo(r"/state/jobs/a\040b/step\011x\134y"),
+            PathBuf::from("/state/jobs/a b/step\tx\\y")
+        );
+        assert_eq!(
+            unescape_mountinfo(r"/plain/path"),
+            PathBuf::from("/plain/path")
+        );
+        // Not an escape: left as written.
+        assert_eq!(
+            unescape_mountinfo(r"/a\9xy\04"),
+            PathBuf::from(r"/a\9xy\04")
+        );
+        assert_eq!(unescape_mountinfo(r"/a\777"), PathBuf::from(r"/a\777"));
     }
 
     #[test]
