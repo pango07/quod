@@ -367,9 +367,17 @@ pub fn open(cas: &Cas, digest: &Hash) -> anyhow::Result<Rootfs> {
 }
 
 /// Serves `tree` read-only at `dir` (created): the observer without its log.
+/// Opens are answered (no zero-message opens): a root filesystem is mostly
+/// binaries and libraries read once per process, which passthrough serves
+/// without a READ reaching userspace.
 fn serve_tree(cas: &Cas, tree: &Tree, dir: &Path) -> anyhow::Result<quod_fs::Served> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
-    quod_fs::serve(tree, cas, dir).with_context(|| format!("serve the rootfs at {}", dir.display()))
+    let opts = quod_fs::Options {
+        zero_open: false,
+        ..quod_fs::Options::from_env()
+    };
+    quod_fs::serve_with(tree, cas, dir, &opts)
+        .with_context(|| format!("serve the rootfs at {}", dir.display()))
 }
 
 /// Unmounts a served tree. The log is discarded, but an I/O error served to

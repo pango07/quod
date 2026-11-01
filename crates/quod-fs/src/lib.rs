@@ -226,7 +226,7 @@ mod unsupported {
                 uring_pin: true,
                 uring_depth: 4,
                 uring_nice: -10,
-                zero_open: true,
+                zero_open: false,
                 zero_opendir: true,
                 xattr_enosys: true,
                 #[cfg(feature = "fault-injection")]
@@ -321,7 +321,7 @@ mod unsupported {
 
     pub struct Observed {
         pub accesses: Vec<Access>,
-        pub opened: std::collections::BTreeSet<String>,
+        pub opened: Option<std::collections::BTreeSet<String>>,
     }
 
     impl Overlay {

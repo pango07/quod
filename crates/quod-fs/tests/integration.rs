@@ -348,6 +348,11 @@ fn zero_message_opens_log_what_answered_opens_log() {
     for i in 0..300 {
         fs::write(src.join(format!("pkg/f{i:03}.txt")), format!("{i}\n")).unwrap();
     }
+    fs::create_dir_all(src.join("bin")).unwrap();
+    fs::write(src.join("bin/run.sh"), "#!/bin/sh\necho ran \"$1\"\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(src.join("bin/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(src.join("pkg/empty.txt"), "").unwrap();
     let cas = Cas::open(tmp.path().join("cas")).unwrap();
     let tree = cas.import_dir(&src).unwrap();
     let workloads = [
@@ -355,6 +360,10 @@ fn zero_message_opens_log_what_answered_opens_log() {
         "for i in 1 2 3; do ls -lA . pkg pkg/cmd empty; ls -f pkg | sort | cksum; done",
         "stat pkg/nope.go nope/x 2>&1; stat pkg/nope.go 2>&1; cat link; readlink link; true",
         "dd if=pkg/cmd/big.bin bs=4096 skip=300 count=3 2>/dev/null | cksum; head -c 7 go.mod",
+        // exec(2) of a served file, twice; an empty file opened and read.
+        "./bin/run.sh a; ./bin/run.sh b; sh bin/run.sh c; cat pkg/empty.txt; wc -c pkg/empty.txt",
+        // mmap(2): pages come in by page faults, not read(2).
+        "python3 -c 'import mmap,sys\nfor p in sys.argv[1:]:\n f=open(p,\"rb\"); m=mmap.mmap(f.fileno(),0,prot=mmap.PROT_READ); print(len(m), m[1000:1004].hex(), m[-3:].hex())' pkg/cmd/big.bin pkg/cmd/big.bin go.mod",
     ];
     let mut n = 0;
     for script in workloads {
@@ -380,16 +389,19 @@ fn zero_message_opens_log_what_answered_opens_log() {
         }
         let (out, log, zs) = &seen[0];
         assert!(zs.zero_open && zs.zero_opendir, "{zs:?}");
+        assert!(
+            log.opened.is_none(),
+            "{script}: zero-message opens know no opened set"
+        );
+        assert_eq!(seen[1].1.opened, seen[2].1.opened, "{script}: opened");
         for (o, l, s) in &seen[1..] {
             assert_eq!(o, out, "{script}: the step saw something else ({s:?})");
             assert_eq!(
                 l.accesses, log.accesses,
                 "{script}: answered opens logged differently ({s:?})"
             );
-            // These workloads read every file they open, so the files
-            // served bytes are the same set either way (with zero-message
-            // opens it comes from the READs; see `Options::zero_open`).
-            assert_eq!(l.opened, log.opened, "{script}: opened ({s:?})");
+            // Which files were opened is known only with answered opens.
+            assert!(l.opened.is_some(), "{script}: {s:?}");
         }
         if script.contains("find . -type f") {
             // 300-odd files read three times: one OPEN reached the observer.

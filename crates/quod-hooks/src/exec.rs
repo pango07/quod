@@ -360,9 +360,12 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             .map(|a| a.path.clone())
             .collect()
     };
+    // Unknown (a mount with zero-message opens, which this one is not):
+    // every file counts as opened, so none is exempt from the scan.
+    let opened = |p: &String| observed.opened.as_ref().is_none_or(|o| o.contains(p));
     let mut unopened: BTreeSet<String> = file_paths(&log)
         .into_iter()
-        .filter(|p| !observed.opened.contains(p))
+        .filter(|p| !opened(p))
         .collect();
     if let Some(s) = &sealed {
         log.extend(sealed_accesses(x.tree, &s.prefix, &s.carve_out));
@@ -383,7 +386,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         unopened.extend(
             file_paths(&log)
                 .into_iter()
-                .filter(|p| !before.contains(p) && !observed.opened.contains(p)),
+                .filter(|p| !before.contains(p) && !opened(p)),
         );
     }
     // A sealed prefix is bound over the observed tree: the observer never
