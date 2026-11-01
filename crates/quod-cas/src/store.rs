@@ -741,11 +741,13 @@ mod move_tests {
         let file = out.join("a");
         fs::write(&file, b"hashed bytes").unwrap();
         let h = Hash::of(b"hashed bytes");
+        // A writer the caller did not stop holds the file open already (the
+        // move makes it read-only, so reopening would fail for non-root).
+        let writer = Mutex::new(fs::OpenOptions::new().append(true).open(&file).unwrap());
         let err = cas
             .take_files_with(std::slice::from_ref(&file), |_| Ok(()), &|_| {
-                // A writer the caller did not stop: other bytes, other size.
-                let mut f = fs::OpenOptions::new().append(true).open(&file).unwrap();
-                f.write_all(b" and more").unwrap();
+                // Other bytes, other size.
+                writer.lock().unwrap().write_all(b" and more").unwrap();
             })
             .unwrap_err();
         assert!(matches!(err, CasError::Changed(_)), "{err}");
