@@ -1050,7 +1050,9 @@ fn hooks_acceptance() {
     // recorded (it may still replay a clean run); and what it leaves in
     // the module cache does not persist.
     r.mode = "replay";
-    let files_under = |root: &Path| -> BTreeMap<PathBuf, Vec<u8>> {
+    // Path to content hash (never the bytes: on cli/cli the warm cache is
+    // gigabytes).
+    let files_under = |root: &Path| -> BTreeMap<PathBuf, sp_cas::Hash> {
         let mut out = BTreeMap::new();
         let mut stack = vec![root.to_path_buf()];
         while let Some(d) = stack.pop() {
@@ -1059,7 +1061,8 @@ fn hooks_acceptance() {
                 if t.is_dir() {
                     stack.push(e.path());
                 } else {
-                    out.insert(e.path(), std::fs::read(e.path()).unwrap_or_default());
+                    let bytes = std::fs::read(e.path()).unwrap_or_default();
+                    out.insert(e.path(), sp_cas::Hash::of(&bytes));
                 }
             }
         }
