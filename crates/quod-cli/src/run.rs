@@ -556,8 +556,9 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // state, audit row), the run row (with the transport that observed it,
     // which results_by_transport and purge_transport find results through),
     // the manifest and the result commit together or not at all.
+    // (record_execution_facts inserts the manifest; the trust layer reads
+    // proofs by manifest id, never the manifests table.)
     let verdict = ledger.atomically(|l| -> anyhow::Result<Verdict> {
-        l.put_manifest(&ex.manifest, &info.run_id)?;
         let v = trust.record_execution(
             &tstep,
             &info.run_id,

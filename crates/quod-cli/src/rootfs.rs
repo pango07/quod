@@ -202,13 +202,23 @@ pub fn host_probe() -> anyhow::Result<u8> {
 /// with every profile's PATH so it resolves the binaries steps do. The
 /// fallback for hosts without a rootfs; such a key never travels.
 pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
-    let out = Command::new("/bin/bash")
-        .arg("-c")
-        .arg(FINGERPRINT_SH)
-        .env_clear()
-        .env("PATH", quod_key::profile::HOST_PATH)
-        .output()
-        .context("run host fingerprint")?;
+    // The fingerprint and the platform probe are independent processes
+    // (~0.3s and ~0.2s): run them at once.
+    let (out, platform) = std::thread::scope(|s| {
+        let probe = s.spawn(|| platform(cas, runs));
+        let out = Command::new("/bin/bash")
+            .arg("-c")
+            .arg(FINGERPRINT_SH)
+            .env_clear()
+            .env("PATH", quod_key::profile::HOST_PATH)
+            .output()
+            .context("run host fingerprint");
+        let platform = probe
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("the host platform probe panicked")));
+        (out, platform)
+    });
+    let out = out?;
     if !out.status.success() {
         bail!(
             "host fingerprint failed ({}): {}",
@@ -219,7 +229,7 @@ pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     Ok(Image::new(
         ImageKind::Host,
         Hash::of(&out.stdout),
-        platform(cas, runs)?,
+        platform?,
     ))
 }
 
