@@ -12,6 +12,7 @@ name: gate
 on:
   pull_request:
     branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
   push:
     branches: ['exp/**', 'fix/**', 'cloud/**', 'ci/**']
   workflow_dispatch:
@@ -38,9 +39,11 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
-  # Which jobs this event runs. Rust gates run when anything outside cloud/
-  # changed; the cloud job when cloud/ changed. A dispatch runs what `only`
-  # names, whatever changed.
+  # Which jobs this event runs (docs/ci.md, "Minute budget"). Rust gates run
+  # when anything outside cloud/ changed, the cloud job when cloud/ changed.
+  # A push, or a new commit on a pull request, runs the fast gates (lint,
+  # merge-gate, cloud); a pull request opened, reopened or marked ready runs
+  # every gate; a dispatch runs what `only` names, whatever changed.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -63,9 +66,15 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          ACTION: ${{ github.event.action }}
           ONLY: ${{ inputs.only || 'all' }}
         run: |
           core=false cloud=false
+          # The corpus gates cost ~2.5 h of runner time; see docs/ci.md.
+          if [ "$EVENT" = push ] || [ "$ACTION" = synchronize ]; then
+            ONLY=lint,merge-gate,cloud
+            echo "fast gates only ($EVENT${ACTION:+ $ACTION}); the corpus gates run on a pull request opened or ready, or by dispatch"
+          fi
           case "$EVENT" in
             workflow_dispatch) core=true cloud=true;;
             pull_request) files=$(git diff --name-only "$BASE...$HEAD");;
