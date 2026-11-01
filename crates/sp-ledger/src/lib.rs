@@ -311,16 +311,27 @@ impl Ledger {
     /// the version is read (BEGIN IMMEDIATE): two processes opening a new
     /// ledger at once (a runner pool's hooks) cannot both see version 0 and
     /// both run the first migration; the second waits, then sees it done.
+    /// Brings the schema up to date. An up-to-date ledger (every open but
+    /// its first, and the first after an upgrade) is a plain read and takes
+    /// no write lock, so opens never queue behind a long writer. Only a
+    /// pending migration takes BEGIN IMMEDIATE, and reads the version again
+    /// inside it: another process may have migrated in between.
     fn migrate(&mut self) -> Result<(), LedgerError> {
+        let known = MIGRATIONS.len();
+        let too_new = |found| LedgerError::TooNew { found, known };
+        let v = self.schema_version()?;
+        if v > known {
+            return Err(too_new(v));
+        }
+        if v == known {
+            return Ok(());
+        }
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let v = tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? as usize;
-        if v > MIGRATIONS.len() {
-            return Err(LedgerError::TooNew {
-                found: v,
-                known: MIGRATIONS.len(),
-            });
+        if v > known {
+            return Err(too_new(v));
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(v) {
             tx.execute_batch(sql)?;
@@ -1113,6 +1124,26 @@ mod tests {
         for h in handles {
             assert_eq!(h.join().unwrap().unwrap(), SCHEMA_VERSION);
         }
+    }
+
+    /// MINOR 8: opening an up-to-date ledger takes no write lock, so it
+    /// does not wait behind a writer holding one.
+    #[test]
+    fn an_up_to_date_open_does_not_wait_for_writers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("ledger.sqlite");
+        drop(Ledger::open(&path).unwrap());
+        let writer = Connection::open(&path).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let t = std::time::Instant::now();
+        let l = Ledger::open(&path).unwrap();
+        assert!(
+            t.elapsed() < BUSY_TIMEOUT / 2,
+            "an open waited {:?} behind a writer",
+            t.elapsed()
+        );
+        assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
+        writer.execute_batch("ROLLBACK").unwrap();
     }
 
     #[test]
