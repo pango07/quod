@@ -1,0 +1,152 @@
+host	Set up job	﻿2026-11-01T00:17:14.1872052Z Current runner version: '2.338.2'
+host	Set up job	2026-11-01T00:17:14.1909615Z ##[group]Runner Image Provisioner
+host	Set up job	2026-11-01T00:17:14.1911019Z Hosted Compute Agent
+host	Set up job	2026-11-01T00:17:14.1912203Z Version: 20261021.618
+host	Set up job	2026-11-01T00:17:14.1913421Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+host	Set up job	2026-11-01T00:17:14.1914761Z Build Date: 2026-10-21T00:45:21Z
+host	Set up job	2026-11-01T00:17:14.1916422Z Worker ID: {6e36af04-ccd7-4aa6-a8f8-16ec2174ea9e}
+host	Set up job	2026-11-01T00:17:14.1917706Z Region: westcentralus
+host	Set up job	2026-11-01T00:17:14.1918839Z Cloud: Azure
+host	Set up job	2026-11-01T00:17:14.1919848Z ##[endgroup]
+host	Set up job	2026-11-01T00:17:14.1922252Z ##[group]Operating System
+host	Set up job	2026-11-01T00:17:14.1923449Z Ubuntu
+host	Set up job	2026-11-01T00:17:14.1924387Z 26.04.1
+host	Set up job	2026-11-01T00:17:14.1925603Z LTS
+host	Set up job	2026-11-01T00:17:14.1926784Z ##[endgroup]
+host	Set up job	2026-11-01T00:17:14.1927805Z ##[group]Runner Image
+host	Set up job	2026-11-01T00:17:14.1929098Z Image: ubuntu-26.04
+host	Set up job	2026-11-01T00:17:14.1930180Z Version: 20261025.179.1
+host	Set up job	2026-11-01T00:17:14.1932136Z Included Software: https://github.com/actions/runner-images/blob/ubuntu26/20261025.179/images/ubuntu/Ubuntu2604-Readme.md
+host	Set up job	2026-11-01T00:17:14.1935634Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu26%2F20261025.179
+host	Set up job	2026-11-01T00:17:14.1937610Z ##[endgroup]
+host	Set up job	2026-11-01T00:17:14.1939828Z ##[group]GITHUB_TOKEN Permissions
+host	Set up job	2026-11-01T00:17:14.1942898Z Contents: read
+host	Set up job	2026-11-01T00:17:14.1943980Z Metadata: read
+host	Set up job	2026-11-01T00:17:14.1945789Z Packages: read
+host	Set up job	2026-11-01T00:17:14.1946994Z ##[endgroup]
+host	Set up job	2026-11-01T00:17:14.1950269Z Secret source: Actions
+host	Set up job	2026-11-01T00:17:14.1952018Z Cache mode: write
+host	Set up job	2026-11-01T00:17:14.1953657Z Prepare workflow directory
+host	Set up job	2026-11-01T00:17:14.2861483Z Prepare all required actions
+host	Set up job	2026-11-01T00:17:14.3071990Z Complete job name: host
+host	workflow and job env set it	﻿2026-11-01T00:17:14.5388992Z ##[group]Run echo "PROBE host workflow+job env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME (github.event_name=push)"
+host	workflow and job env set it	2026-11-01T00:17:14.5391842Z ^[[36;1mecho "PROBE host workflow+job env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME (github.event_name=push)"^[[0m
+host	workflow and job env set it	2026-11-01T00:17:14.5819361Z shell: /usr/bin/bash -e {0}
+host	workflow and job env set it	2026-11-01T00:17:14.5820498Z env:
+host	workflow and job env set it	2026-11-01T00:17:14.5821069Z   GITHUB_EVENT_NAME: workflow_dispatch
+host	workflow and job env set it	2026-11-01T00:17:14.5821833Z ##[endgroup]
+host	workflow and job env set it	2026-11-01T00:17:14.6120318Z PROBE host workflow+job env -> GITHUB_EVENT_NAME=push (github.event_name=push)
+host	step env sets it	﻿2026-11-01T00:17:14.6373572Z ##[group]Run echo "PROBE host step env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+host	step env sets it	2026-11-01T00:17:14.6374632Z ^[[36;1mecho "PROBE host step env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"^[[0m
+host	step env sets it	2026-11-01T00:17:14.6416490Z shell: /usr/bin/bash -e {0}
+host	step env sets it	2026-11-01T00:17:14.6417381Z env:
+host	step env sets it	2026-11-01T00:17:14.6418136Z   GITHUB_EVENT_NAME: schedule
+host	step env sets it	2026-11-01T00:17:14.6419069Z ##[endgroup]
+host	step env sets it	2026-11-01T00:17:14.6578549Z PROBE host step env -> GITHUB_EVENT_NAME=push
+host	GITHUB_ENV sets it	﻿2026-11-01T00:17:14.6656417Z ##[group]Run echo "GITHUB_EVENT_NAME=schedule" >> "$GITHUB_ENV"
+host	GITHUB_ENV sets it	2026-11-01T00:17:14.6657920Z ^[[36;1mecho "GITHUB_EVENT_NAME=schedule" >> "$GITHUB_ENV"^[[0m
+host	GITHUB_ENV sets it	2026-11-01T00:17:14.6701651Z shell: /usr/bin/bash -e {0}
+host	GITHUB_ENV sets it	2026-11-01T00:17:14.6702623Z env:
+host	GITHUB_ENV sets it	2026-11-01T00:17:14.6703392Z   GITHUB_EVENT_NAME: workflow_dispatch
+host	GITHUB_ENV sets it	2026-11-01T00:17:14.6704327Z ##[endgroup]
+host	after GITHUB_ENV	﻿2026-11-01T00:17:14.6863472Z ##[group]Run echo "PROBE host after GITHUB_ENV -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+host	after GITHUB_ENV	2026-11-01T00:17:14.6865667Z ^[[36;1mecho "PROBE host after GITHUB_ENV -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"^[[0m
+host	after GITHUB_ENV	2026-11-01T00:17:14.6902472Z shell: /usr/bin/bash -e {0}
+host	after GITHUB_ENV	2026-11-01T00:17:14.6903001Z env:
+host	after GITHUB_ENV	2026-11-01T00:17:14.6903433Z   GITHUB_EVENT_NAME: schedule
+host	after GITHUB_ENV	2026-11-01T00:17:14.6903936Z ##[endgroup]
+host	after GITHUB_ENV	2026-11-01T00:17:14.6956453Z PROBE host after GITHUB_ENV -> GITHUB_EVENT_NAME=push
+host	Complete job	﻿2026-11-01T00:17:14.7046150Z Cleaning up orphan processes
+container	Set up job	﻿2026-11-01T00:17:14.3852946Z Current runner version: '2.338.2'
+container	Set up job	2026-11-01T00:17:14.3883769Z ##[group]Runner Image Provisioner
+container	Set up job	2026-11-01T00:17:14.3884813Z Hosted Compute Agent
+container	Set up job	2026-11-01T00:17:14.3885535Z Version: 20261021.618
+container	Set up job	2026-11-01T00:17:14.3886408Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+container	Set up job	2026-11-01T00:17:14.3887296Z Build Date: 2026-10-21T00:45:21Z
+container	Set up job	2026-11-01T00:17:14.3888253Z Worker ID: {b9f4071c-2707-4921-bf63-023b30493f60}
+container	Set up job	2026-11-01T00:17:14.3889152Z Region: westus3
+container	Set up job	2026-11-01T00:17:14.3889801Z Cloud: Azure
+container	Set up job	2026-11-01T00:17:14.3890553Z ##[endgroup]
+container	Set up job	2026-11-01T00:17:14.3892448Z ##[group]Operating System
+container	Set up job	2026-11-01T00:17:14.3893317Z Ubuntu
+container	Set up job	2026-11-01T00:17:14.3894034Z 26.04.1
+container	Set up job	2026-11-01T00:17:14.3894702Z LTS
+container	Set up job	2026-11-01T00:17:14.3895428Z ##[endgroup]
+container	Set up job	2026-11-01T00:17:14.3896148Z ##[group]Runner Image
+container	Set up job	2026-11-01T00:17:14.3896996Z Image: ubuntu-26.04
+container	Set up job	2026-11-01T00:17:14.3897800Z Version: 20261025.179.1
+container	Set up job	2026-11-01T00:17:14.3899122Z Included Software: https://github.com/actions/runner-images/blob/ubuntu26/20261025.179/images/ubuntu/Ubuntu2604-Readme.md
+container	Set up job	2026-11-01T00:17:14.3901382Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu26%2F20261025.179
+container	Set up job	2026-11-01T00:17:14.3902979Z ##[endgroup]
+container	Set up job	2026-11-01T00:17:14.3904469Z ##[group]GITHUB_TOKEN Permissions
+container	Set up job	2026-11-01T00:17:14.3906687Z Contents: read
+container	Set up job	2026-11-01T00:17:14.3907433Z Metadata: read
+container	Set up job	2026-11-01T00:17:14.3908108Z Packages: read
+container	Set up job	2026-11-01T00:17:14.3908848Z ##[endgroup]
+container	Set up job	2026-11-01T00:17:14.3911270Z Secret source: Actions
+container	Set up job	2026-11-01T00:17:14.3913182Z Cache mode: write
+container	Set up job	2026-11-01T00:17:14.3914271Z Prepare workflow directory
+container	Set up job	2026-11-01T00:17:14.4457477Z Prepare all required actions
+container	Set up job	2026-11-01T00:17:14.6041803Z Complete job name: container
+container	Initialize containers	﻿2026-11-01T00:17:14.6823183Z ##[group]Checking docker version
+container	Initialize containers	2026-11-01T00:17:14.6834348Z ##[command]/usr/bin/docker version --format '{{.Server.APIVersion}}'
+container	Initialize containers	2026-11-01T00:17:16.3745085Z '1.54'
+container	Initialize containers	2026-11-01T00:17:16.3776997Z Docker daemon API version: '1.54'
+container	Initialize containers	2026-11-01T00:17:16.3777895Z ##[command]/usr/bin/docker version --format '{{.Client.APIVersion}}'
+container	Initialize containers	2026-11-01T00:17:16.3944024Z '1.54'
+container	Initialize containers	2026-11-01T00:17:16.4056105Z Docker client API version: '1.54'
+container	Initialize containers	2026-11-01T00:17:16.4061667Z ##[endgroup]
+container	Initialize containers	2026-11-01T00:17:16.4065326Z ##[group]Clean up resources from previous jobs
+container	Initialize containers	2026-11-01T00:17:16.4071653Z ##[command]/usr/bin/docker ps --all --quiet --no-trunc --filter "label=ff144d"
+container	Initialize containers	2026-11-01T00:17:16.4237308Z ##[command]/usr/bin/docker network prune --force --filter "label=ff144d"
+container	Initialize containers	2026-11-01T00:17:16.4389772Z ##[endgroup]
+container	Initialize containers	2026-11-01T00:17:16.4390308Z ##[group]Create local container network
+container	Initialize containers	2026-11-01T00:17:16.4399750Z ##[command]/usr/bin/docker network create --label ff144d github_network_8677e98f930e4a93aaf04d76d636fcfd
+container	Initialize containers	2026-11-01T00:17:16.4991599Z cc836b682dc6e4200fdb369fcfbf8eb5d8443a11c2898cff0491e7e363ae5187
+container	Initialize containers	2026-11-01T00:17:16.5017427Z ##[endgroup]
+container	Initialize containers	2026-11-01T00:17:16.5038674Z ##[group]Starting job container
+container	Initialize containers	2026-11-01T00:17:16.5057256Z ##[command]/usr/bin/docker pull alpine:3.20
+container	Initialize containers	2026-11-01T00:17:17.3039563Z 3.20: Pulling from library/alpine
+container	Initialize containers	2026-11-01T00:17:17.6987358Z 25f1d6b1951a: Pulling fs layer
+container	Initialize containers	2026-11-01T00:17:17.9232057Z 25f1d6b1951a: Download complete
+container	Initialize containers	2026-11-01T00:17:18.0229027Z d4050d56ebf2: Download complete
+container	Initialize containers	2026-11-01T00:17:18.1105583Z 3a030ca3f633: Download complete
+container	Initialize containers	2026-11-01T00:17:18.1137154Z 25f1d6b1951a: Pull complete
+container	Initialize containers	2026-11-01T00:17:18.1145003Z Digest: sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+container	Initialize containers	2026-11-01T00:17:18.1146271Z Status: Downloaded newer image for alpine:3.20
+container	Initialize containers	2026-11-01T00:17:18.1149587Z docker.io/library/alpine:3.20
+container	Initialize containers	2026-11-01T00:17:18.1319553Z ##[command]/usr/bin/docker create --name 309d6f8943ce49a69895ed9e7e018f0d_alpine320_a12489 --label ff144d --workdir /__w/stillpass/stillpass --network github_network_8677e98f930e4a93aaf04d76d636fcfd  -e "HOME=/github/home" -e GITHUB_ACTIONS=true -e CI=true -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work":"/__w" -v "/home/runner/actions-runner/cached/2.338.2/externals":"/__e":ro -v "/home/runner/work/_temp":"/__w/_temp" -v "/home/runner/work/_actions":"/__w/_actions" -v "/opt/hostedtoolcache":"/__t" -v "/home/runner/work/_temp/_github_home":"/github/home" -v "/home/runner/work/_temp/_github_workflow":"/github/workflow" --entrypoint "tail" alpine:3.20 "-f" "/dev/null"
+container	Initialize containers	2026-11-01T00:17:20.7179998Z a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Initialize containers	2026-11-01T00:17:20.7207637Z ##[command]/usr/bin/docker start a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Initialize containers	2026-11-01T00:17:21.9017166Z a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Initialize containers	2026-11-01T00:17:21.9050381Z ##[command]/usr/bin/docker ps --all --filter id=a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7 --filter status=running --no-trunc --format "{{.ID}} {{.Status}}"
+container	Initialize containers	2026-11-01T00:17:21.9263444Z a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7 Up 1 second
+container	Initialize containers	2026-11-01T00:17:21.9287050Z ##[command]/usr/bin/docker inspect --format "{{range .Config.Env}}{{println .}}{{end}}" a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Initialize containers	2026-11-01T00:17:21.9421526Z HOME=/github/home
+container	Initialize containers	2026-11-01T00:17:21.9422516Z GITHUB_ACTIONS=true
+container	Initialize containers	2026-11-01T00:17:21.9424148Z CI=true
+container	Initialize containers	2026-11-01T00:17:21.9424784Z PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+container	Initialize containers	2026-11-01T00:17:21.9446582Z ##[endgroup]
+container	Initialize containers	2026-11-01T00:17:21.9455173Z ##[group]Waiting for all services to be ready
+container	Initialize containers	2026-11-01T00:17:21.9456616Z ##[endgroup]
+container	container job, step env sets it	﻿2026-11-01T00:17:21.9639357Z ##[group]Run echo "PROBE container step env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+container	container job, step env sets it	2026-11-01T00:17:21.9639947Z ^[[36;1mecho "PROBE container step env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"^[[0m
+container	container job, step env sets it	2026-11-01T00:17:21.9643303Z shell: sh -e {0}
+container	container job, step env sets it	2026-11-01T00:17:21.9643779Z env:
+container	container job, step env sets it	2026-11-01T00:17:21.9643954Z   GITHUB_EVENT_NAME: schedule
+container	container job, step env sets it	2026-11-01T00:17:21.9644182Z ##[endgroup]
+container	container job, step env sets it	2026-11-01T00:17:22.0261624Z PROBE container step env -> GITHUB_EVENT_NAME=push
+container	container job, job env	﻿2026-11-01T00:17:22.0396934Z ##[group]Run echo "PROBE container job env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+container	container job, job env	2026-11-01T00:17:22.0397466Z ^[[36;1mecho "PROBE container job env -> GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"^[[0m
+container	container job, job env	2026-11-01T00:17:22.0397858Z shell: sh -e {0}
+container	container job, job env	2026-11-01T00:17:22.0398035Z env:
+container	container job, job env	2026-11-01T00:17:22.0398202Z   GITHUB_EVENT_NAME: workflow_dispatch
+container	container job, job env	2026-11-01T00:17:22.0398418Z ##[endgroup]
+container	container job, job env	2026-11-01T00:17:22.0915915Z PROBE container job env -> GITHUB_EVENT_NAME=push
+container	Stop containers	﻿2026-11-01T00:17:22.1030384Z Stop and remove container: 309d6f8943ce49a69895ed9e7e018f0d_alpine320_a12489
+container	Stop containers	2026-11-01T00:17:22.1034367Z ##[command]/usr/bin/docker rm --force a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Stop containers	2026-11-01T00:17:22.2232525Z a4aa695ae6318d2134bee1a872a9280430fd8a149e7f58b55815e297eba370e7
+container	Stop containers	2026-11-01T00:17:22.2276062Z Remove container network: github_network_8677e98f930e4a93aaf04d76d636fcfd
+container	Stop containers	2026-11-01T00:17:22.2279444Z ##[command]/usr/bin/docker network rm github_network_8677e98f930e4a93aaf04d76d636fcfd
+container	Stop containers	2026-11-01T00:17:22.2907212Z github_network_8677e98f930e4a93aaf04d76d636fcfd
+container	Complete job	﻿2026-11-01T00:17:22.2980535Z Cleaning up orphan processes
