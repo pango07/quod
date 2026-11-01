@@ -143,3 +143,117 @@ events from the clock for the sample team.
 
 Members, invitations, SSO and directory sync are not in this API: they live
 in WorkOS and the app calls WorkOS directly (`lib/auth/directory.ts`).
+
+## Event sources: GitHub App
+
+Live CI job status comes from the Quod CI GitHub App's `workflow_job` and
+`workflow_run` webhooks, stored in Postgres by the app itself (not
+quod-server): `POST /api/github/webhook` writes, `lib/github/live.ts`
+reads. Types are in `lib/live-events.ts`; they mirror cloud/live's
+`LiveJob` and the `job.*` members of `LiveEvent` field for field, plus a
+few additions.
+
+**Server-side functions** (`lib/github/live.ts`). Each takes a `TeamId`,
+which only `teamIdOf(await requireTeam(slug))` makes (it is the team's
+WorkOS organization id). A team sees rows only through an installation
+linked to it, not uninstalled or suspended, in a repo still in that installation. No
+function takes an installation id from a client. `db` is optional (the
+app's database by default; PGlite in tests).
+
+| Function | Returns |
+| --- | --- |
+| `runningJobs(teamId)` | `LiveJob[]` in progress, newest first (last 24 h) |
+| `queuedJobs(teamId)` | `LiveJob[]` queued, waiting or pending, oldest first (last 24 h) |
+| `jobById(teamId, jobId)` | `LiveJob` or null |
+| `recentRuns(teamId, repo?, { limit })` | `LiveRun[]` newest first; `repo` is `owner/name` or a bare name |
+| `teamInstallations(teamId)` | linked installations and their repos |
+| `onTeamJobChange(teamId, { signal, after?, intervalMs? })` | `AsyncIterable<LiveJobEvent>` until `signal` aborts |
+| `subscribeTeamJobs(teamId, listener, opts?)` | an unsubscribe function; the team's shared poller calls `listener(event)` |
+| `jobEventFromRow(row)`, `jobEventFromPayload(payload, { version })` | the event for a stored row or a raw payload |
+
+**Event.** `LiveJobEvent = { id, at, type, job }`. `type` is `job.queued`
+(status queued, waiting, pending or requested), `job.started`
+(in_progress) or `job.finished` (completed). `id` is `gh-<version>`:
+increasing across all GitHub job changes, usable as the SSE id; pass the
+client's Last-Event-ID as `after` to resume. `at` is when Quod stored the
+change. A redelivery or a stale delivery produces no event.
+
+**`LiveJob`.** `id` (GitHub job id, string), `repoSlug` (the GitHub repo
+name), `repoName` (owner/name), `runNumber` (0 until the run's
+`workflow_run` delivery arrives; the job is re-announced then), `workflow`,
+`job`, `branch`, `sha`, `actor` (the run's actor, else the delivery's
+sender), `runner` (`ubuntu-latest`, or `[self-hosted, quod]` for several
+labels), `githubUrl`, `status` (`queued`, `in_progress`, `completed`),
+`conclusion` (`success`, `failure` incl. timed_out and startup_failure,
+`cancelled`; absent otherwise), `queuedAt`, `startedAt` (once running),
+`finishedAt`, `currentStep` (`{ index, name }`, the step GitHub reported in
+progress), `stepsTotal`. Additions: `source: "github"`, `runId`,
+`runAttempt`, `labels`, `githubConclusion` (as GitHub sent it),
+`runnerName`.
+
+**Granularity.** GitHub sends `workflow_job` on queued, waiting,
+in_progress and completed only, not per step. The step list in an in_progress
+payload may be partial; it is complete with completed. So
+`currentStep` from GitHub is coarse; Quod's own step events (runner hooks)
+are the fine-grained source for jobs that run Quod.
+
+**Ordering.** Deliveries can arrive late and out of order. Each job and
+run row only moves forward on (run attempt, status rank, payload time):
+queued-like 1, in_progress 2, completed 3. A late `in_progress` never
+overwrites `completed`; a re-run (new `run_attempt`) may move a run back
+to queued.
+
+**Change feed: polling, not LISTEN/NOTIFY.** Neon's pooled connections
+(PgBouncer, transaction mode) cannot LISTEN, and a direct connection held
+open per instance would keep Neon from scaling to zero. So the feed polls
+`workflow_jobs.row_updated_at`, with these rules:
+
+- **One poller per team per function instance**, however many viewers.
+  `subscribeTeamJobs(teamId, listener)` returns an unsubscribe function;
+  `onTeamJobChange` is one consumer of it. The poller starts with the
+  first subscriber and stops with the last. With no subscribers there are
+  no queries, and the pool closes idle connections after 20 s, so Neon can
+  scale to zero.
+- **One query per poll.** The database clock is folded into the row query,
+  so it also covers polls where nothing changed.
+- **Back-off when idle.** Every 2 s while jobs change; after 3 idle polls,
+  every 5 s; after 10, every 10 s. A change resets it.
+- **Look-back.** Each poll looks back 15 s by database time and yields only
+  versions it has not yielded, so a write that commits after a later one is
+  not missed.
+- **Resume.** `after` (Last-Event-ID) runs one catch-up query for that
+  consumer, without repeating what the shared poller then delivers.
+
+**Lost deliveries.** GitHub does not resend a failed webhook by itself.
+`lib/github/reconcile.ts` heals them. A pass does two things:
+
+- **Redeliver.** It lists the App's failed deliveries (App JWT,
+  `status=failure`) and asks GitHub to send again each GUID that Quod's
+  `deliveries` table never recorded. Dedupe makes a duplicate harmless.
+- **Re-read.** Any run, or the run of any job, still unfinished and not
+  updated (or checked) for 15 minutes is re-read from GitHub's REST API.
+  The REST objects have the webhook shape, so they go through the same
+  monotonic upserts. `reconciled_at` rotates long healthy runs to the back.
+
+Two triggers, because Vercel Hobby allows one cron a day:
+
+- **Daily cron.** `/api/github/reconcile` (`vercel.json`, `CRON_SECRET`)
+  covers every team, the last 25 hours of failures, and retention (runs and
+  jobs after 30 days, delivery ids after 7).
+- **Lazy, while someone watches.** A team's shared poller calls the
+  reconcile hook on its first poll and then every 15 minutes per instance
+  (`PollOptions.reconcile`, default `lib/github/lazy-reconcile.ts`). The
+  hook runs in the background (Vercel `waitUntil`; the stream never awaits
+  it) and first claims the team's `reconcile_state` row with one atomic
+  statement:
+
+  ```sql
+  INSERT ... ON CONFLICT (key) DO UPDATE SET last_run_at = now()
+  WHERE last_run_at < now() - interval '15 minutes' RETURNING key
+  ```
+
+  So across all instances, a team is reconciled at most every 15 minutes,
+  scoped to its own installations, with the last 3 hours of failures.
+
+Nobody watching means nothing runs between daily passes, so Neon can scale
+to zero. Rows of suspended installations are hidden from every query above.
