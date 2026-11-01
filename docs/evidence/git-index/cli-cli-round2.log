@@ -1,0 +1,65 @@
+== before
+== main 2a24fd8, CLI: what quod run serves a go build on cli/cli
+QUOD  moved /work/tmp/tmp.CE42Jymaii/repo/.quod/gomod out of the checkout to /work/tmp/tmp.CE42Jymaii/state/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/go/gomod
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+go version -m vcs lines: 0
+QUOD  EXECUTED
+  step b3:480de43c  manifest b3:5bacaf81  29,346 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.config/go/telemetry
+  ran 6.8s
+== main 2a24fd8, hooks: hooks_git_index in measure mode (QUOD_GIT_INDEX_MEASURE=1)
+G1 go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 7.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+G1 vcs: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+G1 manifest (entries, files): 10214, 7342; observer: 9754 lookups, 21210 opens, 0 MiB read
+G0 git status re-checked: refresh/sum_scan:1545
+G1 next job, go build: QUOD  REPLAYED
+G1 same commit again, go build: QUOD  REPLAYED
+G2 go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 1.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+G2 same commit again, go test: QUOD  REPLAYED
+G3 README commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:fa2459f5 mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:fa2459f5 mode 644)] (1 of 1 identical proofs)
+G3 README commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:fa2459f5 mode 644), 6 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.1s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:7f3d413f mode 644 -> file b3:fa2459f5 mode 644), 6 more] (1 of 1 identical proofs)
+G4 .github commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:fa2459f5 mode 644 -> file b3:2306bdb8 mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:fa2459f5 mode 644 -> file b3:2306bdb8 mode 644)] (1 of 1 identical proofs)
+G4 Go source commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:2306bdb8 mode 644 -> file b3:b70af0d1 mode 644), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:2306bdb8 mode 644 -> file b3:b70af0d1 mode 644), 1 more] (1 of 1 identical proofs)
+G4 Go source commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:fa2459f5 mode 644 -> file b3:b70af0d1 mode 644), 9 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:fa2459f5 mode 644 -> file b3:b70af0d1 mode 644), 9 more] (1 of 1 identical proofs)
+G4 go.mod commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:b70af0d1 mode 644 -> file b3:bc72a112 mode 644), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at .git/HEAD [file content changed (file b3:b70af0d1 mode 644 -> file b3:bc72a112 mode 644), 1 more] (1 of 1 identical proofs)
+G5 go build with GITHUB_TOKEN withheld: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.5s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .github/govulncheck-version (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+  quod: `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: a file it read names GITHUB_TOKEN in .github/govulncheck-version (withheld from offline steps); ran again with the runner's environment
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.5s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .github/govulncheck-version (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+  quod: `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: a file it read names GITHUB_TOKEN in .github/govulncheck-version (withheld from offline steps); ran again with the runner's environment
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.5s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .github/govulncheck-version (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 39.23s
+== after
+G1 go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.9s; would replay: no, first run of this step (1 of 1 identical proofs)
+G1 vcs: build	vcs.revision=9490d204a2ba95434153dedce99898ce9f281426, build	vcs.time=2026-10-30T18:24:31Z, build	vcs.modified=false
+G1 manifest (entries, files): 9733, 7343; observer: 9273 lookups, 19668 opens, 0 MiB read
+G0 git status re-checked: refresh/sum_scan:0
+G1 next job, go build: QUOD  REPLAYED
+G1 same commit again, go build: QUOD  REPLAYED
+G2 go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 1.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+G2 same commit again, go test: QUOD  REPLAYED
+G3 README commit, go test: QUOD  REPLAYED
+G3 README commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:68bdcc82 mode 644 -> file b3:a32c575c mode 644), 6 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:68bdcc82 mode 644 -> file b3:a32c575c mode 644), 6 more] (1 of 1 identical proofs)
+G4 .github commit, go test: QUOD  REPLAYED
+G4 Go source commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at pkg/cmdutil/args.go [file content changed (file b3:1d18957c mode 644 -> file b3:dfea2af8 mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.4s; would replay: no, closest manifest differed at pkg/cmdutil/args.go [file content changed (file b3:1d18957c mode 644 -> file b3:dfea2af8 mode 644)] (1 of 1 identical proofs)
+G4 Go source commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:a32c575c mode 644 -> file b3:e9306f6b mode 644), 10 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 1.0s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:a32c575c mode 644 -> file b3:e9306f6b mode 644), 10 more] (1 of 1 identical proofs)
+G4 go.mod commit, go test: QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.3s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:4dafe338 mode 644 -> file b3:35b4b42b mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./pkg/cmdutil/... ./pkg/cmd/issue/create/...`: ok in 0.3s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:4dafe338 mode 644 -> file b3:35b4b42b mode 644)] (1 of 1 identical proofs)
+G5 go build with GITHUB_TOKEN withheld: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.4s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .quod/gomod/github.com/cli/go-gh/v2@v2.17.0/pkg/auth/auth.go (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+  quod: `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: a file it read names GITHUB_TOKEN in .quod/gomod/github.com/cli/go-gh/v2@v2.17.0/pkg/auth/auth.go (withheld from offline steps); ran again with the runner's environment
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.4s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .quod/gomod/github.com/cli/go-gh/v2@v2.17.0/pkg/auth/auth.go (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+  quod: `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: a file it read names GITHUB_TOKEN in .quod/gomod/github.com/cli/go-gh/v2@v2.17.0/pkg/auth/auth.go (withheld from offline steps); ran again with the runner's environment
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/gh && go version -m bin/out | grep -E 'vcs\.' `: ok in 6.4s; would replay: no, tainted: a file it read names GITHUB_TOKEN in .quod/gomod/github.com/cli/go-gh/v2@v2.17.0/pkg/auth/auth.go (withheld from offline steps); ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+hooks git index: G1-G4 pass
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 38.24s

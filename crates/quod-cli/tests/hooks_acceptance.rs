@@ -1536,6 +1536,17 @@ fn hooks_git_index() {
     r.env.commit("G4: go.mod");
     let g4m = r.job(test, &[]);
     report("G4 go.mod commit, go test", &g4m);
+    // G5 (reported, not asserted): go build in a job that has GITHUB_TOKEN,
+    // which offline steps are not given: the withheld-name scan then reads
+    // every file the step was served. Which file it names, if any.
+    let g5 = r.job(
+        &build,
+        &[("GITHUB_TOKEN", "ghs_0123456789abcdefghijABCDEFGHIJ0123")],
+    );
+    report("G5 go build with GITHUB_TOKEN withheld", &g5);
+    for l in g5.stderr.lines().filter(|l| l.contains("names ")) {
+        println!("  {l}");
+    }
     if measure {
         return;
     }
