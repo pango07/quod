@@ -293,31 +293,21 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     };
     let r = sp_sandbox::run(&rs);
     let phases_exec = t.elapsed();
-    // Checked before anything is unmounted; a check that fails is a
-    // violation (not recorded, the cache wiped), never an early return
-    // that would skip the unmounting below.
-    let warm_violation = match (&gocache_dir, &warm_before) {
-        (Some(dir), Some(before)) => go_cache_delta(dir, before, x.masks).unwrap_or_else(|e| {
-            Some(format!(
-                "what it wrote into the warm build cache could not be checked ({e:#})"
-            ))
-        }),
+    let upper_dir = match &x.gocache {
+        GoCache::Layered { lower, layer } => Some((lower.clone(), layer.join("upper"))),
         _ => None,
     };
-    let warm_layer_written = match (&x.gocache, &layer_before) {
-        (GoCache::Layered { lower, layer }, Some(before)) => {
-            layer_written(lower, &layer.join("upper"), before)
-        }
-        _ => None,
-    };
-    // Unmounted here, before the workspace: a failure is a violation (the
-    // caller discards the layer), never an early return.
-    let warm_violation = match gocache_ov.map(unmount_patiently) {
-        Some(Err(e)) => warm_violation.or(Some(format!(
-            "the job's layer over the warm build cache could not be unmounted ({e})"
-        ))),
-        _ => warm_violation,
-    };
+    let (warm_violation, warm_layer_written) = finish_warm_cache(
+        warm_before.as_ref().and(gocache_dir.as_deref()),
+        warm_before.as_ref(),
+        x.masks,
+        upper_dir
+            .as_ref()
+            .zip(layer_before.as_ref())
+            .map(|((l, u), b)| (l.as_path(), u.as_path(), b)),
+        gocache_ov,
+        go_cache_delta,
+    );
 
     // Unmount everything whatever happened in the sandbox.
     let t = Instant::now();
@@ -619,6 +609,39 @@ fn go_cache_delta(
         }
     }
     Ok(None)
+}
+
+/// After a step, the warm build cache: checked (`check`, `go_cache_delta`)
+/// while still mounted, the job's layer's writes found, then the layer
+/// unmounted, whatever the check did. A check that fails, like an unmount
+/// that fails, is a violation (not recorded, the cache or layer wiped),
+/// never an early return that would leave the layer mounted. Returns the
+/// violation and the layer's first write.
+#[allow(clippy::type_complexity)]
+fn finish_warm_cache(
+    view: Option<&Path>,
+    before: Option<&BTreeMap<String, Ident>>,
+    masks: &[Vec<u8>],
+    layer: Option<(&Path, &Path, &BTreeMap<String, Ident>)>,
+    ov: Option<sp_fs::Overlay>,
+    check: impl Fn(&Path, &BTreeMap<String, Ident>, &[Vec<u8>]) -> anyhow::Result<Option<String>>,
+) -> (Option<String>, Option<String>) {
+    let violation = match (view, before) {
+        (Some(dir), Some(before)) => check(dir, before, masks).unwrap_or_else(|e| {
+            Some(format!(
+                "what it wrote into the warm build cache could not be checked ({e:#})"
+            ))
+        }),
+        _ => None,
+    };
+    let written = layer.and_then(|(lower, upper, before)| layer_written(lower, upper, before));
+    let violation = match ov.map(unmount_patiently) {
+        Some(Err(e)) => violation.or(Some(format!(
+            "the job's layer over the warm build cache could not be unmounted ({e})"
+        ))),
+        _ => violation,
+    };
+    (violation, written)
 }
 
 /// Where a run's stdout, stderr or workspace writes (`upper`) hold a
@@ -1050,6 +1073,49 @@ mod tests {
             )
             .unwrap())
             .is_some()
+        );
+    }
+
+    /// MINOR 7: a warm-cache check that fails is a violation, and the job's
+    /// layer is unmounted all the same (root; STILLPASS_INTEGRATION=1).
+    #[test]
+    fn a_failed_check_still_unmounts_the_layer() {
+        if std::env::var("STILLPASS_INTEGRATION").as_deref() != Ok("1") {
+            eprintln!("needs STILLPASS_INTEGRATION=1 (overlayfs); skipping");
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let (lower, upper, work, merged) = (
+            tmp.path().join("lower"),
+            tmp.path().join("upper"),
+            tmp.path().join("work"),
+            tmp.path().join("merged"),
+        );
+        std::fs::create_dir_all(&lower).unwrap();
+        let ov = sp_fs::overlay_layers(&[lower.as_path()], &upper, &work, &merged).unwrap();
+        let mounted = |p: &Path| {
+            std::fs::read_to_string("/proc/self/mountinfo")
+                .unwrap()
+                .lines()
+                .any(|l| l.split(' ').nth(4) == Some(p.to_str().unwrap()))
+        };
+        assert!(mounted(&merged));
+        let before = go_cache_snapshot(&merged);
+        let layer_before = go_cache_snapshot(&upper);
+        let (violation, _) = finish_warm_cache(
+            Some(&merged),
+            Some(&before),
+            &[],
+            Some((&lower, &upper, &layer_before)),
+            Some(ov),
+            |_, _, _| anyhow::bail!("injected"),
+        );
+        assert!(
+            violation.is_some_and(|v| v.contains("could not be checked") && v.contains("injected")),
+        );
+        assert!(
+            !mounted(&merged),
+            "the layer is unmounted after a failed check"
         );
     }
 

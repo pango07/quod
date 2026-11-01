@@ -307,15 +307,12 @@ impl Ledger {
         }
     }
 
-    /// Brings the schema up to date in one write transaction, taken before
-    /// the version is read (BEGIN IMMEDIATE): two processes opening a new
-    /// ledger at once (a runner pool's hooks) cannot both see version 0 and
-    /// both run the first migration; the second waits, then sees it done.
     /// Brings the schema up to date. An up-to-date ledger (every open but
     /// its first, and the first after an upgrade) is a plain read and takes
     /// no write lock, so opens never queue behind a long writer. Only a
     /// pending migration takes BEGIN IMMEDIATE, and reads the version again
-    /// inside it: another process may have migrated in between.
+    /// inside it: two hooks opening a new ledger at once both find it
+    /// pending, and the second, once it has the lock, finds it done.
     fn migrate(&mut self) -> Result<(), LedgerError> {
         let known = MIGRATIONS.len();
         let too_new = |found| LedgerError::TooNew { found, known };
