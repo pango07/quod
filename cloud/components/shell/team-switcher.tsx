@@ -62,7 +62,7 @@ export function TeamSwitcher({ current, teams }: { current: string; teams: TeamI
             Team settings
           </Link>
           <Link role="menuitem" className="menu-item" href={`/${current}/connect`} onClick={close}>
-            <Icon name="plus" size={14} /> Connect repository
+            <Icon name="plus" size={14} /> Connect GitHub
           </Link>
         </>
       )}

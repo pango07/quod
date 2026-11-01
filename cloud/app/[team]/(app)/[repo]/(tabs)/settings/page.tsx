@@ -18,12 +18,18 @@ export default async function RepoSettingsPage({ params }: PageProps<"/[team]/[r
       </h1>
       <section className="card" aria-label="Connection" style={{ padding: 20 }}>
         <dl style={{ margin: 0 }}>
-          {[
-            ["Repository", s.fullName],
-            ["Default branch", repo.defaultBranch],
-            ["Runners", s.runner === "self-hosted" ? "Your own runners" : "GitHub-hosted, via quodci/setup"],
-            ["Language", s.language],
-          ].map(([k, v], i) => (
+          {(s.hasQuodData === false
+            ? [
+                ["Repository", s.fullName],
+                ["CI data", "From GitHub (Quod CI App). Quod's settings appear once Quod runs in this repo."],
+              ]
+            : [
+                ["Repository", s.fullName],
+                ["Default branch", repo.defaultBranch],
+                ["Runners", s.runner === "self-hosted" ? "Your own runners" : "GitHub-hosted, via quodci/setup"],
+                ["Language", s.language],
+              ]
+          ).map(([k, v], i) => (
             <div key={k} className="kv" style={i === 0 ? { borderTop: 0, paddingTop: 0 } : undefined}>
               <dt>{k}</dt>
               <dd style={{ margin: 0 }}>{v}</dd>

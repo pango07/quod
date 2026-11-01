@@ -114,6 +114,14 @@ repo"). A team without one sees "Connect GitHub to see your CI live" (admins
 get the button; members are told to ask an admin). Without `DATABASE_URL`,
 or when the database does not answer, every page still renders and says so.
 
+Every page works for a linked team before Quod runs in it: Runs lists the
+workflow runs (filter by repo, branch, status; paged), a run opens at
+`/<team>/<repo>/actions/<GitHub run id>` with its jobs and steps, updating
+live; Runners lists the runners "Seen in your CI"; Usage shows CI minutes
+from job time. Quod-only numbers say "Appears once Quod runs". Empty states
+tell apart "not linked" (Connect GitHub), "linked, nothing yet" (push), and
+data (`components/github-ci.tsx`, `lib/github/pages.ts`).
+
 GitHub's webhooks report a job when it is queued, starts and completes, not
 per step. So while someone watches a team, its live poller also reads the
 team's running jobs from GitHub's REST API about every 15 s (at most 10 jobs

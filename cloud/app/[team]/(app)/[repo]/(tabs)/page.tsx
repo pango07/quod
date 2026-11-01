@@ -104,13 +104,16 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
               {repo.summary.github?.latestRun ? (
                 <>
                   Its CI shows above as it runs, from GitHub.{" "}
-                  <a href={repo.summary.github.latestRun.url} style={{ textDecoration: "underline" }}>
-                    Latest run on GitHub
-                  </a>
-                  .
+                  <Link href={`${base}/actions/${repo.summary.github.latestRun.id}`} style={{ textDecoration: "underline" }}>
+                    Latest run
+                  </Link>
+                  {" · "}
+                  <Link href={`${base}/runs`} style={{ textDecoration: "underline" }}>
+                    All runs
+                  </Link>
                 </>
               ) : (
-                "Its CI shows above as it runs, from GitHub."
+                "Its CI shows above as it runs, from GitHub. Push to see its runs."
               )}
             </EmptyState>
           ) : (

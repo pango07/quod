@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { ciState, QuodPending } from "@/components/github-ci";
 import { StepsTable } from "@/components/steps-table";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
+import { teamGitHub } from "@/lib/github/team-data";
 import { parseStepFilter } from "@/lib/params";
 
 export const metadata = { title: "Trust" };
@@ -12,7 +14,8 @@ const ORDER = { paused: 0, proving: 1, watching: 2, replaying: 3 } as const;
 export default async function TrustPage({ params, searchParams }: PageProps<"/[team]/trust">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
-  const steps = (await api().listSteps(team.slug)).sort((a, b) => ORDER[a.trust.kind] - ORDER[b.trust.kind]);
+  const [all, gh] = await Promise.all([api().listSteps(team.slug), teamGitHub(team.orgId)]);
+  const steps = all.sort((a, b) => ORDER[a.trust.kind] - ORDER[b.trust.kind]);
   const paused = steps.filter((s) => s.trust.kind === "paused");
   return (
     <div className="page">
@@ -38,7 +41,13 @@ export default async function TrustPage({ params, searchParams }: PageProps<"/[t
         <StepsTable team={team.slug} steps={steps} initial={parseStepFilter(sp.state)} showRepo />
       ) : (
         <section className="card">
-          <EmptyState title="Nothing to trust yet">Steps appear here after their first run with Quod.</EmptyState>
+          {gh.sample ? (
+            <EmptyState title="Nothing to trust yet">Steps appear here after their first run with Quod.</EmptyState>
+          ) : (
+            <QuodPending team={team.slug} state={ciState(gh.link, false)}>
+              Trust follows the steps Quod replays, and running Quod in your CI is in early access.
+            </QuodPending>
+          )}
         </section>
       )}
     </div>

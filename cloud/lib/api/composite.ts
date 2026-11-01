@@ -44,13 +44,13 @@ export interface CompositeOptions {
   pollIntervalMs?: number;
 }
 
-interface GhRepo {
+export interface GhRepo {
   id: number;
   fullName: string;
   slug: string;
 }
 
-type GitHubState =
+export type GitHubState =
   | { link: GitHubLink; teamId: null }
   | { link: Extract<GitHubLink, { state: "linked" }> | Extract<GitHubLink, { state: "unlinked" }>; teamId: TeamId; db: Db; repos: GhRepo[] };
 
@@ -103,6 +103,30 @@ function asOurs<J extends LiveJob>(job: J, repos: GhRepo[]): J {
   return fromGitHub(mine ? { ...job, repoSlug: mine.slug } : job);
 }
 
+/**
+ * A team's GitHub status by org id, and its repos when linked. Never throws,
+ * except Next's redirect/notFound. Shared by the composite and the GitHub
+ * pages (lib/github/team-data.ts), so both see the same link.
+ */
+export async function readGitHubState(orgId: string | null, gh: GitHubSource): Promise<GitHubState> {
+  if (!gh.configured()) return { link: { state: "not-configured" }, teamId: null };
+  if (!orgId) return { link: { state: "unlinked", canInstall: false }, teamId: null };
+  try {
+    const teamId = teamIdOf({ team: { orgId } });
+    const db = await gh.db();
+    const { teamInstallations } = await live();
+    const installs = await teamInstallations(teamId, db);
+    const active = installs.filter((i) => !i.suspended);
+    if (!active.length) return { link: { state: "unlinked", canInstall: gh.appReady() }, teamId, db, repos: [] };
+    const repos = githubRepoSlugs(active.flatMap((i) => i.repos));
+    return { link: { state: "linked", repos: repos.length, accounts: [...new Set(active.map((i) => i.account).filter(Boolean))] }, teamId, db, repos };
+  } catch (e) {
+    unstable_rethrow(e);
+    warn("github source unavailable", e);
+    return { link: { state: "unavailable" }, teamId: null };
+  }
+}
+
 export class CompositeCloudApi implements CloudApi {
   private readonly ctxs = new Map<string, Promise<TeamCtx>>();
 
@@ -124,24 +148,8 @@ export class CompositeCloudApi implements CloudApi {
   }
 
   /** The team's GitHub status, and its repos when linked. Never throws, except Next's redirect/notFound. */
-  private async github(c: TeamCtx): Promise<GitHubState> {
-    const gh = this.opts.github;
-    if (!gh.configured()) return { link: { state: "not-configured" }, teamId: null };
-    if (!c.orgId) return { link: { state: "unlinked", canInstall: false }, teamId: null };
-    try {
-      const teamId = teamIdOf({ team: { orgId: c.orgId } });
-      const db = await gh.db();
-      const { teamInstallations } = await live();
-      const installs = await teamInstallations(teamId, db);
-      const active = installs.filter((i) => !i.suspended);
-      if (!active.length) return { link: { state: "unlinked", canInstall: gh.appReady() }, teamId, db, repos: [] };
-      const repos = githubRepoSlugs(active.flatMap((i) => i.repos));
-      return { link: { state: "linked", repos: repos.length, accounts: [...new Set(active.map((i) => i.account).filter(Boolean))] }, teamId, db, repos };
-    } catch (e) {
-      unstable_rethrow(e);
-      warn("github source unavailable", e);
-      return { link: { state: "unavailable" }, teamId: null };
-    }
+  private github(c: TeamCtx): Promise<GitHubState> {
+    return readGitHubState(c.orgId, this.opts.github);
   }
 
   /** Repos from GitHub, with their latest workflow run, for those Quod has no data on. */
@@ -167,7 +175,7 @@ export class CompositeCloudApi implements CloudApi {
             hasQuodData: false,
             github: {
               latestRun: latest
-                ? { status: latest.status, conclusion: latest.githubConclusion, title: latest.title, url: latest.githubUrl, at: latest.startedAt ?? latest.updatedAt }
+                ? { id: latest.id, status: latest.status, conclusion: latest.githubConclusion, title: latest.title, url: latest.githubUrl, at: latest.startedAt ?? latest.updatedAt }
                 : null,
             },
           } satisfies RepoSummary;

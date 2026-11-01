@@ -26,19 +26,32 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
         {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
         {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
-        {github && github.state !== "linked" ? null : (
-        <section className="card">
-          <EmptyState
-            title="No repositories yet"
-            action={
-              <Link className="btn solid lg" href={`${base}/connect`}>
-                Connect repository
-              </Link>
-            }
-          >
-            Connect a repository and push. The first run only watches; from the second, steps whose inputs did not change come back in under a second.
-          </EmptyState>
-        </section>
+        {github?.state === "linked" ? (
+          <section className="card">
+            <EmptyState
+              title="No repositories yet"
+              action={
+                <Link className="btn lg" href={`${base}/settings#github-h`}>
+                  Manage GitHub
+                </Link>
+              }
+            >
+              GitHub is connected, but the Quod CI App can&apos;t see any repositories. Choose some on GitHub, from Settings.
+            </EmptyState>
+          </section>
+        ) : github ? null : (
+          <section className="card">
+            <EmptyState
+              title="No repositories yet"
+              action={
+                <Link className="btn solid lg" href={`${base}/connect`}>
+                  Connect repository
+                </Link>
+              }
+            >
+              Connect a repository and push. The first run only watches; from the second, steps whose inputs did not change come back in under a second.
+            </EmptyState>
+          </section>
         )}
       </div>
     );
@@ -54,9 +67,12 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         <h1 className="h1">Overview</h1>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <RangeToggle base={base} current={range} />
-          <Link className="btn solid" href={`${base}/connect`} style={{ fontSize: 14 }}>
-            Connect repository
-          </Link>
+          {/* The sample team's demo flow; a real team connects from the GitHub card or Settings. */}
+          {github ? null : (
+            <Link className="btn solid" href={`${base}/connect`} style={{ fontSize: 14 }}>
+              Connect repository
+            </Link>
+          )}
         </div>
       </div>
 

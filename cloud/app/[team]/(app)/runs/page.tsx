@@ -1,34 +1,21 @@
-import Link from "next/link";
-import { RunsTable } from "@/components/runs-table";
-import { EmptyState } from "@/components/ui";
+import { ciState } from "@/components/github-ci";
+import { RunsView } from "@/components/runs-view";
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
+import { githubRunsFor } from "@/lib/github/runs-data";
+import { teamGitHub } from "@/lib/github/team-data";
 
 export const metadata = { title: "Runs" };
 
-export default async function RunsPage({ params }: PageProps<"/[team]/runs">) {
-  const { team: slug } = await params;
+export default async function RunsPage({ params, searchParams }: PageProps<"/[team]/runs">) {
+  const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
-  const { asOf, runs } = await api().listRuns(team.slug, { limit: 50 });
+  const [{ asOf, runs }, gh] = await Promise.all([api().listRuns(team.slug, { limit: 50 }), teamGitHub(team.orgId)]);
+  const { link, data } = await githubRunsFor(gh, sp);
   return (
     <div className="page">
       <h1 className="h1">Runs</h1>
-      <section className="card" aria-label="Recent runs" style={{ overflow: "hidden" }}>
-        {runs.length ? (
-          <RunsTable team={team.slug} runs={runs} asOf={asOf} showRepo />
-        ) : (
-          <EmptyState
-            title="No runs yet"
-            action={
-              <Link className="btn solid lg" href={`/${team.slug}/connect`}>
-                Connect repository
-              </Link>
-            }
-          >
-            Runs show up here after the first push to a connected repository.
-          </EmptyState>
-        )}
-      </section>
+      <RunsView team={team.slug} asOf={asOf} state={ciState(link, runs.length > 0 || !!data?.any)} quodRuns={runs} github={data} base={`/${team.slug}/runs`} />
     </div>
   );
 }

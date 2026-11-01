@@ -68,7 +68,7 @@ export interface RepoSummary {
   /** False for a repo known only from GitHub: Quod has not run there yet, so replay rate and savings are not real numbers. */
   hasQuodData?: boolean;
   /** The latest workflow run GitHub reported, for repos from the GitHub App. */
-  github?: { latestRun: { status: "queued" | "in_progress" | "completed"; conclusion?: string; title: string; url: string; at: string | null } | null };
+  github?: { latestRun: { id: number; status: "queued" | "in_progress" | "completed"; conclusion?: string; title: string; url: string; at: string | null } | null };
 }
 
 export interface PausedStepRef {
@@ -345,6 +345,8 @@ export interface LiveJob {
   stepsTotal?: number;
   /** "github" for jobs from the GitHub App (lib/live-events.ts adds its own fields); absent for Quod's and the simulator's. */
   source?: "github";
+  /** GitHub's workflow run id, for jobs from the GitHub App (a GitHub run's page follows its jobs by it). */
+  runId?: number;
 }
 
 /** Whether a team's CI comes in from the GitHub App, and if not, why. */
