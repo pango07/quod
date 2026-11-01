@@ -81,6 +81,30 @@ pub struct RunSpec {
     /// Set by `run`: where the generated passwd and group files live.
     #[doc(hidden)]
     pub identity: Option<PathBuf>,
+    /// The step's uid and gid inside its user namespace. `None`: `STEP_UID`
+    /// (1001), as on a GitHub runner. Root (`Some(0)`) keeps the root
+    /// filesystem's own passwd and group; any other uid gets
+    /// `identity_files`, bound over them. The gid defaults to the uid.
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    /// Count the step's attempts to reach the network (no egress only):
+    /// the sandbox's own network namespace has nothing but loopback, so
+    /// every connect, send or DNS query aimed elsewhere fails with
+    /// ENETUNREACH, which the kernel counts (Ip OutNoRoutes, Ip6OutNoRoutes)
+    /// per namespace. The wrapper reads the counters after the command
+    /// exits. DNS needs a resolv.conf naming an address that is not local
+    /// (the caller binds one), or a lookup goes to loopback, uncounted.
+    ///
+    /// Limit: this counts only packets with no route (OutNoRoutes), the
+    /// signal that a process reached for an address the namespace cannot
+    /// carry. It does not count a connect to loopback (127.0.0.1 or ::1):
+    /// those have a route, so they fail with ECONNREFUSED, not a route
+    /// error, and are not counted. In the offline sandbox loopback has no
+    /// listener and reaches no service, so a loopback attempt performs no
+    /// side effect; a step that must taint on *any* socket attempt, rather
+    /// than only unroutable ones, needs a seccomp-notify or eBPF probe,
+    /// which this does not yet have.
+    pub net_probe: bool,
 }
 
 /// A directory to use as the step's `/`. It must already hold the mount
@@ -98,9 +122,30 @@ pub struct RootFs {
     pub writable: bool,
 }
 
-const PASSWD: &str =
-    "root:x:0:0:root:/root:/bin/sh\nrunner:x:1001:1001:runner:/workspace/.stillpass/home:/bin/sh\n";
-const GROUP: &str = "root:x:0:\nrunner:x:1001:\n";
+/// `STEP_UID` as a number.
+const DEFAULT_UID: u32 = 1001;
+
+/// The passwd and group bound over the root's for a step running as
+/// `uid`:`gid` (exposed so callers can key exactly what the step sees).
+/// For the default uid these are the fixed files every step has always had.
+pub fn identity_files(uid: u32, gid: u32) -> (String, String) {
+    let mut passwd = "root:x:0:0:root:/root:/bin/sh\n".to_string();
+    let mut group = "root:x:0:\n".to_string();
+    if uid != 0 {
+        passwd += &format!("runner:x:{uid}:{gid}:runner:/workspace/.stillpass/home:/bin/sh\n");
+    }
+    if gid != 0 {
+        group += &format!("runner:x:{gid}:\n");
+    }
+    (passwd, group)
+}
+
+impl RunSpec {
+    fn uid_gid(&self) -> (u32, u32) {
+        let uid = self.uid.unwrap_or(DEFAULT_UID);
+        (uid, self.gid.unwrap_or(uid))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunResult {
@@ -111,6 +156,25 @@ pub struct RunResult {
     /// Set when `run_with` killed the step itself (a limit, not the step's
     /// own doing). Such a run has no result worth recording.
     pub killed: Option<Killed>,
+    /// Processes the kernel killed for memory while the step ran: the
+    /// larger of the step's own cgroup count (`memory.events`, with a step
+    /// cgroup, see `cgroup_root`) and the machine-wide `/proc/vmstat` delta.
+    /// The step cgroup usually has no memory limit, so a kill under global
+    /// pressure shows only in vmstat; either signal counts (on a shared
+    /// machine vmstat also counts other tenants' kills, which only ever
+    /// keeps a step from being memoized). A step one of whose processes was
+    /// killed (a linker, say) can still exit 1 rather than die of the
+    /// signal, and that exit is the machine's: callers must not memoize it.
+    pub oom_kills: u64,
+    /// With `net_probe`: how many times the step tried to reach a network
+    /// it did not have. `None` when not probed, or when the counters could
+    /// not be read (callers that asked must assume an attempt).
+    pub net_attempts: Option<u64>,
+    /// Why the outcome may be the machine's rather than the step's: OOM
+    /// kills, the step cgroup's fork limit, a full disk, a fork that failed
+    /// for lack of resources (from the step's own error messages). Callers
+    /// must not memoize such a run.
+    pub resource_failure: Option<String>,
 }
 
 /// Why `run_with` killed a step.
@@ -162,6 +226,8 @@ const SYSTEM_PATHS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc
 /// /dev (a tmpfs the sandbox makes) so that creating its mount point leaves
 /// no trace in a rootfs overlay's upper dir.
 const STARTED: &str = "/dev/.stillpass-started";
+/// Where the network-probing wrapper writes the namespace's counters.
+const NET: &str = "/dev/.stillpass-net";
 
 /// The uid and gid a step runs as inside the sandbox.
 pub const STEP_UID: &str = "1001";
@@ -253,15 +319,18 @@ pub const HOSTNAME: &str = "stillpass";
 pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
     let mut a: Vec<String> = Vec::new();
     let mut push = |xs: &[&str]| a.extend(xs.iter().map(|s| s.to_string()));
-    // Steps run unprivileged, as on a GitHub runner: root would bypass the
-    // permission checks some test suites exercise.
+    // Steps run unprivileged, as on a GitHub runner, unless the caller asks
+    // for another identity (a job container's `--user`): root would bypass
+    // the permission checks some test suites exercise.
+    let (uid, gid) = spec.uid_gid();
+    let (uid_s, gid_s) = (uid.to_string(), gid.to_string());
     push(&[
         "--unshare-all",
         "--unshare-user",
         "--uid",
-        STEP_UID,
+        &uid_s,
         "--gid",
-        STEP_UID,
+        &gid_s,
         "--hostname",
         HOSTNAME,
         "--die-with-parent",
@@ -294,8 +363,9 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
             }
         }
     }
-    if let Some(dir) = &spec.identity {
-        // A fixed passwd and group for the step user, independent of the host.
+    if let (Some(dir), true) = (&spec.identity, uid != 0) {
+        // A fixed passwd and group for the step user, independent of the
+        // host and of the root filesystem (root keeps the root's own).
         for f in ["passwd", "group"] {
             push(&[
                 "--ro-bind",
@@ -318,6 +388,9 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
         // Proof the step started: written by the wrapper right before it
         // execs the step's command.
         push(&["--bind", &dir.join("started").to_string_lossy(), STARTED]);
+        if spec.net_probe && !spec.egress {
+            push(&["--bind", &dir.join("net").to_string_lossy(), NET]);
+        }
     }
     if spec.rootfs.is_none() {
         // Everything not mounted above lives on bwrap's root tmpfs; freeze
@@ -330,11 +403,44 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
     }
     push(&["--chdir", &spec.cwd, "--"]);
     if spec.identity.is_some() {
-        let wrapper = format!("printf 1 > {STARTED} && exec \"$@\"");
+        let wrapper = if spec.net_probe && !spec.egress {
+            // Not exec: the counters are read after the command, in its
+            // network namespace, with shell builtins only. A signal death
+            // comes back as 128+N, as bwrap reports it anyway.
+            format!(
+                "printf 1 > {STARTED} || exit 125; \"$@\"; rc=$?; \
+                 {{ while IFS= read -r l; do printf '%s\\n' \"$l\"; done < /proc/net/snmp; \
+                 while IFS= read -r l; do printf '%s\\n' \"$l\"; done < /proc/net/snmp6; }} > {NET} 2>/dev/null; \
+                 exit $rc"
+            )
+        } else {
+            format!("printf 1 > {STARTED} && exec \"$@\"")
+        };
         push(&["/bin/sh", "-c", &wrapper, "sh"]);
+        // A POSIX shell passes on only the variables whose names are shell
+        // identifiers: dash drops INPUT_GO-VERSION-FILE and every other
+        // action input with a dash in its name. env(1) puts them back.
+        let odd: Vec<String> = spec
+            .env
+            .iter()
+            .filter(|(k, _)| !is_identifier(k))
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        if !odd.is_empty() {
+            a.push("env".into());
+            a.extend(odd);
+        }
     }
     a.extend(spec.cmd.iter().cloned());
     a
+}
+
+/// `[A-Za-z_][A-Za-z0-9_]*`: a name a POSIX shell keeps in the environment.
+fn is_identifier(name: &str) -> bool {
+    let mut b = name.bytes();
+    b.next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        && b.all(|c| c.is_ascii_alphanumeric() || c == b'_')
 }
 
 /// Runs `spec` under bubblewrap with no limits.
@@ -349,9 +455,12 @@ pub fn run_with(spec: &RunSpec, limits: &Limits) -> Result<RunResult, SandboxErr
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let ident = std::env::temp_dir().join(format!("stillpass-ident-{}-{seq}", std::process::id()));
     std::fs::create_dir_all(&ident).map_err(io_err("create identity dir"))?;
-    std::fs::write(ident.join("passwd"), PASSWD).map_err(io_err("write passwd"))?;
-    std::fs::write(ident.join("group"), GROUP).map_err(io_err("write group"))?;
+    let (uid, gid) = spec.uid_gid();
+    let (passwd, group) = identity_files(uid, gid);
+    std::fs::write(ident.join("passwd"), passwd).map_err(io_err("write passwd"))?;
+    std::fs::write(ident.join("group"), group).map_err(io_err("write group"))?;
     std::fs::write(ident.join("started"), "").map_err(io_err("write start sentinel"))?;
+    std::fs::write(ident.join("net"), "").map_err(io_err("write network counters"))?;
     let result = run_inner(spec, bwrap, &ident, limits);
     let _ = std::fs::remove_dir_all(&ident);
     result
@@ -400,13 +509,30 @@ fn run_inner(
         identity: Some(ident),
         ..spec.clone()
     };
-    let mut cmd = Command::new(bwrap);
+    let cgroup = StepCgroup::create();
+    let mut cmd = match &cgroup {
+        // The shell joins the step cgroup before it execs bwrap, so nothing
+        // the step starts escapes it.
+        Some(cg) => {
+            let mut c = Command::new("/bin/sh");
+            c.args([
+                "-c",
+                "printf '%s' $$ > \"$1/cgroup.procs\" && shift && exec \"$@\"",
+                "sh",
+            ])
+            .arg(&cg.dir)
+            .arg(&bwrap);
+            c
+        }
+        None => Command::new(&bwrap),
+    };
     cmd.args(bwrap_args(spec))
         .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     fix_process_state(&mut cmd);
+    let oom_before = oom_kills();
     let start = Instant::now();
     let mut child = cmd.spawn().map_err(io_err("spawn bwrap"))?;
     let out =
@@ -437,6 +563,41 @@ fn run_inner(
         _ => None,
     });
     let exit_code = status.code().unwrap_or_else(|| 128 + signal.unwrap_or(0));
+    // The machine-wide /proc/vmstat delta: a kernel OOM kill the step's own
+    // cgroup counter would miss (a kill under global pressure, the step
+    // cgroup having no memory limit). c352f67's false hit was such a kill.
+    let global_oom = match (oom_before, oom_kills()) {
+        (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+        _ => None,
+    };
+    let (oom_kills, fork_limit) = match &cgroup {
+        // Either signal counts: the precise cgroup counter for a cgroup-limit
+        // kill, or the global one for a kill under machine-wide pressure.
+        Some(cg) => (
+            cg.events("memory.events", &["oom_kill", "oom_group_kill"])
+                .max(global_oom.unwrap_or(0)),
+            cg.events("pids.events", &["max"]),
+        ),
+        // No cgroup: the global counter alone, the worst case if unreadable.
+        None => (global_oom.unwrap_or(1), 0),
+    };
+    drop(cgroup);
+    let net_attempts = (spec.net_probe && !spec.egress)
+        .then(|| {
+            std::fs::read_to_string(spec.identity.as_ref().unwrap().join("net"))
+                .ok()
+                .and_then(|t| no_route_count(&t))
+        })
+        .flatten();
+    let resource_failure = if oom_kills > 0 {
+        Some(format!(
+            "the kernel killed {oom_kills} process(es) for memory while it ran"
+        ))
+    } else if fork_limit > 0 {
+        Some("it hit the process limit".to_string())
+    } else {
+        resource_message(&spec.stdout).or_else(|| resource_message(&spec.stderr))
+    };
     if killed.is_some() {
         // Killed by a limit: whether the step had started is beside the point.
         return Ok(RunResult {
@@ -444,6 +605,9 @@ fn run_inner(
             signal,
             wall,
             killed,
+            oom_kills,
+            net_attempts,
+            resource_failure,
         });
     }
     let started = std::fs::read(spec.identity.as_ref().unwrap().join("started"))
@@ -460,7 +624,132 @@ fn run_inner(
         signal,
         wall,
         killed: None,
+        oom_kills,
+        net_attempts,
+        resource_failure,
     })
+}
+
+/// Ip OutNoRoutes plus Ip6OutNoRoutes from /proc/net/snmp and snmp6 text.
+pub fn no_route_count(text: &str) -> Option<u64> {
+    let mut v4 = None;
+    let mut header: Option<Vec<&str>> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("Ip: ") {
+            let fields: Vec<&str> = rest.split_whitespace().collect();
+            match &header {
+                None => header = Some(fields),
+                Some(h) => {
+                    let i = h.iter().position(|f| *f == "OutNoRoutes")?;
+                    v4 = fields.get(i).and_then(|n| n.parse::<u64>().ok());
+                }
+            }
+        }
+    }
+    let v6 = text.lines().find_map(|l| {
+        l.strip_prefix("Ip6OutNoRoutes")
+            .and_then(|n| n.trim().parse::<u64>().ok())
+    })?;
+    Some(v4? + v6)
+}
+
+/// A message in the step's output saying the machine ran out of something:
+/// disk, or the resources to start a process or thread. Matched line by
+/// line in the last 1 MiB; deliberately narrow, since a test may print an
+/// EAGAIN on purpose.
+fn resource_message(path: &Path) -> Option<String> {
+    let mut f = File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    use std::io::Seek;
+    f.seek(io::SeekFrom::Start(len.saturating_sub(1 << 20)))
+        .ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    text.lines().find_map(|l| {
+        let low = l.to_ascii_lowercase();
+        let why = if low.contains("no space left on device") || low.contains("disk quota exceeded")
+        {
+            "the disk was full"
+        } else if low.contains("fork") && low.contains("resource temporarily unavailable") {
+            "a fork failed for lack of resources"
+        } else if low.contains("fork") && low.contains("cannot allocate memory") {
+            "a fork failed for lack of memory"
+        } else if low.contains("failed to create new os thread") {
+            "a thread could not be created"
+        } else {
+            return None;
+        };
+        Some(format!(
+            "{why} (its output says {:?})",
+            l.trim().chars().take(160).collect::<String>()
+        ))
+    })
+}
+
+/// A cgroup for one step, under `cgroup_root()`, so the step's own OOM
+/// kills and fork-limit hits are counted (memory.events, pids.events).
+/// Removed when dropped.
+struct StepCgroup {
+    dir: PathBuf,
+}
+
+/// Where step cgroups go: `/sys/fs/cgroup/stillpass`, if it exists and
+/// hands the memory and pids controllers to its children (the host sets it
+/// up: under cgroup v2 a parent holding processes cannot delegate, see
+/// scripts/runner/lab.sh). Without it the machine-wide counter is used.
+pub fn cgroup_root() -> Option<PathBuf> {
+    let root = PathBuf::from("/sys/fs/cgroup/stillpass");
+    let ctl = std::fs::read_to_string(root.join("cgroup.subtree_control")).ok()?;
+    (ctl.split_whitespace().any(|c| c == "memory") && ctl.split_whitespace().any(|c| c == "pids"))
+        .then_some(root)
+}
+
+impl StepCgroup {
+    fn create() -> Option<StepCgroup> {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = cgroup_root()?.join(format!("step-{}-{seq}", std::process::id()));
+        std::fs::create_dir(&dir).ok()?;
+        if !dir.join("memory.events").is_file() || !dir.join("pids.events").is_file() {
+            let _ = std::fs::remove_dir(&dir);
+            return None;
+        }
+        Some(StepCgroup { dir })
+    }
+
+    /// The sum of the named counters in an events file; 1 if unreadable.
+    fn events(&self, file: &str, names: &[&str]) -> u64 {
+        let Ok(text) = std::fs::read_to_string(self.dir.join(file)) else {
+            return 1;
+        };
+        text.lines()
+            .filter_map(|l| l.split_once(' '))
+            .filter(|(k, _)| names.contains(k))
+            .filter_map(|(_, v)| v.trim().parse::<u64>().ok())
+            .sum()
+    }
+}
+
+impl Drop for StepCgroup {
+    fn drop(&mut self) {
+        for _ in 0..50 {
+            if std::fs::remove_dir(&self.dir).is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        tracing::warn!(cgroup = %self.dir.display(), "step cgroup not removed");
+    }
+}
+
+/// The kernel's count of OOM kills since boot.
+fn oom_kills() -> Option<u64> {
+    std::fs::read_to_string("/proc/vmstat")
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix("oom_kill "))
+        .and_then(|n| n.trim().parse().ok())
 }
 
 /// What the kernel and CPU show a sandboxed step whatever its root
@@ -1051,6 +1340,9 @@ pub fn probe_in_sandbox(program: &Path, args: &[&str]) -> Result<String, Sandbox
         echo: false,
         rootfs: None,
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     };
     let r = run(&spec);
     let out = std::fs::read_to_string(dir.join("stdout")).unwrap_or_default();
@@ -1255,6 +1547,9 @@ mod tests {
             echo: false,
             rootfs,
             identity: None,
+            uid: None,
+            gid: None,
+            net_probe: false,
         };
         let has_tmpfs = |s: &RunSpec| {
             bwrap_args(s)

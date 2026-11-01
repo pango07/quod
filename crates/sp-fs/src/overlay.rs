@@ -2,6 +2,7 @@
 //! upper. At step end the upper dir is the step's output, diffed against
 //! the lower tree.
 
+use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs;
 use std::os::fd::AsRawFd;
@@ -41,15 +42,45 @@ pub fn overlay_dir(
     work: &Path,
     merged: &Path,
 ) -> Result<Overlay, FsError> {
+    overlay_layers(&[lower], upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` over several lower directories, the first
+/// on top (earlier steps' upper dirs over an image root, for instance).
+/// Same options as `overlay`.
+pub fn overlay_layers(
+    lowers: &[&Path],
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
     for d in [upper, work, merged] {
         fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
     }
+    if lowers.is_empty() {
+        return Err(FsError::Io {
+            what: "overlay without a lower directory".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        });
+    }
+    for l in lowers.iter().chain([&upper, &work]) {
+        let s = l.display().to_string();
+        // Separators of the option string: such a path would mount the
+        // wrong layers.
+        if s.contains([':', ',', '\\']) {
+            return Err(FsError::Io {
+                what: format!("overlay path {s:?} contains ':', ',' or a backslash"),
+                source: std::io::ErrorKind::InvalidInput.into(),
+            });
+        }
+    }
+    let lowerdir: Vec<String> = lowers.iter().map(|l| l.display().to_string()).collect();
     let opts = format!(
         // Pinned so the upper dir is plain files: no metacopy (a chmod would
         // copy up an empty file), no redirects (a renamed dir would arrive
         // without contents), no index.
         "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
-        lower.display(),
+        lowerdir.join(":"),
         upper.display(),
         work.display()
     );
@@ -92,6 +123,16 @@ pub fn overlay_dir(
 impl Overlay {
     pub fn merged(&self) -> &Path {
         &self.merged
+    }
+
+    pub fn upper(&self) -> &Path {
+        &self.upper
+    }
+
+    /// Unmounts without diffing: for an overlay whose upper dir the caller
+    /// keeps (a job's root, carried from step to step).
+    pub fn release(mut self) -> Result<(), FsError> {
+        self.unmount()
     }
 
     /// Unmounts, then walks the upper dir: new and modified files and
@@ -332,6 +373,89 @@ fn refuse_markers(path: &Path) -> Result<(), FsError> {
 /// `refuse_markers`); a step's own `user.overlay.opaque` is just an xattr.
 fn is_opaque(dir: &Path) -> Result<bool, FsError> {
     Ok(xattr(dir, "trusted.overlay.opaque")?.is_some_and(|v| v == b"y"))
+}
+
+/// An upper directory marked opaque: it hides the lower directory's
+/// entries (a directory removed and made again through the overlay).
+pub fn is_opaque_dir(dir: &Path) -> Result<bool, FsError> {
+    is_opaque(dir)
+}
+
+/// Every extended attribute of `path` itself (never through a symlink), by
+/// name. Reading `trusted.*` needs CAP_SYS_ADMIN; without it the kernel
+/// lists none of them.
+pub fn xattrs(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, FsError> {
+    let io = |what: String| move |source: std::io::Error| FsError::Io { what, source };
+    let cpath = CString::new(path.as_os_str().as_bytes()).map_err(|_| FsError::Io {
+        what: "xattr path contains NUL".into(),
+        source: std::io::ErrorKind::InvalidInput.into(),
+    })?;
+    // SAFETY: cpath is a valid C string; a null buffer of size 0 asks for the size.
+    #[allow(unsafe_code)] // llistxattr(2) has no safe std wrapper
+    let n = unsafe { libc::llistxattr(cpath.as_ptr(), std::ptr::null_mut(), 0) };
+    if n < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENOTSUP) {
+            return Ok(BTreeMap::new());
+        }
+        return Err(io(format!("list xattrs of {}", path.display()))(e));
+    }
+    let mut names = vec![0u8; n as usize];
+    // SAFETY: names is valid for its length.
+    #[allow(unsafe_code)]
+    let n = unsafe { libc::llistxattr(cpath.as_ptr(), names.as_mut_ptr().cast(), names.len()) };
+    if n < 0 {
+        return Err(io(format!("list xattrs of {}", path.display()))(
+            std::io::Error::last_os_error(),
+        ));
+    }
+    names.truncate(n as usize);
+    let mut out = BTreeMap::new();
+    for name in names.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        let Ok(cname) = CString::new(name) else {
+            continue;
+        };
+        let get = |buf: &mut [u8]| {
+            // SAFETY: cpath and cname are valid C strings; buf is valid for its
+            // length (a null pointer with length 0 asks for the size).
+            #[allow(unsafe_code)] // lgetxattr(2) has no safe std wrapper
+            unsafe {
+                libc::lgetxattr(
+                    cpath.as_ptr(),
+                    cname.as_ptr(),
+                    if buf.is_empty() {
+                        std::ptr::null_mut()
+                    } else {
+                        buf.as_mut_ptr().cast()
+                    },
+                    buf.len(),
+                )
+            }
+        };
+        let what = || {
+            format!(
+                "read xattr {} of {}",
+                String::from_utf8_lossy(name),
+                path.display()
+            )
+        };
+        let size = get(&mut []);
+        if size < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.raw_os_error() == Some(libc::ENODATA) {
+                continue; // removed since it was listed
+            }
+            return Err(io(what())(e));
+        }
+        let mut v = vec![0u8; size as usize];
+        let size = get(&mut v);
+        if size < 0 {
+            return Err(io(what())(std::io::Error::last_os_error()));
+        }
+        v.truncate(size as usize);
+        out.insert(String::from_utf8_lossy(name).into_owned(), v);
+    }
+    Ok(out)
 }
 
 /// A tmpfs mounted at a directory, unmounted on drop: a scratch filesystem

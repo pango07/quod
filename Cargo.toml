@@ -20,6 +20,7 @@ sp-sandbox = { path = "crates/sp-sandbox" }
 sp-ledger = { path = "crates/sp-ledger" }
 sp-replay = { path = "crates/sp-replay" }
 sp-trust = { path = "crates/sp-trust" }
+sp-hooks = { path = "crates/sp-hooks" }
 
 anyhow = "1"
 blake3 = "1.8"

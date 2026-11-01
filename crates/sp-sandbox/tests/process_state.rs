@@ -47,6 +47,9 @@ fn process_state_child() {
         echo: false,
         rootfs: None,
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     };
     let r = run(&spec).unwrap();
     assert_eq!(

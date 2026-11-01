@@ -16,7 +16,9 @@ pub use serve::{Fault, Options, Served, Transport, serve, serve_with};
 #[cfg(target_os = "linux")]
 mod overlay;
 #[cfg(target_os = "linux")]
-pub use overlay::{Overlay, Tmpfs, overlay, overlay_dir, syncfs, tmpfs};
+pub use overlay::{
+    Overlay, Tmpfs, is_opaque_dir, overlay, overlay_dir, overlay_layers, syncfs, tmpfs, xattrs,
+};
 
 /// The modification time served for a regular file: a function of its
 /// content alone, so it changes exactly when the content does. A constant
@@ -239,6 +241,10 @@ mod unsupported {
         Err(FsError::Unsupported)
     }
 
+    pub fn overlay_layers(_: &[&Path], _: &Path, _: &Path, _: &Path) -> Result<Overlay, FsError> {
+        Err(FsError::Unsupported)
+    }
+
     pub fn overlay_dir(_: &Path, _: &Path, _: &Path, _: &Path) -> Result<Overlay, FsError> {
         Err(FsError::Unsupported)
     }
@@ -253,6 +259,14 @@ mod unsupported {
         pub fn unmount(self) -> Result<(), FsError> {
             Err(FsError::Unsupported)
         }
+    }
+
+    pub fn is_opaque_dir(_: &Path) -> Result<bool, FsError> {
+        Err(FsError::Unsupported)
+    }
+
+    pub fn xattrs(_: &Path) -> Result<std::collections::BTreeMap<String, Vec<u8>>, FsError> {
+        Err(FsError::Unsupported)
     }
 
     pub fn tmpfs(_: &Path, _: &str) -> Result<Tmpfs, FsError> {
@@ -294,6 +308,14 @@ mod unsupported {
             Path::new("/")
         }
 
+        pub fn upper(&self) -> &Path {
+            Path::new("/")
+        }
+
+        pub fn release(self) -> Result<(), FsError> {
+            Err(FsError::Unsupported)
+        }
+
         pub fn finish(self, _: &Tree, _: &Cas) -> Result<Vec<Entry>, FsError> {
             Err(FsError::Unsupported)
         }
@@ -305,8 +327,8 @@ mod unsupported {
 }
 #[cfg(not(target_os = "linux"))]
 pub use unsupported::{
-    Fault, Options, Overlay, Served, Tmpfs, Transport, overlay, overlay_dir, serve, serve_with,
-    syncfs, tmpfs,
+    Fault, Options, Overlay, Served, Tmpfs, Transport, is_opaque_dir, overlay, overlay_dir,
+    overlay_layers, serve, serve_with, syncfs, tmpfs, xattrs,
 };
 
 #[cfg(test)]

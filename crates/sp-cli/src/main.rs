@@ -11,6 +11,7 @@ mod inspect;
 mod profile;
 mod rootfs;
 mod run;
+mod runner;
 mod seal;
 mod snapshot;
 mod state;
@@ -50,6 +51,21 @@ enum Cmd {
     Status(status::StatusArgs),
     /// Measure observer overhead (A8) and hit rate over history (A11).
     Bench(bench::BenchArgs),
+    /// actions/runner container hook: reads one hook input from stdin
+    /// (ACTIONS_RUNNER_CONTAINER_HOOKS points at scripts/runner/hooks/index.js,
+    /// which execs this).
+    Hooks {
+        /// The policy (JSON: mode, proofs, audit, net_steps, rootfs,
+        /// keep_jobs), as the installed shim passes it. Never read from the
+        /// environment: the runner gives the hook the step's.
+        #[arg(long)]
+        policy: Option<String>,
+    },
+    /// A warm pool of official actions/runner processes wired to the hooks.
+    Runner {
+        #[command(subcommand)]
+        cmd: runner::RunnerCmd,
+    },
     /// Print a stored step key (with its trust state), manifest or run.
     Inspect {
         /// A step key or manifest id (b3:...) or a run id (ULID).
@@ -85,6 +101,19 @@ fn main() -> ExitCode {
                 Cmd::Run(args) => run::run(&state, args),
                 Cmd::Status(args) => status::status(&state, args),
                 Cmd::Bench(args) => bench::bench(&state, args),
+                Cmd::Hooks { policy } => sp_hooks::Policy::from_json(policy.as_deref())
+                    .and_then(|p| {
+                        // The hooks key steps with this host's class, as
+                        // `run` does (rootfs::platform), probed once a job.
+                        sp_hooks::run(
+                            &state.dir,
+                            &mut std::io::stdin().lock(),
+                            &p,
+                            &rootfs::platform,
+                        )
+                    })
+                    .map(run::exit_byte),
+                Cmd::Runner { cmd } => runner::runner(&state, cmd),
                 Cmd::Inspect { id, ledger } => {
                     inspect::inspect(&state, &id, ledger.as_deref()).map(|()| 0)
                 }

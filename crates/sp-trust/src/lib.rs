@@ -51,6 +51,26 @@ pub const MAX_EXTRA_PROOFS: u32 = 5;
 /// The largest `--proofs` accepted.
 pub const MAX_PROOFS: u32 = 100;
 
+/// Paths under HOME that tools fill with per-execution state and that are
+/// therefore not compared (nor written out by `stillpass run --outputs`,
+/// nor served by a replay of the runner hooks). Everything else a step
+/// leaves in HOME is compared like any output: `go install` into a
+/// HOME-relative GOPATH, a token, a generated config are results. Each entry
+/// is here because cli/cli's tests write it differently on every run:
+/// gh's HTTP cache (keys include random httptest ports), Go's telemetry
+/// counters (date-stamped files), gh's state dir (a random device id; gh's
+/// own directory only, not every tool's `.local/state`), and the SSH key
+/// pair gh generates for codespaces. Each was seen differing between two
+/// executions on identical inputs (exp/trust's P1 on cli/cli); nothing is
+/// on the list without that.
+pub const HOME_VOLATILE: &[&str] = &[
+    ".cache/gh",
+    ".config/go/telemetry",
+    ".local/state/gh",
+    ".ssh/codespaces.auto",
+    ".ssh/codespaces.auto.pub",
+];
+
 /// `observe` executes everything and reports what would have replayed;
 /// `replay` replays proven results.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,9 +328,11 @@ pub fn audit_due(eligible_before: u64, rate: f64) -> bool {
 
 /// Erases what two faithful executions of `go test` print differently:
 /// per-package durations (`ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`) and
-/// per-test durations (`--- PASS: TestX (0.00s)`). Nothing else: exit
-/// codes, package and test names, failure output and counts all stay. A
-/// line of any other shape is kept byte for byte.
+/// per-test durations (`--- PASS: TestX (0.00s)`), and the number of the
+/// go command's temporary build dir in a `go env` `GOGCCFLAGS=` line
+/// (setup-go prints `go env` on every run). Nothing else: exit codes,
+/// package and test names, failure output and counts all stay. A line of
+/// any other shape is kept byte for byte.
 pub fn normalize(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     for line in bytes.split_inclusive(|b| *b == b'\n') {
@@ -326,10 +348,34 @@ pub fn normalize(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+/// `s` with the digits after every `/tmp/go-build` replaced by `<n>`.
+fn mask_go_build_dirs(s: &str) -> String {
+    const DIR: &str = "/tmp/go-build";
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(DIR) {
+        out.push_str(&rest[..i + DIR.len()]);
+        rest = &rest[i + DIR.len()..];
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0 {
+            out.push_str("<n>");
+            rest = &rest[digits..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn normalize_line(line: &[u8]) -> Vec<u8> {
     let Ok(s) = std::str::from_utf8(line) else {
         return line.to_vec();
     };
+    // `go env`'s GOGCCFLAGS names the go command's temporary build dir
+    // (`-ffile-prefix-map=/tmp/go-build2595014798=/tmp/go-build`), random
+    // per invocation; setup-go prints `go env` on every run.
+    if let Some(rest) = s.strip_prefix("GOGCCFLAGS=") {
+        return format!("GOGCCFLAGS={}", mask_go_build_dirs(rest)).into_bytes();
+    }
     if (s.starts_with("ok  \t") || s.starts_with("FAIL\t"))
         && let Some((head, tail)) = s.rsplit_once('\t')
         && is_duration(tail)
@@ -390,10 +436,23 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
         Hash::of(sp_cas::canonical_json(&comparable_outputs(&r.outputs, ignore))?.as_bytes());
     let root = Hash::of(sp_cas::canonical_json(&r.root_outputs)?.as_bytes());
     let mut buf = Vec::with_capacity(256);
-    buf.extend_from_slice(b"stillpass result fingerprint v1\0");
+    // v2: command files hashed in, GOGCCFLAGS' build dir normalized.
+    buf.extend_from_slice(b"stillpass result fingerprint v2\0");
     buf.extend_from_slice(&i64::from(r.exit_code).to_le_bytes());
     for h in [out, err, outputs, root] {
         buf.extend_from_slice(h.hex().as_bytes());
+    }
+    // What a runner-hooks step appended to its command files (GITHUB_ENV,
+    // GITHUB_OUTPUT, ...), which its replay appends again: part of the
+    // result. Absent (and so not hashed) for every CLI result, whose
+    // fingerprint is unchanged.
+    if !r.commands.is_empty() {
+        buf.extend_from_slice(b"commands\0");
+        buf.extend_from_slice(
+            Hash::of(sp_cas::canonical_json(&r.commands)?.as_bytes())
+                .hex()
+                .as_bytes(),
+        );
     }
     Ok(Hash::of(&buf))
 }
@@ -501,6 +560,24 @@ pub fn compare(
         d.items
             .push(output_difference("writes outside the workspace", &er, &ar));
     }
+    if expected.commands != actual.commands {
+        let names = |r: &StepResult| -> BTreeMap<String, Hash> {
+            r.commands.iter().map(|c| (c.name.clone(), c.h)).collect()
+        };
+        let (e, a) = (names(expected), names(actual));
+        let differ: Vec<&str> = e
+            .keys()
+            .chain(a.keys())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter(|n| e.get(*n) != a.get(*n))
+            .map(String::as_str)
+            .collect();
+        d.items.push(format!(
+            "what it wrote to the runner's command files differs: {}",
+            differ.join(", ")
+        ));
+    }
     Ok(d)
 }
 
@@ -598,6 +675,7 @@ fn same_bytes(a: &StepResult, b: &StepResult, ignore: &[String]) -> bool {
         && a.stderr == b.stderr
         && comparable_outputs(&a.outputs, ignore) == comparable_outputs(&b.outputs, ignore)
         && a.root_outputs == b.root_outputs
+        && a.commands == b.commands
 }
 
 fn output_difference(what: &str, e: &[&Entry], a: &[&Entry]) -> String {
@@ -1118,6 +1196,71 @@ impl<'a> Trust<'a> {
         })
     }
 
+    /// Records an execution of a hit that produced no result to compare,
+    /// yet behaved otherwise than the run a replay would serve: the runner
+    /// hooks run a keyed step offline, and on the same inputs it failed,
+    /// reached for the network, or wrote where the recorded run did not
+    /// (`why` says how). That is a divergence like any other: the key is
+    /// quarantined, every manifest of it proves again, and the audit row
+    /// says what happened. A run that was the machine's (killed, out of
+    /// memory) is not one: that is `record_incomplete`.
+    pub fn record_divergence(
+        &self,
+        step: &Step,
+        run_id: &str,
+        hit: &(Manifest, StepResult),
+        reason: &Reason,
+        why: &str,
+    ) -> Result<Verdict, TrustError> {
+        let (m, hr) = hit;
+        let manifest = manifest_id(m)?;
+        self.ledger.atomically(|l| {
+            let key = step.key;
+            let mut trust = l
+                .trust(&key)?
+                .unwrap_or_else(|| TrustRow::new(key, Some(step.cmd)));
+            if trust.cmd.is_none() {
+                trust.cmd = Some(step.cmd.to_string());
+            }
+            if reason.eligible() {
+                trust.eligible += 1;
+            }
+            let mut divergence = Divergence::default();
+            divergence.push(format!("this execution {why}"));
+            trust.audits += 1;
+            trust.divergences += 1;
+            trust.state = TrustState::Quarantined;
+            trust.quarantined_at = Some(now_rfc3339());
+            trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+            l.reset_proofs(&key)?;
+            l.put_trust(&trust)?;
+            l.record_audit(&AuditRow {
+                id: 0,
+                step_key: key,
+                manifest_id: manifest,
+                at: String::new(),
+                phase: reason.phase().into(),
+                diverged: true,
+                expected_run: Some(hr.run_id.clone()),
+                actual_run: Some(run_id.to_string()),
+                detail: Some(truncate(&divergence.to_string(), 2000)),
+            })?;
+            let needed = needed(&self.policy, l.recent_divergences(&key, TRAILING_AUDITS)?);
+            tracing::warn!(target: "stillpass", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence without a result: step key quarantined");
+            Ok(Verdict {
+                reason: reason.clone(),
+                compared_with: Some(hr.run_id.clone()),
+                divergence: Some(divergence),
+                byte_identical: false,
+                streak: 0,
+                needed,
+                trust,
+                would_have_saved: None,
+                unprovable: None,
+            })
+        })
+    }
+
     /// Records a step that did not finish (`what`: "timed out after 30m00s").
     /// Nothing is memoized, and nothing is learned about the step's result:
     /// a timeout is as likely the box (load, a slow observer) as the step,
@@ -1341,7 +1484,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_only_go_test_durations() {
+    fn normalizes_only_go_test_durations_and_build_dirs() {
         let text = b"ok  \tgithub.com/cli/cli/v2/api\t0.412s\nFAIL\tgithub.com/cli/cli/v2/pkg\t600.012s\n--- PASS: TestX (0.00s)\n    --- FAIL: TestX/sub (12.5s)\n--- SKIP: TestY (0.00s)\n?   \tpkg\t[no test files]\nok  \tpkg\t(cached)\npanic: test timed out after 10m0s\nexpected 2s got 3s\nok  \tpkg\t0.5s\tcoverage: 80.0%\n";
         let want = b"ok  \tgithub.com/cli/cli/v2/api\t<dur>\nFAIL\tgithub.com/cli/cli/v2/pkg\t<dur>\n--- PASS: TestX (<dur>)\n    --- FAIL: TestX/sub (<dur>)\n--- SKIP: TestY (<dur>)\n?   \tpkg\t[no test files]\nok  \tpkg\t(cached)\npanic: test timed out after 10m0s\nexpected 2s got 3s\nok  \tpkg\t0.5s\tcoverage: 80.0%\n";
         assert_eq!(
@@ -1349,6 +1492,15 @@ mod tests {
             String::from_utf8_lossy(want)
         );
         assert_eq!(normalize(b"no newline at end"), b"no newline at end");
+        // go env's GOGCCFLAGS: only the build dir's number goes.
+        assert_eq!(
+            normalize(b"GOGCCFLAGS='-fPIC -ffile-prefix-map=/tmp/go-build2595014798=/tmp/go-build -gno'\n"),
+            b"GOGCCFLAGS='-fPIC -ffile-prefix-map=/tmp/go-build<n>=/tmp/go-build -gno'\n"
+        );
+        assert_eq!(
+            normalize(b"CC=/tmp/go-build123\n"),
+            b"CC=/tmp/go-build123\n"
+        );
         assert_eq!(normalize(b"\xff\xfe binary\n"), b"\xff\xfe binary\n");
         assert!(
             !is_duration("10m0s") && !is_duration("s") && is_duration("0.00s") && is_duration("7s")
@@ -1422,6 +1574,7 @@ mod tests {
                 outputs,
                 root_outputs: vec![],
                 duration_ms: 20_000,
+                commands: vec![],
             }
         }
 
@@ -1841,6 +1994,92 @@ mod tests {
         assert!(w.run(&REPLAY, 0, ok).unwrap().replayable());
     }
 
+    /// A hit whose fresh execution produced nothing comparable but behaved
+    /// otherwise (the hooks: it reached for the network offline) quarantines
+    /// the key, and it proves again like after any divergence.
+    #[test]
+    fn a_divergence_without_a_result_quarantines() {
+        let mut w = World::new();
+        let ok = b"ok\n";
+        w.run(&REPLAY, 0, ok).unwrap();
+        w.run(&REPLAY, 0, ok).unwrap();
+        let hit = w
+            .ledger
+            .latest_result(&w.key, &w.mid)
+            .unwrap()
+            .map(|r| (w.manifest.clone(), r))
+            .unwrap();
+        let trust = Trust::new(&w.ledger, &w.cas, REPLAY).unwrap();
+        let step = Step {
+            key: w.key,
+            cmd: "go test ./...",
+            ignore: &[],
+        };
+        let reason = Reason::Audit { nth: 1 };
+        let v = trust
+            .record_divergence(
+                &step,
+                "01FRESH",
+                &hit,
+                &reason,
+                "tried to reach the network offline",
+            )
+            .unwrap();
+        assert_eq!(v.outcome(), "diverged");
+        assert_eq!(v.compared_with.as_deref(), Some("01RUN02"));
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
+        assert_eq!(t.state, TrustState::Quarantined);
+        assert!(
+            t.quarantine_reason
+                .as_deref()
+                .unwrap()
+                .contains("tried to reach the network offline"),
+            "{t:?}"
+        );
+        assert_eq!(w.ledger.proof(&w.key, &w.mid).unwrap().unwrap().streak, 0);
+        let a = w.ledger.audits(Some(&w.key), 10).unwrap();
+        assert!(
+            a.iter()
+                .any(|a| a.diverged && a.actual_run.as_deref() == Some("01FRESH"))
+        );
+        assert!(matches!(
+            trust.decide(&w.key, Some(&hit)).unwrap(),
+            Decision::Execute(Reason::Quarantined { .. })
+        ));
+    }
+
+    /// Command files are part of the result: a different GITHUB_OUTPUT is
+    /// a different result, and the same one fingerprints the same.
+    #[test]
+    fn command_files_are_compared() {
+        let mut w = World::new();
+        let mut a = w.result(0, b"ok\n", vec![]);
+        let mut b = w.result(0, b"ok\n", vec![]);
+        assert_eq!(
+            fingerprint(&a, &w.cas, &[]).unwrap(),
+            fingerprint(&b, &w.cas, &[]).unwrap()
+        );
+        let out = |v: &[u8]| sp_manifest::FileCommand {
+            name: "GITHUB_OUTPUT".into(),
+            h: w.cas.put(v).unwrap(),
+        };
+        a.commands = vec![out(b"x=1\n")];
+        b.commands = vec![out(b"x=2\n")];
+        let d = compare(&a, &b, &w.cas, &[]).unwrap();
+        assert!(
+            d.items
+                .iter()
+                .any(|i| i.contains("command files") && i.contains("GITHUB_OUTPUT")),
+            "{d}"
+        );
+        assert_ne!(
+            fingerprint(&a, &w.cas, &[]).unwrap(),
+            fingerprint(&b, &w.cas, &[]).unwrap()
+        );
+        b.commands = a.commands.clone();
+        assert!(compare(&a, &b, &w.cas, &[]).unwrap().is_empty());
+    }
+
     /// The bar rises with recent divergences, at most MAX_EXTRA_PROOFS, and
     /// falls back as clean audits push them out of the window.
     #[test]
@@ -1987,6 +2226,7 @@ mod tests {
             step_key: Hash::of(b"k"),
             roots: vec!["/workspace".into()],
             entries,
+            volatile: vec![],
         };
         let base = vec![
             Entry::dir("pkg", Hash::of(b"listing")),

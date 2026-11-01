@@ -18,4 +18,5 @@ ns=${STILLPASS_DEV_NS:+-$STILLPASS_DEV_NS}
 exec docker run --rm $tty --privileged --device /dev/fuse \
   -v "$root":/src -v stillpass-target$ns:/src/target -v stillpass-work$ns:/work \
   -e CARGO_TARGET_DIR=/src/target -e TMPDIR=/work/tmp -e STILLPASS_HOME=/work/state -e STILLPASS_INTEGRATION="${STILLPASS_INTEGRATION:-1}" \
+  -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \
   "$img" bash -c "mkdir -p /work/tmp && $*"

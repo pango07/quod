@@ -1,0 +1,50 @@
+cli (module cache observed, not sealed) exit 0
+  step b3:54c94dfc  manifest b3:32d5fec9  9,536 inputs recorded
+  ran 20.3s
+cli unsealed manifest b3:32d5fec9ca00403429c4747c1130d475e37f0a44fe25524b216fb88328a925c2
+hooks manifest b3:53e95a9608ba6e9fa7d88a4343887c6f4773fcea4bf35100d2c78aaec7196293
+hooks: f/a 12113 (repo 1674, module cache 6180, other .stillpass 4259)
+cli:   f/a 7859 (repo 1672, module cache 6185, other .stillpass 2)
+== module cache f/a only in hooks (0):
+== module cache f/a only in cli (5):
+a .stillpass/gomod/github.com/cespare/xxhash/v2@v2.3.0/textflag.h
+a .stillpass/gomod/github.com/klauspost/compress@v1.20.3/s2/textflag.h
+a .stillpass/gomod/github.com/klauspost/compress@v1.20.3/zstd/internal/xxhash/textflag.h
+a .stillpass/gomod/golang.org/x/crypto@v0.58.0/chacha20/textflag.h
+a .stillpass/gomod/golang.org/x/sys@v0.49.0/unix/textflag.h
+== repo f/a only in hooks:
+a .git/commondir
+a vendor
+f .git/HEAD
+f .git/config
+== repo f/a only in cli:
+a .git
+a HEAD
+== other .stillpass f/a only in hooks: 24 excluding the toolchain, toolchain 4235
+a .stillpass/go/bin/clip.exe
+a .stillpass/go/bin/echo
+a .stillpass/go/bin/gcc
+a .stillpass/go/bin/gccgo
+a .stillpass/go/bin/gh
+a .stillpass/go/bin/git
+a .stillpass/go/bin/go
+a .stillpass/go/bin/script
+a .stillpass/go/bin/sh
+a .stillpass/go/bin/ssh
+a .stillpass/go/bin/ssh-keygen
+a .stillpass/go/bin/termux-clipboard-set
+a .stillpass/go/bin/xclip
+a .stillpass/go/bin/xsel
+a .stillpass/go/go.mod
+a .stillpass/go/src
+a .stillpass/home/.cache
+a .stillpass/home/.config/gh
+a .stillpass/home/.config/git
+a .stillpass/home/.config/go/env
+a .stillpass/home/.gitconfig
+a .stillpass/home/.local
+a .stillpass/home/.ssh
+f .stillpass/home/.config/go/telemetry/mode
+== other .stillpass f/a only in cli:
+a .stillpass/gocache
+a .stillpass/home

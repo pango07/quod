@@ -465,14 +465,20 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         );
         return Ok(EXIT_TIMEOUT);
     }
-    if let Some(sig) = ex.signal {
-        // Killed from outside (OOM, a signal): the step's own result is
-        // unknown, so it is reported and never memoized, and nothing is
-        // learned about the key.
+    let killed_by = match (ex.signal, &ex.resource_failure) {
+        (Some(sig), _) => Some(format!("killed by signal {sig}")),
+        (None, Some(why)) => Some(why.clone()),
+        _ => None,
+    };
+    if let Some(why) = killed_by {
+        // Killed from outside (a signal), or the machine ran out of
+        // something while it ran (an OOM kill of a child, a full disk, the
+        // fork limit): the step's own result is unknown, so it is reported
+        // and never memoized, and nothing is learned about the key.
         if !args.keep {
             sp_cas::remove_any(&dir)?;
         }
-        eprintln!("STILLPASS  EXECUTED  killed by signal {sig}, not memoized");
+        eprintln!("STILLPASS  EXECUTED  {why}, not memoized");
         eprintln!("  ran {}", fmt_duration(ex.wall));
         ledger.record_run_facts(&RunFacts {
             observed: Observed {
@@ -523,6 +529,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         outputs: ex.outputs,
         root_outputs: ex.root_outputs,
         duration_ms: ex.wall.as_millis() as u64,
+        commands: vec![],
     };
     // One transaction: the trust layer's verdict (proof streak, trust
     // state, audit row), the run row (with the transport that observed it,
@@ -606,6 +613,9 @@ pub(crate) struct Executed {
     pub(crate) signal: Option<i32>,
     /// Set when a limit killed the step (timeout, or the observer failing).
     pub(crate) killed: Option<Killed>,
+    /// Why the outcome may be the machine's (OOM kills, a full disk, the
+    /// fork limit; `sp_sandbox::RunResult::resource_failure`).
+    pub(crate) resource_failure: Option<String>,
     pub(crate) manifest: Manifest,
     pub(crate) outputs: Vec<sp_cas::Entry>,
     /// Writes outside the workspace (rootfs mode only), relative to `/`.
@@ -723,6 +733,9 @@ pub(crate) fn execute(
             writable: true,
         }),
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     };
     let limits = Limits {
         timeout,
@@ -806,6 +819,7 @@ pub(crate) fn execute(
         sealed_write_failed: !sealed.is_empty()
             && (reports_erofs(&dir.join("stdout"))? || reports_erofs(&dir.join("stderr"))?),
         killed: r.killed,
+        resource_failure: r.resource_failure,
         manifest,
         outputs,
         root_outputs,
@@ -945,6 +959,9 @@ fn run_unobserved(
             writable: false,
         }),
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     };
     let r = sp_sandbox::run_with(
         &rs,

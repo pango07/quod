@@ -892,6 +892,7 @@ dependencies = [
  "serde_json",
  "sp-cas",
  "sp-fs",
+ "sp-hooks",
  "sp-key",
  "sp-ledger",
  "sp-manifest",
@@ -921,6 +922,29 @@ dependencies = [
 [[package]]
 name = "sp-guest-agent"
 version = "0.0.0"
+
+[[package]]
+name = "sp-hooks"
+version = "0.0.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "blake3",
+ "serde",
+ "serde_json",
+ "sp-cas",
+ "sp-fs",
+ "sp-key",
+ "sp-ledger",
+ "sp-manifest",
+ "sp-replay",
+ "sp-sandbox",
+ "sp-trust",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "ulid",
+]
 
 [[package]]
 name = "sp-key"

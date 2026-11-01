@@ -503,6 +503,9 @@ fn plain_run(
         echo: false,
         rootfs: None,
         identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
     };
     let r = sp_sandbox::run(&rs)?;
     sp_cas::remove_any(&copy)?;
