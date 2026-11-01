@@ -12,18 +12,18 @@ export const metadata: Metadata = {
 };
 
 const CRATES: [string, string][] = [
-  ["sp-cli", "The quod command: run, inspect, status, bench."],
-  ["sp-fs", "The FUSE observer, over /dev/fuse or io_uring."],
-  ["sp-sandbox", "bubblewrap sandbox, overlay and pinned root filesystem."],
-  ["sp-cas", "BLAKE3 content-addressed store and the tree model."],
-  ["sp-key", "Step keys and the Go, Node and Python profiles."],
-  ["sp-manifest", "Manifests, results and matches()."],
-  ["sp-trust", "Proof streaks, audits and quarantine."],
-  ["sp-ledger", "SQLite ledger with versioned migrations."],
-  ["sp-replay", "Restores outputs, stdout, stderr and exit code."],
-  ["sp-proto", "Host-to-guest messages for the microVM backend (in progress)."],
-  ["sp-guest-agent", "Runs a step inside a microVM guest (in progress)."],
-  ["sp-uring-probe", "Prototype that measured FUSE over io_uring first."],
+  ["quod-cli", "The quod command: run, inspect, status, bench."],
+  ["quod-fs", "The FUSE observer, over /dev/fuse or io_uring."],
+  ["quod-sandbox", "bubblewrap sandbox, overlay and pinned root filesystem."],
+  ["quod-cas", "BLAKE3 content-addressed store and the tree model."],
+  ["quod-key", "Step keys and the Go, Node and Python profiles."],
+  ["quod-manifest", "Manifests, results and matches()."],
+  ["quod-trust", "Proof streaks, audits and quarantine."],
+  ["quod-ledger", "SQLite ledger with versioned migrations."],
+  ["quod-replay", "Restores outputs, stdout, stderr and exit code."],
+  ["quod-proto", "Host-to-guest messages for the microVM backend (in progress)."],
+  ["quod-guest-agent", "Runs a step inside a microVM guest (in progress)."],
+  ["quod-uring-probe", "Prototype that measured FUSE over io_uring first."],
 ];
 
 const LOOKUP = `pub(crate) fn lookup(
@@ -61,7 +61,7 @@ const READDIR = `pub(crate) fn readdir(
 
 const MTIME = `/// The modification time served for a regular file: a function of its
 /// content alone, so it changes exactly when the content does.
-pub fn content_mtime(content: &sp_cas::Hash) -> std::time::SystemTime {
+pub fn content_mtime(content: &quod_cas::Hash) -> std::time::SystemTime {
     let b = content.as_bytes();
     let secs = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) & ((1 << 28) - 1);
     let nanos = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) % 1_000_000_000;
@@ -154,7 +154,7 @@ export default function UnderTheHood() {
                 lookup is recorded as an input, just like a read.
               </p>
             </div>
-            <Code src={LOOKUP} file="crates/sp-fs/src/serve.rs" hl={[12, 13, 14, 15, 16, 17]} />
+            <Code src={LOOKUP} file="crates/quod-fs/src/serve.rs" hl={[12, 13, 14, 15, 16, 17]} />
           </article>
 
           <article className="hard">
@@ -166,7 +166,7 @@ export default function UnderTheHood() {
                 observer records each listing it serves, and the manifest stores a hash of the names in it.
               </p>
             </div>
-            <Code src={READDIR} file="crates/sp-fs/src/serve.rs" hl={[8]} />
+            <Code src={READDIR} file="crates/quod-fs/src/serve.rs" hl={[8]} />
           </article>
 
           <article className="hard">
@@ -179,7 +179,7 @@ export default function UnderTheHood() {
                 changes exactly when the bytes do.
               </p>
             </div>
-            <Code src={MTIME} file="crates/sp-fs/src/lib.rs" hl={[5, 6, 7]} />
+            <Code src={MTIME} file="crates/quod-fs/src/lib.rs" hl={[5, 6, 7]} />
           </article>
 
           <article className="hard">
@@ -191,7 +191,7 @@ export default function UnderTheHood() {
                 you which path moved.
               </p>
             </div>
-            <Code src={ENTRY_AGREES} file="crates/sp-manifest/src/lib.rs" />
+            <Code src={ENTRY_AGREES} file="crates/quod-manifest/src/lib.rs" />
           </article>
 
           <article className="hard">
@@ -250,7 +250,7 @@ export default function UnderTheHood() {
                 divergence raising that bar for the whole key.
               </p>
             </div>
-            <Code src={NEEDED} file="crates/sp-trust/src/lib.rs" hl={[4, 5, 6, 7]} />
+            <Code src={NEEDED} file="crates/quod-trust/src/lib.rs" hl={[4, 5, 6, 7]} />
           </article>
         </section>
 

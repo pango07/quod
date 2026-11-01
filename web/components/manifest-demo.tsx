@@ -15,7 +15,7 @@ const ROWS: Row[] = [
   { k: "a", p: "vendor", h: "absent", note: "looked for, not found: no vendored modules" },
 ];
 
-// Each change, what it does to the tree, and what `matches` says. Messages follow sp-manifest's Display.
+// Each change, what it does to the tree, and what `matches` says. Messages follow quod-manifest's Display.
 const CHANGES: { label: string; row: number | null; result: string; replay: boolean }[] = [
   {
     label: "Edit README.md",

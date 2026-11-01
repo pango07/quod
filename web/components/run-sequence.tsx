@@ -9,7 +9,7 @@ const STAGES: { title: string; body: string; file: string; src: string; hl?: num
   {
     title: "Name the step",
     body: "The command, its environment and the pinned root filesystem are hashed into a step key. Volatile variables like a timestamp or CI run number are refused, so the same step always gets the same key.",
-    file: "crates/sp-key/src/lib.rs",
+    file: "crates/quod-key/src/lib.rs",
     src: `pub struct StepSpec {
     pub image: Image,          // rootfs digest + platform
     pub toolchain: Toolchain,  // Go, Node or Python profile
@@ -28,7 +28,7 @@ pub fn step_key(spec: &StepSpec) -> Result<Hash, KeyError> {
   {
     title: "Snapshot the repo",
     body: "Every file in the checkout is hashed with BLAKE3 into a content-addressed store. The result is a tree: path to hash, mode and kind. Unchanged files are never hashed twice.",
-    file: "crates/sp-cli/src/run.rs",
+    file: "crates/quod-cli/src/run.rs",
     src: `let key = step_key(&spec)?;
 // ...
 let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;`,
@@ -37,7 +37,7 @@ let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;`,
   {
     title: "Look for a match",
     body: "Quod loads the manifests recorded for this key and checks each one against the new tree. A manifest only lists what the step read last time, so edits anywhere else don't matter.",
-    file: "crates/sp-manifest/src/lib.rs",
+    file: "crates/quod-manifest/src/lib.rs",
     src: `pub fn matches(manifest: &Manifest, tree: &Tree) -> Result<(), Box<Mismatch>> {
     let mut first: Option<(String, Entry, Option<Entry>)> = None;
     let mut total = 0;
@@ -57,7 +57,7 @@ let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;`,
   {
     title: "Decide",
     body: "A match isn't enough. The result must have been produced identically at least twice, the key can't be quarantined, and a share of would-be skips still run as audits.",
-    file: "crates/sp-trust/src/lib.rs",
+    file: "crates/quod-trust/src/lib.rs",
     src: `pub fn decide(policy: &Policy, hit: Option<HitView>, trust: Option<&TrustRow>,
               proof: Option<&ProofRow>, recent_divergences: u64) -> Decision {
     let Some(hit) = hit else {
@@ -84,7 +84,7 @@ let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;`,
   {
     title: "Replay, or run under observation",
     body: "On a replay, Quod restores the recorded outputs, stdout, stderr and exit code. Otherwise the step runs in a sandbox whose /workspace is Quod's own FUSE filesystem, which logs every request the kernel sends it.",
-    file: "crates/sp-fs/src/serve.rs",
+    file: "crates/quod-fs/src/serve.rs",
     src: `pub(crate) fn open(&self, req: &Req, ino: u64, read_only: bool, /* ... */) -> Result<Opened, i32> {
     let n = self.node(ino).ok_or(libc::ENOENT)?;
     if n.entry.k != Kind::File {
@@ -101,7 +101,7 @@ let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile())?;`,
   {
     title: "Write the manifest",
     body: "At unmount, the access log becomes a manifest: every file read, every directory listed, every path looked up and not found. Writes are diffed out of the overlay as outputs.",
-    file: "crates/sp-manifest/src/lib.rs",
+    file: "crates/quod-manifest/src/lib.rs",
     src: `/// What one execution of a step actually read. Entries are sorted
 /// bytewise by path (then kind) and unique.
 pub struct Manifest {
@@ -115,7 +115,7 @@ pub struct Manifest {
   {
     title: "Prove and record",
     body: "The new result is compared with the last one from the same manifest. Identical extends the proof streak; different quarantines the whole key. Verdict, run, manifest and result commit in one SQLite transaction.",
-    file: "crates/sp-cli/src/run.rs",
+    file: "crates/quod-cli/src/run.rs",
     src: `// The trust update and the run row are one transaction.
 ledger.atomically(|l| -> anyhow::Result<_> {
     Ok(match trust.record_replay(&tstep, hit)? {
