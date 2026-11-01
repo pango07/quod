@@ -315,9 +315,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let (tree, served) = std::thread::scope(|s| {
         let served = s.spawn(|| gitdir::served_git(&cas, &state.dir, &repo));
         let tree = deps::import_workspace(&cas, &repo, &deps, spec.profile());
+        // A panic there is a bug, not a checkout without a .git: it goes on.
         let served = served
             .join()
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("serving the .git panicked")));
+            .unwrap_or_else(|p| std::panic::resume_unwind(p));
         (tree, served)
     });
     // Its index refreshed for the step's identity (`execute` runs it as the
@@ -416,7 +417,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     };
 
     let start = Instant::now();
-    let dir = state.run_dir(&info.run_id);
+    let run_dir = state.claim_run_dir(&info.run_id, args.keep)?;
+    let dir = run_dir.path.clone();
     let warm_dir = match (warm, &spec.profile().warm) {
         (true, Some(w)) => Some(state.warm_cache_dir(&image.id()?, w.cache_env)),
         _ => None,

@@ -304,19 +304,26 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
         median(&v)
     };
     let (pm, pp) = (median(&w[0]), p95(&w[0]));
+    // Nearest rank: under 20 runs the 95th percentile is the maximum.
+    let tail_col = if w[0].len() < 20 { "Max" } else { "p95" };
     let (om, op) = (median(&w[1]), p95(&w[1]));
     let ratio = om / pm - 1.0;
     let mut t = String::new();
     writeln!(t, "## Overhead (A8)\n")?;
     writeln!(
         t,
-        "{} runs per series{}, first dropped as warm-up. Overhead = observed median / plain median - 1. Target under 10%.\n",
+        "{} runs per series{}, first dropped as warm-up. Overhead = observed median / plain median - 1. Target under 10%. {tail_col} is the nearest-rank 95th percentile{}.\n",
         args.runs,
-        if args.interleave { ", interleaved" } else { "" }
+        if args.interleave { ", interleaved" } else { "" },
+        if w[0].len() < 20 {
+            ", which with fewer than 20 measured runs is the slowest run"
+        } else {
+            ""
+        }
     )?;
     writeln!(
         t,
-        "| Series | Median | p95 | Execution median | Runs (s) | Load average (1m) before -> after each run |\n| --- | --- | --- | --- | --- | --- |"
+        "| Series | Median | {tail_col} | Execution median | Runs (s) | Load average (1m) before -> after each run |\n| --- | --- | --- | --- | --- | --- |"
     )?;
     writeln!(
         t,
@@ -401,7 +408,7 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
     )?;
     writeln!(
         t,
-        "How each observed series was served, from its run and observer events (medians over the same runs; requests answered over the ring and over /dev/fuse, the observer process's CPU time while mounted, and how long its serving threads were runnable but waiting for a CPU):\n"
+        "How each observed series was served, from its run and observer events (medians over the same runs; requests answered over the ring and over /dev/fuse, the observer process's CPU time while mounted (getrusage(RUSAGE_SELF) from mount to the observer's unmount: the serving threads and anything else the process did meanwhile, the overlay's output storing included), and how long its serving threads were runnable but waiting for a CPU):\n"
     )?;
     writeln!(
         t,
@@ -528,8 +535,9 @@ fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result
     }
     writeln!(t)?;
     let line = format!(
-        "Observer overhead (0a, host): median {:+.1}%, p95 {:+.1}% (plain {pm:.2}s, observed {om:.2}s)",
+        "Observer overhead (0a, host): median {:+.1}%, {} {:+.1}% (plain {pm:.2}s, observed {om:.2}s)",
         ratio * 100.0,
+        tail_col,
         (op / pp - 1.0) * 100.0
     );
     quod_cas::remove_any(&tree)?;

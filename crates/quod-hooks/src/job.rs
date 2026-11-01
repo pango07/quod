@@ -1896,8 +1896,8 @@ fn run_step(
             };
             // One transaction: the trust verdict (proof streak, trust state,
             // audit row), the run row, the manifest and the result.
+            // (record_execution_facts inserts the manifest.)
             let v = ledger.atomically(|l| -> anyhow::Result<Verdict> {
-                l.put_manifest(&manifest, &run_id)?;
                 let v = trust.record_execution(
                     &tstep,
                     &run_id,

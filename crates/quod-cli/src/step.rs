@@ -390,8 +390,8 @@ pub fn cli(state: &State, args: StepArgs) -> anyhow::Result<u8> {
     let req: Request = serde_json::from_str(&text).context("parse the step request")?;
     let cas = Cas::open(args.cas.unwrap_or_else(|| state.cas_dir()))?;
     let ledger = Ledger::open(&args.ledger.unwrap_or_else(|| state.ledger_path()))?;
-    let run_dir = state.run_dir(&ulid::Ulid::generate().to_string());
-    let out = run_step(&cas, &ledger, &run_dir, &req)?;
+    let claim = state.claim_run_dir(&ulid::Ulid::generate().to_string(), false)?;
+    let out = run_step(&cas, &ledger, &claim.path, &req)?;
     if out.replayed {
         quod_replay::replay_log(
             &out.result,
