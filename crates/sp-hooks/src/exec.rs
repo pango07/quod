@@ -111,6 +111,9 @@ pub struct Executed {
     pub observer: String,
     pub net_attempts: Option<u64>,
     pub resource_failure: Option<String>,
+    /// A stored run (`Keep::Store`) whose stdout, stderr or outputs hold a
+    /// placeholder (`surface::PLACEHOLDER_MARKS`): where.
+    pub placeholder_in: Option<String>,
     /// The step left something in the shared warm build cache that is not
     /// Go's own cache layout, or an entry holding a secret value: the run is
     /// not recordable and the caller wipes the cache (or the job's layer).
@@ -370,6 +373,10 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             root_layer = Some((root_upper.clone(), format!("/{first}")));
         }
     }
+    let placeholder_in = match (x.keep, &r) {
+        (Keep::Store, Ok(_)) => placeholder_in(&rs.stdout, &rs.stderr, &upper),
+        _ => None,
+    };
     let r = r?;
     let (stdout, stderr) = match x.keep {
         Keep::Store => {
@@ -405,6 +412,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         observer,
         net_attempts: r.net_attempts,
         resource_failure: r.resource_failure,
+        placeholder_in,
         warm_violation,
         warm_layer_written,
         phases: Phases {
@@ -611,6 +619,33 @@ fn go_cache_delta(
         }
     }
     Ok(None)
+}
+
+/// Where a run's stdout, stderr or workspace writes (`upper`) hold a
+/// placeholder. Unreadable is as good as holding one.
+fn placeholder_in(stdout: &Path, stderr: &Path, upper: &Path) -> Option<String> {
+    let marks = crate::surface::placeholder_marks();
+    let Ok(ac) = aho_corasick::AhoCorasick::new(&marks) else {
+        return Some("its result (the placeholder check failed)".into());
+    };
+    let raw = |p: &Path| match std::fs::read(p) {
+        Ok(b) => ac.find(&b).is_some(),
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    };
+    if raw(stdout) {
+        return Some("its stdout".into());
+    }
+    if raw(stderr) {
+        return Some("its stderr".into());
+    }
+    match secrets::file_containing(upper, &marks) {
+        Ok(None) => None,
+        Ok(Some(f)) => Some(format!(
+            "its output {}",
+            f.strip_prefix(upper).unwrap_or(&f).display()
+        )),
+        Err(e) => Some(format!("its outputs (unreadable: {e:#})")),
+    }
 }
 
 /// Unmounts an overlay that may be busy for a moment: a process another

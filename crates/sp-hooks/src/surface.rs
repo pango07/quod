@@ -49,6 +49,36 @@ const SCRIPT: &str = "stillpass-step";
 /// The value a withheld variable has in a keyed step: set, so presence
 /// checks behave as on GitHub, and useless as a token, a sha or an id.
 pub const WITHHELD: &str = "stillpass-withheld";
+
+/// What a placeholder leaves in a step's result: `WITHHELD` (withheld names,
+/// ACTIONS_* tokens) and the unreachable ACTIONS_* service address. A
+/// result that holds one is not what GitHub would give (`job::run_step`
+/// runs the step again with the runner's environment, never records it).
+pub const PLACEHOLDER_MARKS: &[&str] = &[WITHHELD, "stillpass-unreachable"];
+
+pub fn placeholder_marks() -> Vec<Vec<u8>> {
+    PLACEHOLDER_MARKS
+        .iter()
+        .map(|m| m.as_bytes().to_vec())
+        .collect()
+}
+
+/// The first command file (GITHUB_ENV, GITHUB_OUTPUT, the step summary,
+/// ...) the step wrote a placeholder into.
+pub fn placeholder_in_files(files: &[PinnedFile]) -> Option<String> {
+    let marks = placeholder_marks();
+    let ac = aho_corasick::AhoCorasick::new(&marks).ok()?;
+    files
+        .iter()
+        .find(|f| {
+            if f.dir {
+                secrets::file_containing(&f.host, &marks).map_or(true, |p| p.is_some())
+            } else {
+                std::fs::read(&f.host).is_ok_and(|b| ac.find(&b).is_some())
+            }
+        })
+        .map(|f| f.name.clone())
+}
 /// Inside RUNNER_TEMP: where the runner keeps per-step command files.
 const FILE_COMMANDS_DIR: &str = "_runner_file_commands";
 /// What an offline step resolves names with: an address with no route, so

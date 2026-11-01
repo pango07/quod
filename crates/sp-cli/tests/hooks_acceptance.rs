@@ -916,6 +916,61 @@ fn hooks_acceptance() {
         "B1 ok: a job with GITHUB_TOKEN or ACTIONS_ID_TOKEN_REQUEST_URL never replays a result recorded without it"
     );
 
+    // N4: a withheld variable a step reaches by a name no scan sees (so it
+    // runs keyed, with the placeholder) and puts in its result (stdout,
+    // GITHUB_OUTPUT, a file) gave a result GitHub never would. Such a run is
+    // never recorded: the step runs again with the runner's environment, and
+    // the job gets the real value.
+    let head = r.head();
+    for (what, script) in [
+        ("stdout", r#"v=GITHUB_; eval "echo \${${v}SHA}""#),
+        (
+            "GITHUB_OUTPUT",
+            r#"v=GITHUB_; eval "echo sha=\${${v}SHA}" >> "$GITHUB_OUTPUT""#,
+        ),
+        (
+            "an output file",
+            r#"v=GITHUB_; eval "echo \${${v}SHA}" > stillpass-n4.txt"#,
+        ),
+    ] {
+        let first = r.job(script, &[]);
+        assert!(
+            first
+                .summary
+                .contains("holds a withheld variable's placeholder")
+                && first.summary.contains("tainted"),
+            "N4 {what}: {}\n{}",
+            first.summary,
+            first.stderr
+        );
+        let again = r.job(script, &[]);
+        assert!(
+            !again.replayed() && again.summary.contains("placeholder"),
+            "N4 {what}: never recorded: {}",
+            again.summary
+        );
+        match what {
+            "stdout" => assert!(
+                String::from_utf8_lossy(&again.stdout).contains(&head),
+                "N4: the job gets the real value"
+            ),
+            "GITHUB_OUTPUT" => {
+                let out = std::fs::read_to_string(
+                    r.work.join("_temp/_runner_file_commands/set_output_2"),
+                )
+                .unwrap();
+                assert!(
+                    out.contains(&format!("sha={head}")) && !out.contains("stillpass-withheld"),
+                    "N4: GITHUB_OUTPUT holds the real value: {out:?}"
+                );
+            }
+            _ => {}
+        }
+    }
+    println!(
+        "N4 ok: a result holding a withheld variable's placeholder is never recorded; the step runs again with the real value"
+    );
+
     // M1: the scope's warm build cache is bound only into steps that run
     // go, and what a step leaves there must be Go's cache layout: a step
     // that stashes a file in it is not recorded, and the cache is wiped.
@@ -1264,7 +1319,7 @@ fn hooks_acceptance() {
     println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
 
     println!(
-        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1, W1-W2 and T1-T2 pass{}",
+        "hooks acceptance: A1-A7, A7b, C1-C3, B1, N4, M1, D1, W1-W2 and T1-T2 pass{}",
         if spike.is_some() {
             " on the spike repo"
         } else {

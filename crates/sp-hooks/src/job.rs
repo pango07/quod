@@ -1627,6 +1627,21 @@ fn run_step(
     if let Some(why) = &machine {
         again.push(why.clone());
     }
+    // A result that holds a placeholder (a withheld variable printed, put
+    // in GITHUB_OUTPUT or a file, by a name no scan sees) is not what
+    // GitHub would give: the job gets the step run with its real
+    // environment, and nothing is recorded.
+    if again.is_empty()
+        && let Some(w) = ex
+            .placeholder_in
+            .clone()
+            .or_else(|| surface::placeholder_in_files(&h.files).map(|n| format!("its {n}")))
+    {
+        again.push(format!(
+            "{w} holds a withheld variable's placeholder ({}), not the value GitHub would give",
+            surface::WITHHELD
+        ));
+    }
     if again.is_empty() {
         // A file the step read or executed names a variable it was not
         // given: on GitHub it would have had it.
