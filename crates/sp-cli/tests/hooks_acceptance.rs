@@ -1146,6 +1146,57 @@ fn hooks_acceptance() {
         "W1 ok: a same-repository pull request writes only its own copy of the warm cache and workspace; its go step over its own writes is not recorded"
     );
 
+    // W2 (N2): taking something away from the cache is a write to the
+    // job's layer too. A pull request that empties the cache (`go clean
+    // -cache`: whiteouts), removes and remakes one of its directories (an
+    // opaque directory) or changes an entry's mode makes every later go step
+    // of its job read a cache the default branch's runs never had, so that
+    // step is not recorded (it could otherwise record, prove or quarantine
+    // the default branch's keys with what a cold or altered cache gives).
+    let later = r#"go list ./... >/dev/null && echo after-the-cache-was-altered"#;
+    for (what, alter) in [
+        (
+            "go clean -cache",
+            r#"go list ./... >/dev/null && go clean -cache"#,
+        ),
+        (
+            "a directory removed and made again",
+            r#"go list ./... >/dev/null && d=$(ls -d "$GOCACHE"/[0-9a-f][0-9a-f] | head -n 1) && rm -rf "$d" && mkdir "$d""#,
+        ),
+        (
+            "a mode changed",
+            r#"go list ./... >/dev/null && for f in "$GOCACHE"/*/*-a; do chmod o-r "$f"; break; done"#,
+        ),
+    ] {
+        r.event = same_repo_pull_request();
+        r.prepare_job();
+        let co = r.checkout();
+        assert_eq!(co.code, 0, "W2 checkout: {}", co.stderr);
+        let first = r.script(alter, &[]);
+        assert_eq!(first.code, 0, "W2 {what}: {}", first.stderr);
+        let after = r.script(later, &[]);
+        assert!(
+            after.executed()
+                && after
+                    .summary
+                    .contains("not recorded: an earlier step of this job wrote"),
+            "W2 {what}: {}\n{}",
+            after.summary,
+            after.stderr
+        );
+        r.cleanup_job();
+    }
+    r.event = push_to_main();
+    let fresh_run = r.job(later, &[]);
+    assert!(
+        fresh_run.summary.contains("first run of this step"),
+        "W2: no pull request recorded the later step: {}",
+        fresh_run.summary
+    );
+    println!(
+        "W2 ok: a pull request that empties, remakes or re-modes the warm cache leaves its later go steps unrecorded"
+    );
+
     // T1 (the trust layer, as `stillpass run` has it): a result seen once
     // never replays; two identical executions prove it; an audit
     // re-executes a would-be hit and compares instead of replaying.
@@ -1206,7 +1257,7 @@ fn hooks_acceptance() {
     println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
 
     println!(
-        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1, W1 and T1-T2 pass{}",
+        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1, W1-W2 and T1-T2 pass{}",
         if spike.is_some() {
             " on the spike repo"
         } else {

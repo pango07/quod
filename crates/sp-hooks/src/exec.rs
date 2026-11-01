@@ -183,6 +183,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         GoCache::Layered { lower, layer } => {
             std::fs::create_dir_all(lower)
                 .with_context(|| format!("create {}", lower.display()))?;
+            seed_trim(&layer.join("upper"))?;
             let merged = x.step_dir.join("gocache");
             let ov = sp_fs::overlay_layers(
                 &[lower.as_path()],
@@ -612,22 +613,69 @@ fn go_cache_delta(
     Ok(None)
 }
 
-/// The first entry the step put into the job's layer (`upper`, over the
-/// cache `lower`) that is not a copy of the cache's own: a new file, or one
-/// with other bytes. overlayfs copies an entry up whole when Go merely
-/// bumps its mtime (markUsed), and that copy holds the cache's bytes;
-/// directories and whiteouts (a deletion: a miss, nothing read) are no
-/// writes. Anything else, a symlink included, is.
+/// Go trims its cache at most once a day, by the time in `trim.txt`, and a
+/// trim's deletions in a job's layer would be the job's own writes there
+/// (every later step unrecorded). The layer says the cache was trimmed
+/// just now: a job that is not a writer never trims a cache it does not
+/// own; a writer, which works on the cache itself, does.
+fn seed_trim(upper: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(upper).with_context(|| format!("create {}", upper.display()))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let p = upper.join("trim.txt");
+    std::fs::write(&p, now.to_string()).with_context(|| format!("write {}", p.display()))
+}
+
+/// The first entry the step changed in the job's layer (`upper`, over the
+/// cache `lower`) that is not a plain copy of the cache's own: overlayfs
+/// copies an entry up whole when Go merely bumps its mtime (markUsed), and
+/// that copy holds the cache's bytes, mode, owner and attributes. Anything
+/// else is a write: a new file, other bytes, another mode, owner or
+/// extended attribute (overlayfs's own aside), a symlink, a whiteout (an
+/// entry deleted: what the cache held is gone), an opaque directory (one
+/// removed and made again), a directory whose mode or owner changed. A new
+/// directory is not one by itself; its entries count. `trim.txt` is the
+/// hooks' own (`seed_trim`).
 fn layer_written(lower: &Path, upper: &Path, before: &BTreeMap<String, Ident>) -> Option<String> {
     go_cache_snapshot(upper)
         .into_iter()
         .filter(|(p, v)| before.get(p) != Some(v))
-        .find(|(p, v)| match v.kind {
-            CacheKind::Dir | CacheKind::Other => false,
-            CacheKind::Symlink => true,
-            CacheKind::File => !same_bytes(&lower.join(p), &upper.join(p)),
+        .filter(|(p, _)| p != "trim.txt")
+        .find(|(p, v)| {
+            let (l, u) = (lower.join(p), upper.join(p));
+            match v.kind {
+                CacheKind::Dir => {
+                    sp_fs::is_opaque_dir(&u).unwrap_or(true)
+                        || std::fs::symlink_metadata(&l).is_ok() && !same_meta(&l, &u)
+                }
+                CacheKind::File => !same_meta(&l, &u) || !same_bytes(&l, &u),
+                CacheKind::Symlink | CacheKind::Other => true,
+            }
         })
         .map(|(p, _)| p)
+}
+
+/// The same kind, permission bits, owner and extended attributes (but
+/// overlayfs's own, `trusted.overlay.*` and `user.overlay.*`).
+fn same_meta(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let (Ok(ma), Ok(mb)) = (std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)) else {
+        return false;
+    };
+    let attrs = |p: &Path| {
+        sp_fs::xattrs(p).ok().map(|x| {
+            x.into_iter()
+                .filter(|(k, _)| {
+                    !k.starts_with("trusted.overlay.") && !k.starts_with("user.overlay.")
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+    };
+    ma.file_type() == mb.file_type()
+        && ma.mode() & 0o7777 == mb.mode() & 0o7777
+        && (ma.uid(), ma.gid()) == (mb.uid(), mb.gid())
+        && matches!((attrs(a), attrs(b)), (Some(x), Some(y)) if x == y)
 }
 
 /// Two regular files (never through a symlink) with the same bytes.
@@ -830,41 +878,125 @@ mod tests {
         );
     }
 
+    /// N2, through a real overlay (root; STILLPASS_INTEGRATION=1, as
+    /// scripts/dev.sh sets): only a plain copy-up of the cache's own entry
+    /// is not a write to the job's layer.
     #[test]
-    fn a_layer_entry_counts_as_written_unless_it_is_the_cache_s_own_bytes() {
+    fn a_layer_entry_counts_as_written_unless_it_is_a_plain_copy_up() {
+        if std::env::var("STILLPASS_INTEGRATION").as_deref() != Ok("1") {
+            eprintln!("needs STILLPASS_INTEGRATION=1 (overlayfs); skipping");
+            return;
+        }
         let tmp = tempfile::tempdir().unwrap();
-        let (lower, upper) = (tmp.path().join("lower"), tmp.path().join("upper"));
+        let (lower, layer) = (tmp.path().join("lower"), tmp.path().join("layer"));
         let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        std::fs::create_dir_all(lower.join("ab")).unwrap();
-        std::fs::create_dir_all(&upper).unwrap();
-        std::fs::write(lower.join(format!("ab/{id}-d")), "object code").unwrap();
-        let before = go_cache_snapshot(&upper);
-        // Copied up by a bump: same bytes, not a write. A new directory and
-        // a whiteout-like node are no writes either.
-        std::fs::create_dir_all(upper.join("ab")).unwrap();
-        std::fs::write(upper.join(format!("ab/{id}-d")), "object code").unwrap();
-        assert_eq!(layer_written(&lower, &upper, &before), None);
-        // Other bytes at the same size, a new entry, a symlink: writes.
-        std::fs::write(upper.join(format!("ab/{id}-d")), "OBJECT CODE").unwrap();
+        for hh in ["ab", "cd", "ef"] {
+            std::fs::create_dir_all(lower.join(hh)).unwrap();
+            std::fs::write(lower.join(format!("{hh}/{id}-d")), "object code").unwrap();
+            std::fs::write(lower.join(format!("{hh}/{id}-a")), "v1 action").unwrap();
+        }
+        std::fs::write(lower.join("trim.txt"), "0").unwrap();
+        let upper = layer.join("upper");
+        let step = |n: usize, act: &dyn Fn(&Path)| -> Option<String> {
+            seed_trim(&upper).unwrap();
+            let merged = tmp.path().join(format!("merged-{n}"));
+            let ov =
+                sp_fs::overlay_layers(&[lower.as_path()], &upper, &layer.join("work"), &merged)
+                    .unwrap();
+            let before = go_cache_snapshot(&upper);
+            act(&merged);
+            let w = layer_written(&lower, &upper, &before);
+            ov.release().unwrap();
+            w
+        };
+        let set_mtime = |p: &Path| {
+            std::fs::File::options()
+                .write(true)
+                .open(p)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now())
+                .unwrap()
+        };
+        // Go's mark-used bump: copied up whole, the cache's bytes. Not a
+        // write; nor is the hooks' trim.txt, nor Go reading it.
+        let d = format!("ab/{id}-d");
+        assert_eq!(step(0, &|m| set_mtime(&m.join(&d))), None);
+        assert!(upper.join(&d).is_file(), "copied up");
         assert_eq!(
-            layer_written(&lower, &upper, &before).as_deref(),
-            Some(format!("ab/{id}-d").as_str())
+            step(1, &|m| {
+                std::fs::read(m.join("trim.txt")).unwrap();
+            }),
+            None
         );
-        std::fs::write(upper.join(format!("ab/{id}-d")), "object code").unwrap();
-        std::fs::write(upper.join(format!("ab/{id}-a")), "v1 ...").unwrap();
+        // Other bytes, another mode, an extended attribute: writes.
+        let a = format!("ab/{id}-a");
         assert_eq!(
-            layer_written(&lower, &upper, &before).as_deref(),
-            Some(format!("ab/{id}-a").as_str())
+            step(2, &|m| std::fs::write(m.join(&a), "v1 poison").unwrap()).as_deref(),
+            Some(a.as_str())
         );
-        std::fs::remove_file(upper.join(format!("ab/{id}-a"))).unwrap();
-        std::os::unix::fs::symlink(lower.join(format!("ab/{id}-d")), upper.join("ab/link"))
-            .unwrap();
-        assert!(layer_written(&lower, &upper, &before).is_some());
-        std::fs::remove_file(upper.join("ab/link")).unwrap();
-        // Only what changed during the step counts.
-        std::fs::write(upper.join(format!("ab/{id}-a")), "v1 ...").unwrap();
-        let before = go_cache_snapshot(&upper);
-        assert_eq!(layer_written(&lower, &upper, &before), None);
+        std::fs::remove_dir_all(&layer).unwrap();
+        let cd = format!("cd/{id}-d");
+        assert_eq!(
+            step(3, &|m| {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(m.join(&cd), std::fs::Permissions::from_mode(0o600))
+                    .unwrap()
+            })
+            .as_deref(),
+            Some(cd.as_str())
+        );
+        std::fs::remove_dir_all(&layer).unwrap();
+        let setxattr = |p: &Path| {
+            let ok = std::process::Command::new("python3")
+                .args([
+                    "-c",
+                    "import os, sys; os.setxattr(sys.argv[1], 'user.stillpass', b'x')",
+                ])
+                .arg(p)
+                .status()
+                .is_ok_and(|s| s.success());
+            assert!(ok, "set a user xattr on {}", p.display());
+        };
+        assert_eq!(
+            step(4, &|m| setxattr(&m.join(&cd))).as_deref(),
+            Some(cd.as_str())
+        );
+        std::fs::remove_dir_all(&layer).unwrap();
+        // A deletion (a whiteout), a directory removed and made again (opaque).
+        let ef = format!("ef/{id}-a");
+        assert_eq!(
+            step(5, &|m| std::fs::remove_file(m.join(&ef)).unwrap()).as_deref(),
+            Some(ef.as_str())
+        );
+        std::fs::remove_dir_all(&layer).unwrap();
+        assert_eq!(
+            step(6, &|m| {
+                std::fs::remove_dir_all(m.join("ef")).unwrap();
+                std::fs::create_dir(m.join("ef")).unwrap();
+            })
+            .as_deref(),
+            Some("ef")
+        );
+        std::fs::remove_dir_all(&layer).unwrap();
+        // A new entry, a symlink: writes. A new directory alone is not.
+        assert_eq!(
+            step(7, &|m| std::fs::create_dir(m.join("12")).unwrap()),
+            None
+        );
+        assert!(
+            step(8, &|m| std::fs::write(m.join(format!("12/{id}-a")), "v1")
+                .unwrap())
+            .is_some()
+        );
+        std::fs::remove_dir_all(&layer).unwrap();
+        assert!(
+            step(9, &|m| std::os::unix::fs::symlink(
+                "/etc/passwd",
+                m.join("ab/link")
+            )
+            .unwrap())
+            .is_some()
+        );
     }
 
     #[test]
