@@ -178,7 +178,18 @@ export class FixtureCloudApi implements CloudApi {
     const base7 = totalsFor(range);
     const days = daysFor(range);
     // Fold in what the simulator added today, so a reload shows what the open page had reached.
-    const sim = simulating(team) ? deltaSinceMidnight(Date.now()) : null;
+    // Whole numbers, like the rest of the sample data (the per-repo split below rounds too).
+    const raw = simulating(team) ? deltaSinceMidnight(Date.now()) : null;
+    const sim = raw
+      ? {
+          replayedMinutes: Math.round(raw.replayedMinutes),
+          ranMinutes: Math.round(raw.ranMinutes),
+          stepsReplayed: Math.round(raw.stepsReplayed),
+          stepsTotal: Math.round(raw.stepsTotal),
+          spotChecks: Math.round(raw.spotChecks),
+          spotChecksIdentical: Math.round(raw.spotChecksIdentical),
+        }
+      : null;
     const totals = sim
       ? {
           ...base7,

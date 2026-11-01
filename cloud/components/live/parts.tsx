@@ -148,14 +148,16 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
   const queued = job.status === "queued";
   const since = Date.parse(queued ? job.queuedAt : (job.startedAt ?? job.queuedAt));
   const elapsed = formatDuration(Math.max(0, (now - since) / 1000));
-  return (
-    <li>
-      <Link className="now-row" href={`/${team}/${job.repoSlug}/runs/${job.runNumber}`}>
+  // A job from GitHub has no Quod run page (yet): open it on GitHub.
+  const external = job.source === "github" || !job.runNumber;
+  const body = (
+    <>
         <span className={`dot lg ${queued ? "hollow" : "blue pulse"}`} aria-hidden="true" />
         <span className="cell-main" style={{ minWidth: 0 }}>
           <span style={{ fontWeight: 500 }}>
             {showRepo ? `${job.repoName} · ` : ""}
-            {job.workflow} / {job.job} <span className="faint mono">#{job.runNumber}</span>
+            {job.workflow} / {job.job} {job.runNumber ? <span className="faint mono">#{job.runNumber}</span> : null}
+            {external ? <span className="sr-only"> (opens on GitHub)</span> : null}
           </span>
           <span className="cell-sub">
             {queued ? (
@@ -177,7 +179,19 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
           <span aria-hidden="true">{queued ? `queued ${elapsed}` : elapsed}</span>
           <span className="sr-only">{queued ? "queued" : "running"}</span>
         </span>
-      </Link>
+    </>
+  );
+  return (
+    <li>
+      {external ? (
+        <a className="now-row" href={job.githubUrl} target="_blank" rel="noreferrer">
+          {body}
+        </a>
+      ) : (
+        <Link className="now-row" href={`/${team}/${job.repoSlug}/runs/${job.runNumber}`}>
+          {body}
+        </Link>
+      )}
     </li>
   );
 }

@@ -2,6 +2,9 @@ import "server-only";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { accessToken } from "@/lib/auth/session";
+import { dbConfigured, getDb } from "@/lib/db";
+import { githubAppConfig } from "@/lib/github/env";
+import { CompositeCloudApi } from "./composite";
 import { FixtureCloudApi, newFixtureState, type FixtureState } from "./fixture";
 import { HttpCloudApi } from "./http";
 import { resolveApiMode } from "./mode";
@@ -18,7 +21,17 @@ export function api(): CloudApi {
   const mode = resolveApiMode(process.env);
   if (mode.kind === "misconfigured") throw new Error(`Quod Cloud data source is not configured. ${mode.problem}`);
   const inner = mode.kind === "http" ? new HttpCloudApi(mode.url, accessToken) : new FixtureCloudApi((g.__quodFixtureState ??= newFixtureState()));
-  return withRefusals(inner);
+  // CI job activity from the GitHub App for linked teams, whatever the inner adapter is.
+  const composite = new CompositeCloudApi(inner, {
+    github: {
+      configured: () => dbConfigured(),
+      appReady: () => githubAppConfig().ok,
+      db: () => getDb(),
+    },
+    // The TeamId only ever comes from the membership-checked team context (lib/github/team.ts).
+    orgOf: async (team) => (await (await import("@/lib/dal")).findTeam(team))?.team.orgId ?? null,
+  });
+  return withRefusals(composite);
 }
 
 /**

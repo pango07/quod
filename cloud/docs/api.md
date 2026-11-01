@@ -144,6 +144,43 @@ events from the clock for the sample team.
 Members, invitations, SSO and directory sync are not in this API: they live
 in WorkOS and the app calls WorkOS directly (`lib/auth/directory.ts`).
 
+## Two sources in one stream: the composite adapter
+
+`lib/api/composite.ts` wraps the inner adapter (fixture or HTTP). For a team
+with a linked GitHub installation (and `DATABASE_URL` set), "Now running"
+(`getActivity`) and the `job.*` events come from the GitHub App's tables,
+whatever `QUOD_API` is; Quod's run, step, trust and stats events still come
+from the inner adapter. Overview and the repo list also show the
+installation's repos with their latest workflow run, marked
+`hasQuodData: false` until Quod has data for them. The sample team keeps the
+simulator. `Activity.github` says where a team stands: `linked`, `unlinked`
+(with `canInstall`), `not-configured` (no database), or `unavailable` (the
+database did not answer; pages still render and say so).
+
+### Cursors
+
+Every stream position is opaque to the browser, which only echoes it back as
+`Last-Event-ID`. The formats:
+
+| Source | Event id / cursor |
+| --- | --- |
+| Simulator | `<ms>-<cycle>-<seq>`; a snapshot's cursor is `<ms>-999999999-9999` (after every event at or before that millisecond) |
+| quod-server | its own opaque ids |
+| GitHub App | `gh-<version>`: `workflow_jobs.version` (the `live_version` sequence) |
+| Merged (linked team) | `gh-<version>` or `gh-<version>,<quod id>`: both positions after this event (`lib/live/cursor.ts`) |
+
+A linked team's snapshot cursor is `gh-<max version the team can see>`,
+read before the job lists, so a change committed during the snapshot is
+delivered by the stream (possibly again: repeats are harmless). A new stream
+also replays the team's job changes of the last 30 s (by `row_updated_at`),
+which covers a write that committed out of version order while the snapshot
+was taken; the merged stream drops any event whose version is not newer than
+the last one it sent for that job, so an older state never overwrites a newer
+one. Job state in events is the whole job, so applying one twice is a no-op.
+
+GitHub numbers steps from 1; `LiveJob.currentStep.index` counts from 0, and
+the composite converts.
+
 ## Event sources: GitHub App
 
 Live CI job status comes from the Quod CI GitHub App's `workflow_job` and

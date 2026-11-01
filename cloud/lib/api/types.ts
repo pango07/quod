@@ -65,6 +65,10 @@ export interface RepoSummary {
   lastRunAt: string | null;
   lastRunStatus: RunStatus | null;
   pausedSteps: number;
+  /** False for a repo known only from GitHub: Quod has not run there yet, so replay rate and savings are not real numbers. */
+  hasQuodData?: boolean;
+  /** The latest workflow run GitHub reported, for repos from the GitHub App. */
+  github?: { latestRun: { status: "queued" | "in_progress" | "completed"; conclusion?: string; title: string; url: string; at: string | null } | null };
 }
 
 export interface PausedStepRef {
@@ -339,7 +343,20 @@ export interface LiveJob {
   /** From Quod's step events, when the job runs Quod. */
   currentStep?: { index: number; name: string };
   stepsTotal?: number;
+  /** "github" for jobs from the GitHub App (lib/live-events.ts adds its own fields); absent for Quod's and the simulator's. */
+  source?: "github";
 }
+
+/** Whether a team's CI comes in from the GitHub App, and if not, why. */
+export type GitHubLink =
+  /** An installation is linked; `repos` it can see. */
+  | { state: "linked"; repos: number }
+  /** Nothing linked yet. `canInstall`: the App is set up on this deploy. */
+  | { state: "unlinked"; canInstall: boolean }
+  /** No database on this deploy (DATABASE_URL unset). */
+  | { state: "not-configured" }
+  /** The database did not answer; pages still render. */
+  | { state: "unavailable" };
 
 /** Jobs queued or in progress now, for the first paint of "Now running". */
 export interface Activity {
@@ -349,8 +366,11 @@ export interface Activity {
    * The event stream position this snapshot is consistent with: resume the
    * stream from here (as Last-Event-ID) and no event between the snapshot and
    * the subscription is lost. Null when the source has no stream.
+   * Opaque; see docs/api.md "Cursors" for the formats.
    */
   cursor: string | null;
+  /** The GitHub App's status for this team; absent for the sample team (simulated). */
+  github?: GitHubLink;
   /** True when the data is the built-in simulator ("Sample data, simulated live"). */
   simulated: boolean;
 }

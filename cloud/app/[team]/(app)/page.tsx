@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LiveRefresh, LiveTotals, NowRunning } from "@/components/live/parts";
+import { GitHubStatusCard } from "@/components/github-status";
 import { RangeToggle } from "@/components/range-toggle";
 import { RepoTable } from "@/components/repo-table";
 import { Dot, EmptyState } from "@/components/ui";
@@ -13,14 +14,19 @@ export const metadata = { title: "Overview" };
 export default async function OverviewPage({ params, searchParams }: PageProps<"/[team]">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
-  const { team } = await requireTeam(slug);
+  const { team, admin } = await requireTeam(slug);
   const [ov, activity] = await Promise.all([api().getOverview(team.slug, range), api().getActivity(team.slug)]);
   const base = `/${team.slug}`;
 
+  const github = activity.github;
   if (ov.repos.length === 0) {
     return (
       <div className="page">
         <h1 className="h1">Overview</h1>
+        {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
+        {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
+        {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
+        {github && github.state !== "linked" ? null : (
         <section className="card">
           <EmptyState
             title="No repositories yet"
@@ -33,12 +39,15 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
             Connect a repository and push. The first run only watches; from the second, steps whose inputs did not change come back in under a second.
           </EmptyState>
         </section>
+        )}
       </div>
     );
   }
 
   const t = ov.totals;
   const paused = ov.trust.paused;
+  // Repos known only from GitHub have no Quod numbers yet.
+  const quod = ov.repos.some((r) => r.hasQuodData !== false);
   return (
     <div className="page">
       <div className="row-between" style={{ gap: 16 }}>
@@ -51,10 +60,20 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         </div>
       </div>
 
+      {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
       <NowRunning team={team.slug} initial={activity} />
       <LiveRefresh scope={{ kind: "team" }} />
 
-      <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} />
+      {quod ? (
+        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} />
+      ) : (
+        <section className="card" style={{ padding: 20 }}>
+          <h2 className="h2">Time saved and replays</h2>
+          <p className="muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.6 }}>
+            Appears once Quod runs in one of these repositories. Until then, this page shows their CI from GitHub as it runs.
+          </p>
+        </section>
+      )}
 
       <div className="split">
         <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>
@@ -69,6 +88,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
           <RepoTable team={team.slug} repos={ov.repos} asOf={ov.asOf} />
         </section>
 
+        {quod ? (
         <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 16 }}>
           <section className="card" aria-labelledby="trust-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
             <div className="row-between">
@@ -134,6 +154,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
             </ul>
           </section>
         </div>
+        ) : null}
       </div>
     </div>
   );

@@ -97,6 +97,28 @@ The header's Live badge says when the connection is reconnecting or paused
 "Sample data, simulated live"; set `QUOD_SIMULATE=0` to turn the simulator
 off.
 
+## Live CI from GitHub
+
+For a team with a linked installation, Overview's "Now running" and the
+repo list come from the GitHub App's data in Postgres, live, even before
+Quod runs in a repo (Quod's numbers say "Appears once Quod runs in this
+repo"). A team without one sees "Connect GitHub to see your CI live" (admins
+get the button; members are told to ask an admin). Without `DATABASE_URL`,
+or when the database does not answer, every page still renders and says so.
+
+To try it locally with PGlite and made-up jobs:
+
+```sh
+npm run db:migrate -- --pglite /tmp/quod-pglite
+# link a fake installation to a team (SQL into installations / repos, team_id = the team's WorkOS org id),
+# then run the dev server with the database and a webhook secret:
+DATABASE_URL=pglite:/tmp/quod-pglite GITHUB_APP_WEBHOOK_SECRET=dev-secret npm run dev
+# and POST signed workflow_run / workflow_job payloads to /api/github/webhook
+# (lib/github/fixtures.ts shows their shape and how they are signed).
+```
+
+PGlite allows one process per folder: link with the dev server stopped.
+
 ## GitHub App setup
 
 The Quod CI GitHub App sends CI job status to Quod Cloud by webhook. It is
