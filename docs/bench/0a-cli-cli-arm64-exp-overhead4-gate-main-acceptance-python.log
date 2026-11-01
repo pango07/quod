@@ -1,0 +1,60 @@
+# main 2a24fd8: scripts/acceptance.sh python (2026-11-01T05:09:46Z)
+ 05:09:46 up 23:47,  0 user,  load average: 4.79, 2.72, 4.09
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (python): uv sync --frozen (network, not memoized; deps in /work/state/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+Bytecode compiled 2500 files in 387ms
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python
+  ran 0.5s
+== A1-A7 on https://github.com/encode/starlette@2745bbc5afa2 (python profile), step: python -m pytest
+$ quod run --repo /work/tmp/.tmpoivXU8/repo --step true --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures --allow-net
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python
+  ran 0.0s
+step A ok: dependency trees in /work/state/deps/git:5a9fe3f048664eef8f958581c6b7be8f7abf71cc/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/python, none in the checkout
+$ quod run --repo /work/tmp/.tmpoivXU8/repo --step python -m pytest --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:0cddf616  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 7.0s
+$ quod inspect b3:21d68c46fc7a6b39a87f1e7c5f28f556089ae3a710e7aaed8e1531eea2e01736
+A1 ok: EXECUTED, one manifest, 7 outputs, none under ["__pycache__", ".mypy_cache", ".ruff_cache"]
+A1 observer event: {"timestamp":"2026-11-01T05:10:00.644577Z","level":"INFO","message":"observer","mounted_ms":7916,"transport":"fuse-uring","uring_fallback":false,"pids":11,"passthrough":true,"lookup":235,"lookup_absent":78,"getattr":1,"readlink":0,"open":96,"read":0,"read_mb":0,"readdir":42,"ring_requests":675,"device_requests":0,"ring_batches":693,"ring_full_batches":18,"ring_serve_us":869,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":0,"serve_user_ms":57,"serve_sys_ms":626,"serve_threads":19,"serve_run_ms":5,"serve_runq_wait_ms":0,"serve_slices":747,"target":"quod"}
+A1 run event: {"timestamp":"2026-11-01T05:10:00.801995Z","level":"INFO","message":"run","run_id":"01M6AR73F0HZHNYS81TD03M616","step_key":"b3:21d68c46fc7a6b39a87f1e7c5f28f556089ae3a710e7aaed8e1531eea2e01736","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:0cddf616140f59d6fe519b15c9a8d81cbd1d1e13a9af9b5f3ba208f73b2928dc","hit":false,"mode":"replay","outcome":"miss","warm":false,"exit_code":0,"inputs":25325,"transport":"fuse-uring","observer":"fuse-uring+nice-10+passthrough+sealed","candidates":0,"import_ms":3535.5810439999996,"lookup_ms":0.422458,"mount_ms":954.474751,"exec_ms":6978.510378,"diff_ms":24.783541,"record_ms":145.999666,"total_ms":8104.1594620000005,"target":"quod"}
+$ quod run --repo /work/tmp/.tmpoivXU8/repo --step python -m pytest --toolchain python --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6AR73 on 2026-11-01 05:10 UTC
+  step b3:21d68c46  manifest b3:0cddf616  25,325 inputs matched
+  recorded 7.0s  replay 0.7s  saved 6.2s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+A2 ok: REPLAYED, exit 0 and 4179 stdout bytes identical
+$ quod run --repo /work/tmp/.tmpoivXU8/repo --step python -m pytest --mode observe --proofs 2
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:9e09b083  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6AR73 on identical inputs
+    stdout differs from line 57: "======================= 1414 passed, 2 xfailed in 6.41s ========================" vs "======================= 1414 passed, 2 xfailed in 6.59s ========================"
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 7.1s
+thread 'acceptance' (1798) panicked at crates/quod-cli/tests/acceptance.rs:178:5:
+P1: QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:9e09b083  25,325 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6AR73 on identical inputs
+    stdout differs from line 57: "======================= 1414 passed, 2 xfailed in 6.41s ========================" vs "======================= 1414 passed, 2 xfailed in 6.59s ========================"
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 7.1s
+acceptance --- FAILED
+    acceptance
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 21.90s
+rc=101

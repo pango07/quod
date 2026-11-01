@@ -1,0 +1,80 @@
+# scripts/acceptance.sh node (2026-11-01T04:37:29Z, exp/overhead4 2efeba4)
+ 04:37:29 up 23:17,  0 user,  load average: 12.22, 14.71, 11.19
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (node): npm ci (network, not memoized; deps in /work/state/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
+npm warn deprecated rollup-plugin-terser@7.0.2: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-terser
+npm warn deprecated codecov@3.8.3: https://about.codecov.io/blog/codecov-uploader-deprecation-plan/
+
+> luxon@3.7.2 prepare
+> husky install
+
+husky - Git hooks installed
+
+added 1050 packages in 5s
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   core-js@3.27.0 (postinstall: node -e "try{require('./postinstall')}catch(e){}")
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node
+  ran 5.3s
+== A1-A7 on https://github.com/moment/luxon@f427515a38f6 (node profile), step: export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4
+$ quod run --repo /work/tmp/.tmp5ylhQt/repo --step true --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures --allow-net
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  caches in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node
+  ran 0.0s
+step A ok: dependency trees in /work/state/deps/git:4b3d2fc70b6f28770ad41ce6cf4565ca40e3bb56/8b53afc1e3719604fcb89eb45a40f3181ee77d1c31a0d2145c096c5d247e846d/node, none in the checkout
+$ quod run --repo /work/tmp/.tmp5ylhQt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.0s
+$ quod inspect b3:e60f855c512cc604d149970f3f1e6c363f5f02e001b2439f1da8740bac63673b
+A1 ok: EXECUTED, one manifest, 47 outputs, none under ["node_modules/.cache", ".eslintcache", ".stylelintcache"]
+A1 observer event: {"timestamp":"2026-11-01T04:37:50.033540Z","level":"INFO","message":"observer","mounted_ms":4374,"transport":"fuse-uring","uring_fallback":false,"pids":18,"passthrough":false,"lookup":187,"lookup_absent":87,"getattr":1,"readlink":0,"open":1,"read":95,"read_mb":0,"readdir":14,"ring_requests":306,"device_requests":0,"ring_batches":324,"ring_full_batches":17,"ring_serve_us":1617,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":4,"ring_ops":"1:187,3:1,14:1,15:95,17:2,22:1,23:1,25:1,27:1,28:14,39:1,52:1","serve_user_ms":65,"serve_sys_ms":804,"serve_threads":19,"serve_run_ms":5,"serve_runq_wait_ms":0,"serve_slices":370,"target":"quod"}
+A1 run event: {"timestamp":"2026-11-01T04:37:50.130141Z","level":"INFO","message":"run","run_id":"01M6APCAZ144CTPY29Q6WVBE3D","step_key":"b3:e60f855c512cc604d149970f3f1e6c363f5f02e001b2439f1da8740bac63673b","image_kind":"host","image":"b3:5198f90003e4d94988d6ccf6bfb0cae9845801a68494a95821cd1cfeecbe7db2","arch":"aarch64","kernel":"7.0","cpus":18,"manifest_id":"b3:1c045abdde4f01c44775114d4dac058d700d59afccbf6466c6c54af1981af7a0","hit":false,"mode":"replay","outcome":"miss","warm":false,"exit_code":0,"inputs":24984,"transport":"fuse-uring","observer":"fuse-uring+nice-10+zero-open+zero-opendir+sealed","candidates":0,"setup_ms":269.996625,"import_ms":2105.170917,"lookup_ms":0.215125,"mount_ms":1363.452251,"serve_ms":23.865333999999997,"overlay_ms":0.718333,"seal_ms":1338.49625,"exec_ms":3017.871793,"diff_ms":26.851667,"outputs_ms":7.958333,"unmount_ms":10.156666999999999,"manifest_ms":7.014666999999999,"record_ms":86.31812599999999,"cleanup_ms":0.287334,"total_ms":4494.841753000001,"target":"quod"}
+$ quod run --repo /work/tmp/.tmp5ylhQt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --toolchain node --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6APCA on 2026-11-01 04:37 UTC
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs matched
+  recorded 3.0s  replay 0.5s  saved 2.5s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+A2 ok: REPLAYED, exit 0 and 4859 stdout bytes identical
+$ quod run --repo /work/tmp/.tmp5ylhQt/repo --step export LANG=en_US.utf8 LIMIT_JEST=yes TZ=America/New_York; npm test -- --maxWorkers=4 --mode observe --proofs 2
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6APCA on identical inputs
+    stderr differs from line 1: "PASS test/datetime/format.test.js" vs "PASS test/datetime/toFormat.test.js"
+    outputs differ at 28 path(s): build/coverage/clover.xml changed, build/coverage/lcov-report/index.html changed, build/coverage/lcov-report/src/datetime.js.html changed, ...
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.0s
+thread 'acceptance' (661925) panicked at crates/quod-cli/tests/acceptance.rs:178:5:
+P1: QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e60f855c  manifest b3:1c045abd  24,984 inputs recorded
+  image host fingerprint b3:5198f900  aarch64 linux 7.0 18 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6APCA on identical inputs
+    stderr differs from line 1: "PASS test/datetime/format.test.js" vs "PASS test/datetime/toFormat.test.js"
+    outputs differ at 28 path(s): build/coverage/clover.xml changed, build/coverage/lcov-report/index.html changed, build/coverage/lcov-report/src/datetime.js.html changed, ...
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  not compared, and not written by --outputs: .quod/npm-cache, node_modules/.vite, node_modules/.vitest
+  ran 3.0s
+acceptance --- FAILED
+    acceptance
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 12.54s
+rc=101
+ 04:37:54 up 23:17,  0 user,  load average: 9.48, 13.84, 10.99

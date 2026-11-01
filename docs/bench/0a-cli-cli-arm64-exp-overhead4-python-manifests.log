@@ -1,0 +1,32 @@
+== main
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:e620a301  25,325 inputs recorded
+== main2
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:5b42f900  25,325 inputs recorded
+== branch
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:463cd29a  25,325 inputs recorded
+== branch2
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:8ccc85bc  25,325 inputs recorded
+== opened
+QUOD  EXECUTED
+  step b3:21d68c46  manifest b3:88bfcfdf  25,325 inputs recorded
+# Sorted manifest entries diffed: main vs branch, branch vs opened (QUOD_FUSE_ZERO_*=0), main vs main2. Each pair differs only in pytest's random tempfile probe (an absent entry):
+25282c25282
+< {"k": "a", "p": "pytest-cache-files-jj9z4_u3"}
+---
+> {"k": "a", "p": "pytest-cache-files-gmtu_w9b"}
+---
+25282c25282
+< {"k": "a", "p": "pytest-cache-files-gmtu_w9b"}
+---
+> {"k": "a", "p": "pytest-cache-files-zue23kal"}
+---
+25282c25282
+< {"k": "a", "p": "pytest-cache-files-jj9z4_u3"}
+---
+> {"k": "a", "p": "pytest-cache-files-1_cx_69w"}
+
+[exited with code 0]

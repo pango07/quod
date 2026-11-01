@@ -1,0 +1,33 @@
+# scripts/merge-gate.sh (2026-11-01T04:18:16Z, exp/overhead4 2efeba4)
+ 04:18:16 up 22:58,  0 user,  load average: 2.73, 6.15, 10.22
+fatal: git upload-pack: not our ref c0e8ffb3fcbb97a8503434667faa2262d5958e04
+fatal: remote error: upload-pack: not our ref c0e8ffb3fcbb97a8503434667faa2262d5958e04
+lint ok
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.27s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.70s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 9.54s
+
+merge gate ok
+rc=0
+ 04:20:40 up 23:00,  0 user,  load average: 5.20, 6.41, 9.76
