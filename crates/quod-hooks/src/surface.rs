@@ -133,6 +133,8 @@ pub struct Surface {
     /// A classified variable too short to mask reliably: the step is not
     /// recorded.
     pub short_secret: Option<String>,
+    /// That short value is a certain secret (`secrets::Classified::strong`).
+    pub short_strong: bool,
     /// Hermetic and network: the step's own RUNNER_TEMP on the host.
     pub temp: Option<PathBuf>,
     /// Why this step cannot be keyed (a workflow-set pin, a GOFLAGS or
@@ -536,8 +538,9 @@ fn sealed(
         key_extra,
         masks: c.masks,
         classified: c.names,
-        secret_values: c.values,
+        secret_values: c.strong,
         short_secret: c.short,
+        short_strong: c.short_strong,
         temp: Some(temp),
         taint,
     })
@@ -599,8 +602,9 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
         key_extra: Vec::new(),
         masks: c.masks,
         classified: c.names,
-        secret_values: c.values,
+        secret_values: c.strong,
         short_secret: c.short,
+        short_strong: c.short_strong,
         temp: None,
         taint,
     })

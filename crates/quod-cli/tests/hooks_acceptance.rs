@@ -298,6 +298,8 @@ impl Runner {
             "GITHUB_REF": "refs/heads/main",
             "GITHUB_WORKFLOW_REF": format!("o/r/.github/workflows/{}@refs/heads/main", self.workflow),
             "GITHUB_WORKFLOW_SHA": self.head(),
+            // The job's id in its workflow (`WORKFLOWS`).
+            "GITHUB_JOB": if self.workflow == "quod-plain.yml" { "test" } else { "s" },
             "GITHUB_RUN_ID": format!("{}", 1000 + n),
             "GITHUB_RUN_ATTEMPT": "1",
             "RUNNER_TEMP": "/__w/_temp",
@@ -1663,6 +1665,36 @@ fn encodings(secret: &str) -> Vec<(String, Vec<u8>)> {
             out.push((format!("base64+{shift}"), s.into_bytes()));
         }
     }
+    // Wrapped as GNU base64 (76 columns) and openssl (64) write it.
+    if let Some((_, whole)) = out.iter().find(|(w, _)| w == "base64+0").cloned() {
+        let mut full = whole.clone();
+        let padded = !b.len().is_multiple_of(3);
+        if padded {
+            // `whole` is the aligned core; the stream's own lines are what
+            // the tools print: rebuild the full encoding.
+            let mut s = String::new();
+            for c in b.chunks(3) {
+                let n = (u32::from(c[0]) << 16)
+                    | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+                    | u32::from(*c.get(2).unwrap_or(&0));
+                for i in 0..4 {
+                    if i <= c.len() {
+                        s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+                    } else {
+                        s.push('=');
+                    }
+                }
+            }
+            full = s.into_bytes();
+        }
+        for width in [64, 76] {
+            for (i, c) in full.chunks(width).enumerate() {
+                if c.len() >= 16 {
+                    out.push((format!("base64 wrapped at {width}, line {i}"), c.to_vec()));
+                }
+            }
+        }
+    }
     let url: String = b
         .iter()
         .map(|&c| {
@@ -1902,7 +1934,76 @@ fn hooks_secrets() {
     }
     no_leak(&r, "S6", "dyn-mask-value-0042");
     println!("S6 done: ::add-mask::");
+    // S7 (review of 5f0afd6, M4): a secret in a workflow command line
+    // (`::set-output`): replayed from the masked log it would set `***`.
+    r.workflow = "quod-s2.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo \"::set-output name=dsn::$APP_DSN\"; echo s7",
+            &[("APP_DSN", "s7-dsn-value-0007")],
+        );
+        assert_eq!(o.code, 0, "S7: {}", o.stderr);
+        not_recorded(&o, "S7", "workflow command line");
+    }
+    println!("S7 done: a secret in a workflow command line");
+
+    // S8 (M5): base64 of a key file, wrapped at 76 columns, to stdout and
+    // in a GITHUB_OUTPUT heredoc.
+    r.workflow = "quod-s1.yml";
+    let pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDx5kQ2bW9yZS1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OQ==\n-----END OPENSSH PRIVATE KEY-----";
+    // Each alone: either one keeps the other's run from being recorded.
+    for s8 in [
+        "printf '%s' \"$DB_PASSWORD\" > /tmp/key.pem\nbase64 /tmp/key.pem",
+        "printf '%s' \"$DB_PASSWORD\" > /tmp/key.pem\n\
+         { echo 'k<<EOF_8'; base64 /tmp/key.pem; echo EOF_8; } >> \"$GITHUB_OUTPUT\"",
+    ] {
+        for _ in 0..2 {
+            let o = r.job(s8, &[("DB_PASSWORD", pem)]);
+            assert_eq!(o.code, 0, "S8: {}", o.stderr);
+        }
+    }
+    no_leak(&r, "S8", pem);
+    println!("S8 done: wrapped base64 of a key");
+
+    // S9 (minor 2): with keep_jobs, a job that had secrets keeps no raw
+    // logs or layers.
+    r.keep_jobs = true;
+    let o = r.job(s1, &[("DB_PASSWORD", "s9-kept-job-secret")]);
+    assert_eq!(o.code, 0, "S9: {}", o.stderr);
+    r.keep_jobs = false;
+    no_leak(&r, "S9", "s9-kept-job-secret");
+    println!("S9 done: keep_jobs");
+
+    // S10 (M3): ::add-mask:: in the properties form, escaped as
+    // core.setSecret escapes (`%25` for %).
+    r.workflow = "quod-plain.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo '::add-mask k=v::s10%25mask-value'; echo 'v=s10%mask-value'",
+            &[],
+        );
+        assert_eq!(o.code, 0, "S10: {}", o.stderr);
+        not_recorded(&o, "S10", "add-mask");
+    }
+    no_leak(&r, "S10", "s10%mask-value");
+    println!("S10 done: ::add-mask:: with properties and escapes");
+
+    // S11 (M2): a password cut out of a known secret (APP_DSN) under a
+    // plain name.
+    r.workflow = "quod-s2.yml";
+    for _ in 0..2 {
+        let o = r.job(
+            "echo \"pw=$DB_PASS\"",
+            &[
+                ("APP_DSN", "postgres://u:s11-pa55word@h/db"),
+                ("DB_PASS", "s11-pa55word"),
+            ],
+        );
+        assert_eq!(o.code, 0, "S11: {}", o.stderr);
+    }
+    no_leak(&r, "S11", "s11-pa55word");
+    println!("S11 done: a part of a known secret");
     let fails = fails.into_inner();
     assert!(fails.is_empty(), "hooks secrets failed: {fails:#?}");
-    println!("hooks secrets: S1-S6 pass");
+    println!("hooks secrets: S1-S11 pass");
 }

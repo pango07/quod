@@ -145,6 +145,20 @@ pub struct Job {
     /// events, the ledger): the job's secrets in every encoding.
     #[serde(skip)]
     masks: Vec<Vec<u8>>,
+    /// The state's salt (for what is logged of opaque jobs and scripts).
+    #[serde(skip)]
+    salt: [u8; 32],
+    /// A step was given (or registered) a secret: at cleanup with
+    /// `keep_jobs`, the step directories are scrubbed of what they hold
+    /// raw (logs, upper dirs, staging).
+    #[serde(default)]
+    pub had_secrets: bool,
+    /// A step was given, or registered, a certain secret too short to mask
+    /// (`secrets::MIN_SECRET_LEN`): a later step printing it could not be
+    /// told from one that does not, so no later step of the job is
+    /// recorded.
+    #[serde(default)]
+    pub short_secret: Option<String>,
     #[serde(skip)]
     dir: PathBuf,
     #[serde(skip)]
@@ -238,6 +252,9 @@ impl Job {
                 values: Default::default(),
             },
             masks: Vec::new(),
+            salt,
+            had_secrets: false,
+            short_secret: None,
             dir,
             state_dir: state_dir.to_path_buf(),
         };
@@ -312,6 +329,7 @@ impl Job {
         );
         self.add_masks(&c.masks);
         let salt = secrets::salt(&self.state_dir)?;
+        self.salt = salt;
         let shown: BTreeMap<String, String> = self
             .secrets
             .container_env
@@ -325,13 +343,51 @@ impl Job {
                 (k.clone(), v)
             })
             .collect();
-        let new = !c.values.is_subset(&self.secrets.values);
+        // Only the certain ones join the known secrets (see
+        // `secrets::Classified::strong`).
+        let new = !c.strong.is_subset(&self.secrets.values);
         self.env = shown;
         if new {
-            self.secrets.values.extend(c.values);
+            self.secrets.values.extend(c.strong);
             self.save_secrets()?;
         }
         Ok(())
+    }
+
+    /// A script's label for events and the trust table (salted hash).
+    pub fn log_label(&self, step: &Step) -> String {
+        step.log_label(&self.salt)
+    }
+
+    /// A step key as events and run rows show it: an opaque job's keys may
+    /// hash a secret no name showed, unsalted, so they are shown keyed with
+    /// the state's salt.
+    pub fn log_key(&self, key: &Hash) -> Hash {
+        if self.provenance().opaque.is_some() {
+            Hash::from_blake3(blake3::keyed_hash(&self.salt, key.as_bytes()))
+        } else {
+            *key
+        }
+    }
+
+    /// With `keep_jobs`, what a job that had secrets leaves in its step
+    /// directories raw goes at cleanup: everything but each step's tree.json
+    /// (the starting tree, kept for inspection).
+    fn scrub_steps(&self) {
+        let Ok(rd) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
+        for step in rd.flatten() {
+            let p = step.path();
+            if !p.is_dir() || !step.file_name().to_string_lossy().starts_with("step-") {
+                continue;
+            }
+            for e in std::fs::read_dir(&p).into_iter().flatten().flatten() {
+                if e.file_name() != "tree.json" {
+                    let _ = quod_cas::remove_any(&e.path());
+                }
+            }
+        }
     }
 
     /// Reads where the job's secrets come from (`provenance`), once, at the
@@ -593,6 +649,9 @@ impl Job {
             "job"
         );
         secrets::JobSecrets::remove(&self.state_dir, &self.dir, &self.id);
+        if policy.keep_jobs && self.had_secrets {
+            self.scrub_steps();
+        }
         if !policy.keep_jobs {
             quod_cas::remove_any(&self.dir)?;
         }
@@ -980,6 +1039,16 @@ fn sweep_stale_jobs_waiting(state_dir: &Path, wait: Duration) -> anyhow::Result<
         }
         quod_cas::remove_any(d).with_context(|| format!("remove stale job {}", d.display()))?;
     }
+    // A job's secrets whose job directory is gone (removed by hand, or a
+    // crash between the two removals): kept nowhere else, needed by no one.
+    let shm = secrets::runtime_dir(state_dir);
+    for e in std::fs::read_dir(&shm).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let id = name.split('.').next().unwrap_or("");
+        if !id.is_empty() && !jobs.join(id).is_dir() {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
     Ok(stale.len())
 }
 
@@ -1346,7 +1415,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
             t.steps, t.would_replay, t.replayed, t.tainted
         ),
     );
-    tracing::info!(target: "quod", job = %job.id, step = n, label = %step.log_label(), hook_ms = step_start.elapsed().as_millis() as u64, "hook");
+    tracing::info!(target: "quod", job = %job.id, step = n, label = %job.log_label(&step), hook_ms = step_start.elapsed().as_millis() as u64, "hook");
     job.save()?;
     protocol::write_response(
         input.response_file.as_deref(),
@@ -1444,8 +1513,14 @@ fn learn_add_masks(job: &mut Job, ex: &Executed) -> anyhow::Result<()> {
         return Ok(());
     }
     let mut masks = Vec::new();
+    job.had_secrets = true;
     for v in &ex.add_masks {
-        job.secrets.values.insert(v.clone());
+        if v.len() < secrets::MIN_SECRET_LEN {
+            job.short_secret
+                .get_or_insert_with(|| "a value registered with ::add-mask::".to_string());
+        } else {
+            job.secrets.values.insert(v.clone());
+        }
         masks.extend(secrets::masks_for(v));
     }
     job.add_masks(&masks);
@@ -1592,6 +1667,9 @@ fn run_tainted(
     mut taint: Vec<String>,
 ) -> anyhow::Result<i32> {
     let s = surface::runner(job, args)?;
+    if !s.classified.is_empty() {
+        job.had_secrets = true;
+    }
     let host_temp = step::temp_dir(job).and_then(|t| job.host_path(&t));
     let before = host_temp.as_deref().map(surface::temp_snapshot);
     // Keep::Layer: nothing is stored, the staging store is never written.
@@ -1645,7 +1723,7 @@ fn run_tainted(
     ));
     eprintln!("QUOD  EXECUTED  {line}");
     job.summary(&args.environment_variables, &format!("- {line}"));
-    tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %step.log_label(), decision = "tainted", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
+    tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %job.log_label(step), decision = "tainted", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
     Ok(ex.exit_code)
 }
 
@@ -1724,7 +1802,7 @@ fn run_online(
     ));
     eprintln!("QUOD  EXECUTED  {line}");
     job.summary(&args.environment_variables, &format!("- {line}"));
-    tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %step.log_label(), decision = "online", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
+    tracing::info!(target: "quod", job = %job.id, step = job.steps, label = %job.log_label(step), decision = "online", taint = ?taint, exit_code = ex.exit_code, exec_ms = ex.wall.as_millis() as u64, "step");
     Ok(Some(ex.exit_code))
 }
 
@@ -1755,6 +1833,9 @@ fn run_step(
     // What this step was given joins the job's known secrets: later steps
     // mask it, and treat a copy of it under another name as one.
     job.add_masks(&h.masks);
+    if !h.classified.is_empty() || job.provenance().opaque.is_some() {
+        job.had_secrets = true;
+    }
     if !h.secret_values.is_subset(job.known_secrets()) {
         job.secrets.values.extend(h.secret_values.iter().cloned());
         job.save_secrets()?;
@@ -1802,7 +1883,20 @@ fn run_step(
                 )
             })
         })
+        .or_else(|| {
+            job.short_secret.as_ref().map(|w| {
+                format!(
+                    "not recorded: an earlier step of the job had a secret too short to mask ({w}), which this one could print unmasked"
+                )
+            })
+        })
         .map(|u| job.mask(&u));
+    if h.short_strong
+        && job.short_secret.is_none()
+        && let Some(n) = &h.short_secret
+    {
+        job.short_secret = Some(format!("in {n}"));
+    }
     let mut key_cmd = step.cmd.clone();
     key_cmd.extend(h.key_extra.iter().cloned());
     // Volatile names are withheld or given fixed placeholders, and
@@ -1862,7 +1956,7 @@ fn run_step(
     // replays only once proven (`proofs` identical executions), never as a
     // failure, never while quarantined; replay mode audits a fraction.
     let trust = Trust::new(ledger, cas, policy.trust())?;
-    let label = step.log_label();
+    let label = job.log_label(step);
     let ignore = ignored_outputs(&h.env, &workspace);
     let tstep = TrustStep {
         key,
@@ -1942,7 +2036,7 @@ fn run_step(
                 )
             );
             job.summary(&args.environment_variables, &format!("- {line}"));
-            tracing::info!(target: "quod", job = %job.id, step = job.steps, run_id, step_key = %key, manifest_id = %result.manifest_id, label = %label, hit = true, decision = "replay", proofs = facts.streak, recorded_ms = result.duration_ms, replay_ms = t.elapsed().as_millis() as u64, exit_code = code, "step");
+            tracing::info!(target: "quod", job = %job.id, step = job.steps, run_id, step_key = %job.log_key(&key), manifest_id = %result.manifest_id, label = %label, hit = true, decision = "replay", proofs = facts.streak, recorded_ms = result.duration_ms, replay_ms = t.elapsed().as_millis() as u64, exit_code = code, "step");
             return Ok(code);
         }
         Err(reason) => reason,
@@ -2136,6 +2230,15 @@ fn run_step(
     }
     if !ex.add_masks.is_empty() {
         taint.push("it registered a secret (::add-mask::)".to_string());
+    }
+    // A workflow command line (`::set-output`, `::save-state`, ...) that
+    // holds a secret: replayed from the masked log it would set `***`
+    // where a fresh run sets the value.
+    let raw = |f: &str| std::fs::read(step_dir.join(f)).unwrap_or_default();
+    if secrets::command_line_holds(&raw("stdout"), &job.masks)
+        || secrets::command_line_holds(&raw("stderr"), &job.masks)
+    {
+        taint.push("a workflow command line it printed holds a secret".to_string());
     }
     // A path it looked up (an absent one too) or wrote that holds a
     // secret: the manifest would store it.
@@ -2427,7 +2530,7 @@ fn finish_report(
         job = %job.id,
         step = job.steps,
         run_id,
-        step_key = %key,
+        step_key = %job.log_key(key),
         label = %label,
         reason = ?reason,
         outcome = verdict.map(|v| v.outcome()),
@@ -2638,6 +2741,29 @@ mod tests {
         age(&job, UNOWNED_STALE + Duration::from_secs(60));
         assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 1);
         assert!(!job.exists());
+    }
+
+    /// Minor 3 (review of 5f0afd6): a job's secrets in /dev/shm whose job
+    /// directory is gone are removed by the sweep; a live job's are kept.
+    #[test]
+    fn the_sweep_removes_orphaned_job_secrets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let shm = secrets::runtime_dir(tmp.path());
+        if std::fs::create_dir_all(&shm).is_err() {
+            return; // no /dev/shm here
+        }
+        let live = jobs_dir(tmp.path()).join("01LIVE");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(live.join("job.json"), "{}").unwrap();
+        std::fs::write(shm.join("01LIVE.json"), "{}").unwrap();
+        std::fs::write(shm.join("01GONE.json"), "{\"values\":[\"x\"]}").unwrap();
+        sweep_stale_jobs(tmp.path()).unwrap();
+        assert!(
+            !shm.join("01GONE.json").exists(),
+            "orphaned secrets removed"
+        );
+        assert!(shm.join("01LIVE.json").exists(), "a live job's kept");
+        let _ = std::fs::remove_dir_all(&shm);
     }
 
     fn job_with_workflow_mount(tmp: &Path) -> Job {

@@ -109,10 +109,17 @@ fn split(t: &Template, value: &str) -> Option<Vec<String>> {
     let mut pos = 0;
     let mut pending: Option<bool> = None;
     let mut out = Vec::new();
-    for p in t {
+    for (i, p) in t.iter().enumerate() {
         match p {
             Piece::Lit(l) => {
                 let at = match pending {
+                    // The last literal ends the value: matched at the end, so
+                    // a secret holding the literal (`a-${{ secrets.S }}-b`
+                    // with S holding `-b`) is not cut short.
+                    Some(_) if i + 1 == t.len() => {
+                        let at = value.len().checked_sub(l.len())?;
+                        (at >= pos && value[at..] == *l).then_some(at)?
+                    }
                     Some(_) => pos + value[pos..].find(l.as_str())?,
                     None if value[pos..].starts_with(l.as_str()) => pos,
                     None => return None,
@@ -360,8 +367,12 @@ struct Walker<'a> {
     problems: Vec<(Option<String>, String)>,
     /// The job being walked.
     cur_job: Option<String>,
-    /// Every job id seen (the workflow's and its local callees').
+    /// Every job id seen with `steps:` (the workflow's and its local
+    /// callees'): the jobs whose steps can run on this runner.
     job_ids: BTreeSet<String>,
+    /// The remote reusable workflows the tree calls: their jobs run under
+    /// the caller's GITHUB_WORKFLOW_REF, and Quod cannot read them.
+    remote_calls: Vec<String>,
     kinds: BTreeMap<String, ActionKind>,
     seen: BTreeSet<String>,
 }
@@ -483,7 +494,9 @@ impl Walker<'_> {
                     if let Some(jobs) = v.as_hash() {
                         for (id, job) in jobs {
                             let id = key_str(id);
-                            self.job_ids.insert(id.clone());
+                            if job["steps"].as_vec().is_some() {
+                                self.job_ids.insert(id.clone());
+                            }
                             let outer = self.cur_job.replace(id.clone());
                             self.job(&format!("{a}.{id}"), job);
                             self.cur_job = outer;
@@ -502,6 +515,9 @@ impl Walker<'_> {
         };
         let uses = y["uses"].as_str().map(str::to_string);
         let local = uses.as_deref().is_some_and(|u| u.starts_with("./"));
+        if let Some(u) = uses.as_deref().filter(|_| !local) {
+            self.remote_calls.push(u.to_string());
+        }
         for (k, v) in h {
             let ks = key_str(k);
             let a = format!("{at}.{ks}");
@@ -522,7 +538,13 @@ impl Walker<'_> {
                 // Service containers are refused at prepare_job; their env
                 // and credentials reach no step.
                 "services" => self.generic(&a, v, &Place::Allowed),
-                "with" if uses.is_some() => self.generic(&a, v, &Place::ReusableWith),
+                // What a reusable workflow call passes reaches the callee's
+                // jobs, not this one: it counts for every job.
+                "with" if uses.is_some() => {
+                    let outer = self.cur_job.take();
+                    self.generic(&a, v, &Place::ReusableWith);
+                    self.cur_job = outer;
+                }
                 "secrets" if uses.is_some() => {
                     let u = uses.as_deref().unwrap();
                     match v {
@@ -546,7 +568,11 @@ impl Walker<'_> {
             match (self.src.local)(&path).map(|t| parse(&t)) {
                 Some(Ok(callee)) => match odd_construct(&callee) {
                     Some(w) => self.problem(format!("{w} in {path}")),
-                    None => self.workflow(&path, &callee),
+                    None => {
+                        let outer = self.cur_job.take();
+                        self.workflow(&path, &callee);
+                        self.cur_job = outer;
+                    }
                 },
                 Some(Err(e)) => self.problem(format!(
                     "the reusable workflow {path} cannot be parsed ({e})"
@@ -705,6 +731,7 @@ pub fn analyze(path: &str, text: &str, src: &Sources, job: Option<&str>) -> Prov
         problems: Vec::new(),
         cur_job: None,
         job_ids: BTreeSet::new(),
+        remote_calls: Vec::new(),
         kinds: BTreeMap::new(),
         seen: BTreeSet::new(),
     };
@@ -737,16 +764,34 @@ pub fn analyze(path: &str, text: &str, src: &Sources, job: Option<&str>) -> Prov
             break;
         }
     }
-    let job = job.filter(|j| w.job_ids.contains(*j));
-    let applies = |tag: &Option<String>| match (tag, job) {
-        (None, _) | (_, None) => true,
-        (Some(t), Some(j)) => t == j,
+    // Which job this is must be certain, or every use counts and the job
+    // is opaque: a GITHUB_JOB that is no job with steps here is a job of a
+    // remote reusable workflow (it runs under the caller's
+    // GITHUB_WORKFLOW_REF) or of something Quod did not read; and once the
+    // tree calls any remote reusable workflow, a job id can name one of its
+    // jobs as well as one here (environment secrets reach those jobs with
+    // nothing passed).
+    let certain = match job {
+        None => Err("GITHUB_JOB is not set".to_string()),
+        Some(_) if !w.remote_calls.is_empty() => Err(format!(
+            "the workflow calls the remote reusable workflow {}, whose jobs Quod cannot read (a job id here may be one of its jobs)",
+            w.remote_calls[0]
+        )),
+        Some(j) if !w.job_ids.contains(j) => Err(format!(
+            "GITHUB_JOB {j:?} is no job with steps in the workflow Quod read"
+        )),
+        Some(j) => Ok(j),
     };
-    let mut opaque = w
-        .problems
-        .iter()
-        .find(|(tag, _)| applies(tag))
-        .map(|(_, why)| why.clone());
+    let applies = |tag: &Option<String>| match (tag, &certain) {
+        (None, _) | (_, Err(_)) => true,
+        (Some(t), Ok(j)) => t == j,
+    };
+    let mut opaque = certain.as_ref().err().cloned().or_else(|| {
+        w.problems
+            .iter()
+            .find(|(tag, _)| applies(tag))
+            .map(|(_, why)| why.clone())
+    });
     for u in &w.uses {
         if opaque.is_some() {
             break;
@@ -835,7 +880,7 @@ mod tests {
     use super::*;
 
     fn with(text: &str, local: &[(&str, &str)], remote: &[(&str, &str)]) -> Provenance {
-        with_job(text, local, remote, None)
+        with_job(text, local, remote, Some("a"))
     }
 
     fn with_job(
@@ -953,18 +998,28 @@ jobs:
         let callee = "on:\n  workflow_call:\n    secrets:\n      S:\n        required: true\njobs:\n  b:\n    runs-on: x\n    steps:\n      - run: ./deploy.sh\n        env:\n          DEPLOY_CRED: ${{ secrets.S }}\n";
         let local = [(".github/workflows/deploy.yml", callee)];
         // inherit, to a local workflow: its own env names are followed.
-        let p = with(
+        let p = with_job(
             "on: push\njobs:\n  call:\n    uses: ./.github/workflows/deploy.yml\n    secrets: inherit\n",
             &local,
             &[],
+            Some("b"),
         );
         assert_eq!(names(&p), ["DEPLOY_CRED"]);
-        let p = with(
+        let p = with_job(
             "on: push\njobs:\n  call:\n    uses: ./.github/workflows/deploy.yml\n    secrets:\n      S: ${{ secrets.PROD }}\n",
             &local,
             &[],
+            Some("b"),
         );
         assert_eq!(names(&p), ["DEPLOY_CRED"]);
+        // The caller job (no steps) is no job that runs here: opaque.
+        let p = with_job(
+            "on: push\njobs:\n  call:\n    uses: ./.github/workflows/deploy.yml\n    secrets: inherit\n",
+            &local,
+            &[],
+            Some("call"),
+        );
+        assert!(p.opaque.is_some(), "{p:?}");
         // To a remote one, inherit or by name: opaque.
         for s in ["inherit", "\n      S: ${{ secrets.PROD }}"] {
             let p = with(
@@ -989,12 +1044,103 @@ jobs:
         );
         assert!(p.opaque.is_some());
         // A secret as a reusable workflow's input: opaque.
-        let p = with(
+        let p = with_job(
             "on: push\njobs:\n  call:\n    uses: ./.github/workflows/deploy.yml\n    with:\n      x: ${{ secrets.PROD }}\n",
             &local,
             &[],
+            Some("b"),
         );
-        assert!(p.opaque.as_deref().is_some_and(|w| w.contains("input")));
+        assert!(
+            p.opaque.as_deref().is_some_and(|w| w.contains("input")),
+            "{p:?}"
+        );
+    }
+
+    /// B1 (review of 5f0afd6): a remote reusable workflow's jobs run under
+    /// the caller's GITHUB_WORKFLOW_REF; Quod parses the caller and cannot
+    /// see their environment secrets (passed without `secrets:`), nor tell
+    /// a callee job from a caller job of the same id.
+    #[test]
+    fn remote_reusable_workflows_make_every_job_opaque() {
+        // (A) No secrets: passed; the callee's environment secrets.
+        let p = with_job(
+            "on: push\njobs:\n  test:\n    runs-on: x\n    steps:\n      - run: go test\n  release:\n    uses: org/infra/.github/workflows/deploy.yml@v1\n",
+            &[],
+            &[],
+            Some("deploy"),
+        );
+        assert!(p.opaque.is_some(), "a callee job: {p:?}");
+        // (B) A callee job whose id is a caller job's.
+        let p = with_job(
+            "on: push\njobs:\n  build:\n    runs-on: x\n    steps:\n      - run: make\n  release:\n    uses: org/infra/.github/workflows/r.yml@v1\n    secrets: inherit\n",
+            &[],
+            &[],
+            Some("build"),
+        );
+        assert!(p.opaque.is_some(), "a job id collision: {p:?}");
+    }
+
+    /// M1 (review of 5f0afd6): a local callee's own workflow level counts
+    /// for its jobs.
+    #[test]
+    fn a_local_callees_top_level_counts() {
+        let callee = "on:\n  workflow_call:\n    inputs:\n      stage:\n        type: string\nenv:\n  DB_URL: ${{ secrets[format('{0}_DB_URL', inputs.stage)] }}\njobs:\n  migrate:\n    runs-on: x\n    steps:\n      - run: ./migrate.sh\n";
+        let caller = "on: push\njobs:\n  call:\n    uses: ./.github/workflows/m.yml\n    with:\n      stage: prod\n    secrets: inherit\n";
+        let local = [(".github/workflows/m.yml", callee)];
+        for job in ["migrate", "call"] {
+            let p = with_job(caller, &local, &[], Some(job));
+            assert!(p.opaque.is_some(), "GITHUB_JOB={job}: {p:?}");
+        }
+        let callee = callee.replace(
+            "${{ secrets[format('{0}_DB_URL', inputs.stage)] }}",
+            "${{ toJSON(secrets) }}",
+        );
+        let p = with_job(
+            caller,
+            &[(".github/workflows/m.yml", &callee)],
+            &[],
+            Some("migrate"),
+        );
+        assert!(p.opaque.is_some(), "{p:?}");
+    }
+
+    /// The reviewer's probes that are not bypasses, kept as tests: spaced
+    /// and upper-case references, quoted and folded scalars, aliases, a
+    /// secret in job outputs, a whole env from a secret, duplicate keys.
+    #[test]
+    fn probe_cases() {
+        let run = |body: &str| {
+            with(
+                &format!("on: push\njobs:\n  a:\n    runs-on: x\n{body}"),
+                &[],
+                &[("o/js@v1", JS)],
+            )
+        };
+        let p = run(
+            "    steps:\n      - uses: o/js@v1\n        with:\n          k: ${{ secrets . A }}\n",
+        );
+        assert_eq!(names(&p), ["INPUT_K"]);
+        let p = run("    steps:\n      - run: x\n        env:\n          K: ${{ SECRETS.a }}\n");
+        assert_eq!(names(&p), ["K"]);
+        let p = run(
+            "    steps:\n      - run: x\n        env:\n          K: \"${{ secrets.A }}\"\n          L: >-\n            ${{ secrets.B }}\n",
+        );
+        assert_eq!(names(&p), ["K", "L"]);
+        let p = run(
+            "    env:\n      X: &s ${{ secrets.A }}\n    steps:\n      - run: x\n        env:\n          Y: *s\n",
+        );
+        assert_eq!(names(&p), ["X", "Y"]);
+        for body in [
+            "    outputs:\n      t: ${{ secrets.A }}\n    steps: []\n",
+            "    steps:\n      - run: x\n        env: ${{ fromJSON(secrets.A) }}\n",
+        ] {
+            assert!(run(body).opaque.is_some(), "{body}");
+        }
+        // Duplicate keys: refused by the reader, or the secret one kept.
+        let p = run(
+            "    steps:\n      - run: x\n        env:\n          K: ${{ secrets.A }}\n          K: plain\n",
+        );
+        assert!(p.opaque.is_some() || p.names_secret("K"), "{p:?}");
     }
 
     #[test]
@@ -1109,6 +1255,20 @@ jobs:
         );
         assert!(p.secret_parts("WHOLE", "anything").is_empty());
         assert!(p.secret_parts("AUTH", "Basic xyz").is_empty(), "no match");
+        // The last literal is matched at the end (review of 5f0afd6, minor 4).
+        let q = Provenance {
+            names: [(
+                "W".to_string(),
+                vec![vec![
+                    Piece::Lit("a-".into()),
+                    Piece::Secret,
+                    Piece::Lit("-b".into()),
+                ]],
+            )]
+            .into(),
+            ..Provenance::default()
+        };
+        assert_eq!(q.secret_parts("W", "a-x-b-y-b"), ["x-b-y"]);
     }
 
     #[test]

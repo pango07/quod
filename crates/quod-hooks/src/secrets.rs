@@ -21,10 +21,10 @@
 //! outputs at all. A classified value shorter than `MIN_SECRET_LEN` cannot
 //! be masked reliably: the step is not recorded.
 //!
-//! The values themselves stay out of `<state>`'s store, ledgers and events:
-//! the job's known secrets (`JobSecrets`) live in RAM-backed `/dev/shm` for
-//! the job's life (or, where that cannot be used, in the job's directory,
-//! mode 0600, gone at cleanup).
+//! The values themselves stay out of `<state>`: the job's known secrets
+//! (`JobSecrets`) live in RAM-backed `/dev/shm` for the job's life, and a
+//! job does not run where that cannot be used. RAM-backed is not
+//! swap-proof: tmpfs pages can be swapped out like any others.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
@@ -138,6 +138,20 @@ fn encodings(v: &str) -> Vec<Vec<u8>> {
     // Base64 at the three byte offsets, as the runner does (full, padded),
     // plus unpadded, the aligned core (whole 3-byte groups only) and
     // base64url of that core.
+    // Wrapped as GNU base64 (76 columns) and openssl or PEM (64) write it,
+    // from the value's start: each whole line, and the last.
+    let whole = base64(b, STD);
+    for width in [64, 76] {
+        if whole.len() > width {
+            out.extend(
+                whole
+                    .as_bytes()
+                    .chunks(width)
+                    .filter(|c| c.len() >= MIN_SECRET_LEN)
+                    .map(|c| String::from_utf8_lossy(c).into_owned()),
+            );
+        }
+    }
     for shift in 0..3 {
         let body = if b.len() > shift { &b[shift..] } else { b };
         let full = base64(body, STD);
@@ -351,12 +365,22 @@ pub struct Classified {
     pub names: Vec<String>,
     /// The classified values, and the secret parts of templated ones.
     pub values: BTreeSet<String>,
+    /// Of those, the ones the job knows for certain are secrets: by the
+    /// workflow's provenance, or related to a known secret (holding one,
+    /// held by one, an `::add-mask::` value), at least `MIN_SECRET_LEN`
+    /// long. Only these join the job's known secrets: a value flagged by
+    /// its name or shape alone (GIT_AUTHOR_NAME holds `AUTH`) is salted and
+    /// masked in its own step, not matched against every later one.
+    pub strong: BTreeSet<String>,
     /// Everything to mask: the values and the job's known secrets, in every
     /// encoding.
     pub masks: Vec<Vec<u8>>,
     /// A classified variable whose value, or a secret part of it, is
     /// shorter than `MIN_SECRET_LEN`.
     pub short: Option<String>,
+    /// That short value is a certain secret (see `strong`), not one flagged
+    /// by name or shape alone.
+    pub short_strong: bool,
 }
 
 impl Classified {
@@ -376,63 +400,74 @@ fn exempt(name: &str, value: &str) -> bool {
 }
 
 /// Classifies a step's environment (see the module docs): by name, by
-/// shape, by provenance, and by holding a known secret of the job; then
-/// any value holding a classified one. `known` is the job's secrets so far
-/// (`JobSecrets::values`).
+/// shape, by provenance, and by its relation to a known secret of the job
+/// (equal, holding one, or held by one: a password a step cut out of a
+/// known DATABASE_URL); then any value holding, or held by, a classified
+/// one. `known` is the job's secrets so far (`JobSecrets::values`).
 pub fn classify<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
 ) -> Classified {
     let env: Vec<(&String, &String)> = env.into_iter().collect();
-    let known_long: Vec<&String> = known.iter().filter(|k| k.len() >= MIN_SECRET_LEN).collect();
+    let long = |s: &&String| s.len() >= MIN_SECRET_LEN;
+    let related = |v: &str, s: &str| v == s || v.contains(s) || s.contains(v);
+    let known_long: Vec<&String> = known.iter().filter(long).collect();
     let mut c = Classified::default();
-    let mut names = BTreeSet::new();
-    let mut values: BTreeSet<String> = BTreeSet::new();
+    // name -> certain?
+    let mut names: BTreeMap<String, bool> = BTreeMap::new();
     for (k, v) in &env {
         if exempt(k, v) {
             continue;
         }
-        let by_name = step::secret_like(k) || provenance.names_secret(k);
-        if by_name
-            || step::looks_secret(v)
+        let strong = provenance.names_secret(k)
             || known.contains(v.as_str())
             || known_long.iter().any(|s| v.contains(s.as_str()))
-        {
-            names.insert((*k).clone());
-            values.insert((*v).clone());
+            || (v.len() >= MIN_SECRET_LEN && known_long.iter().any(|s| s.contains(v.as_str())));
+        if strong || step::secret_like(k) || step::looks_secret(v) {
+            names.insert((*k).clone(), strong);
         }
     }
     // A value holding a classified one (a copy under another name, a URL
-    // with a password in it) is one too.
-    let long: Vec<String> = values
+    // with a password in it), or held by one, is one too; certain as the
+    // value it relates to.
+    let first: Vec<(String, bool)> = env
         .iter()
-        .filter(|v| v.len() >= MIN_SECRET_LEN)
-        .cloned()
+        .filter_map(|(k, v)| names.get(k.as_str()).map(|s| ((*v).clone(), *s)))
+        .filter(|(v, _)| v.len() >= MIN_SECRET_LEN)
         .collect();
     for (k, v) in &env {
-        if !exempt(k, v) && !names.contains(k.as_str()) && long.iter().any(|s| v.contains(s)) {
-            names.insert((*k).clone());
-            values.insert((*v).clone());
+        if exempt(k, v) || names.contains_key(k.as_str()) || v.len() < MIN_SECRET_LEN {
+            continue;
+        }
+        if let Some((_, s)) = first.iter().find(|(c, _)| related(v, c)) {
+            names.insert((*k).clone(), *s);
         }
     }
-    // The secret parts of a value the workflow builds around a secret
-    // (`Bearer ${{ secrets.X }}`): a step can print the part alone.
+    let mut values: BTreeMap<String, bool> = BTreeMap::new();
     for (k, v) in &env {
-        if names.contains(k.as_str()) {
+        if let Some(&s) = names.get(k.as_str()) {
+            let e = values.entry((*v).clone()).or_insert(s);
+            *e |= s;
+            // The secret parts of a value the workflow builds around a
+            // secret (`Bearer ${{ secrets.X }}`): a step can print the part
+            // alone.
             for part in provenance.secret_parts(k, v) {
-                values.insert(part);
+                values.insert(part, true);
             }
         }
     }
-    for v in &values {
-        if v.len() < MIN_SECRET_LEN && c.short.is_none() {
-            c.short = env
-                .iter()
-                .find(|(k, val)| {
-                    names.contains(k.as_str()) && (*val == v || val.contains(v.as_str()))
-                })
-                .map(|(k, _)| (*k).clone());
+    for (v, &strong) in &values {
+        if v.len() < MIN_SECRET_LEN {
+            if c.short.is_none() || (strong && !c.short_strong) {
+                c.short = env
+                    .iter()
+                    .find(|(k, val)| names.contains_key(k.as_str()) && val.contains(v.as_str()))
+                    .map(|(k, _)| (*k).clone());
+                c.short_strong = strong;
+            }
+        } else if strong {
+            c.strong.insert(v.clone());
         }
         c.masks.extend(masks_for(v));
     }
@@ -441,34 +476,80 @@ pub fn classify<'a>(
     }
     c.masks.sort_by_key(|b| std::cmp::Reverse(b.len()));
     c.masks.dedup();
-    c.names = names.into_iter().collect();
-    c.values = values;
+    c.names = names.into_keys().collect();
+    c.values = values.into_keys().collect();
     c
 }
 
-/// The values a step registered as secrets with `::add-mask::` (or the
-/// old `##[add-mask]`) in its output, as the runner reads them: one per
-/// line, the rest of the line after the command, trimmed.
+/// A workflow command line as actions/runner parses it
+/// (`src/Runner.Worker/ActionCommandManager.cs`, `ActionCommand.TryParseV2`
+/// and `TryParse` in `src/Sdk/DTPipelines/Pipelines/ActionCommand.cs`):
+/// the trimmed line `::name[ k=v,...]::data` (or the old
+/// `##[name k=v;...]data`), name compared without case, data unescaped
+/// (`%0D` CR, `%0A` LF, `%25` %; and in the old form `%3B` ; and `%5D` ]).
+/// `(name, data)`.
+pub fn workflow_command(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if let Some(rest) = line.strip_prefix("::") {
+        let end = rest.find("::")?;
+        let info = &rest[..end];
+        let name = info.split(' ').next().unwrap_or("").to_ascii_lowercase();
+        let data = rest[end + 2..]
+            .replace("%0D", "\r")
+            .replace("%0A", "\n")
+            .replace("%25", "%");
+        return Some((name, data));
+    }
+    if let Some(rest) = line.strip_prefix("##[") {
+        let end = rest.find(']')?;
+        let info = &rest[..end];
+        let name = info.split(' ').next().unwrap_or("").to_ascii_lowercase();
+        let data = rest[end + 1..]
+            .replace("%3B", ";")
+            .replace("%0D", "\r")
+            .replace("%0A", "\n")
+            .replace("%5D", "]")
+            .replace("%25", "%");
+        return Some((name, data));
+    }
+    None
+}
+
+/// The values a step registered as secrets with `::add-mask::` (any
+/// properties form, `core.setSecret`'s escaping undone; or the old
+/// `##[add-mask]`) in its output, as the runner reads them; each as given
+/// and trimmed.
 pub fn add_masks(output: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     for line in output.split(|&b| b == b'\n') {
         let line = String::from_utf8_lossy(line);
-        let line = line.trim();
-        let rest = line
-            .strip_prefix("::add-mask::")
-            .or_else(|| line.strip_prefix("##[add-mask]"));
-        if let Some(v) = rest {
-            let v = v.trim();
-            if !v.is_empty() {
-                out.push(v.to_string());
+        if let Some((name, data)) = workflow_command(&line)
+            && name == "add-mask"
+        {
+            for v in [data.as_str(), data.trim()] {
+                if !v.is_empty() && !out.iter().any(|o: &String| o == v) {
+                    out.push(v.to_string());
+                }
             }
         }
     }
     out
 }
 
+/// Does a workflow command line (`::...` or `##[...`) in `output` hold a
+/// mask? Replayed, the stored output would carry `***` where a fresh run
+/// sets the value (`::set-output`, `::save-state`, ...): such a run is not
+/// recordable.
+pub fn command_line_holds(output: &[u8], masks: &[Vec<u8>]) -> bool {
+    output.split(|&b| b == b'\n').any(|line| {
+        let t = line.trim_ascii_start();
+        (t.starts_with(b"::") || t.starts_with(b"##[")) && holds(line, masks)
+    })
+}
+
 /// What a job knows of its secrets, kept for its life outside `<state>`
-/// (RAM-backed `/dev/shm`, mode 0600): the job container's env (job.json
+/// (RAM-backed `/dev/shm`, mode 0600; removed at cleanup and, for a job
+/// that died, by the stale-job sweep): the job container's env (job.json
 /// holds it with classified values salted), and every value classified or
 /// registered (`::add-mask::`) so far, so later steps mask them and treat a
 /// copy of one under another name as a secret too.
@@ -478,9 +559,7 @@ pub struct JobSecrets {
     pub values: BTreeSet<String>,
 }
 
-/// Where a job's `JobSecrets` live: `/dev/shm/quod-<state hash>/<job>`,
-/// or, where /dev/shm cannot be written, the job directory (on disk; gone
-/// at cleanup).
+/// Where a job's `JobSecrets` live: `/dev/shm/quod-<state hash>/<job>.json`.
 pub fn runtime_dir(state_dir: &Path) -> PathBuf {
     let abs = std::fs::canonicalize(state_dir).unwrap_or_else(|_| state_dir.to_path_buf());
     let tag = Hash::of(abs.to_string_lossy().as_bytes()).hex();
@@ -488,12 +567,12 @@ pub fn runtime_dir(state_dir: &Path) -> PathBuf {
 }
 
 impl JobSecrets {
-    /// The file, in `runtime_dir` when it is (or can be made) a directory
+    /// The file, in `runtime_dir`, which must be (or be made) a directory
     /// of this user's alone: not a symlink, owned by the effective user,
     /// open to no one else. One that is not (another local user made it
-    /// first, to read or plant a job's secrets) is refused. Where /dev/shm
-    /// cannot be written: the job directory.
-    fn path(state_dir: &Path, job_dir: &Path, id: &str) -> anyhow::Result<PathBuf> {
+    /// first, to read or plant a job's secrets), or none at all (no
+    /// writable /dev/shm), is refused: the values never go to disk.
+    fn path(state_dir: &Path, _job_dir: &Path, id: &str) -> anyhow::Result<PathBuf> {
         let dir = runtime_dir(state_dir);
         let private = |dir: &Path| -> anyhow::Result<()> {
             use std::os::unix::fs::MetadataExt;
@@ -510,12 +589,17 @@ impl JobSecrets {
         match std::fs::symlink_metadata(&dir) {
             Ok(_) => private(&dir)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                if Self::make_dir(&dir).is_err() {
-                    return Ok(job_dir.join("secrets.json"));
-                }
+                Self::make_dir(&dir).with_context(|| {
+                    format!(
+                        "create {} (the job's secrets are kept in /dev/shm, never on disk)",
+                        dir.display()
+                    )
+                })?;
                 private(&dir)?;
             }
-            Err(_) => return Ok(job_dir.join("secrets.json")),
+            Err(e) => {
+                return Err(e).with_context(|| format!("stat {}", dir.display()));
+            }
         }
         Ok(dir.join(format!("{id}.json")))
     }
@@ -756,7 +840,8 @@ mod tests {
     fn add_mask_commands() {
         assert_eq!(
             add_masks(b"a\n::add-mask::dyn-value-1\r\n  ::add-mask:: x2 \n##[add-mask]old\n::add-mask::\n"),
-            ["dyn-value-1", "x2", "old"]
+            // The data as given and trimmed (the runner masks what it is given).
+            ["dyn-value-1", " x2", "x2", "old"]
         );
         assert!(
             add_masks(b"echo ::add-mask::x").is_empty(),
@@ -789,14 +874,13 @@ mod tests {
                 }
             }
         }
-        let in_state = files
-            .iter()
-            .any(|f| f.windows(12).any(|w| w == b"v-0123456789"));
-        assert_eq!(
-            in_state,
-            !runtime_dir(&state).join("J1.json").is_file(),
-            "in /dev/shm, or (only where that cannot be used) the job directory"
+        assert!(
+            files
+                .iter()
+                .all(|f| !f.windows(12).any(|w| w == b"v-0123456789")),
+            "never under the state"
         );
+        assert!(runtime_dir(&state).join("J1.json").is_file(), "in /dev/shm");
         // A runtime directory open to others is refused.
         let other = tmp.path().join("other-state");
         let dir = runtime_dir(&other);
@@ -848,5 +932,97 @@ mod tests {
             .unwrap()
             .expect("a secret spanning directories is found");
         assert!(!p.to_string_lossy().contains(slash), "{}", p.display());
+    }
+
+    /// M2 (review of 5f0afd6): a value cut out of a known secret (a
+    /// password a step took from a known DATABASE_URL into GITHUB_ENV) is
+    /// a secret too, and so is one held by a value classified in the same
+    /// step.
+    #[test]
+    fn a_part_of_a_known_secret_is_one() {
+        let known: BTreeSet<String> = ["postgres://u:pa55word-x9@h/db".to_string()].into();
+        let c = classify(
+            &env(&[("DB_PASS", "pa55word-x9"), ("SHORT", "u")]),
+            &Provenance::default(),
+            &known,
+        );
+        assert_eq!(c.names, ["DB_PASS"]);
+        let c = classify(
+            &env(&[
+                ("APP_DSN", "postgres://u:pa55word-x9@h/db"),
+                ("DB_PASS", "pa55word-x9"),
+            ]),
+            &prov(&["APP_DSN"]),
+            &BTreeSet::new(),
+        );
+        assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
+        assert_eq!(mask_str("pw=pa55word-x9", &c.masks), "pw=***");
+    }
+
+    /// M3 (review of 5f0afd6): `::add-mask::` as the runner parses it: the
+    /// properties form, and `core.setSecret`'s escaping undone.
+    #[test]
+    fn add_mask_as_the_runner_reads_it() {
+        assert_eq!(
+            add_masks(b"::add-mask k=v::abc%25def%0Aghi-0123\n"),
+            ["abc%def\nghi-0123"]
+        );
+        assert_eq!(add_masks(b"::ADD-MASK::x%0D\n"), ["x\r", "x"]);
+        assert_eq!(add_masks(b"##[add-mask]a%3Bb%5Dc\n"), ["a;b]c"]);
+    }
+
+    /// M4 (review of 5f0afd6): a workflow command line holding a secret
+    /// makes the run unrecordable; and a value flagged only by its name or
+    /// shape is no certain secret of the job.
+    #[test]
+    fn command_lines_and_certain_secrets() {
+        let m = masks_for("s3cr3t-DSN value");
+        assert!(command_line_holds(
+            b"x\n::set-output name=dsn::s3cr3t-DSN value\n",
+            &m
+        ));
+        assert!(command_line_holds(
+            b"  ##[set-output name=d;]s3cr3t-DSN value\n",
+            &m
+        ));
+        assert!(!command_line_holds(b"dsn=s3cr3t-DSN value\n", &m));
+        let c = classify(
+            &env(&[
+                ("GIT_AUTHOR_NAME", "github-actions[bot]"),
+                ("APP_DSN", "s3cr3t-DSN value"),
+                ("PW", "short"),
+            ]),
+            &prov(&["APP_DSN", "PW"]),
+            &BTreeSet::new(),
+        );
+        assert!(
+            c.is_secret("GIT_AUTHOR_NAME"),
+            "still salted in its own step"
+        );
+        assert_eq!(
+            c.strong.iter().collect::<Vec<_>>(),
+            ["s3cr3t-DSN value"],
+            "only certain values of 8 bytes or more join the job's secrets"
+        );
+        assert!(c.short_strong && c.short.as_deref() == Some("PW"));
+    }
+
+    /// M5 (review of 5f0afd6): base64 wrapped at 76 columns (GNU base64)
+    /// or 64 (openssl, PEM) is masked line by line.
+    #[test]
+    fn wrapped_base64_is_masked() {
+        let pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACDx5kQ2bW9yZS1rZXktbWF0ZXJpYWwtMDEyMzQ1Njc4OQ==\n-----END OPENSSH PRIVATE KEY-----\n";
+        let whole = b64(pem.as_bytes());
+        for width in [64, 76] {
+            let wrapped: String = whole
+                .as_bytes()
+                .chunks(width)
+                .map(|c| format!("{}\n", String::from_utf8_lossy(c)))
+                .collect();
+            let out = masked(&wrapped, pem);
+            for line in wrapped.lines().filter(|l| l.len() >= MIN_SECRET_LEN) {
+                assert!(!out.contains(line), "width {width}: {line} left in {out}");
+            }
+        }
     }
 }
