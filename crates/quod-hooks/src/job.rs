@@ -2441,11 +2441,16 @@ mod tests {
         assert!(!reused.exists() && !abandoned.exists());
     }
 
-    /// N5: a hook with no Runner.Worker above it (this test) records no
-    /// owner, rather than its parent, which dies with each hook.
+    /// N5: a hook with no Runner.Worker above it records no owner, rather
+    /// than its parent, which dies with each hook. Under GitHub Actions this
+    /// test itself runs below a Runner.Worker, which is then the owner.
     #[test]
     fn no_worker_no_owner() {
-        assert_eq!(Owner::of_this_hook(), None);
+        if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            assert!(Owner::of_this_hook().is_some());
+        } else {
+            assert_eq!(Owner::of_this_hook(), None);
+        }
     }
 
     #[test]
