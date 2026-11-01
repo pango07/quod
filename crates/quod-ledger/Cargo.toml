@@ -1,0 +1,20 @@
+[package]
+name = "quod-ledger"
+version = "0.0.0"
+description = "SQLite ledger of manifests, results and runs."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-manifest.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

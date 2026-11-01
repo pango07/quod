@@ -1,0 +1,52 @@
+[package]
+name = "quod-cli"
+version = "0.0.0"
+description = "The quod command line."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-key.workspace = true
+quod-manifest.workspace = true
+quod-fs.workspace = true
+quod-sandbox.workspace = true
+quod-ledger.workspace = true
+quod-replay.workspace = true
+quod-trust.workspace = true
+quod-hooks.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+# The rootfs document and import record are serde types (rootfs.rs).
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ulid.workspace = true
+
+[features]
+# Builds the binary with the observer's test-only failure hooks
+# (QUOD_TEST_URING_FAULT, QUOD_FAULT); only tests/ring_faults.rs
+# and tests/observer_faults.rs need it.
+fault-injection = ["quod-fs/fault-injection"]
+
+[dev-dependencies]
+# O_PATH, for ring_faults.rs holding a mount busy.
+libc.workspace = true
+tempfile.workspace = true
+
+[[test]]
+name = "ring_faults"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "observer_faults"
+required-features = ["fault-injection"]
+
+[[bin]]
+name = "quod"
+path = "src/main.rs"

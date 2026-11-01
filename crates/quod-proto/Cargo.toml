@@ -1,0 +1,12 @@
+[package]
+name = "quod-proto"
+version = "0.0.0"
+description = "Host to guest messages over vsock (0b)."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Builds the step rootfs (Dockerfile.rootfs) for the Docker host's
 # architecture, exports its filesystem into the dev namespace's work volume
-# and imports it into the dev container's store with `stillpass rootfs
+# and imports it into the dev container's store with `quod rootfs
 # import`, which prints the digest the step key pins. Record that digest in
 # versions.toml [rootfs].
 #
-#   STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh            # the pinned rootfs
-#   STILLPASS_DEV_NS=rootfs scripts/build-rootfs.sh --extra jq # a different one (miss test)
+#   QUOD_DEV_NS=rootfs scripts/build-rootfs.sh            # the pinned rootfs
+#   QUOD_DEV_NS=rootfs scripts/build-rootfs.sh --extra jq # a different one (miss test)
 #   scripts/build-rootfs.sh --export-only                      # skip the import
 #
 # Runs on the Docker host (macOS). Everything that pins the content lives in
@@ -37,12 +37,12 @@ if ! echo "$go_sha  $ctx/go.tgz" | shasum -a 256 -c --status 2>/dev/null; then
   echo "$go_sha  $ctx/go.tgz" | shasum -a 256 -c --status || { echo "go tarball sha256 mismatch" >&2; exit 1; }
 fi
 name="go${go}-bookworm-${arch}${extra:+-$(echo "$extra" | tr ' ,' '--')}"
-tag="stillpass-rootfs:$name"
+tag="quod-rootfs:$name"
 echo "== building $tag (base $base_digest, snapshot $snapshot${extra:+, extra: $extra})"
 docker build -q -f "$root/Dockerfile.rootfs" -t "$tag" \
   --build-arg BASE_DIGEST="$base_digest" --build-arg APT_SNAPSHOT="$snapshot" \
   --build-arg EXTRA_PKGS="$extra" "$ctx" >/dev/null
-ns=${STILLPASS_DEV_NS:+-$STILLPASS_DEV_NS}
+ns=${QUOD_DEV_NS:+-$QUOD_DEV_NS}
 cid=$(docker create "$tag" true)
 echo "== exporting to volume stillpass-work$ns:/work/rootfs/$name.tar"
 docker export "$cid" | docker run -i --rm -v "stillpass-work$ns:/work" "$tag" \
@@ -51,5 +51,5 @@ docker rm "$cid" >/dev/null
 docker image inspect "$tag" --format "image id {{.Id}}, {{.Size}} bytes"
 if [ "$import" = 1 ]; then
   echo "== importing"
-  "$root/scripts/dev.sh" "export CARGO_BUILD_JOBS=\${CARGO_BUILD_JOBS:-4}; cargo build -q --release -p sp-cli && target/release/stillpass rootfs import /work/rootfs/$name.tar --source $tag --oci $(docker image inspect "$tag" --format '{{.Id}}')"
+  "$root/scripts/dev.sh" "export CARGO_BUILD_JOBS=\${CARGO_BUILD_JOBS:-4}; cargo build -q --release -p quod-cli && target/release/quod rootfs import /work/rootfs/$name.tar --source $tag --oci $(docker image inspect "$tag" --format '{{.Id}}')"
 fi

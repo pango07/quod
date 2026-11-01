@@ -1,0 +1,19 @@
+[package]
+name = "quod-manifest"
+version = "0.0.0"
+description = "Manifest and step result types, matching against a tree."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

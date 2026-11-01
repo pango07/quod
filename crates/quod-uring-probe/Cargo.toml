@@ -1,0 +1,18 @@
+# A prototype outside the workspace (see the root Cargo.toml): build with
+#   cargo build --release --manifest-path crates/quod-uring-probe/Cargo.toml
+[package]
+name = "quod-uring-probe"
+version = "0.0.0"
+description = "Prototype: a minimal read-only FUSE server over io_uring vs /dev/fuse, to measure the round trip."
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+quod-cas = { path = "../quod-cas" }
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+libc = "0.2"
+io-uring = "0.7"

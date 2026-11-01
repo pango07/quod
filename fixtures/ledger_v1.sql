@@ -1,5 +1,5 @@
 -- A ledger as the v1 binary left it (schema version 1 with rows), for the
--- migration test in sp-ledger. The migration to v2 must keep every row.
+-- migration test in quod-ledger. The migration to v2 must keep every row.
 CREATE TABLE runs      (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, commit_sha TEXT, host TEXT);
 CREATE TABLE manifests (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL);
 CREATE INDEX manifests_by_key ON manifests (step_key, created_at DESC);

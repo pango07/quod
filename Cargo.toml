@@ -2,8 +2,8 @@
 resolver = "3"
 members = ["crates/*"]
 # The io_uring probe is a prototype with its own dependency; it builds on its
-# own (cargo build --manifest-path crates/sp-uring-probe/Cargo.toml).
-exclude = ["crates/sp-uring-probe"]
+# own (cargo build --manifest-path crates/quod-uring-probe/Cargo.toml).
+exclude = ["crates/quod-uring-probe"]
 
 [workspace.package]
 edition = "2024"
@@ -11,21 +11,21 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-sp-cas = { path = "crates/sp-cas" }
-sp-key = { path = "crates/sp-key" }
-sp-manifest = { path = "crates/sp-manifest" }
-sp-proto = { path = "crates/sp-proto" }
-sp-fs = { path = "crates/sp-fs" }
-sp-sandbox = { path = "crates/sp-sandbox" }
-sp-ledger = { path = "crates/sp-ledger" }
-sp-replay = { path = "crates/sp-replay" }
-sp-trust = { path = "crates/sp-trust" }
-sp-hooks = { path = "crates/sp-hooks" }
+quod-cas = { path = "crates/quod-cas" }
+quod-key = { path = "crates/quod-key" }
+quod-manifest = { path = "crates/quod-manifest" }
+quod-proto = { path = "crates/quod-proto" }
+quod-fs = { path = "crates/quod-fs" }
+quod-sandbox = { path = "crates/quod-sandbox" }
+quod-ledger = { path = "crates/quod-ledger" }
+quod-replay = { path = "crates/quod-replay" }
+quod-trust = { path = "crates/quod-trust" }
+quod-hooks = { path = "crates/quod-hooks" }
 
 anyhow = "1"
 blake3 = "1.8"
 # env: policy flags (--mode, --proofs, --audit, --timeout) also read
-# STILLPASS_* variables, so suites and the bench set them once.
+# QUOD_* variables, so suites and the bench set them once.
 clap = { version = "4.6", features = ["derive", "env"] }
 fuser = { version = "0.18", default-features = false }
 io-uring = "0.7"

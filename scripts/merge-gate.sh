@@ -12,12 +12,12 @@ if [ "$(cat "$ring" 2>/dev/null)" != "Y" ]; then
   echo "merge gate: FUSE io_uring unavailable ($ring); enable it with 'echo Y > $ring' and re-run" >&2
   exit 1
 fi
-cargo test -q -p sp-fs --features fault-injection --test uring -- --ignored --test-threads=1
-cargo test -q -p sp-cli --features fault-injection --test ring_faults -- --ignored --test-threads=1
-# The observer's failure path (STILLPASS_FAULT): a panic while serving
+cargo test -q -p quod-fs --features fault-injection --test uring -- --ignored --test-threads=1
+cargo test -q -p quod-cli --features fault-injection --test ring_faults -- --ignored --test-threads=1
+# The observer's failure path (QUOD_FAULT): a panic while serving
 # aborts the step and fails the run, classic and ring (--include-ignored).
-cargo test -q -p sp-fs --features fault-injection --test faults -- --include-ignored --test-threads=1
-cargo test -q -p sp-cli --features fault-injection --test observer_faults -- --include-ignored --test-threads=1
-# transports_log_identically only: per_request_cost is a benchmark that needs STILLPASS_SPIKE_REPO
-cargo test -q -p sp-cli --release --test transports transports_log_identically -- --ignored --test-threads=1
+cargo test -q -p quod-fs --features fault-injection --test faults -- --include-ignored --test-threads=1
+cargo test -q -p quod-cli --features fault-injection --test observer_faults -- --include-ignored --test-threads=1
+# transports_log_identically only: per_request_cost is a benchmark that needs QUOD_SPIKE_REPO
+cargo test -q -p quod-cli --release --test transports transports_log_identically -- --ignored --test-threads=1
 echo "merge gate ok"

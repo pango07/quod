@@ -1,0 +1,19 @@
+[package]
+name = "quod-sandbox"
+version = "0.0.0"
+description = "Runs a step command in isolation (0a: bubblewrap, 0b: Firecracker)."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# uname(2) for the platform probe (host_platform).
+libc.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

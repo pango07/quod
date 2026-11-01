@@ -1,0 +1,20 @@
+[package]
+name = "quod-trust"
+version = "0.0.0"
+description = "The trust layer: when a recorded result may replay, how a step key earns that, and how it loses it."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-manifest.workspace = true
+quod-ledger.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

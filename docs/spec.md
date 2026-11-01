@@ -1,6 +1,6 @@
 
 
-# Stillpass: Product Spec v0.1
+# Quod: Product Spec v0.1
 CI that refuses to repeat itself. Name checked free on npm, crates.io and GitHub, Oct 30 2026.
 Engineering brief for the spike, written for a coding agent: [Phase 0 handoff]
 2026-10-29 · @julio
@@ -74,12 +74,12 @@ Velnor proves a Rust runner is tractable but is narrow. act is approximate by de
 The Datadog limits list is the clearest specification of the gap. At the syscall level, a changed library, a changed compiler binary, and a changed fixture file are all just file reads. Coverage tools are blind to them by design. Trace at the OS level and the blind spots collapse into one category: inputs you observed.
 
 ## How it works
-GitHub still owns the YAML, the scheduling and the UI. Stillpass owns execution. That split is the whole design: nothing the user touches changes, and everything that makes it fast lives in three new components.
+GitHub still owns the YAML, the scheduling and the UI. Quod owns execution. That split is the whole design: nothing the user touches changes, and everything that makes it fast lives in three new components.
 The job flows top to bottom. GitHub assigns it, the orchestrator drops it into a warm microVM, the runner executes steps while the observer watches what each one reads, and the ledger decides whether a step needs to run at all. The local CLI shares that ledger, so a test run on a laptop can be the proof CI replays.
 The observer is the novel part, and its trick is that it mostly isn't instrumentation. The workspace is served into the VM from a content-addressed store on the host. The host already knows every blob it handed over, by hash. That log is the input manifest, free, with no in-guest agent and no language support. In-guest eBPF only exists to attribute those reads to individual processes for finer granularity later.
 
 ## Step lifecycle
-The lookup is two-level, because you can't know a step's inputs before it runs. Bazel knows inputs because you declared them. Stillpass only knows what previous runs read.
+The lookup is two-level, because you can't know a step's inputs before it runs. Bazel knows inputs because you declared them. Quod only knows what previous runs read.
 So the step key (command, env, action version, image) finds the manifests of past runs. Each manifest is the exact set of file hashes, directory listings and missing paths that run observed. If the current workspace matches one of them byte for byte, the past result is valid for this tree. This is how ccache's direct mode and tup have worked for years; nobody has applied it to a whole CI runner.
 Missing paths matter as much as present ones. A step that checked for a local config file and found nothing must re-run the day that file appears. The observer records failed lookups too.
 On a hit, outputs come back lazily. A node_modules tree on a hit is a promise, not a 400 MB copy; only the files later steps actually open get fetched from the CAS. That is what makes replay cheap even when outputs are huge.
@@ -158,12 +158,12 @@ Two honest gaps. Time: a process reading the clock through the vDSO never makes 
 Side-effect steps (deploy, publish, notify, anything that writes to the outside world) are never replayed. They taint by network rule automatically, and a one-line annotation lets a user force it either way.
 
 ## Trust model
-The product is the receipt, not the cache. Every predecessor that skipped work died or got fenced off the default branch for one reason: nobody could see why a skip was safe. Stillpass makes every skip auditable, and every repo earns replay one step at a time.
+The product is the receipt, not the cache. Every predecessor that skipped work died or got fenced off the default branch for one reason: nobody could see why a skip was safe. Quod makes every skip auditable, and every repo earns replay one step at a time.
 Receipts. Every replayed step prints a block at the top of its log: replayed from run N on commit X, these 2,314 input hashes matched, 2m14s saved, audited 17 times with 0 divergences. The job summary totals it. Click through and you see the full manifest.
 Observation mode is the default. On install, nothing is skipped. Every step executes, the observer records, and the ledger computes what it would have replayed. The dashboard shows the savings you aren't taking yet. This is the 98% evidence, generated per repo, before anyone has to trust anything.
 Trust is earned per step key, not per repo. A step key becomes replayable only after it has been proven deterministic: N consecutive executions with identical manifests produced identical outputs. The threshold is configurable, and the default is conservative. A tainted key never becomes replayable.
 Audit never turns off. A configurable percentage of hits (default in the single digits) re-executes in the background. Results are compared byte for byte. One divergence quarantines the key, re-runs it on every commit until it proves itself again, and alerts. The trailing divergence rate is a public number in the dashboard.
-Phase 0 as built (exp/trust; DECISIONS.md has the detail). Comparison is byte for byte after one normalization, go test's durations, and leaves out the step's scratch directories (what the toolchain profile calls scratch or a download cache and the env points at: Go's build cache, npm's, pip's and uv's caches; the carve-outs of sealed dependency trees, such as the module cache's `cache/`; a short list of volatile HOME paths), which are recorded but neither compared nor written by `--outputs`; receipts and banners name them. Failures, and output that says the step was killed or timed out, never prove themselves by default. Audits run in the foreground: a sampled hit executes instead of replaying (the step's own result is what the user gets), and observe mode compares every would-be hit. A divergence quarantines the key until a manifest re-proves itself, with a bar that rises with the key's recent divergences and is capped; it is reported in the banner, the audit log, `stillpass status` and `stillpass inspect`, and there is no alerting channel yet. Policy by branch and taint reporting are not built.
+Phase 0 as built (exp/trust; DECISIONS.md has the detail). Comparison is byte for byte after one normalization, go test's durations, and leaves out the step's scratch directories (what the toolchain profile calls scratch or a download cache and the env points at: Go's build cache, npm's, pip's and uv's caches; the carve-outs of sealed dependency trees, such as the module cache's `cache/`; a short list of volatile HOME paths), which are recorded but neither compared nor written by `--outputs`; receipts and banners name them. Failures, and output that says the step was killed or timed out, never prove themselves by default. Audits run in the foreground: a sampled hit executes instead of replaying (the step's own result is what the user gets), and observe mode compares every would-be hit. A divergence quarantines the key until a manifest re-proves itself, with a bar that rises with the key's recent divergences and is capped; it is reported in the banner, the audit log, `quod status` and `quod inspect`, and there is no alerting channel yet. Policy by branch and taint reporting are not built.
 The default branch comes last. Policy by branch: feature branches can replay at the base threshold; the default branch requires a higher proof count and zero audit divergences over a trailing window. Teams that want a full run before every release get it, and still save the 98% everywhere else.
 Taint is loud. Every tainted step shows why: reads the clock, hits an unpinned host, writes outside the workspace. That list is a determinism linter for free, and fixing items on it is how a team moves its hit rate up.
 The argument to a skeptical staff engineer: this is Bazel's correctness model (content-addressed actions, hermetic execution, remote cache) with the input declaration replaced by observation, and with an audit loop Bazel doesn't have.
@@ -176,7 +176,7 @@ Skip (memoization). The step's manifest matches a proven run. Cost drops to repl
 - 
 Split (granularity). A step that reads everything can't be skipped, but its processes can. go test ./... and cargo test already run one process per package, so they split for free. Jest, Vitest, pytest and RSpec run everything in one process; a splitter fans them out to one process per test file, in parallel, and each file memoizes on its own.
 - 
-Warm (incremental state). Compilers and bundlers read the changed file and can't be skipped at any granularity. What helps is starting them warm: the previous run's .tsbuildinfo, target/, or bundler cache is materialized as starting state, so the tool's own incremental mode does the work. Stillpass doesn't make this correct; the tool does. Audit catches the tool when it lies.
+Warm (incremental state). Compilers and bundlers read the changed file and can't be skipped at any granularity. What helps is starting them warm: the previous run's .tsbuildinfo, target/, or bundler cache is materialized as starting state, so the tool's own incremental mode does the work. Quod doesn't make this correct; the tool does. Audit catches the tool when it lies.
 A worked model, not a measurement. A plausible Node monorepo pipeline, baseline 14 minutes, on a commit that touches three source files:
 
  | 
@@ -350,7 +350,7 @@ Durations are estimates for a small team working with coding agents. They assume
 
 ## Success metrics
 The benchmark is the product's spine. It runs in observation mode against real history, so it can be published before anyone trusts replay, and it is what every gate in the roadmap reads from.
-The corpus. 20 public repos with real GitHub Actions workflows, spread across Go, Rust, Node, Python and Ruby, small to monorepo. For each, the last 200 commits on the default branch plus their PR branches. Every workflow is run under Stillpass in observation mode, in commit order, so the ledger fills the way it would in production.
+The corpus. 20 public repos with real GitHub Actions workflows, spread across Go, Rust, Node, Python and Ruby, small to monorepo. For each, the last 200 commits on the default branch plus their PR branches. Every workflow is run under Quod in observation mode, in commit order, so the ledger fills the way it would in production.
 
  | 
 Metric | 
@@ -474,11 +474,11 @@ GPU jobs, nested virtualization, and jobs that need privileged host access.
 - 
 Cross-organization ledger sharing. One org, one ledger. Public-repo proof sharing is an interesting later idea with real security questions.
 - 
-Predictive or ML-based test selection. Stillpass skips only what it has proven. Guessing is a different product.
+Predictive or ML-based test selection. Quod skips only what it has proven. Guessing is a different product.
 
 ## Decisions needed before the spike
 - 
-Name: Stillpass. npm, crates.io and GitHub confirmed free Oct 30 2026. Domains (stillpass.dev, stillpass.sh) still to check.
+Name: Quod (pronounced "kwod", from Q.E.D.), handle `quodci`, site quodci.com. Decided 2026-10-31, the rename recorded in DECISIONS.md.
 - 
 Observer transport: virtiofsd with a custom backend, or a FUSE server via the fuser crate exposed over virtio. Virtiofs is faster; FUSE is simpler to prototype. The spike should try virtiofs first and fall back.
 - 

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Installs one official actions/runner wired to Stillpass's container hooks.
+# Installs one official actions/runner wired to Quod's container hooks.
 #   scripts/runner/install.sh <owner/repo> <registration-token> [dir] [name]
 # Downloads the runner pinned in versions.toml (linux, x64 or arm64), installs
-# the hook shim at /opt/stillpass/hooks/index.js with its stillpass.json
-# (binary, state dir STILLPASS_HOME, policy mode STILLPASS_MODE: read here,
-# at install time only) and the stillpass binary at /opt/stillpass/bin
-# (STILLPASS_BIN overrides the source), writes the runner's .env, and
-# registers it with the label `stillpass`.
+# the hook shim at /opt/quod/hooks/index.js with its quod.json
+# (binary, state dir QUOD_HOME, policy mode QUOD_MODE: read here,
+# at install time only) and the quod binary at /opt/quod/bin
+# (QUOD_BIN overrides the source), writes the runner's .env, and
+# registers it with the label `quod`.
 set -euo pipefail
 repo=${1:?owner/repo}; token=${2:?registration token}
-dir=${3:-/opt/actions-runner}; name=${4:-stillpass-$(hostname)}
+dir=${3:-/opt/actions-runner}; name=${4:-quod-$(hostname)}
 root=$(cd "$(dirname "$0")/../.." && pwd)
 v() { sed -n "/^\[$1\]/,/^\[/s/^$2 = \"\(.*\)\"/\1/p" "$root/versions.toml"; }
 ver=$(v actions_runner version)
@@ -35,30 +35,30 @@ if [ ! -x "$dir/run.sh" ]; then
   rm -f "/tmp/$tarball"
 fi
 
-mkdir -p /opt/stillpass/hooks /opt/stillpass/bin
-install -m 0644 "$root/scripts/runner/hooks/index.js" /opt/stillpass/hooks/index.js
-src=${STILLPASS_BIN:-$root/target/release/stillpass}
+mkdir -p /opt/quod/hooks /opt/quod/bin
+install -m 0644 "$root/scripts/runner/hooks/index.js" /opt/quod/hooks/index.js
+src=${QUOD_BIN:-$root/target/release/quod}
 if [ -x "$src" ]; then
-  install -m 0755 "$src" /opt/stillpass/bin/stillpass
+  install -m 0755 "$src" /opt/quod/bin/quod
 else
-  echo "note: no stillpass binary at $src yet (cargo build --release -p sp-cli); rerun to install it" >&2
+  echo "note: no quod binary at $src yet (cargo build --release -p quod-cli); rerun to install it" >&2
 fi
 
 # The shim's configuration: the binary, the state and the policy. Never the
 # runner's environment: the runner hands the hook the step's environment.
-state=${STILLPASS_HOME:-/var/lib/stillpass}
-mode=${STILLPASS_MODE:-observe}
-cat > /opt/stillpass/hooks/stillpass.json <<EOF
-{"bin": "/opt/stillpass/bin/stillpass", "state": "$state", "policy": {"mode": "$mode"}}
+state=${QUOD_HOME:-/var/lib/quod}
+mode=${QUOD_MODE:-observe}
+cat > /opt/quod/hooks/quod.json <<EOF
+{"bin": "/opt/quod/bin/quod", "state": "$state", "policy": {"mode": "$mode"}}
 EOF
 cat > "$dir/.env" <<EOF
-ACTIONS_RUNNER_CONTAINER_HOOKS=/opt/stillpass/hooks/index.js
+ACTIONS_RUNNER_CONTAINER_HOOKS=/opt/quod/hooks/index.js
 ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true
 EOF
 
 if [ ! -f "$dir/.runner" ]; then
   (cd "$dir" && ./config.sh --unattended --replace \
       --url "https://github.com/$repo" --token "$token" \
-      --name "$name" --labels stillpass --work _work)
+      --name "$name" --labels quod --work _work)
 fi
 echo "runner $name installed in $dir; start it with: cd $dir && ./run.sh"

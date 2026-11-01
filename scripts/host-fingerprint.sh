@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 0a environment pin. Its output is hashed into the step key's `image` field,
 # so anything outside the served tree that can change a step's result goes
-# here. Stillpass runs it with a cleared env and every toolchain's bin dir on
-# PATH (sp_key::profile::HOST_PATH), so it resolves the same binaries the
+# here. Quod runs it with a cleared env and every toolchain's bin dir on
+# PATH (quod_key::profile::HOST_PATH), so it resolves the same binaries the
 # steps do. A toolchain that is not installed is recorded as absent; a step
 # needing it fails on its own.
 set -eu

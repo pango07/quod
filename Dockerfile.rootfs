@@ -3,7 +3,7 @@
 # ssh-keygen, CA certificates) from a Debian snapshot at a fixed time, and
 # the pinned Go toolchain (COPYed in after a sha256 check). Built by
 # scripts/build-rootfs.sh, which exports the filesystem and imports it with
-# `stillpass rootfs import`; the digest it prints is what the step key's
+# `quod rootfs import`; the digest it prints is what the step key's
 # `image` field pins. Nothing in here is ever read from the host at run time.
 ARG BASE_DIGEST
 FROM debian:bookworm-slim@${BASE_DIGEST}

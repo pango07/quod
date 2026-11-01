@@ -26,7 +26,7 @@ have_go=$(go env GOVERSION 2>/dev/null)
 row 0a "go $want_go" "$([ "$have_go" = "go$want_go" ] && echo 1 || echo 0)" "$have_go"
 row 0a "sqlite3" "$(has sqlite3 && echo 1 || echo 0)" "$(sqlite3 --version 2>/dev/null | cut -d' ' -f1)"
 # The polyglot corpus (exp/polyglot): node, python and uv at the paths the
-# toolchain profiles put on PATH (sp_key::profile). Optional for the Go spike.
+# toolchain profiles put on PATH (quod_key::profile). Optional for the Go spike.
 want_node=$(sed -n '/^\[node\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$(dirname "$0")/../versions.toml")
 have_node=$(/usr/local/node/bin/node --version 2>/dev/null)
 row opt "node $want_node (/usr/local/node)" "$([ "$have_node" = "v$want_node" ] && echo 1 || echo 0)" "$have_node"

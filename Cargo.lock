@@ -652,6 +652,153 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
+name = "quod-cas"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "quod-cli"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+ "quod-cas",
+ "quod-fs",
+ "quod-hooks",
+ "quod-key",
+ "quod-ledger",
+ "quod-manifest",
+ "quod-replay",
+ "quod-sandbox",
+ "quod-trust",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "ulid",
+]
+
+[[package]]
+name = "quod-fs"
+version = "0.0.0"
+dependencies = [
+ "fuser",
+ "io-uring",
+ "libc",
+ "quod-cas",
+ "quod-manifest",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "quod-guest-agent"
+version = "0.0.0"
+
+[[package]]
+name = "quod-hooks"
+version = "0.0.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "blake3",
+ "quod-cas",
+ "quod-fs",
+ "quod-key",
+ "quod-ledger",
+ "quod-manifest",
+ "quod-replay",
+ "quod-sandbox",
+ "quod-trust",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "quod-key"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "quod-cas",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "quod-ledger"
+version = "0.0.0"
+dependencies = [
+ "quod-cas",
+ "quod-manifest",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "quod-manifest"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "quod-cas",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "quod-proto"
+version = "0.0.0"
+
+[[package]]
+name = "quod-replay"
+version = "0.0.0"
+dependencies = [
+ "quod-cas",
+ "quod-manifest",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "quod-sandbox"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "quod-trust"
+version = "0.0.0"
+dependencies = [
+ "quod-cas",
+ "quod-ledger",
+ "quod-manifest",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -868,153 +1015,6 @@ name = "smallvec"
 version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
-
-[[package]]
-name = "sp-cas"
-version = "0.0.0"
-dependencies = [
- "blake3",
- "proptest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "sp-cli"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "libc",
- "serde",
- "serde_json",
- "sp-cas",
- "sp-fs",
- "sp-hooks",
- "sp-key",
- "sp-ledger",
- "sp-manifest",
- "sp-replay",
- "sp-sandbox",
- "sp-trust",
- "tempfile",
- "tracing",
- "tracing-subscriber",
- "ulid",
-]
-
-[[package]]
-name = "sp-fs"
-version = "0.0.0"
-dependencies = [
- "fuser",
- "io-uring",
- "libc",
- "sp-cas",
- "sp-manifest",
- "tempfile",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "sp-guest-agent"
-version = "0.0.0"
-
-[[package]]
-name = "sp-hooks"
-version = "0.0.0"
-dependencies = [
- "aho-corasick",
- "anyhow",
- "blake3",
- "serde",
- "serde_json",
- "sp-cas",
- "sp-fs",
- "sp-key",
- "sp-ledger",
- "sp-manifest",
- "sp-replay",
- "sp-sandbox",
- "sp-trust",
- "tempfile",
- "thiserror",
- "tracing",
- "ulid",
-]
-
-[[package]]
-name = "sp-key"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "serde",
- "serde_json",
- "sp-cas",
- "thiserror",
-]
-
-[[package]]
-name = "sp-ledger"
-version = "0.0.0"
-dependencies = [
- "rusqlite",
- "serde_json",
- "sp-cas",
- "sp-manifest",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "sp-manifest"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "serde",
- "serde_json",
- "sp-cas",
- "thiserror",
-]
-
-[[package]]
-name = "sp-proto"
-version = "0.0.0"
-
-[[package]]
-name = "sp-replay"
-version = "0.0.0"
-dependencies = [
- "sp-cas",
- "sp-manifest",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "sp-sandbox"
-version = "0.0.0"
-dependencies = [
- "libc",
- "tempfile",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "sp-trust"
-version = "0.0.0"
-dependencies = [
- "sp-cas",
- "sp-ledger",
- "sp-manifest",
- "tempfile",
- "thiserror",
- "tracing",
-]
 
 [[package]]
 name = "sqlite-wasm-rs"

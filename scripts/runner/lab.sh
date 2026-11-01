@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The runner lab: one long-lived privileged container (the dev box image plus
 # the runner's native dependencies) so a registered actions/runner can stay up
-# across commands. Same volumes as scripts/dev.sh under STILLPASS_DEV_NS.
+# across commands. Same volumes as scripts/dev.sh under QUOD_DEV_NS.
 #   scripts/runner/lab.sh up            # start (or restart) the container
 #   scripts/runner/lab.sh exec <cmd>    # run a command inside it
 #   scripts/runner/lab.sh down          # stop and remove it
@@ -9,10 +9,10 @@ set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 v() { sed -n "/^\[$1\]/,/^\[/s/^$2 = \"\(.*\)\"/\1/p" "$root/versions.toml"; }
 tag=go$(v go version)-rust$(v rust toolchain)
-base=stillpass-dev:$tag
-img=stillpass-runner-dev:$tag
-ns=${STILLPASS_DEV_NS:+-$STILLPASS_DEV_NS}
-name=stillpass-lab$ns
+base=quod-dev:$tag
+img=quod-runner-dev:$tag
+ns=${QUOD_DEV_NS:+-$QUOD_DEV_NS}
+name=quod-lab$ns
 
 ensure_image() {
   if ! docker image inspect "$base" >/dev/null 2>&1; then
@@ -30,19 +30,19 @@ case "${1:-}" in
     docker rm -f "$name" >/dev/null 2>&1 || true
     docker run -d --name "$name" --privileged --device /dev/fuse \
       -v "$root":/src -v stillpass-target$ns:/src/target -v stillpass-work$ns:/work \
-      -e CARGO_TARGET_DIR=/src/target -e TMPDIR=/work/tmp -e STILLPASS_HOME=/work/state \
-      -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" -e STILLPASS_INTEGRATION=1 -w /src \
+      -e CARGO_TARGET_DIR=/src/target -e TMPDIR=/work/tmp -e QUOD_HOME=/work/state \
+      -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" -e QUOD_INTEGRATION=1 -w /src \
       "$img" sleep infinity >/dev/null
     docker exec "$name" mkdir -p /work/tmp /work/state
-    # Per-step cgroups (sp_sandbox::cgroup_root): cgroup v2 lets a parent
+    # Per-step cgroups (quod_sandbox::cgroup_root): cgroup v2 lets a parent
     # hand memory and pids to children only if it holds no processes, so the
     # container's own move to a leaf first. Steps then count their own OOM
     # kills and fork-limit hits instead of the machine's.
     docker exec "$name" sh -c 'mkdir -p /sys/fs/cgroup/init &&
       for p in $(cat /sys/fs/cgroup/cgroup.procs); do echo $p > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true; done &&
       echo "+memory +pids" > /sys/fs/cgroup/cgroup.subtree_control &&
-      mkdir -p /sys/fs/cgroup/stillpass &&
-      echo "+memory +pids" > /sys/fs/cgroup/stillpass/cgroup.subtree_control' ||
+      mkdir -p /sys/fs/cgroup/quod &&
+      echo "+memory +pids" > /sys/fs/cgroup/quod/cgroup.subtree_control' ||
       echo "note: no per-step cgroups; OOM kills are counted machine-wide" >&2
     echo "$name up"
     ;;

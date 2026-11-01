@@ -1,0 +1,541 @@
+//! Kernel overlayfs with the FUSE mount as lower and a host directory as
+//! upper. At step end the upper dir is the step's output, diffed against
+//! the lower tree.
+
+use std::collections::BTreeMap;
+use std::ffi::CString;
+use std::fs;
+use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use quod_cas::{Cas, Entry, Hash, Kind, ROOT, Tree, child_path};
+
+use crate::{FsError, Served};
+
+/// A mounted overlay. `finish` unmounts it and returns the outputs.
+pub struct Overlay {
+    upper: PathBuf,
+    merged: PathBuf,
+    mounted: bool,
+}
+
+/// Mounts overlayfs at `merged` with `served` as lower. Needs root or a user
+/// namespace with CAP_SYS_ADMIN.
+pub fn overlay(
+    served: &Served,
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
+    overlay_dir(served.mountpoint(), upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` with any directory as lower (`overlay`
+/// passes the observer's mount). `finish` diffs the upper against the tree
+/// the lower presents.
+pub fn overlay_dir(
+    lower: &Path,
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
+    overlay_layers(&[lower], upper, work, merged)
+}
+
+/// Mounts overlayfs at `merged` over several lower directories, the first
+/// on top (earlier steps' upper dirs over an image root, for instance).
+/// Same options as `overlay`.
+pub fn overlay_layers(
+    lowers: &[&Path],
+    upper: &Path,
+    work: &Path,
+    merged: &Path,
+) -> Result<Overlay, FsError> {
+    for d in [upper, work, merged] {
+        fs::create_dir_all(d).map_err(FsError::io(format!("create {}", d.display())))?;
+    }
+    if lowers.is_empty() {
+        return Err(FsError::Io {
+            what: "overlay without a lower directory".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        });
+    }
+    for l in lowers.iter().chain([&upper, &work]) {
+        let s = l.display().to_string();
+        // Separators of the option string: such a path would mount the
+        // wrong layers.
+        if s.contains([':', ',', '\\']) {
+            return Err(FsError::Io {
+                what: format!("overlay path {s:?} contains ':', ',' or a backslash"),
+                source: std::io::ErrorKind::InvalidInput.into(),
+            });
+        }
+    }
+    let lowerdir: Vec<String> = lowers.iter().map(|l| l.display().to_string()).collect();
+    let opts = format!(
+        // Pinned so the upper dir is plain files: no metacopy (a chmod would
+        // copy up an empty file), no redirects (a renamed dir would arrive
+        // without contents), no index.
+        "lowerdir={},upperdir={},workdir={},redirect_dir=off,metacopy=off,index=off",
+        lowerdir.join(":"),
+        upper.display(),
+        work.display()
+    );
+    let c = |s: &[u8]| {
+        CString::new(s).map_err(|_| FsError::Io {
+            what: "overlay path contains NUL".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        })
+    };
+    let (src, target, fstype, data) = (
+        c(b"overlay")?,
+        c(merged.as_os_str().as_bytes())?,
+        c(b"overlay")?,
+        c(opts.as_bytes())?,
+    );
+    // SAFETY: every pointer is a valid NUL-terminated string that outlives the call.
+    #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::mount(
+            src.as_ptr(),
+            target.as_ptr(),
+            fstype.as_ptr(),
+            0,
+            data.as_ptr().cast(),
+        )
+    };
+    if rc != 0 {
+        return Err(FsError::Io {
+            what: format!("mount overlay at {} ({opts})", merged.display()),
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    Ok(Overlay {
+        upper: upper.to_path_buf(),
+        merged: merged.to_path_buf(),
+        mounted: true,
+    })
+}
+
+impl Overlay {
+    pub fn merged(&self) -> &Path {
+        &self.merged
+    }
+
+    pub fn upper(&self) -> &Path {
+        &self.upper
+    }
+
+    /// Unmounts without diffing: for an overlay whose upper dir the caller
+    /// keeps (a job's root, carried from step to step).
+    pub fn release(mut self) -> Result<(), FsError> {
+        self.unmount()
+    }
+
+    /// Unmounts, then walks the upper dir: new and modified files and
+    /// symlinks become `f` and `l` outputs (files stored in the CAS),
+    /// whiteouts become `x`, directories absent from the lower tree become
+    /// `d`, and an opaque directory becomes `x` followed by its contents.
+    /// Renames are not reconstructed: they are an `x` plus a new path.
+    ///
+    /// Output files are moved into the CAS, not copied (the upper dir is the
+    /// step's and the step is over), and made durable with one filesystem
+    /// sync instead of an fsync per blob. When this returns, every blob the
+    /// outputs name is on disk, so a result naming them may be written.
+    ///
+    /// Precondition: nothing writes to the upper dir any more. That holds
+    /// because the step is over before this is called: bubblewrap is pid 1
+    /// of the sandbox's pid namespace, so when `quod_sandbox::run` returns
+    /// from waiting on it every process it started is dead; and the
+    /// `umount2` here is not lazy (no MNT_DETACH), so it fails with EBUSY
+    /// rather than succeed while anything still holds the merged dir open.
+    /// `Cas::take_files` checks the precondition anyway: each file's inode,
+    /// size and mtime must be the same before hashing, after hashing and on
+    /// the blob after the rename, or the blob is removed and the run fails
+    /// with nothing recorded. A blob that did not match its name would be a
+    /// permanent false-hit vector (`import_dir` trusts `has`).
+    pub fn finish(mut self, lower: &Tree, cas: &Cas) -> Result<Vec<Entry>, FsError> {
+        let t = Instant::now();
+        self.unmount()?;
+        let unmount = t.elapsed();
+        let t = Instant::now();
+        let mut out = Vec::new();
+        let mut files = Vec::new();
+        walk(&self.upper, ROOT, lower, &mut out, &mut files)?;
+        let walk_t = t.elapsed();
+        let t = Instant::now();
+        // Store every output file in parallel, then fill in the hashes.
+        let paths: Vec<PathBuf> = files.iter().map(|(_, p)| p.clone()).collect();
+        let mut bytes = 0;
+        let mut sync = Duration::ZERO;
+        let stored = cas.take_files(&paths, |dir| {
+            let t = Instant::now();
+            syncfs(dir)?;
+            sync = t.elapsed();
+            Ok(())
+        })?;
+        for ((i, _), (h, new)) in files.iter().zip(stored) {
+            out[*i].h = Some(h);
+            bytes += new;
+        }
+        tracing::debug!(
+            target: "quod",
+            outputs = out.len(),
+            files = files.len(),
+            new_bytes = bytes,
+            unmount_ms = unmount.as_secs_f64() * 1000.0,
+            walk_ms = walk_t.as_secs_f64() * 1000.0,
+            store_ms = (t.elapsed() - sync).as_secs_f64() * 1000.0,
+            sync_ms = sync.as_secs_f64() * 1000.0,
+            "overlay finish"
+        );
+        Ok(out)
+    }
+
+    /// Unmounts the overlay without diffing it (idempotent; `finish` after
+    /// this diffs the upper as it is then). For a caller that must edit the
+    /// upper first: after the unmount nothing but this process reaches it.
+    pub fn unmount(&mut self) -> Result<(), FsError> {
+        if !self.mounted {
+            return Ok(());
+        }
+        let target = CString::new(self.merged.as_os_str().as_bytes()).expect("checked at mount");
+        // SAFETY: target is a valid NUL-terminated path.
+        #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+        let rc = unsafe { libc::umount2(target.as_ptr(), 0) };
+        if rc != 0 {
+            return Err(FsError::Io {
+                what: format!("unmount overlay {}", self.merged.display()),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        self.mounted = false;
+        Ok(())
+    }
+}
+
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        let _ = self.unmount();
+    }
+}
+
+/// Collects outputs into `out`; regular files get a placeholder hash and
+/// their (index in `out`, upper path) go to `files` for storing.
+fn walk(
+    dir: &Path,
+    rel: &str,
+    lower: &Tree,
+    out: &mut Vec<Entry>,
+    files: &mut Vec<(usize, PathBuf)>,
+) -> Result<(), FsError> {
+    let mut items: Vec<_> = fs::read_dir(dir)
+        .map_err(FsError::io(format!("read {}", dir.display())))?
+        .collect::<Result<_, _>>()
+        .map_err(FsError::io(format!("read {}", dir.display())))?;
+    items.sort_by_key(|i| i.file_name());
+    for item in items {
+        let path = item.path();
+        let name = item.file_name().into_string().map_err(|n| FsError::Io {
+            what: format!("output name is not UTF-8: {n:?}"),
+            source: std::io::ErrorKind::InvalidData.into(),
+        })?;
+        if !quod_cas::valid_name(&name) {
+            return Err(FsError::Io {
+                what: format!("step created a name listings cannot represent: {name:?}"),
+                source: std::io::ErrorKind::InvalidData.into(),
+            });
+        }
+        let p = child_path(rel, &name);
+        let meta =
+            fs::symlink_metadata(&path).map_err(FsError::io(format!("stat {}", path.display())))?;
+        let ft = meta.file_type();
+        if ft.is_char_device() && meta.rdev() == 0 {
+            out.push(Entry::deleted(p));
+        } else if ft.is_dir() {
+            refuse_markers(&path)?;
+            let opaque = is_opaque(&path)?;
+            let existed = lower.get(&p).is_some_and(|e| e.k == Kind::Dir);
+            if existed && opaque {
+                out.push(Entry::deleted(p.clone()));
+            }
+            if !existed || opaque {
+                if lower.get(&p).is_some_and(|e| e.k != Kind::Dir) {
+                    // A file replaced by a directory.
+                    out.push(Entry::deleted(p.clone()));
+                }
+                out.push(Entry::dir(p.clone(), Hash::of(b"")));
+            }
+            walk(&path, &p, lower, out, files)?;
+        } else if ft.is_symlink() {
+            let t = fs::read_link(&path)
+                .map_err(FsError::io(format!("readlink {}", path.display())))?;
+            let t = t.into_os_string().into_string().map_err(|t| FsError::Io {
+                what: format!("symlink target is not UTF-8: {t:?}"),
+                source: std::io::ErrorKind::InvalidData.into(),
+            })?;
+            replace_dir(lower, &p, out);
+            out.push(Entry::symlink(p, t));
+        } else if ft.is_file() {
+            refuse_markers(&path)?;
+            replace_dir(lower, &p, out);
+            files.push((out.len(), path));
+            out.push(Entry::file(p, Hash::of(b""), meta.mode()));
+        } else {
+            return Err(FsError::Io {
+                what: format!("step created an unsupported file type at {p}"),
+                source: std::io::ErrorKind::Unsupported.into(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Flushes every dirty page and directory entry of the filesystem holding
+/// `dir` to disk. One call covers every output file about to become a blob.
+pub fn syncfs(dir: &Path) -> std::io::Result<()> {
+    let f = fs::File::open(dir)?;
+    // SAFETY: the descriptor is open and owned by `f` for the whole call.
+    #[allow(unsafe_code)] // syncfs(2) has no safe std wrapper
+    let rc = unsafe { libc::syncfs(f.as_raw_fd()) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// A lower directory replaced by a file or symlink must be removed first.
+fn replace_dir(lower: &Tree, p: &str, out: &mut Vec<Entry>) {
+    if lower.get(p).is_some_and(|e| e.k == Kind::Dir) {
+        out.push(Entry::deleted(p.to_string()));
+    }
+}
+
+/// Reads one xattr. `Ok(None)` when absent or unsupported; any other error
+/// is an error, never a silent "no".
+fn xattr(path: &Path, name: &str) -> Result<Option<Vec<u8>>, FsError> {
+    let (Ok(cpath), Ok(cname)) = (
+        CString::new(path.as_os_str().as_bytes()),
+        CString::new(name),
+    ) else {
+        return Ok(None);
+    };
+    let mut buf = [0u8; 256];
+    // SAFETY: cpath and cname are valid C strings; buf is valid for its length.
+    #[allow(unsafe_code)] // lgetxattr(2) has no safe std wrapper
+    let n = unsafe {
+        libc::lgetxattr(
+            cpath.as_ptr(),
+            cname.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+        )
+    };
+    if n >= 0 {
+        return Ok(Some(buf[..n as usize].to_vec()));
+    }
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() {
+        Some(libc::ENODATA) | Some(libc::ENOTSUP) => Ok(None),
+        _ => Err(FsError::Io {
+            what: format!("read xattr {name} on {}", path.display()),
+            source: e,
+        }),
+    }
+}
+
+/// Overlay markers this diff cannot interpret. Both xattr namespaces are
+/// checked (trusted.* as root, user.* with userxattr).
+/// The overlay is mounted without `userxattr`, so the kernel reads its
+/// markers in the `trusted.overlay.*` namespace only: `user.overlay.*`
+/// xattrs are ordinary attributes a step may set on its own files and mean
+/// nothing to the overlay, so they must mean nothing to the diff either.
+fn refuse_markers(path: &Path) -> Result<(), FsError> {
+    for m in ["redirect", "metacopy"] {
+        let name = format!("trusted.overlay.{m}");
+        if xattr(path, &name)?.is_some() {
+            return Err(FsError::Io {
+                what: format!(
+                    "overlay marker {name} on {} (redirect_dir/metacopy must be off)",
+                    path.display()
+                ),
+                source: std::io::ErrorKind::Unsupported.into(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Opaque as the kernel sees it: `trusted.overlay.opaque` (see
+/// `refuse_markers`); a step's own `user.overlay.opaque` is just an xattr.
+fn is_opaque(dir: &Path) -> Result<bool, FsError> {
+    Ok(xattr(dir, "trusted.overlay.opaque")?.is_some_and(|v| v == b"y"))
+}
+
+/// An upper directory marked opaque: it hides the lower directory's
+/// entries (a directory removed and made again through the overlay).
+pub fn is_opaque_dir(dir: &Path) -> Result<bool, FsError> {
+    is_opaque(dir)
+}
+
+/// Every extended attribute of `path` itself (never through a symlink), by
+/// name. Reading `trusted.*` needs CAP_SYS_ADMIN; without it the kernel
+/// lists none of them.
+pub fn xattrs(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, FsError> {
+    let io = |what: String| move |source: std::io::Error| FsError::Io { what, source };
+    let cpath = CString::new(path.as_os_str().as_bytes()).map_err(|_| FsError::Io {
+        what: "xattr path contains NUL".into(),
+        source: std::io::ErrorKind::InvalidInput.into(),
+    })?;
+    // SAFETY: cpath is a valid C string; a null buffer of size 0 asks for the size.
+    #[allow(unsafe_code)] // llistxattr(2) has no safe std wrapper
+    let n = unsafe { libc::llistxattr(cpath.as_ptr(), std::ptr::null_mut(), 0) };
+    if n < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENOTSUP) {
+            return Ok(BTreeMap::new());
+        }
+        return Err(io(format!("list xattrs of {}", path.display()))(e));
+    }
+    let mut names = vec![0u8; n as usize];
+    // SAFETY: names is valid for its length.
+    #[allow(unsafe_code)]
+    let n = unsafe { libc::llistxattr(cpath.as_ptr(), names.as_mut_ptr().cast(), names.len()) };
+    if n < 0 {
+        return Err(io(format!("list xattrs of {}", path.display()))(
+            std::io::Error::last_os_error(),
+        ));
+    }
+    names.truncate(n as usize);
+    let mut out = BTreeMap::new();
+    for name in names.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        let Ok(cname) = CString::new(name) else {
+            continue;
+        };
+        let get = |buf: &mut [u8]| {
+            // SAFETY: cpath and cname are valid C strings; buf is valid for its
+            // length (a null pointer with length 0 asks for the size).
+            #[allow(unsafe_code)] // lgetxattr(2) has no safe std wrapper
+            unsafe {
+                libc::lgetxattr(
+                    cpath.as_ptr(),
+                    cname.as_ptr(),
+                    if buf.is_empty() {
+                        std::ptr::null_mut()
+                    } else {
+                        buf.as_mut_ptr().cast()
+                    },
+                    buf.len(),
+                )
+            }
+        };
+        let what = || {
+            format!(
+                "read xattr {} of {}",
+                String::from_utf8_lossy(name),
+                path.display()
+            )
+        };
+        let size = get(&mut []);
+        if size < 0 {
+            let e = std::io::Error::last_os_error();
+            if e.raw_os_error() == Some(libc::ENODATA) {
+                continue; // removed since it was listed
+            }
+            return Err(io(what())(e));
+        }
+        let mut v = vec![0u8; size as usize];
+        let size = get(&mut v);
+        if size < 0 {
+            return Err(io(what())(std::io::Error::last_os_error()));
+        }
+        v.truncate(size as usize);
+        out.insert(String::from_utf8_lossy(name).into_owned(), v);
+    }
+    Ok(out)
+}
+
+/// A tmpfs mounted at a directory, unmounted on drop: a scratch filesystem
+/// whose behavior (readdir in creation order, no host filesystem's hash
+/// seed, nothing on disk) does not depend on the host's disks.
+pub struct Tmpfs {
+    dir: PathBuf,
+    mounted: bool,
+}
+
+/// Mounts a tmpfs at `dir` (created if missing) with `options` (e.g.
+/// `size=4096m,mode=0755`). Needs root or CAP_SYS_ADMIN.
+pub fn tmpfs(dir: &Path, options: &str) -> Result<Tmpfs, FsError> {
+    fs::create_dir_all(dir).map_err(FsError::io(format!("create {}", dir.display())))?;
+    let c = |s: &[u8]| {
+        CString::new(s).map_err(|_| FsError::Io {
+            what: "tmpfs path contains NUL".into(),
+            source: std::io::ErrorKind::InvalidInput.into(),
+        })
+    };
+    let (src, target, fstype, data) = (
+        c(b"tmpfs")?,
+        c(dir.as_os_str().as_bytes())?,
+        c(b"tmpfs")?,
+        c(options.as_bytes())?,
+    );
+    // SAFETY: every pointer is a valid NUL-terminated string that outlives the call.
+    #[allow(unsafe_code)] // mount(2) has no safe std wrapper
+    let rc = unsafe {
+        libc::mount(
+            src.as_ptr(),
+            target.as_ptr(),
+            fstype.as_ptr(),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            data.as_ptr().cast(),
+        )
+    };
+    if rc != 0 {
+        return Err(FsError::Io {
+            what: format!("mount tmpfs at {} ({options})", dir.display()),
+            source: std::io::Error::last_os_error(),
+        });
+    }
+    Ok(Tmpfs {
+        dir: dir.to_path_buf(),
+        mounted: true,
+    })
+}
+
+impl Tmpfs {
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Unmounts now (contents are lost), reporting failure.
+    pub fn unmount(mut self) -> Result<(), FsError> {
+        self.unmount_inner()
+    }
+
+    fn unmount_inner(&mut self) -> Result<(), FsError> {
+        if !self.mounted {
+            return Ok(());
+        }
+        let target = CString::new(self.dir.as_os_str().as_bytes()).expect("checked at mount");
+        // SAFETY: target is a valid NUL-terminated path.
+        #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+        let rc = unsafe { libc::umount2(target.as_ptr(), 0) };
+        if rc != 0 {
+            return Err(FsError::Io {
+                what: format!("unmount tmpfs {}", self.dir.display()),
+                source: std::io::Error::last_os_error(),
+            });
+        }
+        self.mounted = false;
+        Ok(())
+    }
+}
+
+impl Drop for Tmpfs {
+    fn drop(&mut self) {
+        let _ = self.unmount_inner();
+    }
+}

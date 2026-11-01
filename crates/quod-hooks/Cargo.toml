@@ -1,0 +1,31 @@
+[package]
+name = "quod-hooks"
+version = "0.0.0"
+description = "actions/runner container hooks: the official runner executes jobs, Quod executes steps."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-key.workspace = true
+quod-manifest.workspace = true
+quod-fs.workspace = true
+quod-sandbox.workspace = true
+quod-ledger.workspace = true
+quod-replay.workspace = true
+quod-trust.workspace = true
+aho-corasick = "1"
+anyhow.workspace = true
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ulid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -38,9 +38,9 @@ base_digest_amd64 = "sha256:a3bba7dc7dbcc1f37c2856c51fc9a7fac96608f50cb87b1b4e4d
 apt_snapshot = "20261030T000000Z"
 go_sha256_arm64 = "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
 go_sha256_amd64 = "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
-# Stillpass digest of the imported rootfs (`stillpass rootfs import`): BLAKE3
+# Quod digest of the imported rootfs (`quod rootfs import`): BLAKE3
 # of the canonical tree document, what the step key pins. Printed by
-# build-rootfs.sh; pass it as --rootfs (or STILLPASS_ROOTFS). The image id
+# build-rootfs.sh; pass it as --rootfs (or QUOD_ROOTFS). The image id
 # beside it is the exported image's OCI config digest (`--rootfs sha256:...`
 # resolves to the same rootfs).
 digest_arm64 = "b3:3500d16706fdcce98ff64e08ef1b40b4690db7a46f9b317643d7ede39eb0b61d"
@@ -75,7 +75,7 @@ step = "python -m pytest"
 touch = "starlette/routing.py"
 
 [actions_runner]
-# The official runner the stillpass runner drives (scripts/runner/install.sh).
+# The official runner the quod runner drives (scripts/runner/install.sh).
 # The release tarballs' SHA-256, as the release notes publish them; the pool
 # and install.sh refuse a download that does not match.
 version = "2.338.2"

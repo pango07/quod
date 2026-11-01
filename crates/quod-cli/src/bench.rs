@@ -1,0 +1,979 @@
+//! `quod bench`: the two spike numbers, overhead (A8) and hit rate
+//! (A11), written to report.md. Every number comes from the run events the
+//! child `quod run` processes write, never from parsing their output.
+
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, bail};
+use clap::Args;
+use quod_key::{Profile, Toolchain};
+use serde_json::Value;
+
+use crate::state::State;
+
+#[derive(Args)]
+pub struct BenchArgs {
+    /// The spike repo checkout. Never modified: the bench works on clones.
+    #[arg(long)]
+    repo: PathBuf,
+    /// The toolchain profile; detected from the repo's top level when omitted.
+    #[arg(long)]
+    toolchain: Option<Toolchain>,
+    /// Commits for the hit-rate run (A11), oldest first ending at HEAD.
+    #[arg(long, default_value_t = 50)]
+    commits: usize,
+    /// Step B, the memoized step. Default: the profile's test step.
+    #[arg(long)]
+    step: Option<String>,
+    /// Step A, run with network before step B on every commit. Default: the
+    /// profile's dependency-install step.
+    #[arg(long)]
+    setup: Option<String>,
+    /// Runs per overhead series; the first of each is dropped as warm-up.
+    #[arg(long, default_value_t = 10)]
+    runs: usize,
+    /// Skip the overhead series (A8).
+    #[arg(long)]
+    no_overhead: bool,
+    /// Skip the hit-rate series (A11).
+    #[arg(long)]
+    no_hit_rate: bool,
+    /// Hit rate: also run every commit plain (same sandbox, no observer)
+    /// and count that measured wall as the plain runner's time, instead of
+    /// estimating it from the observed run (which overstates it by the
+    /// observer's overhead on misses).
+    #[arg(long)]
+    measure_plain: bool,
+    /// Also measure miss latency on a one-file change, cold vs --warm.
+    #[arg(long)]
+    one_file: bool,
+    /// The file the one-file series appends a comment to before each pair
+    /// (required with --one-file).
+    #[arg(long)]
+    touch: Option<String>,
+    /// Alternate the overhead series run by run (plain, observed, plain, ...)
+    /// so load from elsewhere on the box hits every series alike.
+    #[arg(long)]
+    interleave: bool,
+    /// An extra observed series with NAME=VALUE[,NAME=VALUE...] in the
+    /// child's environment (repeatable), to attribute overhead to a mechanism.
+    #[arg(long = "extra-series", value_name = "NAME=VALUE[,...]")]
+    extra_series: Vec<String>,
+    /// A rootfs export (`docker export` tar or directory) to import into the
+    /// bench's store first, so a series with QUOD_ROOTFS=<its digest>
+    /// runs in it (rootfs mode against the host-root default).
+    #[arg(long, value_name = "PATH")]
+    rootfs_src: Option<PathBuf>,
+    #[arg(long)]
+    vm: bool,
+    #[arg(long, default_value = "report.md")]
+    out: PathBuf,
+}
+
+struct Sample {
+    wall: Duration,
+    event: Value,
+    /// The observer's event for the same run (request counts, transport,
+    /// serving CPU time); null on a hit.
+    observer: Value,
+}
+
+/// An overhead series: its label and, for an observed series, the extra
+/// environment of the child `quod run` (`None` is the plain baseline).
+type Series = (String, Option<Vec<(String, String)>>);
+
+/// The bench's resolved configuration: the repo's profile and both steps.
+struct Setup<'a> {
+    args: &'a BenchArgs,
+    profile: &'static Profile,
+    step: String,
+    setup: String,
+    /// QUOD_DEPS_DIR for every child run: the bench's step A and its
+    /// observed runs use different state dirs, and dependency trees live in
+    /// the state dir (crate::deps), so they share one. The caller's
+    /// QUOD_DEPS_DIR when set, else the bench state's own `deps`, where
+    /// an ordinary `quod run` already fetched them.
+    deps_base: PathBuf,
+}
+
+pub fn bench(state: &State, args: BenchArgs) -> anyhow::Result<u8> {
+    if args.vm {
+        bail!("--vm needs the 0b Firecracker backend (T13-T16), which is not built");
+    }
+    let repo = args.repo.canonicalize()?;
+    let toolchain = match args.toolchain {
+        Some(t) => t,
+        None => crate::run::detect_toolchain(&repo)?,
+    };
+    let profile = toolchain.profile();
+    let cfg = Setup {
+        args: &args,
+        profile,
+        step: args
+            .step
+            .clone()
+            .unwrap_or_else(|| profile.test.to_string()),
+        setup: args
+            .setup
+            .clone()
+            .unwrap_or_else(|| profile.setup.to_string()),
+        deps_base: std::env::var_os("QUOD_DEPS_DIR")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| state.dir.join("deps")),
+    };
+    let work = state.dir.join("bench");
+    quod_cas::remove_any(&work)?;
+    std::fs::create_dir_all(&work)?;
+    let exe = std::env::current_exe()?;
+    let head = git(&repo, &["rev-parse", "HEAD"])?;
+
+    let mut report = String::new();
+    writeln!(report, "# Quod spike benchmark\n")?;
+    writeln!(
+        report,
+        "Spike repo `{}` at `{}` ({} profile). Step A `{}`, step B `{}`. Generated by `quod bench`.\n",
+        origin(&repo),
+        &head[..12],
+        toolchain,
+        cfg.setup,
+        cfg.step
+    )?;
+    report += &machine_table(&state.dir)?;
+
+    let mut totals = Vec::new();
+    if !args.no_overhead {
+        let (table, line) = overhead(&exe, &repo, &work, &cfg)?;
+        report += &table;
+        totals.push(line);
+    }
+    if !args.no_hit_rate {
+        let (table, line) = hit_rate(&exe, &repo, &work, &cfg)?;
+        report += &table;
+        totals.push(line);
+    }
+    if args.one_file {
+        let (table, line) = one_file(&exe, &repo, &work, &cfg)?;
+        report += &table;
+        totals.push(line);
+    }
+    writeln!(report, "## Totals\n")?;
+    for t in &totals {
+        writeln!(report, "- {t}")?;
+    }
+    std::fs::write(&args.out, &report).with_context(|| format!("write {}", args.out.display()))?;
+    eprintln!("wrote {}", args.out.display());
+    for t in totals {
+        eprintln!("{t}");
+    }
+    quod_cas::remove_any(&work)?;
+    Ok(0)
+}
+
+/// A8: the plain test step vs the full observed path, both cold.
+fn overhead(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result<(String, String)> {
+    let args = cfg.args;
+    let tree = work.join("overhead-tree");
+    clone_at(repo, &tree, "HEAD")?;
+    seed_dependencies(cfg.profile, repo, &tree)?;
+    let deps = run_setup(exe, &work.join("setup-state"), &tree, cfg)?;
+
+    // Series 0 is plain, 1 the observed path, then one observed series per
+    // --extra-series with that variable set in the child's environment.
+    let mut series: Vec<Series> = vec![
+        ("Plain (same sandbox, no FUSE or overlay)".into(), None),
+        (
+            "Observed (import, serve, overlay, sandbox, record)".into(),
+            Some(Vec::new()),
+        ),
+    ];
+    for e in &args.extra_series {
+        let env = e
+            .split(',')
+            .map(|kv| match kv.split_once('=') {
+                Some((k, v)) => Ok((k.to_string(), v.to_string())),
+                None => bail!("--extra-series {e:?}: {kv:?} is not NAME=VALUE"),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        series.push((format!("Observed, {e}"), Some(env)));
+    }
+    let order: Vec<(usize, usize)> = if args.interleave {
+        (0..args.runs)
+            .flat_map(|i| (0..series.len()).map(move |s| (s, i)))
+            .collect()
+    } else {
+        (0..series.len())
+            .flat_map(|s| (0..args.runs).map(move |i| (s, i)))
+            .collect()
+    };
+    let mut walls: Vec<Vec<f64>> = vec![Vec::new(); series.len()];
+    let mut loads: Vec<Vec<(f64, f64)>> = vec![Vec::new(); series.len()];
+    let mut events: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
+    let mut observers: Vec<Vec<Value>> = vec![Vec::new(); series.len()];
+    let cas = work.join("overhead-cas");
+    if let Some(src) = &args.rootfs_src {
+        let out = Command::new(exe)
+            .arg("--state")
+            .arg(work.join("rootfs-import"))
+            .args(["rootfs", "import"])
+            .arg(src)
+            .arg("--cas")
+            .arg(&cas)
+            .output()?;
+        if !out.status.success() {
+            bail!(
+                "rootfs import {}: {}",
+                src.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        eprintln!(
+            "bench store has rootfs {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        );
+    }
+    for (s, i) in order {
+        let (label, env) = &series[s];
+        let load_before = loadavg();
+        let wall = match env {
+            None => {
+                let (wall, code) = plain_run(cfg.profile, &tree, &deps, work, &cfg.step, i)?;
+                if code != 0 {
+                    bail!("plain run {i} exited {code}; the baseline must pass");
+                }
+                wall
+            }
+            Some(env) => {
+                // Observed: full path, ledger cleared each time so every run
+                // misses. The CAS persists, as it would between CI runs.
+                let st = work.join(format!("observed-{s}-{i}"));
+                let r = run_step(exe, &st, &tree, cfg, &["--cas", cas.to_str().unwrap()], env)?;
+                if r.event["hit"].as_bool() != Some(false)
+                    || r.event["exit_code"].as_i64() != Some(0)
+                {
+                    bail!("observed run {i} was not a passing miss: {}", r.event);
+                }
+                quod_cas::remove_any(&st)?;
+                let wall = r.wall.as_secs_f64();
+                let load_after = loadavg();
+                let o = &r.observer;
+                eprintln!(
+                    "overhead [{label}] {}/{}: {wall:.1}s (execution {:.1}s, load {load_before:.1} -> {load_after:.1}; {}, {} ring / {} device requests, serving {}/{} ms user/sys, {} threads ran {} ms and waited {} ms for a CPU, {} lock waits)",
+                    i + 1,
+                    args.runs,
+                    r.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0,
+                    r.event["observer"].as_str().unwrap_or("?"),
+                    o["ring_requests"],
+                    o["device_requests"],
+                    o["serve_user_ms"],
+                    o["serve_sys_ms"],
+                    o["serve_threads"],
+                    o["serve_run_ms"],
+                    o["serve_runq_wait_ms"],
+                    o["lock_contended"],
+                );
+                observers[s].push(r.observer);
+                events[s].push(r.event);
+                wall
+            }
+        };
+        let load_after = loadavg();
+        if env.is_none() {
+            eprintln!(
+                "overhead [{label}] {}/{}: {wall:.1}s (load {load_before:.1} -> {load_after:.1})",
+                i + 1,
+                args.runs
+            );
+        }
+        walls[s].push(wall);
+        loads[s].push((load_before, load_after));
+    }
+
+    // The first run of each series is warm-up.
+    let w: Vec<Vec<f64>> = walls.iter().map(|v| v[1..].to_vec()).collect();
+    let exec_median = |s: usize| {
+        let v: Vec<f64> = events[s]
+            .iter()
+            .skip(1)
+            .map(|e| e["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0)
+            .collect();
+        median(&v)
+    };
+    let (pm, pp) = (median(&w[0]), p95(&w[0]));
+    let (om, op) = (median(&w[1]), p95(&w[1]));
+    let ratio = om / pm - 1.0;
+    let mut t = String::new();
+    writeln!(t, "## Overhead (A8)\n")?;
+    writeln!(
+        t,
+        "{} runs per series{}, first dropped as warm-up. Overhead = observed median / plain median - 1. Target under 10%.\n",
+        args.runs,
+        if args.interleave { ", interleaved" } else { "" }
+    )?;
+    writeln!(
+        t,
+        "| Series | Median | p95 | Execution median | Runs (s) | Load average (1m) before -> after each run |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    writeln!(
+        t,
+        "| {} | {pm:.2}s | {pp:.2}s | {pm:.2}s | {} | {} |",
+        series[0].0,
+        list(&w[0]),
+        list_loads(&loads[0][1..])
+    )?;
+    for s in 1..series.len() {
+        writeln!(
+            t,
+            "| {} | {:.2}s | {:.2}s | {:.2}s | {} | {} |",
+            series[s].0,
+            median(&w[s]),
+            p95(&w[s]),
+            exec_median(s),
+            list(&w[s]),
+            list_loads(&loads[s][1..])
+        )?;
+    }
+    writeln!(
+        t,
+        "| **Overhead** | **{:+.1}%** | {:+.1}% | {:+.1}% | | |",
+        ratio * 100.0,
+        (op / pp - 1.0) * 100.0,
+        (exec_median(1) / pm - 1.0) * 100.0
+    )?;
+    for s in 2..series.len() {
+        writeln!(
+            t,
+            "| Overhead, {} | {:+.1}% | {:+.1}% | {:+.1}% | | |",
+            &series[s].0["Observed, ".len()..],
+            (median(&w[s]) / pm - 1.0) * 100.0,
+            (p95(&w[s]) / pp - 1.0) * 100.0,
+            (exec_median(s) / pm - 1.0) * 100.0
+        )?;
+    }
+    writeln!(t)?;
+    writeln!(
+        t,
+        "How each observed series was served, from its run and observer events (medians over the same runs; requests answered over the ring and over /dev/fuse, the observer process's CPU time while mounted, and how long its serving threads were runnable but waiting for a CPU):\n"
+    )?;
+    writeln!(
+        t,
+        "| Series | Observer | Ring requests | Device requests | Serving CPU user / sys | Serving threads' run queue wait |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    for s in 1..series.len() {
+        let mut seen: Vec<(String, usize)> = Vec::new();
+        for e in events[s].iter().skip(1) {
+            let o = e["observer"].as_str().unwrap_or("?").to_string();
+            match seen.iter_mut().find(|(k, _)| *k == o) {
+                Some((_, n)) => *n += 1,
+                None => seen.push((o, 1)),
+            }
+        }
+        let field = |f: &str| -> f64 {
+            let v: Vec<f64> = observers[s]
+                .iter()
+                .skip(1)
+                .map(|o| o[f].as_f64().unwrap_or(0.0))
+                .collect();
+            median(&v)
+        };
+        writeln!(
+            t,
+            "| {} | {} | {:.0} | {:.0} | {:.0} / {:.0} ms | {:.0} ms |",
+            series[s].0,
+            seen.iter()
+                .map(|(k, n)| format!("`{k}` x{n}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            field("ring_requests"),
+            field("device_requests"),
+            field("serve_user_ms"),
+            field("serve_sys_ms"),
+            field("serve_runq_wait_ms"),
+        )?;
+    }
+    writeln!(t)?;
+    writeln!(t, "Observed phase breakdown, median over the same runs:\n")?;
+    writeln!(
+        t,
+        "| Phase | Median | Share of observed |\n| --- | --- | --- |"
+    )?;
+    for (name, field) in [
+        ("import", "import_ms"),
+        ("lookup", "lookup_ms"),
+        ("mount", "mount_ms"),
+        ("execution", "exec_ms"),
+        ("output diff", "diff_ms"),
+        ("ledger write", "record_ms"),
+    ] {
+        let v: Vec<f64> = events[1]
+            .iter()
+            .skip(1)
+            .map(|s| s[field].as_f64().unwrap_or(0.0) / 1000.0)
+            .collect();
+        writeln!(
+            t,
+            "| {name} | {:.2}s | {:.1}% |",
+            median(&v),
+            median(&v) / om * 100.0
+        )?;
+    }
+    writeln!(t)?;
+    // What the step asked the observer for: absent lookups are the probe
+    // storms (sys.path, node_modules resolution, config search) that turn
+    // into `a` entries; repeats of one path carry no new information.
+    writeln!(
+        t,
+        "Observer requests and manifest size, median per run:\n\n| Series | Inputs recorded | Lookups | Absent lookups | Getattr | Opens | Readdirs | Reads |\n| --- | --- | --- | --- | --- | --- | --- | --- |"
+    )?;
+    for s in 1..series.len() {
+        let m = |field: &str, from: &[Value]| {
+            let v: Vec<f64> = from
+                .iter()
+                .skip(1)
+                .map(|e| e[field].as_f64().unwrap_or(f64::NAN))
+                .collect();
+            median(&v)
+        };
+        let o = &observers[s];
+        writeln!(
+            t,
+            "| {} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} |",
+            series[s].0,
+            m("inputs", &events[s]),
+            m("lookup", o),
+            m("lookup_absent", o),
+            m("getattr", o),
+            m("open", o),
+            m("readdir", o),
+            m("read", o),
+        )?;
+    }
+    writeln!(t)?;
+    let line = format!(
+        "Observer overhead (0a, host): median {:+.1}%, p95 {:+.1}% (plain {pm:.2}s, observed {om:.2}s)",
+        ratio * 100.0,
+        (op / pp - 1.0) * 100.0
+    );
+    quod_cas::remove_any(&tree)?;
+    Ok((t, line))
+}
+
+/// One plain run: no FUSE, no overlay; a fresh copy of the tree with the
+/// profile's caches empty, in the same sandbox, uid and env as the observed
+/// path. That isolates the observer. The copy gets the dependency trees
+/// from `deps` (step A's, in the state dir) at their workspace paths, as a
+/// plain runner has them in its checkout and as the observed path serves
+/// them. Returns the wall time and exit code.
+fn plain_run(
+    profile: &Profile,
+    tree: &Path,
+    deps: &Path,
+    work: &Path,
+    step: &str,
+    i: usize,
+) -> anyhow::Result<(f64, i32)> {
+    let copy = work.join(format!("plain-{i}"));
+    cp(tree, &copy)?;
+    quod_cas::remove_any(&copy.join(".quod"))?;
+    for d in profile.seed_dirs {
+        let Some(name) = d.strip_prefix(".quod/") else {
+            continue;
+        };
+        if deps.join(name).is_dir() {
+            std::fs::create_dir_all(copy.join(".quod"))?;
+            cp(&deps.join(name), &copy.join(d))?;
+        }
+    }
+    let out = work.join(format!("plain-{i}.log"));
+    let rs = quod_sandbox::RunSpec {
+        cmd: quod_key::shell_cmd(step),
+        cwd: quod_key::WORKSPACE.into(),
+        env: profile.env_vec(),
+        mounts: vec![quod_sandbox::Mount {
+            src: copy.clone(),
+            dst: quod_key::WORKSPACE.into(),
+            writable: true,
+        }],
+        egress: false,
+        stdout: out.with_extension("out"),
+        stderr: out.with_extension("err"),
+        echo: false,
+        rootfs: None,
+        identity: None,
+        uid: None,
+        gid: None,
+        net_probe: false,
+    };
+    let r = quod_sandbox::run(&rs)?;
+    quod_cas::remove_any(&copy)?;
+    Ok((r.wall.as_secs_f64(), r.exit_code))
+}
+
+/// A11: the last N first-parent commits, oldest first, ledger persisting.
+fn hit_rate(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result<(String, String)> {
+    let args = cfg.args;
+    let commits = git(
+        repo,
+        &[
+            "rev-list",
+            "--first-parent",
+            "-n",
+            &args.commits.to_string(),
+            "HEAD",
+        ],
+    )?;
+    let mut commits: Vec<String> = commits.lines().map(String::from).collect();
+    commits.reverse();
+    let tree = work.join("history-tree");
+    clone_at(repo, &tree, &commits[0])?;
+    seed_dependencies(cfg.profile, repo, &tree)?;
+    let state = work.join("history-state");
+    let mut rows = String::new();
+    let (mut hits, mut quod_s, mut plain_s) = (0, 0.0, 0.0);
+    let mut misses = Vec::new();
+    for (i, c) in commits.iter().enumerate() {
+        git(&tree, &["checkout", "-q", "--detach", c])?;
+        let subject = git(&tree, &["log", "-1", "--format=%s", c])?;
+        let deps = run_setup(exe, &state, &tree, cfg)?;
+        let s = run_step(exe, &state, &tree, cfg, &["--commit", c], &[])?;
+        let hit = s.event["hit"].as_bool().unwrap_or(false);
+        let wall = s.wall.as_secs_f64();
+        // What a plain runner would have spent: measured on a copy of this
+        // commit's tree with --measure-plain; otherwise estimated as the
+        // execution itself on a miss and the matched result's recorded
+        // duration on a hit (both observed, so high by the overhead).
+        let plain = if args.measure_plain {
+            let (w, code) = plain_run(cfg.profile, &tree, &deps, work, &cfg.step, i)?;
+            if code != 0 {
+                eprintln!(
+                    "history {}/{}: plain run exited {code}; its wall time still counts",
+                    i + 1,
+                    commits.len()
+                );
+            }
+            w
+        } else if hit {
+            s.event["recorded_ms"].as_f64().unwrap_or(0.0) / 1000.0
+        } else {
+            s.event["exec_ms"].as_f64().unwrap_or(0.0) / 1000.0
+        };
+        quod_s += wall;
+        plain_s += plain;
+        let mismatch = s.event["first_mismatch"].as_str().unwrap_or("").to_string();
+        if hit {
+            hits += 1;
+        } else {
+            misses.push((c.clone(), mismatch.clone()));
+        }
+        let code = s.event["exit_code"].as_i64().unwrap_or(-1);
+        let status = match (hit, code) {
+            (true, 0) => "HIT".to_string(),
+            (true, c) => format!("HIT (exit {c})"),
+            (false, 0) => "miss".to_string(),
+            (false, c) => format!("miss (exit {c})"),
+        };
+        writeln!(
+            rows,
+            "| {} | `{}` | {} | {status} | {wall:.1}s | {plain:.1}s | {} |",
+            i + 1,
+            &c[..10],
+            md_cell(&subject, 50),
+            if mismatch.is_empty() {
+                "-".to_string()
+            } else {
+                format!("`{}`", md_cell(&mismatch, 60))
+            }
+        )?;
+        eprintln!(
+            "history {}/{} {} {status} wall {wall:.1}s plain {plain:.1}s {mismatch}",
+            i + 1,
+            commits.len(),
+            &c[..10],
+        );
+    }
+    let saved = (1.0 - quod_s / plain_s) * 100.0;
+    let mut t = String::new();
+    writeln!(t, "## Hit rate (A11)\n")?;
+    let plain_note = if args.measure_plain {
+        "\"Plain runner\" is measured: the same step on a copy of the commit's tree, in the same sandbox without the observer."
+    } else {
+        "\"Plain runner\" is estimated: the observed execution time on a miss (high by the observer's overhead) and the matched result's recorded duration on a hit."
+    };
+    writeln!(
+        t,
+        "Last {} first-parent commits, oldest first; step A runs on every commit, step B through the full path with the ledger persisting. Reported, no target. {plain_note} \"Quod wall\" is the whole `quod run` (fingerprint, import, lookup, then replay or execute and record).\n",
+        commits.len()
+    )?;
+    writeln!(
+        t,
+        "| # | Commit | Subject | Step B | Quod wall | Plain runner | First mismatch (closest manifest) |\n| --- | --- | --- | --- | --- | --- | --- |"
+    )?;
+    t += &rows;
+    writeln!(
+        t,
+        "\n**{hits} hits out of {}.** Quod {quod_s:.0}s vs plain {plain_s:.0}s: {saved:.1}% saved.\n",
+        commits.len()
+    )?;
+    let line = format!(
+        "Hit rate (0a): {hits}/{} commits; {quod_s:.0}s with Quod vs {plain_s:.0}s plain, {saved:.1}% saved",
+        commits.len()
+    );
+    Ok((t, line))
+}
+
+/// Miss latency on a one-file change: cold (empty GOCACHE every run) vs warm
+/// (--warm, the build cache persisting), interleaved so both series see the
+/// same machine. The file changes before every pair, so every run is a miss.
+/// The first pair is dropped as warm-up; for the warm series it is also the
+/// run that fills the cache.
+fn one_file(exe: &Path, repo: &Path, work: &Path, cfg: &Setup) -> anyhow::Result<(String, String)> {
+    let args = cfg.args;
+    let Some(touch) = &args.touch else {
+        bail!("--one-file needs --touch <file>");
+    };
+    if cfg.profile.warm.is_none() {
+        bail!(
+            "--one-file compares cold and --warm misses, and the {} profile has no warm state",
+            cfg.profile.toolchain
+        );
+    }
+    let tree = work.join("onefile-tree");
+    clone_at(repo, &tree, "HEAD")?;
+    seed_dependencies(cfg.profile, repo, &tree)?;
+    run_setup(exe, &work.join("onefile-setup-state"), &tree, cfg)?;
+    let file = tree.join(touch);
+    if !file.is_file() {
+        bail!("--touch {touch}: not a file in the tree");
+    }
+    let cold_state = work.join("onefile-cold-state");
+    let warm_state = work.join("onefile-warm-state");
+    let (mut cold, mut warm) = (Vec::new(), Vec::new());
+    for i in 0..args.runs {
+        use std::io::Write as _;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file)?;
+        writeln!(
+            f,
+            "\n{} quod bench: one-file change {i}",
+            cfg.profile.comment
+        )?;
+        drop(f);
+        let c = run_step(exe, &cold_state, &tree, cfg, &[], &[])?;
+        let w = run_step(exe, &warm_state, &tree, cfg, &["--warm"], &[])?;
+        for (s, name) in [(&c, "cold"), (&w, "warm")] {
+            if s.event["hit"].as_bool() != Some(false) || s.event["exit_code"].as_i64() != Some(0) {
+                bail!(
+                    "one-file {name} run {i} was not a passing miss: {}",
+                    s.event
+                );
+            }
+        }
+        eprintln!(
+            "one-file {}/{}: cold {:.1}s, warm {:.1}s",
+            i + 1,
+            args.runs,
+            c.wall.as_secs_f64(),
+            w.wall.as_secs_f64()
+        );
+        cold.push(c);
+        warm.push(w);
+    }
+    let walls =
+        |v: &[Sample]| -> Vec<f64> { v.iter().skip(1).map(|s| s.wall.as_secs_f64()).collect() };
+    let phase = |v: &[Sample], field: &str| -> f64 {
+        let xs: Vec<f64> = v
+            .iter()
+            .skip(1)
+            .map(|s| s.event[field].as_f64().unwrap_or(0.0) / 1000.0)
+            .collect();
+        median(&xs)
+    };
+    let (cw, ww) = (walls(&cold), walls(&warm));
+    let (cm, wm) = (median(&cw), median(&ww));
+    let mut t = String::new();
+    writeln!(t, "## Miss latency on a one-file change\n")?;
+    writeln!(
+        t,
+        "`{touch}` gets a comment appended before each pair, so every run is a miss. Cold starts with an empty build cache; warm (`--warm`) starts with the cache earlier warm runs left behind. {} pairs, first dropped as warm-up (for warm, the run that fills the cache). Interleaved.\n",
+        args.runs
+    )?;
+    writeln!(
+        t,
+        "| Series | Median | p95 | Execution | Output diff | Runs (s) |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    writeln!(
+        t,
+        "| Cold miss | {cm:.2}s | {:.2}s | {:.2}s | {:.2}s | {} |",
+        p95(&cw),
+        phase(&cold, "exec_ms"),
+        phase(&cold, "diff_ms"),
+        list(&cw)
+    )?;
+    writeln!(
+        t,
+        "| Warm miss | {wm:.2}s | {:.2}s | {:.2}s | {:.2}s | {} |",
+        p95(&ww),
+        phase(&warm, "exec_ms"),
+        phase(&warm, "diff_ms"),
+        list(&ww)
+    )?;
+    writeln!(t, "| **Warm / cold** | **{:.2}x** | | | | |\n", wm / cm)?;
+    let line = format!(
+        "One-file miss ({touch}): cold {cm:.2}s, warm {wm:.2}s ({:.0}% of cold)",
+        wm / cm * 100.0
+    );
+    quod_cas::remove_any(&tree)?;
+    Ok((t, line))
+}
+
+/// Step A on `tree`; returns the directory its banner names, where the
+/// dependency trees went.
+fn run_setup(exe: &Path, state: &Path, tree: &Path, cfg: &Setup) -> anyhow::Result<PathBuf> {
+    let out = Command::new(exe)
+        .arg("--state")
+        .arg(state)
+        .args([
+            "run",
+            "--repo",
+            tree.to_str().unwrap(),
+            "--toolchain",
+            cfg.profile.toolchain.name(),
+            "--allow-net",
+            "--step",
+            &cfg.setup,
+        ])
+        .env("QUOD_DEPS_DIR", &cfg.deps_base)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() {
+        bail!("step A failed in {}: {stderr}", tree.display());
+    }
+    let deps = stderr
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("caches in "))
+        .map(PathBuf::from)
+        .with_context(|| format!("step A named no caches dir: {stderr}"))?;
+    // Step B starts from a tree whose only earlier output is the dependency
+    // tree: no build cache, no per-day files the tool writes under HOME.
+    for d in cfg.profile.ephemeral {
+        quod_cas::remove_any(&tree.join(d))?;
+    }
+    Ok(deps)
+}
+
+fn run_step(
+    exe: &Path,
+    state: &Path,
+    tree: &Path,
+    cfg: &Setup,
+    extra: &[&str],
+    env: &[(String, String)],
+) -> anyhow::Result<Sample> {
+    let events = state.join("events.jsonl");
+    let before = std::fs::read_to_string(&events)
+        .map(|s| s.lines().count())
+        .unwrap_or(0);
+    let t = Instant::now();
+    let out = Command::new(exe)
+        .arg("--state")
+        .arg(state)
+        .args(["run", "--repo", tree.to_str().unwrap(), "--step", &cfg.step])
+        .args(["--toolchain", cfg.profile.toolchain.name()])
+        .args(extra)
+        // The bench measures the matcher: a matching result replays at
+        // once, failures too, with no audit sampling (the trust layer has
+        // its own suite).
+        .env("QUOD_MODE", "replay")
+        .env("QUOD_PROOFS", "1")
+        .env("QUOD_AUDIT", "0")
+        .env("QUOD_REPLAY_FAILURES", "1")
+        .env("QUOD_DEPS_DIR", &cfg.deps_base)
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()?;
+    let wall = t.elapsed();
+    // By banner, not by exit code: a step may exit 2 itself.
+    if String::from_utf8_lossy(&out.stderr).contains("QUOD  ERROR") {
+        bail!("quod run failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let text = std::fs::read_to_string(&events)?;
+    let last = |message: &str| {
+        text.lines()
+            .skip(before)
+            .filter(|l| l.contains(&format!("\"message\":\"{message}\"")))
+            .last()
+    };
+    let line = last("run").context("no run event written")?;
+    Ok(Sample {
+        wall,
+        event: serde_json::from_str(line)?,
+        observer: match last("observer") {
+            Some(l) => serde_json::from_str(l)?,
+            None => Value::Null,
+        },
+    })
+}
+
+fn clone_at(repo: &Path, dest: &Path, rev: &str) -> anyhow::Result<()> {
+    let st = Command::new("git")
+        .args(["clone", "-q", "--no-checkout"])
+        .arg(repo)
+        .arg(dest)
+        .status()?;
+    if !st.success() {
+        bail!("git clone {}", repo.display());
+    }
+    git(dest, &["checkout", "-q", "--detach", rev])?;
+    std::fs::write(dest.join(".git/info/exclude"), ".quod/\n")?;
+    Ok(())
+}
+
+/// Seeds the clone's dependency tree from the source checkout (the
+/// profile's seed dirs), so step A only fetches what a commit adds.
+fn seed_dependencies(profile: &Profile, repo: &Path, dest: &Path) -> anyhow::Result<()> {
+    for d in profile.seed_dirs {
+        let src = repo.join(d);
+        if src.is_dir() {
+            let to = dest.join(d);
+            std::fs::create_dir_all(to.parent().unwrap())?;
+            cp(&src, &to)?;
+        }
+    }
+    Ok(())
+}
+
+fn cp(src: &Path, dest: &Path) -> anyhow::Result<()> {
+    let st = Command::new("cp").arg("-a").arg(src).arg(dest).status()?;
+    if !st.success() {
+        bail!("cp -a {} {}", src.display(), dest.display());
+    }
+    Ok(())
+}
+
+fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
+    let out = Command::new("git").arg("-C").arg(dir).args(args).output()?;
+    if !out.status.success() {
+        bail!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn origin(repo: &Path) -> String {
+    git(repo, &["remote", "get-url", "origin"]).unwrap_or_else(|_| repo.display().to_string())
+}
+
+fn machine_table(state: &Path) -> anyhow::Result<String> {
+    let read = |p: &str| std::fs::read_to_string(p).unwrap_or_default();
+    let cpuinfo = read("/proc/cpuinfo");
+    let model = cpuinfo
+        .lines()
+        .find(|l| {
+            l.starts_with("model name") || l.starts_with("Model") || l.starts_with("CPU part")
+        })
+        .and_then(|l| l.split(':').nth(1))
+        .map_or("unknown".to_string(), |s| s.trim().to_string());
+    let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let mem_kb: u64 = read("/proc/meminfo")
+        .lines()
+        .find(|l| l.starts_with("MemTotal"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
+    let kernel = read("/proc/sys/kernel/osrelease").trim().to_string();
+    let arch = std::env::consts::ARCH;
+    let disk = Command::new("findmnt")
+        .args(["-n", "-o", "FSTYPE,SOURCE", "-T"])
+        .arg(state)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    let mut t = String::new();
+    writeln!(t, "## Machine\n")?;
+    writeln!(
+        t,
+        "| CPU | Cores | RAM | Disk (state dir) | Kernel | Arch |\n| --- | --- | --- | --- | --- | --- |"
+    )?;
+    writeln!(
+        t,
+        "| {model} | {cpus} | {:.1} GiB | {disk} | {kernel} | {arch} |\n",
+        mem_kb as f64 / 1048576.0
+    )?;
+    Ok(t)
+}
+
+fn list_loads(v: &[(f64, f64)]) -> String {
+    v.iter()
+        .map(|(a, b)| format!("{a:.1}->{b:.1}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The one-minute load average, so a run can be told quiet from loaded.
+fn loadavg() -> f64 {
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|s| s.split_whitespace().next()?.parse().ok())
+        .unwrap_or(f64::NAN)
+}
+
+fn median(v: &[f64]) -> f64 {
+    percentile(v, 0.5)
+}
+
+fn p95(v: &[f64]) -> f64 {
+    percentile(v, 0.95)
+}
+
+/// Nearest-rank percentile.
+fn percentile(v: &[f64], p: f64) -> f64 {
+    if v.is_empty() {
+        return f64::NAN;
+    }
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    if p == 0.5 && s.len().is_multiple_of(2) {
+        return (s[s.len() / 2 - 1] + s[s.len() / 2]) / 2.0;
+    }
+    let rank = ((p * s.len() as f64).ceil() as usize).clamp(1, s.len());
+    s[rank - 1]
+}
+
+fn list(v: &[f64]) -> String {
+    v.iter()
+        .map(|x| format!("{x:.1}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn md_cell(s: &str, max: usize) -> String {
+    let s = s.replace('|', "\\|");
+    if s.chars().count() > max {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    } else {
+        s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentiles() {
+        let v = [5.0, 1.0, 3.0, 2.0, 4.0];
+        assert_eq!(median(&v), 3.0);
+        assert_eq!(median(&[1.0, 2.0, 3.0, 10.0]), 2.5);
+        assert_eq!(p95(&v), 5.0);
+        let many: Vec<f64> = (1..=20).map(f64::from).collect();
+        assert_eq!(p95(&many), 19.0);
+    }
+}

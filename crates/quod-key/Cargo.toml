@@ -1,0 +1,19 @@
+[package]
+name = "quod-key"
+version = "0.0.0"
+description = "Canonical step key: exact JSON form, env normalization, hashing."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

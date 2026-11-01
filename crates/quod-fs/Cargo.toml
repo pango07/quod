@@ -1,0 +1,38 @@
+[package]
+name = "quod-fs"
+version = "0.0.0"
+description = "The observer: a read-only FUSE view of a CAS tree that logs every access."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-manifest.workspace = true
+libc.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser.workspace = true
+io-uring.workspace = true
+
+[features]
+# Test-only failure hooks: the ring transport's (`Options::fault`,
+# QUOD_TEST_URING_FAULT) and an observer panic on a named path
+# (QUOD_FAULT). Off in every build that records results.
+fault-injection = []
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "uring"
+required-features = ["fault-injection"]
+
+[[test]]
+name = "faults"
+required-features = ["fault-injection"]

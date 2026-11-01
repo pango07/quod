@@ -7,7 +7,7 @@
 # depend on it, not that a different kernel or machine would hit (it would
 # not: those are in the key).
 #
-#   STILLPASS_DEV_NS=rootfs scripts/portability.sh [image-tag] [other-image-tag]
+#   QUOD_DEV_NS=rootfs scripts/portability.sh [image-tag] [other-image-tag]
 #
 # 1. Host 1, fresh shared state: imports the pinned rootfs and its `--extra
 #    jq` variant, clones cli/cli, fills the module cache with step A, runs
@@ -34,29 +34,29 @@ url=$(v spike_repo url); commit=$(v spike_repo commit)
 arch=$(docker version --format '{{.Server.Arch}}')
 name=${1:-go$(v go version)-bookworm-$arch}
 other=${2:-$name-jq}
-step=${STILLPASS_STEP:-"go test ./..."}
-ns=${STILLPASS_DEV_NS:+-$STILLPASS_DEV_NS}
+step=${QUOD_STEP:-"go test ./..."}
+ns=${QUOD_DEV_NS:+-$QUOD_DEV_NS}
 shared=portability-$(date +%Y%m%dT%H%M%S)
 
-echo "== host 2 gets its own export of stillpass-rootfs:$name"
-cid=$(docker create "stillpass-rootfs:$name" true)
+echo "== host 2 gets its own export of quod-rootfs:$name"
+cid=$(docker create "quod-rootfs:$name" true)
 docker export "$cid" | docker run -i --rm -v "stillpass-work$ns-host2:/work" debian:bookworm-slim \
   sh -c "mkdir -p /work/rootfs && cat > /work/rootfs/$name.tar"
 docker rm "$cid" >/dev/null
 echo "== host 2 also gets host 1's bubblewrap binary (Debian 0.8.0), for step 4"
-dev_img=stillpass-dev:go$(v go version)-rust$(v rust toolchain)
+dev_img=quod-dev:go$(v go version)-rust$(v rust toolchain)
 docker run --rm "$dev_img" cat /usr/bin/bwrap | docker run -i --rm -v "stillpass-work$ns-host2:/work" debian:bookworm-slim \
   sh -c "mkdir -p /work/bwrap-0.8 && cat > /work/bwrap-0.8/bwrap && chmod 755 /work/bwrap-0.8/bwrap"
 
-# Both hosts: describe the host, build stillpass. $1: the shared state dir.
+# Both hosts: describe the host, build quod. $1: the shared state dir.
 host_script() {
   cat <<EOS
 set -eu
 export CARGO_BUILD_JOBS=\${CARGO_BUILD_JOBS:-4}
 shared=$1
 echo "--- host: \$(. /etc/os-release && echo "\$PRETTY_NAME"), \$(ldd --version | head -1), \$(bwrap --version), \$(dpkg-query -W -f '\${Package}\n' | wc -l) packages, go on host: \$(command -v go || echo none), kernel \$(uname -r) \$(uname -m), load \$(cut -d' ' -f1-3 /proc/loadavg)"
-cargo build -q --release -p sp-cli
-sp() { /src/target/release/stillpass "\$@"; }
+cargo build -q --release -p quod-cli
+sp() { /src/target/release/quod "\$@"; }
 EOS
 }
 # Clone the spike repo at the pinned commit and fill its module cache with
@@ -67,11 +67,11 @@ cd /work
 if [ ! -d cli/.git ]; then git clone -q $url cli; fi
 git -C cli fetch -q origin $commit 2>/dev/null || true
 git -C cli checkout -q --detach $commit
-grep -qx '.stillpass/' cli/.git/info/exclude || echo '.stillpass/' >> cli/.git/info/exclude
-rm -rf cli/.stillpass
+grep -qx '.quod/' cli/.git/info/exclude || echo '.quod/' >> cli/.git/info/exclude
+rm -rf cli/.quod
 echo "--- step A in the rootfs (network, not memoized)"
 sp --state $1 run --repo /work/cli --commit $commit --allow-net --rootfs \$rootfs --step "go mod download" >/dev/null
-rm -rf cli/.stillpass/gocache cli/.stillpass/home
+rm -rf cli/.quod/gocache cli/.quod/home
 cd /src
 EOS
 }
@@ -79,7 +79,7 @@ EOS
 step_b_script() {
   cat <<EOS
 sp --state $1 run --repo /work/cli --commit $commit --rootfs \$rootfs --step "$step" > $2.out 2> $2.err || true
-grep -E '^STILLPASS|^  ' $2.err || true
+grep -E '^QUOD|^  ' $2.err || true
 echo "stdout: \$(wc -c < $2.out) bytes, sha256 \$(sha256sum < $2.out | cut -c1-16), \$(grep -c '^ok' $2.out) packages ok"
 EOS
 }
@@ -88,8 +88,8 @@ echo
 echo "== host 1 (scripts/dev.sh), shared state /work/$shared"
 "$root/scripts/dev.sh" "$(host_script /work/$shared)
 mkdir -p \$shared
-rootfs=\$(sp --state \$shared rootfs import /work/rootfs/$name.tar --source stillpass-rootfs:$name)
-otherfs=\$(sp --state \$shared rootfs import /work/rootfs/$other.tar --source stillpass-rootfs:$other)
+rootfs=\$(sp --state \$shared rootfs import /work/rootfs/$name.tar --source quod-rootfs:$name)
+otherfs=\$(sp --state \$shared rootfs import /work/rootfs/$other.tar --source quod-rootfs:$other)
 echo \"rootfs \$rootfs, other \$otherfs\"
 printf '%s\n%s\n' \$rootfs \$otherfs > \$shared/digests
 $(step_a_script /work/$shared)
@@ -98,7 +98,7 @@ $(step_b_script /work/$shared /work/tmp/host1-b)"
 
 echo
 echo "== host 2 (scripts/dev-host2.sh), sharing only /work/$shared"
-STILLPASS_SHARED=$shared "$root/scripts/dev-host2.sh" "$(host_script /work/state)
+QUOD_SHARED=$shared "$root/scripts/dev-host2.sh" "$(host_script /work/state)
 rootfs=\$(sed -n 1p \$shared/digests); otherfs=\$(sed -n 2p \$shared/digests)
 # A private store on a filesystem of its own: a fresh ext4 in a loop file.
 umount /mnt/fs2 2>/dev/null || true
@@ -132,10 +132,10 @@ comm -12 /work/tmp/p1 /work/tmp/p2 > /work/tmp/pb
 comm -3 /work/tmp/o1 /work/tmp/o2 | sed 's/^\\t//' | cut -f1 | sort -u | comm -12 - /work/tmp/pb > /work/tmp/pd
 comm -3 /work/tmp/p1 /work/tmp/p2 | sed 's/^\\t//' > /work/tmp/po
 echo \"outputs:     \$(wc -l < /work/tmp/o1) vs \$(wc -l < /work/tmp/o2); identical path, kind, mode and content: \$(comm -12 /work/tmp/o1 /work/tmp/o2 | wc -l)\"
-echo \"  same path, different content: \$(wc -l < /work/tmp/pd), of which Go cache action entries (*-a, they hold a creation time): \$(grep -c '^.stillpass/gocache/.*-a\$' /work/tmp/pd || true)\"
-echo \"  paths only one run wrote: \$(wc -l < /work/tmp/po), of which Go cache output entries (*-d, named by content: cached test output holds durations): \$(grep -c '^.stillpass/gocache/.*-d\$' /work/tmp/po || true)\"
+echo \"  same path, different content: \$(wc -l < /work/tmp/pd), of which Go cache action entries (*-a, they hold a creation time): \$(grep -c '^.quod/gocache/.*-a\$' /work/tmp/pd || true)\"
+echo \"  paths only one run wrote: \$(wc -l < /work/tmp/po), of which Go cache output entries (*-d, named by content: cached test output holds durations): \$(grep -c '^.quod/gocache/.*-d\$' /work/tmp/po || true)\"
 echo '  every other difference:'
-cat /work/tmp/pd /work/tmp/po | grep -v '^.stillpass/gocache/.*-[ad]\$' | sort -u | sed 's/^/    /'
+cat /work/tmp/pd /work/tmp/po | grep -v '^.quod/gocache/.*-[ad]\$' | sort -u | sed 's/^/    /'
 echo \"root outputs: \$(echo \"\$r1\" | jq '.root_outputs | length') vs \$(echo \"\$r2\" | jq '.root_outputs | length') (cli/cli's tests leave randomly named files in /tmp)\"
 echo \"--- step B against the shared ledger with Debian's bubblewrap 0.8.0 first on PATH (host 1's class: REPLAYED expected)\"
 PATH=/work/bwrap-0.8:\$PATH
@@ -143,9 +143,9 @@ echo \"    bwrap on PATH: \$(bwrap --version)\"
 $(step_b_script \$shared /work/tmp/host2-replay)
 echo '--- step B with a different rootfs (MISS expected)'
 sp --state \$shared run --repo /work/cli --commit $commit --rootfs \$otherfs --step \"$step\" > /dev/null 2> /work/tmp/stepB2.err || true
-grep -E '^STILLPASS|^  (image|no manifests|ran)' /work/tmp/stepB2.err || true
+grep -E '^QUOD|^  (image|no manifests|ran)' /work/tmp/stepB2.err || true
 echo '--- step B on the host root (the fallback; this host has no Go)'
 sp --state \$shared run --repo /work/cli --commit $commit --host-root --step \"$step\" > /dev/null 2> /work/tmp/stepB3.err || true
-grep -E '^STILLPASS|^  ' /work/tmp/stepB3.err | head -3 || true
+grep -E '^QUOD|^  ' /work/tmp/stepB3.err | head -3 || true
 umount /mnt/fs2; rm -f /work/fs2.img
 "
