@@ -23,6 +23,12 @@ pub struct Policy {
     pub host_root: bool,
     /// Keep job directories after cleanup (debugging, tests).
     pub keep_jobs: bool,
+    /// Refs besides the default branch (`refs/heads/release`) whose push or
+    /// dispatch jobs are writers: the operator's list of protected refs,
+    /// every push to which is reviewed as the default branch's is. A ref
+    /// listed here that anyone can push to reopens the poisoning a writer
+    /// guards against (see `job::scope_of`).
+    pub writer_refs: Vec<String>,
 }
 
 /// Scripts that fetch: the spike's `--allow-net` by pattern.
@@ -51,6 +57,7 @@ impl Default for Policy {
             net_steps: DEFAULT_NET_STEPS.iter().map(|s| s.to_string()).collect(),
             host_root: false,
             keep_jobs: false,
+            writer_refs: Vec::new(),
         }
     }
 }
@@ -66,6 +73,7 @@ struct PolicyDoc {
     net_steps: Option<Vec<String>>,
     rootfs: Option<String>,
     keep_jobs: Option<bool>,
+    writer_refs: Option<Vec<String>>,
 }
 
 impl Policy {
@@ -97,6 +105,14 @@ impl Policy {
             Some(other) => anyhow::bail!("policy rootfs {other:?}: image or host"),
         }
         p.keep_jobs = doc.keep_jobs.unwrap_or(false);
+        for r in doc.writer_refs.unwrap_or_default() {
+            if !r.starts_with("refs/heads/") && !r.starts_with("refs/tags/") {
+                anyhow::bail!(
+                    "policy writer_refs: {r:?} is not a full ref (refs/heads/... or refs/tags/...)"
+                );
+            }
+            p.writer_refs.push(r);
+        }
         Ok(p)
     }
 
@@ -246,6 +262,12 @@ mod tests {
         let p = Policy::from_json(Some(r#"{"mode":"replay","proofs":3,"audit":1}"#)).unwrap();
         assert_eq!((p.mode, p.proofs, p.audit), (Mode::Replay, 3, 1.0));
         assert!(!p.trust().replay_failures);
+        assert!(
+            p.writer_refs.is_empty(),
+            "no writer refs but the default branch"
+        );
+        let w = Policy::from_json(Some(r#"{"writer_refs":["refs/heads/release"]}"#)).unwrap();
+        assert_eq!(w.writer_refs, ["refs/heads/release"]);
         let d = Policy::from_json(None).unwrap();
         assert_eq!(
             (d.mode, d.proofs, d.audit),
@@ -261,6 +283,7 @@ mod tests {
             r#"{"mode":"fast"}"#,
             r#"{"rootfs":"vm"}"#,
             r#"{"unknown":1}"#,
+            r#"{"writer_refs":["release"]}"#,
         ] {
             assert!(Policy::from_json(Some(bad)).is_err(), "{bad}");
         }

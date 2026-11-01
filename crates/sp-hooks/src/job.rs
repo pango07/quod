@@ -29,7 +29,7 @@ use sp_manifest::{Manifest, StepResult};
 use sp_replay::fmt_duration;
 
 use crate::checkout::{self, tree_from_json, tree_to_json};
-use crate::exec::{self, Exec, Executed, Keep};
+use crate::exec::{self, Exec, Executed, GoCache, Keep};
 use crate::protocol::{self, Container, Input, ScriptStepArgs, StateResponse};
 use crate::rootfs::{OciRootfs, Rootfs, RootfsProvider};
 use crate::scan;
@@ -93,6 +93,12 @@ pub struct Job {
     /// build cache and persisted workspace (see `scope_of`).
     #[serde(default)]
     pub writer: bool,
+    /// Not a writer: the first entry a step of this job wrote into the job's
+    /// own layer over the warm build cache (`exec::GoCache::Layered`). From
+    /// then on a step that reads the layer reads something no key covers,
+    /// written by this job's own code, so its run is not recorded.
+    #[serde(default)]
+    pub warm_layer_written: Option<String>,
     /// Set by the first step: `<state>/scopes/<repo>/<trust>`.
     pub scope: Option<PathBuf>,
     /// Earlier steps' writes outside the workspace, newest first: layers
@@ -171,6 +177,7 @@ impl Job {
             repository: String::new(),
             scope_name: String::new(),
             writer: false,
+            warm_layer_written: None,
             scope: None,
             root_layers: Vec::new(),
             ws_layers: Vec::new(),
@@ -200,7 +207,12 @@ impl Job {
     /// this path in this scope left it (its persisted `.stillpass/` state),
     /// or for the scope's first job the operator's seed for the repository,
     /// if any. HOME and the rest are per job.
-    fn ensure_scope(&mut self, cas: &Cas, event_name: Option<&str>) -> anyhow::Result<()> {
+    fn ensure_scope(
+        &mut self,
+        cas: &Cas,
+        event_name: Option<&str>,
+        writer_refs: &[String],
+    ) -> anyhow::Result<()> {
         if self.scope.is_some() {
             return Ok(());
         }
@@ -211,7 +223,7 @@ impl Job {
             repository,
             name: scope_name,
             writer,
-        } = scope_of(event_name, event.as_deref());
+        } = scope_of(event_name, event.as_deref(), writer_refs);
         let repo_slug = slug(if repository.is_empty() {
             "unknown"
         } else {
@@ -303,11 +315,15 @@ impl Job {
         Ok(())
     }
 
-    /// End of job: the workspace persists for the next job on this path in
-    /// this scope (never what a secret-bearing step wrote: that is in the
-    /// job's layers), the job directory goes.
+    /// End of job: a writer's workspace persists for the next job on this
+    /// path in this scope (never what a secret-bearing step wrote: that is
+    /// in the job's layers); any other job's is dropped, as its layer over
+    /// the warm build cache is: a pull request, even the repository's own,
+    /// never leaves a module cache or a tool for the default branch to
+    /// build with. The job directory goes.
     pub fn cleanup(self, policy: &Policy) -> anyhow::Result<()> {
         if self.scope.is_some()
+            && self.writer
             && let Ok(tree) = self.load_tree()
         {
             let slot = self.workspace_slot();
@@ -469,6 +485,12 @@ impl Job {
             .join("gocache")
     }
 
+    /// The job's copy-on-write layer over the warm build cache (every job
+    /// that is not a writer), gone at cleanup.
+    fn warm_layer(&self) -> PathBuf {
+        self.dir.join("warm-layer")
+    }
+
     /// GOCACHE for steps that are not recorded: the job's own, gone at
     /// cleanup, never the scope's warm cache.
     fn scratch_gocache(&self) -> PathBuf {
@@ -581,11 +603,11 @@ struct ScopeOf {
 /// the trusted one.
 ///
 /// Writer: a push or workflow_dispatch whose `ref` is the repository's
-/// default branch, or a schedule (which GitHub runs only on the default
-/// branch). Only a writer's steps write the scope's warm build cache and
+/// default branch or one of the operator's `writer_refs` (protected refs),
+/// or a schedule (which GitHub runs only on the default branch). Only a writer's steps write the scope's warm build cache and
 /// persisted workspace; every other job, a same-repository pull request's
 /// included, works on a copy of them that is discarded.
-fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> ScopeOf {
+fn scope_of(event_name: Option<&str>, event: Option<&[u8]>, writer_refs: &[String]) -> ScopeOf {
     let unverified = |repository: String| ScopeOf {
         repository,
         name: "unverified".into(),
@@ -623,6 +645,7 @@ fn scope_of(event_name: Option<&str>, event: Option<&[u8]>) -> ScopeOf {
             .filter(|b| !b.is_empty());
         let r#ref = v.get("ref").and_then(|r| r.as_str());
         matches!((default, r#ref), (Some(d), Some(r)) if r.strip_prefix("refs/heads/") == Some(d))
+            || r#ref.is_some_and(|r| writer_refs.iter().any(|w| w == r))
     };
     let trusted = |writer: bool| ScopeOf {
         repository: repo.clone(),
@@ -764,6 +787,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
         args.environment_variables
             .get("GITHUB_EVENT_NAME")
             .map(String::as_str),
+        &policy.writer_refs,
     )?;
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
@@ -955,14 +979,18 @@ fn execute(
     let hermetic = s.kind == surface::SurfaceKind::Hermetic;
     let has_gocache = s.env.iter().any(|(k, _)| k == "GOCACHE");
     // The scope's warm build cache only for a keyed step that runs go (the
-    // hooks' `--warm`), checked after the step; the runner's and the
-    // network's surfaces (never recorded) get the job's scratch cache; any
-    // other keyed step none (its GOCACHE is in the observed workspace).
-    let (gocache, gocache_shared) = match (hermetic, warm && has_gocache, has_gocache) {
-        (true, true, _) => (Some(job.warm_gocache()), true),
-        (true, false, _) => (None, false),
-        (false, _, true) => (Some(job.scratch_gocache()), false),
-        (false, _, false) => (None, false),
+    // hooks' `--warm`), checked after the step: in place for a writer, under
+    // the job's own layer for any other job. The runner's and the network's
+    // surfaces (never recorded) get the job's scratch cache; any other keyed
+    // step none (its GOCACHE is in the observed workspace).
+    let gocache = match (hermetic, warm && has_gocache, has_gocache) {
+        (true, true, _) if job.writer => GoCache::Shared(job.warm_gocache()),
+        (true, true, _) => GoCache::Layered {
+            lower: job.warm_gocache(),
+            layer: job.warm_layer(),
+        },
+        (true, false, _) | (false, _, false) => GoCache::None,
+        (false, _, true) => GoCache::Scratch(job.scratch_gocache()),
     };
     exec::execute(&Exec {
         cas,
@@ -986,7 +1014,6 @@ fn execute(
         // through the FUSE tree, the cache records what was read.
         seal: false,
         gocache,
-        gocache_shared,
         // No `--user` is the container's default, root (with the image's
         // own passwd); `None` would be the sandbox's runner uid.
         uid: Some(job.uid.unwrap_or(0)),
@@ -1199,6 +1226,19 @@ fn run_step(
     let image = job.key_image()?;
     // The scope's warm build cache, only for a step that runs go.
     let warm = step.runs_go() && h.env.iter().any(|(k, _)| k == "GOCACHE");
+    // A job that is not a writer whose earlier step wrote its layer over the
+    // warm cache: this step reads what that step's code put there, which no
+    // key covers. It may replay what a clean run recorded; its own run is
+    // neither recorded nor compared (a pull request must not be able to
+    // prove, or quarantine, a key the default branch uses).
+    let unrecorded: Option<String> = (warm && !job.writer)
+        .then(|| job.warm_layer_written.clone())
+        .flatten()
+        .map(|p| {
+            format!(
+                "not recorded: an earlier step of this job wrote {p} into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)"
+            )
+        });
     let mut key_cmd = step.cmd.clone();
     key_cmd.extend(h.key_extra.iter().cloned());
     // Volatile names are withheld or given fixed placeholders, and
@@ -1360,16 +1400,29 @@ fn run_step(
         warm,
     )?;
     if let Some(why) = &ex.warm_violation {
-        // The cache is shared with later steps and jobs of the scope: start
-        // it over rather than keep whatever this step put there.
-        let dir = job.warm_gocache();
-        if let Err(e) = std::fs::remove_dir_all(&dir) {
+        // A writer's step wrote the cache itself, shared with later steps
+        // and jobs of the scope: start it over rather than keep whatever the
+        // step put there. Any other job's step wrote only the job's layer:
+        // that goes, and the cache is untouched.
+        let (dir, what) = if job.writer {
+            (job.warm_gocache(), "the scope's warm build cache was wiped")
+        } else {
+            job.warm_layer_written = None;
+            (
+                job.warm_layer(),
+                "the job's layer over the warm build cache was discarded",
+            )
+        };
+        if let Err(e) = std::fs::remove_dir_all(&dir)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
             tracing::warn!(target: "stillpass", dir = %dir.display(), error = %e, "warm build cache not wiped");
         }
-        eprintln!(
-            "stillpass: `{}`: {why}; the scope's warm build cache was wiped",
-            step.label
-        );
+        eprintln!("stillpass: `{}`: {why}; {what}", step.label);
+    } else if job.warm_layer_written.is_none()
+        && let Some(p) = &ex.warm_layer_written
+    {
+        job.warm_layer_written = Some(p.clone());
     }
 
     // Reasons the offline run is not the step's result: it is run again.
@@ -1433,8 +1486,9 @@ fn run_step(
         // A hit's recorded run was clean; this one, on the same inputs, is
         // not the step's own result. The machine's doing (killed, out of
         // memory) teaches nothing but restarts the streak; anything else is
-        // the step behaving otherwise, a divergence.
-        if let Some(hit) = lookup.hit.as_ref() {
+        // the step behaving otherwise, a divergence. Not for a run that is
+        // not recorded: it read what its own job wrote.
+        if let Some(hit) = lookup.hit.as_ref().filter(|_| unrecorded.is_none()) {
             if machine.is_some() || ex.signal.is_some() {
                 if let Some(line) = trust.record_incomplete(&tstep, Some(hit), &again.join("; "))? {
                     eprintln!("stillpass: `{}`: {line}", step.label);
@@ -1546,6 +1600,13 @@ fn run_step(
         ),
     };
     let verdict = match (&not_recordable, &ex.outputs, ex.stdout, ex.stderr) {
+        // Not recorded, not compared: no verdict.
+        _ if unrecorded.is_some() => {
+            if not_recordable.is_some() {
+                job.totals.tainted += 1;
+            }
+            None
+        }
         (Some(why), ..) => {
             job.totals.tainted += 1;
             match lookup.hit.as_ref() {
@@ -1635,6 +1696,7 @@ fn run_step(
         &reason,
         verdict.as_ref(),
         not_recordable.as_deref(),
+        unrecorded.as_deref(),
         &taint,
         &key,
         run_id,
@@ -1656,6 +1718,7 @@ fn finish_report(
     reason: &Reason,
     verdict: Option<&Verdict>,
     not_recordable: Option<&str>,
+    unrecorded: Option<&str>,
     taint: &[String],
     key: &Hash,
     run_id: String,
@@ -1729,7 +1792,9 @@ fn finish_report(
                 )
             }
         },
-        (None, None) => "would replay: no".to_string(),
+        (None, None) => unrecorded.map_or("would replay: no".to_string(), |u| {
+            format!("would replay: no, {u}")
+        }),
     };
     let line = format!(
         "[executed] `{}`: {} in {}; {}{}",
@@ -1951,22 +2016,22 @@ mod tests {
     #[test]
     fn scopes_from_events() {
         let scope = |name: Option<&str>, payload: &[u8]| {
-            let s = scope_of(name, Some(payload));
+            let s = scope_of(name, Some(payload), &[]);
             (s.name, s.writer)
         };
         let push = Some("push");
         assert_eq!(
-            scope_of(push, None),
+            scope_of(push, None, &[]),
             ScopeOf {
                 repository: String::new(),
                 name: "unverified".into(),
                 writer: false
             }
         );
-        assert_eq!(scope_of(push, Some(b"not json")).name, "unverified");
+        assert_eq!(scope_of(push, Some(b"not json"), &[]).name, "unverified");
         let on_main = br#"{"repository":{"full_name":"Pango07/Stillpass","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{"name":"p"}}"#;
         assert_eq!(
-            scope_of(push, Some(on_main)),
+            scope_of(push, Some(on_main), &[]),
             ScopeOf {
                 repository: "pango07/stillpass".into(),
                 name: "trusted".into(),
@@ -2010,7 +2075,7 @@ mod tests {
 
         let same = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","pull_request":{"head":{"repo":{"full_name":"O/R"}}}}"#;
         assert_eq!(
-            scope_of(Some("pull_request"), Some(same)),
+            scope_of(Some("pull_request"), Some(same), &[]),
             ScopeOf {
                 repository: "o/r".into(),
                 name: "trusted".into(),
@@ -2039,6 +2104,15 @@ mod tests {
         );
         let run_none = br#"{"repository":{"full_name":"o/r"},"workflow_run":{}}"#;
         assert_eq!(scope(Some("workflow_run"), run_none).0, "fork-unknown");
+
+        // The operator's protected refs write too; a pull request never.
+        let release = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/release","after":"abc","pusher":{},"inputs":null}"#;
+        let refs = ["refs/heads/release".to_string()];
+        assert!(!scope_of(Some("push"), Some(release), &[]).writer);
+        assert!(scope_of(Some("push"), Some(release), &refs).writer);
+        assert!(scope_of(Some("workflow_dispatch"), Some(release), &refs).writer);
+        let pr_release = br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/release","pull_request":{"head":{"repo":{"full_name":"o/r"}}}}"#;
+        assert!(!scope_of(Some("pull_request"), Some(pr_release), &refs).writer);
     }
 
     /// MAJOR 4: GITHUB_EVENT_NAME is in the step's environment, which a
@@ -2047,7 +2121,7 @@ mod tests {
     #[test]
     fn a_forged_event_name_trusts_nothing() {
         let scope = |name: &str, payload: &[u8]| {
-            let s = scope_of(Some(name), Some(payload));
+            let s = scope_of(Some(name), Some(payload), &[]);
             (s.name, s.writer)
         };
         let unverified = ("unverified".to_string(), false);

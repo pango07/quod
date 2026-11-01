@@ -63,6 +63,12 @@ pub struct PoolArgs {
     /// 0 turns audits off, on purpose only.
     #[arg(long, default_value_t = sp_trust::DEFAULT_AUDIT)]
     audit: f64,
+    /// A protected ref besides the default branch whose push and
+    /// workflow_dispatch jobs may write the warm build cache and persisted
+    /// workspace (`refs/heads/release`; repeatable). Only refs every push to
+    /// which is reviewed like the default branch's.
+    #[arg(long = "writer-ref")]
+    writer_refs: Vec<String>,
     /// Install and register only; do not start.
     #[arg(long)]
     no_start: bool,
@@ -215,7 +221,12 @@ fn install(base: &Path, i: u32, a: &PoolArgs, state: &State) -> anyhow::Result<P
     let cfg = serde_json::json!({
         "bin": exe,
         "state": state.dir,
-        "policy": { "mode": a.mode, "proofs": a.proofs, "audit": a.audit },
+        "policy": {
+            "mode": a.mode,
+            "proofs": a.proofs,
+            "audit": a.audit,
+            "writer_refs": a.writer_refs,
+        },
     });
     sp_hooks::Policy::from_json(Some(&cfg["policy"].to_string()))?;
     std::fs::write(

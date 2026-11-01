@@ -26,6 +26,25 @@ use crate::seal::{seal_modcache, sealed_accesses};
 use crate::secrets;
 use crate::snapshot;
 
+/// What a step gets as GOCACHE.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GoCache {
+    /// Nothing bound: GOCACHE, if set, is in the observed workspace.
+    None,
+    /// The job's own scratch cache (the runner's and the network's
+    /// surfaces, never recorded): not checked.
+    Scratch(PathBuf),
+    /// The scope's warm build cache, written in place: a writer job's
+    /// (`Job::writer`). What the step leaves in it is checked
+    /// (`go_cache_delta`).
+    Shared(PathBuf),
+    /// The scope's warm build cache under the job's own copy-on-write layer
+    /// (`layer`/upper, `layer`/work): every job that is not a writer. The
+    /// step reads the cache and writes the layer, which goes with the job.
+    /// Checked like `Shared`.
+    Layered { lower: PathBuf, layer: PathBuf },
+}
+
 /// What becomes of a step's writes and logs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Keep {
@@ -60,11 +79,8 @@ pub struct Exec<'a> {
     pub net_probe: bool,
     /// Serve GOMODCACHE from a sealed snapshot.
     pub seal: bool,
-    /// A host directory bound over GOCACHE.
-    pub gocache: Option<PathBuf>,
-    /// `gocache` is the scope's warm build cache, shared with later steps
-    /// and jobs: what the step leaves in it is checked (`go_cache_delta`).
-    pub gocache_shared: bool,
+    /// What is bound over GOCACHE.
+    pub gocache: GoCache,
     pub uid: Option<u32>,
     pub gid: Option<u32>,
     pub keep: Keep,
@@ -97,8 +113,13 @@ pub struct Executed {
     pub resource_failure: Option<String>,
     /// The step left something in the shared warm build cache that is not
     /// Go's own cache layout, or an entry holding a secret value: the run is
-    /// not recordable and the caller wipes the cache.
+    /// not recordable and the caller wipes the cache (or the job's layer).
     pub warm_violation: Option<String>,
+    /// `GoCache::Layered`: the first path this step put into the job's layer
+    /// that is not a copy of the cache's own entry (a new entry, or one
+    /// rewritten with other bytes). A later step that reads the layer reads
+    /// something no key covers, written by this job.
+    pub warm_layer_written: Option<String>,
     pub phases: Phases,
 }
 
@@ -154,7 +175,27 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         writable: true,
     });
     let ws_rel = |p: &str| Path::new(x.workspace).join(p);
-    if let Some(dir) = &x.gocache {
+    // The warm build cache under the job's layer: an overlay of its own,
+    // mounted for the step.
+    let (gocache_dir, gocache_ov) = match &x.gocache {
+        GoCache::None => (None, None),
+        GoCache::Scratch(d) | GoCache::Shared(d) => (Some(d.clone()), None),
+        GoCache::Layered { lower, layer } => {
+            std::fs::create_dir_all(lower)
+                .with_context(|| format!("create {}", lower.display()))?;
+            let merged = x.step_dir.join("gocache");
+            let ov = sp_fs::overlay_layers(
+                &[lower.as_path()],
+                &layer.join("upper"),
+                &layer.join("work"),
+                &merged,
+            )
+            .context("overlay the warm build cache")?;
+            (Some(merged), Some(ov))
+        }
+    };
+    let gocache_checked = matches!(x.gocache, GoCache::Shared(_) | GoCache::Layered { .. });
+    if let Some(dir) = &gocache_dir {
         let gocache = x
             .env
             .iter()
@@ -167,7 +208,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             dst: gocache.clone().into(),
             writable: true,
         });
-        if x.gocache_shared {
+        if gocache_checked {
             // The fuzz cache is not shared. Go reads it only under `go test
             // -fuzz` (cmd/go passes -test.fuzzcachedir only then), where it
             // is an input no key covers; each step gets an empty one that
@@ -238,8 +279,12 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             writable: true,
         }),
     };
-    let warm_before = match (&x.gocache, x.gocache_shared) {
+    let warm_before = match (&gocache_dir, gocache_checked) {
         (Some(dir), true) => Some(go_cache_snapshot(dir)),
+        _ => None,
+    };
+    let layer_before = match &x.gocache {
+        GoCache::Layered { layer, .. } => Some(go_cache_snapshot(&layer.join("upper"))),
         _ => None,
     };
     let r = sp_sandbox::run(&rs);
@@ -247,13 +292,27 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     // Checked before anything is unmounted; a check that fails is a
     // violation (not recorded, the cache wiped), never an early return
     // that would skip the unmounting below.
-    let warm_violation = match (&x.gocache, &warm_before) {
+    let warm_violation = match (&gocache_dir, &warm_before) {
         (Some(dir), Some(before)) => go_cache_delta(dir, before, x.masks).unwrap_or_else(|e| {
             Some(format!(
                 "what it wrote into the warm build cache could not be checked ({e:#})"
             ))
         }),
         _ => None,
+    };
+    let warm_layer_written = match (&x.gocache, &layer_before) {
+        (GoCache::Layered { lower, layer }, Some(before)) => {
+            layer_written(lower, &layer.join("upper"), before)
+        }
+        _ => None,
+    };
+    // Unmounted here, before the workspace: a failure is a violation (the
+    // caller discards the layer), never an early return.
+    let warm_violation = match gocache_ov.map(sp_fs::Overlay::release) {
+        Some(Err(e)) => warm_violation.or(Some(format!(
+            "the job's layer over the warm build cache could not be unmounted ({e})"
+        ))),
+        _ => warm_violation,
     };
 
     // Unmount everything whatever happened in the sandbox.
@@ -291,7 +350,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             tracing::info!(target: "stillpass", removed, "snapshot gc");
         }
     }
-    if x.gocache.is_some() && x.keep == Keep::Store {
+    if x.gocache != GoCache::None && x.keep == Keep::Store {
         // What a cached vet verdict may stand in for (see sp_key::go_source_file).
         sp_manifest::record_children(x.tree, &mut log, sp_key::go_source_file);
     }
@@ -346,6 +405,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         net_attempts: r.net_attempts,
         resource_failure: r.resource_failure,
         warm_violation,
+        warm_layer_written,
         phases: Phases {
             mount: phases_mount,
             exec: phases_exec,
@@ -552,6 +612,62 @@ fn go_cache_delta(
     Ok(None)
 }
 
+/// The first entry the step put into the job's layer (`upper`, over the
+/// cache `lower`) that is not a copy of the cache's own: a new file, or one
+/// with other bytes. overlayfs copies an entry up whole when Go merely
+/// bumps its mtime (markUsed), and that copy holds the cache's bytes;
+/// directories and whiteouts (a deletion: a miss, nothing read) are no
+/// writes. Anything else, a symlink included, is.
+fn layer_written(lower: &Path, upper: &Path, before: &BTreeMap<String, Ident>) -> Option<String> {
+    go_cache_snapshot(upper)
+        .into_iter()
+        .filter(|(p, v)| before.get(p) != Some(v))
+        .find(|(p, v)| match v.kind {
+            CacheKind::Dir | CacheKind::Other => false,
+            CacheKind::Symlink => true,
+            CacheKind::File => !same_bytes(&lower.join(p), &upper.join(p)),
+        })
+        .map(|(p, _)| p)
+}
+
+/// Two regular files (never through a symlink) with the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    use std::io::Read;
+    let open = |p: &Path| {
+        std::fs::symlink_metadata(p)
+            .ok()
+            .filter(|m| m.is_file())
+            .and_then(|m| std::fs::File::open(p).ok().map(|f| (f, m.len())))
+    };
+    let (Some((mut fa, la)), Some((mut fb, lb))) = (open(a), open(b)) else {
+        return false;
+    };
+    if la != lb {
+        return false;
+    }
+    let fill = |f: &mut std::fs::File, buf: &mut [u8]| -> std::io::Result<usize> {
+        let mut n = 0;
+        while n < buf.len() {
+            match f.read(&mut buf[n..])? {
+                0 => break,
+                k => n += k,
+            }
+        }
+        Ok(n)
+    };
+    let (mut ba, mut bb) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    loop {
+        match (fill(&mut fa, &mut ba), fill(&mut fb, &mut bb)) {
+            (Ok(na), Ok(nb)) if na == nb && ba[..na] == bb[..nb] => {
+                if na == 0 {
+                    return true;
+                }
+            }
+            _ => return false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,6 +828,43 @@ mod tests {
             go_cache_delta(c, &before, &[]).unwrap().is_some(),
             "fuzz/ written"
         );
+    }
+
+    #[test]
+    fn a_layer_entry_counts_as_written_unless_it_is_the_cache_s_own_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lower, upper) = (tmp.path().join("lower"), tmp.path().join("upper"));
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        std::fs::create_dir_all(lower.join("ab")).unwrap();
+        std::fs::create_dir_all(&upper).unwrap();
+        std::fs::write(lower.join(format!("ab/{id}-d")), "object code").unwrap();
+        let before = go_cache_snapshot(&upper);
+        // Copied up by a bump: same bytes, not a write. A new directory and
+        // a whiteout-like node are no writes either.
+        std::fs::create_dir_all(upper.join("ab")).unwrap();
+        std::fs::write(upper.join(format!("ab/{id}-d")), "object code").unwrap();
+        assert_eq!(layer_written(&lower, &upper, &before), None);
+        // Other bytes at the same size, a new entry, a symlink: writes.
+        std::fs::write(upper.join(format!("ab/{id}-d")), "OBJECT CODE").unwrap();
+        assert_eq!(
+            layer_written(&lower, &upper, &before).as_deref(),
+            Some(format!("ab/{id}-d").as_str())
+        );
+        std::fs::write(upper.join(format!("ab/{id}-d")), "object code").unwrap();
+        std::fs::write(upper.join(format!("ab/{id}-a")), "v1 ...").unwrap();
+        assert_eq!(
+            layer_written(&lower, &upper, &before).as_deref(),
+            Some(format!("ab/{id}-a").as_str())
+        );
+        std::fs::remove_file(upper.join(format!("ab/{id}-a"))).unwrap();
+        std::os::unix::fs::symlink(lower.join(format!("ab/{id}-d")), upper.join("ab/link"))
+            .unwrap();
+        assert!(layer_written(&lower, &upper, &before).is_some());
+        std::fs::remove_file(upper.join("ab/link")).unwrap();
+        // Only what changed during the step counts.
+        std::fs::write(upper.join(format!("ab/{id}-a")), "v1 ...").unwrap();
+        let before = go_cache_snapshot(&upper);
+        assert_eq!(layer_written(&lower, &upper, &before), None);
     }
 
     #[test]

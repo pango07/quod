@@ -13,7 +13,7 @@
 //! every step in that image instead, as a real job does.
 
 mod common;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -40,6 +40,36 @@ struct Runner {
     audit: f64,
     /// The job container's create options (who the steps run as).
     user: &'static str,
+    /// The event: its name (GITHUB_EVENT_NAME) and the payload the runner
+    /// writes to `_temp/_github_workflow/event.json`.
+    event: (&'static str, serde_json::Value),
+}
+
+/// A push to the default branch: a writer job of the trusted scope.
+fn push_to_main() -> (&'static str, serde_json::Value) {
+    (
+        "push",
+        serde_json::json!({
+            "ref": "refs/heads/main",
+            "after": "0000000000000000000000000000000000000001",
+            "pusher": {"name": "o"},
+            "repository": {"full_name": "o/r", "default_branch": "main"},
+        }),
+    )
+}
+
+/// A pull request from a branch of the repository itself: trusted (the
+/// same ledger), never a writer.
+fn same_repo_pull_request() -> (&'static str, serde_json::Value) {
+    (
+        "pull_request",
+        serde_json::json!({
+            "action": "synchronize",
+            "number": 7,
+            "pull_request": {"head": {"ref": "dependabot/x", "repo": {"full_name": "o/r"}}},
+            "repository": {"full_name": "o/r", "default_branch": "main"},
+        }),
+    )
 }
 
 struct StepOut {
@@ -63,6 +93,7 @@ impl Runner {
         let work = env.tmp.path().join("_work");
         for d in [
             "_temp/_runner_file_commands",
+            "_temp/_github_workflow",
             "_actions/actions/checkout/abc/dist",
             "o/r",
             "_tool",
@@ -81,7 +112,7 @@ impl Runner {
             .unwrap();
         assert!(st.success());
         if env.repo.join(".stillpass").is_dir() {
-            let seed = env.state().join("seeds/unknown");
+            let seed = env.state().join("seeds/o_r");
             std::fs::create_dir_all(&seed).unwrap();
             let st = Command::new("cp")
                 .arg("-a")
@@ -108,6 +139,7 @@ impl Runner {
             proofs: 1,
             audit: 0.0,
             user: "--user 1001:1001",
+            event: push_to_main(),
         }
     }
 
@@ -116,6 +148,11 @@ impl Runner {
         serde_json::json!([
             m(self.work.clone(), "/__w", false),
             m(self.work.join("_temp"), "/__w/_temp", false),
+            m(
+                self.work.join("_temp/_github_workflow"),
+                "/github/workflow",
+                false
+            ),
             m(self.work.join("_actions"), "/__w/_actions", false),
             m(self.work.join("_tool"), "/__w/_tool", false),
         ])
@@ -163,6 +200,11 @@ impl Runner {
     }
 
     fn prepare_job(&mut self) {
+        std::fs::write(
+            self.work.join("_temp/_github_workflow/event.json"),
+            self.event.1.to_string(),
+        )
+        .unwrap();
         let resp = self.work.join("_temp/response.json");
         std::fs::write(&resp, "").unwrap();
         let input = serde_json::json!({
@@ -210,6 +252,7 @@ impl Runner {
             "CI": "true",
             "GITHUB_ACTIONS": "true",
             "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_EVENT_NAME": self.event.0,
             "GITHUB_WORKSPACE": WORKSPACE,
             "GITHUB_SERVER_URL": format!("file://{}", self.env.tmp.path().display()),
             "GITHUB_SHA": self.head(),
@@ -366,9 +409,10 @@ impl Runner {
         sp_cas::Tree::from_leaves(entries)
     }
 
-    /// The job's scope: no event payload in this harness, so `unverified`.
+    /// The job's scope: a push to main or a pull request from the
+    /// repository itself, both `trusted`.
     fn scope(&self) -> PathBuf {
-        self.state.join("scopes/unknown/unverified")
+        self.state.join("scopes/o_r/trusted")
     }
 
     fn ledger(&self) -> Ledger {
@@ -996,6 +1040,109 @@ fn hooks_acceptance() {
         "D1 ok: a hit that behaves otherwise on the same inputs is quarantined, with a diverged run row"
     );
 
+    // W1 (MAJOR 3): only a writer, a push, dispatch or schedule on the
+    // default branch, writes the scope's warm build cache and persisted
+    // workspace. A pull request from the repository itself (a Dependabot
+    // bump) shares the trusted ledger but works on a copy of both that goes
+    // with the job: what its go steps put in the cache, an entry the
+    // default branch uses rewritten included, never reaches it; a later go
+    // step of the same job, which reads what an earlier one wrote, is not
+    // recorded (it may still replay a clean run); and what it leaves in
+    // the module cache does not persist.
+    r.mode = "replay";
+    let files_under = |root: &Path| -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let t = e.file_type().unwrap();
+                if t.is_dir() {
+                    stack.push(e.path());
+                } else {
+                    out.insert(e.path(), std::fs::read(e.path()).unwrap_or_default());
+                }
+            }
+        }
+        out
+    };
+    let warm_before = files_under(&warm_root);
+    assert!(
+        warm_before.keys().any(|p| p.ends_with("main")),
+        "W1: the default branch's go run executable is in the warm cache"
+    );
+    let workspaces = r.scope().join("workspaces");
+    let slots_before = files_under(&workspaces);
+    assert!(!slots_before.is_empty(), "W1: a persisted workspace");
+    let writer_event = std::mem::replace(&mut r.event, same_repo_pull_request());
+    r.prepare_job();
+    let co = r.checkout();
+    assert_eq!(co.code, 0, "W1 checkout: {}", co.stderr);
+    // Its own build, and a rewrite of the cached executable main replays.
+    let poison = r#"mkdir -p /tmp/pr && printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello from a pull request") }\n' > /tmp/pr/main.go && go run /tmp/pr/main.go && for f in "$GOCACHE"/*/*-d/main; do printf 'poisoned' > "$f"; done"#;
+    let w1 = r.script(poison, &[]);
+    assert!(
+        w1.code == 0 && !w1.summary.contains("not Go's cache layout"),
+        "W1 pull request build: {}\n{}",
+        w1.summary,
+        w1.stderr
+    );
+    let now = files_under(&warm_root);
+    let changed: Vec<String> = now
+        .iter()
+        .filter(|(p, b)| warm_before.get(*p) != Some(*b))
+        .map(|(p, _)| p.display().to_string())
+        .collect();
+    assert!(
+        changed.is_empty() && now.len() == warm_before.len(),
+        "W1: the pull request's go step changed the scope's warm build cache: {changed:?}"
+    );
+    // A go step main recorded: still replays.
+    let w2 = r.script(gorun, &[]);
+    assert!(
+        w2.replayed(),
+        "W1: a pull request replays a clean run: {}",
+        w2.stderr
+    );
+    // A go step nobody recorded: runs over this job's writes, not recorded.
+    let fresh = r#"go list ./... >/dev/null && echo after-the-pull-request-build"#;
+    let w3 = r.script(fresh, &[]);
+    assert!(
+        w3.executed()
+            && w3
+                .summary
+                .contains("not recorded: an earlier step of this job wrote"),
+        "W1: {}",
+        w3.summary
+    );
+    let w4 = r.script(r#"echo poison > "$GOMODCACHE/stillpass-pull-request""#, &[]);
+    assert_eq!(w4.code, 0, "W1 module cache: {}", w4.stderr);
+    r.cleanup_job();
+    r.event = writer_event;
+    assert_eq!(
+        files_under(&warm_root),
+        warm_before,
+        "W1: the pull request changed nothing in the scope's warm build cache"
+    );
+    assert_eq!(
+        files_under(&workspaces),
+        slots_before,
+        "W1: the pull request's workspace did not persist"
+    );
+    let after = r.job(fresh, &[]);
+    assert!(
+        after.executed() && after.summary.contains("first run of this step"),
+        "W1: the pull request recorded nothing for the default branch: {}",
+        after.summary
+    );
+    let clean = r.job(
+        r#"cat "$GOMODCACHE/stillpass-pull-request" 2>/dev/null || echo clean"#,
+        &[],
+    );
+    assert_eq!(String::from_utf8_lossy(&clean.stdout), "clean\n");
+    println!(
+        "W1 ok: a same-repository pull request writes only its own copy of the warm cache and workspace; its go step over its own writes is not recorded"
+    );
+
     // T1 (the trust layer, as `stillpass run` has it): a result seen once
     // never replays; two identical executions prove it; an audit
     // re-executes a would-be hit and compares instead of replaying.
@@ -1056,7 +1203,7 @@ fn hooks_acceptance() {
     println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
 
     println!(
-        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1 and T1-T2 pass{}",
+        "hooks acceptance: A1-A7, A7b, C1-C3, B1, M1, D1, W1 and T1-T2 pass{}",
         if spike.is_some() {
             " on the spike repo"
         } else {
