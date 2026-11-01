@@ -3,9 +3,14 @@
 import { useRouter } from "next/navigation";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Activity, LiveEvent, LiveEventType, LiveJob } from "@/lib/api/types";
+import { applyToJobs } from "@/lib/live/jobs";
 
-/** connecting: first connect. live: events flowing. reconnecting: lost it, retrying. paused: tab hidden. */
-export type LiveStatus = "connecting" | "live" | "reconnecting" | "paused";
+/**
+ * connecting: first connect. live: events flowing. reconnecting: lost it for
+ * 3 s or more, retrying. paused: tab hidden. signed-out / no-access: the
+ * server said 401 / 404, so we stop retrying.
+ */
+export type LiveStatus = "connecting" | "live" | "reconnecting" | "paused" | "signed-out" | "no-access";
 
 interface LiveState {
   status: LiveStatus;
@@ -19,26 +24,16 @@ const Ctx = createContext<LiveState | null>(null);
 
 const TYPES: LiveEventType[] = ["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated"];
 const MAX_BACKOFF = 30_000;
-
-function applyToJobs(jobs: LiveJob[], e: LiveEvent): LiveJob[] {
-  switch (e.type) {
-    case "job.queued":
-    case "job.started":
-      return [...jobs.filter((j) => j.id !== e.job.id), e.job].sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
-    case "job.finished":
-      return jobs.filter((j) => j.id !== e.job.id);
-    case "step.started":
-      return jobs.map((j) => (j.id === e.jobId ? { ...j, currentStep: { index: e.index, name: e.name } } : j));
-    default:
-      return jobs;
-  }
-}
+/** Don't show or announce "Reconnecting" for blips shorter than this. */
+const RECONNECTING_AFTER = 3_000;
 
 /**
- * useLiveEvents: one EventSource per tab on /[team]/events. Reconnects with
- * backoff (EventSource resumes with Last-Event-ID on its own; after a manual
- * reconnect we pass the last id and also refresh the page's data), and closes
- * while the tab is hidden.
+ * useLiveEvents: one EventSource per tab on /[team]/events.
+ * - A planned close (the server says "bye" before its ~4 minute limit) reconnects silently.
+ * - Other drops show "Reconnecting" only after 3 s; EventSource resumes with Last-Event-ID.
+ * - If the browser gives up, we probe once (HEAD) and stop on 401/404, else retry with backoff.
+ * - Hidden tabs close the stream; showing the tab resumes from the last id.
+ * - Only an unplanned gap refreshes the page's server-rendered data.
  */
 function useLiveEvents(): LiveState {
   const router = useRouter();
@@ -51,24 +46,37 @@ function useLiveEvents(): LiveState {
   useEffect(() => {
     const team = window.location.pathname.split("/").filter(Boolean)[0];
     if (!team) return;
+    const url = `/${encodeURIComponent(team)}/events`;
     let es: EventSource | null = null;
     let backoff = 1000;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let slow: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    let opened = false;
+    let planned = false;
+    let gap = false;
+
+    const lost = () => {
+      clearTimeout(slow);
+      slow = setTimeout(() => setStatus((s) => (s === "live" || s === "connecting" ? "reconnecting" : s)), RECONNECTING_AFTER);
+    };
 
     const open = (resume: boolean) => {
       clearTimeout(retry);
       const q = new URLSearchParams({ scope: "team" });
       if (resume && lastId.current) q.set("lastEventId", lastId.current);
-      es = new EventSource(`/${encodeURIComponent(team)}/events?${q}`);
+      es = new EventSource(`${url}?${q}`);
       es.onopen = () => {
+        clearTimeout(slow);
         setStatus("live");
         backoff = 1000;
-        // After a gap we may have missed more than a resume covers: refetch the server-rendered parts too.
-        if (opened) router.refresh();
-        opened = true;
+        // Only a real gap (not our planned ~4 minute rotation) may have missed more than a resume covers.
+        if (gap) router.refresh();
+        gap = false;
+        planned = false;
       };
+      es.addEventListener("bye", () => {
+        planned = true;
+      });
       es.addEventListener("snapshot", (m) => {
         const a = JSON.parse((m as MessageEvent<string>).data) as Activity;
         setJobs(a.jobs);
@@ -85,18 +93,37 @@ function useLiveEvents(): LiveState {
       }
       es.onerror = () => {
         if (stopped) return;
-        setStatus("reconnecting");
+        if (!planned) {
+          gap = true;
+          lost();
+        }
         if (es?.readyState === EventSource.CLOSED) {
-          // The browser gave up (an HTTP error, or the server is down): retry ourselves, slower each time.
           es = null;
-          retry = setTimeout(() => open(true), backoff);
-          backoff = Math.min(backoff * 2, MAX_BACKOFF);
+          void probe();
         }
       };
     };
 
+    // The browser gave up on the stream: find out why before retrying.
+    const probe = async () => {
+      let code = 0;
+      try {
+        code = (await fetch(url, { method: "HEAD", headers: { accept: "text/event-stream" }, cache: "no-store" })).status;
+      } catch {
+        // Offline: keep retrying.
+      }
+      if (stopped) return;
+      if (code === 401) return void (clearTimeout(slow), setStatus("signed-out"));
+      if (code === 404) return void (clearTimeout(slow), setStatus("no-access"));
+      gap = true;
+      lost();
+      retry = setTimeout(() => open(true), backoff);
+      backoff = Math.min(backoff * 2, MAX_BACKOFF);
+    };
+
     const close = () => {
       clearTimeout(retry);
+      clearTimeout(slow);
       es?.close();
       es = null;
     };
@@ -104,9 +131,10 @@ function useLiveEvents(): LiveState {
     const onVisibility = () => {
       if (document.hidden) {
         close();
-        setStatus("paused");
+        setStatus((s) => (s === "signed-out" || s === "no-access" ? s : "paused"));
       } else if (!es) {
-        setStatus("reconnecting");
+        setStatus((s) => (s === "signed-out" || s === "no-access" ? s : "connecting"));
+        gap = true;
         open(true);
       }
     };

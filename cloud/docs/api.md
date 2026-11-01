@@ -100,12 +100,23 @@ Events so people can watch their CI as it runs. Scope parameters:
 `scope=repo&repo=`, `scope=run&repo=&run=`, `scope=step&repo=&key=`; the
 default is the whole team. Same authorization as every other endpoint.
 
+A client first reads `GET /v1/teams/{team}/activity` (jobs queued or running
+now). Its `cursor` is the stream position that snapshot is consistent with:
+subscribe with it as `Last-Event-ID` and the stream starts exactly after the
+snapshot, so no event between the two is lost (a job that finished in that
+moment would otherwise stay "running" on screen). `cursor` is null when there
+is no stream.
+
 Each message is `id: <event id>`, `event: <type>`, `data: <LiveEvent JSON>`
 (`LiveEvent` in `lib/api/types.ts`). Ids are opaque to clients but must
 increase; a client that reconnects sends the last one as `Last-Event-ID` and
 gets every later event, so a reconnect loses nothing (the server keeps at
 least 5 minutes of history). Send `: ping` comments every 15 s, and close the
-stream from time to time rather than holding it forever; clients reconnect.
+stream from time to time rather than holding it forever, saying so first with
+`event: bye` (`data: {}`): the client then reconnects quietly. Unauthenticated
+requests that accept `text/event-stream` get 401, not a sign-in redirect; a
+team the caller cannot see is 404 (also for `HEAD`, which clients use to
+probe before retrying).
 quod-server can feed it from Postgres `LISTEN/NOTIFY` (or an outbox table read
 by id, which makes resuming trivial).
 

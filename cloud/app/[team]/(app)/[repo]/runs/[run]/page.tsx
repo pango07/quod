@@ -81,7 +81,7 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
         </div>
       </section>
 
-      <RunSteps team={team.slug} repo={repoSlug} jobs={run.jobs} initial={initial} asOf={asOf} />
+      <RunSteps team={team.slug} repo={repoSlug} run={run.number} jobs={run.jobs} initial={initial} asOf={asOf} />
     </div>
   );
 }

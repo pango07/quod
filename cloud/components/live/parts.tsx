@@ -7,20 +7,45 @@ import { MinutesChart } from "@/components/charts";
 import { Stat } from "@/components/ui";
 import type { Activity, DayMinutes, LiveEventType, LiveJob, LiveScope, TeamTotals } from "@/lib/api/types";
 import { formatCount, formatDuration, formatMinutes, formatPercent, formatUsd, shortSha } from "@/lib/format";
+import { applyToDays } from "@/lib/live/jobs";
 import { inScope } from "@/lib/live/scope";
 import { useLive, useLiveListener } from "./provider";
 
 /**
- * The current time, ticking every `ms`. It starts at `start`, the server's
- * render time, so the server HTML and the first client render show the same
- * text (no hydration mismatch); the first tick then moves it to the browser clock.
+ * Where the server's clock (`start`, a render time) sits on this tab's
+ * monotonic clock: recorded the first time a page's render time is seen, so
+ * every clock on that page, including ones mounted later, agrees.
+ */
+const anchors = new Map<string, number>();
+function anchor(start: string): { at: number; perf: number } {
+  const at = Date.parse(start);
+  if (typeof window === "undefined") return { at, perf: 0 };
+  if (!anchors.has(start)) {
+    if (anchors.size > 50) anchors.clear();
+    anchors.set(start, performance.now());
+  }
+  return { at, perf: anchors.get(start)! };
+}
+
+/**
+ * The current time on the server's clock, ticking every `ms`. It starts at
+ * `start` (the server's render time), so the server HTML and the first client
+ * render match, and moves on by the browser's monotonic clock
+ * (performance.now), so a skewed browser clock never shows a wrong elapsed time.
  */
 function useNow(start: string, ms = 1000): number {
-  const [now, setNow] = useState(() => Date.parse(start));
+  const [origin] = useState(() => anchor(start));
+  // First render shows exactly `start` (so hydration matches); right after mount it catches up.
+  const [now, setNow] = useState(origin.at);
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(t);
-  }, [ms]);
+    const tick = () => setNow(origin.at + (performance.now() - origin.perf));
+    const first = setTimeout(tick, 0);
+    const t = setInterval(tick, ms);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, [ms, origin]);
   return now;
 }
 
@@ -30,48 +55,55 @@ export function Elapsed({ since, asOf }: { since: string; asOf: string }) {
   return <>{formatDuration(Math.max(0, (now - Date.parse(since)) / 1000))}</>;
 }
 
-/** The header indicator: says honestly whether updates are flowing. */
+const BADGE: Record<string, { label: string; title: string }> = {
+  connecting: { label: "Connecting…", title: "Connecting to live updates." },
+  live: { label: "Live", title: "Updates arrive as your CI runs." },
+  reconnecting: { label: "Reconnecting…", title: "Live updates lost; retrying." },
+  paused: { label: "Paused", title: "Live updates pause while this tab is hidden." },
+  "signed-out": { label: "Signed out", title: "Sign in again to see live updates." },
+  "no-access": { label: "No access", title: "You no longer have access to this team." },
+};
+
+/**
+ * The header indicator: says honestly whether updates are flowing. The
+ * provider only reports "Reconnecting" after 3 s, so blips and the planned
+ * ~4 minute reconnect are never announced.
+ */
 export function LiveBadge() {
   const { status, simulated } = useLive();
-  const label = { connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…", paused: "Paused" }[status];
-  const title =
-    status === "paused"
-      ? "Updates pause while this tab is hidden and resume when you come back."
-      : status === "reconnecting"
-        ? "Lost the live connection; retrying. What you see may be a few seconds old."
-        : simulated
-          ? "Sample data, simulated live: these runs are made up, not your CI."
-          : "Updates arrive as your CI runs.";
+  const b = BADGE[status];
+  const sample = simulated && status === "live";
   return (
-    <span className={`live-badge ${status}`} title={title} role="status" aria-live="polite">
+    <span className={`live-badge ${status}`} title={sample ? "Sample data, simulated live: these runs are made up, not your CI." : b.title}>
       <span className="live-dot" aria-hidden="true" />
-      <span>{label}</span>
-      {simulated && status === "live" ? <span className="live-sample">· Sample data, simulated live</span> : null}
-      <span className="sr-only">. {title}</span>
+      {/* Announced: a short, sustained state only. */}
+      <span role="status">{b.label}</span>
+      {sample ? <span className="live-sample">· Sample data, simulated live</span> : null}
     </span>
   );
 }
 
-const TYPES_THAT_CHANGE_PAGES: LiveEventType[] = ["run.started", "run.finished", "step.started", "step.finished", "trust.changed", "job.started", "job.finished"];
+/** Events after which a page's server-rendered parts are worth refetching: things that finished. */
+const FINISHED: LiveEventType[] = ["job.finished", "run.finished"];
+const REFRESH_DEBOUNCE_MS = 4_000;
 
 /**
- * Re-renders the page's server components (router.refresh) when an event in
- * `scope` arrives, at most once a second. The server is the source of truth;
- * the stream just says when to look again.
+ * Re-renders the page's server components (router.refresh) after something in
+ * `scope` finished, debounced: one refresh 4 s after the last such event.
+ * Step-by-step changes are applied in the browser from the events themselves,
+ * so a busy run never turns into a refresh per step (each refresh re-reads the
+ * session and memberships).
  */
-export function LiveRefresh({ scope, types = TYPES_THAT_CHANGE_PAGES }: { scope: LiveScope; types?: LiveEventType[] }) {
+export function LiveRefresh({ scope, types = FINISHED }: { scope: LiveScope; types?: LiveEventType[] }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const last = useRef(0);
   useLiveListener((e) => {
     if (!types.includes(e.type) || !inScope(e, scope)) return;
-    if (pending.current) return;
-    const wait = Math.max(0, 1000 - (Date.now() - last.current));
+    if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(() => {
       pending.current = null;
-      last.current = Date.now();
       router.refresh();
-    }, wait);
+    }, REFRESH_DEBOUNCE_MS);
   });
   useEffect(() => () => void (pending.current && clearTimeout(pending.current)), []);
   return null;
@@ -141,18 +173,37 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
           </span>
         </span>
         <span className="now-time mono" title={queued ? "Time waiting in the queue" : "Time running"}>
-          <span className="sr-only">{queued ? "Queued for " : "Running for "}</span>
-          {queued ? `queued ${elapsed}` : elapsed}
+          {/* The ticking time is for eyes; screen readers get the state, not a number that changes every second. */}
+          <span aria-hidden="true">{queued ? `queued ${elapsed}` : elapsed}</span>
+          <span className="sr-only">{queued ? "queued" : "running"}</span>
         </span>
       </Link>
     </li>
   );
 }
 
-/** Overview totals and the per-day chart, with each finished step's minutes added as it lands. */
-export function LiveTotals({ totals, days, from }: { totals: TeamTotals; days: DayMinutes[]; from: string }) {
+/**
+ * Overview totals and the per-day chart, with each finished step's minutes
+ * added as it lands. Mount it with key={range}: each range starts from its own
+ * server totals.
+ *
+ * `reseed`: when the backend is authoritative (its totals already include
+ * every event up to the render), a refresh replaces the client's running sum
+ * with the server's. Off for the simulator: its overview folds in today's
+ * deltas by the clock at render time while the stream delivers the same
+ * deltas by event a moment later, so re-seeding on each refresh would count
+ * the in-flight ones twice.
+ */
+export function LiveTotals({ totals, days, from, reseed = false }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean }) {
   const [t, setT] = useState(totals);
   const [d, setD] = useState(days);
+  const [seen, setSeen] = useState({ totals, days });
+  if (reseed && (seen.totals !== totals || seen.days !== days)) {
+    // Adjusting state while rendering when props change (react.dev, "storing information from previous renders").
+    setSeen({ totals, days });
+    setT(totals);
+    setD(days);
+  }
   useLiveListener((e) => {
     if (e.type !== "stats.updated") return;
     const x = e.delta;
@@ -165,11 +216,7 @@ export function LiveTotals({ totals, days, from }: { totals: TeamTotals; days: D
       spotChecks: c.spotChecks + x.spotChecks,
       spotChecksIdentical: c.spotChecksIdentical + x.spotChecksIdentical,
     }));
-    setD((c) => {
-      if (!c.length || c[c.length - 1].day !== e.day) return c;
-      const last = c[c.length - 1];
-      return [...c.slice(0, -1), { ...last, replayedMinutes: last.replayedMinutes + x.replayedMinutes, ranMinutes: last.ranMinutes + x.ranMinutes }];
-    });
+    setD((c) => applyToDays(c, e.day, x));
   });
 
   return (

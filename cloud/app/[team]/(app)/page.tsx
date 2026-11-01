@@ -52,9 +52,9 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       </div>
 
       <NowRunning team={team.slug} initial={activity} />
-      <LiveRefresh scope={{ kind: "team" }} types={["run.started", "run.finished"]} />
+      <LiveRefresh scope={{ kind: "team" }} />
 
-      <LiveTotals totals={t} days={ov.days} from={RANGE_FROM[range]} />
+      <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} />
 
       <div className="split">
         <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>

@@ -34,7 +34,7 @@ describe("liveStream", () => {
   it("sends the retry hint and snapshot, then events as id/event/data, and closes at its deadline", async () => {
     const ev = { type: "run.started", id: "1-0-0", at: "2026-11-01T00:00:00.000Z" } as never;
     const body = liveStream({
-      snapshot: { asOf: "2026-11-01T00:00:00.000Z", jobs: [], simulated: true },
+      snapshot: { asOf: "2026-11-01T00:00:00.000Z", jobs: [], simulated: true, cursor: null },
       maxMs: 50,
       heartbeatMs: 10,
       async *events(signal) {
@@ -47,6 +47,8 @@ describe("liveStream", () => {
     expect(text).toContain('event: snapshot\ndata: {"asOf"');
     expect(text).toContain('id: 1-0-0\nevent: run.started\ndata: {"type":"run.started"');
     expect(text).toContain(": ping\n\n");
+    // A planned close says so first, so the browser reconnects without alarm.
+    expect(text).toContain("event: bye\ndata: {}\n\n");
     expect(text.trimEnd().endsWith(": closing; reconnect with Last-Event-ID")).toBe(true);
   });
 });

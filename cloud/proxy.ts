@@ -24,6 +24,10 @@ export default async function proxy(request: NextRequest) {
   const { session, headers } = await authkit(request);
   const path = request.nextUrl.pathname;
   if (!session.user && !isPublic(path)) {
+    // An EventSource (or its probe) cannot follow a sign-in redirect usefully: say 401 so the page can show "Signed out".
+    if ((request.headers.get("accept") ?? "").includes("text/event-stream")) {
+      return new NextResponse("Signed out", { status: 401, headers: { "cache-control": "no-store" } });
+    }
     const returnTo = sanitizeReturnTo(path + request.nextUrl.search);
     const to = returnTo === "/" ? "/sign-in" : `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
     return handleAuthkitProxy(request, headers, { redirect: to });

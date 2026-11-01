@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import type { Host, Store } from "@/lib/api/types";
 import { authMode } from "@/lib/auth/config";
 import { adminPortalLink, inviteMember as sendInvite, type PortalIntent } from "@/lib/auth/directory";
+import { invalidateMemberships } from "@/lib/auth/session";
 import { requireTeam } from "@/lib/dal";
 import { isSlug, parseRunNumber } from "@/lib/params";
 
@@ -19,6 +20,7 @@ const NOT_ADMIN = { ok: false, message: "Only team admins can change this." } as
 
 export async function switchTeam(slug: string): Promise<void> {
   const { team, viewer } = await requireTeam(slug);
+  invalidateMemberships(viewer.id);
   if (authMode() === "workos" && viewer.currentOrgId !== team.orgId) {
     // Rescopes the WorkOS session (and its access token) to this team's organization.
     // Redirects to AuthKit when the organization requires SSO or MFA.
@@ -56,6 +58,8 @@ export async function inviteMember(slug: string, _prev: ActionResult, form: Form
   if (!EMAIL.test(email)) return { ok: false, message: "Enter an email address, like dev@example.com." };
   try {
     const result = await sendInvite(team.orgId, viewer.id, email, role);
+    // Invitations (and role changes, when added) change memberships: read them fresh next time.
+    invalidateMemberships(viewer.id);
     revalidatePath(`/${team.slug}/settings`);
     return result;
   } catch (e) {

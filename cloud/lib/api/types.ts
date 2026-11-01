@@ -179,6 +179,8 @@ export interface RunStep {
 }
 
 export interface RunJob {
+  /** The job id live events refer to (step.started/finished jobId), when known. */
+  id?: string;
   /** "check / ubuntu-24.04" */
   name: string;
   steps: RunStep[];
@@ -343,6 +345,12 @@ export interface LiveJob {
 export interface Activity {
   asOf: string;
   jobs: LiveJob[];
+  /**
+   * The event stream position this snapshot is consistent with: resume the
+   * stream from here (as Last-Event-ID) and no event between the snapshot and
+   * the subscription is lost. Null when the source has no stream.
+   */
+  cursor: string | null;
   /** True when the data is the built-in simulator ("Sample data, simulated live"). */
   simulated: boolean;
 }

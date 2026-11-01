@@ -59,11 +59,14 @@ export function liveStream(opts: StreamOptions): ReadableStream<Uint8Array> {
           send(encodeMessage({ id: e.id, event: e.type, data: JSON.stringify(e) }));
         }
       } catch (err) {
-        console.warn("[quod-cloud] event stream failed", { message: err instanceof Error ? err.message : String(err) });
+        // Stopping (deadline or client gone) aborts the source; that is not a failure.
+        if (!stop.signal.aborted) console.warn("[quod-cloud] event stream failed", { message: err instanceof Error ? err.message : String(err) });
       } finally {
         clearInterval(heartbeat);
         clearTimeout(deadline);
         try {
+          // "bye": a planned close. The browser reconnects with Last-Event-ID without showing "Reconnecting".
+          controller.enqueue(enc.encode(encodeMessage({ event: "bye", data: "{}" })));
           controller.enqueue(enc.encode(encodeComment("closing; reconnect with Last-Event-ID")));
           controller.close();
         } catch {

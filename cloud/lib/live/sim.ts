@@ -244,7 +244,7 @@ export function detailAt(run: SimRun, t: number): RunDetail {
   return {
     ...summaryAt(run, t),
     githubUrl: `https://github.com/${run.repo.summary.fullName}/actions`,
-    jobs: run.jobs.map((j) => ({ name: `${j.name} / ubuntu-24.04`, steps: j.steps.map((s) => stepAt(s, t)) })),
+    jobs: run.jobs.map((j) => ({ id: j.id, name: `${j.name} / ubuntu-24.04`, steps: j.steps.map((s) => stepAt(s, t)) })),
   };
 }
 
@@ -313,6 +313,14 @@ export function parseEventId(id: string | null | undefined): [number, number, nu
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
+/**
+ * The stream position of a snapshot taken at `t`: after every event at or
+ * before `t` (jobsAt(t) already reflects them), before every later one.
+ */
+export function cursorAt(t: number): string {
+  return eventId(Math.floor(t), 999_999_999, 9999);
+}
+
 const after = (a: [number, number, number], b: [number, number, number]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 /** All events of one run, in order. */
@@ -328,10 +336,7 @@ export function runEvents(run: SimRun): LiveEvent[] {
       raw.push({ at: s.startAt, make: (id) => ({ type: "step.started", id, at: at(s.startAt), repoSlug: slug, run: run.number, jobId: job.id, index: s.index, name: s.name, stepKey: s.stepKey }) });
       raw.push({ at: s.endAt, make: (id) => ({ type: "step.finished", id, at: at(s.endAt), repoSlug: slug, run: run.number, jobId: job.id, index: s.index, stepKey: s.stepKey, step: stepAt(s, s.endAt) }) });
       if (s.stepKey) {
-        const delta: StatsDelta =
-          s.outcome === "replayed"
-            ? { replayedMinutes: s.fullSeconds / 60, ranMinutes: 0, stepsReplayed: 1, stepsTotal: 1, spotChecks: 0, spotChecksIdentical: 0 }
-            : { replayedMinutes: 0, ranMinutes: s.seconds / 60, stepsReplayed: 0, stepsTotal: 1, spotChecks: s.why.kind === "spot-check" ? 1 : 0, spotChecksIdentical: s.why.kind === "spot-check" ? 1 : 0 };
+        const delta = stepDelta(s);
         raw.push({ at: s.endAt, make: (id) => ({ type: "stats.updated", id, at: at(s.endAt), repoSlug: slug, day: at(s.endAt).slice(0, 10), delta }) });
       }
       if (s.why.kind === "spot-check" && s.stepKey) {
@@ -370,6 +375,53 @@ export function eventsBetween(from: number, to: number, opts: { lastEventId?: st
     }
   }
   return out.sort((a, b) => after(parseEventId(a.id)!, parseEventId(b.id)!));
+}
+
+/**
+ * The simulator starts a run every 20 s, far busier than the sample team's
+ * history (a few hundred CI minutes a day). Its stats count at this rate, so a
+ * day of simulation adds about one ordinary day to the totals and chart
+ * instead of dwarfing them.
+ */
+export const SIM_STATS_SCALE = 1 / 24;
+
+/** The stats delta of one simulated step (what its stats.updated event carries), scaled by SIM_STATS_SCALE. */
+function stepDelta(s: SimStep): StatsDelta {
+  const k = SIM_STATS_SCALE;
+  const spot = s.why.kind === "spot-check" ? k : 0;
+  return s.outcome === "replayed"
+    ? { replayedMinutes: (s.fullSeconds / 60) * k, ranMinutes: 0, stepsReplayed: k, stepsTotal: k, spotChecks: 0, spotChecksIdentical: 0 }
+    : { replayedMinutes: 0, ranMinutes: (s.seconds / 60) * k, stepsReplayed: 0, stepsTotal: k, spotChecks: spot, spotChecksIdentical: spot };
+}
+
+const ZERO: StatsDelta = { replayedMinutes: 0, ranMinutes: 0, stepsReplayed: 0, stepsTotal: 0, spotChecks: 0, spotChecksIdentical: 0 };
+const add = (a: StatsDelta, b: StatsDelta): StatsDelta => ({
+  replayedMinutes: a.replayedMinutes + b.replayedMinutes,
+  ranMinutes: a.ranMinutes + b.ranMinutes,
+  stepsReplayed: a.stepsReplayed + b.stepsReplayed,
+  stepsTotal: a.stepsTotal + b.stepsTotal,
+  spotChecks: a.spotChecks + b.spotChecks,
+  spotChecksIdentical: a.spotChecksIdentical + b.spotChecksIdentical,
+});
+
+// Running sum for the current UTC day, extended as time passes (per instance; any instance gets the same answer).
+let today: { day: number; upTo: number; sum: StatsDelta } | null = null;
+
+/**
+ * Everything the simulator added since UTC midnight, up to `t`: the same
+ * deltas its stats.updated events carry. Folded into the sample overview so a
+ * reload shows the totals the open page had reached.
+ */
+export function deltaSinceMidnight(t: number): StatsDelta {
+  const day = Math.floor(t / 86_400_000) * 86_400_000;
+  if (!today || today.day !== day || today.upTo > t) today = { day, upTo: day, sum: ZERO };
+  let sum = today.sum;
+  for (let c = Math.max(0, cycleAt(today.upTo - MAX_RUN_MS)); cycleStart(c) <= t; c++) {
+    for (const j of planCycle(c).jobs)
+      for (const s of j.steps) if (s.stepKey && s.endAt > today.upTo && s.endAt <= t && s.endAt >= day) sum = add(sum, stepDelta(s));
+  }
+  today = { day, upTo: t, sum };
+  return sum;
 }
 
 /** Spot checks the simulator played for a step key in the last `windowMs`, newest first (step trust history). */

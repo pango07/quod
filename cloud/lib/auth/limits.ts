@@ -22,6 +22,10 @@ export class TtlCache<V> {
     return e.value;
   }
 
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+
   set(key: string, value: V): void {
     if (this.entries.size >= this.max) {
       const oldest = this.entries.keys().next().value;

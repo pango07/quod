@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Elapsed } from "@/components/live/parts";
+import { useLiveListener } from "@/components/live/provider";
+import { applyToRunJobs } from "@/lib/live/jobs";
 import { OutcomeChip, StepDot } from "@/components/ui";
 import type { RunJob } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
@@ -13,7 +15,31 @@ import { receiptFor } from "@/lib/trust";
  * why the selected one replayed or ran. The selection is kept in the URL (?step=).
  * Arrow keys move between steps.
  */
-export function RunSteps({ team, repo, jobs, initial, asOf }: { team: string; repo: string; jobs: RunJob[]; initial: number; asOf: string }) {
+export function RunSteps({
+  team,
+  repo,
+  run,
+  jobs: serverJobs,
+  initial,
+  asOf,
+}: {
+  team: string;
+  repo: string;
+  run: number;
+  jobs: RunJob[];
+  initial: number;
+  asOf: string;
+}) {
+  // Live: step events carry the RunStep, so the list updates here without a refetch.
+  // A server refresh (after a job or the run finishes) replaces it with the server's version.
+  const [jobs, setJobs] = useState(serverJobs);
+  const [seen, setSeen] = useState(serverJobs);
+  if (seen !== serverJobs) {
+    setSeen(serverJobs);
+    setJobs(serverJobs);
+  }
+  useLiveListener((e) => setJobs((cur) => applyToRunJobs(cur, e, repo, run)));
+
   const flat = jobs.flatMap((j, ji) => j.steps.map((s, si) => ({ s, ji, si })));
   const [sel, setSel] = useState(Math.min(Math.max(0, initial), flat.length - 1));
   const list = useRef<HTMLDivElement>(null);
@@ -79,7 +105,12 @@ export function RunSteps({ team, repo, jobs, initial, asOf }: { team: string; re
                   <span className="ellipsis">{s.name}</span>
                   <OutcomeChip outcome={s.outcome} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)", fontSize: 13 }}>
-                    {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <Elapsed since={s.startedAt} asOf={asOf} /> : formatDuration(s.seconds)}
+                    {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <>
+                          <span aria-hidden="true">
+                            <Elapsed since={s.startedAt} asOf={asOf} />
+                          </span>
+                          <span className="sr-only">running</span>
+                        </> : formatDuration(s.seconds)}
                   </span>
                 </button>
               );

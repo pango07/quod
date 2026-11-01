@@ -18,7 +18,7 @@ import {
   TRUST_COUNTS,
   trustSeed,
 } from "./fixture-data";
-import { detailAt, eventsBetween, jobsAt, latestRun, runByNumber, runsStartedBetween, summaryAt, trustEventsFor } from "@/lib/live/sim";
+import { cursorAt, deltaSinceMidnight, detailAt, eventsBetween, jobsAt, latestRun, runByNumber, runsStartedBetween, summaryAt, trustEventsFor } from "@/lib/live/sim";
 import type {
   Activity,
   LiveEvent,
@@ -175,7 +175,25 @@ export class FixtureCloudApi implements CloudApi {
         runners: [],
       };
     }
-    const totals = totalsFor(range);
+    const base7 = totalsFor(range);
+    const days = daysFor(range);
+    // Fold in what the simulator added today, so a reload shows what the open page had reached.
+    const sim = simulating(team) ? deltaSinceMidnight(Date.now()) : null;
+    const totals = sim
+      ? {
+          ...base7,
+          savedMinutes: base7.savedMinutes + sim.replayedMinutes,
+          costSavedUsd: (base7.savedMinutes + sim.replayedMinutes) * base7.usdPerMinute,
+          stepsReplayed: base7.stepsReplayed + sim.stepsReplayed,
+          stepsTotal: base7.stepsTotal + sim.stepsTotal,
+          spotChecks: base7.spotChecks + sim.spotChecks,
+          spotChecksIdentical: base7.spotChecksIdentical + sim.spotChecksIdentical,
+        }
+      : base7;
+    if (sim && days.length) {
+      const last = days[days.length - 1];
+      days[days.length - 1] = { ...last, replayedMinutes: last.replayedMinutes + sim.replayedMinutes, ranMinutes: last.ranMinutes + sim.ranMinutes };
+    }
     // Repo savings are given for 7 days; scale them so they add up to the range's total.
     const base = repos.reduce((a, r) => a + r.summary.savedMinutes, 0);
     let left = totals.savedMinutes;
@@ -192,7 +210,7 @@ export class FixtureCloudApi implements CloudApi {
     return {
       asOf: asOf(),
       totals,
-      days: daysFor(range),
+      days,
       repos: scaled,
       trust: { ...TRUST_COUNTS, spotChecksPassed: totals.spotChecksIdentical, paused },
       runners: RUNNERS.map((r) => ({ ...r })),
@@ -298,7 +316,8 @@ export class FixtureCloudApi implements CloudApi {
   async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {
     await this.tick();
     const now = Date.now();
-    return { asOf: new Date(now).toISOString(), jobs: simulating(team) ? jobsAt(now, opts.repo) : [], simulated: simulating(team) };
+    const live = simulating(team);
+    return { asOf: new Date(now).toISOString(), jobs: live ? jobsAt(now, opts.repo) : [], simulated: live, cursor: live ? cursorAt(now) : null };
   }
 
   /** Polls the simulator's clock twice a second; a resume replays what was missed (up to 5 minutes). */

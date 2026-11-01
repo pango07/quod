@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { authMode } from "./config";
 import { DEMO_VIEWER } from "./demo";
+import { TtlCache } from "./limits";
 import type { Membership, Viewer } from "./types";
 
 /**
@@ -31,11 +32,26 @@ export const getViewer = cache(async (): Promise<Viewer> => {
   };
 });
 
+/**
+ * Memberships change rarely but are read on every page view and live refresh,
+ * so they are kept 60 s per user, in memory, per server instance. Actions that
+ * change them (team switch, invitations, role changes) call invalidateMemberships.
+ */
+const membershipCache = new TtlCache<Membership[]>(60_000, 10_000);
+
+export function invalidateMemberships(userId: string): void {
+  membershipCache.delete(userId);
+}
+
 /** Active WorkOS Organization memberships, with each organization's role for this user. */
 async function listMemberships(userId: string): Promise<Membership[]> {
+  const hit = membershipCache.get(userId);
+  if (hit) return hit;
   const page = await getWorkOS().userManagement.listOrganizationMemberships({ userId, statuses: ["active"], limit: 100 });
   const all = await page.autoPagination();
-  return all.map((m) => ({ orgId: m.organizationId, orgName: m.organizationName, role: m.role?.slug ?? "member" }));
+  const memberships = all.map((m) => ({ orgId: m.organizationId, orgName: m.organizationName, role: m.role?.slug ?? "member" }));
+  membershipCache.set(userId, memberships);
+  return memberships;
 }
 
 /** The viewer's access token, for quod-server. Undefined in the demo session. */
