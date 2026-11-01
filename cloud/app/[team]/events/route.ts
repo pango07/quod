@@ -1,6 +1,7 @@
 import { connection, type NextRequest } from "next/server";
 import { api } from "@/lib/api";
-import { findTeam } from "@/lib/dal";
+import { findTeam, isStillMember } from "@/lib/dal";
+import { whileAllowed } from "@/lib/live/guard";
 import { parseScope } from "@/lib/live/scope";
 import { liveStream, SSE_HEADERS } from "@/lib/live/stream";
 
@@ -8,9 +9,11 @@ import { liveStream, SSE_HEADERS } from "@/lib/live/stream";
 // Same session and membership check as the pages: a team you are not in is a 404.
 // The stream closes after ~4 minutes, under the 300 s function limit, and the
 // browser reconnects with Last-Event-ID; nothing is lost in between.
+// Membership is checked again every 30 s; a viewer removed from the team loses the stream.
 export const maxDuration = 300;
 
 const NO_STORE = { "cache-control": "no-store" };
+const MEMBERSHIP_CHECK_MS = 30_000;
 /** Event ids are opaque printable ASCII; anything else is refused before it reaches an adapter. */
 const EVENT_ID = /^[\x21-\x7e]{1,128}$/;
 
@@ -33,7 +36,12 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/[team
   const stream = liveStream({
     snapshot,
     signal: request.signal,
-    events: (signal) => cloud.subscribe(ctx.team.slug, scope, { lastEventId, signal }),
+    events: (signal) =>
+      whileAllowed((s) => cloud.subscribe(ctx.team.slug, scope, { lastEventId, signal: s }), {
+        signal,
+        everyMs: MEMBERSHIP_CHECK_MS,
+        check: () => isStillMember(ctx.team.slug, ctx.team.orgId),
+      }),
   });
   return new Response(stream, { headers: SSE_HEADERS });
 }

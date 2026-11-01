@@ -187,7 +187,28 @@ export async function recentRuns(teamId: TeamId, repo?: string | null, opts: { l
      LIMIT $2`,
     params,
   );
-  return rows.map((row) => ({
+  return rows.map(runFromRow);
+}
+
+/**
+ * Each linked repo's latest workflow run, keyed by repo id: one row per repo
+ * (DISTINCT ON), however many runs other repos had since.
+ */
+export async function latestRunsByRepo(teamId: TeamId, db?: Db): Promise<Map<number, LiveRun>> {
+  const q = await resolve(db);
+  const rows = await q.query(
+    `SELECT DISTINCT ON (w.repo_id) w.*, r.name AS repo_name, r.full_name AS repo_full_name
+     FROM workflow_runs w
+     JOIN installations i ON i.id = w.installation_id AND i.team_id = $1 AND i.deleted_at IS NULL AND i.suspended_at IS NULL
+     JOIN repos r ON r.id = w.repo_id AND r.installation_id = i.id AND r.removed_at IS NULL
+     ORDER BY w.repo_id, COALESCE(w.run_started_at, w.created_at, w.gh_updated_at) DESC, w.id DESC`,
+    [teamId],
+  );
+  return new Map(rows.map((row) => [Number(row.repo_id), runFromRow(row)]));
+}
+
+function runFromRow(row: Row): LiveRun {
+  return {
     id: Number(row.id),
     repoSlug: str(row.repo_name),
     repoName: str(row.repo_full_name),
@@ -204,7 +225,7 @@ export async function recentRuns(teamId: TeamId, repo?: string | null, opts: { l
     githubUrl: str(row.html_url),
     startedAt: iso(row.run_started_at) ?? null,
     updatedAt: iso(row.gh_updated_at) ?? new Date(0).toISOString(),
-  }));
+  };
 }
 
 /** The installations linked to a team, with their repos (for the linking page and settings). */

@@ -6,6 +6,7 @@ import { dbConfigured, getDb } from "@/lib/db";
 import { githubAppConfig } from "@/lib/github/env";
 import { CompositeCloudApi } from "./composite";
 import { FixtureCloudApi, newFixtureState, type FixtureState } from "./fixture";
+import { isSampleOrg } from "./fixture-data";
 import { HttpCloudApi } from "./http";
 import { resolveApiMode } from "./mode";
 import { ApiForbiddenError, ApiInvalidRequestError, type CloudApi } from "./types";
@@ -20,7 +21,13 @@ const g = globalThis as unknown as { __quodFixtureState?: FixtureState };
 export function api(): CloudApi {
   const mode = resolveApiMode(process.env);
   if (mode.kind === "misconfigured") throw new Error(`Quod Cloud data source is not configured. ${mode.problem}`);
-  const inner = mode.kind === "http" ? new HttpCloudApi(mode.url, accessToken) : new FixtureCloudApi((g.__quodFixtureState ??= newFixtureState()));
+  // The team's org id, from the viewer's membership-checked teams. Which data a
+  // team sees (sample or real) is decided by this id, never by slug or name.
+  const orgOf = async (team: string) => (await (await import("@/lib/dal")).findTeam(team))?.team.orgId ?? null;
+  const inner =
+    mode.kind === "http"
+      ? new HttpCloudApi(mode.url, accessToken)
+      : new FixtureCloudApi((g.__quodFixtureState ??= newFixtureState()), undefined, orgOf);
   // CI job activity from the GitHub App for linked teams, whatever the inner adapter is.
   const composite = new CompositeCloudApi(inner, {
     github: {
@@ -29,7 +36,9 @@ export function api(): CloudApi {
       db: () => getDb(),
     },
     // The TeamId only ever comes from the membership-checked team context (lib/github/team.ts).
-    orgOf: async (team) => (await (await import("@/lib/dal")).findTeam(team))?.team.orgId ?? null,
+    orgOf,
+    // Only the demo session's sample org has sample data (and only with the fixture adapter).
+    isSample: (orgId) => mode.kind === "fixture" && isSampleOrg(orgId),
   });
   return withRefusals(composite);
 }

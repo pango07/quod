@@ -31,3 +31,11 @@ export function parseStepFilter(v: Param): StepFilter {
   const f = one(v);
   return f === "replaying" || f === "proving" || f === "watching" || f === "paused" ? f : "all";
 }
+
+/**
+ * A team slug: lowercase letters, digits and hyphens, no dots (what
+ * resolveTeams makes from org names). So /favicon.ico is never a team.
+ */
+export function isTeamSlug(v: unknown): v is string {
+  return typeof v === "string" && /^[a-z0-9][a-z0-9-]{0,62}$/.test(v);
+}

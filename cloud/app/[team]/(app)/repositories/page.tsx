@@ -30,7 +30,7 @@ export default async function RepositoriesPage({ params }: PageProps<"/[team]/re
               </Link>
             }
           >
-            Add one step to a workflow and push. Quod starts by only watching.
+            Connect GitHub to see your repositories and their CI live.
           </EmptyState>
         )}
       </section>

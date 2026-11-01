@@ -1,6 +1,7 @@
 import "server-only";
 import { getWorkOS, withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 import { authMode } from "./config";
 import { DEMO_VIEWER } from "./demo";
@@ -13,7 +14,13 @@ import type { Membership, Viewer } from "./types";
  * as a guest). Sends a signed-out viewer to our own /sign-in (the proxy
  * normally does that first).
  */
-export const getViewer = cache(async (): Promise<Viewer> => {
+export const getViewer = cache(() => loadViewer());
+
+/** getViewer without the per-request memo: for long-lived streams that re-check membership. */
+export async function loadViewer(): Promise<Viewer> {
+  // Per request, never prerendered: a runtime prefetch has the cookies but must not
+  // read the session or the membership cache's clock (Date.now()) into a prerender.
+  await connection();
   if (authMode() === "demo") return DEMO_VIEWER;
 
   const auth = await withAuth();
@@ -30,7 +37,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
     currentOrgId: auth.organizationId ?? null,
     memberships,
   };
-});
+}
 
 /**
  * Memberships change rarely but are read on every page view and live refresh,

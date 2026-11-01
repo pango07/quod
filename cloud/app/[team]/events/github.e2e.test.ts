@@ -19,7 +19,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), connection: async () => {} }));
 vi.mock("@/lib/github/lazy-reconcile", () => ({ lazyReconcileTeam: vi.fn(async () => undefined) }));
 const findTeam = vi.fn();
-vi.mock("@/lib/dal", () => ({ findTeam: (...a: unknown[]) => findTeam(...a) }));
+vi.mock("@/lib/dal", () => ({ findTeam: (...a: unknown[]) => findTeam(...a), isStillMember: async () => true }));
 let cloud: CompositeCloudApi;
 vi.mock("@/lib/api", () => ({ api: () => cloud }));
 
@@ -27,14 +27,19 @@ const { GET } = await import("./route");
 
 let db: Db;
 const ORG = "org_acme";
+/** The demo session's sample org (lib/api/fixture-data.ts). */
+const SAMPLE = "org_demo_quodci";
 const team = (slug: string) => ({ team: { slug, orgId: ORG }, admin: true });
 
 const send = (event: string, payload: unknown) => handleWebhook({ db, secret: SECRET, ...delivery(event, payload) });
 
-function composite(source: Partial<{ configured: boolean; db: () => Promise<Db> }> = {}) {
-  return new CompositeCloudApi(new FixtureCloudApi(newFixtureState(), 0), {
+/** Slug -> org id for this test's viewer; any other slug is ORG. By default "quodci" is the demo session's sample team. */
+function composite(source: Partial<{ configured: boolean; db: () => Promise<Db> }> = {}, orgs: Record<string, string> = { quodci: SAMPLE }) {
+  const orgOf = async (slug: string) => orgs[slug] ?? ORG;
+  return new CompositeCloudApi(new FixtureCloudApi(newFixtureState(), 0, orgOf), {
     github: { configured: () => source.configured ?? true, appReady: () => true, db: source.db ?? (async () => db) },
-    orgOf: async () => ORG,
+    orgOf,
+    isSample: (orgId) => orgId === SAMPLE,
     pollIntervalMs: 250,
   });
 }
@@ -202,9 +207,79 @@ describe("no database, no crash", { timeout: 30_000 }, () => {
     await sse.cancel();
   });
 
-  it("the sample team keeps the simulator", async () => {
+  it("the sample team (the demo session's org) keeps the simulator", async () => {
     const a = await cloud.getActivity("quodci");
     expect(a.simulated).toBe(true);
     expect(a.github).toBeUndefined();
+  });
+});
+
+describe("a real org named like the sample team is a real team", { timeout: 30_000 }, () => {
+  // The product owner's WorkOS org is named "quodci": its slug is "quodci", but its org id is real.
+  beforeEach(() => {
+    cloud = composite({}, { quodci: ORG });
+  });
+
+  it("unlinked: not simulated, no sample repos, and the Connect card's state", async () => {
+    const a = await cloud.getActivity("quodci");
+    expect(a.simulated).toBe(false);
+    expect(a.jobs).toEqual([]);
+    expect(a.github).toEqual({ state: "unlinked", canInstall: true });
+    expect((await cloud.getOverview("quodci", "7d")).repos).toEqual([]);
+    expect(await cloud.listRepos("quodci")).toEqual([]);
+    expect(await cloud.getRepo("quodci", "quod")).toBeNull();
+    expect(await cloud.listRunners("quodci")).toEqual([]);
+  });
+
+  it("linked: its GitHub repos and live jobs, over the stream too", async () => {
+    await link();
+    await send("workflow_job", jobPayload("queued", { id: 1 }));
+    const a = await cloud.getActivity("quodci");
+    expect(a.simulated).toBe(false);
+    expect(a.github).toMatchObject({ state: "linked", repos: 1 });
+    expect(a.jobs.map((j) => [j.id, j.repoName, j.source])).toEqual([["1", "acme/api", "github"]]);
+    expect((await cloud.listRepos("quodci")).map((r) => r.fullName)).toEqual(["acme/api"]);
+
+    const sse = await reader(await stream("quodci"));
+    await sse.until((m) => m.some((x) => x.event === "snapshot"));
+    await send("workflow_job", jobPayload("in_progress", { id: 1 }));
+    await sse.until((m) => m.some((x) => x.event === "job.started"));
+    await sse.cancel();
+  });
+});
+
+describe("stream positions", { timeout: 30_000 }, () => {
+  it("a client's gh-0 means live from now: the team's history is not replayed", async () => {
+    await link();
+    await send("workflow_job", jobPayload("queued", { id: 1 }));
+    await send("workflow_job", jobPayload("completed", { id: 1 }));
+    const ac = new AbortController();
+    const seen: LiveEvent[] = [];
+    const done = (async () => {
+      for await (const e of cloud.subscribe("acme", { kind: "team" }, { lastEventId: "gh-0", signal: ac.signal })) seen.push(e);
+    })();
+    await new Promise((r) => setTimeout(r, 600));
+    await send("workflow_job", jobPayload("queued", { id: 2 }));
+    for (let i = 0; i < 40 && !seen.some((e) => e.type === "job.queued" && e.job.id === "2"); i++) await new Promise((r) => setTimeout(r, 100));
+    ac.abort();
+    await done;
+    // The resync may re-send job 1's latest state (finished, a no-op for the client), never its older ones.
+    expect(seen.filter((e) => e.type !== "job.finished").map((e) => e.type === "job.queued" && e.job.id)).toEqual(["2"]);
+  });
+
+  it("a cursor without a GitHub part still gets GitHub events, and the inner adapter gets only its part", async () => {
+    await link();
+    const ac = new AbortController();
+    const seen: LiveEvent[] = [];
+    const done = (async () => {
+      for await (const e of cloud.subscribe("acme", { kind: "team" }, { lastEventId: "quod-7", signal: ac.signal })) seen.push(e);
+    })();
+    await new Promise((r) => setTimeout(r, 600));
+    await send("workflow_job", jobPayload("queued", { id: 3 }));
+    for (let i = 0; i < 40 && !seen.length; i++) await new Promise((r) => setTimeout(r, 100));
+    ac.abort();
+    await done;
+    expect(seen[0]).toMatchObject({ type: "job.queued", job: { id: "3" } });
+    expect(seen[0].id).toMatch(/^gh-\d+,quod-7$/);
   });
 });

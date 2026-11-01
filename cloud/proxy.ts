@@ -13,8 +13,15 @@ const isPublic = (path: string) => PUBLIC.some((p) => path === p || path.startsW
 // the reconcile cron its CRON_SECRET): no session, no cookie.
 const MACHINE = ["/api/github/webhook", "/api/github/reconcile"];
 
+// A file at the root (/apple-touch-icon-precomposed.png, /robots.txt, ...) that no route serves:
+// not a team page (team slugs have no dots), so 404 here, without reading a session.
+// The real icons (app/favicon.ico, icon.png, apple-icon.png) never reach the proxy (see matcher).
+const ROOT_FILE = /^\/[^/]*\.[A-Za-z0-9]{1,8}$/;
+const ICONS = new Set(["/favicon.ico", "/icon.png", "/apple-icon.png"]);
+
 export default async function proxy(request: NextRequest) {
   if (MACHINE.includes(request.nextUrl.pathname)) return NextResponse.next();
+  if (ROOT_FILE.test(request.nextUrl.pathname) && !ICONS.has(request.nextUrl.pathname)) return new NextResponse("Not found", { status: 404, headers: { "cache-control": "no-store" } });
   const mode = resolveAuthMode(process.env);
 
   if (mode.kind === "misconfigured") {
@@ -41,6 +48,7 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything but Next.js build assets. A path like /acme/logo.png still goes through sign-in.
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|icon\\.svg).*)"],
+  // Everything but Next.js build assets and the app icons (app/favicon.ico, icon.png, apple-icon.png).
+  // A path like /acme/logo.png still goes through sign-in.
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico$|icon\\.png$|apple-icon\\.png$).*)"],
 };

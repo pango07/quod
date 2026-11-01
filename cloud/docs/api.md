@@ -152,8 +152,12 @@ with a linked GitHub installation (and `DATABASE_URL` set), "Now running"
 whatever `QUOD_API` is; Quod's run, step, trust and stats events still come
 from the inner adapter. Overview and the repo list also show the
 installation's repos with their latest workflow run, marked
-`hasQuodData: false` until Quod has data for them. The sample team keeps the
-simulator. `Activity.github` says where a team stands: `linked`, `unlinked`
+`hasQuodData: false` until Quod has data for them (a repo name two linked
+owners share shows as `owner-name`). The sample team keeps the simulator and
+never gets GitHub data. Which team is the sample team is decided by WorkOS org
+id (the demo session's `org_demo_quodci`), never by slug or name: a real org
+named "quodci" is a real team at /quodci, with its own GitHub data or the
+Connect card. `Activity.github` says where a team stands: `linked`, `unlinked`
 (with `canInstall`), `not-configured` (no database), or `unavailable` (the
 database did not answer; pages still render and say so).
 

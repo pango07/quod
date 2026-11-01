@@ -15,13 +15,45 @@ describe("fixture adapter", () => {
     }
   });
 
-  it("a real Organization named like the sample team is that team, under its own org id", async () => {
+  it("a real Organization named like the sample team is a real team: its own slug, never sample data", async () => {
     const [team, other] = await api.resolveTeams([
       { orgId: "org_real", name: "quodci" },
       { orgId: "org_other", name: "Acme" },
     ]);
-    expect(team).toMatchObject({ slug: "quodci", orgId: "org_real" });
+    // Slugs are per viewer: without the demo session's sample team among their teams, it is /quodci.
+    expect(team).toEqual({ slug: "quodci", name: "quodci", plan: "Hobby", orgId: "org_real" });
     expect(other).toMatchObject({ slug: "acme", orgId: "org_other" });
+    const real = new FixtureCloudApi(undefined, 0, async (slug) => (slug === "quodci" ? "org_real" : null));
+    expect(await real.listRepos("quodci")).toEqual([]);
+    expect((await real.getOverview("quodci", "7d")).repos).toEqual([]);
+    expect(await real.getActivity("quodci")).toMatchObject({ simulated: false, jobs: [] });
+    expect(await real.listRunners("quodci")).toEqual([]);
+  });
+
+  it("the demo session keeps its sample team; a real org of the same name next to it gets the next slug", async () => {
+    const teams = await api.resolveTeams([
+      { orgId: "org_real", name: "quodci" },
+      { orgId: "org_demo_quodci", name: "quodci" },
+    ]);
+    expect(teams.map((t) => [t.slug, t.orgId])).toEqual([
+      ["quodci-2", "org_real"],
+      ["quodci", "org_demo_quodci"],
+    ]);
+    expect((await api.getActivity("quodci")).simulated).toBe(process.env.QUOD_SIMULATE !== "0");
+  });
+
+  it("a slug never takes an app path", async () => {
+    const [t] = await api.resolveTeams([{ orgId: "org_x", name: "Sign In" }]);
+    expect(t.slug).toBe("sign-in-2");
+  });
+
+  it("keeps a team's choices by org id, not by slug", async () => {
+    let org = "org_a";
+    const f = new FixtureCloudApi(undefined, 0, async () => org);
+    await f.saveConnectChoice("acme", { store: "self", host: "own" });
+    expect((await f.getConnectSetup("acme")).saved).toEqual({ store: "self", host: "own" });
+    org = "org_b"; // another org now has this slug (another viewer)
+    expect((await f.getConnectSetup("acme")).saved).toBeNull();
   });
 
   it("serves run #1842 as the design shows it", async () => {

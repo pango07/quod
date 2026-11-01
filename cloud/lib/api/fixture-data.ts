@@ -31,6 +31,11 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 
 export const USD_PER_MINUTE = 0.008;
 
+/** The demo session's sample team: the only org with sample data and the simulator. Real WorkOS org ids look like "org_01..". */
+export const SAMPLE_ORG_ID = "org_demo_quodci";
+
+export const isSampleOrg = (orgId: string | null | undefined): boolean => orgId === SAMPLE_ORG_ID;
+
 export const TEAMS: Team[] = [
   { slug: "quodci", name: "quodci", plan: "Pro", orgId: "org_demo_quodci" },
   { slug: "jvaught", name: "jvaught", plan: "Hobby", orgId: "org_demo_jvaught" },
