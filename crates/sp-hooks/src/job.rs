@@ -531,48 +531,68 @@ fn import_persisted(cas: &Cas, dir: &Path) -> anyhow::Result<Tree> {
     Ok(Tree::from_leaves(leaves))
 }
 
-/// A process, by pid and start time (so a reused pid is not it).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+/// A process, by pid and start time (so a reused pid is not it), in the
+/// pid namespace of the hook that recorded it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Owner {
     pub pid: u32,
     /// Clock ticks after boot (field 22 of /proc/<pid>/stat).
     pub start: u64,
+    /// `/proc/self/ns/pid` of the recording hook (`pid:[4026531836]`): the
+    /// pid means something only there.
+    #[serde(default)]
+    pub pid_ns: String,
+}
+
+/// How long a job directory with no owner the sweep can check (none
+/// recorded, or one in another pid namespace) must sit untouched before the
+/// sweep takes it: longer than GitHub lets a self-hosted job run (5 days).
+const UNOWNED_STALE: Duration = Duration::from_secs(6 * 24 * 3600);
+
+fn pid_ns() -> String {
+    std::fs::read_link("/proc/self/ns/pid")
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 impl Owner {
     /// The runner's worker process this hook runs under: the nearest
     /// ancestor named `Runner.Worker` (the shim's node process is in
-    /// between), or else the parent (a test harness).
+    /// between). None if there is none (a test harness, a runner that names
+    /// its worker otherwise): the parent, the shim, dies with each hook,
+    /// so a live job would look dead between its hooks.
     pub fn of_this_hook() -> Option<Owner> {
-        let parent = std::os::unix::process::parent_id();
-        let mut pid = parent;
+        let mut pid = std::os::unix::process::parent_id();
         for _ in 0..8 {
             if pid <= 1 {
-                break;
+                return None;
             }
             if std::fs::read_to_string(format!("/proc/{pid}/comm"))
                 .is_ok_and(|c| c.trim_end() == "Runner.Worker")
             {
                 return Owner::of(pid);
             }
-            match proc_stat(pid) {
-                Some(st) => pid = st.ppid,
-                None => break,
-            }
+            pid = proc_stat(pid)?.ppid;
         }
-        Owner::of(parent)
+        None
     }
 
     pub fn of(pid: u32) -> Option<Owner> {
         proc_stat(pid).map(|st| Owner {
             pid,
             start: st.start,
+            pid_ns: pid_ns(),
         })
     }
 
-    /// Still running: the same pid with the same start time, not a zombie.
-    pub fn alive(&self) -> bool {
-        proc_stat(self.pid).is_some_and(|st| st.start == self.start && st.state != 'Z')
+    /// Whether this owner is still running, as far as this process can
+    /// tell: `None` when it cannot (recorded in another pid namespace, or
+    /// with none).
+    pub fn alive(&self) -> Option<bool> {
+        if self.pid_ns.is_empty() || self.pid_ns != pid_ns() {
+            return None;
+        }
+        Some(proc_stat(self.pid).is_some_and(|st| st.start == self.start && st.state != 'Z'))
     }
 }
 
@@ -658,7 +678,10 @@ fn unescape_mountinfo(field: &str) -> PathBuf {
 /// SIGKILL never reaches cleanup_job, and its job directory keeps the
 /// steps' raw output, its job.json and the overlay and FUSE mounts. A job
 /// whose worker still runs (another pool on this state, a worker that
-/// outlived its listener) is left alone. Takes the state lock exclusively,
+/// outlived its listener) is left alone, and so is one whose owner it
+/// cannot check (none recorded, or recorded in another pid namespace: the
+/// sweep assumes the hooks share its pid namespace, and spares what they
+/// do not) until it has sat untouched longer than any job may run. Takes the state lock exclusively,
 /// waiting up to a minute for running hooks; if they do not finish, sweeps
 /// nothing. Returns how many job directories it removed.
 pub fn sweep_stale_jobs(state_dir: &Path) -> anyhow::Result<usize> {
@@ -695,11 +718,23 @@ fn sweep_stale_jobs_waiting(state_dir: &Path, wait: Duration) -> anyhow::Result<
             serde_json::from_slice(&std::fs::read(dir.join("job.json")).ok()?).ok()?;
         serde_json::from_value(v.get("owner")?.clone()).ok()
     };
+    // Untouched since: job.json is saved by every hook of the job.
+    let idle = |dir: &Path| -> Duration {
+        std::fs::metadata(dir.join("job.json"))
+            .or_else(|_| std::fs::metadata(dir))
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .unwrap_or(Duration::ZERO)
+    };
     let stale: Vec<PathBuf> = rd
         .flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| e.path())
-        .filter(|d| !owner(d).is_some_and(|o| o.alive()))
+        .filter(|d| match owner(d).and_then(|o| o.alive()) {
+            Some(alive) => !alive,
+            None => idle(d) > UNOWNED_STALE,
+        })
         .collect();
     let mut mounts: Vec<PathBuf> = std::fs::read_to_string("/proc/self/mountinfo")
         .unwrap_or_default()
@@ -2201,6 +2236,15 @@ mod tests {
         assert_eq!(ign.len(), sp_trust::HOME_VOLATILE.len() + 1);
     }
 
+    fn age(dir: &Path, by: Duration) {
+        let t = std::time::SystemTime::now() - by;
+        for p in [dir.join("job.json"), dir.to_path_buf()] {
+            if let Ok(f) = std::fs::File::open(&p) {
+                f.set_modified(t).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn stale_jobs_are_swept() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2209,6 +2253,9 @@ mod tests {
         std::fs::create_dir_all(job.join("step-001")).unwrap();
         std::fs::write(job.join("job.json"), "{}").unwrap();
         std::fs::write(job.join("step-001/stdout"), "raw output").unwrap();
+        // No owner to check: spared while it may still be running.
+        assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 0);
+        age(&job, UNOWNED_STALE + Duration::from_secs(60));
         assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 1);
         assert!(!job.exists());
     }
@@ -2318,13 +2365,15 @@ mod tests {
         assert!(writer.ends_with("abc") && writer.contains("writer"));
     }
 
-    /// MINOR 6: the sweep leaves a job whose owner still runs, and never
-    /// runs while a hook holds the state.
+    /// MINOR 6 and N5: the sweep removes a job only when it can tell its
+    /// owner is gone (or the job has sat longer than any job may run), and
+    /// never while a hook holds the state.
     #[test]
     fn the_sweep_spares_live_jobs() {
         let tmp = tempfile::tempdir().unwrap();
         let me = Owner::of(std::process::id()).expect("this process");
-        assert!(me.alive());
+        assert_eq!(me.alive(), Some(true));
+        assert!(!me.pid_ns.is_empty());
         let job = |id: &str, owner: Option<Owner>| {
             let d = jobs_dir(tmp.path()).join(id);
             std::fs::create_dir_all(&d).unwrap();
@@ -2335,26 +2384,46 @@ mod tests {
             .unwrap();
             d
         };
-        let live = job("01LIVE", Some(me));
+        let live = job("01LIVE", Some(me.clone()));
         // The same pid started at another time: a reused pid, gone.
         let reused = job(
             "01REUSED",
             Some(Owner {
                 start: me.start + 1,
-                ..me
+                ..me.clone()
             }),
         );
-        let ownerless = job("01OLD", None);
+        // No owner (no Runner.Worker above the hook), or one in another pid
+        // namespace: cannot be checked, spared until long idle.
+        let unknown = job("01UNKNOWN", None);
+        let elsewhere = job(
+            "01ELSEWHERE",
+            Some(Owner {
+                pid_ns: "pid:[1]".into(),
+                start: me.start + 1,
+                ..me.clone()
+            }),
+        );
+        let abandoned = job("01ABANDONED", None);
+        age(&abandoned, UNOWNED_STALE + Duration::from_secs(60));
         // A hook holding the state: the sweep waits, then sweeps nothing.
         let held = state_lock_shared(tmp.path()).unwrap();
         assert_eq!(
             sweep_stale_jobs_waiting(tmp.path(), Duration::from_millis(300)).unwrap(),
             0
         );
-        assert!(reused.exists() && ownerless.exists());
+        assert!(reused.exists() && abandoned.exists());
         drop(held);
         assert_eq!(sweep_stale_jobs(tmp.path()).unwrap(), 2);
-        assert!(live.exists() && !reused.exists() && !ownerless.exists());
+        assert!(live.exists() && unknown.exists() && elsewhere.exists());
+        assert!(!reused.exists() && !abandoned.exists());
+    }
+
+    /// N5: a hook with no Runner.Worker above it (this test) records no
+    /// owner, rather than its parent, which dies with each hook.
+    #[test]
+    fn no_worker_no_owner() {
+        assert_eq!(Owner::of_this_hook(), None);
     }
 
     #[test]
