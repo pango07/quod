@@ -25,7 +25,7 @@ export function TeamSwitcher({ current, teams }: { current: string; teams: TeamI
       button={
         <>
           <Mark />
-          <span className="ellipsis" style={{ maxWidth: 160 }}>
+          <span className="ellipsis team-name" style={{ maxWidth: 160 }}>
             {team.name}
           </span>
           <span className="chip small">{team.plan}</span>

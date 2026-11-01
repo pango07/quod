@@ -64,11 +64,11 @@ async function BackLink({ params }: { params: Promise<{ team: string }> }) {
 
 async function Flow({ params, searchParams }: PageProps<"/[team]/connect">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
-  const { team } = await requireTeam(slug);
+  const { team, admin } = await requireTeam(slug);
   const setup = await api().getConnectSetup(team.slug);
   const store = (one(sp.store) === "self" ? "self" : one(sp.store) === "cloud" ? "cloud" : (setup.saved?.store ?? "cloud")) as Store;
   const host = (one(sp.host) === "own" ? "own" : one(sp.host) === "github" ? "github" : (setup.saved?.host ?? "github")) as Host;
-  return <ConnectFlow team={team.slug} setup={setup} initial={{ store, host }} />;
+  return <ConnectFlow team={team.slug} setup={setup} initial={{ store, host }} canSave={admin} />;
 }
 
 function FlowSkeleton() {

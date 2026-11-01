@@ -1,4 +1,4 @@
-import { authkit, handleAuthkitHeaders } from "@workos-inc/authkit-nextjs";
+import { authkit, handleAuthkitProxy } from "@workos-inc/authkit-nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveAuthMode } from "@/lib/auth/config";
 
@@ -19,12 +19,12 @@ export default async function proxy(request: NextRequest) {
 
   const { session, headers, authorizationUrl } = await authkit(request);
   if (!session.user && !PUBLIC.has(request.nextUrl.pathname) && authorizationUrl) {
-    return handleAuthkitHeaders(request, headers, { redirect: authorizationUrl });
+    return handleAuthkitProxy(request, headers, { redirect: authorizationUrl });
   }
-  return handleAuthkitHeaders(request, headers);
+  return handleAuthkitProxy(request, headers);
 }
 
 export const config = {
-  // Everything but static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|.*\\.(?:png|svg|ico|woff2?)$).*)"],
+  // Everything but Next.js build assets. A path like /acme/logo.png still goes through sign-in.
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|icon\\.svg).*)"],
 };

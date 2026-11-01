@@ -6,8 +6,8 @@ field names and types; this page is the short version for the Rust side.
 
 Two adapters implement it:
 
-- `lib/api/fixture.ts`: sample data from the approved prototypes. Used when
-  `QUOD_API_URL` is unset (in production only with `QUOD_API=fixture`).
+- `lib/api/fixture.ts`: sample data from the approved prototypes. Used only
+  with `QUOD_API=fixture` (set for `next dev` by `.env.development`).
 - `lib/api/http.ts`: quod-server over HTTP. **A stub**: written against the
   endpoints below, never run against a server.
 
@@ -28,6 +28,17 @@ Two adapters implement it:
   page names: `repositories`, `runs`, `trust`, `runners`, `usage`,
   `settings`, `connect`.
 
+## Who may do what
+
+WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirrors them.
+
+- Read anything in the team: any member.
+- Re-run without Quod: any member, as anyone with access can re-run a workflow in GitHub.
+- Change proofs needed for a step: admins.
+- Save the team's Connect choice: admins. Members can still view both setups.
+- Path ids (team, repo, step key) match `^[A-Za-z0-9._-]{1,100}$` and are never `.` or `..`;
+  run numbers are integers 1..999,999,999. The adapter refuses anything else before a request.
+
 ## Endpoints
 
 | Method and path | Body / query | Returns | Screen |
@@ -39,13 +50,13 @@ Two adapters implement it:
 | `GET /v1/teams/:team/repos/:repo` | | `RepoDetail` | Repository |
 | `GET /v1/teams/:team/runs` | `?repo=&limit=` | `{ asOf, runs: RunSummary[] }` newest first | Runs |
 | `GET /v1/teams/:team/repos/:repo/runs/:number` | | `RunDetail` | Run |
-| `POST /v1/teams/:team/repos/:repo/runs/:number/rerun` | `{ quod: false }` | `{ accepted, message }` | "Re-run without Quod" |
+| `POST /v1/teams/:team/repos/:repo/runs/:number/rerun` | `{ quod: false }` | `{ accepted, message }` | "Re-run without Quod"; any member |
 | `GET /v1/teams/:team/steps` | `?repo=` | `{ steps: StepSummary[] }` | Trust, repo Steps |
 | `GET /v1/teams/:team/repos/:repo/steps/:key` | | `StepTrust` | Step trust |
 | `PUT /v1/teams/:team/repos/:repo/steps/:key/proofs` | `{ need }` (2..10) | `StepTrust` | "Runs needed" toggle; team admins only |
 | `GET /v1/teams/:team/runners` | | `{ runners: Runner[] }` | Runners |
 | `GET /v1/teams/:team/connect` | | `ConnectSetup` | Connect |
-| `PUT /v1/teams/:team/connect` | `{ store, host }` | 204 | Connect (remembers the choice) |
+| `PUT /v1/teams/:team/connect` | `{ store, host }` | 204 | Connect (remembers the choice); team admins only |
 | `GET /v1/teams/:team/search-index` | | `SearchIndex` | ⌘K menu |
 
 ## Shapes, by screen

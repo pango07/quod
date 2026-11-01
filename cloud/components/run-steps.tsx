@@ -70,10 +70,12 @@ export function RunSteps({ team, repo, jobs, initial }: { team: string; repo: st
       <section
         id="why-panel"
         className="card why-panel"
-        aria-live="polite"
         aria-labelledby="why-h"
         style={{ flex: "1 1 380px", padding: 20, display: "flex", flexDirection: "column", gap: 14 }}
       >
+        <p className="sr-only" aria-live="polite">
+          {r.title}: {r.state}.
+        </p>
         <div className="row-between" style={{ flexWrap: "nowrap" }}>
           <h2 id="why-h" className="h2 ellipsis" style={{ minWidth: 0 }}>
             {r.title}

@@ -11,6 +11,7 @@ import type { Host, Store } from "@/lib/api/types";
 import { authMode } from "@/lib/auth/config";
 import { adminPortalLink, inviteMember as sendInvite, type PortalIntent } from "@/lib/auth/directory";
 import { requireTeam } from "@/lib/dal";
+import { isSlug, parseRunNumber } from "@/lib/params";
 
 export type ActionResult = { ok: boolean; message: string } | null;
 
@@ -58,27 +59,36 @@ export async function inviteMember(slug: string, _prev: ActionResult, form: Form
     revalidatePath(`/${team.slug}/settings`);
     return result;
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "The invitation could not be sent." };
+    // WorkOS error text can name internals; log it here and tell the user something fixed.
+    console.error("[quod-cloud] invitation failed", e);
+    return { ok: false, message: "The invitation could not be sent. Check the address, or try again in a minute." };
   }
 }
 
 export async function setProofsNeeded(slug: string, repo: string, key: string, need: number): Promise<ActionResult> {
   const { team, admin } = await requireTeam(slug);
   if (!admin) return NOT_ADMIN;
+  if (!isSlug(repo) || !isSlug(key)) return { ok: false, message: "No such step." };
   if (![2, 3, 5].includes(need)) return { ok: false, message: "Choose 2, 3 or 5 runs." };
   await api().setProofsNeeded(team.slug, repo, key, need);
   revalidatePath(`/${team.slug}/${repo}/steps/${key}`);
   return { ok: true, message: `Quod now needs ${need} consistent runs.` };
 }
 
+/** Any team member may ask for this, as anyone with access can re-run a workflow in GitHub (DECISIONS 2026-11-01). */
 export async function rerunWithoutQuod(slug: string, repo: string, run: number): Promise<ActionResult> {
   const { team } = await requireTeam(slug);
-  const r = await api().requestRerunWithoutQuod(team.slug, repo, run);
+  const number = parseRunNumber(run);
+  if (!isSlug(repo) || number === null) return { ok: false, message: "No such run." };
+  const r = await api().requestRerunWithoutQuod(team.slug, repo, number);
   return { ok: r.accepted, message: r.message };
 }
 
-export async function saveConnectChoice(slug: string, store: Store, host: Host): Promise<void> {
-  const { team } = await requireTeam(slug);
-  if (!["cloud", "self"].includes(store) || !["github", "own"].includes(host)) return;
+/** Saving the team's setup choice is for admins; members can still look at both setups. */
+export async function saveConnectChoice(slug: string, store: Store, host: Host): Promise<ActionResult> {
+  const { team, admin } = await requireTeam(slug);
+  if (!admin) return NOT_ADMIN;
+  if (!["cloud", "self"].includes(store) || !["github", "own"].includes(host)) return { ok: false, message: "Unknown choice." };
   await api().saveConnectChoice(team.slug, { store, host });
+  return { ok: true, message: "Saved for the team." };
 }

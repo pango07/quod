@@ -28,7 +28,7 @@ describe("auth mode: production fails closed", () => {
   });
 
   it("never picks the demo session in production, whatever else is set", () => {
-    for (const extra of [{}, { QUOD_DEMO: "1" }, { VERCEL_ENV: "preview" }]) {
+    for (const extra of [{}, { QUOD_AUTH: "demo" }, { QUOD_AUTH: "demo", VERCEL_ENV: "preview" }]) {
       expect(resolveAuthMode({ NODE_ENV: "production", ...extra }).kind).not.toBe("demo");
     }
   });
@@ -45,15 +45,26 @@ describe("auth mode: production fails closed", () => {
   });
 });
 
-describe("auth mode: local development", () => {
-  it("uses the demo session only when no WorkOS variable is set", () => {
-    expect(authMode({ NODE_ENV: "development" })).toBe("demo");
-    expect(authMode({ NODE_ENV: "test" })).toBe("demo");
-    expect(authMode({})).toBe("demo");
+describe("auth mode: the demo is an explicit opt-in", () => {
+  it("uses the demo session only with QUOD_AUTH=demo, no WorkOS variable, and not production", () => {
+    expect(authMode({ NODE_ENV: "development", QUOD_AUTH: "demo" })).toBe("demo");
+    expect(authMode({ NODE_ENV: "test", QUOD_AUTH: "demo" })).toBe("demo");
   });
 
-  it("refuses a partial config in development instead of falling back to the demo", () => {
-    expect(resolveAuthMode({ NODE_ENV: "development", WORKOS_CLIENT_ID: "client_x" }).kind).toBe("misconfigured");
+  it("refuses to serve without the opt-in, whatever NODE_ENV says", () => {
+    // `next start` keeps a preset NODE_ENV, so a host with NODE_ENV=staging must not get the demo.
+    for (const NODE_ENV of ["development", "test", "staging", undefined]) {
+      expect(resolveAuthMode({ NODE_ENV }).kind).toBe("misconfigured");
+    }
+    expect(resolveAuthMode({ NODE_ENV: "staging", QUOD_AUTH: "yes" }).kind).toBe("misconfigured");
+  });
+
+  it("refuses a partial config instead of falling back to the demo", () => {
+    expect(resolveAuthMode({ NODE_ENV: "development", QUOD_AUTH: "demo", WORKOS_CLIENT_ID: "client_x" }).kind).toBe("misconfigured");
+  });
+
+  it("prefers a complete WorkOS config over the demo flag", () => {
+    expect(authMode({ NODE_ENV: "development", QUOD_AUTH: "demo", ...full })).toBe("workos");
   });
 
   it("uses WorkOS in development when configured, with a localhost redirect", () => {

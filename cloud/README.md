@@ -12,10 +12,16 @@ npm test           # unit tests (auth fail-closed rule, formatters, fixtures)
 npm run lint && npx tsc --noEmit && npm run build
 ```
 
-With no `WORKOS_*` variables, `npm run dev` signs you in as a local demo
-user with sample data. To sign in for real, copy `.env.example` to
-`.env.local` and fill in the four WorkOS values. Production refuses to start
-without them.
+`npm run dev` loads the committed `.env.development`, which opts in to a
+local demo user (`QUOD_AUTH=demo`) and sample data (`QUOD_API=fixture`).
+To sign in for real, copy `.env.example` to `.env.local` and fill in the
+four WorkOS values; they take precedence over the demo flag. `next start`
+refuses to boot without a complete WorkOS config and a data source, and
+never runs the demo, whatever `NODE_ENV` says.
+
+`NEXT_PUBLIC_WORKOS_REDIRECT_URI` is inlined into the build: leave it unset
+for `next build` and set it at runtime, or build with exactly the runtime
+value.
 
 - `app/`: routes. `/[team]`, `/[team]/[repo]`, `/[team]/[repo]/runs/[run]`,
   `/[team]/[repo]/steps/[key]`, `/[team]/connect`, `/[team]/settings`, and
@@ -26,3 +32,4 @@ without them.
   members, invitations and the Admin Portal.
 - `lib/dal.ts`: every page resolves its team here (membership check).
 - `proxy.ts`: the Next.js 16 proxy (formerly middleware) that runs AuthKit.
+- `next.config.ts`: the boot-time config check and security headers.

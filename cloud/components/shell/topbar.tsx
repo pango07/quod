@@ -28,8 +28,13 @@ export async function Topbar({ params }: { params: Promise<{ team: string }> }) 
       <div className="top-right">
         {viewer.demo ? (
           <span className="demo-chip" title="WorkOS is not configured, so you are signed in as a local demo user. Data is sample data.">
-            <span className="long">Demo session</span>
-            <span className="short">Demo</span>
+            <span className="long" aria-hidden="true">
+              Demo session
+            </span>
+            <span className="short" aria-hidden="true">
+              Demo
+            </span>
+            <span className="sr-only">Demo session: WorkOS is not configured, so you are signed in as a local demo user and the data is sample data.</span>
           </span>
         ) : null}
         <CommandMenu team={team.slug} index={index} />

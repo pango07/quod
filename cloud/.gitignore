@@ -42,3 +42,4 @@ next-env.d.ts
 
 # env files: keep the example
 !.env.example
+!.env.development

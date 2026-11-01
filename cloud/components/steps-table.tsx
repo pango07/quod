@@ -57,7 +57,7 @@ export function StepsTable({ team, steps, initial, showRepo }: { team: string; s
       </p>
       {rows.length === 0 ? (
         <p className="trow muted" style={{ display: "block", fontSize: 13 }}>
-          No steps are {filter} right now.
+          {filter === "all" ? "No steps yet. They show up after the first run with Quod." : `No steps are ${filter} right now.`}
         </p>
       ) : null}
       {rows.map((s) => (

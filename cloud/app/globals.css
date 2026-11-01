@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Quod Cloud. Black and white, Geist and Geist Mono: blue means replayed, orange paused, green passed or proven.
+/* Quod Cloud. Black and white, Geist and Geist Mono; blue means replayed, orange paused, green passed or proven.
    Classes mirror the approved prototypes (Main/Repo/Run/Step/Connect .dc.html). */
 :root {
   --bg: #000;
@@ -83,6 +83,8 @@ p { margin: 0; text-wrap: pretty }
   .frame { flex-direction: column }
   .sidenav { position: static; height: auto; width: auto; max-width: 100%; align-self: stretch; flex: none; flex-direction: row; overflow-x: auto; padding: 8px 16px; border-right: 0; border-bottom: 1px solid var(--rule); gap: 4px; scrollbar-width: none }
   .sidenav::-webkit-scrollbar { display: none }
+  /* The row scrolls sideways; the fade at the right edge says there is more. */
+  .sidenav { mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); padding-right: 48px }
   .sidenav a.nav-item { flex: none; padding: 6px 10px }
   .sidenav a.nav-item svg { display: none }
   .sidenav .spacer, .sidenav .side-card { display: none !important }
@@ -97,6 +99,10 @@ p { margin: 0; text-wrap: pretty }
   .crumbs .hide-sm, .team-btn .chip { display: none }
   .crumbs .ellipsis { flex: 0 1 auto; min-width: 0 }
   .demo-chip .long { display: none }
+  /* With a repo in the breadcrumb, the team switcher keeps its mark and arrows; its name is in its label. */
+  .crumbs:has(.repo-crumb) .team-name { display: none }
+  /* The page heading already names the run or step; the repo crumb gets the room. */
+  .crumbs .leaf-crumb { display: none }
 }
 @media (min-width: 481px) { .demo-chip .short { display: none } }
 

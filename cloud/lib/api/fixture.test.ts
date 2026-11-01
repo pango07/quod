@@ -51,10 +51,11 @@ describe("fixture adapter", () => {
 });
 
 describe("data source", () => {
-  it("never serves sample data in production unless asked to", () => {
-    expect(resolveApiMode({ NODE_ENV: "production" }).kind).toBe("misconfigured");
-    expect(resolveApiMode({ NODE_ENV: "production", QUOD_API: "fixture" }).kind).toBe("fixture");
-    expect(resolveApiMode({ NODE_ENV: "development" }).kind).toBe("fixture");
+  it("serves sample data only when QUOD_API=fixture asks for it", () => {
+    for (const NODE_ENV of ["production", "development", "staging", undefined]) {
+      expect(resolveApiMode({ NODE_ENV }).kind).toBe("misconfigured");
+    }
+    expect(resolveApiMode({ NODE_ENV: "development", QUOD_API: "fixture" }).kind).toBe("fixture");
     expect(resolveApiMode({ QUOD_API_URL: "https://api.quodci.com" })).toEqual({ kind: "http", url: "https://api.quodci.com" });
   });
 });

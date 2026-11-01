@@ -50,7 +50,14 @@ export function Popover({
   }, [open]);
 
   return (
-    <div ref={wrap} style={{ position: "relative", display: "flex" }}>
+    <div
+      ref={wrap}
+      style={{ position: "relative", display: "flex" }}
+      onBlur={(e) => {
+        // Tabbing out of the menu closes it, so aria-expanded never claims a menu nobody can see.
+        if (open && !wrap.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <button
         ref={btn}
         type="button"

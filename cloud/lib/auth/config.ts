@@ -2,14 +2,16 @@
 //
 // The rule (DECISIONS.md, 2026-11-01, Quod Cloud app):
 // - All four WorkOS variables set and valid: WorkOS AuthKit.
-// - None of them set AND NODE_ENV is not "production": the local demo
-//   session, so the app can be run and screenshotted without an account.
-// - Anything else is misconfigured, and the app refuses to serve. In
-//   production that includes "nothing set": missing config never becomes a
-//   way in. A partial config also refuses in development, so a typo never
-//   silently drops someone into the demo.
+// - None of them set, QUOD_AUTH=demo, AND NODE_ENV is not "production": the
+//   local demo session, so the app can be run and screenshotted without an
+//   account. The demo is a positive opt-in (cloud/.env.development sets it
+//   for `next dev` only); a missing variable never turns it on, whatever
+//   NODE_ENV a host happens to set.
+// - Anything else is misconfigured, and the app refuses to serve. Production
+//   never runs the demo, even with QUOD_AUTH=demo (a second guard). A partial
+//   WorkOS config refuses everywhere, so a typo never drops anyone into the demo.
 //
-// This module is pure (no Next.js imports) so the proxy, instrumentation,
+// This module is pure (no Next.js imports) so next.config.ts, the proxy,
 // server code and the unit test all share the one rule.
 
 export const WORKOS_ENV = [
@@ -35,10 +37,15 @@ export function resolveAuthMode(env: Env): AuthMode {
   const production = env.NODE_ENV === "production";
 
   if (set.length === 0) {
-    if (!production) return { kind: "demo" };
+    const demo = env.QUOD_AUTH === "demo";
+    if (demo && !production) return { kind: "demo" };
     return {
       kind: "misconfigured",
-      problems: [`Missing ${WORKOS_ENV.join(", ")}. Production never falls back to the demo session.`],
+      problems: [
+        demo
+          ? "QUOD_AUTH=demo is refused in production: set the WorkOS variables."
+          : `Missing ${WORKOS_ENV.join(", ")}. Set them, or QUOD_AUTH=demo for a local demo session (never in production).`,
+      ],
     };
   }
 

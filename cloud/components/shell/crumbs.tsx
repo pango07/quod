@@ -17,20 +17,20 @@ export function Crumbs({ team }: { team: string }) {
         /
       </span>
       {leaf ? (
-        <Link href={`/${team}/${first}`} style={{ fontWeight: 500 }} className="ellipsis">
+        <Link href={`/${team}/${first}`} style={{ fontWeight: 500 }} className="ellipsis repo-crumb">
           {repo}
         </Link>
       ) : (
-        <span style={{ fontWeight: 500 }} className="ellipsis" aria-current="page">
+        <span style={{ fontWeight: 500 }} className="ellipsis repo-crumb" aria-current="page">
           {repo}
         </span>
       )}
       {leaf ? (
         <>
-          <span className="sep" aria-hidden="true">
+          <span className="sep leaf-crumb" aria-hidden="true">
             /
           </span>
-          <span className={`last ${kind === "runs" ? "mono" : ""}`} aria-current="page">
+          <span className={`last leaf-crumb ${kind === "runs" ? "mono" : ""}`} aria-current="page">
             {leaf}
           </span>
         </>

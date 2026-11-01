@@ -83,26 +83,27 @@ export class FixtureCloudApi implements CloudApi {
     return this.repos(team).find((r) => r.summary.slug === slug);
   }
 
-  private need = (s: StepSeed): number => {
+  /** Proofs needed for a step, keyed by team/repo/key (sample repos all belong to SAMPLE_TEAM). */
+  private needIn = (repo: RepoSeed) => (s: StepSeed): number => {
     const base = s.trust.kind === "paused" || s.trust.kind === "proving" ? s.trust.need : 2;
-    return this.proofs.get(s.key) ?? base;
+    return this.proofs.get(`${SAMPLE_TEAM}/${repo.summary.slug}/${s.key}`) ?? base;
   };
 
-  private trustOf(s: StepSeed): TrustState {
-    const need = this.need(s);
+  private trustOf(repo: RepoSeed, s: StepSeed): TrustState {
+    const need = this.needIn(repo)(s);
     if (s.trust.kind === "paused") return { ...s.trust, need, consistent: Math.min(s.trust.consistent, need) };
     if (s.trust.kind === "proving") return { ...s.trust, need, have: Math.min(s.trust.have, need) };
     return s.trust;
   }
 
   private summaries(repo: RepoSeed): StepSummary[] {
-    return repo.steps.filter((s) => !s.network).map((s) => stepSummary(repo, s, this.trustOf(s)));
+    return repo.steps.filter((s) => !s.network).map((s) => stepSummary(repo, s, this.trustOf(repo, s)));
   }
 
   private runSummaries(repo: RepoSeed): RunSummary[] {
     const out: RunSummary[] = [];
     for (let n = repo.firstRun + RUNS_PER_REPO - 1; n >= repo.firstRun; n--) {
-      const d = runDetail(repo, n, this.need);
+      const d = runDetail(repo, n, this.needIn(repo));
       if (d) {
         const { jobs: _jobs, githubUrl: _url, ...summary } = d;
         void _jobs;
@@ -192,7 +193,7 @@ export class FixtureCloudApi implements CloudApi {
       asOf: AS_OF,
       summary: repo.summary,
       defaultBranch: repo.defaultBranch,
-      latestRun: runDetail(repo, last, this.need),
+      latestRun: runDetail(repo, last, this.needIn(repo)),
       runTimes: runTimes(repo),
       steps: this.summaries(repo),
     };
@@ -208,7 +209,7 @@ export class FixtureCloudApi implements CloudApi {
   async getRun(team: string, slug: string, run: number): Promise<RunDetail | null> {
     await this.tick();
     const repo = this.repo(team, slug);
-    return repo ? runDetail(repo, run, this.need) : null;
+    return repo ? runDetail(repo, run, this.needIn(repo)) : null;
   }
 
   async listSteps(team: string, opts: { repo?: string } = {}): Promise<StepSummary[]> {
@@ -222,14 +223,14 @@ export class FixtureCloudApi implements CloudApi {
     const repo = this.repo(team, slug);
     const step = repo?.steps.find((s) => s.key === key && !s.network);
     if (!repo || !step) return null;
-    return { ...stepSummary(repo, step, this.trustOf(step)), asOf: AS_OF, proofsNeeded: this.need(step), ...trustSeed(repo, step) };
+    return { ...stepSummary(repo, step, this.trustOf(repo, step)), asOf: AS_OF, proofsNeeded: this.needIn(repo)(step), ...trustSeed(repo, step) };
   }
 
   async setProofsNeeded(team: string, slug: string, key: string, need: number): Promise<StepTrust> {
     if (!Number.isInteger(need) || need < 2 || need > 10) throw new Error("Proofs needed must be a whole number from 2 to 10.");
     const repo = this.repo(team, slug);
     if (!repo?.steps.some((s) => s.key === key)) throw new Error("No such step.");
-    this.proofs.set(key, need);
+    this.proofs.set(`${team}/${slug}/${key}`, need);
     const trust = await this.getStepTrust(team, slug, key);
     if (!trust) throw new Error("No such step.");
     return trust;

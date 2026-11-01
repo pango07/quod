@@ -333,10 +333,21 @@ export interface CloudApi {
   getSearchIndex(team: string): Promise<SearchIndex>;
 }
 
-/** Thrown by an adapter when the backend says the viewer may not see a team. */
+/** Thrown by an adapter when the backend refuses the viewer: 401 (sign in again) or 403 (not theirs). */
 export class ApiForbiddenError extends Error {
-  constructor(message = "Not allowed") {
+  constructor(
+    message = "Not allowed",
+    readonly status: 401 | 403 = 403,
+  ) {
     super(message);
     this.name = "ApiForbiddenError";
+  }
+}
+
+/** Thrown before a request when a path segment is not a valid id; shown as not found. */
+export class ApiInvalidRequestError extends Error {
+  constructor(message = "Invalid request") {
+    super(message);
+    this.name = "ApiInvalidRequestError";
   }
 }

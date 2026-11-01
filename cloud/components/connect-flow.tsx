@@ -49,7 +49,7 @@ function Options<T extends string>({ label, options, value, onChange }: { label:
 }
 
 /** Connect.dc.html: two choices, the workflow change they imply, and what happens next. */
-export function ConnectFlow({ team, setup, initial }: { team: string; setup: ConnectSetup; initial: { store: Store; host: Host } }) {
+export function ConnectFlow({ team, setup, initial, canSave }: { team: string; setup: ConnectSetup; initial: { store: Store; host: Host }; canSave: boolean }) {
   const [store, setStore] = useState(initial.store);
   const [host, setHost] = useState(initial.host);
   const change = workflow(setup, store, host);
@@ -61,11 +61,17 @@ export function ConnectFlow({ team, setup, initial }: { team: string; setup: Con
     url.searchParams.set("store", s);
     url.searchParams.set("host", h);
     window.history.replaceState(null, "", url);
-    void saveConnectChoice(team, s, h);
+    // Only admins save the team's choice; members can still compare both setups.
+    if (canSave) void saveConnectChoice(team, s, h);
   };
 
   return (
     <>
+      {canSave ? null : (
+        <p className="toast" role="note">
+          You can compare both setups. Only team admins can save the team’s choice.
+        </p>
+      )}
       <section aria-labelledby="where" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h2 id="where" className="h2">
           1. Where should Quod keep results?
