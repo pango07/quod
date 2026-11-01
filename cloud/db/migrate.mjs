@@ -25,7 +25,8 @@ export async function loadMigrations(dir) {
   const out = [];
   for (const file of files) {
     if (!NAME.test(file)) throw new Error(`Migration file name must look like 0001_name.sql: ${file}`);
-    const sql = await readFile(join(dir, file), "utf8");
+    // LF line endings before hashing: a Windows checkout (CRLF) is the same migration.
+    const sql = (await readFile(join(dir, file), "utf8")).replace(/\r\n?/g, "\n");
     out.push({ version: file.slice(0, 4), file, sql, checksum: createHash("sha256").update(sql).digest("hex") });
   }
   const versions = out.map((m) => m.version);
@@ -48,6 +49,11 @@ export async function pendingMigrations(db, migrations) {
   const [exists] = await db.query("SELECT to_regclass('schema_migrations') IS NOT NULL AS ok");
   const rows = exists?.ok ? await db.query("SELECT version, file, checksum FROM schema_migrations") : [];
   const applied = new Map(rows.map((r) => [String(r.version), r]));
+  const known = new Set(migrations.map((m) => m.version));
+  for (const [version, a] of applied) {
+    // The database is ahead of this checkout (or a file was deleted): applying newer files on top could be wrong.
+    if (!known.has(version)) throw new Error(`${a.file} is applied in the database but missing from db/migrations. Restore the file before migrating.`);
+  }
   for (const m of migrations) {
     const a = applied.get(m.version);
     if (a && a.checksum !== m.checksum) throw new Error(`${m.file} was changed after it was applied. Add a new migration instead.`);

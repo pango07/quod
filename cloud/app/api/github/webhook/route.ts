@@ -1,7 +1,7 @@
 import { after, connection, NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { MAX_BODY, handleWebhook } from "@/lib/github/webhook";
-import { pruneDeliveries } from "@/lib/github/store";
+import { pruneOld } from "@/lib/github/store";
 
 // GitHub App webhooks (hook_attributes.url in the manifest). Public: the
 // proxy lets it through without a session; the X-Hub-Signature-256 HMAC is
@@ -32,12 +32,12 @@ export async function POST(request: NextRequest) {
     console.warn("[quod-cloud] github webhook refused", { status: result.status, delivery: result.delivery, event: result.event });
   } else {
     console.info("[quod-cloud] github webhook", { delivery: result.delivery, event: result.event, action: result.action, duplicate: result.body.duplicate ?? false, changes: result.versions?.length ?? 0 });
-    // At most once a minute per instance, after the response so GitHub is answered first.
+    // Retention (deliveries 7 days, runs and jobs 30 days): at most once a minute per instance, after the response.
     if (Date.now() - lastPrune > 60_000) {
       lastPrune = Date.now();
       after(async () => {
         try {
-          await pruneDeliveries(await getDb());
+          await pruneOld(await getDb());
         } catch {
           lastPrune = 0; // the next delivery tries again
         }

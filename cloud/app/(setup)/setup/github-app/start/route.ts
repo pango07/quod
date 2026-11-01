@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
 import { connection, NextResponse, type NextRequest } from "next/server";
 import { getViewer } from "@/lib/auth/session";
-import { appOrigin, isOperator } from "@/lib/github/env";
+import { isOperator } from "@/lib/github/env";
 import { esc, htmlPage, NO_STORE_HEADERS } from "@/lib/github/html";
 import { buildManifest, checkAppName, GITHUB_NEW_APP_URL, MANIFEST_COOKIE, MANIFEST_TTL, newState, sealState } from "@/lib/github/manifest";
-import { requestOrigin, sealPassword, secureCookies } from "@/lib/github/server";
+import { routeOrigin, sealPassword, secureCookies } from "@/lib/github/server";
 
 // POST from /setup/github-app: makes a random state, seals it in an httpOnly
 // cookie, and hands the browser a form that posts the manifest to GitHub.
@@ -14,17 +14,18 @@ export async function POST(request: NextRequest) {
   const viewer = await getViewer();
   if (!isOperator(viewer.email)) return new NextResponse("Not found", { status: 404 });
 
-  const here = requestOrigin(request.headers);
+  const here = routeOrigin(request);
   const back = (q: string) => NextResponse.redirect(new URL(`/setup/github-app?${q}`, here), 303);
-  // Same-origin form posts only.
-  if (request.headers.get("origin") !== here) return back("error=origin");
+  // Same-origin form posts only (this deploy's own origin, or APP_URL).
+  const from = request.headers.get("origin");
+  if (from !== here && from !== request.nextUrl.origin) return back("error=origin");
 
   const form = await request.formData();
   const name = checkAppName(form.get("name"));
   if (!name.ok) return back("error=name");
 
   const state = newState();
-  const manifest = buildManifest(appOrigin(here), name.value);
+  const manifest = buildManifest(here, name.value);
   (await cookies()).set(MANIFEST_COOKIE, await sealState(state, sealPassword()), {
     httpOnly: true,
     secure: secureCookies(here),

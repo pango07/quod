@@ -9,8 +9,9 @@ import { sanitizeReturnTo } from "@/lib/auth/validate";
 const PUBLIC = ["/callback", "/sign-in", "/sign-up", "/verify-email", "/reset-password", "/invite", "/signed-out"];
 const isPublic = (path: string) => PUBLIC.some((p) => path === p || path.startsWith(`${p}/`));
 
-// Machine endpoints that authenticate themselves (the GitHub webhook checks its HMAC signature): no session, no cookie.
-const MACHINE = ["/api/github/webhook"];
+// Machine endpoints that authenticate themselves (the GitHub webhook checks its HMAC signature,
+// the reconcile cron its CRON_SECRET): no session, no cookie.
+const MACHINE = ["/api/github/webhook", "/api/github/reconcile"];
 
 export default async function proxy(request: NextRequest) {
   if (MACHINE.includes(request.nextUrl.pathname)) return NextResponse.next();

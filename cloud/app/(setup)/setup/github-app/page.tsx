@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { AuthShell } from "@/components/auth/shell";
 import { getViewer } from "@/lib/auth/session";
-import { appOrigin, githubAppConfig, isOperator } from "@/lib/github/env";
+import { githubAppConfig, isOperator } from "@/lib/github/env";
 import { buildManifest, checkAppName, DEFAULT_APP_NAME } from "@/lib/github/manifest";
-import { requestOrigin } from "@/lib/github/server";
+import { pageOrigin } from "@/lib/github/server";
 import { one } from "@/lib/params";
 
 export const metadata = { title: "Create the GitHub App" };
@@ -28,7 +28,7 @@ export default async function GitHubAppSetup({ searchParams }: { searchParams: P
   const asked = checkAppName(one(sp.name));
   const name = asked.ok ? asked.value : DEFAULT_APP_NAME;
   const error = ERRORS[one(sp.error) ?? ""];
-  const origin = appOrigin(requestOrigin(await headers()));
+  const origin = pageOrigin(await headers());
   const manifest = buildManifest(origin, name);
   const existing = githubAppConfig();
 

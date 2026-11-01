@@ -19,35 +19,68 @@ export async function recordDelivery(q: Queryable, id: string, event: string): P
   return rows.length === 1;
 }
 
-/** Deletes delivery ids older than 7 days. Returns how many. */
-export async function pruneDeliveries(q: Queryable): Promise<number> {
-  const rows = await q.query("DELETE FROM deliveries WHERE received_at < now() - interval '7 days' RETURNING id");
-  return rows.length;
+/** Retention: delivery ids after 7 days, runs and jobs not updated for 30 days. */
+export async function pruneOld(q: Queryable): Promise<{ deliveries: number; runs: number; jobs: number }> {
+  const deliveries = (await q.query("DELETE FROM deliveries WHERE received_at < now() - interval '7 days' RETURNING id")).length;
+  const jobs = (await q.query("DELETE FROM workflow_jobs WHERE row_updated_at < now() - interval '30 days' RETURNING id")).length;
+  const runs = (await q.query("DELETE FROM workflow_runs WHERE row_updated_at < now() - interval '30 days' RETURNING id")).length;
+  return { deliveries, runs, jobs };
 }
 
 // ---------------------------------------------------------------- Installations and repos
 
-export async function upsertInstallation(q: Queryable, inst: GhInstallation): Promise<void> {
+/**
+ * Applies an installation delivery if it is not older than the last one
+ * applied (GitHub's installation.updated_at, else the delivery time).
+ * `suspend` sets or clears suspended_at with it. Returns whether it applied.
+ */
+export async function upsertInstallation(q: Queryable, inst: GhInstallation, at: Date, suspend?: "suspend" | "unsuspend"): Promise<boolean> {
   const a = inst.account ?? null;
-  await q.query(
-    `INSERT INTO installations (id, account_id, account_login, account_type, repository_selection, suspended_at)
-     VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+  const eventAt = inst.updated_at ? new Date(inst.updated_at) : at;
+  const rows = await q.query(
+    `INSERT INTO installations (id, account_id, account_login, account_type, repository_selection, suspended_at, gh_updated_at)
+     VALUES ($1, $2, $3, $4, $5, CASE WHEN $7 = 'suspend' THEN COALESCE($6::timestamptz, now()) END, $8::timestamptz)
      ON CONFLICT (id) DO UPDATE SET
        account_id = COALESCE(EXCLUDED.account_id, installations.account_id),
        account_login = COALESCE(EXCLUDED.account_login, installations.account_login),
        account_type = COALESCE(EXCLUDED.account_type, installations.account_type),
        repository_selection = COALESCE(EXCLUDED.repository_selection, installations.repository_selection),
-       updated_at = now()`,
-    [inst.id, a?.id ?? null, a?.login ?? null, a?.type ?? null, inst.repository_selection ?? null, inst.suspended_at ?? null],
+       suspended_at = CASE WHEN $7 = 'suspend' THEN COALESCE($6::timestamptz, now()) WHEN $7 = 'unsuspend' THEN NULL ELSE installations.suspended_at END,
+       gh_updated_at = EXCLUDED.gh_updated_at,
+       updated_at = now()
+     WHERE installations.gh_updated_at IS NULL OR EXCLUDED.gh_updated_at >= installations.gh_updated_at
+     RETURNING id`,
+    [inst.id, a?.id ?? null, a?.login ?? null, a?.type ?? null, inst.repository_selection ?? null, inst.suspended_at ?? null, suspend ?? "", eventAt],
+  );
+  return rows.length === 1;
+}
+
+/**
+ * A row for an installation first seen through a run or job delivery, or
+ * through linking. Fills only what is missing; never overrides a webhook's values.
+ */
+export async function ensureInstallation(q: Queryable, id: number, owner: GhAccount | null | undefined, repositorySelection?: string): Promise<void> {
+  await q.query(
+    `INSERT INTO installations (id, account_id, account_login, account_type, repository_selection) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO UPDATE SET
+       account_id = COALESCE(installations.account_id, EXCLUDED.account_id),
+       account_login = COALESCE(installations.account_login, EXCLUDED.account_login),
+       account_type = COALESCE(installations.account_type, EXCLUDED.account_type),
+       repository_selection = COALESCE(installations.repository_selection, EXCLUDED.repository_selection)`,
+    [id, owner?.id ?? null, owner?.login ?? null, owner?.type ?? null, repositorySelection ?? null],
   );
 }
 
-/** A row for an installation first seen through a run or job delivery (installed before Quod stored anything). */
-export async function ensureInstallation(q: Queryable, id: number, owner: GhAccount | undefined): Promise<void> {
-  await q.query(
-    `INSERT INTO installations (id, account_id, account_login, account_type) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-    [id, owner?.id ?? null, owner?.login ?? null, owner?.type ?? null],
-  );
+/** installation_target renamed: the account's new login. */
+export async function renameAccount(q: Queryable, installationId: number, account: GhAccount): Promise<void> {
+  await q.query("UPDATE installations SET account_login = $2, account_id = COALESCE(account_id, $3), updated_at = now() WHERE id = $1", [installationId, account.login, account.id ?? null]);
+  // repos.full_name changes with the owner's login.
+  await q.query("UPDATE repos SET full_name = $2 || '/' || name, updated_at = now() WHERE installation_id = $1 AND split_part(full_name, '/', 1) <> $2", [installationId, account.login]);
+}
+
+/** The reconcile sweep asked GitHub about this run now. */
+export async function markReconciled(q: Queryable, runId: number): Promise<void> {
+  await q.query("UPDATE workflow_runs SET reconciled_at = now() WHERE id = $1", [runId]);
 }
 
 /** Uninstalled: unlink it from its team. Its runs and jobs stay, but no team can see them. */
@@ -59,33 +92,46 @@ export async function deleteInstallation(q: Queryable, id: number): Promise<void
   await q.query("UPDATE repos SET removed_at = now(), updated_at = now() WHERE installation_id = $1 AND removed_at IS NULL", [id]);
 }
 
-export async function setSuspended(q: Queryable, id: number, suspended: boolean): Promise<void> {
-  await q.query(`UPDATE installations SET suspended_at = ${suspended ? "now()" : "NULL"}, updated_at = now() WHERE id = $1`, [id]);
-}
-
 /**
- * Repos now in the installation. `restore` clears removed_at (the repo was
- * added again); run and job deliveries pass false so a late delivery never
- * brings back a removed repo.
+ * Repos joining the installation at `at` (installation created,
+ * installation_repositories added, linking): restored unless a later
+ * delivery removed them. Applies only if not older than the repo's last
+ * membership change (m2).
  */
-export async function upsertRepos(q: Queryable, installationId: number, repos: RepoRef[], restore = true): Promise<void> {
+export async function addRepos(q: Queryable, installationId: number, repos: RepoRef[], at: Date): Promise<void> {
   for (const r of repos) {
     await q.query(
-      `INSERT INTO repos (id, installation_id, full_name, name, private) VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO repos (id, installation_id, full_name, name, private, membership_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
          installation_id = EXCLUDED.installation_id, full_name = EXCLUDED.full_name, name = EXCLUDED.name, private = EXCLUDED.private,
-         ${restore ? "removed_at = NULL," : ""} updated_at = now()`,
-      [r.id, installationId, r.full_name, r.name, r.private ?? true],
+         removed_at = NULL, membership_at = EXCLUDED.membership_at, updated_at = now()
+       WHERE repos.membership_at IS NULL OR EXCLUDED.membership_at >= repos.membership_at`,
+      [r.id, installationId, r.full_name, r.name, r.private ?? true, at],
     );
   }
 }
 
-export async function removeRepos(q: Queryable, installationId: number, repoIds: number[]): Promise<void> {
+/**
+ * The repo of a run or job delivery: created if unknown, names kept fresh,
+ * membership untouched (a late delivery never brings back a removed repo).
+ */
+export async function touchRepo(q: Queryable, installationId: number, r: RepoRef): Promise<void> {
+  await q.query(
+    `INSERT INTO repos (id, installation_id, full_name, name, private) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, name = EXCLUDED.name, private = EXCLUDED.private, updated_at = now()
+     WHERE repos.installation_id = EXCLUDED.installation_id`,
+    [r.id, installationId, r.full_name, r.name, r.private ?? true],
+  );
+}
+
+/** Repos leaving the installation at `at`, unless a later delivery added them back. */
+export async function removeRepos(q: Queryable, installationId: number, repoIds: number[], at: Date): Promise<void> {
   if (!repoIds.length) return;
   await q.query(
-    `UPDATE repos SET removed_at = now(), updated_at = now()
-     WHERE installation_id = $1 AND removed_at IS NULL AND id IN (SELECT (jsonb_array_elements_text($2::jsonb))::bigint)`,
-    [installationId, json(repoIds)],
+    `UPDATE repos SET removed_at = now(), membership_at = $3::timestamptz, updated_at = now()
+     WHERE installation_id = $1 AND id IN (SELECT (jsonb_array_elements_text($2::jsonb))::bigint)
+       AND (membership_at IS NULL OR membership_at <= $3::timestamptz)`,
+    [installationId, json(repoIds), at],
   );
 }
 
@@ -196,7 +242,8 @@ export interface LinkInput {
  * one verified with GitHub during linking; others are marked removed.
  */
 export async function linkInstallation(q: Queryable, input: LinkInput): Promise<"linked" | "linked-elsewhere" | "deleted"> {
-  await upsertInstallation(q, input.installation);
+  await ensureInstallation(q, input.installation.id, input.installation.account, input.installation.repository_selection);
+  const now = new Date();
   const [row] = await q.query<{ team_id: string | null; deleted_at: Date | null }>("SELECT team_id, deleted_at FROM installations WHERE id = $1 FOR UPDATE", [input.installation.id]);
   if (row?.deleted_at) return "deleted";
   if (row?.team_id && row.team_id !== input.teamId) return "linked-elsewhere";
@@ -204,13 +251,22 @@ export async function linkInstallation(q: Queryable, input: LinkInput): Promise<
     `UPDATE installations SET team_id = $2, linked_by = $3, linked_by_github_id = $4, linked_at = now(), updated_at = now() WHERE id = $1`,
     [input.installation.id, input.teamId, input.userId, input.githubUserId],
   );
-  await upsertRepos(q, input.installation.id, input.repos);
+  await addRepos(q, input.installation.id, input.repos, now);
   await q.query(
-    `UPDATE repos SET removed_at = now(), updated_at = now()
+    `UPDATE repos SET removed_at = now(), membership_at = $3::timestamptz, updated_at = now()
      WHERE installation_id = $1 AND removed_at IS NULL AND id NOT IN (SELECT (jsonb_array_elements_text($2::jsonb))::bigint)`,
-    [input.installation.id, json(input.repos.map((r) => r.id))],
+    [input.installation.id, json(input.repos.map((r) => r.id)), now],
   );
   return "linked";
+}
+
+/** A team admin's Disconnect: the installation stays on GitHub, but this team no longer sees it. Only the team that has it can do this. */
+export async function disconnectInstallation(q: Queryable, teamId: string, installationId: number): Promise<boolean> {
+  const rows = await q.query(
+    "UPDATE installations SET team_id = NULL, linked_by = NULL, linked_by_github_id = NULL, linked_at = NULL, updated_at = now() WHERE id = $1 AND team_id = $2 RETURNING id",
+    [installationId, teamId],
+  );
+  return rows.length === 1;
 }
 
 /** Which team an installation is linked to, if any. */

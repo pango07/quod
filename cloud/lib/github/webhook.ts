@@ -2,23 +2,32 @@ import type { Db, Queryable } from "@/lib/db/types";
 import {
   jobRowFromPayload,
   runRowFromPayload,
+  type GhInstallation,
   type InstallationPayload,
   type InstallationRepositoriesPayload,
+  type InstallationTargetPayload,
   type WorkflowJobPayload,
   type WorkflowRunPayload,
 } from "./payloads";
 import { verifySignature } from "./signature";
 import {
+  addRepos,
   deleteInstallation,
   ensureInstallation,
   recordDelivery,
   removeRepos,
-  setSuspended,
+  renameAccount,
+  touchRepo,
   upsertInstallation,
   upsertJob,
-  upsertRepos,
   upsertRun,
 } from "./store";
+
+/** When an installation delivery happened, by GitHub's clock if it says. */
+function eventTime(inst: GhInstallation, fallback: Date): Date {
+  const d = inst.updated_at ? new Date(inst.updated_at) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : fallback;
+}
 
 // The webhook receiver's logic, without Next.js: verify, dedupe, apply. The
 // route (app/api/github/webhook/route.ts) passes the raw body and headers.
@@ -28,7 +37,7 @@ import {
 /** GitHub's documented maximum payload size. */
 export const MAX_BODY = 25 * 1024 * 1024;
 
-export const HANDLED_EVENTS = ["installation", "installation_repositories", "workflow_run", "workflow_job"] as const;
+export const HANDLED_EVENTS = ["installation", "installation_repositories", "installation_target", "workflow_run", "workflow_job"] as const;
 
 export interface WebhookResult {
   status: number;
@@ -84,21 +93,30 @@ async function apply(q: Queryable, event: string, payload: unknown, now: Date, v
       const p = payload as InstallationPayload;
       if (!p.installation?.id) return false;
       if (p.action === "deleted") {
+        // Terminal: an installation id is never reused, so no later delivery can undo it.
         await deleteInstallation(q, p.installation.id);
         return true;
       }
-      await upsertInstallation(q, p.installation);
-      if (p.action === "suspend") await setSuspended(q, p.installation.id, true);
-      if (p.action === "unsuspend") await setSuspended(q, p.installation.id, false);
-      if (p.action === "created" && p.repositories?.length) await upsertRepos(q, p.installation.id, p.repositories);
+      const suspend = p.action === "suspend" || p.action === "unsuspend" ? p.action : undefined;
+      const applied = await upsertInstallation(q, p.installation, now, suspend);
+      if (applied && p.action === "created" && p.repositories?.length) await addRepos(q, p.installation.id, p.repositories, eventTime(p.installation, now));
       return true;
     }
     case "installation_repositories": {
       const p = payload as InstallationRepositoriesPayload;
       if (!p.installation?.id) return false;
-      await upsertInstallation(q, { ...p.installation, repository_selection: p.repository_selection ?? p.installation.repository_selection });
-      await upsertRepos(q, p.installation.id, p.repositories_added ?? []);
-      await removeRepos(q, p.installation.id, (p.repositories_removed ?? []).map((r) => r.id));
+      await upsertInstallation(q, { ...p.installation, repository_selection: p.repository_selection ?? p.installation.repository_selection }, now);
+      // Each repo's membership is ordered on its own (repos.membership_at), whatever the installation row did.
+      const at = eventTime(p.installation, now);
+      await addRepos(q, p.installation.id, p.repositories_added ?? [], at);
+      await removeRepos(q, p.installation.id, (p.repositories_removed ?? []).map((r) => r.id), at);
+      return true;
+    }
+    case "installation_target": {
+      // The account was renamed (the only action GitHub sends today).
+      const p = payload as InstallationTargetPayload;
+      if (!p.installation?.id || !p.account?.login) return false;
+      await renameAccount(q, p.installation.id, p.account);
       return true;
     }
     case "workflow_run": {
@@ -106,7 +124,7 @@ async function apply(q: Queryable, event: string, payload: unknown, now: Date, v
       const row = runRowFromPayload(p, now);
       if (!row) return false;
       await ensureInstallation(q, row.installation_id, p.repository.owner);
-      await upsertRepos(q, row.installation_id, [p.repository], false);
+      await touchRepo(q, row.installation_id, p.repository);
       const applied = await upsertRun(q, row);
       if (applied) versions.push(applied.version);
       return true;
@@ -116,7 +134,7 @@ async function apply(q: Queryable, event: string, payload: unknown, now: Date, v
       const row = jobRowFromPayload(p, now);
       if (!row) return false;
       await ensureInstallation(q, row.installation_id, p.repository.owner);
-      await upsertRepos(q, row.installation_id, [p.repository], false);
+      await touchRepo(q, row.installation_id, p.repository);
       const v = await upsertJob(q, row);
       if (v !== null) versions.push(v);
       return true;

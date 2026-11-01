@@ -38,6 +38,29 @@ describe("migrations (PGlite)", () => {
     await db.close();
   });
 
+  it("hashes CRLF and LF checkouts the same (m8)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "quod-mig-"));
+    await writeFile(join(dir, "0001_a.sql"), "CREATE TABLE a (id int);\nCREATE TABLE b (id int);\n");
+    const db = await openPglite();
+    await migrate(db, await loadMigrations(dir));
+    await writeFile(join(dir, "0001_a.sql"), "CREATE TABLE a (id int);\r\nCREATE TABLE b (id int);\r\n");
+    expect(await migrate(db, await loadMigrations(dir))).toEqual([]);
+    await db.close();
+  });
+
+  it("refuses when an applied migration's file is missing (m8)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "quod-mig-"));
+    await writeFile(join(dir, "0001_a.sql"), "CREATE TABLE a (id int);");
+    await writeFile(join(dir, "0002_b.sql"), "CREATE TABLE b (id int);");
+    const db = await openPglite();
+    await migrate(db, await loadMigrations(dir));
+    const { unlink } = await import("node:fs/promises");
+    await unlink(join(dir, "0002_b.sql"));
+    await writeFile(join(dir, "0003_c.sql"), "CREATE TABLE c (id int);");
+    await expect(migrate(db, await loadMigrations(dir))).rejects.toThrow(/0002_b\.sql is applied in the database but missing/);
+    await db.close();
+  });
+
   it("rolls a failing migration back entirely", async () => {
     const dir = await mkdtemp(join(tmpdir(), "quod-mig-"));
     await writeFile(join(dir, "0001_bad.sql"), "CREATE TABLE half (id int); SELECT no_such_function();");

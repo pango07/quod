@@ -149,6 +149,72 @@ export async function installationToken(jwt: string, installationId: number, f: 
   return (await json<{ token: string }>(res, "installation token")).token;
 }
 
+// ---------------------------------------------------------------- Reconciliation (review M2)
+
+export interface HookDelivery {
+  id: number;
+  guid: string;
+  delivered_at: string;
+  redelivery: boolean;
+  status_code: number;
+  event: string;
+  action?: string | null;
+  installation_id?: number | null;
+}
+
+/** The URL of rel="next" in a Link header, if any. */
+export function nextLink(link: string | null): string | null {
+  if (!link) return null;
+  for (const part of link.split(",")) {
+    const m = /<([^>]+)>\s*;\s*rel="next"/.exec(part);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * GET /app/hook/deliveries (App JWT), newest first, back to `sinceMs`.
+ * GitHub does not redeliver failed webhooks by itself; this is how Quod finds them.
+ */
+export async function listAppHookDeliveries(jwt: string, sinceMs: number, f: Fetch = fetch): Promise<HookDelivery[]> {
+  const out: HookDelivery[] = [];
+  let url: string | null = `${GITHUB_API}/app/hook/deliveries?per_page=100`;
+  for (let page = 0; url && page < MAX_PAGES; page++) {
+    if (!url.startsWith(`${GITHUB_API}/`)) break; // only follow GitHub's own links
+    const res: Response = await f(url, { headers: headers(jwt), cache: "no-store" });
+    const batch = await json<HookDelivery[]>(res, "list hook deliveries");
+    let older = false;
+    for (const d of batch) {
+      if (new Date(d.delivered_at).getTime() < sinceMs) older = true;
+      else out.push(d);
+    }
+    if (older || batch.length === 0) break;
+    url = nextLink(res.headers.get("link"));
+  }
+  return out;
+}
+
+/** POST /app/hook/deliveries/{id}/attempts: GitHub sends that delivery again (202). */
+export async function redeliver(jwt: string, deliveryId: number, f: Fetch = fetch): Promise<boolean> {
+  const res = await f(`${GITHUB_API}/app/hook/deliveries/${deliveryId}/attempts`, { method: "POST", headers: headers(jwt), cache: "no-store" });
+  return res.status === 202 || res.ok;
+}
+
+const repoPath = (fullName: string) => fullName.split("/").map(encodeURIComponent).join("/");
+
+/** GET /repos/{owner}/{repo}/actions/runs/{id}, or null when the run is gone. Same shape as the webhook's workflow_run. */
+export async function getRun(token: string, fullName: string, runId: number, f: Fetch = fetch): Promise<Record<string, unknown> | null> {
+  const res = await f(`${GITHUB_API}/repos/${repoPath(fullName)}/actions/runs/${runId}`, { headers: headers(token), cache: "no-store" });
+  if (res.status === 404) return null;
+  return json<Record<string, unknown>>(res, "get run");
+}
+
+/** GET /repos/{owner}/{repo}/actions/runs/{id}/jobs (latest attempt). Same shape as the webhook's workflow_job. */
+export async function listRunJobs(token: string, fullName: string, runId: number, f: Fetch = fetch): Promise<Record<string, unknown>[]> {
+  const url = `${GITHUB_API}/repos/${repoPath(fullName)}/actions/runs/${runId}/jobs?filter=latest`;
+  return (await paged<Record<string, unknown>>(url, token, "jobs", "list run jobs", f)).items;
+}
+
 /** GET /installation/repositories: every repo in the installation. */
 export async function listInstallationRepos(instToken: string, f: Fetch = fetch) {
   return paged<GhRepoWithPermissions>(`${GITHUB_API}/installation/repositories`, instToken, "repositories", "list installation repos", f);

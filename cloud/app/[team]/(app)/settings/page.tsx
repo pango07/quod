@@ -1,3 +1,4 @@
+import { GitHubSettings } from "@/components/github-settings";
 import { InviteForm, PortalButtons } from "@/components/settings-forms";
 import { Chip } from "@/components/ui";
 import { listMembers } from "@/lib/auth/directory";
@@ -7,7 +8,8 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage({ params }: PageProps<"/[team]/settings">) {
   const { team: slug } = await params;
-  const { team, admin, viewer } = await requireTeam(slug);
+  const ctx = await requireTeam(slug);
+  const { team, admin, viewer } = ctx;
   const members = await listMembers(team.orgId);
   return (
     <div className="page" style={{ maxWidth: 880 }}>
@@ -66,6 +68,8 @@ export default async function SettingsPage({ params }: PageProps<"/[team]/settin
           </div>
         ) : null}
       </section>
+
+      <GitHubSettings ctx={ctx} />
 
       <section className="card" aria-labelledby="sso-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 6 }}>
         <h2 id="sso-h" className="h2">

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Membership } from "@/lib/auth/types";
 import type { GhRepoWithPermissions, GhUser, GhUserInstallation } from "./api";
 
@@ -22,7 +23,8 @@ export type LinkRefusal =
   | "not-in-user-installations"
   | "linked-elsewhere"
   | "not-repo-admin"
-  | "too-many-repos";
+  | "too-many-repos"
+  | "changed";
 
 export const REFUSAL_MESSAGE: Record<LinkRefusal, string> = {
   "no-team": "You are not in a Quod team yet. Ask a teammate to invite you, then open this link again.",
@@ -32,6 +34,7 @@ export const REFUSAL_MESSAGE: Record<LinkRefusal, string> = {
   "linked-elsewhere": "This installation is already linked to another Quod team. An admin there can uninstall the App on GitHub to release it.",
   "not-repo-admin": "To link an organization's installation you need admin access to every repository it covers. Ask an organization owner to link it.",
   "too-many-repos": "This installation covers more repositories than Quod can check at once. Contact support@quodci.com.",
+  changed: "The installation's repositories changed on GitHub while you were confirming. Connect again so Quod can check the new ones.",
 };
 
 export interface LinkFacts {
@@ -71,6 +74,21 @@ export function decideLink(f: LinkFacts): LinkDecision {
   return { ok: true, installation: inst };
 }
 
+/** A short fingerprint of a set of repo ids (order does not matter). */
+export function repoDigest(ids: number[]): string {
+  return createHash("sha256").update([...new Set(ids)].sort((a, b) => a - b).join(",")).digest("base64url").slice(0, 22);
+}
+
+/**
+ * The confirm step re-reads the installation's repos with the App's token.
+ * The admin check covered exactly the claimed set; if it changed (a repo was
+ * added in GitHub meanwhile, which the user may not administer), refuse and
+ * have them verify again rather than link repos nobody checked.
+ */
+export function repoSetUnchanged(claim: Pick<LinkClaim, "repoCount" | "repoDigest">, ids: number[]): boolean {
+  return new Set(ids).size === claim.repoCount && repoDigest(ids) === claim.repoDigest;
+}
+
 /** The verified result of a GitHub round trip, sealed in a short-lived cookie until the admin confirms. */
 export interface LinkClaim {
   purpose: "quod-gh-claim";
@@ -79,6 +97,8 @@ export interface LinkClaim {
   repositorySelection: string;
   /** How many repos the installation covered when checked. The list itself is re-read with the App's token on confirm (keeps the cookie small). */
   repoCount: number;
+  /** repoDigest of the checked repo ids: confirm refuses if the set changed since (m5). */
+  repoDigest: string;
   teamOrgId: string;
   userId: string;
   githubUserId: number;
@@ -150,6 +170,7 @@ export async function verifyInstallationClaim(input: {
         account: { id: acct?.id ?? 0, login: acct?.login ?? "", type: acct?.type ?? "" },
         repositorySelection: d.installation.repository_selection ?? "selected",
         repoCount: installationRepos.items.length,
+        repoDigest: repoDigest(installationRepos.items.map((r) => r.id)),
         teamOrgId: input.team!.orgId,
         userId: input.viewer.id,
         githubUserId: user.id,

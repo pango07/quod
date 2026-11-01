@@ -24,6 +24,7 @@ const ERRORS: Record<string, string> = {
   db: "Quod Cloud can't reach its database right now. Try again in a minute.",
   "not-configured": "The GitHub App isn't set up on this deploy yet.",
   uninstalled: "This installation was removed on GitHub. Install the App again.",
+  denied: "GitHub didn't authorize Quod, so nothing was connected. Try again and choose Authorize.",
 };
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
@@ -36,7 +37,8 @@ export default async function GitHubLink({ searchParams }: { searchParams: SP })
   const error = one(sp.error);
   const status = one(sp.status);
   const cfg = githubAppConfig();
-  const installUrl = cfg.ok ? `https://github.com/apps/${cfg.config.slug}/installations/new` : null;
+  // Installs start at Quod (/github/install), which seals a state GitHub hands back (M1).
+  const installUrl = cfg.ok ? "/github/install" : null;
   const [viewer, teams] = await Promise.all([getViewer(), getTeams()]);
   const team = currentTeam(viewer, teams);
   const home = team ? `/${team.slug}` : "/";
@@ -114,10 +116,21 @@ export default async function GitHubLink({ searchParams }: { searchParams: SP })
   const claimTeam = claim && claim.userId === viewer.id ? teams.find((t) => t.orgId === claim.teamOrgId) : undefined;
   if (claim && claimTeam) {
     return (
-      <AuthShell title="Connect GitHub to Quod" lede="GitHub confirmed you can manage this installation.">
+      <AuthShell
+        title="Connect GitHub to Quod"
+        lede={
+          <>
+            GitHub user <strong>{claim.githubLogin}</strong> will connect the {claim.account.type === "Organization" ? "organization" : "account"} <strong>{claim.account.login}</strong>. Not you? Cancel.
+          </>
+        }
+      >
         <ul className="setup-list">
           <li>
-            <span>GitHub</span>
+            <span>Signed in to GitHub as</span>
+            <span className="mono">{claim.githubLogin}</span>
+          </li>
+          <li>
+            <span>Connects</span>
             <span className="mono">{claim.account.login}</span>
           </li>
           <li>

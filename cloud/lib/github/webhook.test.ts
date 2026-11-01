@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { migratedDb, truncateAll } from "@/lib/db/testing";
 import type { Db } from "@/lib/db/types";
 import { delivery, installationPayload, jobPayload, REPO, runPayload, SECRET } from "./fixtures";
-import { jobById, jobEventFromPayload, onTeamJobChange, queuedJobs, recentRuns, runningJobs } from "./live";
-import { linkInstallation } from "./store";
+import { activePollers, jobById, jobEventFromPayload, nextDelay, onTeamJobChange, queuedJobs, recentRuns, runningJobs, subscribeTeamJobs, teamInstallations } from "./live";
+import { disconnectInstallation, linkInstallation, pruneOld } from "./store";
 import { teamIdOf, type TeamId } from "./team";
 import { handleWebhook } from "./webhook";
 
@@ -61,11 +61,42 @@ describe("webhook receiver", () => {
 
   it("does not mark a delivery seen when applying it fails (so a redelivery works)", async () => {
     const id = "99999999-2222-4333-8444-555555555555";
-    const bad = jobPayload("queued") as unknown as { workflow_job: { name: unknown } };
-    bad.workflow_job.name = null; // NOT NULL column: the insert fails
-    await expect(send("workflow_job", bad, id)).rejects.toThrow();
+    // A database that fails on the job write, after the delivery row was inserted in the same transaction.
+    const flaky: Db = {
+      ...db,
+      tx: (fn) =>
+        db.tx((q) =>
+          fn({
+            exec: (t) => q.exec(t),
+            query: (t, p) => (t.includes("INSERT INTO workflow_jobs") ? Promise.reject(new Error("connection reset")) : q.query(t, p)),
+          }),
+        ),
+    };
+    await expect(handleWebhook({ db: flaky, secret: SECRET, ...delivery("workflow_job", jobPayload("queued"), id) })).rejects.toThrow("connection reset");
     expect(await db.query("SELECT * FROM deliveries")).toEqual([]);
     expect((await send("workflow_job", jobPayload("queued"), id)).body).toEqual({ ok: true });
+  });
+
+  it("skips (not fails) a workflow_job without run_id or name (M2 guard)", async () => {
+    for (const field of ["run_id", "name"] as const) {
+      const p = jobPayload("queued") as unknown as { workflow_job: Record<string, unknown> };
+      delete p.workflow_job[field];
+      expect((await send("workflow_job", p)).body).toEqual({ ok: true, ignored: true });
+    }
+    expect(await db.query("SELECT * FROM workflow_jobs")).toEqual([]);
+  });
+
+  it("ranks an unknown GitHub status as not started, and logs it (m3)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const p = jobPayload("queued") as unknown as { workflow_job: { status: string } };
+    p.workflow_job.status = "something_new";
+    await send("workflow_job", p);
+    expect((await db.query("SELECT status_rank FROM workflow_jobs WHERE id = 1234"))[0]).toEqual({ status_rank: 1 });
+    expect(warn).toHaveBeenCalledWith("[quod-cloud] unknown github status", { status: "something_new" });
+    // A real completion still wins over it.
+    await send("workflow_job", jobPayload("completed"));
+    expect((await jobRow()).status).toBe("completed");
+    warn.mockRestore();
   });
 
   it("records and ignores events it does not handle", async () => {
@@ -263,5 +294,113 @@ describe("live queries and events", () => {
       ctrl.abort();
     }
     expect(out.map((e) => e.job.id)).toEqual(["21"]);
+  });
+});
+
+describe("review fixes", () => {
+  const inst = (action: string, updated: string, extra: Record<string, unknown> = {}) => ({
+    action,
+    installation: { id: 77, account: { id: 500, login: "acme", type: "Organization" }, repository_selection: "selected", updated_at: updated, ...extra },
+  });
+
+  it("m2: a late installation delivery never undoes a newer one (suspend / unsuspend)", async () => {
+    await link();
+    await send("installation", inst("unsuspend", "2026-11-01T12:00:00Z"));
+    await send("installation", inst("suspend", "2026-11-01T11:00:00Z", { suspended_at: "2026-11-01T11:00:00Z" })); // older, arrives late
+    expect((await db.query("SELECT suspended_at FROM installations WHERE id = 77"))[0]).toEqual({ suspended_at: null });
+    await send("installation", inst("suspend", "2026-11-01T13:00:00Z", { suspended_at: "2026-11-01T13:00:00Z" }));
+    expect((await db.query<{ s: boolean }>("SELECT suspended_at IS NOT NULL AS s FROM installations WHERE id = 77"))[0].s).toBe(true);
+  });
+
+  it("m2: a late 'added' never revives a repo a newer delivery removed", async () => {
+    await link();
+    const repos = (action: "added" | "removed", updated: string) => ({
+      action,
+      installation: { id: 77, updated_at: updated },
+      repository_selection: "selected",
+      [action === "added" ? "repositories_added" : "repositories_removed"]: [{ id: 9002, name: "web", full_name: "acme/web", private: false }],
+    });
+    await send("installation_repositories", repos("added", "2026-11-01T10:00:00Z"));
+    await send("installation_repositories", repos("removed", "2026-11-01T12:00:00Z"));
+    await send("installation_repositories", repos("added", "2026-11-01T11:00:00Z")); // older, late
+    expect((await db.query<{ removed: boolean }>("SELECT removed_at IS NOT NULL AS removed FROM repos WHERE id = 9002"))[0].removed).toBe(true);
+    await send("installation_repositories", repos("added", "2026-11-01T13:00:00Z"));
+    expect((await db.query<{ removed: boolean }>("SELECT removed_at IS NOT NULL AS removed FROM repos WHERE id = 9002"))[0].removed).toBe(false);
+  });
+
+  it("m4: a suspended installation's jobs and runs leave the live queries", async () => {
+    await link();
+    await send("workflow_run", runPayload("in_progress"));
+    await send("workflow_job", jobPayload("in_progress"));
+    expect(await runningJobs(TEAM, db)).toHaveLength(1);
+    await send("installation", inst("suspend", new Date().toISOString(), { suspended_at: new Date().toISOString() }));
+    expect(await runningJobs(TEAM, db)).toEqual([]);
+    expect(await recentRuns(TEAM, null, { db })).toEqual([]);
+    expect(await jobById(TEAM, 1234, db)).toBeNull();
+    expect((await teamInstallations(TEAM, db))[0].suspended).toBe(true);
+  });
+
+  it("m9: installation_target renamed updates the account and repo names", async () => {
+    await link();
+    await send("installation_target", { action: "renamed", installation: { id: 77 }, account: { id: 500, login: "acme-inc", type: "Organization" }, changes: { login: { from: "acme" } }, target_type: "Organization" });
+    expect((await db.query("SELECT account_login FROM installations WHERE id = 77"))[0]).toEqual({ account_login: "acme-inc" });
+    expect((await db.query("SELECT full_name FROM repos WHERE id = $1", [REPO.id]))[0]).toEqual({ full_name: "acme-inc/api" });
+  });
+
+  it("m7: prunes runs and jobs not updated for 30 days, and deliveries after 7", async () => {
+    await send("workflow_run", runPayload("completed"));
+    await send("workflow_job", jobPayload("completed"));
+    await send("workflow_job", jobPayload("completed", { id: 2 }));
+    await db.query("UPDATE workflow_jobs SET row_updated_at = now() - interval '31 days' WHERE id = 1234");
+    await db.query("UPDATE workflow_runs SET row_updated_at = now() - interval '31 days'");
+    await db.query("UPDATE deliveries SET received_at = now() - interval '8 days'");
+    expect(await pruneOld(db)).toEqual({ deliveries: 3, runs: 1, jobs: 1 });
+    expect((await db.query("SELECT id FROM workflow_jobs")).map((r) => r.id)).toEqual([2]);
+  });
+
+  it("M1: Disconnect unlinks only from the team that has it", async () => {
+    await link(77, TEAM);
+    expect(await disconnectInstallation(db, "org_other", 77)).toBe(false);
+    expect((await db.query("SELECT team_id FROM installations WHERE id = 77"))[0]).toEqual({ team_id: "org_acme" });
+    expect(await disconnectInstallation(db, "org_acme", 77)).toBe(true);
+    expect((await db.query("SELECT team_id FROM installations WHERE id = 77"))[0]).toEqual({ team_id: null });
+    // Free again: another team may now link it (after the GitHub checks).
+    expect(await link(77, OTHER)).toBe("linked");
+  });
+
+  it("M3: subscribers of a team share one poller, which stops with the last", async () => {
+    await link();
+    const a: string[] = [];
+    const b: string[] = [];
+    const unA = subscribeTeamJobs(TEAM, (e) => a.push(e.job.id), { db, intervalMs: 250 });
+    const unB = subscribeTeamJobs(TEAM, (e) => b.push(e.job.id), { db, intervalMs: 250 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(activePollers(db)).toBe(1);
+    await new Promise((r) => setTimeout(r, 300));
+    await send("workflow_job", jobPayload("in_progress", { id: 31 }));
+    await new Promise((r) => setTimeout(r, 600));
+    expect(a).toEqual(["31"]);
+    expect(b).toEqual(["31"]);
+    unA();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(activePollers(db)).toBe(1);
+    unB();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(activePollers(db)).toBe(0);
+  });
+
+  it("M3: backs off from 2 s to 5 s to 10 s while nothing changes", () => {
+    const p = { base: 2000, max: 10000 };
+    expect([0, 2, 3, 9, 10, 50].map((idle) => nextDelay({ ...p, idle }))).toEqual([2000, 2000, 5000, 5000, 10000, 10000]);
+  });
+
+  it("M3: one poll query carries the database clock, even when nothing changed", async () => {
+    const seen: string[] = [];
+    const counting: Db = { ...db, query: (t, p) => (seen.push(t), db.query(t, p)) };
+    const un = subscribeTeamJobs(TEAM, () => {}, { db: counting, intervalMs: 250 });
+    await new Promise((r) => setTimeout(r, 600));
+    un();
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen.every((t) => t.includes("SELECT now() AS db_now"))).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Membership } from "@/lib/auth/types";
 import type { GhRepoWithPermissions, GhUserInstallation } from "./api";
-import { decideLink, verifyInstallationClaim, type GitHubForLinking, type LinkFacts } from "./link";
+import { decideLink, repoDigest, repoSetUnchanged, verifyInstallationClaim, type GitHubForLinking, type LinkFacts } from "./link";
 
 // Installation -> team linking. Without these checks anyone could claim
 // another organization's installation by typing its id into the setup URL.
@@ -73,6 +73,16 @@ describe("decideLink", () => {
   });
 });
 
+describe("repo set on confirm (m5)", () => {
+  it("passes only for the same set of repos that was checked", () => {
+    const claim = { repoCount: 2, repoDigest: repoDigest([2, 1]) };
+    expect(repoSetUnchanged(claim, [1, 2])).toBe(true);
+    expect(repoSetUnchanged(claim, [1, 2, 3])).toBe(false); // a repo was added: nobody checked it
+    expect(repoSetUnchanged(claim, [1])).toBe(false);
+    expect(repoSetUnchanged(claim, [1, 3])).toBe(false);
+  });
+});
+
 describe("verifyInstallationClaim", () => {
   let gh: { [K in keyof GitHubForLinking]: ReturnType<typeof vi.fn> };
   beforeEach(() => {
@@ -97,7 +107,7 @@ describe("verifyInstallationClaim", () => {
 
   it("returns a claim for the verified installation and revokes the user token", async () => {
     const r = await run();
-    expect(r).toMatchObject({ ok: true, claim: { installationId: 77, teamOrgId: "org_acme", userId: "user_1", githubUserId: 1, repoCount: 1, account: { login: "acme" } } });
+    expect(r).toMatchObject({ ok: true, claim: { installationId: 77, teamOrgId: "org_acme", userId: "user_1", githubUserId: 1, githubLogin: "jamie", repoCount: 1, repoDigest: repoDigest([1]), account: { login: "acme" } } });
     expect(gh.revoke).toHaveBeenCalledWith("ghu_token");
   });
 

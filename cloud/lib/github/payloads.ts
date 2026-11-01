@@ -21,6 +21,15 @@ export interface GhInstallation {
   account?: GhAccount | null;
   repository_selection?: string;
   suspended_at?: string | null;
+  /** Orders installation deliveries (m2). */
+  updated_at?: string | null;
+}
+
+export interface InstallationTargetPayload {
+  action: "renamed" | string;
+  installation: { id: number };
+  account: GhAccount;
+  target_type?: string;
 }
 
 export interface InstallationPayload {
@@ -112,7 +121,9 @@ export function statusRank(status: string | null | undefined): number {
     case "completed":
       return 3;
     default:
-      return 0;
+      // A status GitHub added after this was written: treat it as not started yet, and say so.
+      console.warn("[quod-cloud] unknown github status", { status: typeof status === "string" ? status.slice(0, 32) : status });
+      return 1;
   }
 }
 
@@ -164,6 +175,8 @@ export interface JobRow {
 export function jobRowFromPayload(p: WorkflowJobPayload, receivedAt: Date): JobRow | null {
   const j = p.workflow_job;
   if (!p.installation?.id || !j?.id || !p.repository?.id) return null;
+  // Columns that cannot be null: a payload without them is skipped, not a failed transaction.
+  if (typeof j.run_id !== "number" || typeof j.name !== "string" || typeof j.status !== "string") return null;
   const created = time(j.created_at);
   const started = time(j.started_at);
   const completed = time(j.completed_at);
@@ -219,6 +232,7 @@ export interface RunRow {
 export function runRowFromPayload(p: WorkflowRunPayload, receivedAt: Date): RunRow | null {
   const r = p.workflow_run;
   if (!p.installation?.id || !r?.id || !p.repository?.id) return null;
+  if (typeof r.status !== "string") return null;
   const created = time(r.created_at);
   return {
     id: r.id,
