@@ -172,25 +172,34 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
     // with A1's: it must read an equivalent manifest and produce the same
     // result up to go test durations, or this step could never be trusted.
     let repo = env.repo.to_str().unwrap().to_string();
-    let p1 = env.quod(&[
-        "run", "--repo", &repo, "--step", step, "--mode", "observe", "--proofs", "2",
-    ]);
-    assert!(
-        p1.executed()
-            && p1.code == a1.code
-            && p1.stderr.contains("trust: proof 2 of 2")
-            && !p1.stderr.contains("DIVERGENCE"),
-        "P1: {}",
-        p1.stderr
-    );
-    println!(
-        "P1 ok: a second execution agreed with A1 ({}); proof 2 of 2 under the default policy",
-        if p1.stderr.contains("byte-identical") {
-            "byte-identical"
-        } else {
-            "identical up to go test durations"
-        }
-    );
+    // QUOD_SKIP_P1=1 skips it, for a corpus whose step output is not
+    // deterministic on identical inputs in a way P1's normalization does
+    // not cover (Jest's suite order and coverage timestamps, pytest's
+    // duration line): its divergence would quarantine the key and stop
+    // A3-A7, which do not depend on it.
+    if std::env::var("QUOD_SKIP_P1").is_ok_and(|v| v == "1") {
+        println!("P1 skipped (QUOD_SKIP_P1=1)");
+    } else {
+        let p1 = env.quod(&[
+            "run", "--repo", &repo, "--step", step, "--mode", "observe", "--proofs", "2",
+        ]);
+        assert!(
+            p1.executed()
+                && p1.code == a1.code
+                && p1.stderr.contains("trust: proof 2 of 2")
+                && !p1.stderr.contains("DIVERGENCE"),
+            "P1: {}",
+            p1.stderr
+        );
+        println!(
+            "P1 ok: a second execution agreed with A1 ({}); proof 2 of 2 under the default policy",
+            if p1.stderr.contains("byte-identical") {
+                "byte-identical"
+            } else {
+                "identical up to go test durations"
+            }
+        );
+    }
 
     let manifest = ledger().candidates(&key, 1).unwrap().remove(0);
     let recorded: BTreeSet<&str> = manifest.entries.iter().map(|e| e.p.as_str()).collect();
