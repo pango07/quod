@@ -66,7 +66,7 @@ jobs:
           ev=/var/lib/quod/events.jsonl
           sudo test -f "$ev" || { echo "no quod events"; exit 0; }
           {
-            echo "### quod run"
+            echo "### quod run ($(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs))"
             echo "| step key | outcome | hit | candidates | first mismatch | total | recorded |"
             echo "|---|---|---|---|---|---|---|"
             sudo jq -r 'select(.message == "run" and .step_key) | "| `\(.step_key[0:15])` | \(.outcome) | \(.hit) | \(.candidates) | \(.first_mismatch // "") | \(.total_ms | floor) ms | \(.recorded_ms // "") |"' "$ev"

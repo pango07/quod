@@ -80,7 +80,8 @@ pinned_sha256() {
   case "$1" in
     # cc34bd9 (exp/cloud-ledger-v2), GitHub run 41511010172
     quod-client-v0.1.0) echo 0e0f8a26fe82cfa720a15742302c66c6867c470658d15db950729f9025af9b00;;
-    # b452ae4 (exp/cloud-ledger-v3); see the release notes for the run
+    # b452ae4 (exp/cloud-ledger-v3), GitHub run 41513787173
+    quod-client-v0.2.0) echo 356d8197ca5f25447c1dfab1ea586db872649b0420bc104294de1d9988b55ee1;;
     *) echo '';;
   esac
 }

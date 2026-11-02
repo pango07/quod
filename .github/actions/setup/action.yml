@@ -44,7 +44,7 @@ inputs:
   version:
     description: The quod client release (a release tag of the repository below)
     required: false
-    default: quod-client-v0.1.0
+    default: quod-client-v0.2.0
   sha256:
     description: >
       SHA-256 of the release's quod-x86_64-linux.tar.gz. Defaults to the pin
