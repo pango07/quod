@@ -104,7 +104,8 @@ fn main() -> anyhow::Result<()> {
                         match have.cmp(&want) {
                             std::cmp::Ordering::Less => "would migrate",
                             std::cmp::Ordering::Equal => "current",
-                            std::cmp::Ordering::Greater => "NEWER than this build: the server would refuse to start",
+                            std::cmp::Ordering::Greater =>
+                                "NEWER than this build: the server would refuse to start",
                         }
                     );
                 } else {
@@ -165,7 +166,9 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => {
-            anyhow::bail!("unknown command {other:?}: serve, pubkey, hash-token, healthcheck, migrate, migrate-sqlite-to-postgres")
+            anyhow::bail!(
+                "unknown command {other:?}: serve, pubkey, hash-token, healthcheck, migrate, migrate-sqlite-to-postgres"
+            )
         }
     }
 }

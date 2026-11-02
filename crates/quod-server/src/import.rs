@@ -166,10 +166,36 @@ fn copy_table(
     Ok(n)
 }
 
+/// Opens a SQLite file only to read it. Without a `-wal` beside it (a
+/// server that stopped cleanly checkpoints and removes it), `immutable=1`:
+/// SQLite then creates no `-shm` or `-wal` either, so the volume is left
+/// byte for byte as it was. With a `-wal` (a server that did not stop
+/// cleanly, or one still running), a plain read-only open, which reads
+/// the WAL's committed pages (and may create `-shm`, which holds no data).
 fn open_ro(p: &Path) -> anyhow::Result<Connection> {
+    let mut wal = p.as_os_str().to_owned();
+    wal.push("-wal");
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    if Path::new(&wal).exists() {
+        return Ok(Connection::open_with_flags(p, flags)?);
+    }
+    let path = p
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("{}: not UTF-8", p.display()))?;
+    // A file: URI; the characters a URI path cannot hold literally escaped.
+    let mut uri = String::from("file:");
+    for c in path.chars() {
+        match c {
+            '%' => uri.push_str("%25"),
+            '?' => uri.push_str("%3F"),
+            '#' => uri.push_str("%23"),
+            c => uri.push(c),
+        }
+    }
+    uri.push_str("?immutable=1");
     Ok(Connection::open_with_flags(
-        p,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        uri,
+        flags | OpenFlags::SQLITE_OPEN_URI,
     )?)
 }
 
@@ -423,7 +449,8 @@ pub fn import_sqlite(data_dir: &Path, cloud: &Cloud) -> anyhow::Result<Imported>
                 .map_err(sql_err)?
                 .try_get(0)
                 .map_err(sql_err)?;
-            let fixed: [(&str, &(dyn ToSql + Sync)); 2] = [("team", &team), ("scope_id", &scope_id)];
+            let fixed: [(&str, &(dyn ToSql + Sync)); 2] =
+                [("team", &team), ("scope_id", &scope_id)];
             let mut copy = |table: &str, cols: &[(&str, Ty)], order: &str| -> anyhow::Result<()> {
                 let n = copy_table(&db, &mut tx, table, cols, order, &fixed, "", None, None)?;
                 add(table, n);

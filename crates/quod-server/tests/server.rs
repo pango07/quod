@@ -890,10 +890,7 @@ fn s9_trust_v2_on_the_server_is_trust_v2_locally() {
     );
 
     // The replay it served is marked suspect in both ledgers.
-    let server_ledger = s
-        .store
-        .ledger("acme", "acme/app", "trusted")
-        .unwrap();
+    let server_ledger = s.store.ledger("acme", "acme/app", "trusted").unwrap();
     assert_eq!(server_ledger.suspect_runs(None).unwrap().len(), 1);
     assert_eq!(ledger.suspect_runs(None).unwrap().len(), 1);
     assert_eq!(
@@ -1459,7 +1456,10 @@ fn s14_a_v6_data_dir_migrates_at_start_and_keeps_its_key() {
     assert_eq!(v, 99);
     assert_eq!(std::fs::read(&key_file).unwrap(), key_bytes);
     // The error names the team, the scope and the file.
-    assert!(e.contains("team acme") && e.contains("scope") && e.contains("ledger.sqlite"), "{e}");
+    assert!(
+        e.contains("team acme") && e.contains("scope") && e.contains("ledger.sqlite"),
+        "{e}"
+    );
     // The dry run says so too, and writes nothing.
     let plan = quod_server::store::Store::new(&dir).plan();
     assert!(
@@ -1528,10 +1528,7 @@ fn s15_a_remote_runner_never_leaves_a_pending_audit() {
             o => panic!("hit {nth} must be audited inline: {o:?}"),
         }
     }
-    let server_ledger = s
-        .store
-        .ledger("acme", "acme/app", "trusted")
-        .unwrap();
+    let server_ledger = s.store.ledger("acme", "acme/app", "trusted").unwrap();
     let key = key_of(CMD);
     assert_eq!(
         server_ledger

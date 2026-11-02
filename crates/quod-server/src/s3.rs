@@ -88,7 +88,10 @@ fn sha256_hex(b: &[u8]) -> String {
 fn uri_encode(s: &str, keep_slash: bool) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') || (keep_slash && b == b'/') {
+        if b.is_ascii_alphanumeric()
+            || matches!(b, b'-' | b'_' | b'.' | b'~')
+            || (keep_slash && b == b'/')
+        {
             out.push(b as char);
         } else {
             out.push_str(&format!("%{b:02X}"));
@@ -150,7 +153,9 @@ impl S3 {
             return Err(format!("S3_BUCKET {:?} is not a bucket name", s.bucket));
         }
         if s.part_size < MIN_PART_SIZE {
-            return Err(format!("the S3 part size must be at least {MIN_PART_SIZE} bytes"));
+            return Err(format!(
+                "the S3 part size must be at least {MIN_PART_SIZE} bytes"
+            ));
         }
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(10))
@@ -185,7 +190,10 @@ impl S3 {
             };
             (self.host.clone(), path)
         } else {
-            (format!("{}.{}", self.s.bucket, self.host), format!("/{key}"))
+            (
+                format!("{}.{}", self.s.bucket, self.host),
+                format!("/{key}"),
+            )
         }
     }
 
@@ -298,11 +306,7 @@ impl S3 {
         if let Some(mut b) = a.body {
             let _ = b.by_ref().take(4096).read_to_string(&mut text);
         }
-        store_err(format!(
-            "object store {what}: {} {}",
-            a.status,
-            text.trim()
-        ))
+        store_err(format!("object store {what}: {} {}", a.status, text.trim()))
     }
 
     /// An object's size, or None when there is none.
@@ -364,7 +368,13 @@ impl S3 {
             .ok_or_else(|| store_err(format!("object store: no UploadId in {text:?}")))
     }
 
-    fn upload_part(&self, object: &str, id: &str, n: usize, bytes: &[u8]) -> Result<String, CasError> {
+    fn upload_part(
+        &self,
+        object: &str,
+        id: &str,
+        n: usize,
+        bytes: &[u8],
+    ) -> Result<String, CasError> {
         let n = n.to_string();
         let a = self.send(
             "PUT",
@@ -604,15 +614,13 @@ impl BlobStore for S3Blobs {
             return Ok((h, len));
         }
         let changed = path.to_path_buf();
-        let n = self
-            .s3
-            .put_multipart(&self.object(&h), &mut f, |got, n| {
-                if got == h && n == len {
-                    Ok(())
-                } else {
-                    Err(CasError::Changed(changed))
-                }
-            })?;
+        let n = self.s3.put_multipart(&self.object(&h), &mut f, |got, n| {
+            if got == h && n == len {
+                Ok(())
+            } else {
+                Err(CasError::Changed(changed))
+            }
+        })?;
         Ok((h, n))
     }
 }
@@ -635,7 +643,10 @@ mod tests {
 
     #[test]
     fn sigv4_canonical_pieces() {
-        assert_eq!(uri_encode("teams/acme/blobs/ab", true), "teams/acme/blobs/ab");
+        assert_eq!(
+            uri_encode("teams/acme/blobs/ab", true),
+            "teams/acme/blobs/ab"
+        );
         assert_eq!(uri_encode("a b/c", false), "a%20b%2Fc");
         assert_eq!(uri_encode("~x_y.z-", false), "~x_y.z-");
         let (d, day) = amz_now();
@@ -676,7 +687,10 @@ mod tests {
         let v = S3::new(s("https://t3.storageapi.dev", false)).unwrap();
         assert_eq!(
             v.target(Some("teams/a/blobs/x")),
-            ("quod-results-abc.t3.storageapi.dev".into(), "/teams/a/blobs/x".into())
+            (
+                "quod-results-abc.t3.storageapi.dev".into(),
+                "/teams/a/blobs/x".into()
+            )
         );
         let p = S3::new(s("http://127.0.0.1:9000/", true)).unwrap();
         assert_eq!(

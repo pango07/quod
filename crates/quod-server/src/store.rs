@@ -223,10 +223,10 @@ impl Store {
     ) -> anyhow::Result<bool> {
         let repo = repo.into();
         Ok(match &self.cloud {
-            Some(c) => c
-                .pg
-                .scope_id(team, &repo.storage_key(), repo.name, scope, false)?
-                .is_some(),
+            Some(c) => {
+                c.pg.scope_id(team, &repo.storage_key(), repo.name, scope, false)?
+                    .is_some()
+            }
             None => self.ledger_path(team, repo, scope).is_file(),
         })
     }
@@ -241,10 +241,9 @@ impl Store {
     ) -> anyhow::Result<ScopeLedger> {
         let repo = repo.into();
         if let Some(c) = &self.cloud {
-            let id = c
-                .pg
-                .scope_id(team, &repo.storage_key(), repo.name, scope, true)?
-                .expect("created");
+            let id =
+                c.pg.scope_id(team, &repo.storage_key(), repo.name, scope, true)?
+                    .expect("created");
             return Ok(ScopeLedger::Pg(c.pg.ledger(team, id)?));
         }
         let p = self.ledger_path(team, repo, scope);
@@ -574,6 +573,8 @@ impl BlobStore for TeamBlobs {
 }
 
 /// A scope ledger in either backend.
+// One per request, moved rarely: the size difference does not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum ScopeLedger {
     Sqlite(Ledger),
     Pg(PgLedger),

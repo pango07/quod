@@ -82,7 +82,10 @@ pub fn cloud_env(get: &dyn Fn(&str) -> Option<String>) -> Result<Option<CloudEnv
     }
     // The bucket's credentials: the generic S3_* names, else the AWS SDK's
     // (Railway's "AWS SDK" preset sets those).
-    let endpoint = first_set(&set, &["S3_ENDPOINT", "AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"]);
+    let endpoint = first_set(
+        &set,
+        &["S3_ENDPOINT", "AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"],
+    );
     let bucket = first_set(&set, &["S3_BUCKET"]);
     let key = first_set(&set, &["S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"]);
     let secret = first_set(&set, &["S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"]);
@@ -104,7 +107,11 @@ pub fn cloud_env(get: &dyn Fn(&str) -> Option<String>) -> Result<Option<CloudEnv
             if named.is_empty() {
                 "QUOD_BACKEND=postgres is".to_string()
             } else {
-                format!("{} {}", named.join(", "), if named.len() == 1 { "is" } else { "are" })
+                format!(
+                    "{} {}",
+                    named.join(", "),
+                    if named.len() == 1 { "is" } else { "are" }
+                )
             },
             missing.join(", ")
         ));
@@ -789,7 +796,10 @@ mod tests {
         // Both: Postgres and S3. QUOD_BACKEND=sqlite keeps SQLite.
         let all = [
             ("QUOD_DATA_DIR", "/d"),
-            ("DATABASE_URL", "postgresql://u:p@postgres.railway.internal:5432/railway"),
+            (
+                "DATABASE_URL",
+                "postgresql://u:p@postgres.railway.internal:5432/railway",
+            ),
             ("S3_ENDPOINT", "https://t3.storageapi.dev"),
             ("S3_BUCKET", "quod-results-x"),
             ("S3_REGION", "auto"),
@@ -807,9 +817,18 @@ mod tests {
         assert!(Env::from_env(env(&sqlite)).unwrap().cloud.is_none());
         let mut path = all.to_vec();
         path.push(("S3_FORCE_PATH_STYLE", "1"));
-        assert!(Env::from_env(env(&path)).unwrap().cloud.unwrap().s3.path_style);
+        assert!(
+            Env::from_env(env(&path))
+                .unwrap()
+                .cloud
+                .unwrap()
+                .s3
+                .path_style
+        );
         // The import needs the cloud backends.
-        assert!(Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), ("QUOD_IMPORT_SQLITE", "1")])).is_err());
+        assert!(
+            Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), ("QUOD_IMPORT_SQLITE", "1")])).is_err()
+        );
         // The attestation is 1 or nothing.
         assert!(
             Env::from_env(env(&[

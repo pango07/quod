@@ -81,9 +81,8 @@ async fn s3_body(blobs: crate::s3::S3Blobs, h: Hash) -> Result<(Body, Option<u64
             }
         }
     });
-    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|c| (c, rx))
-    });
+    let stream =
+        futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|c| (c, rx)) });
     Ok((Body::from_stream(stream), len))
 }
 

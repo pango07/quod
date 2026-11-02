@@ -134,10 +134,8 @@ fn p2_atomically_is_all_or_nothing_and_never_interleaves() {
     let wrong = cloud.pg.ledger("beta", id).unwrap();
     assert!(wrong.trust(&key).unwrap().is_none());
     // A nested `atomically` joins the outer transaction.
-    l.atomically(|l| {
-        l.atomically(|l| l.put_trust(&TrustRow::new(key_of("nested"), None)))
-    })
-    .unwrap();
+    l.atomically(|l| l.atomically(|l| l.put_trust(&TrustRow::new(key_of("nested"), None))))
+        .unwrap();
     assert!(l.trust(&key_of("nested")).unwrap().is_some());
 }
 
@@ -244,7 +242,10 @@ fn p4_blobs_are_content_addressed_per_team_and_streamed() {
     let small = b"hello".to_vec();
     let h = a.put_blob(&small).unwrap();
     assert_eq!(h, Hash::of(&small));
-    assert!(a.object(&h).ends_with(&format!("teams/acme/blobs/{}", h.hex())));
+    assert!(
+        a.object(&h)
+            .ends_with(&format!("teams/acme/blobs/{}", h.hex()))
+    );
     assert!(a.has_blob(&h).unwrap());
     assert!(!b.has_blob(&h).unwrap());
     assert_eq!(a.read_blob(&h).unwrap(), small);
@@ -301,7 +302,8 @@ fn snapshot(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else {
+            } else if !p.to_string_lossy().ends_with("-shm") {
+                // (A WAL index holds no data; a reader may write it.)
                 out.push((p.clone(), std::fs::read(&p).unwrap()));
             }
         }

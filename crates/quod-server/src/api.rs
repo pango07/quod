@@ -105,7 +105,9 @@ pub async fn claim(
         for scope in &runner.read {
             // A scope nobody wrote has nothing to replay; the runner's own
             // write scope is opened (and created) regardless.
-            if *scope != runner.write && !app.store.has_ledger(&runner.team, runner.repo(), scope)? {
+            if *scope != runner.write
+                && !app.store.has_ledger(&runner.team, runner.repo(), scope)?
+            {
                 continue;
             }
             let ledger = app.store.ledger(&runner.team, runner.repo(), scope)?;
@@ -247,7 +249,10 @@ fn resolve_hit(
             "the hit names a scope this runner cannot read",
         ));
     }
-    if !app.store.has_ledger(&runner.team, runner.repo(), &h.scope)? {
+    if !app
+        .store
+        .has_ledger(&runner.team, runner.repo(), &h.scope)?
+    {
         return Ok(None);
     }
     let l = app.store.ledger(&runner.team, runner.repo(), &h.scope)?;

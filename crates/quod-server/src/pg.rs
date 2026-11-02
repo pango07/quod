@@ -38,7 +38,7 @@ use r2d2_postgres::postgres::types::ToSql;
 use r2d2_postgres::postgres::{Client, Config, NoTls, Row};
 use serde_json::Value;
 
-use crate::store::{StepRow, TrustedWrite, EventRow};
+use crate::store::{EventRow, StepRow, TrustedWrite};
 
 type Manager = PostgresConnectionManager<NoTls>;
 pub type Pool = r2d2::Pool<Manager>;
@@ -201,7 +201,8 @@ impl Pg {
     /// be reached) and brings the schema to this build's version.
     pub fn connect(s: &PgSettings) -> Result<Pg, String> {
         let pg = Pg::open(s)?;
-        pg.migrate().map_err(|e| format!("postgres migration: {e}"))?;
+        pg.migrate()
+            .map_err(|e| format!("postgres migration: {e}"))?;
         Ok(pg)
     }
 
@@ -426,11 +427,11 @@ impl PgLedger {
     ) -> Result<T, LedgerError> {
         let mut held = self.held.borrow_mut();
         if let Some(c) = held.as_mut() {
-            return f(&mut **c).map_err(pg_err);
+            return f(c).map_err(pg_err);
         }
         drop(held);
         let mut c = self.pg.conn()?;
-        f(&mut *c).map_err(pg_err)
+        f(&mut c).map_err(pg_err)
     }
 
     fn query(&self, sql: &str, p: &[P]) -> Result<Vec<Row>, LedgerError> {
@@ -537,7 +538,9 @@ impl PgLedger {
 
     pub fn run(&self, id: &str) -> Result<Option<RunRow>, LedgerError> {
         self.query_opt(
-            &format!("SELECT {RUN_COLUMNS} FROM runs WHERE scope_id = $1 AND team = $2 AND id = $3"),
+            &format!(
+                "SELECT {RUN_COLUMNS} FROM runs WHERE scope_id = $1 AND team = $2 AND id = $3"
+            ),
             &[&self.scope, &self.team, &id],
         )?
         .as_ref()
