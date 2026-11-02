@@ -426,11 +426,11 @@ impl PgLedger {
     ) -> Result<T, LedgerError> {
         let mut held = self.held.borrow_mut();
         if let Some(c) = held.as_mut() {
-            return f(c).map_err(pg_err);
+            return f(&mut **c).map_err(pg_err);
         }
         drop(held);
         let mut c = self.pg.conn()?;
-        f(&mut c).map_err(pg_err)
+        f(&mut *c).map_err(pg_err)
     }
 
     fn query(&self, sql: &str, p: &[P]) -> Result<Vec<Row>, LedgerError> {

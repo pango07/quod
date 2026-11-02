@@ -1474,11 +1474,18 @@ fn s14_a_v6_data_dir_migrates_at_start_and_keeps_its_key() {
     db.pragma_update(None, "user_version", quod_ledger::SCHEMA_VERSION as i64)
         .unwrap();
     drop(db);
-    std::fs::write(&ledgers[0], b"not a database").unwrap();
+    // (Its WAL would still hold a good first page.)
+    for side in ["-wal", "-shm"] {
+        let mut p = ledgers[0].clone().into_os_string();
+        p.push(side);
+        let _ = std::fs::remove_file(p);
+    }
+    let garbage = vec![0x55u8; 4096];
+    std::fs::write(&ledgers[0], &garbage).unwrap();
     let b4 = boot(&env()).unwrap();
     assert_eq!(b4.migrated.failed, 1);
     assert_eq!(b4.migrated.ledgers, ledgers.len() - 1);
-    assert_eq!(std::fs::read(&ledgers[0]).unwrap(), b"not a database");
+    assert!(std::fs::read(&ledgers[0]).unwrap() == garbage);
     drop(b4);
     drop(data);
 }

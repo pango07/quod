@@ -212,8 +212,7 @@ jobs:
       ref: ${{ inputs.ref || '' }}
 
   # quod-server on Quod Cloud's backends (docs/cloud-ledger.md, P4): a real
-  # Postgres (service container) and a MinIO (a container this job starts:
-  # a service container cannot be given MinIO's `server` command). The
+  # Postgres and a MinIO, both service containers. The
   # server's suites run twice, on SQLite and on Postgres + S3 (S1-S15, the
   # S2 races among them, and tests/cloud.rs P1-P5), with quod-ledger's and
   # quod-cas's unit tests and clippy on the three crates. The job also
@@ -233,6 +232,17 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U quod" --health-interval 2s --health-timeout 5s --health-retries 30
+      # MinIO's own images are no longer on Docker Hub; Bitnami's archived
+      # build starts the server by itself, so it can be a service.
+      minio:
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+        env:
+          MINIO_ROOT_USER: quodtest
+          MINIO_ROOT_PASSWORD: quodtest-secret
+          MINIO_DEFAULT_BUCKETS: quod-test
+        ports: ['9000:9000']
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9000/minio/health/live" --health-interval 2s --health-timeout 5s --health-retries 60
     env:
       QUOD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
       QUOD_TEST_S3_BUCKET: quod-test
@@ -251,18 +261,10 @@ jobs:
         with:
           shared-key: server-cloud
           cache-on-failure: true
-      - name: MinIO
-        run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$QUOD_TEST_S3_ACCESS_KEY_ID" \
-            -e MINIO_ROOT_PASSWORD="$QUOD_TEST_S3_SECRET_ACCESS_KEY" \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
-          for i in $(seq 60); do
-            curl -fsS http://127.0.0.1:9000/minio/health/live && exit 0
-            sleep 1
-          done
-          docker logs minio; exit 1
+      - name: MinIO answers
+        run: curl -fsS http://127.0.0.1:9000/minio/health/live
       - name: rustfmt (the diff is kept as an artifact)
+        if: success() || failure()
         run: |
           mkdir -p target/gate-logs
           cargo fmt --all
@@ -295,7 +297,7 @@ jobs:
         if: success() || failure()
         run: test ! -s target/gate-logs/fmt.patch
       - if: always()
-        run: cp Cargo.lock target/gate-logs/Cargo.lock
+        run: mkdir -p target/gate-logs && cp Cargo.lock target/gate-logs/Cargo.lock
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

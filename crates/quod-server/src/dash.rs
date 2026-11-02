@@ -239,7 +239,7 @@ impl TeamData {
                 .iter()
                 .find(|s| s.repository == row.repository && s.scope == TRUSTED),
         ) {
-            let l = app.store.open(team, &s)?;
+            let l = app.store.open(team, s)?;
             if let Some(t) = l.trust(&key)? {
                 let k = (row.repository.clone(), key.hex());
                 let best = l.proofs_for_key(&key)?.iter().map(|p| p.streak).max();
