@@ -92,3 +92,5 @@ by Fable" when its pass is done.
 | fix/guard-v3-review (Opus review of exp/guard-outside-testing 712cd87, no blocker, 2 majors fixed) | branch, not merged | Opus review, Opus fixes, unverified by Fable | G6a mutation-checked; v2 goldens; go1.27 only |
 | exp/cloud-ledger-v3 (server on current main) | branch, in progress | Opus review before deploy, then Fable | deferred audits for remote runners |
 | exp/bench-lite (fast and small-real-repo benchmarks) | branch, in progress | Opus review | benchmark tooling only |
+| exp/cloud-ledger-v3 (server on main semantics), deployed to api.quodci.com 2026-11-02 | `b452ae4` | Opus review: safe to deploy; MAJOR 2 (boot stops on one bad ledger) and minors handed to exp/cloud-p4 | live on Railway |
+| exp/guard-outside-testing + fix/guard-v3-review (go test guard v3) | merged `eede225` | Fable-authored, Opus-reviewed, Opus fixes | go1.27 only |
