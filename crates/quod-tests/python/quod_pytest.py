@@ -325,16 +325,24 @@ class _XdistMaster:
     def __init__(self, hooks):
         self.hooks = hooks
         self.reported = False
+        self.first = None
+        hooks.xdist = self
 
     def pytest_configure_node(self, node):
         node.workerinput["quod_tl"] = _TOKEN
 
     def pytest_xdist_node_collection_finished(self, node, ids):
+        if self.first is None:
+            self.first = node.gateway.id
+
+    def report(self):
+        """After the workers ran every test, without an error: the
+        replayed ones, from the first worker's list."""
         st = self.hooks.st
-        if self.reported or st.taint:
+        if self.reported or st.taint or self.first is None:
             return
         self.reported = True
-        wid = node.gateway.id
+        wid = self.first
         try:
             with open(os.path.join(_DIR, "out", "removed-%s.json" % wid)) as f:
                 removed = json.load(f)
@@ -394,10 +402,14 @@ def _fixture_window(st, scope, request):
 
 
 def _strip(data):
-    """A serialized report without what differs between faithful runs."""
+    """A serialized report without what differs between faithful runs: its
+    timings, and Hypothesis's per-test statistics (run times and the counts
+    of a random search), which only --hypothesis-show-statistics prints."""
     data = dict(data)
     for k in ("duration", "start", "stop"):
         data.pop(k, None)
+    for k in [k for k in data if k.startswith("_hypothesis")]:
+        data.pop(k)
     return data
 
 
@@ -418,6 +430,7 @@ class _Hooks:
     def __init__(self, st, config):
         self.st = st
         self.config = config
+        self.xdist = None
 
     # Collection --------------------------------------------------------
 
@@ -512,8 +525,14 @@ class _Hooks:
             # "no tests ran".
             session.testscollected += len(st.pending)
         outcome = yield
-        if st.role == "main":
+        # Only after a session that ran: one interrupted (errors during
+        # collection, a signal) ran no test a plain run would have, and
+        # reports none replayed either.
+        ran = outcome.excinfo is None and not session.shouldfail and not session.shouldstop
+        if ran and st.role == "main":
             self._flush(None)
+        if ran and st.role == "master" and self.xdist is not None:
+            self.xdist.report()
         return outcome
 
     @pytest.hookimpl(hookwrapper=True)
