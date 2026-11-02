@@ -63,7 +63,8 @@ const server = createServer((req, res) => {
     return;
   }
 
-  const r = routes[`${method} ${path}`];
+  // The real server ignores ?repo= on /activity.
+  const r = routes[`${method} ${path}`] ?? (url.pathname === "/v1/teams/acme/activity" ? routes[`${method} ${url.pathname}`] : undefined);
   if (r) return json(res, r[0], read(r[1]));
   if (/^\/v1\/teams\/acme\/repos\/[^/]+\/runs\/\d+$/.test(url.pathname)) return error(res, 404, "not_found", "no such run");
   if (url.pathname.startsWith("/v1/teams/acme/")) return error(res, 404, "not_found", "no such repo");

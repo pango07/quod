@@ -90,7 +90,7 @@ const lower = (s: string) => s.toLowerCase();
 const warn = (what: string, e: unknown) => console.warn(`[quod-cloud] ${what}`, { error: e instanceof Error ? e.name : "unknown", message: e instanceof ApiUnavailableError ? e.message : undefined });
 
 /** quod-server could not be used: show what GitHub has, and say so. */
-const unavailable = (e: ApiUnavailableError): QuodStatus => ({ state: "unavailable", message: e.message });
+const unavailable = (): QuodStatus => ({ state: "unavailable", message: "Quod data unavailable" });
 
 /**
  * Repo slugs for an installation's repos: the bare name, or "owner-name" when
@@ -164,15 +164,24 @@ export class CompositeCloudApi implements CloudApi {
     private readonly opts: CompositeOptions,
   ) {}
 
-  /** quod-server's repo list, once per instance (the slug map and the repo list share it). A failure is not remembered. */
+  /**
+   * quod-server's repo list, once per instance (one per request): the slug
+   * map and the repo list share it. A failure is remembered for the request
+   * too, so a server that hangs costs one timeout per page, not one per section.
+   */
   private innerRepos(team: string): Promise<RepoSummary[]> {
     let p = this.quodRepos.get(team);
     if (!p) {
       p = this.inner.listRepos(team);
-      p.catch(() => this.quodRepos.delete(team));
+      p.catch(() => undefined);
       this.quodRepos.set(team, p);
     }
     return p;
+  }
+
+  /** quod-server already failed in this request: do not wait for it again. */
+  private static skipIfFailed(map: RepoMap) {
+    if (map.failed) throw map.failed;
   }
 
   private quodError(what: string, e: unknown) {
@@ -295,13 +304,16 @@ export class CompositeCloudApi implements CloudApi {
     const map = await this.repoMap(team, c);
     let base: Activity;
     try {
-      base = await this.inner.getActivity(team, opts.repo ? { repo: map.toQuod(opts.repo) } : {});
+      CompositeCloudApi.skipIfFailed(map);
+      const quodRepo = opts.repo ? map.quodSlug(opts.repo) : undefined;
+      // A GitHub repo quod-server does not have: nothing of Quod's to show for it.
+      base = quodRepo === null ? { ...(await this.none.getActivity()), quod: { state: "connected" } } : await this.inner.getActivity(team, quodRepo ? { repo: quodRepo } : {});
       base = { ...base, jobs: base.jobs.map((j) => ({ ...j, repoSlug: map.toDash(j.repoSlug) })) };
     } catch (e) {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError)) throw e;
       this.quodError("quod activity unavailable", e);
-      base = { ...(await this.none.getActivity()), quod: unavailable(e) };
+      base = { ...(await this.none.getActivity()), quod: unavailable() };
     }
     const g = await this.github(c);
     if (g.teamId === null || g.link.state !== "linked") return { ...base, github: g.link };
@@ -342,12 +354,17 @@ export class CompositeCloudApi implements CloudApi {
    */
   private async *quodEvents(team: string, scope: LiveScope, map: RepoMap, lastEventId: string | null, signal: AbortSignal): AsyncGenerator<LiveEvent> {
     try {
+      CompositeCloudApi.skipIfFailed(map);
+      if (scope.kind !== "team" && map.quodSlug(scope.repo) === null) throw new ApiNotAvailableError("Not available yet", "quod-server has no data for this repo");
       for await (const e of this.inner.subscribe(team, scopeToQuod(map, scope), { lastEventId, signal })) yield mapEvent(map, e);
     } catch (e) {
       unstable_rethrow(e);
       if (signal.aborted) return;
       this.quodError("quod event stream ended", e);
     }
+    // Hold Quod's part open quietly: ending it would end an unlinked team's stream, and the browser
+    // would reconnect every 2 s (each reconnect asking quod-server again). The next rotation retries.
+    yield* this.none.subscribe(team, scope, { signal });
   }
 
   /**
@@ -413,12 +430,13 @@ export class CompositeCloudApi implements CloudApi {
     const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
     let ov: Overview;
     try {
+      CompositeCloudApi.skipIfFailed(map);
       ov = mapOverview(map, await this.inner.getOverview(team, range));
     } catch (e) {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError)) throw e;
       this.quodError("quod overview unavailable", e);
-      ov = { ...(await this.none.getOverview(team, range)), quod: unavailable(e) };
+      ov = { ...(await this.none.getOverview(team, range)), quod: unavailable() };
     }
     const gh = await this.ghRepoInfos(g);
     return gh.length ? { ...ov, repos: this.mergeRepos(ov.repos, gh) } : ov;
@@ -447,7 +465,7 @@ export class CompositeCloudApi implements CloudApi {
     let own: RepoDetail | null = null;
     let status: QuodStatus | undefined;
     try {
-      if (map.failed && gh) throw map.failed;
+      CompositeCloudApi.skipIfFailed(map);
       // A GitHub repo Quod's repo list does not have: no need to ask.
       const quodSlug = map.toQuod(repo);
       const known = map.identity || !gh || map.quodByName.has(lower(gh.summary.fullName));
@@ -456,11 +474,12 @@ export class CompositeCloudApi implements CloudApi {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError) || !gh) throw e;
       this.quodError("quod repo unavailable", e);
-      status = unavailable(e);
+      status = unavailable();
     }
     if (own) {
       const d = mapRepoDetail(map, own);
-      return gh ? { ...d, summary: this.mergeRepos([d.summary], [gh])[0] } : d;
+      // quod-server does not know the default branch (it says "main"); GitHub does.
+      return gh ? { ...d, defaultBranch: gh.summary.protection?.branch ?? d.defaultBranch, summary: this.mergeRepos([d.summary], [gh])[0] } : d;
     }
     if (!gh) return null;
     return { asOf: new Date().toISOString(), summary: gh.summary, defaultBranch: gh.summary.protection?.branch ?? "main", latestRun: null, runTimes: [], steps: [], ...(status ? { quod: status } : {}) };
@@ -471,13 +490,16 @@ export class CompositeCloudApi implements CloudApi {
     if (c.simulated) return this.inner.listRuns(team, opts);
     const map = await this.repoMap(team, c);
     try {
-      const r = await this.inner.listRuns(team, { ...opts, ...(opts.repo ? { repo: map.toQuod(opts.repo) } : {}) });
+      CompositeCloudApi.skipIfFailed(map);
+      const quodRepo = opts.repo ? map.quodSlug(opts.repo) : undefined;
+      if (quodRepo === null) return { asOf: new Date().toISOString(), runs: [], quod: { state: "connected" as const } };
+      const r = await this.inner.listRuns(team, { ...opts, ...(quodRepo ? { repo: quodRepo } : {}) });
       return { ...r, runs: r.runs.map((x) => mapRunSummary(map, x)) };
     } catch (e) {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError)) throw e;
       this.quodError("quod runs unavailable", e);
-      return { asOf: new Date().toISOString(), runs: [], quod: unavailable(e) };
+      return { asOf: new Date().toISOString(), runs: [], quod: unavailable() };
     }
   }
 
@@ -485,7 +507,10 @@ export class CompositeCloudApi implements CloudApi {
     const c = await this.ctx(team);
     if (c.simulated) return this.inner.getRun(team, repo, run);
     const map = await this.repoMap(team, c);
-    const r = await this.inner.getRun(team, map.toQuod(repo), run);
+    CompositeCloudApi.skipIfFailed(map);
+    const quodRepo = map.quodSlug(repo);
+    if (quodRepo === null) return null;
+    const r = await this.inner.getRun(team, quodRepo, run);
     return r ? mapRunSummary(map, r) : null;
   }
 
@@ -493,7 +518,10 @@ export class CompositeCloudApi implements CloudApi {
     const c = await this.ctx(team);
     if (c.simulated) return this.inner.listSteps(team, opts);
     const map = await this.repoMap(team, c);
-    const steps = await this.inner.listSteps(team, opts.repo ? { repo: map.toQuod(opts.repo) } : {});
+    CompositeCloudApi.skipIfFailed(map);
+    const quodRepo = opts.repo ? map.quodSlug(opts.repo) : undefined;
+    if (quodRepo === null) return [];
+    const steps = await this.inner.listSteps(team, quodRepo ? { repo: quodRepo } : {});
     return steps.map((s) => mapStep(map, s));
   }
 
@@ -501,7 +529,10 @@ export class CompositeCloudApi implements CloudApi {
     const c = await this.ctx(team);
     if (c.simulated) return this.inner.getStepTrust(team, repo, key);
     const map = await this.repoMap(team, c);
-    const s = await this.inner.getStepTrust(team, map.toQuod(repo), key);
+    CompositeCloudApi.skipIfFailed(map);
+    const quodRepo = map.quodSlug(repo);
+    if (quodRepo === null) return null;
+    const s = await this.inner.getStepTrust(team, quodRepo, key);
     return s ? mapStep(map, s) : null;
   }
 
@@ -551,6 +582,7 @@ export class CompositeCloudApi implements CloudApi {
     const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
     let idx: SearchIndex = { repos: [], runs: [], steps: [] };
     try {
+      CompositeCloudApi.skipIfFailed(map);
       idx = mapSearchIndex(map, await this.inner.getSearchIndex(team));
     } catch (e) {
       unstable_rethrow(e);
@@ -564,6 +596,8 @@ export class CompositeCloudApi implements CloudApi {
   /** The sidebar on every page: zeros rather than an error when quod-server is down or does not have it. */
   async getTeamHealth(team: string) {
     try {
+      const c = await this.ctx(team);
+      if (!c.simulated) CompositeCloudApi.skipIfFailed(await this.repoMap(team, c));
       return await this.inner.getTeamHealth(team);
     } catch (e) {
       unstable_rethrow(e);

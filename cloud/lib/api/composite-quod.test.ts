@@ -138,6 +138,59 @@ describe("composite: GitHub and quod-server, one row per repository", () => {
   });
 });
 
+describe("composite: review fixes", () => {
+  it("a quod-server that hangs costs one timeout per request, not one per section", async () => {
+    let calls = 0;
+    const hang = (async (_u: unknown, init: RequestInit) => {
+      calls++;
+      return new Promise((_ok, fail) => init.signal?.addEventListener("abort", () => fail(Object.assign(new Error("t"), { name: "TimeoutError" }))));
+    }) as typeof fetch;
+    const cloud = composite(new HttpCloudApi({ baseUrl: "https://quod.example.com", credentials: async () => ({ team: "acme", token: "acme-viewer-token", kind: "static" }), fetch: hang, timeoutMs: 30 }));
+    const t0 = Date.now();
+    expect((await cloud.getOverview("acme", "7d")).quod).toMatchObject({ state: "unavailable" });
+    expect(await cloud.listRepos("acme")).toHaveLength(2);
+    expect((await cloud.getSearchIndex("acme")).repos).toHaveLength(2);
+    expect((await cloud.getTeamHealth("acme")).repos).toBe(0);
+    expect(calls).toBe(1);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it("a GitHub repo quod-server has no data for is never answered by another owner's repo of that name", async () => {
+    // quod-server knows other/web (slug "web"); the team's GitHub has acme/web (slug "web").
+    const server = recorded();
+    const inner = http(server.f);
+    inner.listRepos = async () => [{ slug: "web", fullName: "other/web", language: "", runner: "github-hosted", replayRate: 0.5, savedMinutes: 3, lastRunAt: null, lastRunStatus: null, pausedSteps: 0, hasQuodData: true }];
+    const cloud = composite(inner);
+    expect((await cloud.listRuns("acme", { repo: "web" })).runs).toEqual([]);
+    expect(await cloud.listSteps("acme", { repo: "web" })).toEqual([]);
+    expect(await cloud.getRun("acme", "web", 3)).toBeNull();
+    expect(server.seen.filter((s) => s.includes("web"))).toEqual([]);
+  });
+
+  it("a refused Quod stream holds quiet instead of ending the team's stream", async () => {
+    const refused = (async () => new Response('{"error":"forbidden","message":"x"}', { status: 403 })) as unknown as typeof fetch;
+    await db.exec("TRUNCATE installations, repos");
+    const cloud = composite(http(refused));
+    const ac = new AbortController();
+    let ended = false;
+    const run = (async () => {
+      for await (const e of cloud.subscribe("acme", { kind: "team" }, { signal: ac.signal })) void e;
+      ended = true;
+    })();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ended).toBe(false);
+    ac.abort();
+    await run;
+  });
+
+  it("without a GitHub link, a quod-server repo named like a team page gets the owner in its slug", () => {
+    const m = buildRepoMap([{ slug: "events", fullName: "acme/events" }, { slug: "app", fullName: "acme/app" }], []);
+    expect(m.toDash("events")).toBe("acme-events");
+    expect(m.toQuod("acme-events")).toBe("events");
+    expect(m.toDash("app")).toBe("app");
+  });
+});
+
 describe("repo slug map", () => {
   it("matches by full name, case-insensitively; a repo only Quod knows keeps its slug unless GitHub's uses it", () => {
     const m = buildRepoMap(

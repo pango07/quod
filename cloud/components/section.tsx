@@ -58,7 +58,7 @@ export function ProtectionBadge({ p }: { p: BranchProtection | undefined }) {
   return (
     <span className={`chip ${tone}`} title={title}>
       <Dot tone={p.state === "protected" ? "green" : p.state === "unprotected" ? "amber" : "dim"} size="sm" />
-      {p.state === "unknown" ? STATE_LABEL.unknown : `${branch} ${STATE_LABEL[p.state]}`}
+      {p.state === "unknown" ? (p.checkedAt ? STATE_LABEL.unknown : "checking protection") : `${branch} ${STATE_LABEL[p.state]}`}
     </span>
   );
 }
@@ -112,7 +112,8 @@ export function protectionConcern(repos: { slug: string; fullName: string; hasQu
   const quod = repos.filter((r) => r.hasQuodData !== false && r.protection);
   const unprotected = quod.filter((r) => r.protection!.state === "unprotected");
   if (unprotected.length) return { state: "unprotected" as const, repos: unprotected };
-  const unknown = quod.filter((r) => r.protection!.state === "unknown");
+  // Not read yet (checkedAt null) is not "the App cannot read it": no warning until a read says so.
+  const unknown = quod.filter((r) => r.protection!.state === "unknown" && r.protection!.checkedAt !== null);
   if (unknown.length) return { state: "unknown" as const, repos: unknown };
   return null;
 }

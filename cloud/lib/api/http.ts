@@ -247,8 +247,8 @@ export class HttpCloudApi implements CloudApi {
 
   constructor(private readonly opts: HttpOptions) {
     this.f = opts.fetch ?? fetch;
-    this.timeoutMs = opts.timeoutMs ?? 8_000;
-    this.retries = opts.retries ?? 2;
+    this.timeoutMs = opts.timeoutMs ?? 5_000;
+    this.retries = opts.retries ?? 1;
     this.sleep = opts.sleep ?? defaultSleep;
     this.now = opts.now ?? Date.now;
   }
@@ -303,6 +303,8 @@ export class HttpCloudApi implements CloudApi {
       } catch (e) {
         const timeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
         last = new ApiUnavailableError(timeout ? `quod-server did not answer ${what} in ${this.timeoutMs / 1000} s` : `quod-server is unreachable (${what})`);
+        // A server that hangs would hang again: a page waits one timeout, not several.
+        if (timeout) throw last;
         continue;
       }
       if (res.ok) {
@@ -488,13 +490,16 @@ export class HttpCloudApi implements CloudApi {
     if (scope.kind !== "team") q.set("repo", id(scope.repo));
     if (scope.kind === "run") q.set("run", runSeg(scope.run));
     if (scope.kind === "step") q.set("key", id(scope.key));
-    const s = await this.team(team);
-    if (!s) return yield* this.off.subscribe(team, scope, opts);
+    const first = await this.team(team);
+    if (!first) return yield* this.off.subscribe(team, scope, opts);
+    let s = first;
     const { signal } = opts;
     const idleMs = this.opts.streamIdleMs ?? 45_000;
     let last = opts.lastEventId ?? null;
     let failures = 0;
-    while (!signal.aborted) {
+    for (let n = 0; !signal.aborted; n++) {
+      // Fresh credentials for each connection: a viewer's access token can expire between rotations.
+      if (n > 0) s = (await this.team(team)) ?? s;
       const ac = new AbortController();
       const stop = () => ac.abort();
       signal.addEventListener("abort", stop, { once: true });

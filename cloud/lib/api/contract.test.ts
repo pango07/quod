@@ -194,15 +194,15 @@ describe("quod.v1 contract: quod-server's answers through the HTTP adapter", () 
     expect((t as Error).message).toMatch(/did not answer/);
   });
 
-  it("retries GETs (and only GETs) on 502/503/504 and network errors", async () => {
+  it("retries GETs (and only GETs) once on 502/503/504 and network errors, never after a timeout", async () => {
     let n = 0;
-    const flaky = recordedServer((m) => (m === "GET" && ++n <= 2 ? new Response("{}", { status: 503 }) : null));
+    const flaky = recordedServer((m) => (m === "GET" && ++n <= 1 ? new Response("{}", { status: 503 }) : null));
     expect((await adapter(flaky.f).getTeamHealth("acme")).repos).toBe(1);
-    expect(flaky.seen).toHaveLength(3);
+    expect(flaky.seen).toHaveLength(2);
 
     const down = recordedServer(() => new Response('{"error":"internal","message":"internal error"}', { status: 502 }));
     await expect(adapter(down.f).getTeamHealth("acme")).rejects.toBeInstanceOf(ApiUnavailableError);
-    expect(down.seen).toHaveLength(3);
+    expect(down.seen).toHaveLength(2);
 
     const post = recordedServer(() => new Response("{}", { status: 503 }));
     await expect(adapter(post.f).requestRerunWithoutQuod("acme", "app", 3)).rejects.toBeInstanceOf(ApiUnavailableError);

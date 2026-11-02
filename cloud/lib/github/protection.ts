@@ -116,12 +116,13 @@ export async function recordRead(q: Queryable, repoId: number, read: ProtectionR
     // Try again after the claim times out; keep what we had.
     return;
   }
-  if (read.kind !== "ok") {
-    await q.query(`UPDATE repo_protection SET state = 'unknown', reason = $2, checked_at = $3::timestamptz, stale = false, claimed_at = NULL, updated_at = now() WHERE repo_id = $1`, [
-      repoId,
-      read.kind === "gone" ? "gone" : `error-${read.status}`,
-      now.toISOString(),
-    ]);
+  if (read.kind === "error") {
+    // A GitHub hiccup: keep what was known; the claim lapses after 2 minutes, and the next view reads it again.
+    await q.query(`UPDATE repo_protection SET reason = $2, updated_at = now() WHERE repo_id = $1`, [repoId, `error-${read.status}`]);
+    return;
+  }
+  if (read.kind === "gone") {
+    await q.query(`UPDATE repo_protection SET state = 'unknown', reason = 'gone', checked_at = $2::timestamptz, stale = false, claimed_at = NULL, updated_at = now() WHERE repo_id = $1`, [repoId, now.toISOString()]);
     return;
   }
   await q.query(

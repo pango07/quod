@@ -14,6 +14,12 @@ import type { LiveEvent, LiveScope, Overview, RepoDetail, RepoSummary, RunDetail
 export interface RepoMap {
   /** Dashboard slug -> quod-server's slug (unknown slugs pass through). */
   toQuod(slug: string): string;
+  /**
+   * Dashboard slug -> quod-server's slug, or null when the slug is a GitHub
+   * repo quod-server has no data for: never ask then, or another owner's repo
+   * of the same name would answer for it.
+   */
+  quodSlug(slug: string): string | null;
   /** quod-server's slug -> dashboard slug (unknown slugs pass through). */
   toDash(slug: string): string;
   /** quod-server's repo by full name (lowercase). */
@@ -23,12 +29,26 @@ export interface RepoMap {
   failed?: Error;
 }
 
-export const IDENTITY: RepoMap = { toQuod: (s) => s, toDash: (s) => s, quodByName: new Map(), identity: true };
+export const IDENTITY: RepoMap = { toQuod: (s) => s, quodSlug: (s) => s, toDash: (s) => s, quodByName: new Map(), identity: true };
+
+/** No GitHub link: quod-server's slugs as they are, except one a team page owns (/[team]/events is the stream). */
+function identityFor(quod: { slug: string; fullName: string }[]): RepoMap {
+  const q2d = new Map<string, string>();
+  const d2q = new Map<string, string>();
+  for (const r of quod) {
+    if (!TEAM_PAGES.includes(lower(r.slug)) && lower(r.slug) !== "events") continue;
+    const dash = r.fullName.replace("/", "-");
+    q2d.set(r.slug, dash);
+    d2q.set(lower(dash), r.slug);
+  }
+  const toQuod = (s: string) => d2q.get(lower(s)) ?? s;
+  return { toQuod, quodSlug: toQuod, toDash: (s) => q2d.get(s) ?? s, quodByName: new Map(quod.map((r) => [lower(r.fullName), r])), identity: q2d.size === 0 };
+}
 
 const lower = (s: string) => s.toLowerCase();
 
 export function buildRepoMap(quod: { slug: string; fullName: string }[], github: { slug: string; fullName: string }[]): RepoMap {
-  if (!github.length) return { ...IDENTITY, quodByName: new Map(quod.map((r) => [lower(r.fullName), r])) };
+  if (!github.length) return identityFor(quod);
   const ghByName = new Map(github.map((r) => [lower(r.fullName), r.slug]));
   const taken = new Set(github.map((r) => lower(r.slug)));
   const q2d = new Map<string, string>();
@@ -38,14 +58,16 @@ export function buildRepoMap(quod: { slug: string; fullName: string }[], github:
     if (!dash) {
       // Only Quod knows it (the App does not cover it): its own slug, unless a GitHub repo already shows under that one.
       dash = r.slug;
-      if (taken.has(lower(dash)) || TEAM_PAGES.includes(lower(dash))) dash = r.fullName.replace("/", "-");
+      if (taken.has(lower(dash)) || TEAM_PAGES.includes(lower(dash)) || lower(dash) === "events") dash = r.fullName.replace("/", "-");
     }
     taken.add(lower(dash));
     q2d.set(r.slug, dash);
     d2q.set(lower(dash), r.slug);
   }
+  const ghSlugs = new Set(github.map((r) => lower(r.slug)));
   return {
     toQuod: (s) => d2q.get(lower(s)) ?? s,
+    quodSlug: (s) => d2q.get(lower(s)) ?? (ghSlugs.has(lower(s)) ? null : s),
     toDash: (s) => q2d.get(s) ?? s,
     quodByName: new Map(quod.map((r) => [lower(r.fullName), r])),
     identity: false,

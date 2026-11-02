@@ -25,8 +25,10 @@ error shape, record again and these tests say what broke.
 `lib/api/composite.ts` wraps whichever it is and adds GitHub's data. Any
 other value, `QUOD_API=http` without a usable `QUOD_SERVER_URL` (https; plain
 http only for `localhost` or a private `*.internal` host), or a malformed
-`QUOD_SERVER_TEAMS` is misconfigured, and `next start` refuses to boot
-(`lib/api/mode.ts`). The stub's old `QUOD_API_URL` is refused by name.
+`QUOD_SERVER_TEAMS` is misconfigured (`lib/api/mode.ts`): `next start`
+refuses to boot, and on Vercel, where that boot check does not run, every
+team page fails with the problem named in the log. Check the values before
+redeploying. The stub's old `QUOD_API_URL` is refused by name.
 Switching between the three is safe at any time: nothing is stored on the
 dashboard's side for Quod's data.
 
@@ -65,10 +67,13 @@ dashboard's side for Quod's data.
 | 401 | sign in again only when the viewer's own token has expired; otherwise (a static token, or a fresh token refused) "unavailable": the server's viewer auth is misconfigured, and a viewer is never sent round a sign-in loop |
 | 403 | not found (existence does not leak) |
 | 501 | `ApiNotAvailableError`: the section says "Not available yet", with the server's reason |
-| 400, 409, 5xx, timeout (8 s), network | `ApiUnavailableError`: GitHub's data with a "Quod data unavailable" note, or a section card |
+| 400, 409, 5xx, timeout (5 s), network | `ApiUnavailableError`: GitHub's data with a "Quod data unavailable" note, or a section card |
 
-GETs, and only GETs, are retried twice (250 ms, 750 ms) on a network error,
-a timeout, 429, 502, 503 or 504. A 500 (`internal`) is not retried.
+GETs, and only GETs, are retried once (after 250 ms) on a network error,
+429, 502, 503 or 504. A timeout is not retried (a server that hangs would
+hang again), nor is a 500 (`internal`). Within one request, once quod-server
+has failed (its repo list is read first), the page's other sections do not
+ask it again: a hung server costs a page one timeout, not one per section.
 
 Pages never crash on quod-server: Overview, a repo, Runs and the GitHub run
 page fall back to GitHub's data with a note (`QuodStatus` on `Overview`,
@@ -178,7 +183,9 @@ A client first reads `GET /v1/teams/{team}/activity`. Its `cursor` is the
 stream position that snapshot is consistent with (quod-server: the newest
 event id, `"0"` when there is none): subscribe with it as `Last-Event-ID`
 and the stream starts exactly after the snapshot. Without `Last-Event-ID`
-the server starts at its newest event.
+the server starts at its newest event. The adapter reads its credentials
+again for each connection (a viewer's access token can expire between
+rotations).
 
 Each message is `id: <event id>`, `event: <type>`, `data: <LiveEvent JSON>`
 (the data carries `id` and `type` too). quod-server's ids are its outbox
@@ -189,7 +196,9 @@ The HTTP adapter's `subscribe` reconnects by itself, with the last id it saw
 as `Last-Event-ID`: at once after `bye` (never in a tight loop), with
 back-off (1 s doubling to 30 s) after a failure, and when a connection sends
 nothing, not even a ping, for 45 s. A refused viewer (401/403) ends the
-stream; a team or endpoint the server does not have (404/501) holds it open
+adapter's stream (the composite then holds Quod's part open quietly, so the
+browser's stream does not end and reconnect every 2 s; the next rotation
+tries again); a team or endpoint the server does not have (404/501) holds it open
 quietly and looks again every minute. Events it cannot read (an unknown
 type, broken JSON, missing fields) are skipped, and `bye` is never passed on
 as an event.
@@ -332,7 +341,9 @@ protected, not protected, protection unknown); a warning on the repo and a
 banner on every team page while Quod has data for a repo whose default
 branch is unprotected ("Anyone who can push to main can record results that
 every CI job will reuse; protect main or turn on require_protected_ref") or
-unknown. "Learn more" opens `/[team]/trust#protected-branch`.
+unknown (only once a read said so: a repo not read yet shows "checking
+protection" and no warning). A GitHub error keeps the last known state and
+is read again on a later view. "Learn more" opens `/[team]/trust#protected-branch`.
 
 ## Go-live
 
@@ -382,7 +393,8 @@ them; GitHub's run and "Appears once Quod runs" when it has not. So the empty
 states switch to real numbers by themselves the first time quod-server has
 data for a repo. The dashboard shows GitHub's slug (a repo name two linked
 owners share is `owner-name`); quod-server's slugs are mapped both ways for
-every call and answer, events included (`lib/api/repo-map.ts`). A GitHub
+every call and answer, events included (`lib/api/repo-map.ts`); a GitHub repo quod-server has no data for is never
+sent to it (another owner's repo of the same name would answer). A GitHub
 run's page asks quod-server for the same run and marks each step Quod
 handled as Replayed or Ran (`lib/api/github-merge.ts`).
 

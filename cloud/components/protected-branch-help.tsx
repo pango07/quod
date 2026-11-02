@@ -13,7 +13,7 @@ export function ProtectedBranchHelp() {
         protected on GitHub, anyone who can push to it can record a result that later jobs reuse. Quod still checks every replay against its inputs and re-runs some at random,
         but protecting the branch keeps the recording itself in reviewed hands.
       </p>
-      <ul className="muted" style={{ fontSize: 14, lineHeight: 1.7, margin: 0, paddingLeft: 18, maxWidth: "75ch" }}>
+      <ul className="muted" style={{ fontSize: 14, lineHeight: 1.7, margin: 0, paddingLeft: 18, maxWidth: "75ch", listStyle: "disc", display: "flex", flexDirection: "column", gap: 6 }}>
         <li>
           Protect the default branch on GitHub with a branch protection rule or a ruleset (
           <a
