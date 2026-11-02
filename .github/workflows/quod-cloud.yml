@@ -1,0 +1,58 @@
+# Quod on Quod Cloud: this repository's own cheap checks through `quod run`
+# against api.quodci.com, as a customer's workflow would run them
+# (docs/getting-started.md). A push to main records as the team's writer
+# (refs/heads/main); a pull request reads main's results and records only in
+# its own ref's scope. The run's results show on app.quodci.com under the
+# quodci team. Independent of the gates (gate.yml): its own concurrency
+# group, and nothing here gates a merge.
+name: quod-cloud
+
+on:
+  push:
+    branches: [main, exp/cloud-dogfood]  # exp/cloud-dogfood: TEMPORARY, for the bring-up
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: quod-cloud-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write   # GitHub OIDC for Quod Cloud (audience quodci)
+
+jobs:
+  cloud:
+    name: cloud (through quod)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          toolchains: node
+      # Dependencies install outside Quod (a network step is never
+      # memoized); node_modules is then sealed into every step's key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('cloud/package-lock.json') }}
+      - run: npm ci
+        working-directory: cloud
+      - name: npm test (through quod)
+        run: quod run --toolchain node -- 'cd cloud && npm test'
+      - name: npm run lint (through quod)
+        run: quod run --toolchain node -- 'cd cloud && npm run lint'
+      - name: what quod did
+        if: always()
+        run: |
+          ev=/var/lib/quod/events.jsonl
+          sudo test -f "$ev" || { echo "no quod events"; exit 0; }
+          {
+            echo "### quod run"
+            echo "| step key | outcome | hit | candidates | first mismatch | total | recorded |"
+            echo "|---|---|---|---|---|---|---|"
+            sudo jq -r 'select(.message == "run" and .step_key) | "| `\(.step_key[0:15])` | \(.outcome) | \(.hit) | \(.candidates) | \(.first_mismatch // "") | \(.total_ms | floor) ms | \(.recorded_ms // "") |"' "$ev"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo jq -c 'select(.message == "run")' "$ev"

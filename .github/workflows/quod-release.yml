@@ -1,0 +1,62 @@
+# The quod client as a release asset, so the setup action
+# (.github/actions/setup) downloads a binary instead of compiling one.
+#
+#   git tag quod-client-vX.Y.Z && git push origin quod-client-vX.Y.Z
+#
+# builds `quod` (x86_64 Linux, release) from CLIENT_REF and publishes
+# quod-x86_64-linux.tar.gz and its .sha256 as the release of that tag. Main
+# has no Quod Cloud client yet (quod-wire lives on the server branch), so the
+# client is built from the commit the live server was built from; once the
+# server branch is merged, CLIENT_REF becomes the tag itself.
+# The SHA-256 the job prints goes into setup.sh's pinned_sha256.
+name: quod-release
+
+on:
+  push:
+    tags: ['quod-client-v*']
+
+permissions:
+  contents: write
+
+env:
+  # exp/cloud-ledger-v2 cc34bd9: what api.quodci.com runs (protocol quod.v1).
+  CLIENT_REF: cc34bd9093f5a1c94bb27c0f777604405acd1df8
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CLIENT_REF }}
+      - name: rust toolchain (rust-toolchain.toml)
+        run: |
+          ch=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$ch" --profile minimal --no-self-update
+          cargo --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: quod-release
+      - name: build
+        run: |
+          cargo build --release --locked -p quod-cli
+          mkdir -p dist
+          cp target/release/quod dist/quod
+          strip dist/quod
+          ./dist/quod --version || true
+          tar -C dist -czf quod-x86_64-linux.tar.gz quod
+          sha256sum quod-x86_64-linux.tar.gz | tee quod-x86_64-linux.tar.gz.sha256
+          echo "### quod client ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          echo "built from \`$(git rev-parse HEAD)\`; SHA-256 \`$(cut -c1-64 quod-x86_64-linux.tar.gz.sha256)\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src=$(git rev-parse HEAD)
+          notes="The quod client (x86_64 Linux) for Quod Cloud (protocol quod.v1), built from ${src} by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. SHA-256: $(cut -c1-64 quod-x86_64-linux.tar.gz.sha256). Installed by .github/actions/setup."
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "$GITHUB_REF_NAME" --notes "$notes" \
+            quod-x86_64-linux.tar.gz quod-x86_64-linux.tar.gz.sha256

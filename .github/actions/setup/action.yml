@@ -1,0 +1,106 @@
+name: Quod setup
+description: >
+  Installs the quod client on a GitHub-hosted Linux runner, prepares the host
+  (bubblewrap, FUSE, the FUSE ring when the kernel has it, the toolchains at
+  /usr/local) and points later `quod run` steps at Quod Cloud with the
+  server's key pinned. The job needs `permissions: id-token: write`: each
+  `quod run` asks GitHub for an OIDC token (audience quodci) and the server
+  maps it to your team. docs/getting-started.md.
+inputs:
+  toolchains:
+    description: >
+      Space-separated toolchains to install at /usr/local, where Quod's
+      profiles run them (go node python). The step sandbox sees only /usr, so
+      a toolchain from actions/setup-node and friends is not visible to it.
+    required: false
+    default: ''
+  node-version:
+    description: Node version for `toolchains: node`
+    required: false
+    default: 24.22.2
+  go-version:
+    description: Go version for `toolchains: go`
+    required: false
+    default: 1.27.3
+  python-version:
+    description: Python version for `toolchains: python` (python-build-standalone)
+    required: false
+    default: 3.12.16
+  python-release:
+    description: The python-build-standalone release for python-version
+    required: false
+    default: '20261026'
+  uv-version:
+    description: uv version for `toolchains: python`
+    required: false
+    default: 0.13.6
+  version:
+    description: The quod client release (a release tag of the repository below)
+    required: false
+    default: quod-client-v0.1.0
+  sha256:
+    description: >
+      SHA-256 of the release's quod-x86_64-linux.tar.gz. Defaults to the pin
+      for the default version; set it when you set `version`.
+    required: false
+    default: ''
+  repository:
+    description: Where the client releases are published
+    required: false
+    default: pango07/quod
+  token:
+    description: A token that can read the release (the repository is private for now)
+    required: false
+    default: ${{ github.token }}
+  server:
+    description: The Quod server (QUOD_SERVER). Empty for local-only runs.
+    required: false
+    default: https://api.quodci.com
+  server-key:
+    description: >
+      The server's Ed25519 public key, 64 hex digits (QUOD_SERVER_KEY): every
+      replay's receipt must be signed by it. The default is Quod Cloud's
+      current key (GET https://api.quodci.com/v1/keys).
+    required: false
+    default: d23312bfc239da7dcd29c651dff3aea71beb08f0b3a732dff040f461a259f9f8
+  mode:
+    description: >
+      replay (default): replay results that proved themselves, with trust v2's
+      audits; observe: always execute and record, report what would have
+      replayed (QUOD_MODE).
+    required: false
+    default: replay
+outputs:
+  version:
+    description: The installed quod client release
+    value: ${{ steps.install.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - name: quod host (FUSE, bubblewrap, ring, toolchains)
+      shell: bash
+      env:
+        QUOD_SETUP_TOOLCHAINS: ${{ inputs.toolchains }}
+        QUOD_SETUP_NODE: ${{ inputs.node-version }}
+        QUOD_SETUP_GO: ${{ inputs.go-version }}
+        QUOD_SETUP_PYTHON: ${{ inputs.python-version }}
+        QUOD_SETUP_PBS: ${{ inputs.python-release }}
+        QUOD_SETUP_UV: ${{ inputs.uv-version }}
+      run: '"$GITHUB_ACTION_PATH/setup.sh" host'
+    - name: quod client
+      id: install
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        QUOD_SETUP_VERSION: ${{ inputs.version }}
+        QUOD_SETUP_SHA256: ${{ inputs.sha256 }}
+        QUOD_SETUP_REPOSITORY: ${{ inputs.repository }}
+      run: '"$GITHUB_ACTION_PATH/setup.sh" install'
+    - name: quod environment (server, pinned key, job)
+      shell: bash
+      env:
+        QUOD_SETUP_SERVER: ${{ inputs.server }}
+        QUOD_SETUP_SERVER_KEY: ${{ inputs.server-key }}
+        QUOD_SETUP_MODE: ${{ inputs.mode }}
+        QUOD_SETUP_JOB_ID: ${{ job.check_run_id }}
+      run: '"$GITHUB_ACTION_PATH/setup.sh" env'
