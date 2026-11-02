@@ -121,8 +121,9 @@ pub struct Warm {
     pub cache_env: &'static str,
     pub knobs: &'static [Knob],
     /// `knobs` for a step whose test results the tool may cache under
-    /// Quod's guard (`crate::gotest`): the cache-disabling knob replaced by
-    /// the guard's. Empty for a profile without such a guard.
+    /// Quod's guard (`crate::gotest`): without the cache-disabling knob,
+    /// whose place the guard's own knob (`gotest::Layout::knob`, chosen per
+    /// toolchain) takes. Empty for a profile without such a guard.
     pub guarded_knobs: &'static [Knob],
     pub over_record: fn(&str) -> bool,
 }
@@ -388,14 +389,11 @@ pub static GO: Profile = Profile {
                 item: "goindex=0",
             },
         ],
-        guarded_knobs: &[
-            crate::gotest::OVERLAY_KNOB,
-            Knob {
-                name: "GODEBUG",
-                sep: ',',
-                item: "goindex=0",
-            },
-        ],
+        guarded_knobs: &[Knob {
+            name: "GODEBUG",
+            sep: ',',
+            item: "goindex=0",
+        }],
         over_record: go_source_file,
     }),
     no_outputs_under: &[],

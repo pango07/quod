@@ -1,9 +1,11 @@
 //! Go's test-result cache in a warm step, under Quod's guard
 //! (`quod_key::gotest` has the why). This half asks the toolchain the step
-//! will run where its GOROOT is, checks that the guard's overlay applies
-//! there, makes the guard's files from that toolchain's own testdeps, and
-//! gives an execution that must not trust go test's cache (an audit, a
-//! proof, a re-proof after a quarantine) an expired one.
+//! will run where its GOROOT is, checks which of the guard's layouts its
+//! overlay applies in (the guard's own package where cmd/go finds it
+//! through the overlay, else the file in package testing), makes the
+//! guard's files from that toolchain's own testdeps, and gives an
+//! execution that must not trust go test's cache (an audit, a proof, a
+//! re-proof after a quarantine) an expired one.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -12,9 +14,11 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use quod_cas::Hash;
-use quod_key::gotest;
+use quod_key::gotest::{self, Layout};
+use quod_key::{Knob, Profile};
 
-/// The toolchain's testdeps, as the step's go command will find it.
+/// The toolchain's testdeps, as the step's go command will find it, and
+/// the layout its overlay was seen to apply in.
 #[derive(Clone, Debug)]
 pub(crate) struct GoTestGuard {
     /// GOROOT exactly as the step's go command spells it (`go env GOROOT`):
@@ -23,10 +27,43 @@ pub(crate) struct GoTestGuard {
     /// arithmetic on PATH can tell.
     goroot: String,
     deps_go: String,
+    layout: Layout,
 }
 
 /// Why the guard does not apply to a step (it keeps `-count=1`).
 type Refusal = String;
+
+/// Why a layout's overlay was not seen to apply. `settled`: the toolchain
+/// answered, and the answer was no (cmd/go said the guard's package is not
+/// in std, listed the package without the guard's file, or showed an
+/// import the layout cannot have); the same binary will answer the same.
+/// Otherwise the check could not be made (a write failed, go list could
+/// not run or failed for another reason), and nothing the probe decides
+/// after it is remembered: a later probe tries again.
+#[derive(Debug)]
+struct LayoutRefusal {
+    why: Refusal,
+    settled: bool,
+}
+
+impl LayoutRefusal {
+    fn settled(why: Refusal) -> LayoutRefusal {
+        LayoutRefusal { why, settled: true }
+    }
+
+    fn transient(why: Refusal) -> LayoutRefusal {
+        LayoutRefusal {
+            why,
+            settled: false,
+        }
+    }
+}
+
+impl From<Refusal> for LayoutRefusal {
+    fn from(why: Refusal) -> LayoutRefusal {
+        LayoutRefusal::transient(why)
+    }
+}
 
 impl GoTestGuard {
     /// The guard for a warm step on the host root, when it applies: the
@@ -34,20 +71,35 @@ impl GoTestGuard {
     /// the env leaves the toolchain alone, the go first on the step's PATH
     /// is a reviewed release (`gotest::REVIEWED_GO`) whose testdeps the
     /// guard knows how to change, and its go command was seen to apply the
-    /// guard's overlay at the GOROOT it reports. Otherwise None, and the
-    /// step keeps `-count=1`. `cache` is where verified toolchains are
-    /// remembered, by the go binary's identity.
+    /// guard's overlay, in one of its layouts, at the GOROOT it reports.
+    /// Otherwise None, and the step keeps `-count=1`. `cache` is where
+    /// verified toolchains are remembered, by the go binary's identity.
     pub(crate) fn for_step(
         script: &str,
         extra_env: &[(String, String)],
+        profile: &Profile,
+        cache: &Path,
+    ) -> Option<GoTestGuard> {
+        let knobs = profile.warm.as_ref().map_or(&[][..], |w| w.guarded_knobs);
+        Self::for_step_in(script, extra_env, profile.env, knobs, cache)
+    }
+
+    /// `for_step` with the profile's env and guarded knobs given apart.
+    fn for_step_in(
+        script: &str,
+        extra_env: &[(String, String)],
         profile_env: &[(&str, &str)],
+        guarded_knobs: &[Knob],
         cache: &Path,
     ) -> Option<GoTestGuard> {
         if !gotest::runs_go_test(script) || !gotest::env_allows_guard(extra_env) {
             return None;
         }
-        match Self::probe(script, extra_env, profile_env, cache) {
-            Ok(g) => Some(g),
+        match Self::probe(script, extra_env, profile_env, guarded_knobs, cache) {
+            Ok(g) => {
+                tracing::info!(target: "quod", layout = g.layout.name(), "go test cache guard");
+                Some(g)
+            }
             Err(why) => {
                 tracing::info!(target: "quod", %why, "go test cache guard unavailable; -count=1");
                 None
@@ -59,13 +111,16 @@ impl GoTestGuard {
         script: &str,
         extra_env: &[(String, String)],
         profile_env: &[(&str, &str)],
+        guarded_knobs: &[Knob],
         cache: &Path,
     ) -> Result<GoTestGuard, Refusal> {
         if let Some(w) = gotest::script_sets_toolchain_env(script) {
             return Err(format!("the script sets {w}"));
         }
-        // The step's env, as StepSpec::new merges it: the profile's, then
-        // the step's own on top.
+        // The step's env, as StepSpec::new_warm_guarded merges it: the
+        // profile's, the step's own on top, then the guarded knobs (GODEBUG
+        // goindex=0: whether cmd/go finds a package through the overlay
+        // depends on it).
         let mut env: Vec<(String, String)> = profile_env
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -73,6 +128,9 @@ impl GoTestGuard {
         for (k, v) in extra_env {
             env.retain(|(n, _)| n != k);
             env.push((k.clone(), v.clone()));
+        }
+        for k in guarded_knobs {
+            quod_key::merge_knob(&mut env, k).map_err(|e| e.to_string())?;
         }
         let path = env
             .iter()
@@ -91,8 +149,8 @@ impl GoTestGuard {
             .map_err(|e| format!("{}: {e}", go.display()))?;
         let meta = std::fs::metadata(&real).map_err(|e| format!("{}: {e}", real.display()))?;
         let scratch = TempDir::new(cache)?;
-        // Where the go command puts its caches, for these two runs only:
-        // the step's own (under /workspace) are not paths on this host.
+        // Where the go command puts its caches, for these runs only: the
+        // step's own (under /workspace) are not paths on this host.
         let mut probe_env = env.clone();
         for (k, v) in [
             ("GOCACHE", scratch.0.join("gocache")),
@@ -146,18 +204,12 @@ impl GoTestGuard {
         }
         let deps_go = std::fs::read_to_string(Path::new(goroot).join(gotest::TESTDEPS))
             .map_err(|e| format!("{goroot}/{}: {e}", gotest::TESTDEPS))?;
-        // A testdeps the patch does not know keeps the step on -count=1.
-        gotest::guard_files(goroot, &deps_go, "b3:0", quod_key::WORKSPACE)?;
-        let guard = GoTestGuard {
-            goroot: goroot.to_string(),
-            deps_go,
-        };
-        // Seen to apply: a `go list` of package testing under an overlay
-        // keyed like the guard's lists the added file. Remembered by the
-        // binary's identity, its GOROOT spelling and version.
+        // Seen to apply: remembered by the binary's identity, its GOROOT
+        // spelling, the version, the guard's layouts and the knobs the
+        // probe ran with (goindex decides whether the package resolves).
         let id = Hash::of(
             format!(
-                "{}\0{}\0{}\0{}\0{}\0{:?}\0{:?}\0{goroot}\0{version}\0{}",
+                "{}\0{}\0{}\0{}\0{}\0{:?}\0{:?}\0{goroot}\0{version}\0{}\0{}",
                 real.display(),
                 meta.dev(),
                 meta.ino(),
@@ -165,64 +217,86 @@ impl GoTestGuard {
                 meta.mode(),
                 (meta.mtime(), meta.mtime_nsec()),
                 (meta.ctime(), meta.ctime_nsec()),
-                gotest::SANDBOX_DIR,
+                gotest::LAYOUTS
+                    .iter()
+                    .map(|l| l.sandbox_dir())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                guarded_knobs
+                    .iter()
+                    .map(|k| format!("{}{}{}", k.name, k.sep, k.item))
+                    .collect::<Vec<_>>()
+                    .join(","),
             )
             .as_bytes(),
         );
         let seen = cache.join(id.hex());
-        if std::fs::read(&seen).is_ok_and(|b| b == VERIFIED) {
-            return Ok(guard);
+        let guard = |layout| GoTestGuard {
+            goroot: goroot.to_string(),
+            deps_go: deps_go.clone(),
+            layout,
+        };
+        if let Ok(b) = std::fs::read(&seen)
+            && let Some(l) = gotest::LAYOUTS.into_iter().find(|l| b == verified(*l))
+        {
+            // A testdeps the patch does not know keeps the step on
+            // -count=1 (checked here too: the file is read afresh).
+            gotest::guard_files(l, goroot, &deps_go, "b3:0", quod_key::WORKSPACE)?;
+            return Ok(guard(l));
         }
         let started = SystemTime::now();
-        let testing = scratch.0.join("testing.go");
-        let deps = scratch.0.join("testdeps.go");
-        let overlay = scratch.0.join("overlay.json");
-        let write = |p: &Path, s: &str| {
-            std::fs::write(p, s).map_err(|e| format!("write {}: {e}", p.display()))
-        };
-        write(&testing, "package testing\n")?;
-        write(&deps, &guard.deps_go)?;
-        write(
-            &overlay,
-            &gotest::overlay_json(goroot, &deps.to_string_lossy(), &testing.to_string_lossy()),
-        )?;
-        let out = go_cmd(&go, &probe_env, &scratch.0)
-            .arg("list")
-            .arg(format!("-overlay={}", overlay.display()))
-            .args(["-f", "{{.GoFiles}}", "testing"])
-            .output()
-            .map_err(|e| format!("go list: {e}"))?;
-        let listed = String::from_utf8_lossy(&out.stdout);
-        if !out.status.success()
-            || !listed
-                .trim()
-                .trim_matches(['[', ']'])
-                .split(' ')
-                .any(|f| f == gotest::TESTING_FILE)
-        {
-            return Err(format!(
-                "the overlay at GOROOT {goroot} does not apply: go list testing gave {:?} {}",
-                listed.trim(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        // Kept only for a binary that had settled before the check (a
-        // binary rewritten within the clock's tick could keep its identity).
-        let settled = |s: i64, ns: i64| {
-            u64::try_from(s).is_ok_and(|s| {
-                SystemTime::UNIX_EPOCH
-                    + Duration::new(s, ns.clamp(0, 999_999_999) as u32)
-                    + Duration::from_secs(2)
-                    < started
-            })
-        };
-        if settled(meta.mtime(), meta.mtime_nsec()) && settled(meta.ctime(), meta.ctime_nsec()) {
-            let tmp = scratch.0.join("verified");
-            if std::fs::write(&tmp, VERIFIED).is_ok() {
-                let _ = std::fs::rename(&tmp, &seen);
+        let mut refusals = Vec::new();
+        // Whether every layout tried before the one that applied was
+        // refused for good. A layout reached because an earlier one's
+        // check could not be made (a go list that failed to run) is used
+        // for this step and not remembered, so a passing failure does not
+        // hold the binary to the later layout for its lifetime.
+        let mut earlier_settled = true;
+        for layout in gotest::LAYOUTS {
+            match check_layout(layout, &go, &probe_env, &scratch.0, goroot, &deps_go) {
+                Ok(()) if !earlier_settled => {
+                    tracing::info!(
+                        target: "quod",
+                        layout = layout.name(),
+                        refused = %refusals.join("; "),
+                        "go test cache guard: an earlier layout's check did not settle; not remembered"
+                    );
+                    return Ok(guard(layout));
+                }
+                Ok(()) => {
+                    // Kept only for a binary that had settled before the
+                    // check (a binary rewritten within the clock's tick
+                    // could keep its identity).
+                    let settled = |s: i64, ns: i64| {
+                        u64::try_from(s).is_ok_and(|s| {
+                            SystemTime::UNIX_EPOCH
+                                + Duration::new(s, ns.clamp(0, 999_999_999) as u32)
+                                + Duration::from_secs(2)
+                                < started
+                        })
+                    };
+                    if settled(meta.mtime(), meta.mtime_nsec())
+                        && settled(meta.ctime(), meta.ctime_nsec())
+                    {
+                        let tmp = scratch.0.join("verified");
+                        if std::fs::write(&tmp, verified(layout)).is_ok() {
+                            let _ = std::fs::rename(&tmp, &seen);
+                        }
+                    }
+                    return Ok(guard(layout));
+                }
+                Err(r) => {
+                    earlier_settled &= r.settled;
+                    refusals.push(format!("{} layout: {}", layout.name(), r.why));
+                }
             }
         }
-        Ok(guard)
+        Err(refusals.join("; "))
+    }
+
+    /// The layout the guard's files take.
+    pub(crate) fn layout(&self) -> Layout {
+        self.layout
     }
 
     /// The GOROOT spelling the overlay names.
@@ -232,10 +306,11 @@ impl GoTestGuard {
     }
 
     /// Writes the guard's files for the step `key` into `dir` (bound at
-    /// `gotest::SANDBOX_DIR`).
+    /// the layout's sandbox dir).
     pub(crate) fn write(&self, dir: &Path, key: &Hash) -> anyhow::Result<()> {
         std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
         let files = gotest::guard_files(
+            self.layout,
             &self.goroot,
             &self.deps_go,
             &key.to_string(),
@@ -250,9 +325,137 @@ impl GoTestGuard {
     }
 }
 
-/// What a verified toolchain's entry in the cache holds; anything else is
-/// no entry.
-const VERIFIED: &[u8] = b"quod go test guard: overlay applies\n";
+/// Whether `layout`'s overlay, keyed by `goroot`, applies under this go
+/// command: the guard's files are written to `scratch`, the overlay names
+/// them under `goroot`, and a `go list` under it must show the guard where
+/// the layout puts it. For the package layout, cmd/go must find the
+/// package through the overlay (`go list 0quod/guard` lists the guard's
+/// file; a cmd/go that reads GOROOT from disk with the module index off
+/// says it is not in std), testdeps as cmd/go reads it must import the
+/// package (`go list -f '{{.Imports}}' testing/internal/testdeps`), and
+/// the package's ordering argument must hold against this toolchain's
+/// package os: every import of the guard, as cmd/go reads the guard's
+/// files (`go list -f '{{.Imports}}' 0quod/guard`), is os or a dependency
+/// of os (`go list -deps os`). For the testing layout, a `go list` of
+/// package testing lists the added file.
+fn check_layout(
+    layout: Layout,
+    go: &Path,
+    env: &[(String, String)],
+    scratch: &Path,
+    goroot: &str,
+    deps_go: &str,
+) -> Result<(), LayoutRefusal> {
+    let dir = scratch.join(layout.name());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let files = gotest::guard_files(layout, goroot, deps_go, "b3:0", quod_key::WORKSPACE)?;
+    let mut written = std::collections::HashMap::new();
+    for (name, body) in &files {
+        let p = dir.join(name);
+        std::fs::write(&p, body).map_err(|e| format!("write {}: {e}", p.display()))?;
+        written.insert(*name, p.to_string_lossy().into_owned());
+    }
+    let (pkg, wanted, guard_files): (&str, &str, Vec<&str>) = match layout {
+        Layout::Package => (
+            gotest::GUARD_PKG,
+            gotest::GUARD_FILE,
+            vec![&written["guard.go"], &written["unsupported.go"]],
+        ),
+        Layout::Testing => (
+            "testing",
+            gotest::TESTING_FILE,
+            vec![&written["testing.go"]],
+        ),
+    };
+    let overlay = dir.join("overlay.json");
+    std::fs::write(
+        &overlay,
+        gotest::overlay_json(layout, goroot, &written["testdeps.go"], &guard_files),
+    )
+    .map_err(|e| format!("write {}: {e}", overlay.display()))?;
+    let list = |args: &[&str]| -> Result<String, LayoutRefusal> {
+        let out = go_cmd(go, env, scratch)
+            .arg("list")
+            .arg(format!("-overlay={}", overlay.display()))
+            .args(args)
+            .output()
+            .map_err(|e| format!("go list: {e}"))?;
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let why = format!("go list {} failed: {stdout} {stderr}", args.join(" "));
+            // cmd/go's answer for a std-looking path it does not find in
+            // GOROOT (modload: `package X is not in std`): the overlay does
+            // not reach it, and will not on the next probe either.
+            return Err(if stderr.contains(" is not in std") {
+                LayoutRefusal::settled(why)
+            } else {
+                LayoutRefusal::transient(why)
+            });
+        }
+        Ok(stdout)
+    };
+    let listed = list(&["-f", "{{.GoFiles}}", pkg])?;
+    if !listed
+        .trim_matches(['[', ']'])
+        .split(' ')
+        .any(|f| f == wanted)
+    {
+        return Err(LayoutRefusal::settled(format!(
+            "the overlay at GOROOT {goroot} does not apply: go list {pkg} gave {listed:?}"
+        )));
+    }
+    if layout == Layout::Package {
+        // The imports of testdeps and of the guard as cmd/go reads them
+        // under the overlay, one line each: `path: import import ...`.
+        let imports = list(&[
+            "-f",
+            "{{.ImportPath}}:{{range .Imports}} {{.}}{{end}}",
+            "testing/internal/testdeps",
+            gotest::GUARD_PKG,
+        ])?;
+        let of = |pkg: &str| -> Result<Vec<&str>, LayoutRefusal> {
+            imports
+                .lines()
+                .find_map(|l| l.strip_prefix(pkg)?.strip_prefix(':'))
+                .map(|i| i.split_whitespace().collect())
+                .ok_or_else(|| {
+                    LayoutRefusal::transient(format!(
+                        "go list printed no imports of {pkg}: {imports:?}"
+                    ))
+                })
+        };
+        if !of("testing/internal/testdeps")?.contains(&gotest::GUARD_PKG) {
+            return Err(LayoutRefusal::settled(format!(
+                "testing/internal/testdeps under the overlay at GOROOT {goroot} does not import {}",
+                gotest::GUARD_PKG
+            )));
+        }
+        let guard_imports = of(gotest::GUARD_PKG)?;
+        if guard_imports.is_empty() {
+            return Err(LayoutRefusal::settled(format!(
+                "go list shows {} importing nothing: not the guard's file",
+                gotest::GUARD_PKG
+            )));
+        }
+        let deps = list(&["-deps", "-f", "{{.ImportPath}}", "os"])?;
+        let deps: Vec<&str> = deps.lines().collect();
+        for i in guard_imports {
+            if !deps.contains(&i) {
+                return Err(LayoutRefusal::settled(format!(
+                    "the guard imports {i}, which is not a dependency of this toolchain's os"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What a verified toolchain's entry in the cache holds for `layout`;
+/// anything else is no entry.
+fn verified(layout: Layout) -> Vec<u8> {
+    format!("quod go test guard: overlay applies ({})\n", layout.name()).into_bytes()
+}
 
 /// `go` with exactly `env`, in `dir`.
 fn go_cmd(go: &Path, env: &[(String, String)], dir: &Path) -> Command {
@@ -364,7 +567,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(point).unwrap(), "5\n");
     }
 
-    /// testdeps as Go 1.27 ships it, the parts the patch reads.
+    /// testdeps as Go 1.26 and 1.27 ship it, the parts the patch reads.
     const DEPS: &str = "package testdeps
 
 import (
@@ -407,12 +610,35 @@ func (TestDeps) StopTestLog() error {
 }
 ";
 
+    /// What the fake toolchain's cmd/go does with the overlay.
+    #[derive(Clone, Copy)]
+    enum Fake {
+        /// go1.27: the guard's package is found through the overlay with
+        /// the module index off.
+        Package,
+        /// go1.26: with the module index off (`goindex=0`, Quod's profile)
+        /// GOROOT is read from disk and the package is not in std; with it
+        /// on, the package is found. The file in package testing applies.
+        Testing,
+        /// A package os that lacks one of the guard's imports: the
+        /// ordering argument fails, the testing layout applies.
+        OsWithoutPath,
+        /// The guard's package is found, but testdeps as cmd/go reads it
+        /// does not import it: the testing layout applies.
+        TestdepsUnpatched,
+        /// As `Package`, but while `<real>/flaky` exists the go list of
+        /// the guard's package fails for a passing reason.
+        Flaky,
+        /// Neither overlay applies.
+        None,
+    }
+
     /// A toolchain whose `go` is a script: its GOROOT is `<tmp>/real`, and
     /// `go env GOROOT` spells it `<tmp>/alias` (a symlink to it), as cmd/go
     /// does when its default GOROOT names the same directory. Its `go
-    /// list` lists the guard's file only for an overlay keyed by that
-    /// spelling, as cmd/go's does.
-    fn toolchain(version: &str, list_works: bool) -> (tempfile::TempDir, String) {
+    /// list` finds the guard only for an overlay keyed by that spelling,
+    /// as cmd/go's does, and behaves as `fake` says.
+    fn toolchain(version: &str, fake: Fake) -> (tempfile::TempDir, String) {
         let d = tempfile::tempdir().unwrap();
         let real = d.path().join("real");
         let alias = d.path().join("alias");
@@ -421,15 +647,76 @@ func (TestDeps) StopTestLog() error {
         std::fs::create_dir_all(deps.parent().unwrap()).unwrap();
         std::fs::write(&deps, DEPS).unwrap();
         std::os::unix::fs::symlink(&real, &alias).unwrap();
-        let key = format!("{}/src/testing/{}", alias.display(), gotest::TESTING_FILE);
-        let list = if list_works {
-            format!(
-                "for a; do case \"$a\" in -overlay=*) grep -qF '\"{key}\"' \"${{a#-overlay=}}\" && echo '[testing.go {}]' && exit 0;; esac; done; echo '[testing.go]'",
-                gotest::TESTING_FILE
-            )
-        } else {
-            "echo '[testing.go]'".to_string()
+        let testing_key = format!("{}/src/testing/{}", alias.display(), gotest::TESTING_FILE);
+        let package_key = format!(
+            "{}/src/{}/{}",
+            alias.display(),
+            gotest::GUARD_PKG,
+            gotest::GUARD_FILE
+        );
+        let os_deps = match fake {
+            Fake::OsWithoutPath => gotest::GUARD_IMPORTS
+                .iter()
+                .filter(|i| **i != "path")
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\\n"),
+            _ => gotest::GUARD_IMPORTS.join("\\n"),
         };
+        // `$ov` is the overlay file; `$pkgs` the packages named; `$f` the
+        // -f format.
+        let found = format!(
+            "grep -qF '\"{package_key}\"' \"$ov\" && echo '[{}]' || {{ echo \"package {} is not in std\" >&2; exit 1; }}",
+            gotest::GUARD_FILE,
+            gotest::GUARD_PKG
+        );
+        let package_case = match fake {
+            Fake::Flaky => format!(
+                "[ -e '{}' ] && {{ echo 'go: signal: killed' >&2; exit 1; }}; {found}",
+                real.join("flaky").display()
+            ),
+            Fake::Package | Fake::OsWithoutPath | Fake::TestdepsUnpatched => found.clone(),
+            Fake::Testing => format!(
+                "case \"$GODEBUG\" in *goindex=0*) echo \"package {} is not in std\" >&2; exit 1;; esac; {found}",
+                gotest::GUARD_PKG,
+            ),
+            Fake::None => format!(
+                "echo \"package {} is not in std\" >&2; exit 1",
+                gotest::GUARD_PKG
+            ),
+        };
+        let testing_case = match fake {
+            Fake::None => "echo '[testing.go]'".to_string(),
+            _ => format!(
+                "grep -qF '\"{testing_key}\"' \"$ov\" && echo '[testing.go {}]' || echo '[testing.go]'",
+                gotest::TESTING_FILE
+            ),
+        };
+        // `go list -f '{{.ImportPath}}:{{range .Imports}} {{.}}{{end}}'`:
+        // testdeps imports the guard when the overlay replaces it (but
+        // `TestdepsUnpatched`), and the guard what its file imports.
+        let testdeps_imports = match fake {
+            Fake::TestdepsUnpatched => {
+                "echo 'testing/internal/testdeps: bufio internal/testlog'".to_string()
+            }
+            _ => format!(
+                "grep -qF '\"{}/{}\"' \"$ov\" && echo 'testing/internal/testdeps: bufio {} internal/testlog' || echo 'testing/internal/testdeps: bufio internal/testlog'",
+                alias.display(),
+                gotest::TESTDEPS,
+                gotest::GUARD_PKG
+            ),
+        };
+        let guard_imports = format!(
+            "echo '{}: {}'",
+            gotest::GUARD_PKG,
+            gotest::GUARD_IMPORTS.join(" ")
+        );
+        let list = format!(
+            "ov=; f=; prev=; pkgs=; for a; do if [ \"$prev\" = -f ]; then f=$a; prev=; continue; fi; case \"$a\" in -overlay=*) ov=${{a#-overlay=}};; -*|list) ;; *) pkgs=\"$pkgs $a\";; esac; prev=$a; done; \
+             case \"$f\" in *Imports*) for p in $pkgs; do case \"$p\" in testing/internal/testdeps) {testdeps_imports};; {g}) {guard_imports};; *) exit 2;; esac; done;; \
+             *) case \"$pkgs\" in ' {g}') {package_case};; ' os') printf '{os_deps}\\n';; ' testing') {testing_case};; *) exit 2;; esac;; esac",
+            g = gotest::GUARD_PKG
+        );
         let script = format!(
             "#!/bin/sh\ncase \"$1\" in\nenv) printf '%s\\n%s\\n' '{}' '{version}' ;;\nlist) {list} ;;\n*) exit 2 ;;\nesac\n",
             alias.display()
@@ -441,38 +728,58 @@ func (TestDeps) StopTestLog() error {
         (d, path)
     }
 
+    /// The guard for `script` under the Go profile's guarded knobs
+    /// (GODEBUG goindex=0, which the fake toolchain's `go list` reads), with
+    /// the fake toolchain's bin first on PATH.
     fn guard(script: &str, path: &str, cache: &Path) -> Option<GoTestGuard> {
-        GoTestGuard::for_step(
+        let go = &quod_key::profile::GO;
+        let knobs = go.warm.as_ref().map_or(&[][..], |w| w.guarded_knobs);
+        assert!(knobs.iter().any(|k| k.item == "goindex=0"));
+        GoTestGuard::for_step_in(
             script,
-            &[("PATH".to_string(), path.to_string())],
-            &[("GOTOOLCHAIN", "local")],
+            &[],
+            &[("PATH", path), ("GOTOOLCHAIN", "local")],
+            knobs,
             cache,
         )
+    }
+
+    fn overlay_keys(g: &GoTestGuard, dir: &Path) -> Vec<String> {
+        g.write(dir, &Hash::of(b"key")).unwrap();
+        let overlay: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("overlay.json")).unwrap())
+                .unwrap();
+        overlay["Replace"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// MAJOR 1: the overlay names GOROOT as `go env` spells it, the one
     /// spelling cmd/go matches, which is neither the PATH entry's parent nor
     /// the binary's real path here; and the guard is used only once a `go
-    /// list` under that overlay lists the guard's file.
+    /// list` under that overlay finds it. On a toolchain that finds the
+    /// guard's package through the overlay, the package layout is used.
     #[test]
     fn the_overlay_names_the_goroot_go_reports_and_is_seen_to_apply() {
-        let (d, path) = toolchain("go1.27.3", true);
+        let (d, path) = toolchain("go1.27.3", Fake::Package);
         let cache = d.path().join("cache");
         let g = guard("go test ./...", &path, &cache).expect("the guard applies");
         let alias = d.path().join("alias");
         assert_eq!(g.goroot(), alias.to_str().unwrap());
-        let files = d.path().join("files");
-        g.write(&files, &Hash::of(b"key")).unwrap();
-        let overlay: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(files.join("overlay.json")).unwrap())
-                .unwrap();
-        let keys: Vec<&String> = overlay["Replace"].as_object().unwrap().keys().collect();
-        assert_eq!(keys.len(), 2, "{keys:?}");
+        assert_eq!(g.layout(), Layout::Package);
+        let keys = overlay_keys(&g, &d.path().join("files"));
+        assert_eq!(keys.len(), 3, "{keys:?}");
         assert!(
             keys.iter()
                 .all(|k| k.starts_with(&format!("{}/", alias.display()))),
             "{keys:?}"
         );
+        // Remembered: the second probe reads the cache, same layout.
+        let g2 = guard("go test ./...", &path, &cache).unwrap();
+        assert_eq!(g2.layout(), Layout::Package);
         // A go the script names by path is the same toolchain, or no guard.
         let named = d.path().join("real/bin/go");
         assert!(guard(&format!("{} test ./...", named.display()), &path, &cache).is_some());
@@ -481,6 +788,7 @@ func (TestDeps) StopTestLog() error {
         // The script may not set the toolchain's variables (MINOR 4).
         assert!(guard("GOFLAGS=-count=1 go test ./...", &path, &cache).is_none());
         assert!(guard("export PATH=/x:$PATH; go test ./...", &path, &cache).is_none());
+        assert!(guard("GODEBUG=goindex=1 go test ./...", &path, &cache).is_none());
         // Nothing left of the probes.
         let left: Vec<_> = std::fs::read_dir(&cache)
             .unwrap()
@@ -490,20 +798,108 @@ func (TestDeps) StopTestLog() error {
         assert!(left.is_empty(), "{left:?}");
     }
 
-    /// Fails closed: an overlay that does not apply, or a release the
-    /// guard was not reviewed against (MINOR 6), keeps `-count=1`.
+    /// A cmd/go that reads GOROOT from disk with the module index off
+    /// (go1.26) cannot find the guard's package: the probe, which runs
+    /// with the profile's `goindex=0` as the step will, falls back to the
+    /// file in package testing, under that layout's own (v2) key.
+    #[test]
+    fn a_toolchain_that_reads_goroot_from_disk_keeps_the_testing_layout() {
+        let (d, path) = toolchain("go1.26.3", Fake::Testing);
+        let cache = d.path().join("cache");
+        let g = guard("go test ./...", &path, &cache).expect("the testing layout applies");
+        assert_eq!(g.layout(), Layout::Testing);
+        let keys = overlay_keys(&g, &d.path().join("files"));
+        assert_eq!(keys.len(), 2, "{keys:?}");
+        assert!(keys.iter().any(|k| k.ends_with(gotest::TESTING_FILE)));
+        assert_eq!(
+            guard("go test ./...", &path, &cache).unwrap().layout(),
+            Layout::Testing,
+            "remembered"
+        );
+    }
+
+    /// The package layout's ordering argument is checked against the
+    /// toolchain: a guard import that is not a dependency of its os
+    /// refuses the layout.
+    #[test]
+    fn the_package_layout_needs_every_guard_import_to_be_a_dependency_of_os() {
+        let (d, path) = toolchain("go1.27.3", Fake::OsWithoutPath);
+        let g = guard("go test ./...", &path, &d.path().join("cache")).unwrap();
+        assert_eq!(g.layout(), Layout::Testing);
+    }
+
+    /// Positive verification covers testdeps too (minor a of the review of
+    /// 712cd87): a toolchain that finds the guard's package but whose
+    /// testdeps, as cmd/go reads it, does not import it gets no package
+    /// layout.
+    #[test]
+    fn the_package_layout_needs_testdeps_to_import_the_guard() {
+        let (d, path) = toolchain("go1.27.3", Fake::TestdepsUnpatched);
+        let g = guard("go test ./...", &path, &d.path().join("cache")).unwrap();
+        assert_eq!(g.layout(), Layout::Testing);
+    }
+
+    /// The verified toolchains remembered in `cache` (not the probes'
+    /// scratch dirs).
+    fn remembered(cache: &Path) -> Vec<String> {
+        std::fs::read_dir(cache)
+            .map(|d| {
+                d.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| !n.starts_with(".probe"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Minor e of the review of 712cd87: a package-layout check that fails
+    /// for a passing reason (a go list that dies) falls back to the
+    /// testing layout for that step only; nothing is remembered, and the
+    /// next probe gets the package layout. A settled refusal (cmd/go says
+    /// the package is not in std) is remembered with the testing layout.
+    #[test]
+    fn a_transient_package_layout_failure_is_not_remembered() {
+        let (flaky, flaky_path) = toolchain("go1.27.3", Fake::Flaky);
+        let (old, old_path) = toolchain("go1.26.3", Fake::Testing);
+        // Only a binary that settled before the probe is remembered.
+        std::thread::sleep(Duration::from_millis(2200));
+        let marker = flaky.path().join("real/flaky");
+        std::fs::write(&marker, "").unwrap();
+        let cache = flaky.path().join("cache");
+        let g = guard("go test ./...", &flaky_path, &cache).unwrap();
+        assert_eq!(g.layout(), Layout::Testing);
+        assert!(remembered(&cache).is_empty(), "{:?}", remembered(&cache));
+        std::fs::remove_file(&marker).unwrap();
+        let g = guard("go test ./...", &flaky_path, &cache).unwrap();
+        assert_eq!(g.layout(), Layout::Package);
+        assert_eq!(remembered(&cache).len(), 1);
+        // Settled: remembered.
+        let cache = old.path().join("cache");
+        let g = guard("go test ./...", &old_path, &cache).unwrap();
+        assert_eq!(g.layout(), Layout::Testing);
+        assert_eq!(remembered(&cache).len(), 1);
+    }
+
+    /// Fails closed: an overlay that does not apply in either layout, or a
+    /// release the guard was not reviewed against (MINOR 6), keeps
+    /// `-count=1`.
     #[test]
     fn no_guard_unless_seen_to_apply_on_a_reviewed_release() {
-        let (d, path) = toolchain("go1.27.3", false);
+        let (d, path) = toolchain("go1.27.3", Fake::None);
         assert!(guard("go test ./...", &path, &d.path().join("cache")).is_none());
         for v in ["go1.28.0", "go1.25.4", "go1.27rc2"] {
-            let (d, path) = toolchain(v, true);
+            let (d, path) = toolchain(v, Fake::Package);
             assert!(
                 guard("go test ./...", &path, &d.path().join("cache")).is_none(),
                 "{v}"
             );
         }
-        let (d, path) = toolchain("go1.26.2", true);
-        assert!(guard("go test ./...", &path, &d.path().join("cache")).is_some());
+        let (d, path) = toolchain("go1.26.2", Fake::Package);
+        assert_eq!(
+            guard("go test ./...", &path, &d.path().join("cache"))
+                .unwrap()
+                .layout(),
+            Layout::Package
+        );
     }
 }

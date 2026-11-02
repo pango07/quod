@@ -540,9 +540,21 @@ fn run_one(
                 let g = GoTestGuard::for_step(
                     req.script.as_deref().unwrap_or_default(),
                     &req.extra_env,
-                    spec.profile().env,
+                    spec.profile(),
                     &cas.dir().join("go-test-guard"),
                 );
+                // The key names its layout's overlay; a probe that now
+                // picks another (a package-layout check that failed for a
+                // passing reason) cannot run this key. An error: the row
+                // is released for another attempt (MAX_ATTEMPTS bounds it).
+                if let Some(g) = &g
+                    && Some(g.layout()) != spec.guard_layout()
+                {
+                    anyhow::bail!(
+                        "the go test cache guard's layout is {} on this host now, not the key's",
+                        g.layout().name()
+                    );
+                }
                 if g.is_none() {
                     // The go on the profile's PATH changed (an upgrade):
                     // running the guarded key unguarded would let go test

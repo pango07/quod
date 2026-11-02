@@ -278,13 +278,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             GoTestGuard::for_step(
                 &step,
                 &extra_env,
-                toolchain.profile().env,
+                toolchain.profile(),
                 &cas.dir().join("go-test-guard"),
             )
         })
         .flatten();
-    let spec = if go_guard.is_some() {
-        StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env)?
+    let spec = if let Some(g) = &go_guard {
+        StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env, g.layout())?
     } else if warm {
         StepSpec::new_warm(toolchain, image.clone(), &step, &extra_env)?
     } else {
@@ -850,7 +850,9 @@ pub(crate) fn execute(
     go_tests: GoTests,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
-    if spec.guards_tests() != go_tests.guard.is_some() {
+    // The layout, not only its presence: the files bound are the layout's
+    // and the key names the layout's overlay path.
+    if spec.guard_layout() != go_tests.guard.map(|g| g.layout()) {
         bail!("internal error: the step key and the go test cache guard disagree");
     }
     let t = Instant::now();
@@ -907,7 +909,7 @@ pub(crate) fn execute(
         guard.write(&files, &spec_key(spec)?)?;
         mounts.push(Mount {
             src: files,
-            dst: quod_key::gotest::SANDBOX_DIR.into(),
+            dst: guard.layout().sandbox_dir().into(),
             writable: false,
         });
     }
