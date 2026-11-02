@@ -151,7 +151,11 @@ The types are `lib/api/types.ts`; the recorded bodies in
 - **Repository** (`RepoDetail`): summary, default branch, `latestRun`
   (a full `RunDetail`), `runTimes` (last runs: with Quod vs recorded time
   without, oldest first), `steps` (`StepSummary`: job, command, trust state,
-  replay rate, ran and replay seconds, saved minutes).
+  replay rate, ran and replay seconds, saved minutes, and `trustRef`). The
+  trust state is the default branch's (the trusted scope's); for a step only
+  branch or pull request runs have recorded it is that branch's own, and
+  `trustRef` names the branch (server/trust-branch-scope; before it, such a
+  step read "proving 0 of N" while its runs said "proof 1 of 1").
 - **Run** (`RunDetail`): commit, branch, actor, runner, took vs would have
   taken, counts, and `jobs[].steps[]`, each with `outcome` (replayed or ran),
   optionally `index` (GitHub's step number), and `why`, a tagged union:

@@ -247,6 +247,12 @@ export interface StepSummary {
   /** Typical time when it replays, null if it never has. */
   replaySeconds: number | null;
   savedMinutes: number;
+  /**
+   * The branch whose own runs `trust` describes, when the default branch has
+   * not recorded this step (only branch or pull request runs have); null or
+   * absent: the default branch's. quod-server after server/trust-branch-scope.
+   */
+  trustRef?: string | null;
 }
 
 export interface RunTimePoint {

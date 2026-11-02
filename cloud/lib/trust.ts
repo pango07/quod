@@ -177,3 +177,20 @@ export function receiptFor(step: RunStep): Receipt {
       };
   }
 }
+
+/**
+ * Steps the list calls "proving" although a run's receipt for the same key
+ * already met the proofs it needs: the two disagree. The Trust list and a
+ * run's receipt must tell one story (the "proving 0 of 1" bug: the list read
+ * only the default branch's trust, the receipt the step's own). Pure; tests.
+ */
+export function trustContradictions(steps: { key: string; trust: TrustState }[], runs: { jobs: { steps: RunStep[] }[] }[]): string[] {
+  const met = new Set<string>();
+  for (const run of runs)
+    for (const job of run.jobs)
+      for (const s of job.steps) {
+        const w = s.why;
+        if ((w.kind === "first-run" || w.kind === "changed" || w.kind === "replayed") && w.proof.need > 0 && w.proof.have >= w.proof.need) met.add(w.stepKey);
+      }
+  return steps.filter((s) => s.trust.kind === "proving" && met.has(s.key)).map((s) => s.key);
+}
