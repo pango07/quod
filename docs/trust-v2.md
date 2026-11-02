@@ -54,11 +54,12 @@ manifest of its key, instead of being demanded again for every new tree.
 Where the hit rate comes from: a key must agree with itself twice (two
 audited would-be hits, on any of its manifests) before anything of it replays
 blind. After that, a new manifest replays on its second identical run.
-Projected from 0b's history (the measured numbers are in "Measured"): the 14
-unchanged-input step runs that gave 2 replays under v1 give 7 under v2 (vet 4
-of 8, test 3 of 6; the other 7 are the shadow audits and one decay audit,
-executed and compared), and in PR-then-merge traffic, from the third commit
-on, every merge run whose tree the PR run already recorded replays.
+Measured (see "Measured"): the 14 unchanged-input step runs that gave 2
+replays under v1 in 0b's history give 7 under v2 (vet 4 of 8, test 3 of 6;
+the other 7 are the shadow audits and the decay audits, executed and
+compared, all agreeing), and in PR-then-merge traffic 57 of 74 unchanged-
+input runs replay (`go test` 13 of 18) against v1's 19 of 67 (`go test` 1 of
+16) on the same jobs.
 
 ## The schedule
 
@@ -313,13 +314,20 @@ ledgers in the field are none (DECISIONS: disposable).
 
 ## Measured
 
-The Hetzner runs (`docs/bench/trust-v2/`: `traffic.py` drives, `summary.py`
-tabulates, `chain.sh` runs the three series; results in
-`docs/bench/trust-v2/hetzner.md` once they land): the 40-commit cli/cli
-history under v2 defaults against the v1 numbers in 0b, and the
-realistic-traffic simulation (each commit as its PR head then the merge, 10%
-random re-runs) under v1 and v2. Until that file exists the numbers in this
-document are projections from 0b's per-commit table, and say so.
+Measured on a dedicated Hetzner CCX23 ("server 2"; method, per-commit
+detail and the plain-warm baseline in `docs/bench/trust-v2/hetzner.md`;
+drivers beside it), cli/cli's 40 commits, `go build`/`go vet`/`go test`:
+
+| | v1 | **v2 defaults** |
+| --- | --- | --- |
+| History, one job per commit: replayed / unchanged-input runs | 2 / 14 (0b, server 1) | **7 / 14** (vet 4/8, test 3/6; the other 7 are the shadow and decay audits) |
+| Realistic traffic (PR head, merge, 10% re-runs; 87 jobs): replayed / unchanged | 19 / 67 (28%) (first run; a clean re-run is in hetzner.md) | **57 / 74 (77%)** |
+| of which `go test` | 1 / 16 (6%) | **13 / 18 (72%)** |
+| divergences / suspect replays, all series | 0 / 0 | **0 / 0** |
+
+A `go test` replay took 1.7–2.1 s against ~41 s executed. The projection
+in "What changes" (7 of 14 in the history) was the measured outcome, commit
+for commit.
 
 ## Residual risks, plainly
 
