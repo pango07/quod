@@ -2,10 +2,16 @@
 //! earns that, and how it loses it.
 //!
 //! A matching manifest is necessary for a replay but not sufficient. The
-//! result must also be *proven*: the same manifest must have produced the
-//! same result `proofs` executions in a row (the proof streak, kept per
-//! (key, manifest) in the ledger's `proofs` table). A result seen once is
-//! never replayed. Nor, by default, is any failure (non-zero exit; a
+//! result must also be *provable* and *proven*: the same manifest must have
+//! produced the same result `proofs` executions in a row (the proof streak,
+//! kept per (key, manifest) in the ledger's `proofs` table). Trust v2
+//! (docs/trust-v2.md) sets `proofs` to 1: a result recorded once may replay
+//! on the next identical tree, and the evidence that the *step* is
+//! deterministic is pooled across every manifest of its key by the audit
+//! schedule: the key's first `shadow` would-be hits are all audited (the
+//! shadow phase), the rate then decays as 1/k to the `audit` floor. Nothing
+//! of a key replays blind until the key has agreed with itself `shadow`
+//! times. Never replayed, by default, is any failure (non-zero exit; a
 //! failure can repeat identically, e.g. a test that hangs under load every
 //! time the box is busy), nor any result whose output carries a kill or
 //! timeout marker (`KILL_MARKERS`): such results are compared like any
@@ -17,11 +23,14 @@
 //! the scratch directories the caller names: build cache, HOME) and must
 //! have read an `equivalent` manifest. Any difference quarantines the whole
 //! key: nothing of it replays until some manifest has been
-//! reproduced `proofs + divergences` times in a row, and the divergence is
-//! reported loudly. In observe mode every eligible hit is compared this way
-//! (an audit for free, since the step executes anyway); in replay mode a
-//! deterministic fraction of eligible hits is re-executed instead of
-//! replayed. Audit never turns off unless the rate is set to 0 on purpose.
+//! reproduced `proofs + divergences` times in a row, the shadow phase
+//! restarts and lengthens, the floor rises, every replay the key served
+//! since its last quarantine is marked `suspect` in the ledger (it may have
+//! been wrong; re-run it), and the divergence is reported loudly. In observe
+//! mode every eligible hit is compared this way (an audit for free, since
+//! the step executes anyway); in replay mode the schedule says which
+//! eligible hits are re-executed instead of replayed. Audit never turns off
+//! unless the rate is set to 0 on purpose.
 //!
 //! The ledger stores the facts; this crate decides. Nothing here knows about
 //! FUSE, sandboxes or the command line.
@@ -37,9 +46,17 @@ use quod_ledger::{AuditRow, Ledger, LedgerError, ProofRow, TrustRow, TrustState,
 use quod_manifest::{Manifest, ManifestError, StepResult, manifest_id};
 
 /// Identical executions a manifest needs before its result may replay.
-/// Two: a result seen once is never trusted.
-pub const DEFAULT_PROOFS: u32 = 2;
-/// The fraction of would-be hits replay mode re-executes and compares.
+/// One (trust v2): a result recorded once replays on the next identical
+/// tree; the shadow audits below are what stands between a step's first
+/// record and its first blind replay.
+pub const DEFAULT_PROOFS: u32 = 1;
+/// Would-be hits of a key that are all audited before any of it replays
+/// blind (trust v2's shadow phase), counted from the key's last quarantine.
+pub const DEFAULT_SHADOW: u32 = 2;
+/// The largest `--shadow` accepted.
+pub const MAX_SHADOW: u32 = 1000;
+/// The fraction of would-be hits replay mode re-executes and compares once
+/// the shadow phase and its 1/k decay are over: the audit floor.
 pub const DEFAULT_AUDIT: f64 = 0.05;
 /// How many of the newest audits the trailing divergence rate covers, and
 /// the window a key's divergences raise its bar within.
@@ -113,7 +130,13 @@ pub struct Policy {
     /// Identical executions a manifest needs (plus one per past divergence
     /// of its key) before it may replay. At least 1.
     pub proofs: u32,
-    /// Fraction of would-be hits re-executed in replay mode, 0..=1.
+    /// Would-be hits of a key audited in full before any replays blind,
+    /// counted from the key's last quarantine (times `1 + recent
+    /// divergences`). 0: no shadow phase, the floor from the first hit.
+    pub shadow: u32,
+    /// The audit floor: the fraction of would-be hits re-executed in replay
+    /// mode once the shadow phase has decayed, 0..=1. 0 turns every audit
+    /// off, the shadow included (benchmarks only).
     pub audit: f64,
     /// Whether a failing result (non-zero exit) may prove itself and
     /// replay. Off by default: a failure that repeats identically is as
@@ -126,6 +149,7 @@ impl Default for Policy {
         Policy {
             mode: Mode::Observe,
             proofs: DEFAULT_PROOFS,
+            shadow: DEFAULT_SHADOW,
             audit: DEFAULT_AUDIT,
             replay_failures: false,
         }
@@ -166,6 +190,12 @@ impl Policy {
                 self.audit
             )));
         }
+        if self.shadow > MAX_SHADOW {
+            return Err(TrustError::BadPolicy(format!(
+                "--shadow {} is more than {MAX_SHADOW}",
+                self.shadow
+            )));
+        }
         Ok(())
     }
 }
@@ -204,13 +234,33 @@ pub enum Reason {
         streak: u32,
         needed: u32,
     },
-    /// Replay mode: this would-be hit (the `nth` for the key) is audited.
-    Audit { nth: u64 },
+    /// Replay mode: this would-be hit (the `nth` for the key) is audited;
+    /// `shadow` when it falls in the key's shadow phase (every hit audited
+    /// until the key has agreed with itself `shadow` times).
+    Audit { nth: u64, shadow: bool },
     /// Observe mode: this would have replayed.
     WouldReplay,
 }
 
 impl Reason {
+    /// Is this execution evidence about a recorded result: compared with it
+    /// (an audit, shadow or decay, or an observe-mode would-be hit, which
+    /// counts toward the shadow like an audit) or a proof toward it (a
+    /// manifest proving itself, a key re-proving after a quarantine)? Such
+    /// an execution must run the step now: a caller whose tool can serve
+    /// results from a cache of its own (go test's, under Quod's guard)
+    /// expires it here. A miss and an unprovable result are not: they only
+    /// record, and are checked by the executions above.
+    pub fn is_evidence(&self) -> bool {
+        matches!(
+            self,
+            Reason::Audit { .. }
+                | Reason::WouldReplay
+                | Reason::Proving { .. }
+                | Reason::Quarantined { .. }
+        )
+    }
+
     /// Does this execution count as a would-be hit?
     fn eligible(&self) -> bool {
         matches!(self, Reason::Audit { .. } | Reason::WouldReplay)
@@ -218,6 +268,7 @@ impl Reason {
 
     fn phase(&self) -> &'static str {
         match self {
+            Reason::Audit { shadow: true, .. } => "shadow",
             Reason::Audit { .. } => "audit",
             Reason::WouldReplay => "observe",
             _ => "proof",
@@ -246,10 +297,155 @@ pub enum Replayed {
 /// runs of identical results; one that stops diverging gets back to the
 /// base bar as clean audits push its divergences out of the window.
 pub fn needed(policy: &Policy, recent_divergences: u64) -> u32 {
-    let extra = u32::try_from(recent_divergences)
+    policy.proofs.saturating_add(extra(recent_divergences))
+}
+
+/// How many of a key's recent divergences count: at most `MAX_EXTRA_PROOFS`.
+fn extra(recent_divergences: u64) -> u32 {
+    u32::try_from(recent_divergences)
         .unwrap_or(u32::MAX)
-        .min(MAX_EXTRA_PROOFS);
-    policy.proofs.saturating_add(extra)
+        .min(MAX_EXTRA_PROOFS)
+}
+
+/// The audit schedule of a key (docs/trust-v2.md, "The schedule"): the
+/// first `shadow` would-be hits since the key's last quarantine are all
+/// audited, then the weight of hit k decays as `shadow / k` down to `floor`.
+/// After d recent divergences (capped like the bar) the shadow is
+/// `shadow * (1 + d)` long and the floor `floor * (1 + d)`, at most 1.
+/// A policy with `audit` 0 has no audits at all.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Schedule {
+    pub shadow: u32,
+    pub floor: f64,
+}
+
+impl Schedule {
+    pub fn of(policy: &Policy, recent_divergences: u64) -> Schedule {
+        let rate = policy.audit.clamp(0.0, 1.0);
+        if rate <= 0.0 {
+            return Schedule {
+                shadow: 0,
+                floor: 0.0,
+            };
+        }
+        let m = 1 + extra(recent_divergences);
+        Schedule {
+            shadow: policy.shadow.saturating_mul(m),
+            floor: (rate * f64::from(m)).min(1.0),
+        }
+    }
+
+    /// The audit weight of the k-th would-be hit since the shadow began
+    /// (k >= 1): the probability-like share of such hits that are audited.
+    pub fn weight(&self, k: u64) -> f64 {
+        if self.floor <= 0.0 || k == 0 {
+            return 0.0;
+        }
+        if k <= u64::from(self.shadow) {
+            1.0
+        } else {
+            (f64::from(self.shadow) / k as f64).clamp(self.floor, 1.0)
+        }
+    }
+
+    /// The weights of hits 1..=n summed. Beyond `shadow / floor` every
+    /// weight is the floor, so the sum is closed-form from there.
+    fn cumulative(&self, n: u64) -> f64 {
+        if self.floor <= 0.0 {
+            return 0.0;
+        }
+        let tail_from = (f64::from(self.shadow) / self.floor).ceil() as u64;
+        let head = n.min(tail_from);
+        let mut s = 0.0;
+        for k in 1..=head {
+            s += self.weight(k);
+        }
+        s + (n - head) as f64 * self.floor
+    }
+
+    /// Whether the next would-be hit (the `k_before + 1`th since the shadow
+    /// began) is audited: deterministic, hit k is audited exactly when the
+    /// cumulative weight crosses an integer, so a given policy yields the
+    /// same schedule on every ledger and tests can rely on it. With no
+    /// shadow this is "every 1/floor-th hit", v1's schedule. A step cannot
+    /// game it: it never sees the count.
+    pub fn due(&self, k_before: u64) -> bool {
+        if self.floor <= 0.0 {
+            return false;
+        }
+        let f = |s: f64| (s + 1e-9).floor();
+        f(self.cumulative(k_before + 1)) > f(self.cumulative(k_before))
+    }
+
+    /// Whether the next would-be hit falls in the shadow phase.
+    pub fn in_shadow(&self, k_before: u64) -> bool {
+        k_before < u64::from(self.shadow)
+    }
+
+    /// Would-be hits left in the shadow phase after `k_done` of them.
+    pub fn shadow_left(&self, k_done: u64) -> u64 {
+        u64::from(self.shadow).saturating_sub(k_done)
+    }
+}
+
+/// How many would-be hits of a key count toward its shadow phase: those
+/// since its last quarantine.
+fn since_shadow(trust: Option<&TrustRow>) -> u64 {
+    trust.map_or(0, |t| t.eligible.saturating_sub(t.shadow_from))
+}
+
+/// What the comparisons so far say about a step's output (docs/trust-v2.md,
+/// "Determinism classification").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Determinism {
+    /// No comparison yet.
+    Unknown,
+    /// Every comparison was byte-identical.
+    Exact,
+    /// Some comparison was identical only after `normalize`: the output
+    /// carries recognized volatile fields (durations, timestamps). Reported,
+    /// not penalized: the volatility is understood and erased.
+    Normalized,
+    /// A divergence among the key's newest `TRAILING_AUDITS` audits: the
+    /// stricter schedule and bar apply until it ages out.
+    Divergent,
+}
+
+impl Determinism {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Determinism::Unknown => "unknown",
+            Determinism::Exact => "exact",
+            Determinism::Normalized => "normalized",
+            Determinism::Divergent => "divergent",
+        }
+    }
+
+    /// One clause for `status` and `inspect`.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Determinism::Unknown => "not compared yet",
+            Determinism::Exact => "every comparison byte-identical",
+            Determinism::Normalized => {
+                "output carries volatile fields (durations, timestamps), erased before comparing"
+            }
+            Determinism::Divergent => {
+                "diverged recently: longer shadow, higher audit floor and bar until it ages out"
+            }
+        }
+    }
+}
+
+pub fn determinism(trust: &TrustRow, recent_divergences: u64) -> Determinism {
+    if recent_divergences > 0 {
+        Determinism::Divergent
+    } else if trust.audits == 0 {
+        Determinism::Unknown
+    } else if trust.volatile > 0 {
+        Determinism::Normalized
+    } else {
+        Determinism::Exact
+    }
 }
 
 /// What `decide` needs to know about the result a replay would serve.
@@ -301,8 +497,13 @@ pub fn decide(
         Mode::Observe => Decision::Execute(Reason::WouldReplay),
         Mode::Replay => {
             let eligible = trust.map_or(0, |t| t.eligible);
-            if audit_due(eligible, policy.audit) {
-                Decision::Execute(Reason::Audit { nth: eligible + 1 })
+            let k = since_shadow(trust);
+            let sched = Schedule::of(policy, recent_divergences);
+            if sched.due(k) {
+                Decision::Execute(Reason::Audit {
+                    nth: eligible + 1,
+                    shadow: sched.in_shadow(k),
+                })
             } else {
                 Decision::Replay
             }
@@ -310,31 +511,35 @@ pub fn decide(
     }
 }
 
-/// Whether the next would-be hit of a key (its `eligible_before + 1`th) is
-/// audited: deterministic, every `1/rate`th one, so a given rate yields the
-/// same schedule on every ledger and tests can rely on it. A step cannot
-/// game it: it never sees the count.
+/// v1's schedule, kept for callers that reason about a flat rate: whether
+/// the next would-be hit (the `eligible_before + 1`th) is audited at `rate`
+/// with no shadow phase, i.e. every `1/rate`th one.
 pub fn audit_due(eligible_before: u64, rate: f64) -> bool {
-    let rate = rate.clamp(0.0, 1.0);
-    if rate <= 0.0 {
-        return false;
+    Schedule {
+        shadow: 0,
+        floor: rate.clamp(0.0, 1.0),
     }
-    let k = eligible_before + 1;
-    let f = |n: u64| ((n as f64) * rate + 1e-9).floor();
-    f(k) > f(k - 1)
+    .due(eligible_before)
 }
 
 // ----- comparing results -----
 
-/// Erases what two faithful executions of `go test` print differently:
-/// per-package durations (`ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`, or
-/// `(cached)` where go test served the result from its own cache, with any
-/// fields after it, such as coverage, kept) and
-/// per-test durations (`--- PASS: TestX (0.00s)`), and the number of the
-/// go command's temporary build dir in a `go env` `GOGCCFLAGS=` line
-/// (setup-go prints `go env` on every run). Nothing else: exit codes,
-/// package and test names, failure output and counts all stay. A line of
-/// any other shape is kept byte for byte.
+/// Erases what two faithful executions print differently in stdout and
+/// stderr (docs/trust-v2.md, "Normalizations"): go test's per-package
+/// durations (`ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`, or `(cached)` where go
+/// test served the result from its own cache, with any fields after it,
+/// such as coverage, kept) and per-test durations (`--- PASS: TestX
+/// (0.00s)`); the number of the go command's temporary build dir in a `go
+/// env` `GOGCCFLAGS=` line (setup-go prints `go env` on every run); ISO 8601
+/// timestamps with a time of day (`2026-11-02T09:12:03Z`,
+/// `2026-11-02 09:12:03.007+01:00`; a bare date is kept, it is as likely a
+/// version as the clock); and a test runner's duration, a number with a
+/// time unit inside parentheses (`(12ms)`, `(1.23 s)`) or after `in`,
+/// `took`, `Time`, `Duration`, `Finished` (`12 passed in 3.21s`, `Time:
+/// 1.234 s`). Only the number and unit go, so `1 passed in 3s` and `2 passed
+/// in 3s` still differ. Nothing else: exit codes, package and test names,
+/// failure output and counts all stay, and file outputs are never
+/// normalized. A line of any other shape is kept byte for byte.
 pub fn normalize(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     for line in bytes.split_inclusive(|b| *b == b'\n') {
@@ -399,6 +604,11 @@ fn normalize_line(line: &[u8]) -> Vec<u8> {
     {
         return format!("{}(<dur>)", &s[..open + 1]).into_bytes();
     }
+    // Trust v2: timestamps and test-runner durations, anywhere in a line.
+    let masked = mask_runner_durations(&mask_timestamps(s));
+    if masked != s {
+        return masked.into_bytes();
+    }
     line.to_vec()
 }
 
@@ -409,6 +619,178 @@ fn is_duration(t: &str) -> bool {
             && n.bytes().all(|b| b.is_ascii_digit() || b == b'.')
             && n.parse::<f64>().is_ok()
     })
+}
+
+/// The length of an ISO 8601 timestamp with a time of day at the start of
+/// `b`: `YYYY-MM-DD` then `T` or one space, `HH:MM:SS`, an optional
+/// `.fraction`, an optional `Z` or `±HH:MM`; followed by a non-alphanumeric
+/// byte or the end. `None` if `b` does not start with one.
+fn timestamp_len(b: &[u8]) -> Option<usize> {
+    let digits = |from: usize, n: usize| {
+        b.len() >= from + n && b[from..from + n].iter().all(u8::is_ascii_digit)
+    };
+    let at = |i: usize, c: u8| b.get(i) == Some(&c);
+    if !(digits(0, 4) && at(4, b'-') && digits(5, 2) && at(7, b'-') && digits(8, 2)) {
+        return None;
+    }
+    if !(at(10, b'T') || at(10, b' ')) {
+        return None;
+    }
+    if !(digits(11, 2) && at(13, b':') && digits(14, 2) && at(16, b':') && digits(17, 2)) {
+        return None;
+    }
+    let mut i = 19;
+    if at(i, b'.') {
+        let frac = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if frac == 0 {
+            return None;
+        }
+        i += 1 + frac;
+    }
+    if at(i, b'Z') {
+        i += 1;
+    } else if (at(i, b'+') || at(i, b'-'))
+        && digits(i + 1, 2)
+        && at(i + 3, b':')
+        && digits(i + 4, 2)
+    {
+        i += 6;
+    }
+    match b.get(i) {
+        Some(c) if c.is_ascii_alphanumeric() => None,
+        _ => Some(i),
+    }
+}
+
+/// `s` with every ISO 8601 timestamp (with a time of day) replaced by
+/// `<ts>`. A timestamp must not follow a digit (so `12026-11-02T...` is
+/// not one).
+fn mask_timestamps(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut from = 0;
+    while i < b.len() {
+        let boundary = i == 0 || !b[i - 1].is_ascii_digit();
+        if boundary
+            && b[i].is_ascii_digit()
+            && let Some(n) = timestamp_len(&b[i..])
+        {
+            out.push_str(&s[from..i]);
+            out.push_str("<ts>");
+            i += n;
+            from = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&s[from..]);
+    out
+}
+
+/// Time units a test runner prints a duration in, longest first so that
+/// `seconds` is tried before `s`.
+const DURATION_UNITS: &[&str] = &[
+    "milliseconds",
+    "millisecond",
+    "seconds",
+    "second",
+    "minutes",
+    "minute",
+    "msec",
+    "mins",
+    "secs",
+    "sec",
+    "min",
+    "ms",
+    "s",
+    "m",
+];
+
+/// The length of a duration at the start of `b`: digits with an optional
+/// fraction, at most one space, a unit from `DURATION_UNITS`, then a
+/// non-alphanumeric byte or the end.
+fn duration_len(b: &[u8]) -> Option<usize> {
+    let int = b.iter().take_while(|c| c.is_ascii_digit()).count();
+    if int == 0 {
+        return None;
+    }
+    let mut i = int;
+    if b.get(i) == Some(&b'.') {
+        let frac = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if frac == 0 {
+            return None;
+        }
+        i += 1 + frac;
+    }
+    if b.get(i) == Some(&b' ') {
+        i += 1;
+    }
+    let rest = &b[i..];
+    let unit = DURATION_UNITS.iter().find(|u| {
+        rest.starts_with(u.as_bytes())
+            && !rest.get(u.len()).is_some_and(|c| c.is_ascii_alphanumeric())
+    })?;
+    Some(i + unit.len())
+}
+
+/// Words after which a number with a time unit is a duration a test runner
+/// printed (`12 passed in 3.21s`, `took 450ms`, `Time: 1.234 s`,
+/// `Duration  1.23s`, `Finished in 0.5 seconds`). An optional `:` and
+/// spaces may follow the word.
+const DURATION_WORDS: &[&str] = &["in", "took", "Time", "Duration", "Finished"];
+
+/// `s` with every test-runner duration replaced by `<dur>`: a duration in
+/// parentheses, or one after a `DURATION_WORDS` word at a word boundary.
+fn mask_runner_durations(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut from = 0;
+    while i < b.len() {
+        // `(12ms)`, `(1.23 s)`.
+        if b[i] == b'('
+            && let Some(n) = duration_len(&b[i + 1..])
+            && b.get(i + 1 + n) == Some(&b')')
+        {
+            out.push_str(&s[from..i]);
+            out.push_str("(<dur>)");
+            i += n + 2;
+            from = i;
+            continue;
+        }
+        let word_start = i == 0 || !b[i - 1].is_ascii_alphanumeric();
+        if word_start
+            && let Some(w) = DURATION_WORDS
+                .iter()
+                .find(|w| b[i..].starts_with(w.as_bytes()))
+        {
+            let mut j = i + w.len();
+            // `in` must end the word (`in` not `inputs`); then `:`? spaces.
+            if b.get(j).is_some_and(|c| c.is_ascii_alphanumeric()) {
+                i += 1;
+                continue;
+            }
+            if b.get(j) == Some(&b':') {
+                j += 1;
+            }
+            let spaces = b[j..].iter().take_while(|c| **c == b' ').count();
+            if spaces > 0
+                && let Some(n) = duration_len(&b[j + spaces..])
+            {
+                out.push_str(&s[from..j + spaces]);
+                out.push_str("<dur>");
+                i = j + spaces + n;
+                from = i;
+                continue;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out.push_str(&s[from..]);
+    out
 }
 
 /// The output entries two executions are compared on: everything except
@@ -446,8 +828,9 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
     // v2: command files hashed in, GOGCCFLAGS' build dir normalized. v3:
     // the rename to Quod (the tag only; the rules are v2's). v4: a package
     // line's `(cached)` reads as a duration, and its duration is erased
-    // when more fields follow it.
-    buf.extend_from_slice(b"quod result fingerprint v4\0");
+    // when more fields follow it (exp/never-worse). v5: trust v2,
+    // timestamps and test-runner durations normalized.
+    buf.extend_from_slice(b"quod result fingerprint v5\0");
     buf.extend_from_slice(&i64::from(r.exit_code).to_le_bytes());
     for h in [out, err, outputs, root] {
         buf.extend_from_slice(h.hex().as_bytes());
@@ -785,9 +1168,25 @@ pub struct Verdict {
     pub would_have_saved: Option<Duration>,
     /// Why this execution's result can never prove itself, if it cannot.
     pub unprovable: Option<String>,
+    /// Earlier replays of the key this execution's divergence marked
+    /// suspect (trust v2): they may have served a wrong result.
+    pub suspects: usize,
+    /// Would-be hits still in the key's shadow phase after this execution:
+    /// how many more are audited before any replays blind.
+    pub shadow_left: u64,
 }
 
 impl Verdict {
+    /// `; its next 2 would-be hits are audited`, or nothing once the shadow
+    /// phase is over.
+    fn shadow_note(&self) -> String {
+        match self.shadow_left {
+            0 => String::new(),
+            1 => "; its next would-be hit is audited".to_string(),
+            n => format!("; its next {n} would-be hits are audited"),
+        }
+    }
+
     /// Whether the manifest this execution recorded may replay from now on.
     pub fn replayable(&self) -> bool {
         self.streak >= self.needed
@@ -818,7 +1217,10 @@ impl Verdict {
                 fmt_duration(d)
             ),
             (Reason::WouldReplay, None) => "  (observe mode: would have replayed)".into(),
-            (Reason::Audit { nth }, _) => format!("  (audit: would-be hit {nth} re-executed)"),
+            (Reason::Audit { nth, shadow: true }, _) => {
+                format!("  (shadow audit: would-be hit {nth} re-executed)")
+            }
+            (Reason::Audit { nth, .. }, _) => format!("  (audit: would-be hit {nth} re-executed)"),
             _ => String::new(),
         }
     }
@@ -847,6 +1249,14 @@ impl Verdict {
                 "  this key executes until {} identical executions prove it again; {audited}",
                 self.needed
             ));
+            if self.suspects > 0 {
+                v.push(format!(
+                    "  {} earlier replay{} of this key may have served a wrong result: marked suspect in the ledger; re-run {} (`quod status` lists them)",
+                    self.suspects,
+                    plural(self.suspects as u64),
+                    if self.suspects == 1 { "it" } else { "them" }
+                ));
+            }
             return v;
         }
         let identical = match &self.compared_with {
@@ -855,7 +1265,7 @@ impl Verdict {
                 if self.byte_identical {
                     "byte-identical to"
                 } else {
-                    "identical (up to go test durations) to"
+                    "identical (up to normalized volatile fields) to"
                 },
                 &r[..r.len().min(8)]
             ),
@@ -869,7 +1279,7 @@ impl Verdict {
             )];
         }
         match &self.reason {
-            Reason::Miss if self.compared_with.is_none() => vec![format!(
+            Reason::Miss if self.compared_with.is_none() && !self.replayable() => vec![format!(
                 "trust: proof {} of {}; replay needs {} identical execution{}",
                 self.streak,
                 self.needed,
@@ -881,9 +1291,12 @@ impl Verdict {
                 self.streak,
                 self.needed,
                 if self.replayable() {
-                    "; replayable from the next matching run"
+                    format!(
+                        "; replayable from the next matching run{}",
+                        self.shadow_note()
+                    )
                 } else {
-                    ""
+                    String::new()
                 }
             )],
             Reason::Quarantined { since, why, .. } => vec![format!(
@@ -893,9 +1306,21 @@ impl Verdict {
                 self.streak,
                 self.needed,
                 if self.replayable() {
-                    "; proven again, replayable from the next matching run"
+                    format!(
+                        "; proven again, replayable from the next matching run{}",
+                        self.shadow_note()
+                    )
                 } else {
-                    ""
+                    String::new()
+                }
+            )],
+            Reason::Audit { shadow: true, .. } => vec![format!(
+                "trust: shadow audit passed{identical}{}; {audited}",
+                match self.shadow_left {
+                    0 =>
+                        "; the shadow phase is over, replays follow the audit schedule".to_string(),
+                    1 => "; one more shadow audit before replays".to_string(),
+                    n => format!("; {n} more shadow audits before replays"),
                 }
             )],
             Reason::Audit { .. } => vec![format!("trust: audit passed{identical}; {audited}")],
@@ -1051,6 +1476,9 @@ impl<'a> Trust<'a> {
             let mut divergence = Divergence::default();
             let mut compared_with: Option<String> = None;
             let mut byte_identical = true;
+            // Only a stored fingerprint was compared (the previous result is
+            // purged): nothing was normalized, so not a `volatile` sighting.
+            let mut fingerprint_only = false;
 
             // What a replay would have served. The tree matched its
             // manifest; the step must read the same inputs (up to absent
@@ -1115,6 +1543,7 @@ impl<'a> Trust<'a> {
                         let same = p.fingerprint == fp;
                         byte_identical = false;
                         if same {
+                            fingerprint_only = compared_with.is_none();
                             compared_with.get_or_insert_with(|| p.last_run.clone());
                         }
                         same
@@ -1128,6 +1557,11 @@ impl<'a> Trust<'a> {
             byte_identical &= compared;
             if compared {
                 trust.audits += 1;
+                if divergence.is_empty() && !byte_identical && !fingerprint_only {
+                    // Identical only up to `normalize`: the output carries
+                    // recognized volatile fields (the `normalized` class).
+                    trust.volatile += 1;
+                }
             }
 
             if !divergence.is_empty() {
@@ -1135,6 +1569,9 @@ impl<'a> Trust<'a> {
                 trust.state = TrustState::Quarantined;
                 trust.quarantined_at = Some(now_rfc3339());
                 trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+                // The shadow phase starts over: the key's next would-be hits
+                // are all audited again, more of them (Schedule::of).
+                trust.shadow_from = trust.eligible;
                 // Every manifest of the key starts proving again; this one's
                 // new result is the first of its new streak.
                 l.reset_proofs(&key)?;
@@ -1168,8 +1605,9 @@ impl<'a> Trust<'a> {
                 trust.quarantine_reason = None;
             }
             l.put_trust(&trust)?;
+            let mut suspects = 0;
             if compared {
-                l.record_audit(&AuditRow {
+                let audit_id = l.record_audit(&AuditRow {
                     id: 0,
                     step_key: key,
                     manifest_id: manifest,
@@ -1181,14 +1619,21 @@ impl<'a> Trust<'a> {
                     detail: Some(if divergence.is_empty() {
                         if byte_identical {
                             "byte-identical".to_string()
+                        } else if fingerprint_only {
+                            "identical by stored fingerprint (previous result purged)".to_string()
                         } else {
-                            "identical up to go test durations".to_string()
+                            "identical up to normalized volatile fields".to_string()
                         }
                     } else {
                         truncate(&divergence.to_string(), 2000)
                     }),
                 })?;
+                if !divergence.is_empty() {
+                    suspects = mark_suspects(l, &key, &trust, &divergence, audit_id)?;
+                }
             }
+            let shadow_left = Schedule::of(&self.policy, recent)
+                .shadow_left(trust.eligible.saturating_sub(trust.shadow_from));
             Ok(Verdict {
                 reason: reason.clone(),
                 compared_with,
@@ -1202,6 +1647,8 @@ impl<'a> Trust<'a> {
                     _ => None,
                 },
                 unprovable: why_unprovable.clone(),
+                suspects,
+                shadow_left,
             })
         })
     }
@@ -1242,9 +1689,10 @@ impl<'a> Trust<'a> {
             trust.state = TrustState::Quarantined;
             trust.quarantined_at = Some(now_rfc3339());
             trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+            trust.shadow_from = trust.eligible;
             l.reset_proofs(&key)?;
             l.put_trust(&trust)?;
-            l.record_audit(&AuditRow {
+            let audit_id = l.record_audit(&AuditRow {
                 id: 0,
                 step_key: key,
                 manifest_id: manifest,
@@ -1255,7 +1703,10 @@ impl<'a> Trust<'a> {
                 actual_run: Some(run_id.to_string()),
                 detail: Some(truncate(&divergence.to_string(), 2000)),
             })?;
-            let needed = needed(&self.policy, l.recent_divergences(&key, TRAILING_AUDITS)?);
+            let suspects = mark_suspects(l, &key, &trust, &divergence, audit_id)?;
+            let recent = l.recent_divergences(&key, TRAILING_AUDITS)?;
+            let needed = needed(&self.policy, recent);
+            let shadow_left = Schedule::of(&self.policy, recent).shadow_left(0);
             tracing::warn!(target: "quod", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence without a result: step key quarantined");
             Ok(Verdict {
                 reason: reason.clone(),
@@ -1267,6 +1718,8 @@ impl<'a> Trust<'a> {
                 trust,
                 would_have_saved: None,
                 unprovable: None,
+                suspects,
+                shadow_left,
             })
         })
     }
@@ -1302,6 +1755,28 @@ impl<'a> Trust<'a> {
             )))
         })
     }
+}
+
+/// Trust v2, at a quarantine: labels every replay the key has served since
+/// its last quarantine as suspect, with when and why (docs/trust-v2.md,
+/// "Retroactive marking"). Returns how many were newly labelled.
+fn mark_suspects(
+    l: &Ledger,
+    key: &Hash,
+    trust: &TrustRow,
+    divergence: &Divergence,
+    audit_id: i64,
+) -> Result<usize, TrustError> {
+    let why = format!(
+        "{}: key quarantined after a divergence: {} (audit {audit_id})",
+        trust.quarantined_at.as_deref().unwrap_or(""),
+        truncate(&divergence.to_string(), 200)
+    );
+    let n = l.mark_suspect_replays(key, &why)?;
+    if n > 0 {
+        tracing::warn!(target: "quod", step_key = %key, suspects = n, "replays marked suspect: they may have served a wrong result");
+    }
+    Ok(n)
 }
 
 /// The first 8 characters of a run id, as receipts show it.
@@ -1355,13 +1830,23 @@ mod tests {
         }
     }
 
+    /// v1's policy (two proofs, a flat 5% audit): the behavioural tests
+    /// below keep their meaning under it; trust v2's defaults have their own.
+    const V1: Policy = Policy {
+        mode: Mode::Observe,
+        proofs: 2,
+        shadow: 0,
+        audit: 0.05,
+        replay_failures: false,
+    };
+
     #[test]
     fn decisions() {
         let replay = Policy {
             mode: Mode::Replay,
-            ..Policy::default()
+            ..V1
         };
-        let observe = Policy::default();
+        let observe = V1;
         // `hit`: a result from run 01RUN, the run the proofs end with.
         let view = |run_id| HitView {
             run_id,
@@ -1426,7 +1911,10 @@ mod tests {
         let t19 = trust_row(TrustState::Proven, 19, 0);
         assert_eq!(
             d(&replay, true, Some(&t19), Some(&proof(5))),
-            Decision::Execute(Reason::Audit { nth: 20 })
+            Decision::Execute(Reason::Audit {
+                nth: 20,
+                shadow: false
+            })
         );
         let t18 = trust_row(TrustState::Proven, 18, 0);
         assert_eq!(
@@ -1523,6 +2011,71 @@ mod tests {
         );
     }
 
+    /// Trust v2: ISO 8601 timestamps with a time of day and a test runner's
+    /// durations (in parentheses, or after in/took/Time/Duration/Finished)
+    /// are erased from stdout and stderr; counts, names, bare dates, compound
+    /// Go durations and the kill markers stay.
+    #[test]
+    fn normalizes_timestamps_and_runner_durations() {
+        let n = |s: &str| String::from_utf8(normalize(s.as_bytes())).unwrap();
+        // Timestamps: T or space, fraction, Z or offset; a bare date stays.
+        assert_eq!(
+            n("2026-11-02T09:12:03Z INFO started\n"),
+            "<ts> INFO started\n"
+        );
+        assert_eq!(
+            n("[2026-11-02 09:12:03.007+01:00] ready; built 2026-11-02 for v2026-11-02\n"),
+            "[<ts>] ready; built 2026-11-02 for v2026-11-02\n"
+        );
+        assert_eq!(
+            n("id 12026-11-02T09:12:03Z\n"),
+            "id 12026-11-02T09:12:03Z\n"
+        );
+        assert_eq!(n("2026-11-02T09:12:03Zx\n"), "2026-11-02T09:12:03Zx\n");
+        // Durations in parentheses: mocha, vitest, cargo.
+        assert_eq!(
+            n("  ✓ adds (12ms)\n  ✓ subtracts (1.23 s)\n"),
+            "  ✓ adds (<dur>)\n  ✓ subtracts (<dur>)\n"
+        );
+        // After a word: pytest, jest, cargo test, rspec, yarn.
+        assert_eq!(
+            n("===== 12 passed in 3.21s =====\n"),
+            "===== 12 passed in <dur> =====\n"
+        );
+        assert_eq!(n("Time:        1.234 s\n"), "Time:        <dur>\n");
+        assert_eq!(
+            n("test result: ok. 3 passed; finished in 0.02s\n"),
+            "test result: ok. 3 passed; finished in <dur>\n"
+        );
+        assert_eq!(
+            n("Finished in 0.5 seconds (files took 1.2 seconds to load)\n"),
+            "Finished in <dur> (files took <dur> to load)\n"
+        );
+        assert_eq!(n("   Duration  1.23s\n"), "   Duration  <dur>\n");
+        assert_eq!(n("Done in 2.30s.\n"), "Done in <dur>.\n");
+        // Not durations: a count, a word that merely ends in `in`, a unit
+        // that is a prefix of another word, a compound Go duration.
+        assert_eq!(n("in 3 modules\n"), "in 3 modules\n");
+        assert_eq!(n("within 3s of start\n"), "within 3s of start\n");
+        assert_eq!(
+            n("2 passed in 3s; 1 passed in 3s\n"),
+            "2 passed in <dur>; 1 passed in <dur>\n"
+        );
+        assert_eq!(n("inputs 12 files\n"), "inputs 12 files\n");
+        assert_eq!(n("(1m30.5s)\n"), "(1m30.5s)\n");
+        assert_eq!(
+            n("panic: test timed out after 10m0s\n"),
+            "panic: test timed out after 10m0s\n"
+        );
+        // The two outputs a flaky-looking runner prints fingerprint the same.
+        let (a, b) = (
+            n("[2026-11-02T09:12:03Z] 12 passed in 3.21s\n"),
+            n("[2026-11-03T10:00:00Z] 12 passed in 2.98s\n"),
+        );
+        assert_eq!(a, b);
+        assert_ne!(n("12 passed in 3.21s\n"), n("11 passed in 3.21s\n"));
+    }
+
     struct World {
         _tmp: tempfile::TempDir,
         cas: Cas,
@@ -1567,6 +2120,23 @@ mod tests {
             World::mk(
                 &self.cas, self.key, self.mid, self.runs, exit, stdout, outputs,
             )
+        }
+
+        /// Another tree for the same key (another commit): from now on
+        /// `run` reads and records this manifest.
+        fn switch_manifest(&mut self, gomod: &[u8]) {
+            let tree = Tree::from_leaves([Entry::file("go.mod", Hash::of(gomod), 0o644)]);
+            self.manifest = Manifest::from_log(
+                self.key,
+                vec!["/workspace".into()],
+                &tree,
+                [Access {
+                    path: "go.mod".into(),
+                    kind: Kind::File,
+                }],
+            )
+            .unwrap();
+            self.mid = manifest_id(&self.manifest).unwrap();
         }
 
         fn mk(
@@ -1614,7 +2184,20 @@ mod tests {
                         ignore: &[],
                     };
                     match trust.record_replay(&step, hit.as_ref().unwrap()).unwrap() {
-                        Replayed::Replayed(_) => return Err(Decision::Replay),
+                        Replayed::Replayed(_) => {
+                            // The run row a replay writes, as the CLI and the
+                            // hooks do: what a quarantine marks suspect.
+                            self.runs += 1;
+                            self.ledger
+                                .record_run_facts(&quod_ledger::RunFacts {
+                                    id: &format!("01RUN{:02}", self.runs),
+                                    step_key: Some(&self.key),
+                                    outcome: Some("replayed"),
+                                    ..quod_ledger::RunFacts::default()
+                                })
+                                .unwrap();
+                            return Err(Decision::Replay);
+                        }
                         Replayed::Execute(reason) => reason,
                     }
                 }
@@ -1650,10 +2233,18 @@ mod tests {
         }
     }
 
+    /// v1's replay policy: two proofs, a flat 5% audit, no shadow phase.
     const REPLAY: Policy = Policy {
         mode: Mode::Replay,
-        proofs: 2,
-        audit: 0.05,
+        ..V1
+    };
+
+    /// Trust v2's defaults in replay mode: one proof, a shadow of 2, 5% floor.
+    const V2: Policy = Policy {
+        mode: Mode::Replay,
+        proofs: DEFAULT_PROOFS,
+        shadow: DEFAULT_SHADOW,
+        audit: DEFAULT_AUDIT,
         replay_failures: false,
     };
 
@@ -1846,7 +2437,7 @@ mod tests {
         ));
         assert!(matches!(
             trust.record_replay(&step, &hit).unwrap(),
-            Replayed::Execute(Reason::Audit { nth: 2 })
+            Replayed::Execute(Reason::Audit { nth: 2, .. })
         ));
     }
 
@@ -1880,7 +2471,7 @@ mod tests {
     #[test]
     fn observe_mode_audits_every_eligible_hit() {
         let mut w = World::new();
-        let observe = Policy::default();
+        let observe = V1;
         let ok = b"ok  \tpkg\t0.4s\n";
         let v = w.run(&observe, 0, ok).unwrap();
         assert_eq!(v.reason, Reason::Miss);
@@ -1930,7 +2521,13 @@ mod tests {
         w.run(&all, 0, ok).unwrap();
         w.run(&all, 0, ok).unwrap();
         let v = w.run(&all, 0, ok).unwrap();
-        assert_eq!(v.reason, Reason::Audit { nth: 1 });
+        assert_eq!(
+            v.reason,
+            Reason::Audit {
+                nth: 1,
+                shadow: false
+            }
+        );
         assert_eq!(v.headline(), "  (audit: would-be hit 1 re-executed)");
         assert_eq!(
             v.lines(),
@@ -2031,7 +2628,10 @@ mod tests {
             cmd: "go test ./...",
             ignore: &[],
         };
-        let reason = Reason::Audit { nth: 1 };
+        let reason = Reason::Audit {
+            nth: 1,
+            shadow: false,
+        };
         let v = trust
             .record_divergence(
                 &step,
@@ -2100,7 +2700,7 @@ mod tests {
     /// falls back as clean audits push them out of the window.
     #[test]
     fn the_bar_is_capped_and_decays() {
-        let p = Policy::default();
+        let p = V1;
         assert_eq!(needed(&p, 0), 2);
         assert_eq!(needed(&p, 3), 5);
         assert_eq!(needed(&p, 1_000), 2 + MAX_EXTRA_PROOFS);
@@ -2502,5 +3102,403 @@ mod tests {
             trust.decide(&w.key, hit.as_ref()).unwrap(),
             Decision::Execute(Reason::Proving { streak: 0, .. })
         ));
+    }
+
+    // ----- trust v2 (docs/trust-v2.md) -----
+
+    /// The audit schedule: every hit in the shadow, a 1/k decay to the
+    /// floor, deterministic; stricter after a divergence; v1's with no
+    /// shadow; nothing at all at `--audit 0`.
+    #[test]
+    fn v2_schedule_shadows_then_decays_to_the_floor() {
+        let due = |s: Schedule, n: u64| {
+            (0..n)
+                .filter(|k| s.due(*k))
+                .map(|k| k + 1)
+                .collect::<Vec<_>>()
+        };
+        let s = Schedule::of(&V2, 0);
+        assert_eq!((s.shadow, s.floor), (2, 0.05));
+        assert_eq!(due(s, 100), [1, 2, 4, 7, 11, 19, 31, 49, 69, 89]);
+        assert_eq!(due(s, 200)[10..], [109, 129, 149, 169, 189]);
+        assert_eq!(s.weight(1), 1.0);
+        assert_eq!(s.weight(2), 1.0);
+        assert!((s.weight(4) - 0.5).abs() < 1e-12);
+        assert_eq!(s.weight(40), 0.05);
+        assert_eq!(s.weight(1000), 0.05);
+        assert!(s.in_shadow(0) && s.in_shadow(1) && !s.in_shadow(2));
+        assert_eq!(
+            (s.shadow_left(0), s.shadow_left(1), s.shadow_left(5)),
+            (2, 1, 0)
+        );
+        // One recent divergence: shadow 4, floor 10%.
+        let d1 = Schedule::of(&V2, 1);
+        assert_eq!((d1.shadow, d1.floor), (4, 0.1));
+        assert_eq!(due(d1, 40), [1, 2, 3, 4, 6, 7, 10, 12, 16, 20, 26, 33]);
+        assert_eq!(due(d1, 80)[12..], [43, 53, 63, 73]);
+        // Capped like the bar.
+        let d9 = Schedule::of(&V2, 9);
+        assert_eq!(d9.shadow, 2 * (1 + MAX_EXTRA_PROOFS));
+        assert!((d9.floor - 0.3).abs() < 1e-12, "{}", d9.floor);
+        // No shadow: v1's flat schedule; `audit_due` is that.
+        let v1 = Schedule::of(&REPLAY, 0);
+        assert_eq!(due(v1, 60), [20, 40, 60]);
+        assert_eq!(
+            (0..60).filter(|k| audit_due(*k, 0.05)).collect::<Vec<_>>(),
+            [19, 39, 59]
+        );
+        // Audit 0: nothing, shadow included.
+        let none = Schedule::of(&Policy { audit: 0.0, ..V2 }, 3);
+        assert_eq!(
+            none,
+            Schedule {
+                shadow: 0,
+                floor: 0.0
+            }
+        );
+        assert!(due(none, 100).is_empty());
+        // Validation.
+        assert!(V2.validate().is_ok());
+        assert!(
+            Policy {
+                shadow: MAX_SHADOW + 1,
+                ..V2
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    /// Every execution trust v2's schedule asks for as evidence (shadow and
+    /// decay audits, observe-mode would-be hits, proofs, re-proofs after a
+    /// quarantine) says so, which is what makes `quod run --warm` expire
+    /// go test's cache for it; only the record of a miss does not.
+    #[test]
+    fn every_audit_and_proof_is_evidence_and_a_miss_is_not() {
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let mut w = World::new();
+        let mut executed = vec![];
+        for _ in 0..60 {
+            if let Ok(v) = w.run(&V2, 0, ok) {
+                executed.push(v.reason);
+            }
+        }
+        assert_eq!(executed[0], Reason::Miss);
+        assert!(!executed[0].is_evidence());
+        assert!(
+            executed[1..]
+                .iter()
+                .all(|r| matches!(r, Reason::Audit { .. })),
+            "{executed:?}"
+        );
+        assert!(executed[1..].iter().all(Reason::is_evidence));
+        assert!(
+            executed.len() > 3,
+            "the shadow and some decay: {executed:?}"
+        );
+
+        // A manifest still proving itself (--proofs 2), then observe mode.
+        let mut w = World::new();
+        let two = Policy { proofs: 2, ..V2 };
+        assert_eq!(w.run(&two, 0, ok).unwrap().reason, Reason::Miss);
+        let p = w.run(&two, 0, ok).unwrap().reason;
+        assert!(
+            matches!(p, Reason::Proving { .. }) && p.is_evidence(),
+            "{p:?}"
+        );
+        let observe = Policy {
+            mode: Mode::Observe,
+            ..V2
+        };
+        let o = w.run(&observe, 0, ok).unwrap().reason;
+        assert!(o == Reason::WouldReplay && o.is_evidence(), "{o:?}");
+
+        // A divergence quarantines the key: its re-proof is evidence too.
+        let d = w.run(&V2, 0, b"ok  \tpkg\t0.4s\nextra\n").unwrap();
+        assert!(d.divergence.is_some(), "{:?}", d.lines());
+        let q = w.run(&V2, 0, ok).unwrap().reason;
+        assert!(
+            matches!(q, Reason::Quarantined { .. }) && q.is_evidence(),
+            "{q:?}"
+        );
+
+        let unprovable = Reason::Unprovable {
+            why: "exit 1".into(),
+        };
+        assert!(!unprovable.is_evidence());
+    }
+
+    /// Trust v2's defaults: a result recorded once is replayable; the key's
+    /// first two would-be hits are shadow audits (executed and compared);
+    /// from then on a new manifest replays on its second identical run,
+    /// with the decay auditing some. Fails on v1 at the first assertion.
+    #[test]
+    fn v2_replays_after_the_first_record_once_the_key_agreed_with_itself() {
+        let mut w = World::new();
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let v = w.run(&V2, 0, ok).unwrap();
+        assert_eq!((v.reason.clone(), v.streak, v.needed), (Reason::Miss, 1, 1));
+        assert!(v.replayable(), "recorded once: replayable");
+        assert_eq!(v.shadow_left, 2);
+        assert_eq!(
+            v.lines(),
+            [
+                "trust: proof 1 of 1; replayable from the next matching run; its next 2 would-be hits are audited"
+            ]
+        );
+        // Hit 1 and 2 of the key: shadow audits.
+        let v = w.run(&V2, 0, ok).unwrap();
+        assert_eq!(
+            v.reason,
+            Reason::Audit {
+                nth: 1,
+                shadow: true
+            }
+        );
+        assert_eq!(v.headline(), "  (shadow audit: would-be hit 1 re-executed)");
+        assert_eq!(
+            v.lines(),
+            [
+                "trust: shadow audit passed, byte-identical to run 01RUN01; one more shadow audit before replays; audited 1 time, 0 divergences"
+            ]
+        );
+        assert_eq!((v.streak, v.outcome()), (2, "audit"));
+        let v = w.run(&V2, 0, b"ok  \tpkg\t0.9s\n").unwrap();
+        assert_eq!(
+            v.reason,
+            Reason::Audit {
+                nth: 2,
+                shadow: true
+            }
+        );
+        assert!(!v.byte_identical && v.divergence.is_none());
+        assert_eq!(v.trust.volatile, 1, "identical up to a duration: volatile");
+        assert_eq!(v.shadow_left, 0);
+        assert!(
+            v.lines()[0].contains("the shadow phase is over"),
+            "{:?}",
+            v.lines()
+        );
+        // Hit 3: the first blind replay.
+        assert_eq!(w.run(&V2, 0, ok), Err(Decision::Replay));
+        let audits = w.ledger.audits(Some(&w.key), 10).unwrap();
+        assert_eq!(
+            audits.iter().map(|a| a.phase.as_str()).collect::<Vec<_>>(),
+            ["shadow", "shadow"]
+        );
+        // Another commit (manifest): recorded once, replays on its second
+        // run unless the decay schedules an audit there (hit 4 is one).
+        w.switch_manifest(b"module v2");
+        let v = w.run(&V2, 0, ok).unwrap();
+        assert_eq!((v.reason.clone(), v.streak), (Reason::Miss, 1));
+        assert!(v.replayable() && v.shadow_left == 0);
+        assert_eq!(
+            v.lines(),
+            ["trust: proof 1 of 1; replayable from the next matching run"]
+        );
+        let v = w.run(&V2, 0, ok).unwrap();
+        assert_eq!(
+            v.reason,
+            Reason::Audit {
+                nth: 4,
+                shadow: false
+            }
+        );
+        assert_eq!(v.headline(), "  (audit: would-be hit 4 re-executed)");
+        assert_eq!(w.run(&V2, 0, ok), Err(Decision::Replay));
+        // A third commit: its second run replays (hit 6 is not audited).
+        w.switch_manifest(b"module v3");
+        assert!(w.run(&V2, 0, ok).unwrap().replayable());
+        assert_eq!(w.run(&V2, 0, ok), Err(Decision::Replay));
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
+        assert_eq!(
+            (t.eligible, t.replays, t.audits, t.divergences),
+            (6, 3, 3, 0)
+        );
+        assert_eq!(determinism(&t, 0), Determinism::Normalized);
+        let trust = Trust::new(&w.ledger, &w.cas, V2).unwrap();
+        assert_eq!(
+            trust.facts(&w.key, &w.mid).unwrap().receipt_line(),
+            "trust: proven by 1 identical execution, audited 3 times, 0 divergences"
+        );
+        // Under v1 the same ledger would still be proving the new manifest.
+        assert!(matches!(
+            Trust::new(&w.ledger, &w.cas, REPLAY)
+                .unwrap()
+                .decide(
+                    &w.key,
+                    w.ledger
+                        .latest_result(&w.key, &w.mid)
+                        .unwrap()
+                        .map(|r| (w.manifest.clone(), r))
+                        .as_ref()
+                )
+                .unwrap(),
+            Decision::Execute(Reason::Proving {
+                streak: 1,
+                needed: 2
+            })
+        ));
+    }
+
+    /// A step printing random bytes is never served under v2 either: its
+    /// first would-be hit is a shadow audit, which diverges and quarantines
+    /// the key; nothing was replayed, so nothing is suspect.
+    #[test]
+    fn v2_a_nondeterministic_step_never_serves_a_replay() {
+        let mut w = World::new();
+        for i in 0..6u8 {
+            let v = w.run(&V2, 0, &[i, i.wrapping_mul(7), 0xff]).unwrap();
+            assert!(!v.replayable() || i == 0, "run {i}: {v:?}");
+            assert_eq!(v.suspects, 0);
+            if i == 1 {
+                assert_eq!(
+                    v.reason,
+                    Reason::Audit {
+                        nth: 1,
+                        shadow: true
+                    }
+                );
+            }
+            if i > 0 {
+                assert!(v.divergence.is_some(), "run {i}");
+                assert_eq!(v.trust.state, TrustState::Quarantined);
+                assert_eq!(
+                    v.trust.shadow_from, 1,
+                    "the shadow restarts at the quarantine"
+                );
+            }
+        }
+        assert_eq!(w.ledger.trust(&w.key).unwrap().unwrap().replays, 0);
+        assert!(w.ledger.suspect_runs(None).unwrap().is_empty());
+    }
+
+    /// A divergence found by a scheduled audit marks the replays the key
+    /// served before it suspect (they may have been wrong), restarts and
+    /// lengthens the shadow, and raises the floor and the bar.
+    #[test]
+    fn v2_a_quarantine_marks_earlier_replays_suspect_and_restarts_the_shadow() {
+        let p = Policy {
+            mode: Mode::Replay,
+            proofs: 1,
+            shadow: 1,
+            audit: 0.5,
+            replay_failures: false,
+        };
+        let s = Schedule::of(&p, 0);
+        assert_eq!((0..4).filter(|k| s.due(*k)).collect::<Vec<_>>(), [0, 2]);
+        let mut w = World::new();
+        let ok = b"ok\n";
+        w.run(&p, 0, ok).unwrap(); // recorded
+        let v = w.run(&p, 0, ok).unwrap(); // hit 1: shadow
+        assert!(matches!(v.reason, Reason::Audit { shadow: true, .. }));
+        assert_eq!(w.run(&p, 0, ok), Err(Decision::Replay)); // hit 2: served
+        // Hit 3: audited at the floor; the step now prints something else.
+        let v = w.run(&p, 0, b"other\n").unwrap();
+        assert!(matches!(
+            v.reason,
+            Reason::Audit {
+                nth: 3,
+                shadow: false
+            }
+        ));
+        assert!(v.divergence.is_some());
+        assert_eq!(v.suspects, 1, "the one replay served is suspect");
+        assert!(
+            v.lines()
+                .iter()
+                .any(|l| l.contains("1 earlier replay of this key may have served a wrong result")),
+            "{:?}",
+            v.lines()
+        );
+        let suspects = w.ledger.suspect_runs(Some(&w.key)).unwrap();
+        assert_eq!(suspects.len(), 1);
+        assert_eq!(suspects[0].outcome.as_deref(), Some("replayed"));
+        let why = suspects[0].suspect.as_deref().unwrap();
+        assert!(
+            why.contains("key quarantined after a divergence: stdout differs from line 1")
+                && why.ends_with("(audit 2)"),
+            "{why}"
+        );
+        assert_eq!((v.trust.eligible, v.trust.shadow_from), (3, 3));
+        assert_eq!(v.needed, 2, "the bar rose");
+        let stricter = Schedule::of(&p, 1);
+        assert_eq!((stricter.shadow, stricter.floor), (2, 1.0));
+        assert_eq!(v.shadow_left, 2);
+        // Re-proof: two identical executions of the new result.
+        let v = w.run(&p, 0, b"other\n").unwrap();
+        assert!(matches!(v.reason, Reason::Quarantined { .. }));
+        assert_eq!((v.streak, v.trust.state), (2, TrustState::Proven));
+        assert!(v.suspects == 0, "nothing new to mark");
+        // Then the longer shadow (2) and the raised floor (every hit).
+        for nth in 4..=6 {
+            let v = w.run(&p, 0, b"other\n").unwrap();
+            assert_eq!(
+                v.reason,
+                Reason::Audit {
+                    nth,
+                    shadow: nth <= 5
+                },
+                "hit {nth}"
+            );
+        }
+        // The earlier suspect stays marked after the re-proof.
+        assert_eq!(w.ledger.suspect_runs(None).unwrap().len(), 1);
+        assert_eq!(
+            determinism(&w.ledger.trust(&w.key).unwrap().unwrap(), 1),
+            Determinism::Divergent
+        );
+    }
+
+    /// A divergence without a result (the hooks: an offline run that
+    /// misbehaved) marks suspects and restarts the shadow the same way.
+    #[test]
+    fn v2_a_divergence_without_a_result_marks_suspects() {
+        let mut w = World::new();
+        let ok = b"ok\n";
+        let p = Policy { shadow: 1, ..V2 };
+        w.run(&p, 0, ok).unwrap();
+        w.run(&p, 0, ok).unwrap(); // shadow audit
+        assert_eq!(w.run(&p, 0, ok), Err(Decision::Replay));
+        assert_eq!(w.run(&p, 0, ok), Err(Decision::Replay));
+        let hit = w
+            .ledger
+            .latest_result(&w.key, &w.mid)
+            .unwrap()
+            .map(|r| (w.manifest.clone(), r))
+            .unwrap();
+        let trust = Trust::new(&w.ledger, &w.cas, p).unwrap();
+        let v = trust
+            .record_divergence(
+                &Step {
+                    key: w.key,
+                    cmd: "go test ./...",
+                    ignore: &[],
+                },
+                "01FRESH",
+                &hit,
+                &Reason::Audit {
+                    nth: 4,
+                    shadow: false,
+                },
+                "tried to reach the network offline",
+            )
+            .unwrap();
+        assert_eq!(v.suspects, 2);
+        assert_eq!(v.trust.shadow_from, v.trust.eligible);
+        assert_eq!(w.ledger.suspect_runs(Some(&w.key)).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn determinism_classes() {
+        let mut t = TrustRow::new(Hash::of(b"k"), None);
+        assert_eq!(determinism(&t, 0), Determinism::Unknown);
+        t.audits = 3;
+        assert_eq!(determinism(&t, 0), Determinism::Exact);
+        t.volatile = 1;
+        assert_eq!(determinism(&t, 0), Determinism::Normalized);
+        assert_eq!(determinism(&t, 1), Determinism::Divergent);
+        assert_eq!(Determinism::Normalized.as_str(), "normalized");
+        assert!(Determinism::Divergent.describe().contains("longer shadow"));
     }
 }

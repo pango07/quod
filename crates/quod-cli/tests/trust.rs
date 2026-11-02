@@ -50,12 +50,28 @@ fn t1_a_nondeterministic_step_never_becomes_replayable() {
         assert!(o.executed() && o.code == 0, "run {i}: {}", o.stderr);
         assert!(!o.hit(), "run {i} must not replay: {}", o.stderr);
         if i == 0 {
-            assert!(o.stderr.contains("trust: proof 1 of 2"), "{}", o.stderr);
+            // Trust v2: recorded once, replayable, but the key's first
+            // would-be hits are shadow audits.
+            assert!(
+                o.stderr.contains(
+                    "trust: proof 1 of 1; replayable from the next matching run; its next 2 would-be hits are audited"
+                ),
+                "{}",
+                o.stderr
+            );
         } else {
             assert!(
                 o.stderr.contains("QUOD  DIVERGENCE  step key quarantined")
                     && o.stderr.contains("stdout differs from line 1"),
                 "run {i}: {}",
+                o.stderr
+            );
+        }
+        if i == 1 {
+            assert!(
+                o.stderr
+                    .contains("QUOD  EXECUTED  (shadow audit: would-be hit 1 re-executed)"),
+                "{}",
                 o.stderr
             );
         }
@@ -76,8 +92,12 @@ fn t1_a_nondeterministic_step_never_becomes_replayable() {
     );
 }
 
+/// Trust v2: a result recorded once is replayable; the key's first two
+/// would-be hits are shadow audits (executed and compared), the third
+/// replays, with the trust facts in its receipt. Under v1 the second run
+/// was "proof 2 of 2" and the third the first replay.
 #[test]
-fn t2_a_deterministic_step_replays_after_two_identical_executions() {
+fn t2_a_deterministic_step_replays_after_the_first_record_and_two_shadow_audits() {
     if !enabled() {
         return;
     }
@@ -87,15 +107,15 @@ fn t2_a_deterministic_step_replays_after_two_identical_executions() {
     let r1 = env.run_step(step, REPLAY);
     assert!(
         r1.executed()
-            && r1
-                .stderr
-                .contains("trust: proof 1 of 2; replay needs 2 identical executions"),
+            && r1.stderr.contains(
+                "trust: proof 1 of 1; replayable from the next matching run; its next 2 would-be hits are audited"
+            ),
         "{}",
         r1.stderr
     );
     let status = env.status();
     assert!(
-        status.contains("why: proving: 1 of 2 identical executions so far"),
+        status.contains("proven") && status.contains("proofs 1/1  audited 0x"),
         "{status}"
     );
     let r2 = env.run_step(step, REPLAY);
@@ -103,28 +123,42 @@ fn t2_a_deterministic_step_replays_after_two_identical_executions() {
         r2.executed()
             && r2
                 .stderr
-                .contains("trust: proof 2 of 2, byte-identical to run")
-            && r2.stderr.contains("replayable from the next matching run"),
+                .contains("QUOD  EXECUTED  (shadow audit: would-be hit 1 re-executed)")
+            && r2
+                .stderr
+                .contains("trust: shadow audit passed, byte-identical to run")
+            && r2.stderr.contains("one more shadow audit before replays"),
         "{}",
         r2.stderr
     );
     let r3 = env.run_step(step, REPLAY);
-    assert!(r3.hit(), "{}", r3.stderr);
     assert!(
-        r3.stderr
-            .contains("trust: proven by 2 identical executions, audited 1 time, 0 divergences"),
+        r3.executed()
+            && r3
+                .stderr
+                .contains("(shadow audit: would-be hit 2 re-executed)")
+            && r3.stderr.contains("the shadow phase is over"),
         "{}",
         r3.stderr
     );
-    assert_eq!(r3.stdout, b"hi\n");
-    assert!(r3.stderr.ends_with("err\n"));
+    let r4 = env.run_step(step, REPLAY);
+    assert!(r4.hit(), "{}", r4.stderr);
+    assert!(
+        r4.stderr
+            .contains("trust: proven by 3 identical executions, audited 2 times, 0 divergences"),
+        "{}",
+        r4.stderr
+    );
+    assert_eq!(r4.stdout, b"hi\n");
+    assert!(r4.stderr.ends_with("err\n"));
     let status = env.status();
     assert!(
         status.contains("replayed 1 (saved") && status.contains("proven"),
         "{status}"
     );
     assert!(
-        status.contains("proofs 2/2  audited 1x  0 divergences  replayed 1x"),
+        status.contains("proofs 3/1  audited 2x  0 divergences  replayed 1x")
+            && status.contains("output exact"),
         "{status}"
     );
     // inspect shows the trust state of the key.
@@ -144,11 +178,14 @@ fn t2_a_deterministic_step_replays_after_two_identical_executions() {
     let i = env.quod(&["inspect", &full]);
     let text = String::from_utf8_lossy(&i.stdout);
     assert!(
-        text.contains("trust: proven") && text.contains("proofs 2"),
+        text.contains("trust: proven")
+            && text.contains("proofs 3")
+            && text.contains("output exact")
+            && text.contains("shadow"),
         "{text}"
     );
     println!(
-        "T2 ok: two identical executions, then a replay whose receipt carries the trust facts"
+        "T2 ok: one record, two shadow audits, then a replay whose receipt carries the trust facts"
     );
 }
 
@@ -167,27 +204,29 @@ fn t3_observe_mode_is_the_default_and_never_replays() {
             "run {i}: {}",
             o.stderr
         );
-        if i == 2 {
+        // Trust v2: recorded once, the second run would already replay.
+        if i >= 1 {
             assert!(
                 o.stderr
                     .contains("QUOD  EXECUTED  (observe mode: would have replayed,")
                     && o.stderr.contains("not saved)")
                     && o.stderr.contains("`quod run --mode replay` replays this"),
-                "{}",
+                "run {i}: {}",
                 o.stderr
             );
         }
     }
     let status = env.status();
     assert!(
-        status.contains("would have replayed 1 (observe mode:"),
+        status.contains("would have replayed 2 (observe mode:"),
         "{status}"
     );
     assert!(status.contains("replayed 0 (saved 0.0s)"), "{status}");
-    // Switching to replay mode replays what observe mode proved.
+    // Switching to replay mode replays what observe mode proved: its two
+    // would-be hits were compared (a free shadow phase), so this is hit 3.
     let o = env.run_step(step, REPLAY);
     assert!(o.hit() && o.stdout == b"observed\n", "{}", o.stderr);
-    println!("T3 ok: observe mode executed 3 times and reported the replay it did not take");
+    println!("T3 ok: observe mode executed 3 times and reported the replays it did not take");
 }
 
 #[test]
@@ -208,19 +247,23 @@ fn t4_an_audit_divergence_quarantines_the_key_until_it_reproves() {
         "{}",
         r2.stderr
     );
+    // Trust v2: the second run is the key's first would-be hit, a shadow audit.
     assert!(
-        r2.stderr.contains("replayable from the next matching run"),
+        r2.stderr
+            .contains("(shadow audit: would-be hit 1 re-executed)")
+            && r2.stderr.contains("trust: shadow audit passed"),
         "{}",
         r2.stderr
     );
-    // The hidden input changes; the next would-be hit is audited (rate 1).
+    // The hidden input changes; the next would-be hit is audited (rate 1,
+    // and still in the shadow).
     std::fs::write(warm_dir(&env).join("flag"), "changed\n").unwrap();
     let r3 = env.run_step(step, audit_all);
     assert!(r3.executed() && !r3.hit(), "{}", r3.stderr);
     assert_eq!(r3.stdout, b"changed\n", "the user gets the fresh result");
     assert!(
         r3.stderr
-            .contains("QUOD  EXECUTED  (audit: would-be hit 1 re-executed)")
+            .contains("QUOD  EXECUTED  (shadow audit: would-be hit 2 re-executed)")
             && r3
                 .stderr
                 .contains("QUOD  DIVERGENCE  step key quarantined")
@@ -228,47 +271,44 @@ fn t4_an_audit_divergence_quarantines_the_key_until_it_reproves() {
                 .stderr
                 .contains("stdout differs from line 1: \"none\" vs \"changed\"")
             && r3.stderr.contains(
-                "executes until 3 identical executions prove it again; audited 2 times, 1 divergence"
-            ),
-        "{}",
+                "executes until 2 identical executions prove it again; audited 2 times, 1 divergence"
+            )
+            && !r3.stderr.contains("may have served a wrong result"),
+        "nothing was replayed, so nothing is suspect: {}",
         r3.stderr
     );
-    // Quarantined: executes (no audit sampling applies), re-proving.
+    // Quarantined: executes (no audit sampling applies), re-proving; the
+    // bar is proofs + 1 after one divergence.
     let r4 = env.run_step(step, &["--mode", "replay", "--warm", "--audit", "0"]);
     assert!(
         r4.executed()
             && r4.stderr.contains("trust: quarantined since")
-            && r4.stderr.contains("re-proof 2 of 3"),
+            && r4.stderr.contains("re-proof 2 of 2")
+            && r4.stderr.contains("proven again"),
         "{}",
         r4.stderr
     );
     let r5 = env.run_step(step, &["--mode", "replay", "--warm", "--audit", "0"]);
+    assert!(r5.hit() && r5.stdout == b"changed\n", "{}", r5.stderr);
     assert!(
-        r5.executed()
-            && r5.stderr.contains("re-proof 3 of 3")
-            && r5.stderr.contains("proven again"),
+        r5.stderr
+            .contains("trust: proven by 2 identical executions, audited 3 times, 1 divergence"),
         "{}",
         r5.stderr
     );
-    let r6 = env.run_step(step, &["--mode", "replay", "--warm", "--audit", "0"]);
-    assert!(r6.hit() && r6.stdout == b"changed\n", "{}", r6.stderr);
-    assert!(
-        r6.stderr
-            .contains("trust: proven by 3 identical executions, audited 4 times, 1 divergence"),
-        "{}",
-        r6.stderr
-    );
     let status = env.status();
     assert!(
-        status.contains("1 proven") && status.contains("1 divergence"),
+        status.contains("1 proven")
+            && status.contains("1 divergence")
+            && status.contains("output divergent"),
         "{status}"
     );
     assert!(
-        status.contains("divergence rate: 1 of 4 audits (25.0%)"),
+        status.contains("divergence rate: 1 of 3 audits (33.3%)"),
         "{status}"
     );
     println!(
-        "T4 ok: an audited hit that diverged quarantined the key; three identical runs re-proved it"
+        "T4 ok: a shadow audit that diverged quarantined the key; two identical runs re-proved it"
     );
 }
 
@@ -322,7 +362,7 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
     assert!(env.run_step(step, flags).executed());
     let r2 = env.run_step(step, flags);
     assert!(
-        r2.executed() && r2.stderr.contains("replayable"),
+        r2.executed() && r2.stderr.contains("shadow audit passed"),
         "{}",
         r2.stderr
     );
@@ -335,7 +375,7 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
             && r3
                 .stderr
                 .contains("the step timed out after 10.0s, which is not a result")
-            && r3.stderr.contains("proves again from 0 of 2"),
+            && r3.stderr.contains("proves again from 0 of 1"),
         "{}",
         r3.stderr
     );
@@ -358,17 +398,13 @@ fn t5_a_timed_out_step_is_killed_and_never_recorded() {
         "--timeout",
         "10s",
     ];
+    // (Trust v2: one identical execution re-proves it; --audit 0 means no
+    // shadow audits either, so the next run replays.)
     let r4 = env.run_step(step, no_audit);
     assert!(
-        r4.executed() && r4.stderr.contains("proof 1 of 2"),
+        r4.executed() && r4.stderr.contains("proof 1 of 1"),
         "{}",
         r4.stderr
-    );
-    let r5 = env.run_step(step, no_audit);
-    assert!(
-        r5.executed() && r5.stderr.contains("proof 2 of 2"),
-        "{}",
-        r5.stderr
     );
     assert!(env.run_step(step, no_audit).hit());
     println!(
@@ -615,10 +651,11 @@ fn t9_a_repeated_identical_failure_never_replays() {
         "{}",
         r2.stderr
     );
-    // Quarantined: it executes until three identical runs re-prove it.
+    // Quarantined: it executes until two identical runs (proofs + one per
+    // divergence) re-prove it.
     let r3 = env.run_step(step, flags);
     assert!(
-        r3.executed() && r3.code == 0 && r3.stderr.contains("re-proof 2 of 3"),
+        r3.executed() && r3.code == 0 && r3.stderr.contains("re-proof 2 of 2"),
         "{}",
         r3.stderr
     );
@@ -634,8 +671,9 @@ fn t9_a_repeated_identical_failure_never_replays() {
             r.stderr
         );
     }
+    // Trust v2: recorded once, then the key's two shadow audits, then replay.
     let opt_in = &["--mode", "replay", "--replay-failures"];
-    for i in 0..2 {
+    for i in 0..3 {
         let r = env.run_step(fail, opt_in);
         assert!(r.executed() && r.code == 1, "opt-in {i}: {}", r.stderr);
     }

@@ -1311,41 +1311,69 @@ fn hooks_acceptance() {
         "W2 ok: a pull request that empties, remakes or re-modes the warm cache leaves its later go steps unrecorded"
     );
 
-    // T1 (the trust layer, as `quod run` has it): a result seen once
-    // never replays; two identical executions prove it; an audit
-    // re-executes a would-be hit and compares instead of replaying.
+    // T1 (the trust layer, as `quod run` has it; trust v2): a result
+    // recorded once is replayable, but the key's first two would-be hits are
+    // shadow audits that re-execute and compare instead of replaying; the
+    // third replays; a later audit re-executes and agrees. (Under v1 the
+    // second run was "not yet (2 of 2 identical proofs)" and the third the
+    // first replay.)
     r.mode = "replay";
-    r.proofs = 2;
+    r.proofs = quod_trust::DEFAULT_PROOFS;
+    r.audit = quod_trust::DEFAULT_AUDIT;
     let stable = "echo trust-$((40 + 2))";
     let t1 = r.job(stable, &[]);
     assert!(
         t1.executed()
-            && t1
-                .summary
-                .contains("first run of this step (1 of 2 identical proofs)"),
+            && t1.summary.contains(
+                "first run of this step (1 of 1 identical proofs); replayable from the next matching run (its next 2 would-be hits are audited)"
+            ),
         "T1 first: {}",
         t1.summary
     );
+    // (The job's checkout step replays, so `replayed()` says nothing about
+    // the run step; its summary line does.)
+    for (nth, then) in [
+        (1, "one more shadow audit before replays"),
+        (2, "the shadow phase is over"),
+    ] {
+        let t1 = r.job(stable, &[]);
+        assert!(
+            t1.executed()
+                && t1.summary.contains("[executed]")
+                && t1.summary.contains("shadow audit: agrees with run")
+                && t1.stderr.contains("trust: shadow audit passed")
+                && t1.stderr.contains(then),
+            "T1 shadow audit {nth}: {}\n{}",
+            t1.summary,
+            t1.stderr
+        );
+        assert_eq!(String::from_utf8_lossy(&t1.stdout), "trust-42\n");
+    }
     let t1 = r.job(stable, &[]);
-    assert!(
-        t1.executed()
-            && t1.summary.contains("not yet (2 of 2 identical proofs)")
-            && t1.summary.contains("replayable from the next matching run"),
-        "T1 second: {}",
-        t1.summary
-    );
-    let t1 = r.job(stable, &[]);
-    assert!(t1.replayed(), "T1 third replays: {}", t1.stderr);
+    assert!(t1.replayed(), "T1 fourth replays: {}", t1.stderr);
     assert_eq!(String::from_utf8_lossy(&t1.stdout), "trust-42\n");
+    assert!(
+        t1.stderr
+            .contains("trust: proven by 3 identical executions, audited 2 times, 0 divergences"),
+        "T1 receipt: {}",
+        t1.stderr
+    );
     r.audit = 1.0;
     let t1 = r.job(stable, &[]);
     assert!(
-        t1.executed() && t1.summary.contains("audit: agrees with run"),
+        t1.executed()
+            && t1.summary.contains("; audit: agrees with run")
+            && !t1.summary.contains("shadow audit"),
         "T1 audit: {}",
         t1.summary
     );
-    r.audit = 0.0;
-    println!("T1 ok: once never replays, twice proves, the third replays; an audit agrees");
+    // Back to the default floor (not 0: `--audit 0` turns the shadow off
+    // too, and T2 needs the real policy; A1-A7's legacy policy is restored
+    // after T2).
+    r.audit = quod_trust::DEFAULT_AUDIT;
+    println!(
+        "T1 ok: recorded once, two shadow audits agree, the fourth run replays; a later audit agrees"
+    );
 
     // T2: a step whose result differs on the same inputs never replays:
     // its second execution diverges from the first, which quarantines the
@@ -1367,7 +1395,15 @@ fn hooks_acceptance() {
         "T2 third run is quarantined: {}",
         outs[2].summary
     );
+    // Under v2 that second run was the key's first shadow audit; nothing
+    // was ever served, so nothing is suspect.
+    assert!(
+        !outs[1].summary.contains("may have been wrong"),
+        "T2: {}",
+        outs[1].summary
+    );
     r.proofs = 1;
+    r.audit = 0.0;
     println!("T2 ok: a nondeterministic step diverges, is quarantined, never replays");
 
     println!(
