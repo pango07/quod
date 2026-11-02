@@ -2954,12 +2954,31 @@ mod tests {
     /// N5: a hook with no Runner.Worker above it records no owner, rather
     /// than its parent, which dies with each hook. Under GitHub Actions this
     /// test itself runs below a Runner.Worker, which is then the owner.
+    /// Whether one is above is read from the process tree, not from
+    /// GITHUB_ACTIONS: `sudo` (ci.yml's root integration job) drops that
+    /// variable while the test still runs under the worker.
     #[test]
     fn no_worker_no_owner() {
-        if std::env::var_os("GITHUB_ACTIONS").is_some() {
-            assert!(Owner::of_this_hook().is_some());
-        } else {
-            assert_eq!(Owner::of_this_hook(), None);
+        let mut worker = None;
+        let mut pid = std::os::unix::process::parent_id();
+        for _ in 0..8 {
+            if pid <= 1 {
+                break;
+            }
+            if std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .is_ok_and(|c| c.trim_end() == "Runner.Worker")
+            {
+                worker = Some(pid);
+                break;
+            }
+            match proc_stat(pid) {
+                Some(st) => pid = st.ppid,
+                None => break,
+            }
+        }
+        match worker {
+            Some(w) => assert_eq!(Owner::of_this_hook().map(|o| o.pid), Some(w)),
+            None => assert_eq!(Owner::of_this_hook(), None),
         }
     }
 
