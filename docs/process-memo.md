@@ -32,8 +32,8 @@ and computes a key from exactly what the tool reads:
 - compile: argv (with `$WORK` normalized) and the content of every file named
   on argv, in `-importcfg` (the dependency archives) and in `-embedcfg`;
 - link: argv and the content of every `packagefile` in `-importcfg` (the
-  whole dependency closure, ~270-440 archives, 140-250 MB) and of the main
-  archive;
+  whole dependency closure: 270-630 archives, median 206 MB, p95 381 MB,
+  max 604 MB) and of the main archive;
 - vet: argv, `vet.cfg` and every file it names;
 - test binary: the binary's content, argv, cwd, and the Go `testing`
   package's own access log (`-test.testlogfile`, which the wrapper injects
@@ -93,7 +93,7 @@ Over commits 2-40, `go test ./...` under Quod's warm-miss conditions ran
 The step is a *linker* benchmark. With a warm GOCACHE, Go's cache answers
 every unchanged compile and vet; `-count=1` makes it re-link and re-run every
 one of the 259 test binaries, and a cli/cli test binary links in ~0.45 s on
-this box (140-250 MB of archives in). The test runs themselves are 22 s
+this box (a median 206 MB of archives in). The test runs themselves are 22 s
 serial per commit, and 3 s of that is one package (`pkg/cmd/repo/create`).
 This is what `exp/split` found the hard way: memoizing the test *runs* alone
 recovers 14% of the process time.
@@ -120,38 +120,52 @@ Step wall, summed over commits 2-40:
 | Instrumented run (this measurement; ~10 s per commit above Quod's from the wrapper's hashing) | 2,315 s |
 | 0b bench, Quod miss (execution) | 1,804 s |
 | 0b bench, plain with a warm Go cache | 943 s |
-| **Estimate with every hit replayed free** | **1,164 s** (50% less than instrumented; ~900 s scaled to Quod's execution time) |
-| Estimate with only proven units replayed free (proofs 2) | 1,415 s (39% less) |
+| **Estimate with every hit replayed free (hit once)** | **1,164 s** (50% less than instrumented) |
+| Estimate with only proven units replayed free (proofs 2, the shipped rule) | 1,415 s (39% less) |
 
-So the upper bound for a per-process memo on `go test ./...` is roughly
-**parity with a warm Go cache over the whole history**, not a win over it,
-and it splits two ways by commit:
+How the estimate is made, and its weakness: for each step, the hits' wall
+time is divided by the step's measured parallelism (process-seconds per
+wall second, 2.5-3 here) and subtracted from the step wall. The formula
+assumes the whole wall is process time, so a commit with 100% hits
+estimates to ~0 s: the Go command's own 2-3 s of loading and scheduling,
+and the floor the prototype measures (1.6), are not in it. Scaling the
+estimate to the bench's Quod execution time instead of the instrumented wall
+(x 1,804/2,315) gives ~907 s for hit-once and ~1,100 s for proofs 2;
+subtracting the wrapper's ~10 s per commit instead gives ~774 s and ~1,025
+s. Any of these against plain-warm's 943 s:
 
-- **Quiet commits** (a leaf package, docs, CI, a dependency bump that the
-  sealed module cache absorbs: 24 of 39): 86-100% of process time is in
-  hits; the estimate leaves 0.1-3 s of process time per commit against a
-  plain-warm step of 10-14 s. Here a process memo beats Go's cache, because
-  Go re-runs the same 38 "leak" packages on every commit (5 s serial, mostly
-  `repo/create`) and re-links them, and a content key does not.
-- **Heavy commits** (`api`, `internal/config`, `git`, a `go-gh` bump: 8 of
-  39): 0-8% hits. Everything legitimately re-links and re-runs; the step
+**The upper bound for a per-process memo on `go test ./...` is parity with
+a warm Go cache over the whole history under the hit-once rule, and 10-17%
+worse than it under the shipped proofs-2 rule.** It is not a win over Go,
+and it splits by commit:
+
+- **Quiet commits** (a leaf package, docs, CI, a dependency bump the sealed
+  module cache absorbs: 17 of 39 have 86-100% of process time in hits): the
+  estimate leaves 0.1-8.5 s of process time per commit against a plain-warm
+  step of 10-16 s. Here a process memo beats Go's cache, because Go re-runs
+  the same 38 "leak" packages on every commit (3.6 s serial of tests, 88 s
+  of it `repo/create` over the history, plus their 38 links) and a content
+  key does not.
+- **Heavy commits** (`api`, `internal/config`, `git`, a `go-gh` bump: 9 of
+  39 have 0-8% hits): everything legitimately re-links and re-runs; the step
   costs 77 s instrumented, 62 s under Quod, 56 s plain-warm. A process memo
   saves nothing, and Quod's `-count=1`/`goindex=0` and observer overhead
   still cost 6 s over plain.
-- In between (a shared package: 7 of 39): 13-61% hits.
+- In between (a shared package, or the commit after a heavy one: 13 of 39):
+  13-78% hits.
 
 Why links miss when nothing relevant changed (link hits 57% against test
 hits 74%): **a link misses twice per change.** After a package is
 recompiled on commit *k*, its dependents' `importcfg` names the fresh
 archive under `$WORK` on commit *k* and under `GOCACHE` on commit *k+1*, and
-the two files differ in content (146,856,698 against 146,856,808 bytes for
-`api.test`'s inputs at commits 31 and 32: Go rewrites an archive's build id
-when it stores it), so even the content-only key misses on *k+1* while the
-linked binary is byte-identical (tests hit 259 of 259 on commit 32 while
-links hit 34 of 261). The memo on the *test unit*, keyed by the binary's
-content, recovers what the link memo loses downstream; the link's own time
-on *k+1* is lost. Go's cache has the same input difference and does not
-care, because it never caches links.
+the two files differ in content (`api.test`'s 630 inputs total 315,507,334
+bytes at commit 31 and 315,507,442 at commit 32: Go rewrites an archive's
+build id when it stores it), so even the content-only key misses on *k+1*
+while the linked binary is byte-identical (tests hit 259 of 259 on commit
+32 while links hit 34 of 261). The memo on the *test unit*, keyed by the
+binary's content, recovers what the link memo loses downstream; the link's
+own time on *k+1* is lost. Go's cache has the same input difference and
+does not care, because it never caches links.
 
 Why test units miss when their package did not change: 1,592 because the
 binary changed (a dependency was recompiled), 1,007 (790 with the content
@@ -161,17 +175,21 @@ those names or lose ~10% of hits.
 
 ### 1.4 Against Go's own test cache
 
-Each test unit on commits 2-40, by what the content memo and Go's cache
-decided for it (Go's verdict from the 0b plain-warm run of the same commit):
+Each test unit on commits 2-40, by what the memo (path key; content key in
+parentheses) and Go's cache decided for it (Go's verdict from the 0b
+plain-warm run of the same commit):
 
 | | Go cached it | Go re-ran it |
 | --- | --- | --- |
-| memo hit | 6,417 units, 501 s | **1,064 units, 142 s** |
-| memo miss | 440 units, 37 s (241, 23 s content-keyed) | 2,161 units, 208 s |
+| memo hit | 6,417 units, 501 s (6,616, 515 s) | **1,064 units, 142 s** (1,082, 142 s) |
+| memo miss | 440 units, 37 s (241, 23 s) | 2,161 units, 208 s (2,143, 208 s) |
 
 The win over Go is the top-right cell: 1,064 test runs (142 s serial, 88 s
-of it `repo/create`, 3 s on every commit) plus their links (~480 s serial)
-that Go re-runs and a content key does not. The bottom-left cell is the
+of it `repo/create`, 3 s on every commit) plus their links, which Go
+re-runs and a content key does not; the link time is not in the table (a
+link's hit is counted per link, not per test unit) and would be about 1,064
+x 0.45 s = 480 s serial if every one of those links also hit, which the
+twice-per-change effect says they do not. The bottom-left cell is the
 loss: 440 units Go cached that the memo missed, all of them (reasons above)
 test binaries whose bytes changed because a dependency was recompiled while
 Go's action id, which hashes dependency *ids* rather than archive bytes,
@@ -182,12 +200,17 @@ did not. Go's key is coarser there and still sound.
 - The last commit run twice on the same tree: 517 of 518 `go test ./...`
   processes produced the same key (the one exception a link of `git.test`);
   `go build ./...`'s 4 links never match across runs (VCS stamping).
-- 11 of 259 test binaries exec a subprocess (strace survey: `git` runs 665
-  `git`s; `pkg/cmd/repo/sync` 109; `gitcredentials`, `codespace`,
-  `extension`, `surveyext`, `issue/create`, `internal/prompter`,
-  `skills/search`, `pr/merge`, `internal/skills/installer`). The Go testing
-  log sees none of what those subprocesses read; a memo must treat them as
-  opaque or attribute their reads (section 2.2).
+- 11 of 259 test binaries exec a subprocess (strace survey, `execve` only,
+  at the last commit, counts including the binary's own exec: `git` makes
+  664 execs, mostly `git`; `pkg/cmd/repo/sync` 108; then `gitcredentials`,
+  `codespace`, `extension`, `surveyext`, `issue/create`,
+  `internal/prompter`, `skills/search`, `pr/merge`,
+  `internal/skills/installer` with 1-44 each). The Go testing log sees none
+  of what those subprocesses read; a memo must treat them as opaque or
+  attribute their reads (section 2.2). Three of them (`surveyext`,
+  `skills/search`, `pr/merge`) spawn a copy of themselves or a script under
+  `t.TempDir()`, so no path prefix identifies them: only observing the exec
+  does (1.6).
 - No test unit failed or was killed in the 40 commits (the
   `TestHuhPrompterConfirm` hang `exp/split` met under load 30-110 did not
   occur at load 7).
@@ -209,8 +232,7 @@ paired with a plain-warm run on each commit:
 | Heavy commit (7, 15, 31) | 65-69 s | 82-84 s | 62 s |
 
 Over commits 2-40 the prototype replayed 4,675 of 10,156 links and 5,626
-of 10,082 test units; 468 units were opaque (12 per commit: the 11
-subprocess spawners plus `internal/prompter`'s `echo` probe), 1,723 test
+of 10,082 test units; 468 units were opaque (12 per commit), 1,723 test
 units and 1,063 links ran as the second proof. Where a quiet commit's 17 s
 went: the link lookups hash each link's ~200 MB closure before deciding
 (~40 s serial, ~10 s of wall on 4 vCPUs: the generic cost of content-keying
@@ -218,24 +240,58 @@ inputs that live outside a content-addressed store, which Go avoids by
 putting the hash in the file name), materializing 259 replayed binaries by
 copy (2.0-3.9 s serial), the 12 opaque units (~4 s serial, `prompter` alone
 2.3 s), and the Go command's own loading and scheduling under `goindex=0`.
-A second version with hashes cached by inode identity for write-once files
-(`hashFileCached`) cut the all-replay smoke run from 3.2 s to 1.0 s on six
-packages; its 40-commit run is queued behind another agent's history on the
-box and its numbers go into `docs/bench/process-memo/prototype-v2.md` when
-it lands.
+
+**v1 had a false-hit path, found in review.** It decided "spawns a
+subprocess" from the testing log: a unit that stat'ed a path under
+`/usr/bin`, `/bin` or `/usr/local/go/bin` was opaque. That marked 8 of the
+11 spawners plus 4 units that only `exec.LookPath` a tool they never run
+(`internal/prompter`, `repo/setdefault`, `auth/shared`, `auth/login`), and
+**memoized 3 real spawners** (`pkg/surveyext`, `pkg/cmd/skills/search`,
+`pkg/cmd/pr/merge`), which re-exec themselves or run a script under
+`t.TempDir()`; their children's reads were not in any key. A stat prefix is
+not an exec observation. v3 (the `pmemo.go` in `docs/bench/process-memo/`)
+observes execs the way section 2.2 proposes: the shim re-execs itself,
+installs a seccomp filter with `SECCOMP_FILTER_FLAG_NEW_LISTENER` that
+reports `execve`/`execveat` to the shim and allows everything else, hands
+the listener back over a socket pair and execs the test binary; every exec
+in the subtree is answered `CONTINUE` and counted, and any beyond the
+binary's own makes the unit opaque, as does a descendant still alive when
+the binary exits (a `/proc` scan for children reparented to the subreaper)
+or a filter that could not be installed. Unprivileged, no measurable cost
+(execs are rare). On the smoke tree it counted `pkg/cmd/extension`'s 11
+children, exactly strace's 12 execs minus the binary's own. v3 also keys
+`/tmp` paths that predate the unit (only files the unit itself created,
+by ctime, are scratch) and caches input hashes by inode identity
+(`hashFileCached`, which trusts size and mtime of write-once files: the
+same trust 0b refuses for Go's test cache, acceptable in a standalone
+prototype and replaced in the design by serving the cache through the
+observer). The v1 source is not kept; it is v3 without those three changes
+and with the stat-prefix rule in their place.
+
+**The store grew to 40 GB** over the 40 commits: 2,719 distinct link
+outputs (test binaries, mean 14.8 MB) in `blobs/`, 329 MB of link records
+and 21 MB of test manifests. That is ~1 GB per commit for a 259-package
+module, the price of keeping every binary a link produced; 2.4 draws the
+consequence.
 
 Mutation tests at the unit level (`pm_mutate.py`), v1: 40 proven test units
 had one recorded workspace input corrupted (or a recorded absent path
 created) and were run through the shim in replay mode, then plain: in all 40
 the shim's exit code and verdict equalled the plain run's, and in 31 the
 mutation made the test fail identically on both sides, which a replay could
-not have produced. The harness lost the shim's per-unit outcome log (it wrote
-to a root-owned directory), so "replayed or ran" is inferred from the
-verdicts, not read: 0 false hits is established for the 31 units whose
-mutation changed the result, and the 9 whose result was unchanged (the
-mutated fixture did not matter to the test) are unproven either way. The
-A7b sample (10 unread files mutated) agreed with plain in all 10 for the same
-reason. The v2 run repeats both with the log in place.
+not have produced. Two limits of that test, both from the review: the
+harness lost the shim's per-unit outcome log (it wrote to a root-owned
+directory), so "ran" is inferred from the verdicts for the 31 and unproven
+for the 9 whose result the mutation did not change; and A7 at the unit
+level cannot find a false hit of the kind v1 had, because `matches()`
+re-hashes every *recorded* path, so a mutation of a recorded input misses by
+construction. The hazard is *unrecorded* reads, which only an A7b-style test
+(mutate what a subprocess reads, expect a re-run) can catch; v1's A7b sample
+(10 unread docs files) established nothing with the log lost. The two
+whole-step fidelity runs on the unchanged tree took 44.3 s and 17.3 s with
+0 logged outcomes and are unexplained. The v3 run on the box (queued behind
+another agent's history) repeats all of this with the log in place; its
+numbers go into `docs/bench/process-memo/prototype-v3.md`.
 
 ## 2. Design
 
@@ -269,8 +325,10 @@ unit that inherits another descriptor is opaque).
 The **unit manifest** is the unit's read set, exactly as a step manifest:
 every path the unit's subtree looked up, read, listed or found absent, with
 its kind and content, plus the set of paths it wrote. Reads of paths the
-same subtree wrote earlier are not inputs (write-before-read is the unit's
-own scratch). Reads of paths a *sibling* wrote earlier in the step are
+same subtree *created or truncated* earlier are not inputs (the unit's own
+scratch); a pre-existing file the unit appends to or edits in place is an
+input with its pre-existing content. Reads of paths a *sibling* wrote
+earlier in the step are
 inputs with that sibling's output as their content, which is how a link's
 dependence on a compile is expressed without knowing what a link is.
 
@@ -294,8 +352,12 @@ a per-process read set today, and both were measured on `exp/split`:
    file arrived (directory dentries still cached: a path walk costs nothing,
    a `stat` of a directory costs one GETATTR). That mount measured +3.7
    points of execution over the plain observer on an all-miss `go test
-   ./...` (33.17 s against 32.03 s, paired under load), and it was a
-   different, faster mount than the first attempt (+20.8%). It still does
+   ./...` (33.17 s against 32.03 s, paired under load; the A8 table of
+   `docs/bench/split-cli-cli-arm64.md` at `ad7fd5a` on `exp/split`), and
+   it was a different, faster mount than the first attempt (+20.8%, the
+   `STILLPASS_SPLIT_DIR_CACHE=1` series there), which is what the DECISIONS
+   entry's "ran faster than the standard mount in every A8 round" refers
+   to. It still does
    not see a second *read* of a cached page: the open is what is recorded,
    and the open is enough for "this process depended on this file", since
    the content served is the content keyed.
@@ -314,7 +376,7 @@ served trees. Three candidates:
 | | seccomp user-notify on execve + openat family | ptrace (PTRACE_O_TRACEEXEC, seccomp stops) | LD_PRELOAD |
 | --- | --- | --- | --- |
 | Sees | every exec and open in the sandbox, with the caller's pid, argv (read from the tracee's memory via `pidfd_getfd`/`process_vm_readv`) and the resolved path | the same, plus the ability to rewrite the syscall or its return value (fake the exec's exit) | nothing from Go, which is static and makes raw syscalls; nothing from any static binary |
-| Cost per event | one context switch to the supervisor; opens are the hot path (`go test ./...` is ~50k opens with the kernel caches on) | two stops per syscall unless filtered by a seccomp `RET_TRACE` policy; slower than notify | none |
+| Cost per event | one context switch to the supervisor; opens are the hot path (`go test ./...` sent 45k OPENs before zero-message opens, exp/overhead; 26k with them, exp/overhead4) | two stops per syscall unless filtered by a seccomp `RET_TRACE` policy; slower than notify | none |
 | Interposing a replay | `SECCOMP_IOCTL_NOTIF_ADDFD` can inject a descriptor; the supervisor cannot make `execve` return as if the program ran, so a replay means answering the exec with ENOENT/EACCES... not an option; see below | can rewrite `execve` into an exec of a shim, or stop the tracee and `kill`+report an exit; the parent's `wait` sees whatever the tracee exits with | a hooked `execve` in the parent decides; useless for Go |
 | Unprivileged | yes: the filter is installed inside the sandbox by a launcher, the notify fd handed out over a Unix socket; works in the user namespace bubblewrap creates | yes: Quod's uid owns the sandbox's user namespace, so it has CAP_SYS_PTRACE over it (yama scope 1 allows descendants) | yes |
 | Windows/macOS | no | no (different APIs) | no |
@@ -391,7 +453,10 @@ alone cannot say who wrote what. Two ways: fanotify on the overlay's upper
 dir (`FAN_MODIFY` with `FAN_REPORT_PIDFD` gives the writer's pid per event;
 needs CAP_SYS_ADMIN in the initial user namespace, so root), or a per-unit
 mount namespace with its own overlay, every unit's writes landing in its
-own upper (unprivileged; ~2 ms per mount, so 500 units cost ~1 s). The
+own upper (unprivileged; ~2 ms per mount, so 500 units cost ~1 s, plus
+the copy of each unit's writes back into the parent's view when it exits,
+which for a link is the same materialization cost 2.3 calls too much and
+for a compile is a 1-10 MB archive). The
 prototype sidesteps this for Go, whose link and test units write only their
 `-o` output and the test log, both named on argv, and whose compile outputs
 reach `$WORK` by Go's own hand. The general design uses the per-unit
@@ -407,23 +472,23 @@ memoized, and so is every ancestor below the step).
 
 | Hazard | Handling |
 | --- | --- |
-| Inherited descriptors other than 0, 1, 2 | Opaque. `close_range` at the step boundary guarantees the root unit has none; a unit that inherits one (a pipe to a sibling, a lock file, an eventfd) is detected by the shim (`/proc/self/fd`) and refused. |
+| Inherited descriptors other than 0, 1, 2 | Opaque. `close_range` at the step boundary guarantees the root unit has none; a unit that inherits one (a pipe to a sibling, a lock file, an eventfd) is detected by the shim (`/proc/self/fd`) and refused. Design only: the prototype does not inspect its descriptors (Go's tools and test binaries inherit none beyond 0-2 from the `go` command). |
 | stdout/stderr are pipes the parent reads | Recorded as blobs; replay writes them back. Interleaving between the two is not preserved; a unit whose parent reads both through one descriptor (`2>&1`, the shim sees the same inode on 1 and 2) records them as one stream in order. |
-| stdin | The shim gives the unit a pipe it owns in place of descriptor 0 and records what flows through it; a unit that read anything from it is opaque in the prototype (Go's tools and test binaries read nothing), recorded as an input in the general design. |
+| stdin | The shim gives the unit a pipe it owns in place of descriptor 0 and records what flows through it; a unit that read anything from it is opaque, recorded as an input in the general design. Design only: the prototype passes its own stdin through (the `go` command gives its tools and test binaries nothing to read there). |
 | The parent reads the child's output files | Recorded as writes; replay materializes them on the overlay before the shim exits, so the parent's `stat`/`open` after `wait` sees them. Content from the CAS by hard link where the destination filesystem is the store's, by copy otherwise. A tmpfs `$WORK` means a copy, and 259 test binaries of 30-50 MB is ~10 GB of copying per `go test`: too much. The design's answer is lazy materialization: a replayed file is a symlink into a read-only bind of the CAS until something opens it for writing, and a replayed test unit that is itself replayed never needs its binary materialized at all (phase 3 in 2.6). |
 | Timing | Durations are recorded, never replayed. A replayed unit's stdout carries the timestamps of the run that produced it, as a replayed step's does today; `normalize()` strips go test durations before results are compared, and the same normalization applies to unit results. |
 | pids | A unit's output that mentions its own pid differs run to run and fails to prove (the streak never reaches 2); such units are never replayed. Go's `-test.testlogfile` paths and `$WORK` names are normalized by Go itself (`go-build<random>` appears only in argv, which the shim normalizes before keying, as the step's env is). |
-| Temporary directories | `/tmp` is a per-step tmpfs dropped whole (rootfs mode); a unit's writes there are its scratch and are not outputs. A unit that reads a `/tmp` path it did not write (a sibling's scratch) has an input it cannot name stably: opaque. Random names in `$HOME` (`t.TempDir()` under `TMPDIR=$HOME/...`) are the unit's own writes and excluded by the write-before-read rule. |
+| Temporary directories | `/tmp` is a per-step tmpfs dropped whole (rootfs mode); a unit's writes there are its scratch and are not outputs. A unit that reads a `/tmp` path it did not create (a sibling's scratch, or on a shared host `/tmp` an earlier run's) has an input: keyed by content like any other, and opaque when its name is random (a sibling's `t.TempDir()`), since no later run can match it. The prototype's rule since v3: a `/tmp` path whose ctime is after the unit started is scratch, an absent one is counted and dropped, any other is keyed; the measurement wrapper (v1 and the upper bound) dropped every `/tmp` path, which over-counts hits by the number of units that read a sibling's or an earlier run's `/tmp` file, not measured. |
 | Environment | Part of the unit key, after the step key's volatile list; a unit whose env differs from the parent's (the parent set a variable) is a different unit by key. |
 | Network | A unit that calls `socket` with `AF_INET`/`AF_INET6` is opaque (the step has no network anyway: `--unshare-net`; a connect fails identically on every run, but the unit might behave differently with a listener present in a later run, so opaque is the sound choice). `AF_UNIX` to a path the unit itself created is scratch; to anything else, opaque. |
 | Signals | A unit that receives a signal that is not from its own subtree and dies of it is a killed run, never memoized (as the step rule). A unit that sends a signal to a pid outside its subtree (`kill` on the notify list) is opaque. |
 | Shared memory and mmap writes | `shmget`, `memfd_create` shared with another unit, `mmap(MAP_SHARED, PROT_WRITE)` of a file outside its scratch: opaque (all on the notify list). Private mappings and read-only shared mappings are reads. |
-| Daemons | A unit whose subtree has a live process when the exec'd process exits (the shim is a subreaper and sees the orphan) is opaque, and so is the step if the daemon is still alive at step end (today's rule: bwrap's exit kills it, the step records nothing special; with units, the step records that unit opaque). |
+| Daemons | A unit whose subtree has a live process when the exec'd process exits is opaque, and so is the step if the daemon is still alive at step end (today's rule: bwrap's exit kills it, the step records nothing special; with units, the step records that unit opaque). The shim is a subreaper, so orphans are reparented to it; a non-blocking `wait` after the child exits sees only the dead ones (v1's check, which caught nothing live), so v3 scans `/proc` for processes whose parent is the shim. |
 | The go build cache's concurrency | Go writes cache entries with rename-into-place and a lock file per entry; two Go commands never share a `$WORK`. A unit replay that materializes a link output into `$WORK` races nothing. The warm cache is bound read-write and Go's own writes to it are Go's business, as today; a replayed *compile* would need to produce the cache entry Go expects (Go reads it back from `$WORK/b001/_pkg_.a` and copies it into the cache), which is a recorded write and works. |
-| Cross-unit dependencies through shared state | A unit reading a path a sibling wrote records the sibling's output content as its input (2.2). A unit reading a path under `$HOME` that an earlier unit of the same step created (cli/cli's tests: `~/.config/gh`, `~/.cache/gh`) is the same case; the measurement counted these as inputs. |
+| Cross-unit dependencies through shared state | A unit reading a path a sibling wrote records the sibling's output content as its input (2.2). A unit reading a path under `$HOME` that an earlier unit of the same step created (cli/cli's tests: `~/.config/gh`, `~/.cache/gh`) is the same case. The measurement and the prototype approximate it by listing `$HOME` before each unit starts: a path not in the list is the unit's own write. Go runs four units at once, so a sibling's write landing between the listing and the read is misclassified as the unit's own, and the listing stops at 20,000 entries; the design's write attribution (per-unit overlay or fanotify) has neither gap. |
 | The step's own writes before the first unit | A unit's read set names what it read, whoever wrote it: a path the step (or the parent unit) wrote before the unit started is an input with that content, found in the step's write log. The unit key deliberately does not include the step's manifest-so-far, which would be the whole-step problem again. |
 | Nondeterministic units | Fail to prove (two executions, different result) and are never replayed; the proof streak is per unit key. Flaky tests are the common case and are handled exactly as flaky steps are: the streak holds at 0 while results differ, a non-zero exit never proves. |
-| Replayed units and the step result | A step that replayed any unit is itself not recorded as a step execution (its result was not produced in full), as `exp/split` did. Its unit executions are recorded. The step's own proof streak therefore advances only on runs with no unit replays; see 2.4 for the alternative. |
+| Replayed units and the step result | A step that replayed units still produces a complete step result: its stdout, stderr and exit code are real, and the replayed units' outputs were materialized on the overlay and are diffed like any other write. What is incomplete is the step *manifest*: the observer did not see the replayed units' reads. So the step's manifest is the observed log united with every replayed unit's manifest (what `exp/split` did for its subprocess units), which over-records by construction (a unit manifest is what the unit read on the run that produced it, a superset of the paths a replay touches), and the step result is recorded under it and may prove and replay whole. This keeps 0b's one clear win, the identical re-run replaying the whole step in 1.3 s, intact with units on. The cost: a step manifest that mixes observed and recorded entries can only ever be as sound as the unit manifests it includes, which is the whole point of unit-level trust in 2.4. |
 | Opaque units and attribution | A unit the observation phase found opaque is not hooked next time (no shim for it), so its cost is one notify event per offending syscall on the first run and nothing afterwards. |
 
 ### 2.4 Trust, ledger, key format, CAS
@@ -438,10 +503,13 @@ units needs each of them proven, which on a linear history means each
 package's link and test binary have run unchanged twice before they
 replay. The measurement reports hits under both rules (hit: seen once;
 proven: seen twice). Per-unit audits are where the design pays for its
-granularity: the 5% audit rate is per replay, so a step that replays 450
-units audits 22 of them every time (~22 links, ~2 s), which is a real cost
-and the right one: it is what makes a per-unit divergence visible
-(dashboard, 2.5).
+granularity. The audit schedule is deterministic per key (every 20th replay
+of a key at 5%), so 450 unit keys that each replay once per commit audit
+nothing for 19 commits and all 450 on the 20th: a 40 s step once every 20
+commits instead of 2 s on each. A per-unit schedule should spread the
+audits (hash the unit key into the phase) so that ~22 units re-run on every
+commit, ~2 s of links and tests; that is a real cost and the right one, it
+is what makes a per-unit divergence visible (dashboard, 2.5).
 
 **Ledger.** Three tables beside the step's: `units (unit_key, step_key,
 parent_unit_key, binary, argv_json, cwd)`, `unit_manifests (id, unit_key,
@@ -473,11 +541,16 @@ the unit's scratch). Test binaries deduplicate across commits when the link
 is bit-identical, which Go's are: `$WORK` is random per run but `-trimpath`
 rewrites it out, and the smoke test linked the same binaries twice to the
 same hashes. Stdout and stderr are blobs. The store grows by the unit
-outputs that step-level Quod never kept, test binaries above all: 259 of
-them at 30-50 MB each is ~10 GB if every one changed on every commit; at the
-measured miss rate (section 1.2) it is a few hundred MB per 40 commits,
-comparable to the step-level CAS growth of 0b (+17 MB per commit). GC: unit
-results are referenced by run rows; the existing snapshot gc pattern applies.
+outputs that step-level Quod never kept, test binaries above all, and the
+prototype measured it: **40 GB over 40 commits** (2,719 distinct link
+outputs, mean 14.8 MB; ~1 GB per commit against the step-level CAS's +17 MB
+per commit in 0b). That is not storable as blobs per commit for a real
+history. Two consequences for the design: a link output is kept only while a
+test unit's proof depends on it (a link whose test unit is itself proven and
+replayed never needs its binary materialized or kept: phase 3's lazy
+outputs), and unit results that lost their last referencing run row are
+collected by the existing snapshot gc pattern with a short horizon (days,
+not the step-level store's indefinite one).
 
 ### 2.5 What the dashboard shows
 
@@ -537,15 +610,18 @@ replayed whole.
 **Do not build process-level memoization as the thing that makes Quod beat
 language caches on their own turf. The upper bound on cli/cli says it
 cannot: with every memoizable process replayed for free, `go test ./...`
-over 40 real commits lands at about the same total as a warm Go cache
-(~900-1,160 s against 943 s), because the commits where Go's cache wins big
-are exactly the commits where nothing is memoizable, and on `go build` and
-`go vet` there is nothing to memoize at all.** The prototype confirms the
-shape: with links and test units replaying at 46% and 56%, `go test ./...`
-over the history took 1,735 s against 1,048 s plain-warm, 17 s against 13 s
-on a quiet commit, and the time left is the cost of keying inputs that live
+over 40 real commits lands at best at the total of a warm Go cache under
+the hit-once rule (~900-1,160 s against 943 s) and 10-17% above it under the
+shipped proofs-2 rule, because the commits where Go's cache wins big are
+exactly the commits where nothing is memoizable, and on `go build` and `go
+vet` there is nothing to memoize at all.** The prototype confirms the shape:
+with links and test units replaying at 46% and 56%, `go test ./...` over
+the history took 1,735 s against 1,048 s plain-warm, 17 s against 13 s on a
+quiet commit, and the time left is the cost of keying inputs that live
 outside the observed tree, materializing outputs, and the units that spawn
-subprocesses.
+subprocesses; it also showed that detecting those units needs a real exec
+observation (v1's heuristic memoized three of them) and that keeping every
+link output costs ~1 GB per commit.
 
 What the measurement does say is worth building, in order:
 
@@ -558,9 +634,10 @@ What the measurement does say is worth building, in order:
    has nothing to offer. The process memo is only ever worth as much as the
    gap that remains after it.
 2. **Then memoize test units as the one Go-specific hook that beats Go**, on
-   top of never-worse: the 38 leak packages Go re-runs every commit are 5 s
-   of test time plus ~17 s of link time serial per commit (~5-6 s of wall on
-   4 vCPUs, half of a quiet commit's plain-warm step), and a content-keyed
+   top of never-worse: the 38 leak packages Go re-runs every commit are
+   3.6 s of test time plus ~17 s of link time serial per commit (~5 s of
+   wall on 4 vCPUs, a third to a half of a quiet commit's plain-warm step),
+   and a content-keyed
    unit memo takes them. That is phase 1-2 of section 2.6 restricted to
    `-exec`, which `exp/split` already built once; its loss then was the same
    link cost this measurement names, and never-worse removes it. Expect a

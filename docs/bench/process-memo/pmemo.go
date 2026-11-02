@@ -23,6 +23,7 @@ package main
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,9 +34,12 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 var workRe = regexp.MustCompile(`go-build\d+`)
@@ -342,6 +346,7 @@ type logLine struct {
 	SavedMs   int64  `json:"saved_ms,omitempty"` // the recorded duration of a replayed unit
 	Streak    int    `json:"streak,omitempty"`
 	Candidates int   `json:"candidates,omitempty"`
+	Scratch    int   `json:"scratch,omitempty"` // test units: /tmp and /dev paths left out of the key
 }
 
 func logit(l logLine) {
@@ -401,10 +406,202 @@ func run(tool string, args []string, capture bool) (int, []byte, int64) {
 	return exitCode(err), nil, time.Since(start).Milliseconds()
 }
 
+// ---- exec observation: seccomp user-notify on execve/execveat ----
+//
+// A test unit runs under a seccomp filter that reports every execve in its
+// process tree to the shim (the design's observation mechanism, 2.2). The
+// shim re-execs itself in child mode, which installs the filter with
+// SECCOMP_FILTER_FLAG_NEW_LISTENER, hands the notify fd back over a socket
+// pair, and execs the test binary; the first notification is that exec.
+// Every exec is answered with CONTINUE, so nothing changes for the unit; the
+// count is what makes it opaque. Unprivileged (no_new_privs). x86_64 only
+// (the filter checks the arch and allows everything else).
+
+const (
+	sysSeccomp                   = 317
+	seccompSetModeFilter         = 1
+	seccompFlagNewListener       = 1 << 3
+	seccompIoctlNotifRecv        = 0xC0502100 // _IOWR('!', 0, struct seccomp_notif[80])
+	seccompIoctlNotifSend        = 0xC0182101 // _IOWR('!', 1, struct seccomp_notif_resp[24])
+	seccompUserNotifFlagContinue = 1
+	seccompRetAllow              = 0x7fff0000
+	seccompRetUserNotif          = 0x7fc00000
+	auditArchX86_64              = 0xC000003E
+	prSetNoNewPrivs              = 38
+	sysExecve                    = 59
+	sysExecveat                  = 322
+)
+
+type sockFilter struct {
+	Code uint16
+	Jt   uint8
+	Jf   uint8
+	K    uint32
+}
+
+type sockFprog struct {
+	Len    uint16
+	_      [6]byte
+	Filter *sockFilter
+}
+
+// Child mode: install the filter, send the listener to the parent on fd 3,
+// exec the tool. On any failure before the exec, exec anyway: the parent
+// then receives no fd and treats the unit as unobserved (opaque).
+func seccompChild(tool string, args []string) {
+	runtime.LockOSThread() // the filter attaches to the thread that execs
+	prog := []sockFilter{
+		{0x20, 0, 0, 4},                   // ld arch
+		{0x15, 0, 4, auditArchX86_64},     // not x86_64: allow
+		{0x20, 0, 0, 0},                   // ld nr
+		{0x15, 1, 0, sysExecve},           // execve: notify
+		{0x15, 0, 1, sysExecveat},         // execveat: notify, else allow
+		{0x06, 0, 0, seccompRetUserNotif}, // notify
+		{0x06, 0, 0, seccompRetAllow},     // allow
+	}
+	fprog := sockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
+	if _, _, e := syscall.RawSyscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0); e == 0 {
+		fd, _, e := syscall.RawSyscall(sysSeccomp, seccompSetModeFilter, seccompFlagNewListener, uintptr(unsafe.Pointer(&fprog)))
+		if e == 0 {
+			rights := syscall.UnixRights(int(fd))
+			syscall.Sendmsg(3, []byte{1}, rights, nil, 0)
+			syscall.Close(int(fd))
+		}
+	}
+	syscall.Close(3)
+	syscall.Exec(tool, append([]string{tool}, args...), os.Environ())
+	os.Exit(127)
+}
+
+// runTraced runs a test binary under the exec filter, teeing its stdout.
+// Returns the exit code, stdout, wall, and the number of execs observed in
+// the unit's subtree beyond the binary's own (-1: the filter could not be
+// installed, so nothing was observed).
+func runTraced(tool string, args []string) (int, []byte, int64, int) {
+	self, err := os.Executable()
+	if err != nil {
+		code, out, wall := run(tool, args, true)
+		return code, out, wall, -1
+	}
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+	if err != nil {
+		code, out, wall := run(tool, args, true)
+		return code, out, wall, -1
+	}
+	start := time.Now()
+	cmd := exec.Command(self, append([]string{"--seccomp-child", tool}, args...)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+	cmd.ExtraFiles = []*os.File{os.NewFile(uintptr(fds[1]), "notify-sock")}
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	done := make(chan struct{})
+	var buf []byte
+	go func() {
+		var sb strings.Builder
+		io.Copy(io.MultiWriter(os.Stdout, &sb), pr)
+		buf = []byte(sb.String())
+		close(done)
+	}()
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		<-done
+		syscall.Close(fds[0])
+		syscall.Close(fds[1])
+		return 127, buf, time.Since(start).Milliseconds(), -1
+	}
+	cmd.ExtraFiles[0].Close()
+	// Receive the listener.
+	execs := -1
+	data := make([]byte, 1)
+	oob := make([]byte, 64)
+	n, oobn, _, _, err := syscall.Recvmsg(fds[0], data, oob, 0)
+	syscall.Close(fds[0])
+	var counter int64
+	if err == nil && n > 0 && oobn > 0 {
+		if msgs, err := syscall.ParseSocketControlMessage(oob[:oobn]); err == nil && len(msgs) > 0 {
+			if nfds, err := syscall.ParseUnixRights(&msgs[0]); err == nil && len(nfds) > 0 {
+				execs = 0
+				go notifyLoop(nfds[0], &counter)
+			}
+		}
+	}
+	err = cmd.Wait()
+	pw.Close()
+	<-done
+	code := exitCode(err)
+	if execs == 0 {
+		// The first exec is the test binary itself.
+		execs = int(atomic.LoadInt64(&counter)) - 1
+		if execs < 0 {
+			execs = 0
+		}
+	}
+	return code, buf, time.Since(start).Milliseconds(), execs
+}
+
+// notifyLoop answers every exec notification with CONTINUE and counts it.
+func notifyLoop(fd int, counter *int64) {
+	req := make([]byte, 80)
+	resp := make([]byte, 24)
+	for {
+		for i := range req {
+			req[i] = 0
+		}
+		_, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), seccompIoctlNotifRecv, uintptr(unsafe.Pointer(&req[0])))
+		if e == syscall.EINTR {
+			continue
+		}
+		if e != 0 {
+			return
+		}
+		atomic.AddInt64(counter, 1)
+		for i := range resp {
+			resp[i] = 0
+		}
+		copy(resp[0:8], req[0:8]) // id
+		binary.LittleEndian.PutUint32(resp[20:24], seccompUserNotifFlagContinue)
+		syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), seccompIoctlNotifSend, uintptr(unsafe.Pointer(&resp[0])))
+	}
+}
+
+// liveDescendants counts processes whose parent is this shim: after the test
+// binary exited, those are its orphans still running (we are a subreaper).
+func liveDescendants() int {
+	me := strconv.Itoa(os.Getpid())
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range ents {
+		if e.Name()[0] < '0' || e.Name()[0] > '9' || e.Name() == me {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		s := string(b)
+		i := strings.LastIndexByte(s, ')')
+		if i < 0 {
+			continue
+		}
+		f := strings.Fields(s[i+1:])
+		if len(f) > 1 && f[1] == me {
+			n++
+		}
+	}
+	return n
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "pmemo: usage: pmemo TOOL ARGS...")
 		os.Exit(2)
+	}
+	if os.Args[1] == "--seccomp-child" && len(os.Args) >= 3 {
+		seccompChild(os.Args[2], os.Args[3:])
 	}
 	tool, args := os.Args[1], os.Args[2:]
 	base := filepath.Base(tool)
@@ -587,7 +784,9 @@ func doTest(tool string, args []string) int {
 	}
 	lookup := time.Since(t0).Milliseconds()
 
-	// Run, with the testing package's log injected, as a subreaper.
+	// Run, with the testing package's log injected, as a subreaper, under
+	// the exec filter. Files created from here on are the unit's own.
+	unitStart := time.Now()
 	if testlog == "" {
 		if f, err := os.CreateTemp(os.Getenv("PMEMO_TMP"), "testlog-"); err == nil {
 			testlog = f.Name()
@@ -609,15 +808,14 @@ func doTest(tool string, args []string) int {
 			return nil
 		})
 	}
-	code, stdout, wall := run(tool, args, true)
-	orphans := 0
+	code, stdout, wall, execs := runTraced(tool, args)
+	live := liveDescendants()
 	for {
 		var ws syscall.WaitStatus
 		pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, nil)
 		if err != nil || pid <= 0 {
 			break
 		}
-		orphans++
 	}
 	tr := time.Now()
 	// The binary is in the lookup key by content (its $WORK path is random
@@ -625,8 +823,15 @@ func doTest(tool string, args []string) int {
 	files := map[string]string{}
 	getenv := map[string]string{}
 	opaque := ""
-	if orphans > 0 {
-		opaque = "orphaned subprocess"
+	nScratch := 0
+	switch {
+	case execs < 0:
+		opaque = "exec observation unavailable"
+	case execs > 0:
+		// The testing log does not see what a subprocess reads. Over-record: refuse.
+		opaque = fmt.Sprintf("spawned %d subprocess(es)", execs)
+	case live > 0:
+		opaque = fmt.Sprintf("%d subprocess(es) still alive", live)
 	}
 	if f, err := os.Open(testlog); err == nil {
 		pwd := cwd
@@ -653,8 +858,27 @@ func doTest(tool string, args []string) int {
 				if !filepath.IsAbs(p) {
 					p = filepath.Join(pwd, p)
 				}
-				if strings.HasPrefix(p, "/tmp/") || strings.HasPrefix(p, "/dev/") {
-					continue // the unit's own scratch
+				if strings.HasPrefix(p, "/dev/") {
+					nScratch++
+					continue
+				}
+				if strings.HasPrefix(p, "/tmp/") || (os.Getenv("PMEMO_TMP") != "" && strings.HasPrefix(p, os.Getenv("PMEMO_TMP")+"/")) {
+					// Scratch only if this unit created it (ctime after the
+					// unit started) or it does not exist; a /tmp file that
+					// predates the unit (a sibling's, an earlier run's) is
+					// an input and is keyed like any other.
+					st, err := os.Lstat(p)
+					if err != nil {
+						nScratch++
+						continue
+					}
+					if sys, ok := st.Sys().(*syscall.Stat_t); ok && time.Unix(sys.Ctim.Sec, sys.Ctim.Nsec).After(unitStart) {
+						nScratch++
+						continue
+					}
+					if p == tool {
+						continue // the binary: keyed by content in the lookup
+					}
 				}
 				if home != "" && strings.HasPrefix(p, home+"/") && !homeBefore[p] {
 					continue // written by this unit
@@ -684,17 +908,8 @@ func doTest(tool string, args []string) int {
 	} else {
 		opaque = "no test log"
 	}
-	// Executables the unit stat'ed: it may have spawned them (git), and the
-	// testing log does not see what a subprocess reads. Over-record: refuse.
-	for p := range files {
-		for _, pre := range []string{"/usr/bin/", "/bin/", "/usr/local/go/bin/", "/usr/local/bin/", "/usr/sbin/", "/sbin/"} {
-			if strings.HasPrefix(p, pre) {
-				opaque = "stats an executable: " + p
-			}
-		}
-	}
 	if opaque != "" {
-		logit(logLine{Kind: "test", Unit: unit, Outcome: "opaque", Why: opaque, LookupMs: lookup, WallMs: wall, Exit: code, Candidates: candidates})
+		logit(logLine{Kind: "test", Unit: unit, Outcome: "opaque", Why: opaque, LookupMs: lookup, WallMs: wall, Exit: code, Candidates: candidates, Scratch: nScratch})
 		return code
 	}
 	res := result{Exit: code}
