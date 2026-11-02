@@ -371,3 +371,4 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
   .dot.pulse, .live-badge.live .live-dot { animation: none }
   .step-btn[data-fresh="true"] { background: inherit }
 }
+.live-body { display: flex; flex-direction: column; gap: 28px }

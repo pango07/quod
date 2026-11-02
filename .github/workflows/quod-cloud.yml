@@ -1,0 +1,84 @@
+# Quod on Quod Cloud: this repository's own cheap checks through `quod run`
+# against api.quodci.com, as a customer's workflow would run them
+# (docs/getting-started.md). A push to main records as the team's writer
+# (refs/heads/main); a pull request reads main's results and records only in
+# its own ref's scope. The run's results show on app.quodci.com under the
+# quodci team. Independent of the gates (gate.yml): its own concurrency
+# group, and nothing here gates a merge.
+name: quod-cloud
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: quod-cloud-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write   # GitHub OIDC for Quod Cloud (audience quodci)
+
+jobs:
+  cloud:
+    name: cloud (through quod)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          toolchains: node
+          # Repository variables (public values): the server and its pinned key.
+          server: ${{ vars.QUOD_SERVER }}
+          server-key: ${{ vars.QUOD_SERVER_KEY }}
+      # Dependencies install outside Quod (a network step is never
+      # memoized); node_modules is then sealed into every step's key.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('cloud/package-lock.json') }}
+      - run: npm ci
+        working-directory: cloud
+      - name: npm test (through quod)
+        working-directory: cloud
+        # The repository's top level has no package.json, so the toolchain is named.
+        # vitest-quod.mjs: vitest with output that is the same on identical
+        # runs (vitest prints the wall clock), the config loaded in place
+        # (node_modules is sealed read-only; vite would bundle it there).
+        run: quod run --toolchain node -- node scripts/vitest-quod.mjs
+      - name: npm run lint (through quod)
+        working-directory: cloud
+        run: quod run --toolchain node -- npm run lint
+      # GitHub's ubuntu-latest pool mixes CPU models (EPYC 7763, 9V74, 9V45,
+      # Xeon 8370C, 8573C seen), and every step key pins the CPU's flags, so
+      # four jobs in a row on one model (record, two shadow audits, replay)
+      # are rare. When a step did not replay, run it twice more on this VM:
+      # each run is a full re-execution compared with the record (the
+      # shadow phase, spent here), and the next job on the same CPU model
+      # replays. Skipped when both steps replayed.
+      - name: shadow phase on this VM (when a step did not replay)
+        working-directory: cloud
+        run: |
+          replayed=$(sudo jq -s '[.[] | select(.message == "run" and .outcome == "replayed")] | length' /var/lib/quod/events.jsonl)
+          if [ "$replayed" -ge 2 ]; then echo "both steps replayed"; exit 0; fi
+          for i in 1 2; do
+            quod run --toolchain node -- node scripts/vitest-quod.mjs > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
+            quod run --toolchain node -- npm run lint > /dev/null 2> "$RUNNER_TEMP/l$i.err" || true
+            grep -h -E 'QUOD  [A-Z]|trust:' "$RUNNER_TEMP/t$i.err" "$RUNNER_TEMP/l$i.err" || true
+          done
+      - name: what quod did
+        if: always()
+        run: |
+          ev=/var/lib/quod/events.jsonl
+          sudo test -f "$ev" || { echo "no quod events"; exit 0; }
+          {
+            echo "### quod run ($(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs))"
+            echo "| step key | outcome | hit | candidates | first mismatch | total | recorded |"
+            echo "|---|---|---|---|---|---|---|"
+            sudo jq -r 'select(.message == "run" and .step_key) | "| `\(.step_key[0:15])` | \(.outcome) | \(.hit) | \(.candidates) | \(.first_mismatch // "") | \(.total_ms | floor) ms | \(.recorded_ms // "") |"' "$ev"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo jq -c 'select(.message == "run")' "$ev"

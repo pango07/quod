@@ -6,7 +6,7 @@ import type { GitHubLink } from "@/lib/api/types";
 // The Connect page must only offer what works today (review of the "quodci/setup@v1" copy).
 vi.mock("@/lib/actions", () => ({ saveConnectChoice: vi.fn() }));
 const { ConnectGitHubStep } = await import("./connect-github");
-const { ConnectFlow, EARLY_ACCESS_URL } = await import("./connect-flow");
+const { ConnectFlow, EARLY_ACCESS_URL, SETUP_ACTION_TODAY } = await import("./connect-flow");
 
 const step = (link: GitHubLink | undefined, admin: boolean) => renderToStaticMarkup(createElement(ConnectGitHubStep, { team: "acme", link, admin }));
 
@@ -40,7 +40,7 @@ describe("Connect, step 1: GitHub", () => {
   });
 });
 
-describe("Connect, the Quod setup: coming soon", () => {
+describe("Connect, the Quod setup", () => {
   const setup = {
     setupAction: "quodci/setup@v1",
     runnerLabels: ["self-hosted", "quod"],
@@ -49,19 +49,45 @@ describe("Connect, the Quod setup: coming soon", () => {
     firstRepo: null,
     saved: null,
   };
-  const html = renderToStaticMarkup(createElement(ConnectFlow, { team: "acme", setup, initial: { store: "cloud", host: "github" }, canSave: true }));
+  const render = (store: "cloud" | "self", host: "github" | "own") =>
+    renderToStaticMarkup(createElement(ConnectFlow, { team: "acme", setup, initial: { store, host }, canSave: true }));
 
-  it("is marked coming soon, says it doesn't work yet, and links to early access", () => {
-    expect(html).toContain("Coming soon: early access");
-    expect(html).toContain("doesn&#x27;t work yet");
-    expect(EARLY_ACCESS_URL).toBe("https://www.quodci.com/#join");
-    expect(html).toContain(`href="${EARLY_ACCESS_URL}"`);
+  describe("GitHub-hosted + Quod Cloud: available", () => {
+    const html = render("cloud", "github");
+
+    it("is marked available, not coming soon", () => {
+      expect(html).toContain("Available: GitHub-hosted + Quod Cloud");
+      expect(html).not.toContain("Coming soon: early access");
+      expect(html).not.toContain("doesn&#x27;t work yet");
+    });
+
+    it("shows the working workflow change, copyable: id-token, the setup action that exists, quod run", () => {
+      expect(html).toMatch(/<pre class="wf" aria-label="Workflow change"/);
+      expect(html).toContain("id-token: write");
+      expect(html).toContain(SETUP_ACTION_TODAY);
+      expect(html).toContain("quod run -- npm test");
+      expect(html).not.toContain("quodci/setup@v1");
+      expect(html).not.toContain("(preview)");
+    });
   });
 
-  it("keeps the workflow diff as a non-copyable preview, and 'Push, and watch it learn' inside the group", () => {
-    expect(html).toMatch(/<pre class="wf no-copy" aria-label="Workflow change \(preview; not released yet\)"/);
-    const group = html.slice(html.indexOf('class="soon"'));
-    expect(group).toContain("Push, and watch it learn");
-    expect(html).not.toContain("Done, back to the dashboard");
-  });
+  for (const [store, host] of [["self", "github"], ["cloud", "own"], ["self", "own"]] as const) {
+    describe(`${store} + ${host}: coming soon`, () => {
+      const html = render(store, host);
+
+      it("is marked coming soon, says it doesn't work yet, and links to early access", () => {
+        expect(html).toContain("Coming soon: early access");
+        expect(html).toContain("doesn&#x27;t work yet");
+        expect(EARLY_ACCESS_URL).toBe("https://www.quodci.com/#join");
+        expect(html).toContain(`href="${EARLY_ACCESS_URL}"`);
+      });
+
+      it("keeps the workflow diff as a non-copyable preview, and 'Push, and watch it learn' inside the group", () => {
+        expect(html).toMatch(/<pre class="wf no-copy" aria-label="Workflow change \(preview; not released yet\)"/);
+        const group = html.slice(html.indexOf('class="soon"'));
+        expect(group).toContain("Push, and watch it learn");
+        expect(html).not.toContain("Done, back to the dashboard");
+      });
+    });
+  }
 });
