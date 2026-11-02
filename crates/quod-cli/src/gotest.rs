@@ -204,13 +204,13 @@ impl GoTestGuard {
             deps_go: deps_go.clone(),
             layout,
         };
-        if let Ok(b) = std::fs::read(&seen) {
-            if let Some(l) = gotest::LAYOUTS.into_iter().find(|l| b == verified(*l)) {
-                // A testdeps the patch does not know keeps the step on
-                // -count=1 (checked here too: the file is read afresh).
-                gotest::guard_files(l, goroot, &deps_go, "b3:0", quod_key::WORKSPACE)?;
-                return Ok(guard(l));
-            }
+        if let Ok(b) = std::fs::read(&seen)
+            && let Some(l) = gotest::LAYOUTS.into_iter().find(|l| b == verified(*l))
+        {
+            // A testdeps the patch does not know keeps the step on
+            // -count=1 (checked here too: the file is read afresh).
+            gotest::guard_files(l, goroot, &deps_go, "b3:0", quod_key::WORKSPACE)?;
+            return Ok(guard(l));
         }
         let started = SystemTime::now();
         let mut refusals = Vec::new();
