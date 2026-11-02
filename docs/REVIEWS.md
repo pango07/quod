@@ -66,3 +66,31 @@ arguments, then unsupported claims).
 
 Builders on Opus since the Fable limit (their branches will be listed here when
 reviewed): exp/runner, exp/rootfs, exp/trust, exp/polyglot.
+
+## Not yet reviewed by Fable (Fable usage paused 2026-11-02)
+
+The owner decided on 2026-11-02 that, while Fable usage is paused, Opus reviews
+gate merges and deploys, and Fable gets a final pass over everything below
+once it is available again. Each item is either merged without an independent
+Fable review, or contains Opus-written fixes to Fable findings that Fable has
+not verified. Add new items here as they merge; move each one up to "Reviewed
+by Fable" when its pass is done.
+
+| Change | Range / merge | Status before the Fable pass | Notes |
+| --- | --- | --- | --- |
+| fix/sandbox-symlinked-etc (PR #1) | merged `72e3b59` | no independent review | step key v9; fixed /etc files for offline steps |
+| DNS fix for network steps (cherry-pick of f54947b) | `bbb97b9` | no independent review | binds resolv.conf link target, egress steps |
+| fix/cas-visibility (Fable minors 1-3 on 5d296c4, µs mtimes) | merged on main | Opus fixes, unverified by Fable | step key v8 |
+| fix/never-worse-review (Fable findings on 65fa744) | `091035d` | Opus fixes, unverified by Fable | guard v2, GOROOT key, ledger lazy index |
+| exp/trust-v2-rebased integration | `72d15c0` / `37e938a` | Opus integration; trust-v2 itself had a pre-commit Fable review | ledger v6; recording-miss cache residual accepted |
+| exp/head-replay | `7c08d73` | no review | receipts, `-buildvcs` advice, `mismatches` field |
+| exp/deferred-audits | `3ddaaca` | Fable-authored; self-review only | ledger v7 |
+| exp/observer-speed | `095127f` | no review | zero-message opens for go test/vet |
+| fix/py-node-review (Fable findings on exp/py-node-ready 75ebbea) | `5a4c18b` | Opus fixes, unverified by Fable | ledger v8, pyc rewrite, image-env rules |
+| exp/cloud-ledger-v2 go-live fixes (deployed to api.quodci.com) | `aa2a95b..cc34bd9` | Opus fixes to Fable go-live findings, unverified | live on Railway |
+| cloud fixes outside reviewed ranges: jsonb cast, PEM normalization, connect-honest, real-orgs fixes, live-steps, github-pages | various on main | Opus or unreviewed | dashboard at app.quodci.com |
+| exp/guard-outside-testing (go test guard v3) | branch, not merged | Fable-authored; needs an independent review before merge | go1.27 only |
+| fix/guard-v3-review (Opus review of exp/guard-outside-testing 712cd87, no blocker, 2 majors fixed) | branch, not merged | Opus review, Opus fixes, unverified by Fable | G6a mutation-checked; v2 goldens; go1.27 only |
+| exp/cloud-ledger-v3 (server on current main) | branch, in progress | Opus review before deploy, then Fable | deferred audits for remote runners |
+| exp/bench-lite (fast and small-real-repo benchmarks) | branch, in progress | Opus review | benchmark tooling only |
+| exp/cloud-p4 (P4: Postgres ledger, S3 blobs, backend selection, SQLite importer; the v3 review's start-up fixes) | branch, not merged, not deployed | no review yet: Opus review before cut-over, then Fable | first review: `atomically` (scope advisory lock), find_match parity, S3 content addressing and SigV4, the importer |

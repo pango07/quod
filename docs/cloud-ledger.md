@@ -6,7 +6,9 @@ design and the build record for branch `exp/cloud-ledger` (stages P0 to P2)
 , `exp/cloud-ledger-v2` (the same on trust v2 and ledger v6, and the
 go-live on Railway below) and `exp/cloud-ledger-v3` (the same on main
 5a4c18b: ledger v8, deferred audits, the network memory; see "On main's
-semantics (v3)"). DECISIONS.md has one line per choice; this page
+semantics (v3)", deployed at api.quodci.com) and `exp/cloud-p4` (P4:
+Postgres and an S3-compatible bucket, the importer, and the v3 review's
+start-up fixes). DECISIONS.md has one line per choice; this page
 explains how they fit.
 
 ## Status
@@ -16,9 +18,9 @@ explains how they fit.
 | P0 | Ledger and CAS behind traits; trust transition as a pure function | built |
 | P1 | quod-wire (quod.v1), quod-server (SQLite + filesystem), the client, dashboard reads | built |
 | P2 | Runner auth: GitHub OIDC, scopes, static tokens, team isolation; viewer auth: WorkOS access tokens, static viewer tokens | built |
-| Go-live | One instance on Railway: SQLite + files on a persistent volume, instance lock, signing key generated on the volume | built; not deployed (see "Go-live on Railway") |
+| Go-live | One instance on Railway: SQLite + files on a persistent volume, instance lock, signing key generated on the volume | deployed at api.quodci.com (v2, then v3; see "Go-live on Railway") |
 | P3 | Encryption: keyed content addressing per team, convergent AEAD | designed below |
-| P4 | Hosting: Postgres + S3-compatible store | designed below; nothing provisioned or deployed |
+| P4 | Hosting: Postgres + S3-compatible store, the SQLite importer | built on exp/cloud-p4, tested against Postgres and MinIO; not deployed (see "Cut-over runbook") |
 | P5 | Dashboard setup, team links from the GitHub App, `quodci/setup` | designed below |
 
 ## Open core: one protocol, three deployments
@@ -334,8 +336,9 @@ optional.
 ### Team isolation
 
 Every principal belongs to one team, and every handler reads only that
-team's directory (self-hosted) or rows (P4: `team_id` in every primary key
-and every query, plus Postgres row-level security as a second guard). A
+team's directory (self-hosted) or rows (P4: `team` in every key and every
+query, and every object under the team's prefix; row-level security is
+not used yet, see P4). A
 dashboard path naming another team is 404, never 403. Test S4: team B's
 runner with the same repository name, key and tree misses; B cannot GET or
 learn the existence of A's blobs; A's results are untouched by B's; each
@@ -380,7 +383,13 @@ Server configuration. Secrets are marked; everything else may be shown.
 | `QUOD_MAX_BLOB_BYTES`, `QUOD_MAX_JSON_BYTES`, `QUOD_SSE_HOLD_SECS` | no | limits (defaults 1 GiB, 32 MiB, 240 s) |
 | `QUOD_DEV=1` | no | development only: a relative data dir, no persistence check |
 | `QUOD_ALLOW_ROOT=1` | no | serve as root (the image never needs it) |
-| `DATABASE_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | | refused in this build (P4), never silently ignored |
+| `DATABASE_URL` | **yes** | with the `S3_*` below: Postgres and the bucket instead of SQLite and files (P4, "Backend selection"); one without the other is refused |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE`, `S3_PREFIX` | no | the bucket (P4) |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | the bucket's credentials (P4) |
+| `QUOD_BACKEND` | no | `sqlite` keeps SQLite whatever else is set; `postgres` insists; unset: chosen by the variables above |
+| `QUOD_PG_POOL_SIZE` | no | Postgres connections (default 10) |
+| `QUOD_IMPORT_SQLITE` | no | `1`: at boot, import the volume's SQLite data into Postgres and the bucket (once per team) |
+| `QUOD_SKIP_MIGRATION` | no | `1`: no start-up pass over the SQLite files (each still migrates when first opened) |
 
 ```json
 {
@@ -493,12 +502,24 @@ have the table (they are ordinary v8 ledgers) and never write it.
 ### Start-up migration
 
 After the instance lock and the signing key, before listening,
-`Store::migrate` opens every scope ledger of every team directory on the
-volume (each migration in its own `BEGIN IMMEDIATE` transaction, so a
-failure leaves that file as it was) and every `team.sqlite`, and logs
-`ledgers ready` with how many were upgraded. A ledger newer than the binary
-stops the boot (`data dir migration: ...`) instead of serving 500s for
-that scope. Nothing is deleted. The signing key file is only ever created
+`Store::migrate` reads every SQLite file's version (`Store::plan`), then
+opens every scope ledger of every team directory on the volume (each
+migration in its own `BEGIN IMMEDIATE` transaction, so a failure leaves
+that file as it was) and every `team.sqlite`, and logs `ledgers ready`
+with how many were upgraded. Only a file newer than the binary stops the
+boot (`data dir migration: team <t>, <repo> scope <s> (<path>): schema
+version ...`), before anything is migrated, instead of serving 500s for
+that scope. Any other failure (a corrupt or unreadable file, a failed
+migration) is logged with the team, scope and path and counted
+(`failed`); the boot goes on, the other scopes serve, and that scope
+answers 500 until it is repaired (from the v3 review, MAJOR 2).
+`QUOD_SKIP_MIGRATION=1` skips the pass (each file still migrates when a
+request first opens it); `quod-server migrate --dry-run` prints each
+file's version and what the pass would do without writing, and
+`quod-server migrate` runs the pass alone under the instance lock. With
+Postgres the files are not touched; Postgres migrates in one locked
+transaction (P4) and `migrate --dry-run` reports its version instead.
+Nothing is deleted. The signing key file is only ever created
 when absent (never replaced or regenerated: a key that cannot be read or
 parsed stops the boot). Test S14 builds the deployed build's data dir (v6
 ledgers equal to that build's golden schema, a proof recorded, the key
@@ -506,10 +527,21 @@ generated on first boot), boots this build on it, checks every ledger is
 at v8 with main's golden schema, the key file byte for byte, and that a
 fresh runner pinned to the old key replays the pre-upgrade proof; a third
 boot migrates nothing; a ledger at version 99 refuses the boot and leaves
-the key alone. Scope ledger opens are serialized in the process
-(`store::open_ledger`): a new ledger's first open switches it to WAL, which
-SQLite answers with SQLITE_BUSY, not the busy timeout, when it races
-another first open (S2 under load showed it as a 500).
+the key alone, and the error names the team, scope and file; a corrupt
+ledger does not stop the boot and is left as it was. Opens of one SQLite
+file are serialized in the process, one lock per path (`store::path_lock`,
+scope ledgers and `team.sqlite` alike): a new file's first open switches
+it to WAL, which SQLite answers with SQLITE_BUSY, not the busy timeout,
+when it races another first open (S2 under load showed it as a 500);
+opens of different files never wait on each other.
+
+Downgrading a volume by hand (v8 back to v6, for the v2 build): v7 and v8
+only added the tables `audits_pending` and `network`, which a server never
+writes. When both are empty in every scope ledger, `DROP TABLE
+audits_pending; DROP TABLE network; PRAGMA user_version = 6;` on each
+`ledger.sqlite` (with the server stopped) gives a ledger the v2 build
+opens. Not safe if either table has rows; restoring the volume's backup
+is the other way back.
 
 ## Compatibility with the branches in flight
 
@@ -558,82 +590,206 @@ encryption, not end-to-end; see the open questions).
 - Rotation: a new root key re-wraps; objects are re-sealed lazily on read, or
   by a sweep.
 
-## P4: hosting (design; nothing provisioned or deployed)
+## P4: Postgres and an S3-compatible bucket (built on exp/cloud-p4; not deployed)
 
-Production storage is Postgres plus an S3-compatible object store. No local
-disk is assumed: an instance may be replaced at any time. The SQLite and
-filesystem backends stay for self-hosting and development.
+Quod Cloud's storage: the ledger in Postgres, blobs in an S3-compatible
+bucket. The SQLite and filesystem backends stay for self-hosting and
+development; the environment picks one (below). Handlers see one
+interface for both (`store::ScopeLedger`, `store::TeamBlobs`,
+`store::Activity`), and the trust code is the same quod-trust over
+`LedgerStore` and `BlobStore`.
 
-- `PgLedger: LedgerStore`: the scope ledgers become tables keyed by
-  `(team_id, repository, scope, ...)`; `atomically` is a transaction that
-  takes `SELECT ... FOR UPDATE` on the key's trust row (or a
-  `pg_advisory_xact_lock` on a hash of (team, scope, key) when it does not
-  exist yet); row-level security on `team_id` as a second guard. The sync
-  `postgres` crate inside `spawn_blocking`, matching the trait, or an async
-  trait variant if the blocking pool becomes the bottleneck. Pooled
-  connections (Neon's pooler, Railway's PgBouncer) work: nothing uses LISTEN.
-- `S3Blobs: BlobStore`: objects at `teams/<team>/<keyed name>`; uploads as
-  multipart (the resumable PATCH maps to parts); GET streamed; presigned GETs
-  for large blobs later, so bytes skip the server.
-- The event outbox is a Postgres table read by id (the dashboard's stream
-  resumes exactly); the dashboard's own GitHub App tables stay where they are.
-- Config: `DATABASE_URL` and `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`,
-  `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (`S3_FORCE_PATH_STYLE`). The
-  generic `S3_*` names are the interface; providers map onto them. Providers:
-  Railway's own bucket (below), Cloudflare R2, Hetzner Object Storage; Neon
-  or Railway Postgres (both work: plain `DATABASE_URL`).
+### The ledger in Postgres (`pg.rs`)
 
-### Railway (P4, later)
+- Schema: quod-ledger's v8 tables (runs, manifests, results, blobs,
+  step_keys, trust, proofs, audits, manifest_nodes, audits_pending,
+  network) and team.sqlite v2's (steps, events, trusted_writes), one
+  database for every team. A scope ledger is a row of `scopes`, keyed
+  (team, repository key, scope) exactly as the self-hosted directory is
+  (`teams/<team>/scopes/<repo key>/<scope>`: `github-<id>` or the name
+  plus a hash), so the importer maps one onto the other. Every ledger
+  table carries `team` and `scope_id` in its key and every query filters
+  on both; team tables carry `team`. Text columns are `COLLATE "C"`, so
+  ordering and comparisons (RFC 3339 timestamps as strings, names) are
+  bytewise as in SQLite; SQLite's rowid tie-breaks are a `seq` column
+  (a re-recorded manifest gets a new one, as REPLACE gives a new rowid).
+  `manifest_nodes` are content-addressed and shared within a team.
+  `PG_LEDGER_LEVEL` names the quod-ledger version the tables mirror, and
+  a compile-time check fails the build when quod-ledger gains a migration
+  that `pg.rs` has not mirrored.
+- `atomically`: one transaction whose first statement is
+  `pg_advisory_xact_lock` on a hash of (team, scope id), held until COMMIT
+  or ROLLBACK. Every write to a scope's rows takes the same lock (a write
+  outside `atomically` is its own one-statement `atomically`), so writers
+  of one scope are serialized exactly as SQLite's BEGIN IMMEDIATE
+  serializes writers of one file, across connections and instances. A
+  lock per scope is a superset of the design's lock per (team, scope,
+  key): `atomically` is not handed the key, and per-scope serialization
+  is what the SQLite server already does. Isolation is READ COMMITTED,
+  which under the lock reads every committed write of the scope. A
+  failure inside rolls everything back; a panic inside rolls back when
+  the ledger is dropped. Lock waits are bounded (`lock_timeout` 60 s, as
+  SQLite's busy timeout); statements by `statement_timeout` 120 s.
+- `find_match` is `Ledger::find_match`'s algorithm on the same rows: the
+  newest candidate decoded whole; older ones through the index, whose
+  node building and evaluation moved into quod-ledger's `index`
+  (`manifest_nodes`, `NodeEval` over a loader) so both stores run the same
+  code; every index hit checked again with `matches`; a newer schema's
+  manifest or result never matches. P3 checks it answers as SQLite does
+  on the same history.
+- The event outbox: ids come from one sequence, and inserts of one team
+  take a per-team advisory lock, so a team's events commit in id order
+  and `Last-Event-ID` resumption still never skips one.
+- Connections: r2d2 over the sync `postgres` client, inside
+  `spawn_blocking` like every other store call; `QUOD_PG_POOL_SIZE`
+  (default 10). A ledger holds a connection only inside `atomically`, so
+  one request never sits on several. No TLS: the private-network URL is
+  required (Railway's private network is encrypted; `sslmode=require` is
+  refused with a message, not silently downgraded).
+- Migrations (`quod_schema`): one transaction under an advisory lock, each
+  version applied once and recorded; instances starting together wait
+  and find the work done (P1); a database newer than the build is refused
+  at start; `quod-server migrate --dry-run` reports, `migrate` applies.
+- Not used: Postgres row-level security as a second guard. The service
+  connects as Railway's `postgres` superuser, which bypasses RLS, so
+  policies would only look like a guard; doing it properly needs a
+  non-owner role for the server. Isolation is `team` in every key and
+  query (S4 and P2 check it).
 
-What follows is P4's plan, once Postgres and the bucket back the server.
-Today's deployment is one instance on a volume ("Go-live on Railway").
-Planned on the existing project `quod-cloud`
-(40abff26-c411-4d62-b1dc-d2f7de6cd4a8, environment `production`), which
-already has a `Postgres` service and the bucket `quod-results`
-(484ee3fc-aecf-4708-b7af-7712ca632a9e, region iad). Nothing here has been
-deployed or connected to.
+### Blobs in the bucket (`s3.rs`)
 
-1. Service `quod-server` from this repository, builder Dockerfile,
-   `RAILWAY_DOCKERFILE_PATH=Dockerfile.server` (multi-stage; the runtime image
-   is debian-slim with the one binary, running as a non-root user). Region:
-   us-east (iad), the bucket's region and near GitHub's runners.
-2. Healthcheck path `/healthz`. Railway sets `PORT`; the server listens on it.
-3. Variables:
+- Objects at `<S3_PREFIX>teams/<team>/blobs/<blake3 hex>`: a team's own
+  prefix, no request names another team's.
+- Content addressing kept: bytes in memory are hashed before the PUT; a
+  file is hashed to name the object and hashed again while its parts go
+  up, and the multipart upload is completed only when both agree (else
+  aborted, `CasError::Changed`). Each request is signed over its body's
+  SHA-256, so the store rejects bytes changed in flight. Reads check the
+  bytes against the name (whole reads fail, streams fail at their end).
+- Single PUT up to 16 MiB, multipart above (16 MiB parts).
+- Resumable uploads (`PATCH`) still stage on the instance's data dir and
+  go to the bucket when complete; `GET` streams from the bucket through
+  the server. Presigned GETs (bytes skipping the server) are later.
+- The client is quod-server's own SigV4 over ureq (HEAD, GET, PUT,
+  multipart), checked against AWS's published key-derivation example and
+  against MinIO in CI; virtual-hosted URLs by default, path-style with
+  `S3_FORCE_PATH_STYLE=1`.
 
-   | Variable | Value |
-   |---|---|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (the private-network URL; not `DATABASE_PUBLIC_URL`) |
-   | `S3_ENDPOINT` | `${{quod-results.ENDPOINT}}` |
-   | `S3_BUCKET` | `${{quod-results.BUCKET}}` |
-   | `S3_REGION` | `${{quod-results.REGION}}` |
-   | `S3_ACCESS_KEY_ID` | `${{quod-results.ACCESS_KEY_ID}}` |
-   | `S3_SECRET_ACCESS_KEY` | `${{quod-results.SECRET_ACCESS_KEY}}` |
-   | `QUOD_SIGNING_KEY_FILE` | the key generated at first boot (on a volume, or moved to a sealed variable by a later migration) |
-   | `QUOD_TEAMS_JSON` | teams, OIDC and viewers (tokens are for self-hosting; Cloud runners use OIDC) |
-   | `RUST_LOG` | `quod=info` |
+### Backend selection
 
-   The bucket's Credentials tab exposes `BUCKET`, `ACCESS_KEY_ID`,
-   `SECRET_ACCESS_KEY`, `REGION` and `ENDPOINT` as referenceable variables
-   (and says whether it wants path-style URLs, which sets
-   `S3_FORCE_PATH_STYLE`). The server reads only the `S3_*` names, so the
-   mapping above is the whole integration; a Hetzner or R2 bucket is the same
-   five variables with other values.
-4. Custom domain `api.quodci.com` (a CNAME to the Railway domain); TLS ends
-   at Railway's edge.
-5. Runners: `QUOD_SERVER=https://api.quodci.com`,
-   `QUOD_SERVER_KEY=<the public key from GET /v1/keys>`, and
-   `permissions: id-token: write` in the workflow (what `quodci/setup` will
-   set up).
+| Environment | Backend |
+|---|---|
+| neither `DATABASE_URL` nor any `S3_*` | SQLite and files under `QUOD_DATA_DIR` (as before) |
+| `DATABASE_URL` and `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Postgres and the bucket |
+| one without the others | refused at start, naming what is missing |
+| `QUOD_BACKEND=sqlite` | SQLite whatever else is set (a rollback without unsetting) |
+| `QUOD_BACKEND=postgres` | Postgres and the bucket, or refused |
 
-Until P4's backends exist this build refuses `DATABASE_URL` and `S3_*`, so
-deploying it to Railway as configured above would fail at start, on purpose,
-rather than keep results on an ephemeral disk.
+`S3_REGION` defaults to `us-east-1`; the AWS SDK names
+(`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_REGION`) are read when the `S3_*` ones are absent, but the bucket is
+always `S3_BUCKET`. At start, the cloud backend connects, migrates, and
+puts and reads back a probe blob (`teams/quod-probe/...`); any failure
+stops the boot rather than serve 500s.
+
+The volume stays: it holds the signing key and upload staging. So does
+the instance lock, now for those two (the key file's first generation,
+staging files two processes must not share), not for the ledger, whose
+writers serialize in Postgres. Replicas stay at 1. Going to more needs
+the key in `QUOD_SIGNING_KEY` (a sealed variable, the same key) and
+staging that is not shared (a Railway volume attaches to one replica
+anyway); then the lock can go.
+
+### Moving the live data (`import.rs`)
+
+`quod-server migrate-sqlite-to-postgres` (or `QUOD_IMPORT_SQLITE=1`, which
+runs the same import at boot, before listening): per team, every CAS blob
+to the bucket (named by its hash), then every scope ledger and
+team.sqlite read-only and copied row by row in their own order in one
+Postgres transaction with an `imports` row. A team already imported is
+skipped; a team Postgres already has scopes for (a server ran on Postgres
+first) is refused, never merged. Ledgers must be at this build's schema
+(start it once on SQLite first). Audit and event ids are renumbered
+(a dashboard holding an old `Last-Event-ID` resumes at the stream's end).
+Nothing on the volume is changed or deleted. P5 checks a proof recorded on
+SQLite replays from Postgres after the import.
+
+### Railway variables (quod-server, production)
+
+Changes to make on the `quod-server` service for the cut-over (nothing
+here has been set by this branch):
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (the private-network URL; not `DATABASE_PUBLIC_URL`) | **yes** (holds the password; a reference, so Railway resolves it) |
+| `S3_ENDPOINT` | `${{quod-results.ENDPOINT}}` (`https://t3.storageapi.dev` today) | no |
+| `S3_BUCKET` | `${{quod-results.BUCKET}}` (the S3 name with its hash suffix, not `RAILWAY_BUCKET_NAME`) | no |
+| `S3_REGION` | `${{quod-results.REGION}}` (`auto`) | no |
+| `S3_ACCESS_KEY_ID` | `${{quod-results.ACCESS_KEY_ID}}` | **yes** |
+| `S3_SECRET_ACCESS_KEY` | `${{quod-results.SECRET_ACCESS_KEY}}` | **yes** |
+| `S3_FORCE_PATH_STYLE` | `1` only if the bucket's Credentials tab says path-style; else unset (virtual-hosted, Railway's default for new buckets) | no |
+| `QUOD_IMPORT_SQLITE` | `1` for the cut-over deploy (imports the volume's data once, at boot); remove afterwards (harmless if left: imported teams are skipped) | no |
+| `QUOD_PG_POOL_SIZE` | unset (10) | no |
+
+Unchanged: `QUOD_DATA_DIR=/data` and the volume at `/data` (the signing
+key `signing.ed25519` stays there), `QUOD_TEAMS_JSON`, `WORKOS_*`,
+`RUST_LOG`, `numReplicas` 1. Not set: `QUOD_SIGNING_KEY`, `S3_PREFIX`,
+`QUOD_BACKEND`. The bucket is reachable only over the public network
+(Railway buckets have no private networking; egress to it is free).
+
+### Cut-over runbook
+
+1. Deploy this build with variables unchanged (it runs on SQLite as the
+   live build does). Check `/healthz` and that the key's fingerprint in
+   the boot log (`signing key ready`) matches `QUOD_SERVER_KEY`.
+2. Take a backup of the `quod-server` volume (Railway: the volume's
+   Backups tab). Note the Postgres service's backup state too.
+3. Dry run, from the service's shell (`railway ssh` into quod-server):
+   `DATABASE_URL=... S3_...=... quod-server migrate --dry-run` with the
+   values from the Postgres and bucket services prints the Postgres
+   schema version (0 on a fresh database: "would migrate"); without them
+   it prints each SQLite file's version.
+4. Set the variables in the table above, including `QUOD_IMPORT_SQLITE=1`,
+   and deploy. The new instance waits for the old one's lock, connects
+   to Postgres (migrating it), probes the bucket, imports the volume's
+   teams, then listens. Boot log: `postgres and object store ready`,
+   `SQLite data imported` with per-table counts, `ledgers ready` with
+   `backend: postgres+s3`. Any failure stops the boot (Railway keeps
+   restarting; the previous deployment is gone by then, so roll back by
+   step 7).
+5. Check: `/healthz` ok with the same key; the dashboard shows the same
+   runs; a push to `main` of `pango07/quod` replays a step proved before
+   the cut-over (the job log has no "not used" line).
+6. Remove `QUOD_IMPORT_SQLITE` (a later boot would skip imported teams
+   anyway). Keep the volume's SQLite files: they are the rollback.
+7. Rollback: set `QUOD_BACKEND=sqlite` (or remove `DATABASE_URL` and
+   `S3_*`) and redeploy: the server serves the volume's SQLite files as
+   they were at the cut-over. Results recorded on Postgres after the
+   cut-over are not on the volume (runners re-execute those steps; nothing
+   wrong replays). Rolling the build back to v3 is the same.
+
+### Residuals
+
+- Upload staging is per instance (on its volume): a resumable upload
+  continues only on the instance that has its first chunks.
+- No retention: blobs and `ref-...` scopes accumulate (open question 12).
+- P3's keyed object names and encryption are not applied yet: object
+  names are plain BLAKE3 hashes under the team's prefix.
 
 ## Go-live on Railway
 
 One instance of quod-server, SQLite and files on a Railway volume, at
-`api.quodci.com`. Nothing here has been deployed by this branch; these are
-the settings to make.
+`api.quodci.com`: deployed (v2, then v3). These are its settings; P4's
+cut-over to Postgres and the bucket is "Cut-over runbook" above.
+
+Before any deploy that changes a schema (a new quod-ledger version, a
+new team.sqlite version, the first P4 boot), take a backup of the
+`quod-server` volume (Railway: the volume's Backups tab) and check the
+plan: `quod-server migrate --dry-run` in the running service's shell
+prints each file's version and what the new build would do. A build
+newer than the volume migrates it at start; rolling back to an older
+build afterwards needs the backup, or the manual downgrade in "Start-up
+migration".
 
 ### The service
 
@@ -661,8 +817,7 @@ Variables:
 Not set: `QUOD_SIGNING_KEY` (the key is generated on the volume),
 `QUOD_DATA_DIR_PERSISTENT` (Railway's `RAILWAY_VOLUME_MOUNT_PATH` proves the
 volume; set it only on a host that cannot), `DATABASE_URL` and `S3_*`
-(refused until P4; the project's Postgres and bucket must not be referenced
-by this service yet).
+(they select Postgres and the bucket: set them only at the P4 cut-over).
 
 The teams document for go-live: one team, the product owner's WorkOS
 organization "quodci", linked to GitHub App installation 177628965 for
@@ -690,7 +845,8 @@ unprotected or unknown ref are recorded and warned about.
 
 ### What happens at start
 
-1. `DATABASE_URL`/`S3_*` set: refused.
+1. The backend: SQLite and files, or Postgres and the bucket ("Backend
+   selection"); half of the cloud variables: refused.
 2. `QUOD_DATA_DIR` created if needed and probed for writing (create, write,
    fsync, remove). Not writable: refused.
 3. Persistence: on Railway (`RAILWAY_PROJECT_ID`), the data dir must be
@@ -707,8 +863,16 @@ unprotected or unknown ref are recorded and warned about.
    hard-linked to its name (never replacing an existing key), the directory
    fsynced. The log carries only the public key's fingerprint and whether
    it was generated.
-6. The teams document, then listen, and sweep upload staging files older
-   than a day (then hourly).
+6. The teams document.
+7. With Postgres and the bucket: connect, migrate Postgres (one locked
+   transaction), probe the bucket, and with `QUOD_IMPORT_SQLITE=1` import
+   the volume's SQLite data; any failure stops the boot.
+8. The migration ("Start-up migration"): with SQLite, every scope ledger
+   and `team.sqlite` brought to this build's schema; a file newer than the
+   build stops the boot, a corrupt one is logged and its scope answers 500
+   (`QUOD_SKIP_MIGRATION=1` skips the pass). `ledgers ready` names the
+   backend and the counts.
+9. Listen, and sweep upload staging files older than a day (then hourly).
 
 Redeploys and the lock. A redeploy's new instance starts while the old one
 may still hold the lock; it waits up to `QUOD_LOCK_WAIT_SECS` (30 s) and
@@ -840,8 +1004,24 @@ dashboard's `QUOD_SERVER_TEAMS`.
   audience, unlinked owner, tampered, `alg: none`, HS256 under the RSA key's
   id); S8 the dashboard reads and the event stream; resumable large blobs;
   the protocol header; 409 on unuploaded blobs; S14 a v6 data dir migrates at
-  start and keeps its key; S15 a remote runner audits inline and the server
-  never holds a pending audit (and refuses a commit naming one).
+  start and keeps its key (a newer file stops the boot and is named, a
+  corrupt one does not, `migrate --dry-run` reports both); S15 a remote
+  runner audits inline and the server never holds a pending audit (and
+  refuses a commit naming one).
+- The same suite on Postgres and S3: with `QUOD_TEST_DATABASE_URL` and
+  `QUOD_TEST_S3_*` set, every server in tests/server.rs runs on its own
+  Postgres schema and bucket prefix (S14, which is about SQLite files,
+  returns at once), so S1 to S15, the S2 races included, run against both
+  backends. tests/cloud.rs adds P1 migrations (four instances at once, a
+  second run a no-op, a newer database refused), P2 `atomically` (a
+  failure rolls back every write; eight writers times ten
+  read-modify-writes with a pause inside lose no update; another team's
+  rows apart; nesting joins), P3 lookups equal to SQLite's on the same
+  history, P4 blobs (per team, multipart, streamed, a misnamed object
+  refused on read) and P5 the import (a SQLite proof replays from
+  Postgres; a second import skips; the volume's files unchanged; a team
+  Postgres already holds is refused). CI: the `server-cloud` job of
+  gate.yml, with a postgres:17 service and MinIO.
 - quod-cli `tests/server.rs` (Linux, `QUOD_INTEGRATION=1`): the real `quod
   run` with two state dirs; runner 2 replays runner 1's proof byte for byte
   while neither local ledger holds a manifest; a changed input executes; a
@@ -895,4 +1075,5 @@ dashboard's `QUOD_SERVER_TEAMS`.
     would bound it.
 12. Nothing is cleaned up yet: abandoned `uploads/<hash>.part` files stay,
     and every branch or pull request leaves a `ref-...` scope ledger. A
-    retention sweep (age, and scopes whose ref is gone) is P4 work.
+    retention sweep (age, and scopes whose ref is gone) is still to do;
+    with P4 it is rows and objects, not files.
