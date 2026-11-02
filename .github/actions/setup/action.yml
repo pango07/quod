@@ -15,15 +15,15 @@ inputs:
     required: false
     default: ''
   node-version:
-    description: Node version for `toolchains: node`
+    description: 'Node version for `toolchains: node`'
     required: false
     default: 24.22.2
   go-version:
-    description: Go version for `toolchains: go`
+    description: 'Go version for `toolchains: go`'
     required: false
     default: 1.27.3
   python-version:
-    description: Python version for `toolchains: python` (python-build-standalone)
+    description: 'Python version for `toolchains: python` (python-build-standalone)'
     required: false
     default: 3.12.16
   python-release:
@@ -31,7 +31,7 @@ inputs:
     required: false
     default: '20261026'
   uv-version:
-    description: uv version for `toolchains: python`
+    description: 'uv version for `toolchains: python`'
     required: false
     default: 0.13.6
   version:
