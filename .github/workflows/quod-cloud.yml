@@ -32,6 +32,9 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           toolchains: node
+          # Repository variables (public values): the server and its pinned key.
+          server: ${{ vars.QUOD_SERVER }}
+          server-key: ${{ vars.QUOD_SERVER_KEY }}
       # Dependencies install outside Quod (a network step is never
       # memoized); node_modules is then sealed into every step's key.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

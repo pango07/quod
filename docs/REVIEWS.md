@@ -90,3 +90,4 @@ by Fable" when its pass is done.
 | exp/guard-outside-testing (go test guard v3) | branch, not merged | Fable-authored; needs an independent review before merge | go1.27 only |
 | exp/cloud-ledger-v3 (server on current main) | branch, in progress | Opus review before deploy, then Fable | deferred audits for remote runners |
 | exp/bench-lite (fast and small-real-repo benchmarks) | branch, in progress | Opus review | benchmark tooling only |
+| exp/cloud-dogfood (setup action, client release workflow, quod-cloud dogfood workflow, getting-started) | branch, not merged | no review | setup action runs quod as root via sudo with an env file; moves per-VM /etc files (SSH host keys, netplan) out of /etc so host keys match across VMs |

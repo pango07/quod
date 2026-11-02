@@ -78,13 +78,6 @@ inputs:
     required: false
     default: replay
 outputs:
-  normalize-etc:
-    description: >
-      Move the VM's own files out of /etc (SSH host keys, cloud-init's
-      netplan file), which differ on every GitHub-hosted VM and would keep
-      any step from replaying on another VM. false keeps them.
-    required: false
-    default: 'true'
   version:
     description: The installed quod client release
     value: ${{ steps.install.outputs.version }}
