@@ -46,9 +46,10 @@ jobs:
       - name: npm test (through quod)
         working-directory: cloud
         # The repository's top level has no package.json, so the toolchain is named.
-        # vite bundles the config into node_modules/.vite-temp by default,
-        # and node_modules is sealed read-only: load it in place instead.
-        run: quod run --toolchain node -- npx vitest run --configLoader runner
+        # vitest-quod.mjs: vitest with output that is the same on identical
+        # runs (vitest prints the wall clock), the config loaded in place
+        # (node_modules is sealed read-only; vite would bundle it there).
+        run: quod run --toolchain node -- node scripts/vitest-quod.mjs
       - name: npm run lint (through quod)
         working-directory: cloud
         run: quod run --toolchain node -- npm run lint
@@ -62,7 +63,7 @@ jobs:
         working-directory: cloud
         run: |
           for i in 1 2; do
-            quod run --toolchain node -- npx vitest run --configLoader runner > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
+            quod run --toolchain node -- node scripts/vitest-quod.mjs > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
             quod run --toolchain node -- npm run lint > /dev/null 2> "$RUNNER_TEMP/l$i.err" || true
             grep -h -E 'QUOD  [A-Z]|trust:' "$RUNNER_TEMP/t$i.err" "$RUNNER_TEMP/l$i.err" || true
           done
@@ -72,7 +73,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           grep -m1 'model name' /proc/cpuinfo
-          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | sort -u | sha256sum
+          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | sort -u | tr '\n' ' '; echo
+          echo "hwcap: $(LD_SHOW_AUXV=1 /bin/true | grep -E 'AT_HWCAP' | tr '\n' ' ')"
+          sudo bash -c 'c=$(sed -n "s/^0:://p" /proc/self/cgroup); echo "cgroup $c"; d=/sys/fs/cgroup$c; while [ "$d" != /sys/fs ]; do echo "$d pids.max=$(cat $d/pids.max 2>/dev/null) memory.max=$(cat $d/memory.max 2>/dev/null)"; d=$(dirname $d); done'
+          echo "binfmt: $(ls /proc/sys/fs/binfmt_misc 2>/dev/null | tr '\n' ' ')"
+          echo "lsm: $(cat /sys/kernel/security/lsm 2>/dev/null)"
+          echo "fs: $(stat -f -c %T /var/lib/quod) bwrap: $(bwrap --version)"
+          echo "host-probe: $(sudo /usr/local/lib/quod/quod __host-probe 2>&1 | head -c 4000)"
           gh api 'repos/${{ github.repository }}/contents/scripts/host-fingerprint.sh?ref=cc34bd9093f5a1c94bb27c0f777604405acd1df8' -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/fp.sh"
           sudo env -i PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/python/bin:/usr/bin:/bin bash "$RUNNER_TEMP/fp.sh"
           echo "--- /etc files"
