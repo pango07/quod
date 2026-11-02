@@ -2655,9 +2655,22 @@ fn skips_offline(n: &quod_ledger::NetworkRow) -> bool {
 }
 
 /// The workspace paths an offline try read (sorted, unique): what the
-/// network memory keeps of it (`Ledger::mark_network`).
+/// network memory keeps of it (`Ledger::mark_network`). Not the tool
+/// cache (`.quod/tool`, RUNNER_TOOL_CACHE, which persists from job to job):
+/// the caches tools keep there (pip's, setup-python's) change on every job,
+/// so a digest over them never matched and a step that needs the network
+/// tried offline first on every job (the Moto benchmark's `pip install`).
+/// The memory only decides whether to skip the offline try: a coarser
+/// digest can only skip a try that would now have succeeded offline (the
+/// step then runs where it ran last time, never recorded, until the
+/// periodic probe), never make anything replay.
 fn network_inputs(log: &[quod_manifest::Access]) -> Vec<String> {
-    let paths: std::collections::BTreeSet<&str> = log.iter().map(|a| a.path.as_str()).collect();
+    let tool = format!("{STATE_SUBDIR}/tool");
+    let paths: std::collections::BTreeSet<&str> = log
+        .iter()
+        .map(|a| a.path.as_str())
+        .filter(|p| *p != tool && !p.starts_with(&format!("{tool}/")))
+        .collect();
     paths.into_iter().map(String::from).collect()
 }
 
@@ -3106,6 +3119,38 @@ mod tests {
             !same_inputs(&unknown, &t1),
             "a row without inputs tries offline"
         );
+    }
+
+    /// The tool cache (pip's cache under RUNNER_TOOL_CACHE, the Moto
+    /// benchmark) is not part of the network memory's inputs: it changes
+    /// every job, and the memory held for none.
+    #[test]
+    fn the_network_memory_ignores_the_tool_cache() {
+        let f = |p: &str, c: &[u8]| Entry::file(p, Hash::of(c), 0o644);
+        let acc = |p: &str| quod_manifest::Access {
+            path: p.into(),
+            kind: EntryKind::File,
+        };
+        let log = [
+            acc("requirements.txt"),
+            acc(".quod/tool"),
+            acc(".quod/tool/pip/http-v2/a/b/c.body"),
+            acc(".quod/toolbox/x"),
+        ];
+        let paths = network_inputs(&log);
+        assert_eq!(paths, [".quod/toolbox/x", "requirements.txt"]);
+        let job1 = Tree::from_leaves([
+            f("requirements.txt", b"moto==5"),
+            f(".quod/tool/pip/http-v2/a/b/c.body", b"job 1"),
+        ]);
+        let job2 = Tree::from_leaves([
+            f("requirements.txt", b"moto==5"),
+            f(".quod/tool/pip/http-v2/a/b/c.body", b"job 2"),
+            f(".quod/tool/pip/http-v2/d/e/f.body", b"new"),
+        ]);
+        assert_eq!(inputs_digest(&job1, &paths), inputs_digest(&job2, &paths));
+        let bumped = Tree::from_leaves([f("requirements.txt", b"moto==6")]);
+        assert_ne!(inputs_digest(&job1, &paths), inputs_digest(&bumped, &paths));
     }
 
     #[test]
