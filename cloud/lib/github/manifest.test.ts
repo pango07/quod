@@ -58,10 +58,10 @@ describe("buildManifest", () => {
       callback_urls: ["https://app.quodci.com/github/installed"],
       request_oauth_on_install: true,
       public: true,
-      default_permissions: { actions: "read", metadata: "read" },
-      default_events: ["workflow_job", "workflow_run"],
+      default_permissions: { actions: "read", administration: "read", metadata: "read" },
+      default_events: ["workflow_job", "workflow_run", "branch_protection_rule", "repository_ruleset", "repository"],
     });
-    expect(Object.keys(m.default_permissions).sort()).toEqual(["actions", "metadata"]);
+    expect(Object.keys(m.default_permissions).sort()).toEqual(["actions", "administration", "metadata"]);
   });
 
   it("derives the hosts from APP_URL, else the request origin (localhost works)", () => {

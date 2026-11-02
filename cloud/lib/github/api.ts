@@ -265,3 +265,67 @@ export async function installationTokenWithExpiry(jwt: string, installationId: n
 export async function listInstallationRepos(instToken: string, f: Fetch = fetch) {
   return paged<GhRepoWithPermissions>(`${GITHUB_API}/installation/repositories`, instToken, "repositories", "list installation repos", f);
 }
+
+// ---------------------------------------------------------------- Default-branch protection (Administration: read)
+
+export type ProtectionRead =
+  | { kind: "ok"; defaultBranch: string; classic: boolean | null; rulesets: boolean | null; reason: string | null; rate: RateInfo }
+  | { kind: "gone"; rate: RateInfo }
+  | { kind: "limited"; rate: RateInfo }
+  | { kind: "error"; status: number; rate: RateInfo };
+
+const isLimited = (res: Response, rate: RateInfo) => res.status === 429 || (res.status === 403 && (rate.remaining === 0 || rate.retryAfterMs !== null));
+
+/**
+ * Is the repository's default branch protected? Three reads with the
+ * installation token: the repository (its default branch), the branch's
+ * classic protection (needs Administration: read; a 404 "Branch not
+ * protected" means none), and the rules that apply to the branch from
+ * rulesets, the repository's or the organization's (needs only Metadata).
+ * `null` means that part could not be read. Never throws on an HTTP status.
+ */
+export async function readDefaultBranchProtection(token: string, fullName: string, f: Fetch = fetch): Promise<ProtectionRead> {
+  const repoRes = await f(`${GITHUB_API}/repos/${repoPath(fullName)}`, { headers: headers(token), cache: "no-store" });
+  let rate = rateInfo(repoRes.headers);
+  if (repoRes.status === 404 || repoRes.status === 410) return { kind: "gone", rate };
+  if (isLimited(repoRes, rate)) return { kind: "limited", rate };
+  if (!repoRes.ok) return { kind: "error", status: repoRes.status, rate };
+  const branch = ((await repoRes.json()) as { default_branch?: unknown }).default_branch;
+  if (typeof branch !== "string" || !branch) return { kind: "error", status: 502, rate };
+  const b = encodeURIComponent(branch);
+
+  const [classicRes, rulesRes] = await Promise.all([
+    f(`${GITHUB_API}/repos/${repoPath(fullName)}/branches/${b}/protection`, { headers: headers(token), cache: "no-store" }),
+    f(`${GITHUB_API}/repos/${repoPath(fullName)}/rules/branches/${b}?per_page=1`, { headers: headers(token), cache: "no-store" }),
+  ]);
+  rate = rateInfo(rulesRes.headers);
+  if (isLimited(classicRes, rateInfo(classicRes.headers)) || isLimited(rulesRes, rate)) return { kind: "limited", rate };
+
+  let classic: boolean | null = null;
+  let reason: string | null = null;
+  if (classicRes.ok) {
+    classic = true;
+    await classicRes.body?.cancel().catch(() => undefined);
+  } else if (classicRes.status === 404) {
+    // GitHub answers "Branch not protected" for an unprotected branch; any other 404 (no access) proves nothing.
+    const msg = await classicRes.json().then(
+      (v: { message?: unknown }) => (typeof v?.message === "string" ? v.message : ""),
+      () => "",
+    );
+    if (/not protected/i.test(msg)) classic = false;
+    else reason = "no-access";
+  } else {
+    await classicRes.body?.cancel().catch(() => undefined);
+    reason = classicRes.status === 403 ? "no-permission" : `classic-${classicRes.status}`;
+  }
+
+  let rulesets: boolean | null = null;
+  if (rulesRes.ok) {
+    const rules = (await rulesRes.json()) as unknown;
+    rulesets = Array.isArray(rules) && rules.length > 0;
+  } else {
+    await rulesRes.body?.cancel().catch(() => undefined);
+    reason ??= `rules-${rulesRes.status}`;
+  }
+  return { kind: "ok", defaultBranch: branch, classic, rulesets, reason, rate };
+}

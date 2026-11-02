@@ -20,6 +20,7 @@ import {
   TRUST_COUNTS,
   trustSeed,
 } from "./fixture-data";
+import { resolveTeamsLocally } from "./teams";
 import { cursorAt, deltaSinceMidnight, detailAt, eventsBetween, jobsAt, latestRun, runByNumber, runsStartedBetween, summaryAt, trustEventsFor } from "@/lib/live/sim";
 import type {
   Activity,
@@ -63,16 +64,6 @@ const sleep = (ms: number, signal: AbortSignal) =>
     const t = setTimeout(resolve, ms);
     signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
   });
-
-const slugify = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "team";
-
-/** Top-level paths a team slug must not take. */
-const RESERVED_TEAM_SLUGS = new Set(["api", "callback", "github", "invite", "reset-password", "setup", "sign-in", "sign-out", "sign-up", "signed-out", "verify-email"]);
 
 export interface FixtureState {
   proofs: Map<string, number>;
@@ -156,20 +147,7 @@ export class FixtureCloudApi implements CloudApi {
 
   async resolveTeams(orgs: OrgRef[]): Promise<Team[]> {
     await this.tick();
-    // The demo session's teams keep their slugs. Every other org is a real team,
-    // never a sample team, whatever its name; its slug only has to differ from the
-    // viewer's other teams (slugs are per viewer, so a real org named "quodci" is /quodci).
-    const known = new Map(orgs.map((o) => [o.orgId, TEAMS.find((t) => t.orgId === o.orgId)]));
-    const taken = new Set([...known.values()].flatMap((t) => (t ? [t.slug] : [])));
-    return orgs.map((org) => {
-      const demo = known.get(org.orgId);
-      if (demo) return { ...demo };
-      const base = slugify(org.name);
-      let slug = base;
-      for (let i = 2; taken.has(slug) || RESERVED_TEAM_SLUGS.has(slug); i++) slug = `${base}-${i}`;
-      taken.add(slug);
-      return { slug, name: org.name, plan: "Hobby", orgId: org.orgId } satisfies Team;
-    });
+    return resolveTeamsLocally(orgs);
   }
 
   async getTeamHealth(team: string): Promise<TeamHealth> {

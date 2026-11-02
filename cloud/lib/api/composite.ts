@@ -1,16 +1,25 @@
-// CloudApi composite: CI job activity from the GitHub App, everything else
-// (Quod's runs, steps, trust, stats) from the inner adapter (fixture or HTTP).
+// CloudApi composite: CI job activity from the GitHub App, Quod's own data
+// (runs, steps, trust, stats) from the inner adapter (fixture, HTTP, or none).
 //
 // Which data a team sees is decided once per request from its WorkOS org id,
 // never from its slug or name (anyone can name an org "quodci"):
 // - The sample team (the demo session's sample org, `isSample`): the inner
 //   adapter only, sample data and the simulator. Never GitHub data.
 // - Every other team: the inner adapter's (real) data, plus, when a GitHub
-//   installation is linked, its repos with their latest workflow run and its
-//   live jobs ("Now running", job.* events) from Postgres (lib/github/live.ts).
+//   installation is linked, its repos with their latest workflow run and
+//   default-branch protection, and its live jobs ("Now running", job.*
+//   events) from Postgres (lib/github/live.ts).
 //   Not linked: Activity.github says so, and pages show the Connect card.
-// Without a database, or when it does not answer, the inner adapter's
-// answers stand and Activity.github says why (pages render a notice).
+// The two sources meet per repository by full name (owner/name), never by
+// slug: quod-server's slugs are mapped to the dashboard's (repo-map.ts). A
+// repo Quod has data for shows Quod's numbers; one it has not, GitHub's run
+// and "Appears once Quod runs".
+//
+// Failures: without a database, or when it does not answer, the inner
+// adapter's answers stand and Activity.github says why. When quod-server does
+// not answer (ApiUnavailableError), the pages that can show GitHub's data
+// show it alone, with `quod: { state: "unavailable" }` for a note; the others
+// get the error and render a section card (components/section.tsx).
 
 import { unstable_rethrow } from "next/navigation";
 import type { Db } from "@/lib/db/types";
@@ -21,7 +30,10 @@ import { mergeAsync } from "@/lib/live/merge";
 import { inScope } from "@/lib/live/scope";
 import { isSlug } from "@/lib/params";
 import { TEAM_PAGES } from "@/lib/routes";
-import type { Activity, CloudApi, GitHubLink, LiveEvent, LiveJob, LiveScope, Overview, RepoDetail, RepoSummary } from "./types";
+import { NoQuodCloudApi } from "./none";
+import { buildRepoMap, IDENTITY, mapEvent, mapOverview, mapRepoDetail, mapRepoSummary, mapRunSummary, mapSearchIndex, mapStep, scopeToQuod, type RepoMap } from "./repo-map";
+import { ApiNotAvailableError, ApiUnavailableError } from "./types";
+import type { Activity, BranchProtection, CloudApi, GitHubLink, LiveEvent, LiveJob, LiveScope, Overview, QuodStatus, RepoDetail, RepoSummary, SearchIndex } from "./types";
 
 /** What the composite needs from the GitHub side (lib/github/live.ts and friends); injectable for tests. */
 export interface GitHubSource {
@@ -30,6 +42,8 @@ export interface GitHubSource {
   /** Is the GitHub App set up on this deploy (so admins can install it)? */
   appReady(): boolean;
   db(): Promise<Db>;
+  /** Default-branch protection per GitHub repo id, from the cache (lib/github/protection.ts). Absent: not shown. */
+  protection?(teamId: TeamId, db: Db, repos: GhRepo[]): Promise<Map<number, BranchProtection>>;
 }
 
 export interface CompositeOptions {
@@ -42,6 +56,8 @@ export interface CompositeOptions {
   resyncWindowMs?: number;
   /** A fixed poll interval for the job feed, no idle back-off (tests). Default: the poller's own (2 s, backing off to 10 s). */
   pollIntervalMs?: number;
+  /** Where a Quod failure is reported (default: a console warning with the error's name only). */
+  onQuodError?: (what: string, e: unknown) => void;
 }
 
 export interface GhRepo {
@@ -71,7 +87,10 @@ function fromGitHub<J extends LiveJob>(job: J): J {
 const ghVersion = (id: string | null) => (id && /^gh-(\d{1,15})$/.test(id) ? Number(id.slice(3)) : 0);
 const lower = (s: string) => s.toLowerCase();
 
-const warn = (what: string, e: unknown) => console.warn(`[quod-cloud] ${what}`, { error: e instanceof Error ? e.name : "unknown" });
+const warn = (what: string, e: unknown) => console.warn(`[quod-cloud] ${what}`, { error: e instanceof Error ? e.name : "unknown", message: e instanceof ApiUnavailableError ? e.message : undefined });
+
+/** quod-server could not be used: show what GitHub has, and say so. */
+const unavailable = (e: ApiUnavailableError): QuodStatus => ({ state: "unavailable", message: e.message });
 
 /**
  * Repo slugs for an installation's repos: the bare name, or "owner-name" when
@@ -127,13 +146,26 @@ export async function readGitHubState(orgId: string | null, gh: GitHubSource): P
   }
 }
 
+interface GhRepoInfo {
+  summary: RepoSummary;
+  repo: GhRepo;
+}
+
 export class CompositeCloudApi implements CloudApi {
   private readonly ctxs = new Map<string, Promise<TeamCtx>>();
+  private readonly ghStates = new Map<string, Promise<GitHubState>>();
+  private readonly ghInfos = new Map<string, Promise<GhRepoInfo[]>>();
+  private readonly maps = new Map<string, Promise<RepoMap>>();
+  private readonly none = new NoQuodCloudApi();
 
   constructor(
     private readonly inner: CloudApi,
     private readonly opts: CompositeOptions,
   ) {}
+
+  private quodError(what: string, e: unknown) {
+    (this.opts.onQuodError ?? warn)(what, e);
+  }
 
   /** The team's org, and whether it is the sample team: decided once per request, from the org id alone. */
   private ctx(team: string): Promise<TeamCtx> {
@@ -147,52 +179,118 @@ export class CompositeCloudApi implements CloudApi {
     return c;
   }
 
-  /** The team's GitHub status, and its repos when linked. Never throws, except Next's redirect/notFound. */
+  /** The team's GitHub status, and its repos when linked; once per instance. Never throws, except Next's redirect/notFound. */
   private github(c: TeamCtx): Promise<GitHubState> {
-    return readGitHubState(c.orgId, this.opts.github);
+    const key = c.orgId ?? "";
+    let g = this.ghStates.get(key);
+    if (!g) {
+      g = readGitHubState(c.orgId, this.opts.github);
+      g.catch(() => this.ghStates.delete(key));
+      this.ghStates.set(key, g);
+    }
+    return g;
   }
 
-  /** Repos from GitHub, with their latest workflow run, for those Quod has no data on. */
-  private async githubRepos(g: GitHubState, have: Set<string>): Promise<RepoSummary[]> {
-    if (g.teamId === null || g.link.state !== "linked") return [];
-    try {
-      const { latestRunsByRepo } = await live();
-      const latestByRepo = await latestRunsByRepo(g.teamId, g.db);
-      return g.repos
-        .filter((r) => !have.has(lower(r.slug)))
-        .map((r) => {
-          const latest = latestByRepo.get(r.id) ?? null;
-          return {
-            slug: r.slug,
-            fullName: r.fullName,
-            language: "GitHub",
-            runner: "github-hosted" as const,
-            replayRate: 0,
-            savedMinutes: 0,
-            lastRunAt: latest?.startedAt ?? latest?.updatedAt ?? null,
-            lastRunStatus: latest ? (latest.status !== "completed" ? "running" : latest.githubConclusion === "success" ? "passed" : "failed") : null,
-            pausedSteps: 0,
-            hasQuodData: false,
-            github: {
-              latestRun: latest
-                ? { id: latest.id, status: latest.status, conclusion: latest.githubConclusion, title: latest.title, url: latest.githubUrl, at: latest.startedAt ?? latest.updatedAt }
-                : null,
-            },
-          } satisfies RepoSummary;
-        });
-    } catch (e) {
-      unstable_rethrow(e);
-      warn("github repos unavailable", e);
-      return [];
+  /** The linked repos as RepoSummaries (GitHub's latest run, protection, no Quod numbers). Never throws. */
+  private ghRepoInfos(g: GitHubState): Promise<GhRepoInfo[]> {
+    if (g.teamId === null || g.link.state !== "linked") return Promise.resolve([]);
+    const { teamId, db, repos } = g;
+    let p = this.ghInfos.get(teamId);
+    if (!p) {
+      p = (async () => {
+        try {
+          const { latestRunsByRepo } = await live();
+          const [latestByRepo, protection] = await Promise.all([
+            latestRunsByRepo(teamId, db),
+            this.opts.github.protection ? this.opts.github.protection(teamId, db, repos).catch((e) => (warn("branch protection unavailable", e), new Map<number, BranchProtection>())) : Promise.resolve(null),
+          ]);
+          return repos.map((r) => {
+            const latest = latestByRepo.get(r.id) ?? null;
+            const summary: RepoSummary = {
+              slug: r.slug,
+              fullName: r.fullName,
+              language: "GitHub",
+              runner: "github-hosted",
+              replayRate: 0,
+              savedMinutes: 0,
+              lastRunAt: latest?.startedAt ?? latest?.updatedAt ?? null,
+              lastRunStatus: latest ? (latest.status !== "completed" ? "running" : latest.githubConclusion === "success" ? "passed" : "failed") : null,
+              pausedSteps: 0,
+              hasQuodData: false,
+              github: {
+                latestRun: latest
+                  ? { id: latest.id, status: latest.status, conclusion: latest.githubConclusion, title: latest.title, url: latest.githubUrl, at: latest.startedAt ?? latest.updatedAt }
+                  : null,
+              },
+              ...(protection ? { protection: protection.get(r.id) ?? { state: "unknown", branch: null, checkedAt: null } } : {}),
+            };
+            return { summary, repo: r };
+          });
+        } catch (e) {
+          unstable_rethrow(e);
+          warn("github repos unavailable", e);
+          return [];
+        }
+      })();
+      this.ghInfos.set(teamId, p);
     }
+    return p;
+  }
+
+  /**
+   * quod-server's slugs to the dashboard's, for a linked team (identity
+   * otherwise, and for the sample team). Reads quod-server's repo list once
+   * per instance; when it cannot, slugs pass through unchanged.
+   */
+  private repoMap(team: string, c: TeamCtx): Promise<RepoMap> {
+    if (c.simulated) return Promise.resolve(IDENTITY);
+    let m = this.maps.get(team);
+    if (!m) {
+      m = (async () => {
+        const g = await this.github(c);
+        if (g.teamId === null || g.link.state !== "linked") return IDENTITY;
+        try {
+          return buildRepoMap(await this.inner.listRepos(team), g.repos);
+        } catch (e) {
+          unstable_rethrow(e);
+          if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
+          return { ...buildRepoMap([], g.repos), failed: e instanceof ApiUnavailableError ? e : undefined };
+        }
+      })();
+      m.catch(() => this.maps.delete(team));
+      this.maps.set(team, m);
+    }
+    return m;
+  }
+
+  /** Quod's repos and GitHub's, one per full name: Quod's numbers, GitHub's latest run and protection next to them. */
+  private mergeRepos(quod: RepoSummary[], gh: GhRepoInfo[]): RepoSummary[] {
+    const ghBy = new Map(gh.map((x) => [lower(x.summary.fullName), x.summary]));
+    const merged = quod.map((r) => {
+      const g = ghBy.get(lower(r.fullName));
+      if (!g) return r;
+      ghBy.delete(lower(r.fullName));
+      return { ...r, ...(g.github ? { github: g.github } : {}), ...(g.protection ? { protection: g.protection } : {}) };
+    });
+    return [...merged, ...ghBy.values()];
   }
 
   // ---------------------------------------------------------------- Live
 
   async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {
     const c = await this.ctx(team);
-    const base = await this.inner.getActivity(team, opts);
-    if (c.simulated) return base; // the sample team keeps the simulator
+    if (c.simulated) return this.inner.getActivity(team, opts);
+    const map = await this.repoMap(team, c);
+    let base: Activity;
+    try {
+      base = await this.inner.getActivity(team, opts.repo ? { repo: map.toQuod(opts.repo) } : {});
+      base = { ...base, jobs: base.jobs.map((j) => ({ ...j, repoSlug: map.toDash(j.repoSlug) })) };
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError)) throw e;
+      this.quodError("quod activity unavailable", e);
+      base = { ...(await this.none.getActivity()), quod: unavailable(e) };
+    }
     const g = await this.github(c);
     if (g.teamId === null || g.link.state !== "linked") return { ...base, github: g.link };
     try {
@@ -226,6 +324,21 @@ export class CompositeCloudApi implements CloudApi {
   }
 
   /**
+   * Quod's events with the dashboard's repo slugs. A failure of quod-server's
+   * stream ends only Quod's part (the adapter already reconnects on its own);
+   * GitHub's keeps going, and the browser's next reconnect tries Quod again.
+   */
+  private async *quodEvents(team: string, scope: LiveScope, map: RepoMap, lastEventId: string | null, signal: AbortSignal): AsyncGenerator<LiveEvent> {
+    try {
+      for await (const e of this.inner.subscribe(team, scopeToQuod(map, scope), { lastEventId, signal })) yield mapEvent(map, e);
+    } catch (e) {
+      unstable_rethrow(e);
+      if (signal.aborted) return;
+      this.quodError("quod event stream ended", e);
+    }
+  }
+
+  /**
    * Merged stream: GitHub job events (from the team's shared poller) and the
    * inner adapter's events. Ids carry both positions (lib/live/cursor.ts).
    * The inner adapter only ever sees its own part of the cursor.
@@ -233,15 +346,18 @@ export class CompositeCloudApi implements CloudApi {
   async *subscribe(team: string, scope: LiveScope, opts: { lastEventId?: string | null; signal: AbortSignal }): AsyncIterable<LiveEvent> {
     const { gh, quod } = splitCursor(opts.lastEventId);
     const c = await this.ctx(team);
-    const innerStream = () => this.inner.subscribe(team, scope, { lastEventId: quod, signal: opts.signal });
+    if (c.simulated) {
+      yield* this.inner.subscribe(team, scope, { lastEventId: quod, signal: opts.signal });
+      return;
+    }
+    const map = await this.repoMap(team, c);
+    const innerStream = () => this.quodEvents(team, scope, map, quod, opts.signal);
     let setup: Awaited<ReturnType<CompositeCloudApi["streamSetup"]>> = null;
-    if (!c.simulated) {
-      try {
-        setup = await this.streamSetup(c, gh);
-      } catch (e) {
-        unstable_rethrow(e);
-        warn("github stream unavailable", e); // the inner stream alone; the browser's next reconnect tries again
-      }
+    try {
+      setup = await this.streamSetup(c, gh);
+    } catch (e) {
+      unstable_rethrow(e);
+      warn("github stream unavailable", e); // the inner stream alone; the browser's next reconnect tries again
     }
     if (!setup) {
       yield* innerStream();
@@ -281,40 +397,171 @@ export class CompositeCloudApi implements CloudApi {
 
   async getOverview(team: string, range: Parameters<CloudApi["getOverview"]>[1]): Promise<Overview> {
     const c = await this.ctx(team);
-    const ov = await this.inner.getOverview(team, range);
-    if (c.simulated) return ov;
-    const extra = await this.githubRepos(await this.github(c), new Set(ov.repos.map((r) => lower(r.slug))));
-    return extra.length ? { ...ov, repos: [...ov.repos, ...extra] } : ov;
+    if (c.simulated) return this.inner.getOverview(team, range);
+    const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
+    let ov: Overview;
+    try {
+      ov = mapOverview(map, await this.inner.getOverview(team, range));
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError)) throw e;
+      this.quodError("quod overview unavailable", e);
+      ov = { ...(await this.none.getOverview(team, range)), quod: unavailable(e) };
+    }
+    const gh = await this.ghRepoInfos(g);
+    return gh.length ? { ...ov, repos: this.mergeRepos(ov.repos, gh) } : ov;
   }
 
   async listRepos(team: string): Promise<RepoSummary[]> {
     const c = await this.ctx(team);
-    const repos = await this.inner.listRepos(team);
-    if (c.simulated) return repos;
-    return [...repos, ...(await this.githubRepos(await this.github(c), new Set(repos.map((r) => lower(r.slug)))))];
+    if (c.simulated) return this.inner.listRepos(team);
+    const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
+    let repos: RepoSummary[] = [];
+    try {
+      repos = (await this.inner.listRepos(team)).map((r) => mapRepoSummary(map, r));
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError)) throw e;
+      this.quodError("quod repos unavailable", e);
+    }
+    return this.mergeRepos(repos, await this.ghRepoInfos(g));
   }
 
   async getRepo(team: string, repo: string): Promise<RepoDetail | null> {
     const c = await this.ctx(team);
-    const own = await this.inner.getRepo(team, repo);
-    if (own || c.simulated) return own;
-    const summary = (await this.githubRepos(await this.github(c), new Set())).find((r) => r.slug === repo);
-    if (!summary) return null;
-    return { asOf: new Date().toISOString(), summary, defaultBranch: "main", latestRun: null, runTimes: [], steps: [] };
+    if (c.simulated) return this.inner.getRepo(team, repo);
+    const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
+    const gh = (await this.ghRepoInfos(g)).find((x) => lower(x.repo.slug) === lower(repo));
+    let own: RepoDetail | null = null;
+    let status: QuodStatus | undefined;
+    try {
+      if (map.failed && gh) throw map.failed;
+      // A GitHub repo Quod's repo list does not have: no need to ask.
+      const quodSlug = map.toQuod(repo);
+      const known = map.identity || !gh || map.quodByName.has(lower(gh.summary.fullName));
+      own = known ? await this.inner.getRepo(team, quodSlug) : null;
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError) || !gh) throw e;
+      this.quodError("quod repo unavailable", e);
+      status = unavailable(e);
+    }
+    if (own) {
+      const d = mapRepoDetail(map, own);
+      return gh ? { ...d, summary: this.mergeRepos([d.summary], [gh])[0] } : d;
+    }
+    if (!gh) return null;
+    return { asOf: new Date().toISOString(), summary: gh.summary, defaultBranch: gh.summary.protection?.branch ?? "main", latestRun: null, runTimes: [], steps: [], ...(status ? { quod: status } : {}) };
   }
 
-  // ---------------------------------------------------------------- Everything else: the inner adapter
+  async listRuns(team: string, opts: { repo?: string; limit?: number } = {}) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.listRuns(team, opts);
+    const map = await this.repoMap(team, c);
+    try {
+      const r = await this.inner.listRuns(team, { ...opts, ...(opts.repo ? { repo: map.toQuod(opts.repo) } : {}) });
+      return { ...r, runs: r.runs.map((x) => mapRunSummary(map, x)) };
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError)) throw e;
+      this.quodError("quod runs unavailable", e);
+      return { asOf: new Date().toISOString(), runs: [], quod: unavailable(e) };
+    }
+  }
+
+  async getRun(team: string, repo: string, run: number) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.getRun(team, repo, run);
+    const map = await this.repoMap(team, c);
+    const r = await this.inner.getRun(team, map.toQuod(repo), run);
+    return r ? mapRunSummary(map, r) : null;
+  }
+
+  async listSteps(team: string, opts: { repo?: string } = {}) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.listSteps(team, opts);
+    const map = await this.repoMap(team, c);
+    const steps = await this.inner.listSteps(team, opts.repo ? { repo: map.toQuod(opts.repo) } : {});
+    return steps.map((s) => mapStep(map, s));
+  }
+
+  async getStepTrust(team: string, repo: string, key: string) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.getStepTrust(team, repo, key);
+    const map = await this.repoMap(team, c);
+    const s = await this.inner.getStepTrust(team, map.toQuod(repo), key);
+    return s ? mapStep(map, s) : null;
+  }
+
+  async setProofsNeeded(team: string, repo: string, key: string, need: number) {
+    const c = await this.ctx(team);
+    const map = await this.repoMap(team, c);
+    return mapStep(map, await this.inner.setProofsNeeded(team, map.toQuod(repo), key, need));
+  }
+
+  async requestRerunWithoutQuod(team: string, repo: string, run: number) {
+    const c = await this.ctx(team);
+    const map = await this.repoMap(team, c);
+    return this.inner.requestRerunWithoutQuod(team, map.toQuod(repo), run);
+  }
+
+  /** quod-server answers 501 for runners (GitHub's "Seen in your CI" shows them): none from Quod. */
+  async listRunners(team: string) {
+    try {
+      return await this.inner.listRunners(team);
+    } catch (e) {
+      unstable_rethrow(e);
+      if (e instanceof ApiNotAvailableError) return [];
+      throw e;
+    }
+  }
+
+  /** The setup instructions are the same for every team; when quod-server does not keep them (501, or down), the built-in ones. */
+  async getConnectSetup(team: string) {
+    const c = await this.ctx(team);
+    try {
+      const s = await this.inner.getConnectSetup(team);
+      if (c.simulated) return s;
+      const map = await this.repoMap(team, c);
+      return s.firstRepo ? { ...s, firstRepo: { ...s.firstRepo, slug: map.toDash(s.firstRepo.slug) } } : s;
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiNotAvailableError || e instanceof ApiUnavailableError)) throw e;
+      const first = (await this.ghRepoInfos(await this.github(c)))[0]?.summary;
+      return { ...(await this.none.getConnectSetup()), firstRepo: first ? { slug: first.slug, fullName: first.fullName } : null };
+    }
+  }
+
+  /** The ⌘K menu: Quod's runs and steps, and every repo from either source. */
+  async getSearchIndex(team: string): Promise<SearchIndex> {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.getSearchIndex(team);
+    const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
+    let idx: SearchIndex = { repos: [], runs: [], steps: [] };
+    try {
+      idx = mapSearchIndex(map, await this.inner.getSearchIndex(team));
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
+    }
+    const have = new Set(idx.repos.map((r) => lower(r.fullName)));
+    const extra = (await this.ghRepoInfos(g)).filter((x) => !have.has(lower(x.summary.fullName))).map((x) => ({ slug: x.summary.slug, fullName: x.summary.fullName }));
+    return extra.length ? { ...idx, repos: [...idx.repos, ...extra] } : idx;
+  }
+
+  /** The sidebar on every page: zeros rather than an error when quod-server is down or does not have it. */
+  async getTeamHealth(team: string) {
+    try {
+      return await this.inner.getTeamHealth(team);
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
+      return this.none.getTeamHealth();
+    }
+  }
+
+  // ---------------------------------------------------------------- The inner adapter as is
 
   resolveTeams: CloudApi["resolveTeams"] = (orgs) => this.inner.resolveTeams(orgs);
-  getTeamHealth: CloudApi["getTeamHealth"] = (team) => this.inner.getTeamHealth(team);
-  listRuns: CloudApi["listRuns"] = (team, opts) => this.inner.listRuns(team, opts);
-  getRun: CloudApi["getRun"] = (team, repo, run) => this.inner.getRun(team, repo, run);
-  listSteps: CloudApi["listSteps"] = (team, opts) => this.inner.listSteps(team, opts);
-  getStepTrust: CloudApi["getStepTrust"] = (team, repo, key) => this.inner.getStepTrust(team, repo, key);
-  setProofsNeeded: CloudApi["setProofsNeeded"] = (team, repo, key, need) => this.inner.setProofsNeeded(team, repo, key, need);
-  requestRerunWithoutQuod: CloudApi["requestRerunWithoutQuod"] = (team, repo, run) => this.inner.requestRerunWithoutQuod(team, repo, run);
-  listRunners: CloudApi["listRunners"] = (team) => this.inner.listRunners(team);
-  getConnectSetup: CloudApi["getConnectSetup"] = (team) => this.inner.getConnectSetup(team);
   saveConnectChoice: CloudApi["saveConnectChoice"] = (team, choice) => this.inner.saveConnectChoice(team, choice);
-  getSearchIndex: CloudApi["getSearchIndex"] = (team) => this.inner.getSearchIndex(team);
 }
