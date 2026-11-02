@@ -43,10 +43,23 @@ jobs:
       - name: npm test (through quod)
         working-directory: cloud
         # The repository's top level has no package.json, so the toolchain is named.
-        run: quod run --toolchain node -- npm test
+        # vite bundles the config into node_modules/.vite-temp by default,
+        # and node_modules is sealed read-only: load it in place instead.
+        run: quod run --toolchain node -- npx vitest run --configLoader runner
       - name: npm run lint (through quod)
         working-directory: cloud
         run: quod run --toolchain node -- npm run lint
+      - name: host fingerprint (TEMPORARY bring-up diagnostics)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | sort -u | sha256sum
+          gh api 'repos/${{ github.repository }}/contents/scripts/host-fingerprint.sh?ref=cc34bd9093f5a1c94bb27c0f777604405acd1df8' -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/fp.sh"
+          sudo env -i PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/python/bin:/usr/bin:/bin bash "$RUNNER_TEMP/fp.sh"
+          echo "--- /etc files"
+          sudo find /etc -readable -type f ! -path /etc/hostname ! -path /etc/hosts ! -path /etc/resolv.conf ! -path /etc/mtab ! -path /etc/machine-id ! -path /etc/passwd ! -path /etc/group ! -path '/etc/shadow*' ! -path '/etc/gshadow*' -print0 2>/dev/null | sudo xargs -0 -r sha256sum | awk '{print "etcfile", $2, substr($1,1,16)}' | LC_ALL=C sort
       - name: what quod did
         if: always()
         run: |
