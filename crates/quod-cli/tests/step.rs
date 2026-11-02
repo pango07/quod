@@ -158,12 +158,13 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
         .unwrap();
     assert_eq!(blob(&r_out["h"]), "r\n");
 
-    // The trust layer decides replays: a result seen once never replays.
+    // The trust layer decides replays (trust v2): a result recorded once is
+    // replayable, but the key's first two would-be hits are shadow audits
+    // that execute and compare; the third replays.
     assert!(
-        r["trust"][0]
-            .as_str()
-            .unwrap()
-            .starts_with("trust: proof 1 of 2"),
+        r["trust"][0].as_str().unwrap().starts_with(
+            "trust: proof 1 of 1; replayable from the next matching run; its next 2 would-be hits are audited"
+        ),
         "{}",
         r["trust"]
     );
@@ -171,9 +172,23 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
     let r2 = a2.response.expect("a response");
     assert_eq!(r2["replayed"], false, "{}", a2.stderr);
     assert!(
-        r2["trust"][0].as_str().unwrap().contains("proof 2 of 2"),
+        r2["trust"][0]
+            .as_str()
+            .unwrap()
+            .contains("shadow audit passed"),
         "{}",
         r2["trust"]
+    );
+    let a3 = api.step(&req(true));
+    let r3 = a3.response.expect("a response");
+    assert_eq!(r3["replayed"], false, "{}", a3.stderr);
+    assert!(
+        r3["trust"][0]
+            .as_str()
+            .unwrap()
+            .contains("the shadow phase is over"),
+        "{}",
+        r3["trust"]
     );
     // Proven: the same request replays, same streams, no execution.
     let b = api.step(&req(true));
@@ -181,17 +196,42 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
     assert_eq!(rb["replayed"], true, "{}", b.stderr);
     assert_eq!((b.code, b.stdout.as_str()), (0, "in\nv1\n"));
     assert_eq!(rb["step_key"], r["step_key"]);
-    assert_eq!(rb["result"]["run_id"], r2["result"]["run_id"]);
+    assert_eq!(rb["result"]["run_id"], r3["result"]["run_id"]);
+    // The replay left a run row (what a later quarantine would mark suspect).
+    let replayed_rows = std::process::Command::new("sqlite3")
+        .arg(api.state().join("ledger.sqlite"))
+        .arg("SELECT count(*) FROM runs WHERE outcome = 'replayed' AND suspect IS NULL")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&replayed_rows.stdout).trim(),
+        "1",
+        "{}",
+        String::from_utf8_lossy(&replayed_rows.stderr)
+    );
     assert!(
         rb["trust"][0]
             .as_str()
             .unwrap()
-            .starts_with("trust: proven by 2"),
+            .starts_with("trust: proven by 3"),
         "{}",
         rb["trust"]
     );
-    // A file the step never read changes nothing.
+    // A file the step never read changes nothing: the next would-be hit is
+    // the key's 4th, which the decaying schedule audits (it executes and
+    // agrees), and the one after replays.
     fs::write(ws.join("unread.txt"), "changed\n").unwrap();
+    let u = api.step(&req(true));
+    let ru = u.response.expect("a response");
+    assert_eq!(ru["replayed"], false, "{}", u.stderr);
+    assert!(
+        ru["trust"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("trust: audit passed"),
+        "{}",
+        ru["trust"]
+    );
     assert_eq!(api.step(&req(true)).response.unwrap()["replayed"], true);
     // lookup: false always executes.
     let c = api.step(&req(false)).response.unwrap();

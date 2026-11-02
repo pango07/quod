@@ -127,12 +127,14 @@ fn render(
                 proofs,
                 ..quod_trust::Policy::default()
             };
-            let needed =
-                quod_trust::needed(&policy, ledger.recent_divergences(k, TRAILING_AUDITS)?);
-            rows.push((t, best, needed));
+            let recent = ledger.recent_divergences(k, TRAILING_AUDITS)?;
+            let needed = quod_trust::needed(&policy, recent);
+            let class = quod_trust::determinism(&t, recent);
+            let suspects = ledger.suspect_runs(Some(k))?;
+            rows.push((t, best, needed, class, suspects));
         }
     }
-    let count = |s: TrustState| rows.iter().filter(|(t, _, _)| t.state == s).count();
+    let count = |s: TrustState| rows.iter().filter(|(t, ..)| t.state == s).count();
     writeln!(
         o,
         "  trust: {} step key(s): {} proven, {} observing, {} quarantined",
@@ -141,6 +143,14 @@ fn render(
         count(TrustState::Observing),
         count(TrustState::Quarantined)
     )?;
+    // Trust v2: replays a later quarantine of their key cast doubt on.
+    let suspect_total: usize = rows.iter().map(|(.., s)| s.len()).sum();
+    if suspect_total > 0 {
+        writeln!(
+            o,
+            "  suspect replays: {suspect_total} (served before their step key was quarantined; the result may have been wrong: re-run them)"
+        )?;
+    }
     // The newest run of each key (runs are oldest first).
     let mut last_run: BTreeMap<Hash, &RunRow> = BTreeMap::new();
     for r in runs {
@@ -148,16 +158,17 @@ fn render(
             last_run.insert(k, r);
         }
     }
-    for (t, best, needed) in &rows {
+    for (t, best, needed, class, suspects) in &rows {
         let mut line = format!(
-            "    {:<11}  proofs {}/{}  audited {}x  {} divergence{}  replayed {}x",
+            "    {:<11}  proofs {}/{}  audited {}x  {} divergence{}  replayed {}x  output {}",
             t.state.as_str(),
             best,
             needed,
             t.audits,
             t.divergences,
             if t.divergences == 1 { "" } else { "s" },
-            t.replays
+            t.replays,
+            class.as_str()
         );
         if let (TrustState::Quarantined, Some(at)) = (t.state, &t.quarantined_at) {
             let _ = write!(
@@ -177,6 +188,17 @@ fn render(
         if let Some(why) = why_not_replaying(t, *best, *needed, last_run.get(&t.step_key).copied())
         {
             writeln!(o, "                 why: {why}")?;
+        }
+        if !suspects.is_empty() {
+            let shown: Vec<&str> = suspects.iter().take(5).map(|r| r.id.as_str()).collect();
+            writeln!(
+                o,
+                "                 suspect: {} replay{} may have been wrong, re-run: {}{}",
+                suspects.len(),
+                if suspects.len() == 1 { "" } else { "s" },
+                shown.join(", "),
+                if suspects.len() > 5 { ", ..." } else { "" }
+            )?;
         }
     }
     let audits: Vec<_> = ledger

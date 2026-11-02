@@ -19,11 +19,20 @@ pub struct PolicyArgs {
     #[arg(long, default_value = "observe", env = "QUOD_MODE", value_parser = parse_mode)]
     mode: Mode,
     /// Identical executions a result needs before it may replay (plus one
-    /// for every past divergence of its step key).
+    /// for every recent divergence of its step key). 1 (trust v2): a result
+    /// recorded once replays on the next identical tree.
     #[arg(long, default_value_t = quod_trust::DEFAULT_PROOFS, env = "QUOD_PROOFS")]
     proofs: u32,
-    /// Fraction of would-be hits that replay mode re-executes and compares
-    /// instead of replaying (0..=1). 0 turns audit off: benchmarks only.
+    /// Would-be hits of a step key that replay mode re-executes and compares
+    /// in full before any of the key replays blind (trust v2's shadow
+    /// phase), counted from the key's last quarantine; the rate then decays
+    /// as 1/k to --audit. 0: no shadow phase.
+    #[arg(long, default_value_t = quod_trust::DEFAULT_SHADOW, env = "QUOD_SHADOW")]
+    shadow: u32,
+    /// The audit floor: the fraction of would-be hits that replay mode
+    /// re-executes and compares instead of replaying once the shadow phase
+    /// has decayed (0..=1). 0 turns every audit off, the shadow included:
+    /// benchmarks only.
     #[arg(long, default_value_t = quod_trust::DEFAULT_AUDIT, env = "QUOD_AUDIT")]
     audit: f64,
     /// Let failing results (non-zero exit) prove themselves and replay. Off
@@ -45,6 +54,7 @@ impl PolicyArgs {
         let p = Policy {
             mode: self.mode,
             proofs: self.proofs,
+            shadow: self.shadow,
             audit: self.audit,
             replay_failures: self.replay_failures,
         };

@@ -440,15 +440,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         _ => None,
     };
     let timeout = (args.timeout > Duration::ZERO).then_some(args.timeout);
-    // An audit, or a re-proof after a divergence, checks what the tests do
-    // now: go test may store results but not serve any from its cache.
+    // Every execution that is evidence about a recorded result (a shadow
+    // or decay audit, an observe-mode would-be hit, a proof, a re-proof
+    // after a divergence) checks what the tests do now: go test may store
+    // results but not serve any from its cache.
     let go_tests = GoTests {
         guard: go_guard.as_ref(),
-        expire: go_guard.is_some()
-            && matches!(
-                reason,
-                quod_trust::Reason::Audit { .. } | quod_trust::Reason::Quarantined { .. }
-            ),
+        expire: go_guard.is_some() && reason.is_evidence(),
     };
     let outcome = execute(
         &cas,

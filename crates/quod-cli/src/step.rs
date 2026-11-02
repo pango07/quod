@@ -108,9 +108,12 @@ pub struct Request {
     pub lookup: bool,
     #[serde(default)]
     pub toolchain: Option<Toolchain>,
-    /// The trust policy for `lookup` (see the module docs).
+    /// The trust policy for `lookup` (see the module docs): proofs, the
+    /// shadow phase and the audit floor, as `quod run`'s flags.
     #[serde(default)]
     pub proofs: Option<u32>,
+    #[serde(default)]
+    pub shadow: Option<u32>,
     #[serde(default)]
     pub audit: Option<f64>,
     #[serde(default)]
@@ -127,6 +130,7 @@ impl Request {
                 Mode::Observe
             },
             proofs: self.proofs.unwrap_or(quod_trust::DEFAULT_PROOFS),
+            shadow: self.shadow.unwrap_or(quod_trust::DEFAULT_SHADOW),
             audit: self.audit.unwrap_or(quod_trust::DEFAULT_AUDIT),
             replay_failures: self.replay_failures,
         };
@@ -227,7 +231,25 @@ pub fn run_step(
     let reason = match trust.decide(&key, lookup.hit.as_ref())? {
         Decision::Replay => {
             let hit = lookup.hit.as_ref().expect("a replay needs a hit");
-            match trust.record_replay(&tstep, hit)? {
+            // The replay's run row joins the trust update (as `quod run` and
+            // the hooks do): a later quarantine of the key marks it suspect
+            // through that row (trust v2).
+            let replayed = ledger.atomically(|l| -> anyhow::Result<_> {
+                let r = trust.record_replay(&tstep, hit)?;
+                if let Replayed::Replayed(_) = &r {
+                    l.record_run_facts(&quod_ledger::RunFacts {
+                        id: &ulid::Ulid::generate().to_string(),
+                        step_key: Some(&key),
+                        mode: Some("replay"),
+                        outcome: Some("replayed"),
+                        manifest_id: Some(&hit.1.manifest_id),
+                        exit_code: Some(hit.1.exit_code),
+                        ..quod_ledger::RunFacts::default()
+                    })?;
+                }
+                Ok(r)
+            })?;
+            match replayed {
                 Replayed::Replayed(facts) => {
                     let (manifest, result) = hit.clone();
                     return Ok(Outcome {

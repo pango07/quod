@@ -1967,9 +1967,10 @@ fn run_step(
         .as_ref()
         .map(|(_, m)| (m.path.clone(), m.to_string()));
     // The trust layer decides, as for `quod run`: a matching manifest
-    // replays only once proven (`proofs` identical executions), never as a
-    // failure, never while quarantined; replay mode audits a fraction.
-    let trust = Trust::new(ledger, cas, policy.trust())?;
+    // replays only once proven (`proofs` identical executions, the policy's
+    // or the step pattern's), never as a failure, never while quarantined;
+    // replay mode audits on the schedule (shadow, decay, floor).
+    let trust = Trust::new(ledger, cas, policy.trust_for(step.pattern_text()))?;
     let label = job.log_label(step);
     let ignore = ignored_outputs(&h.env, &workspace);
     let tstep = TrustStep {
@@ -2448,6 +2449,24 @@ fn run_step(
     )
 }
 
+/// `; replayable from the next matching run (its next 2 would-be hits are
+/// audited)` when this execution's manifest may replay from now on (trust
+/// v2: after its first record), else nothing.
+fn replayable_note(v: &Verdict) -> String {
+    if !v.replayable() {
+        return String::new();
+    }
+    match v.shadow_left {
+        0 => "; replayable from the next matching run".to_string(),
+        1 => {
+            "; replayable from the next matching run (its next would-be hit is audited)".to_string()
+        }
+        n => format!(
+            "; replayable from the next matching run (its next {n} would-be hits are audited)"
+        ),
+    }
+}
+
 /// The trust verdict, the would-replay line, the summary and the event.
 #[allow(clippy::too_many_arguments)]
 fn finish_report(
@@ -2473,11 +2492,22 @@ fn finish_report(
     if let Some(v) = verdict {
         if let Some(d) = &v.divergence {
             audit_note = format!(
-                "; **audit DIVERGED** from run {}: key quarantined ({d})",
-                v.compared_with.as_deref().map_or("?".to_string(), short)
+                "; **audit DIVERGED** from run {}: key quarantined ({d}){}",
+                v.compared_with.as_deref().map_or("?".to_string(), short),
+                match v.suspects {
+                    0 => String::new(),
+                    1 => "; 1 earlier replay of this step may have been wrong: re-run it".into(),
+                    n => format!(
+                        "; {n} earlier replays of this step may have been wrong: re-run them"
+                    ),
+                }
             );
-        } else if let (Reason::Audit { .. }, Some(r)) = (reason, &v.compared_with) {
-            audit_note = format!("; audit: agrees with run {}", short(r));
+        } else if let (Reason::Audit { shadow, .. }, Some(r)) = (reason, &v.compared_with) {
+            audit_note = format!(
+                "; {}audit: agrees with run {}",
+                if *shadow { "shadow " } else { "" },
+                short(r)
+            );
         }
     }
     let would = verdict.is_some_and(|v| {
@@ -2511,15 +2541,13 @@ fn finish_report(
                 "would replay: not yet ({} of {} identical proofs){}",
                 v.streak,
                 v.needed,
-                if v.replayable() {
-                    "; replayable from the next matching run"
-                } else {
-                    ""
-                }
+                replayable_note(v)
             ),
             Reason::Miss if candidates == 0 => format!(
-                "would replay: no, first run of this step ({} of {} identical proofs)",
-                v.streak, v.needed
+                "would replay: no, first run of this step ({} of {} identical proofs){}",
+                v.streak,
+                v.needed,
+                replayable_note(v)
             ),
             Reason::Miss => {
                 let (path, mm) = closest.clone().unwrap_or_default();
@@ -2527,8 +2555,10 @@ fn finish_report(
                 // would take that for a compiler error and annotate the run.
                 let why = mm.strip_prefix(&format!("{path}: ")).unwrap_or(&mm);
                 format!(
-                    "would replay: no, closest manifest differed at {path} [{why}] ({} of {} identical proofs)",
-                    v.streak, v.needed
+                    "would replay: no, closest manifest differed at {path} [{why}] ({} of {} identical proofs){}",
+                    v.streak,
+                    v.needed,
+                    replayable_note(v)
                 )
             }
         },
@@ -2877,6 +2907,77 @@ mod tests {
             format!("quod:withheld {}", names.join(",")),
             "not the v1 line"
         );
+    }
+
+    /// Trust v2 replays a result recorded once. A fork's record lands in the
+    /// fork's own scope ledger, so the trusted scope of the same repository
+    /// never finds it: an untrusted fork's first record is never a trusted
+    /// replay, under v2 as under v1.
+    #[test]
+    fn a_forks_record_is_never_a_trusted_hit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cas = Cas::open(tmp.path().join("state").join("cas")).unwrap();
+        let event = tmp.path().join("_work/_temp/_github_workflow/event.json");
+        let scope_for = |name: &str, payload: &[u8]| {
+            // (Job::create makes the runner's directories the event lives in.)
+            let mut job = job_with_workflow_mount(tmp.path());
+            std::fs::write(&event, payload).unwrap();
+            job.ensure_scope(&cas, Some(name), &[]).unwrap();
+            job.scope().to_path_buf()
+        };
+        let fork = scope_for(
+            "pull_request",
+            br#"{"repository":{"full_name":"o/r"},"pull_request":{"head":{"repo":{"full_name":"evil/r"}}}}"#,
+        );
+        let trusted = scope_for(
+            "push",
+            br#"{"repository":{"full_name":"o/r","default_branch":"main"},"ref":"refs/heads/main","after":"abc","pusher":{}}"#,
+        );
+        assert_ne!(fork, trusted);
+        assert!(fork.ends_with("fork-evil_r"), "{}", fork.display());
+        assert!(trusted.ends_with("trusted"), "{}", trusted.display());
+        // The fork records a result for a key on a tree.
+        let key = Hash::of(b"go test ./...");
+        let tree = Tree::from_leaves([Entry::file("go.mod", Hash::of(b"m"), 0o644)]);
+        let m = Manifest::from_log(
+            key,
+            vec!["/workspace".into()],
+            &tree,
+            [quod_manifest::Access {
+                path: "go.mod".into(),
+                kind: EntryKind::File,
+            }],
+        )
+        .unwrap();
+        let fl = Ledger::open(&fork.join("ledger.sqlite")).unwrap();
+        let mid = fl.put_manifest(&m, "01FORK").unwrap();
+        fl.put_result(&StepResult {
+            v: quod_manifest::VERSION,
+            step_key: key,
+            manifest_id: mid,
+            run_id: "01FORK".into(),
+            recorded_at: quod_ledger::now_rfc3339(),
+            exit_code: 0,
+            stdout: Hash::of(b""),
+            stderr: Hash::of(b""),
+            outputs: vec![],
+            root_outputs: vec![],
+            duration_ms: 1,
+            commands: vec![],
+        })
+        .unwrap();
+        assert!(fl.find_match(&key, &tree).unwrap().hit.is_some());
+        // The trusted scope's ledger has never heard of it: a miss, and the
+        // trust layer under v2's defaults has nothing to replay.
+        let tl = Ledger::open(&trusted.join("ledger.sqlite")).unwrap();
+        let lookup = tl.find_match(&key, &tree).unwrap();
+        assert!(lookup.hit.is_none() && lookup.candidates == 0);
+        let trust = Trust::new(&tl, &cas, Policy::default().trust()).unwrap();
+        assert_eq!(
+            trust.decide(&key, None).unwrap(),
+            Decision::Execute(Reason::Miss)
+        );
+        assert!(tl.trust(&key).unwrap().is_none());
     }
 
     /// N1: the host copy of the checkout is not shared between a writer and
