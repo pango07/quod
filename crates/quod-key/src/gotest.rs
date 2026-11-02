@@ -865,10 +865,12 @@ func (TestDeps) StopTestLog() error {
 
     /// Golden (minor d of the review of 712cd87): the testing layout is v2,
     /// which go1.26 steps keep under v2's key, so its files and its step
-    /// key may not change by a byte. The digests were taken from v2's own
-    /// code (main ec5534b, `gotest::guard_files` before the layouts) and
-    /// from this code, and agree. A change to the testing layout is a new
-    /// version: a new sandbox dir, so a new key, and new goldens.
+    /// key may not change by a byte. The files' digests were taken from
+    /// v2's own code (main ec5534b, `gotest::guard_files` before the
+    /// layouts) and from this code on GitHub (gate run 41503878308), and
+    /// agree; the key is pinned from this code. A change to the testing
+    /// layout is a new version: a new sandbox dir, so a new key, and new
+    /// goldens.
     #[test]
     fn the_testing_layout_is_v2_byte_for_byte() {
         let files = guard_files(
@@ -905,10 +907,14 @@ func (TestDeps) StopTestLog() error {
         assert_eq!(spec.guard_layout(), Some(Layout::Testing));
     }
 
-    const GOLDEN_V2_OVERLAY: &str = "TBD";
-    const GOLDEN_V2_TESTDEPS: &str = "TBD";
-    const GOLDEN_V2_TESTING: &str = "TBD";
-    const GOLDEN_V2_KEY: &str = "TBD";
+    const GOLDEN_V2_OVERLAY: &str =
+        "b3:c9120c2df27abf62508280eba6f52cbd4134c240f5e936523156b21fbdb74c71";
+    const GOLDEN_V2_TESTDEPS: &str =
+        "b3:59e73b280f729c820a1df7da0904bb58094dfbf4ce766784d2728d24ec3991cf";
+    const GOLDEN_V2_TESTING: &str =
+        "b3:0c4ac2b41c5e58cff293effd8a1ce2700136f4ab7a5dbdc7270ceca88d4ecac3";
+    const GOLDEN_V2_KEY: &str =
+        "b3:22e6249c7269372cf9d1d2c94abf4ce79ae4f958a96228f397a8e16e84280f52";
 
     /// Each layout's key path and knob name its version; the two never
     /// coincide, so a step proved under one is not a hit under the other.
