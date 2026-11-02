@@ -22,7 +22,7 @@ gh run view <run-id> --log-failed
 gh run download <run-id>                                        # the logs artifact of a failed job
 ```
 
-`only` takes a comma-separated list of `lint`, `merge-gate`, `hooks`,
+`only` takes a comma-separated list of `lint`, `merge-gate`, `bench-lite`, `hooks`,
 `acceptance-cli`, `acceptance-node`, `acceptance-python`, `cloud`, or `all`.
 `ref` must be a commit that has `scripts/ci-gate.sh` (main after this
 change, or a branch rebased on it). Each job's summary page shows the host
@@ -37,16 +37,31 @@ The same gate locally, inside the dev container and under the shared lock:
 scripts/dev.sh 'flock /work/tmp/heavy.lock scripts/ci-gate.sh merge-gate'
 scripts/dev.sh 'flock /work/tmp/heavy.lock scripts/ci-gate.sh hooks /work/cli-quod'
 scripts/dev.sh 'flock /work/tmp/heavy.lock scripts/ci-gate.sh acceptance node'
+scripts/bench-lite.sh --against main     # re-runs itself as dev.sh 'flock /work/tmp/heavy.lock ...'
 ```
 
 ## Triggers
 
+The policy (2026-11-02, exp/bench-lite): every push gets lint, merge-gate and
+bench-lite; hooks runs before merge; the three corpus acceptance gates run
+once per batch (by dispatch) or nightly.
+
 | Event | What runs |
 |---|---|
-| `push` to `exp/**`, `fix/**`, `cloud/**`, `ci/**` | fast gates: lint and merge-gate if anything outside `cloud/` changed (the push's diff; a new branch: its diff from main), cloud if `cloud/` changed |
-| `pull_request` to main, new commits (`synchronize`) | the same fast gates |
-| `pull_request` to main `opened`, `reopened`, `ready_for_review` | every Rust gate if anything outside `cloud/` changed; cloud if `cloud/` changed |
-| `workflow_dispatch` | what `only` names (default all), whatever changed |
+| `push` to `exp/**`, `fix/**`, `cloud/**`, `ci/**` | lint, merge-gate and bench-lite if anything outside `cloud/` changed (the push's diff; a new branch: its diff from main), cloud if `cloud/` changed |
+| `pull_request` to main, new commits (`synchronize`) | the same |
+| `pull_request` to main `opened`, `reopened`, `ready_for_review` | the same plus hooks (before merge) |
+| `schedule`, 04:17 UTC daily, on main | acceptance-cli, acceptance-node, acceptance-python, only if main received a commit in the last 24 h |
+| `workflow_dispatch` | what `only` names (default all: every job), whatever changed; a batch of merges is gated with `-f only=acceptance-cli,acceptance-node,acceptance-python` |
+
+Before this change a pull request opened or marked ready ran every gate
+(~205 min); now it runs the fast gate and hooks (~65 min), and the corpus gates (~150 min together) move to the nightly run on
+main and to batch dispatches. What that gives up: a branch can merge without
+having run the corpus suites itself. What keeps it honest: bench-lite runs
+on every push and fails on any wrong replay, hooks still runs before merge,
+the nightly run catches what slipped through within a day, and a branch that
+touches quod-fs, quod-manifest, quod-replay or quod-sandbox should still
+dispatch acceptance-cli before merging ("Spending it well" below).
 
 The `changes` job decides from the event and the diff, so a cloud-only push
 runs only the cloud job (npm ci, lint, `next typegen`, tsc, test, build).
@@ -66,6 +81,7 @@ pango07/quod), job wall time with warm Rust caches:
 | changes | 7 s | |
 | lint | 5 min | fails `served_mtimes_follow_content` only (known: GitHub's kernel stores times at 100 ns; fix/cas-visibility) |
 | merge-gate | 4 min | every ring suite passes; fails `transports_log_identically` on served times (the same 100 ns cause) |
+| bench-lite | 7 min (setup 40 s, release build and bench 4.5 min; run 41484064103) | ok: 0 wrong replays over 18 jobs (docs/bench/lite-baseline.md) |
 | hooks | 46 min | ok: A7 0 false hits over 7,285 f + 1,690 d + 658 a; hooks_acceptance, hooks_git_index, hooks_secrets |
 | acceptance-cli | 102 min | ok: A7 0 false hits over 23,983 f + 5,336 d + 621 a (912 s), A7b 10/10, W1-W4, T1-T11, T7 classic and ring |
 | acceptance-node | 24 min | ok: A7 0 false hits over 22,053 f + 2,805 d + 87 a + 39 l, trust, T7 |
@@ -80,6 +96,8 @@ trust). A7 alone is 15 minutes (10 on the dev VM's 18 cores).
 | Job | What it proves |
 |---|---|
 | lint | `scripts/lint.sh` as the dev container runs it: fmt, clippy (default and all features) with -D warnings, and every workspace test as root with `QUOD_INTEGRATION=1` and the Go, Node and Python toolchains installed (so the integration tests and the Node and Python acceptance fixtures run, not only unit tests). |
+| bench-lite | `scripts/bench-lite.sh --against main`: a generated Go + Node + Python monorepo's 18-job history, each job plain and through `quod run` (and `quod step`), interleaved; every Quod result compared with the plain run of the same tree; fails on any wrong replay. The job summary is the table with deltas against `docs/bench/lite-baseline.json`; the rows and the summary JSON are an artifact (30 days). |
+| bench-real | Dispatch only (`-f only=bench-real`, arguments in `-f bench_real='--repos go --n 5'`): `scripts/bench-real.sh`, Quod against plain on three small real repos (versions.toml `[bench_real.*]`), history and PR traffic, every replay spot-checked; the publishable report is the job summary, the rows an artifact (90 days). On a private repository the runner has 2 vCPUs; publishable numbers come from a 4-vCPU box (docs/bench/real-small.md). |
 | merge-gate | `scripts/merge-gate.sh` without its lint step (`QUOD_GATE_SKIP_LINT=1`; lint is its own job): the FUSE-over-io_uring suites (`uring`, `ring_faults`), the observer's failure paths on both transports (`faults`, `observer_faults`) and `transports_log_identically`. |
 | hooks | `tests/hooks_acceptance.rs` on cli/cli at the pinned commit: A1-A7 (+A7b) through the runner-hooks path, the trust policy, secrets classification and leaks (S1-S4), the served git index (G1-G5), warm-cache poisoning. |
 | acceptance-cli | `scripts/acceptance.sh go` on cli/cli: step A, A1-A7 with every recorded entry mutated (the "0 false hits" line), P1, A7b (10 samples), W1-W4, the trust suite T1-T11, T7. |
@@ -156,16 +174,23 @@ GitHub bills each job rounded up to the minute, cancelled runs included.
 
 | | Minutes |
 |---|---|
-| full gate (every Rust job; `changes` 1, lint 5, merge-gate 5, hooks 46, acceptance-cli 102, node 24, python 21) | about 205 |
-| fast gate (`changes`, lint, merge-gate) | about 11 |
+| full gate (every Rust job; `changes` 1, lint 5, merge-gate 5, bench-lite 8, hooks 46, acceptance-cli 102, node 24, python 21) | about 213 |
+| fast gate (`changes`, lint, merge-gate, bench-lite) | about 19 |
+| a pull request opened or ready (fast gate and hooks) | about 65 |
+| nightly corpus gates (acceptance-cli, node, python) | about 150 |
 | cloud job | about 2 |
 | `ci.yml` (check + integration), every pull request and push to main | about 10 |
 
-A full gate is a tenth of the month, so the workflow runs it only when a
-pull request is opened, reopened or marked ready, and on dispatch; pushes to
-`exp/**`, `fix/**`, `cloud/**`, `ci/**` and new commits on a pull request run
-the fast gate. A month of 6 full gates (1,230), 50 fast pushes (550) and 15
-`ci.yml` runs (150) is about 1,930.
+A full gate is a tenth of the month. Under the policy above, a month of 50
+fast pushes (950), 6 pull requests opened (390), 15 `ci.yml` runs (150) and
+nightly corpus gates on the days main moves leaves room for about 3 nightly
+runs (450): 1,940. Daily merges would need about 4,500 minutes for the
+nightlies alone, so on the free plan the schedule only works if main moves
+on a few days a month, or with a public repository (free, 4 CPUs) or a
+self-hosted runner; otherwise dispatch the corpus gates once per batch and
+disable the schedule (delete the `schedule:` trigger). bench-lite adds 8
+minutes to every push (+400 a month at 50 pushes) in exchange for a
+per-branch number.
 
 Spending it well:
 
