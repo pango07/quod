@@ -20,6 +20,8 @@ quod-replay.workspace = true
 quod-trust.workspace = true
 quod-hooks.workspace = true
 anyhow.workspace = true
+# Hashing the inputs `quod vitest` keys test files on (vitest.rs).
+blake3.workspace = true
 clap.workspace = true
 # umount2, for the sweep of what a killed run left mounted (state.rs).
 libc.workspace = true

@@ -684,6 +684,7 @@ name = "quod-cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "libc",
  "quod-cas",
