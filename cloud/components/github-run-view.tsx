@@ -2,10 +2,30 @@ import Link from "next/link";
 import { GitHubJobs, OutcomeDot, outcomeLabel } from "@/components/github-ci";
 import { Elapsed } from "@/components/live/parts";
 import { formatDuration, shortSha } from "@/lib/format";
+import type { QuodMarks } from "@/lib/api/github-merge";
+import type { QuodStatus } from "@/lib/api/types";
 import type { GhJobView, GhRun } from "@/lib/github/pages";
 
 /** A GitHub workflow run: its header, timing, and jobs with their steps. Data in props. */
-export function GitHubRunView({ team, repo, run, jobs, asOf }: { team: string; repo: string; run: GhRun; jobs: GhJobView[]; asOf: string }) {
+export function GitHubRunView({
+  team,
+  repo,
+  run,
+  jobs,
+  asOf,
+  quod,
+  quodStatus,
+}: {
+  team: string;
+  repo: string;
+  run: GhRun;
+  jobs: GhJobView[];
+  asOf: string;
+  /** What Quod did in this run's steps, when it ran here (lib/api/github-merge.ts). */
+  quod?: QuodMarks;
+  /** "unavailable" when quod-server did not answer. */
+  quodStatus?: QuodStatus;
+}) {
   const done = jobs.filter((j) => j.status === "completed").length;
   const event = run.event === "pull_request" ? "pull request" : run.event.replaceAll("_", " ");
   return (
@@ -56,13 +76,20 @@ export function GitHubRunView({ team, repo, run, jobs, asOf }: { team: string; r
         </div>
         <div className="card stat">
           <span className="label">Steps replayed by Quod</span>
-          <span className="value" style={{ color: "var(--muted)", fontSize: 15 }}>
-            Appears once Quod runs in this repo
-          </span>
+          {quod && quod.total > 0 ? (
+            <span className="value">
+              {quod.replayed} of {quod.total}
+              {quod.savedSeconds >= 1 ? <span style={{ color: "var(--muted)", fontSize: 13, marginLeft: 8 }}>saved {formatDuration(quod.savedSeconds)}</span> : null}
+            </span>
+          ) : (
+            <span className="value" style={{ color: "var(--muted)", fontSize: 15 }}>
+              {quodStatus?.state === "unavailable" ? "Quod data unavailable" : "Appears once Quod runs in this repo"}
+            </span>
+          )}
         </div>
       </section>
 
-      <GitHubJobs jobs={jobs} asOf={asOf} />
+      <GitHubJobs jobs={jobs} asOf={asOf} quod={quod?.steps} />
     </>
   );
 }

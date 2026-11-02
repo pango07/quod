@@ -1,0 +1,35 @@
+id: 1
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.515Z","id":"1","index":3,"jobId":"test","repoSlug":"app","run":1,"step":{"name":"Test","outcome":"ran","seconds":17.0,"why":{"kind":"first-run","proof":{"have":1,"need":2},"recordedInputs":10,"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686"}},"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686","type":"step.finished"}
+
+id: 2
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.528Z","id":"2","index":4,"jobId":"test","repoSlug":"app","run":1,"step":{"name":"Vet","outcome":"ran","seconds":17.0,"why":{"kind":"first-run","proof":{"have":1,"need":2},"recordedInputs":10,"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938"}},"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938","type":"step.finished"}
+
+id: 3
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.540Z","id":"3","index":3,"jobId":"test","repoSlug":"app","run":2,"step":{"name":"Test","outcome":"ran","seconds":17.0,"why":{"kind":"first-run","proof":{"have":2,"need":2},"recordedInputs":10,"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686"}},"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686","type":"step.finished"}
+
+id: 4
+event: trust.changed
+data: {"at":"2026-11-02T09:21:44.543Z","event":{"at":"2026-11-02T09:21:44.543Z","kind":"proven","runs":[0,0]},"id":"4","key":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686","repoSlug":"app","trust":{"kind":"replaying"},"type":"trust.changed"}
+
+id: 5
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.553Z","id":"5","index":4,"jobId":"test","repoSlug":"app","run":2,"step":{"name":"Vet","outcome":"ran","seconds":17.0,"why":{"kind":"first-run","proof":{"have":2,"need":2},"recordedInputs":10,"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938"}},"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938","type":"step.finished"}
+
+id: 6
+event: trust.changed
+data: {"at":"2026-11-02T09:21:44.555Z","event":{"at":"2026-11-02T09:21:44.555Z","kind":"proven","runs":[0,0]},"id":"6","key":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938","repoSlug":"app","trust":{"kind":"replaying"},"type":"trust.changed"}
+
+id: 7
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.564Z","id":"7","index":3,"jobId":"test","repoSlug":"app","run":3,"step":{"name":"Test","outcome":"replayed","seconds":0.005,"why":{"divergences":0,"inputsMatched":10,"kind":"replayed","proof":{"have":2,"need":2},"savedSeconds":16.995,"sourceRun":2,"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686"}},"stepKey":"9c9dd597eb9d692589f1641117d2da28e00a745e74554ccb181ff0fb8fd8e686","type":"step.finished"}
+
+id: 8
+event: step.finished
+data: {"at":"2026-11-02T09:21:44.619Z","id":"8","index":4,"jobId":"test","repoSlug":"app","run":3,"step":{"name":"Vet","outcome":"replayed","seconds":0.005,"why":{"divergences":0,"inputsMatched":10,"kind":"replayed","proof":{"have":2,"need":2},"savedSeconds":16.995,"sourceRun":2,"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938"}},"stepKey":"9a097a0a9b9dc5cfc7738a86a9cba3fb8383b4470ee5fd08ebc34d4075179938","type":"step.finished"}
+
+event: bye
+data: {}
+

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Elapsed } from "@/components/live/parts";
-import { Dot, EmptyState } from "@/components/ui";
-import type { GitHubLink } from "@/lib/api/types";
+import { Dot, EmptyState, OutcomeChip } from "@/components/ui";
+import type { GitHubLink, RunStep } from "@/lib/api/types";
 import { formatAgo, formatDuration, shortSha } from "@/lib/format";
 import type { GhJobView, GhOutcome, GhRun, RunFilter, SeenRunner } from "@/lib/github/pages";
 import { RUN_FILTERS } from "@/lib/github/pages";
@@ -203,7 +203,8 @@ export function Pager({ base, query, page, hasMore }: { base: string; query: Rec
 }
 
 /** A GitHub run's jobs with their steps (from the stored webhook and REST data). */
-export function GitHubJobs({ jobs, asOf }: { jobs: GhJobView[]; asOf: string }) {
+/** `quod`: Quod's step for each GitHub step it handled, keyed `${jobId}:${stepNumber}` (lib/api/github-merge.ts). */
+export function GitHubJobs({ jobs, asOf, quod }: { jobs: GhJobView[]; asOf: string; quod?: Map<string, RunStep> }) {
   if (!jobs.length) return <p className="muted">No jobs reported for this run yet.</p>;
   return (
     <ol className="gh-jobs" aria-label="Jobs">
@@ -224,18 +225,27 @@ export function GitHubJobs({ jobs, asOf }: { jobs: GhJobView[]; asOf: string }) 
           </div>
           {j.steps.length ? (
             <ol className="gh-steps" aria-label={`Steps of ${j.name}`}>
-              {j.steps.map((s) => (
+              {j.steps.map((s) => {
+                const q = quod?.get(`${j.id}:${s.number}`);
+                return (
                 <li key={s.number} className="step-line" data-state={s.outcome}>
                   <OutcomeDot outcome={s.outcome} />
                   <span className="ellipsis">{s.name}</span>
-                  <span className="faint" style={{ fontSize: 12 }}>
-                    {s.outcome === "passed" ? "" : outcomeLabel(s.outcome)}
-                  </span>
+                  {q && (q.outcome === "replayed" || q.outcome === "ran") && s.outcome !== "failed" ? (
+                    <span title={q.outcome === "replayed" ? "Quod gave back a proven result" : "Quod ran it and recorded what it read"}>
+                      <OutcomeChip outcome={q.outcome} />
+                    </span>
+                  ) : (
+                    <span className="faint" style={{ fontSize: 12 }}>
+                      {s.outcome === "passed" ? "" : outcomeLabel(s.outcome)}
+                    </span>
+                  )}
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)" }}>
                     <Took startedAt={s.startedAt} seconds={s.seconds} running={s.outcome === "running"} asOf={asOf} />
                   </span>
                 </li>
-              ))}
+                );
+              })}
             </ol>
           ) : (
             <p className="muted" style={{ padding: "12px 18px", fontSize: 13 }}>

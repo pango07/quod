@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { LiveProvider } from "@/components/live/provider";
+import { ProtectionBanner } from "@/components/shell/protection-banner";
 import { Sidenav, SidenavSkeleton } from "@/components/shell/sidenav";
 import { Topbar, TopbarSkeleton } from "@/components/shell/topbar";
 
@@ -21,6 +22,9 @@ export default function AppLayout({ children, params }: LayoutProps<"/[team]">) 
           <Sidenav params={params} />
         </Suspense>
         <main id="main" className="content" tabIndex={-1}>
+          <Suspense fallback={null}>
+            <ProtectionBanner params={params} />
+          </Suspense>
           {children}
         </main>
       </div>

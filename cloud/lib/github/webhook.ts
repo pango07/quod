@@ -9,6 +9,7 @@ import {
   type WorkflowJobPayload,
   type WorkflowRunPayload,
 } from "./payloads";
+import { markProtectionStale } from "./protection";
 import { verifySignature } from "./signature";
 import {
   addRepos,
@@ -37,7 +38,25 @@ function eventTime(inst: GhInstallation, fallback: Date): Date {
 /** GitHub's documented maximum payload size. */
 export const MAX_BODY = 25 * 1024 * 1024;
 
-export const HANDLED_EVENTS = ["installation", "installation_repositories", "installation_target", "workflow_run", "workflow_job"] as const;
+export const HANDLED_EVENTS = [
+  "installation",
+  "installation_repositories",
+  "installation_target",
+  "workflow_run",
+  "workflow_job",
+  // Default-branch protection may have changed: the cached state is read again on the next view (lib/github/protection.ts).
+  "branch_protection_rule",
+  "repository_ruleset",
+  "repository",
+] as const;
+
+/** Webhooks that can change a repo's default-branch protection (or which branch is the default). */
+interface ProtectionPayload {
+  action?: string;
+  installation?: { id?: number };
+  repository?: { id?: number } | null;
+  changes?: Record<string, unknown>;
+}
 
 export interface WebhookResult {
   status: number;
@@ -137,6 +156,19 @@ async function apply(q: Queryable, event: string, payload: unknown, now: Date, v
       await touchRepo(q, row.installation_id, p.repository);
       const v = await upsertJob(q, row);
       if (v !== null) versions.push(v);
+      return true;
+    }
+    case "branch_protection_rule":
+    case "repository_ruleset":
+    case "repository": {
+      const p = payload as ProtectionPayload;
+      const installationId = typeof p.installation?.id === "number" ? p.installation.id : null;
+      const repoId = typeof p.repository?.id === "number" ? p.repository.id : null;
+      // repository: only a new default branch (or a rename, archive, transfer) matters, not every edit.
+      if (event === "repository" && !(p.action === "renamed" || p.action === "transferred" || p.action === "archived" || p.action === "unarchived" || (p.action === "edited" && p.changes && "default_branch" in p.changes)))
+        return false;
+      // A ruleset without a repository is the organization's: every repo of the installation.
+      await markProtectionStale(q, { repoId, installationId: repoId === null ? installationId : null });
       return true;
     }
     default:

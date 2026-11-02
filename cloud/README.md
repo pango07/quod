@@ -25,8 +25,15 @@ file then migrates and uses a schema of its own, dropped at the end
 local demo user (`QUOD_AUTH=demo`) and sample data (`QUOD_API=fixture`).
 To sign in for real, copy `.env.example` to `.env.local` and fill in the
 four WorkOS values; they take precedence over the demo flag. `next start`
-refuses to boot without a complete WorkOS config and a data source, and
-never runs the demo, whatever `NODE_ENV` says.
+refuses to boot without a complete WorkOS config, or with a `QUOD_API` it
+cannot use, and never runs the demo, whatever `NODE_ENV` says.
+
+Quod's own data comes from quod-server when `QUOD_API=http` and
+`QUOD_SERVER_URL` are set; unset, teams see their GitHub CI and Quod's
+numbers say "Appears once Quod runs" (`docs/api.md`, "Go-live"). To run the
+pages against quod-server's recorded answers without a server, start
+`node scripts/quod-server-stub.mjs` (dev only) and `npm run dev` with the
+variables `docs/api.md` gives.
 
 `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is inlined into the build: leave it unset
 for `next build` and set it at runtime, or build with exactly the runtime
@@ -72,8 +79,10 @@ URLs; the pages read those names.
   `/[team]/[repo]/steps/[key]`, `/[team]/connect`, `/[team]/settings`, and
   team pages for repositories, runs, trust, runners and usage. Sign-in pages
   are in `app/(auth)/`.
-- `lib/api/`: the `CloudApi` interface, the sample-data adapter and the
-  quod-server HTTP stub. See `docs/api.md`.
+- `lib/api/`: the `CloudApi` interface and its adapters: sample data
+  (`fixture.ts`), quod-server over HTTP (`http.ts`), none (`none.ts`), and
+  the composite that adds GitHub's data. `docs/api.md` is the contract with
+  quod-server, tested against its recorded answers (`contract.test.ts`).
 - `lib/auth/`: the sign-in mode rule (`config.ts`), input checks
   (`validate.ts`), the sign-in actions (`auth-actions.ts`) and their pending
   steps (`flow.ts`), the session, WorkOS members, invitations and the Admin
@@ -149,8 +158,9 @@ created once, from the dashboard, with GitHub's App Manifest flow.
 
 **1. Database (engineer, once, after the product owner approves the SQL).**
 The tables are in `db/migrations/0001_github_app.sql`,
-`0002_github_app_review.sql`, `0003_reconcile_state.sql` and
-`0004_step_polling.sql`. With Neon's
+`0002_github_app_review.sql`, `0003_reconcile_state.sql`,
+`0004_step_polling.sql` and `0005_branch_protection.sql` (the writer-trust
+warning's cache; not applied yet). With Neon's
 direct URL in your shell as
 `DATABASE_URL_UNPOOLED` (it is in Vercel):
 

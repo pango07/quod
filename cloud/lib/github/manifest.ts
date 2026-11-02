@@ -29,7 +29,11 @@ export interface AppManifest {
 /**
  * The manifest for `origin` (https://app.quodci.com in production). The
  * permissions are the minimum for live CI status: actions:read (workflow
- * runs and jobs) and metadata:read (required by GitHub for every App).
+ * runs and jobs) and metadata:read (required by GitHub for every App), plus
+ * administration:read for default-branch protection (the writer-trust
+ * warning, DECISIONS.md 2026-11-02), with the webhooks that say it changed.
+ * The App that exists today was created before these; its settings are
+ * changed by hand (docs/api.md "Go-live").
  */
 export function buildManifest(origin: string, name: string = DEFAULT_APP_NAME): AppManifest {
   const o = new URL(origin).origin;
@@ -44,8 +48,8 @@ export function buildManifest(origin: string, name: string = DEFAULT_APP_NAME): 
     request_oauth_on_install: true,
     public: true,
     description: "Live CI job status for Quod Cloud. Reads workflow runs and jobs; never writes to your repositories.",
-    default_permissions: { actions: "read", metadata: "read" },
-    default_events: ["workflow_job", "workflow_run"],
+    default_permissions: { actions: "read", administration: "read", metadata: "read" },
+    default_events: ["workflow_job", "workflow_run", "branch_protection_rule", "repository_ruleset", "repository"],
   };
 }
 

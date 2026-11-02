@@ -3,7 +3,9 @@ import { RerunButton } from "@/components/rerun-button";
 import { Elapsed, LiveRefresh } from "@/components/live/parts";
 import { RunSteps } from "@/components/run-steps";
 import { Dot } from "@/components/ui";
+import { SectionUnavailable } from "@/components/section";
 import { api } from "@/lib/api";
+import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { formatDuration, shortSha } from "@/lib/format";
 import { one, parseRunNumber } from "@/lib/params";
@@ -15,7 +17,9 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
   const number = parseRunNumber(runParam);
   if (number === null) notFound();
   const { team } = await requireTeam(slug);
-  const run = await api().getRun(team.slug, repoSlug, number);
+  const found = await section(api().getRun(team.slug, repoSlug, number));
+  if (!found.ok) return <SectionUnavailable s={found} what="This run" page />;
+  const run = found.value;
   if (!run) notFound();
 
   const steps = run.jobs.flatMap((j) => j.steps);

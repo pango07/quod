@@ -1,8 +1,9 @@
 // The CloudApi: everything the dashboard reads or changes, shaped by the
 // screens in the approved design (DECISIONS.md, 2026-11-01). Pages read only
-// through this interface. Two adapters implement it: fixture.ts (sample data
-// from the prototypes, used now) and http.ts (quod-server, protocol
-// "quod.v1", not built yet). docs/api.md is the prose version.
+// through this interface. Three adapters implement Quod's side: fixture.ts
+// (sample data), http.ts (quod-server, protocol "quod.v1") and none.ts (no
+// Quod server: Quod's numbers are empty). composite.ts adds GitHub's data.
+// docs/api.md is the contract with quod-server.
 //
 // Conventions: times are ISO 8601 strings in UTC, durations are seconds,
 // saved or spent time is whole minutes, shares are 0..1. Every value is plain
@@ -69,7 +70,28 @@ export interface RepoSummary {
   hasQuodData?: boolean;
   /** The latest workflow run GitHub reported, for repos from the GitHub App. */
   github?: { latestRun: { id: number; status: "queued" | "in_progress" | "completed"; conclusion?: string; title: string; url: string; at: string | null } | null };
+  /** The default branch's protection on GitHub, for repos from the GitHub App (lib/github/protection.ts). */
+  protection?: BranchProtection;
 }
+
+/**
+ * The default branch's protection as the GitHub App last read it (cached, at
+ * most 6 h old). "unknown": not read yet, or the App could not read it (no
+ * Administration permission on that installation yet, or an error).
+ */
+export interface BranchProtection {
+  state: "protected" | "unprotected" | "unknown";
+  branch: string | null;
+  checkedAt: string | null;
+}
+
+/**
+ * Whether Quod's own numbers (replays, trust, savings) could be read.
+ * - "connected": quod-server answered (or the sample data did).
+ * - "off": no Quod server on this deploy (QUOD_API unset), or none for this team.
+ * - "unavailable": quod-server did not answer; GitHub's data is shown alone.
+ */
+export type QuodStatus = { state: "connected" } | { state: "off" } | { state: "unavailable"; message: string };
 
 export interface PausedStepRef {
   repoSlug: string;
@@ -96,6 +118,8 @@ export interface Runner {
 export interface Overview {
   /** The server's clock; relative times ("4m ago") are measured from it. */
   asOf: string;
+  /** Set by the composite: whether Quod's numbers below are real, off, or could not be read. */
+  quod?: QuodStatus;
   totals: TeamTotals;
   days: DayMinutes[];
   repos: RepoSummary[];
@@ -174,6 +198,8 @@ export type StepWhy =
 
 export interface RunStep {
   name: string;
+  /** GitHub's step number in the job (1-based, as GitHub's API numbers steps), when the runner reported it. */
+  index?: number;
   /** "running" and "queued" only appear while the run is in progress. */
   outcome: "replayed" | "ran" | "running" | "queued";
   seconds: number;
@@ -232,6 +258,7 @@ export interface RunTimePoint {
 
 export interface RepoDetail {
   asOf: string;
+  quod?: QuodStatus;
   summary: RepoSummary;
   defaultBranch: string;
   latestRun: RunDetail | null;
@@ -375,6 +402,7 @@ export interface Activity {
   github?: GitHubLink;
   /** True when the data is the built-in simulator ("Sample data, simulated live"). */
   simulated: boolean;
+  quod?: QuodStatus;
 }
 
 /** What a subscription covers: the whole team, one repo, one run, or one step key. */
@@ -418,7 +446,7 @@ export interface CloudApi {
   getRepo(team: string, repo: string): Promise<RepoDetail | null>;
 
   /** Newest first. Without `repo`, across the team. */
-  listRuns(team: string, opts?: { repo?: string; limit?: number }): Promise<{ asOf: string; runs: RunSummary[] }>;
+  listRuns(team: string, opts?: { repo?: string; limit?: number }): Promise<{ asOf: string; runs: RunSummary[]; quod?: QuodStatus }>;
   getRun(team: string, repo: string, run: number): Promise<RunDetail | null>;
 
   /** Without `repo`, across the team. */
@@ -461,5 +489,35 @@ export class ApiInvalidRequestError extends Error {
   constructor(message = "Invalid request") {
     super(message);
     this.name = "ApiInvalidRequestError";
+  }
+}
+
+/** quod-server answered 501: that part of quod.v1 is not built on the server yet. The page shows "Not available yet" for that section. */
+export class ApiNotAvailableError extends Error {
+  constructor(
+    message = "Not available yet",
+    /** The server's own words (quod.v1 error `message`), for the section card. */
+    readonly detail: string = "",
+  ) {
+    super(message);
+    this.name = "ApiNotAvailableError";
+  }
+}
+
+/**
+ * quod-server could not be used: unreachable, timed out, 5xx, a protocol
+ * mismatch, or a body that is not what quod.v1 says. The page shows GitHub's
+ * data alone, or a section-level error card; never a crashed page.
+ */
+export class ApiUnavailableError extends Error {
+  constructor(
+    message = "Quod data unavailable",
+    /** The HTTP status, when there was one. */
+    readonly status: number | null = null,
+    /** quod.v1's error code (`internal`, `protocol`, ...), when the body had one. */
+    readonly code: string | null = null,
+  ) {
+    super(message);
+    this.name = "ApiUnavailableError";
   }
 }

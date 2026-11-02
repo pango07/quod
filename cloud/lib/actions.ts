@@ -7,6 +7,7 @@ import { signOut, switchToOrganization } from "@workos-inc/authkit-nextjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { api } from "@/lib/api";
+import { actionFailure } from "@/lib/api/section";
 import type { Host, Store } from "@/lib/api/types";
 import { authMode } from "@/lib/auth/config";
 import { adminPortalLink, inviteMember as sendInvite, type PortalIntent } from "@/lib/auth/directory";
@@ -74,7 +75,13 @@ export async function setProofsNeeded(slug: string, repo: string, key: string, n
   if (!admin) return NOT_ADMIN;
   if (!isSlug(repo) || !isSlug(key)) return { ok: false, message: "No such step." };
   if (![2, 3, 5].includes(need)) return { ok: false, message: "Choose 2, 3 or 5 runs." };
-  await api().setProofsNeeded(team.slug, repo, key, need);
+  try {
+    await api().setProofsNeeded(team.slug, repo, key, need);
+  } catch (e) {
+    const f = actionFailure(e);
+    if (f) return f;
+    throw e;
+  }
   revalidatePath(`/${team.slug}/${repo}/steps/${key}`);
   return { ok: true, message: `Quod now needs ${need} consistent runs.` };
 }
@@ -84,8 +91,14 @@ export async function rerunWithoutQuod(slug: string, repo: string, run: number):
   const { team } = await requireTeam(slug);
   const number = parseRunNumber(run);
   if (!isSlug(repo) || number === null) return { ok: false, message: "No such run." };
-  const r = await api().requestRerunWithoutQuod(team.slug, repo, number);
-  return { ok: r.accepted, message: r.message };
+  try {
+    const r = await api().requestRerunWithoutQuod(team.slug, repo, number);
+    return { ok: r.accepted, message: r.message };
+  } catch (e) {
+    const f = actionFailure(e);
+    if (f) return f;
+    throw e;
+  }
 }
 
 /** Saving the team's setup choice is for admins; members can still look at both setups. */
@@ -93,6 +106,12 @@ export async function saveConnectChoice(slug: string, store: Store, host: Host):
   const { team, admin } = await requireTeam(slug);
   if (!admin) return NOT_ADMIN;
   if (!["cloud", "self"].includes(store) || !["github", "own"].includes(host)) return { ok: false, message: "Unknown choice." };
-  await api().saveConnectChoice(team.slug, { store, host });
+  try {
+    await api().saveConnectChoice(team.slug, { store, host });
+  } catch (e) {
+    const f = actionFailure(e);
+    if (f) return f;
+    throw e;
+  }
   return { ok: true, message: "Saved for the team." };
 }

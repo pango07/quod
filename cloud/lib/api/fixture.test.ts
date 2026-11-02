@@ -92,11 +92,28 @@ describe("fixture adapter", () => {
 });
 
 describe("data source", () => {
-  it("serves sample data only when QUOD_API=fixture asks for it", () => {
+  it("serves sample data only when QUOD_API=fixture asks for it; unset is no Quod server, never sample data", () => {
     for (const NODE_ENV of ["production", "development", "staging", undefined]) {
-      expect(resolveApiMode({ NODE_ENV }).kind).toBe("misconfigured");
+      expect(resolveApiMode({ NODE_ENV }).kind).toBe("none");
     }
     expect(resolveApiMode({ NODE_ENV: "development", QUOD_API: "fixture" }).kind).toBe("fixture");
-    expect(resolveApiMode({ QUOD_API_URL: "https://api.quodci.com" })).toEqual({ kind: "http", url: "https://api.quodci.com" });
+    expect(resolveApiMode({ QUOD_API: "http", QUOD_SERVER_URL: "https://api.quodci.com/" })).toEqual({ kind: "http", url: "https://api.quodci.com" });
+  });
+
+  it("refuses an http setup it cannot use safely", () => {
+    const bad = (env: Record<string, string>) => resolveApiMode(env).kind;
+    expect(bad({ QUOD_API: "http" })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "not a url" })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "http://quod.example.com" })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "https://user:pw@quod.example.com" })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "https://quod.example.com", QUOD_SERVER_TEAMS: "{" })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "https://quod.example.com", QUOD_SERVER_TEAMS: '{"org_1":{"team":"acme","token":"short"}}' })).toBe("misconfigured");
+    expect(bad({ QUOD_API: "htttp" })).toBe("misconfigured");
+    // The stub's old variable name is refused rather than silently ignored.
+    expect(bad({ QUOD_API_URL: "https://api.quodci.com" })).toBe("misconfigured");
+    // Plain http only on the machine or a private network.
+    expect(resolveApiMode({ QUOD_API: "http", QUOD_SERVER_URL: "http://localhost:8787" })).toEqual({ kind: "http", url: "http://localhost:8787" });
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "http://quod-server.railway.internal:8080" })).toBe("http");
+    expect(bad({ QUOD_API: "http", QUOD_SERVER_URL: "https://quod.example.com", QUOD_SERVER_TEAMS: '{"org_1":{"team":"acme","token":"0123456789abcdef"}}' })).toBe("http");
   });
 });
