@@ -35,6 +35,20 @@ pages against quod-server's recorded answers without a server, start
 `node scripts/quod-server-stub.mjs` (dev only) and `npm run dev` with the
 variables `docs/api.md` gives.
 
+## Trust wording: classic or plain
+
+The Trust page, a repo's Steps tab, the run and step pages and the
+Overview's trust card have two wordings (cloud/trust-plain): "classic" (the
+pages as they were) and "plain" (one row per job and command with earlier
+versions folded under it; states in words: "Learning: needs 1 good run",
+"Ready to skip", "Skipping", "Paused: a re-check found different output";
+"skipped" for "replayed", "re-check" for "spot check"). `lib/ui-version.ts`
+picks one: `?ui=classic` or `?ui=plain` on any page (remembered in the
+`quod_ui` cookie), else `NEXT_PUBLIC_TRUST_V2_UI=0` at build time for
+classic, else plain (the default). Going back for everyone is that variable
+(and a redeploy); for one viewer, `?ui=classic`. The classic components are
+untouched.
+
 `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is inlined into the build: leave it unset
 for `next build` and set it at runtime, or build with exactly the runtime
 value.

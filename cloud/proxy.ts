@@ -2,6 +2,7 @@ import { authkit, handleAuthkitProxy } from "@workos-inc/authkit-nextjs";
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveAuthMode } from "@/lib/auth/config";
 import { sanitizeReturnTo } from "@/lib/auth/validate";
+import { parseUi, UI_COOKIE } from "@/lib/ui-version";
 
 // Next.js 16 proxy (formerly middleware). Every page needs a signed-in
 // viewer except our sign-in pages and the OAuth callback. Signed-out
@@ -19,6 +20,13 @@ const MACHINE = ["/api/github/webhook", "/api/github/reconcile"];
 const ROOT_FILE = /^\/[^/]*\.[A-Za-z0-9]{1,8}$/;
 const ICONS = new Set(["/favicon.ico", "/icon.png", "/apple-icon.png"]);
 
+/** ?ui=classic|plain on any page: remember the choice (lib/ui-version.ts). */
+function rememberUi<R extends Response>(request: NextRequest, res: R): R {
+  const ui = parseUi(request.nextUrl.searchParams.get("ui"));
+  if (ui && res instanceof NextResponse) res.cookies.set(UI_COOKIE, ui, { path: "/", sameSite: "lax", httpOnly: true, secure: request.nextUrl.protocol === "https:", maxAge: 60 * 60 * 24 * 90 });
+  return res;
+}
+
 export default async function proxy(request: NextRequest) {
   if (MACHINE.includes(request.nextUrl.pathname)) return NextResponse.next();
   if (ROOT_FILE.test(request.nextUrl.pathname) && !ICONS.has(request.nextUrl.pathname)) return new NextResponse("Not found", { status: 404, headers: { "cache-control": "no-store" } });
@@ -30,7 +38,7 @@ export default async function proxy(request: NextRequest) {
     return new NextResponse("Quod Cloud is not configured. See the server log.", { status: 500, headers: { "cache-control": "no-store" } });
   }
 
-  if (mode.kind === "demo") return NextResponse.next();
+  if (mode.kind === "demo") return rememberUi(request, NextResponse.next());
 
   // authkit() reads and refreshes the session cookie; we do not use its hosted sign-in URL.
   const { session, headers } = await authkit(request);
@@ -44,7 +52,7 @@ export default async function proxy(request: NextRequest) {
     const to = returnTo === "/" ? "/sign-in" : `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
     return handleAuthkitProxy(request, headers, { redirect: to });
   }
-  return handleAuthkitProxy(request, headers);
+  return rememberUi(request, handleAuthkitProxy(request, headers));
 }
 
 export const config = {

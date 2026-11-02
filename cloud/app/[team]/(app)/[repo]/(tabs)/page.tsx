@@ -9,6 +9,7 @@ import { Dot, EmptyState, OutcomeChip, StepDot } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
+import { plainUi } from "@/lib/ui";
 import { formatDuration, median, shortSha } from "@/lib/format";
 import { parseStepFilter } from "@/lib/params";
 
@@ -25,6 +26,7 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
   const repo = found.value;
   if (!repo) notFound();
   const base = `/${team.slug}/${repo.summary.slug}`;
+  const plain = await plainUi(sp);
   const run = repo.latestRun;
   // One list for the card: runner setup and checkout once, other steps named by job when there are several.
   const jobs = run?.jobs ?? [];
@@ -73,7 +75,7 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
                 <li key={i} className="step-line" data-state={s.outcome}>
                   <StepDot outcome={s.outcome} />
                   <span className="ellipsis">{s.name}</span>
-                  <OutcomeChip outcome={s.outcome} />
+                  <OutcomeChip outcome={s.outcome} plain={plain} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)" }}>
                     {formatDuration(s.seconds)}
                   </span>

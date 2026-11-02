@@ -9,6 +9,7 @@ import { OutcomeChip, StepDot } from "@/components/ui";
 import type { RunJob } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
 import { receiptFor } from "@/lib/trust";
+import { plainReceiptFor } from "@/lib/trust-plain";
 
 /**
  * Run.dc.html: the steps on the left are buttons; the panel on the right says
@@ -22,6 +23,7 @@ export function RunSteps({
   jobs: serverJobs,
   initial,
   asOf,
+  plain,
 }: {
   team: string;
   repo: string;
@@ -29,6 +31,8 @@ export function RunSteps({
   jobs: RunJob[];
   initial: number;
   asOf: string;
+  /** The plain wording (lib/ui-version.ts). */
+  plain?: boolean;
 }) {
   // Live: step events carry the RunStep, so the list updates here without a refetch.
   // A server refresh (after a job or the run finishes) replaces it with the server's version.
@@ -44,7 +48,7 @@ export function RunSteps({
   const [sel, setSel] = useState(Math.min(Math.max(0, initial), flat.length - 1));
   const list = useRef<HTMLDivElement>(null);
   const cur = flat[Math.min(sel, flat.length - 1)];
-  const r = receiptFor(cur.s);
+  const r = plain ? plainReceiptFor(cur.s) : receiptFor(cur.s);
 
   // Steps whose state just changed get a brief highlight (none with prefers-reduced-motion; see CSS).
   const outcomes = flat.map((f) => f.s.outcome).join(",");
@@ -103,7 +107,7 @@ export function RunSteps({
                 >
                   <StepDot outcome={s.outcome} />
                   <span className="ellipsis">{s.name}</span>
-                  <OutcomeChip outcome={s.outcome} />
+                  <OutcomeChip outcome={s.outcome} plain={plain} />
                   <span className="mono" style={{ textAlign: "right", color: "var(--muted)", fontSize: 13 }}>
                     {s.outcome === "queued" ? "" : s.outcome === "running" && s.startedAt ? <>
                           <span aria-hidden="true">
@@ -150,7 +154,7 @@ export function RunSteps({
         </dl>
         {r.stepKey ? (
           <Link href={`/${team}/${repo}/steps/${r.stepKey}`} className="link-muted">
-            See this step’s trust history
+            {plain ? "See this step’s history" : "See this step’s trust history"}
           </Link>
         ) : null}
       </section>

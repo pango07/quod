@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { parseStepFilter } from "@/lib/params";
+import { plainUi } from "@/lib/ui";
+import { PlainRepoSteps } from "@/components/trust-plain-pages";
 
 export const metadata = { title: "Steps" };
 
@@ -18,6 +20,7 @@ export default async function RepoStepsPage({ params, searchParams }: PageProps<
     const repoFound = await section(api().getRepo(team.slug, repo));
     if (repoFound.ok && !repoFound.value) notFound();
   }
+  if (await plainUi(sp)) return <PlainRepoSteps team={team} repo={repo} steps={steps} />;
   return (
     <div className="page">
       <h1 className="sr-only">Steps of {repo}</h1>

@@ -2,12 +2,22 @@
  * The "Learn more" of the writer-trust warning (/[team]/trust#protected-branch).
  * The decision it explains: DECISIONS.md 2026-11-02.
  */
-export function ProtectedBranchHelp() {
+export function ProtectedBranchHelp({ bare }: { bare?: boolean } = {}) {
+  const body = <ProtectedBranchBody />;
+  if (bare) return <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{body}</div>;
   return (
     <section id="protected-branch" className="card" aria-labelledby="protected-branch-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10, scrollMarginTop: 80 }}>
       <h2 id="protected-branch-h" className="h2">
         Who can record results others replay
       </h2>
+      {body}
+    </section>
+  );
+}
+
+function ProtectedBranchBody() {
+  return (
+    <>
       <p className="muted" style={{ fontSize: 14, lineHeight: 1.6, maxWidth: "75ch" }}>
         Results Quod gives back to every CI job of a repository are recorded only by jobs on its default branch (a push, a schedule or a manual run there). If that branch is not
         protected on GitHub, anyone who can push to it can record a result that later jobs reuse. Quod still checks every replay against its inputs and re-runs some at random,
@@ -32,6 +42,6 @@ export function ProtectedBranchHelp() {
         </li>
         <li>&ldquo;Protection unknown&rdquo; means the Quod CI GitHub App could not read it: it needs the Administration (read) permission, which an owner approves on GitHub.</li>
       </ul>
-    </section>
+    </>
   );
 }
