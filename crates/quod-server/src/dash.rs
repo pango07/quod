@@ -1,10 +1,12 @@
 //! The dashboard's read API (cloud/docs/api.md, `CloudApi` in
 //! cloud/lib/api/types.ts), from what the server has: the team's step rows
 //! (`store::Activity`) and its scope ledgers. Trust state is the trusted
-//! scope's (what default-branch runs replay); other scopes' rows count in
-//! runs and totals. Endpoints whose data the server does not have yet
-//! (team resolution from WorkOS, re-runs, the proofs toggle, runners, the
-//! Connect choice) answer 501 with a message saying so.
+//! scope's (what default-branch runs replay), or, for a step the default
+//! branch has not recorded, the newest other scope's (`trustRef` names that
+//! branch); every scope's rows count in runs and totals. Endpoints whose
+//! data the server does not have yet (team resolution from WorkOS, re-runs,
+//! the proofs toggle, runners, the Connect choice) answer 501 with a
+//! message saying so.
 //!
 //! Viewers authenticate with their WorkOS access token (the path's team is
 //! then the team's WorkOS organization id) or a static viewer token
@@ -122,12 +124,22 @@ pub fn slug(repository: &str, all: &BTreeSet<String>) -> String {
 struct TeamData {
     rows: Vec<StepRow>,
     repos: BTreeSet<String>,
-    /// Trust rows of the trusted scope, by (repository, key hex).
+    /// Trust rows by (repository, key hex): the trusted scope's, else (a key
+    /// only branch or pull request runs have recorded) the most recently
+    /// updated other scope's. Reading the trusted scope alone made such a
+    /// step "proving 0 of N" while its own runs said "proof 1 of 1".
     trust: BTreeMap<(String, String), TrustRow>,
-    /// Best proof streak per (repository, key hex).
+    /// The ref whose scope a `trust` row came from, for a row that is not
+    /// the trusted scope's (`trustRef` on StepSummary).
+    trust_ref: BTreeMap<(String, String), String>,
+    /// Best proof streak per (repository, key hex), in the row's scope.
     streaks: BTreeMap<(String, String), u32>,
-    /// Audits of the trusted scopes: (repository, key hex, phase, diverged, detail, at, expected, actual).
+    /// Audits of the trusted scopes: (repository, key hex, audit). Team
+    /// totals (spot checks, wrong replays) count these only.
     audits: Vec<(String, String, quod_ledger::AuditRow)>,
+    /// Audits of the keys whose `trust` row is another scope's, from that
+    /// scope (their step page's history and divergence).
+    branch_audits: Vec<(String, String, quod_ledger::AuditRow)>,
     recent_div: BTreeMap<(String, String), u64>,
     proofs: u32,
     /// Writes into each repository's trusted scope, by ref.
@@ -143,33 +155,79 @@ impl TeamData {
         let rows = act.steps(None)?;
         let writes = act.trusted_writes(None)?;
         let mut repos: BTreeSet<String> = rows.iter().map(|r| r.repository.clone()).collect();
-        let mut trust = BTreeMap::new();
+        let mut trust: BTreeMap<(String, String), TrustRow> = BTreeMap::new();
+        let mut trust_ref = BTreeMap::new();
         let mut streaks = BTreeMap::new();
         let mut audits = vec![];
+        let mut branch_audits = vec![];
         let mut recent_div = BTreeMap::new();
-        for s in app.store.scopes(team)? {
+        // Pass 1: each key's row, from the scope that decides it. (A
+        // Postgres scope ledger holds no connection between statements, so
+        // keeping them all open costs nothing.)
+        let scopes = app.store.scopes(team)?;
+        let mut ledgers = Vec::with_capacity(scopes.len());
+        // (repository, key) -> (trusted, updated_at, index into `ledgers`)
+        let mut owner: BTreeMap<(String, String), (bool, String, usize)> = BTreeMap::new();
+        for (i, s) in scopes.iter().enumerate() {
             repos.insert(s.repository.clone());
-            if s.scope != TRUSTED {
-                continue;
-            }
-            let l = app.store.open(team, &s)?;
+            let trusted = s.scope == TRUSTED;
+            let l = app.store.open(team, s)?;
             for t in l.trust_rows()? {
                 let k = (s.repository.clone(), t.step_key.hex());
+                let better = match owner.get(&k) {
+                    None => true,
+                    Some((o_trusted, o_at, _)) => {
+                        (trusted && !o_trusted) || (trusted == *o_trusted && t.updated_at > *o_at)
+                    }
+                };
+                if better {
+                    owner.insert(k.clone(), (trusted, t.updated_at.clone(), i));
+                    trust.insert(k, t);
+                }
+            }
+            ledgers.push(l);
+        }
+        // Pass 2: streaks, recent divergences and audits, from that scope.
+        for (i, s) in scopes.iter().enumerate() {
+            let trusted = s.scope == TRUSTED;
+            let l = &ledgers[i];
+            let mine: BTreeSet<(String, String)> = owner
+                .iter()
+                .filter(|(_, (_, _, at))| *at == i)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in &mine {
+                let key = trust[k].step_key;
                 let best = l
-                    .proofs_for_key(&t.step_key)?
+                    .proofs_for_key(&key)?
                     .iter()
                     .map(|p| p.streak)
                     .max()
                     .unwrap_or(0);
                 streaks.insert(k.clone(), best);
-                recent_div.insert(
-                    k.clone(),
-                    l.recent_divergences(&t.step_key, TRAILING_AUDITS)?,
-                );
-                trust.insert(k, t);
+                recent_div.insert(k.clone(), l.recent_divergences(&key, TRAILING_AUDITS)?);
+                if !trusted {
+                    // The ref of that scope's newest row of the key.
+                    let r = rows
+                        .iter()
+                        .rev()
+                        .find(|r| r.repository == k.0 && r.scope == s.scope && key_hex(r) == k.1)
+                        .map(|r| branch(r.git_ref.as_deref()))
+                        .unwrap_or_default();
+                    trust_ref.insert(k.clone(), r);
+                }
             }
-            for a in l.audits(None, 10_000)? {
-                audits.push((s.repository.clone(), a.step_key.hex(), a));
+            if trusted {
+                for a in l.audits(None, 10_000)? {
+                    audits.push((s.repository.clone(), a.step_key.hex(), a));
+                }
+            } else if !mine.is_empty() {
+                for a in l.audits(None, 10_000)? {
+                    let k = (s.repository.clone(), a.step_key.hex());
+                    if mine.contains(&k) {
+                        branch_audits.push((k.0, k.1, a));
+                    }
+                }
             }
         }
         let proofs = app
@@ -180,8 +238,10 @@ impl TeamData {
             rows,
             repos,
             trust,
+            trust_ref,
             streaks,
             audits,
+            branch_audits,
             recent_div,
             proofs,
             writes,
@@ -233,12 +293,16 @@ impl TeamData {
         let (mut trust, mut streaks, mut recent_div) =
             (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
         let key = row.step_key.as_deref().and_then(|k| k.parse::<Hash>().ok());
-        if let (Some(key), Some(s)) = (
-            key,
-            scopes
+        // The trusted scope's row of the key, else the row's own scope's
+        // (as `load` falls back).
+        for scope in [TRUSTED, row.scope.as_str()] {
+            let Some(key) = key else { break };
+            let Some(s) = scopes
                 .iter()
-                .find(|s| s.repository == row.repository && s.scope == TRUSTED),
-        ) {
+                .find(|s| s.repository == row.repository && s.scope == scope)
+            else {
+                continue;
+            };
             let l = app.store.open(team, s)?;
             if let Some(t) = l.trust(&key)? {
                 let k = (row.repository.clone(), key.hex());
@@ -246,6 +310,7 @@ impl TeamData {
                 streaks.insert(k.clone(), best.unwrap_or(0));
                 recent_div.insert(k.clone(), l.recent_divergences(&key, TRAILING_AUDITS)?);
                 trust.insert(k, t);
+                break;
             }
         }
         let mut rows = vec![];
@@ -263,8 +328,10 @@ impl TeamData {
             rows,
             repos,
             trust,
+            trust_ref: BTreeMap::new(),
             streaks,
             audits: vec![],
+            branch_audits: vec![],
             recent_div,
             proofs: cfg
                 .as_ref()
@@ -585,6 +652,9 @@ fn step_summary(d: &TeamData, repo: &str, key: &str, rows: &[&StepRow]) -> Value
         "ranSeconds": median(rows.iter().filter(|r| !replayed(r)).map(|r| secs(r.wall_ms)).collect()).unwrap_or(0.0),
         "replaySeconds": median(rows.iter().filter(|r| replayed(r)).map(|r| secs(r.wall_ms)).collect()),
         "savedMinutes": minutes(rows.iter().filter_map(|r| r.saved_ms).sum()),
+        // The branch whose own results `trust` describes, when the default
+        // branch has not recorded the step (null: the default branch's).
+        "trustRef": d.trust_ref.get(&(repo.to_string(), key.to_string())),
     })
 }
 
@@ -941,6 +1011,7 @@ async fn step(
         let div = d
             .audits
             .iter()
+            .chain(&d.branch_audits)
             .filter(|(r, k, a)| *r == repo && *k == key && a.diverged)
             .max_by_key(|(_, _, a)| a.id)
             .map(|(_, _, a)| {
@@ -958,7 +1029,12 @@ async fn step(
         if let Some(first) = rows.first() {
             history.push(json!({"kind": "first-recorded", "at": first.at, "run": first.run_number.unwrap_or(0), "seconds": secs(first.wall_ms)}));
         }
-        for (_, _, a) in d.audits.iter().filter(|(r, k, _)| *r == repo && *k == key) {
+        for (_, _, a) in d
+            .audits
+            .iter()
+            .chain(&d.branch_audits)
+            .filter(|(r, k, _)| *r == repo && *k == key)
+        {
             let run = a.actual_run.as_deref().map_or(0, |s| d.source_run_number(s));
             history.push(if a.diverged {
                 json!({"kind": "paused", "at": a.at, "run": run})
@@ -1111,8 +1187,10 @@ pub fn step_finished_event(
         rows: vec![],
         repos: [row.repository.clone()].into(),
         trust: BTreeMap::new(),
+        trust_ref: BTreeMap::new(),
         streaks: BTreeMap::new(),
         audits: vec![],
+        branch_audits: vec![],
         recent_div: BTreeMap::new(),
         proofs: quod_trust::DEFAULT_PROOFS,
         writes: vec![],
