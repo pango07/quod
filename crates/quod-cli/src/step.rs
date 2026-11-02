@@ -273,7 +273,7 @@ pub fn run_step(
                             None => rootfs::put_tree(cas, &tree)?,
                         };
                         let req = audit::Request {
-                            v: 1,
+                            v: audit::REQUEST_VERSION,
                             kind: audit::Kind::Step,
                             spec: (&spec).into(),
                             script: None,
@@ -464,8 +464,8 @@ pub fn cli(state: &State, args: StepArgs) -> anyhow::Result<u8> {
             .with_context(|| format!("read {}", args.request.display()))?
     };
     let req: Request = serde_json::from_str(&text).context("parse the step request")?;
-    let cas = Cas::open(args.cas.unwrap_or_else(|| state.cas_dir()))?;
-    let ledger = Ledger::open(&args.ledger.unwrap_or_else(|| state.ledger_path()))?;
+    let cas = Cas::open(args.cas.clone().unwrap_or_else(|| state.cas_dir()))?;
+    let ledger = Ledger::open(&args.ledger.clone().unwrap_or_else(|| state.ledger_path()))?;
     let claim = state.claim_run_dir(&ulid::Ulid::generate().to_string(), false)?;
     let out = run_step(&cas, &ledger, &claim.path, &req)?;
     if out.replayed {
@@ -479,7 +479,7 @@ pub fn cli(state: &State, args: StepArgs) -> anyhow::Result<u8> {
     std::fs::write(&args.response, serde_json::to_vec(&out)?)
         .with_context(|| format!("write {}", args.response.display()))?;
     if out.deferred_audit.is_some() {
-        audit::spawn_worker(state);
+        audit::spawn_worker(state, args.ledger.as_deref(), args.cas.as_deref());
     }
     Ok(u8::try_from(out.result.exit_code).unwrap_or(1))
 }

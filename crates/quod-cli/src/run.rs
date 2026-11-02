@@ -392,7 +392,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                                 None => rootfs::put_tree(&cas, &tree)?,
                             };
                             let req = audit::Request {
-                                v: 1,
+                                v: audit::REQUEST_VERSION,
                                 kind: audit::Kind::Run,
                                 spec: (&spec).into(),
                                 script: Some(step.clone()),
@@ -475,7 +475,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             if deferred.is_some() {
                 // Off the job's critical path: a detached worker, at idle
                 // priority, executes and compares it (`quod audit`).
-                audit::spawn_worker(state);
+                audit::spawn_worker(state, args.ledger.as_deref(), args.cas.as_deref());
             }
             return Ok(exit_byte(code));
         }

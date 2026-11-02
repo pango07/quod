@@ -22,11 +22,11 @@
 //! a cron job, a runner's post-job hook).
 
 use std::fs::OpenOptions;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Args;
 use quod_cas::{Cas, Hash};
 use quod_key::{Image, StepSpec, Toolchain, step_key};
@@ -35,7 +35,9 @@ use quod_ledger::{
 };
 use quod_manifest::{Manifest, StepResult};
 use quod_sandbox::Killed;
-use quod_trust::{Policy, Reason, Step, Trust, Verdict};
+use quod_trust::{
+    LEASE, MAX_ATTEMPTS, PENDING_TTL, Policy, Reason, Step, Trust, Verdict, stale_cutoff,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::gotest::{self, GoTestGuard, GoTests};
@@ -44,17 +46,8 @@ use crate::run::{self, EXIT_TIMEOUT, Phases};
 use crate::state::State;
 use crate::trust::parse_timeout;
 
-/// A pending audit nobody executed within this long is lost (never
-/// passed): the worker was never started, or the box was busy for a day.
-pub const PENDING_TTL: Duration = Duration::from_secs(24 * 3600);
-/// A claimed audit whose worker has not finished it within this long was
-/// abandoned (the worker died): released for another attempt.
-pub const LEASE: Duration = Duration::from_secs(3 * 3600);
-/// Attempts before an audit that keeps failing to execute is lost.
-pub const MAX_ATTEMPTS: u32 = 3;
-
 /// The request format version.
-const REQUEST_VERSION: u32 = 1;
+pub const REQUEST_VERSION: u32 = 1;
 
 /// What the worker needs to execute a step again, beyond the tree and the
 /// manifest the pending row names. Written by the replay that owes the
@@ -221,16 +214,18 @@ pub fn receipt_line(nth: u64, id: i64) -> String {
 /// alone), with its output appended to `<state>/audit.log`. Nothing waits
 /// for it; a worker that finds another holding the lock exits at once.
 /// `QUOD_AUDIT_SPAWN=0` turns this off (the caller runs `quod audit`).
-pub fn spawn_worker(state: &State) {
+/// `ledger` and `cas` are the run's overrides of the state's own, passed
+/// on so the worker opens the ledger the audit was enqueued in.
+pub fn spawn_worker(state: &State, ledger: Option<&Path>, cas: Option<&Path>) {
     if std::env::var("QUOD_AUDIT_SPAWN").is_ok_and(|v| v == "0") {
         return;
     }
-    if let Err(e) = try_spawn(state) {
+    if let Err(e) = try_spawn(state, ledger, cas) {
         tracing::warn!(target: "quod", error = %format!("{e:#}"), "audit worker not started");
     }
 }
 
-fn try_spawn(state: &State) -> anyhow::Result<()> {
+fn try_spawn(state: &State, ledger: Option<&Path>, cas: Option<&Path>) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt as _;
     let exe = std::env::current_exe().context("locate this binary")?;
     let log = OpenOptions::new()
@@ -239,10 +234,14 @@ fn try_spawn(state: &State) -> anyhow::Result<()> {
         .open(state.dir.join("audit.log"))
         .context("open audit.log")?;
     let mut cmd = Command::new(exe);
-    cmd.arg("--state")
-        .arg(&state.dir)
-        .arg("audit")
-        .stdin(Stdio::null())
+    cmd.arg("--state").arg(&state.dir).arg("audit");
+    if let Some(l) = ledger {
+        cmd.arg("--ledger").arg(l);
+    }
+    if let Some(c) = cas {
+        cmd.arg("--cas").arg(c);
+    }
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
     // SAFETY: setsid(2) is async-signal-safe and touches no memory of the
@@ -259,14 +258,22 @@ fn try_spawn(state: &State) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// This process to the lowest CPU priority and the idle I/O class: a
-/// deferred audit must never slow the job running beside it. Best effort.
+/// This process to the idle CPU class (SCHED_IDLE: it runs only when no
+/// other runnable task wants the CPU; nice 19 as the fallback where the
+/// policy is refused) and the idle I/O class: a deferred audit must never
+/// slow the job running beside it. The step it runs inherits both. Best
+/// effort: a kernel or container that refuses leaves the default.
 fn lower_priority() {
-    // SAFETY: both calls take plain integers and change only this
-    // process's scheduling attributes.
-    #[allow(unsafe_code)] // setpriority(2) and ioprio_set(2) have no std wrappers
+    // SAFETY: the calls take plain integers and a zeroed sched_param
+    // (SCHED_IDLE takes priority 0), and change only this process's
+    // scheduling attributes.
+    #[allow(unsafe_code)]
+    // sched_setscheduler(2), setpriority(2) and ioprio_set(2) have no std wrappers
     unsafe {
-        libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+        let param: libc::sched_param = std::mem::zeroed();
+        if libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) != 0 {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+        }
         // IOPRIO_WHO_PROCESS = 1, IOPRIO_CLASS_IDLE = 3 in bits 13..16.
         libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
     }
@@ -358,10 +365,13 @@ pub fn audit(state: &State, args: AuditArgs) -> anyhow::Result<u8> {
             break;
         }
     }
-    let (pending, running, owed) = ledger.backlog_counts()?;
+    let o = ledger.outstanding(&stale_cutoff())?;
     say!(
-        "QUOD  AUDIT  {done} executed ({diverged} diverged), {} lost; {pending} pending, {running} running, {owed} lost and not repaid; {}",
+        "QUOD  AUDIT  {done} executed ({diverged} diverged), {} lost; {} pending, {} running, {} lost and not repaid; {}",
         lost.len(),
+        o.pending + o.overdue,
+        o.running,
+        o.lost,
         quod_replay::fmt_duration(start.elapsed())
     );
     Ok(0)
@@ -400,10 +410,21 @@ fn list(ledger: &Ledger) -> anyhow::Result<u8> {
     Ok(0)
 }
 
+/// A pending audit lost for a reason no retry would change.
+fn lose(ledger: &Ledger, p: &PendingAudit, why: &str) -> anyhow::Result<Option<Verdict>> {
+    ledger.lose_audit(p.id, why)?;
+    say!(
+        "QUOD  AUDIT  pending audit {} lost: {why}; the next would-be hit of its key is audited inline",
+        p.id
+    );
+    tracing::warn!(target: "quod", pending = p.id, why, "deferred audit lost");
+    Ok(None)
+}
+
 /// Executes one claimed audit. `Ok(Some)` with the verdict when it was
 /// executed and compared (the pending row is settled); `Ok(None)` when it
 /// ended otherwise (the row is lost or released, and says why); `Err` for
-/// a Quod error (the caller releases the row).
+/// a Quod error (the caller releases the row for another attempt).
 fn run_one(
     state: &State,
     ledger: &Ledger,
@@ -411,39 +432,68 @@ fn run_one(
     p: &PendingAudit,
 ) -> anyhow::Result<Option<Verdict>> {
     let t0 = Instant::now();
-    let req: Request = serde_json::from_slice(&p.request).context("parse the audit request")?;
+    let req: Request = match serde_json::from_slice(&p.request) {
+        Ok(r) => r,
+        Err(e) => return lose(ledger, p, &format!("the audit request does not parse: {e}")),
+    };
     if req.v != REQUEST_VERSION {
-        ledger.lose_audit(
-            p.id,
+        return lose(
+            ledger,
+            p,
             &format!("request version {} is not {REQUEST_VERSION}", req.v),
-        )?;
-        return Ok(None);
+        );
     }
     let key = p.step_key;
-    let manifest = ledger
-        .manifest(&p.manifest_id)?
-        .with_context(|| format!("manifest {} is gone", p.manifest_id))?;
-    let hit_result = ledger
+    // The key was quarantined since this audit was enqueued (the replay it
+    // checks is suspect already): it would compare the step's behaviour
+    // now against a result that quarantine declared wrong, and count the
+    // one divergence again. Dropped, with any other outstanding audit of
+    // the key, as repaid: the restarted shadow checks the key instead.
+    if ledger
+        .run(&p.replay_run)?
+        .is_some_and(|r| r.suspect.is_some())
+    {
+        let n = ledger.supersede_pending(
+            &key,
+            None,
+            "superseded: the replay it checks was marked suspect by a quarantine of its key",
+        )?;
+        say!(
+            "QUOD  AUDIT  pending audit {}: its replay is suspect already (the key was quarantined); dropped with {} other outstanding audit(s) of the key",
+            p.id,
+            n.saturating_sub(1)
+        );
+        return Ok(None);
+    }
+    let Some(manifest) = ledger.manifest(&p.manifest_id)? else {
+        return lose(ledger, p, &format!("manifest {} is gone", p.manifest_id));
+    };
+    let Some(hit_result) = ledger
         .results_for_run(&p.hit_run)?
         .into_iter()
         .find(|r| r.step_key == key && r.manifest_id == p.manifest_id)
-        .with_context(|| format!("the served result (run {}) is gone", p.hit_run))?;
+    else {
+        return lose(
+            ledger,
+            p,
+            &format!("the served result (run {}) is gone", p.hit_run),
+        );
+    };
     let hit = (manifest, hit_result);
     // The exact tree the replay was decided on, from the store, and the
     // manifest must still match it (it did when the tree was stored; a
     // store that lost a blob fails here, loudly, never silently passes).
     let tree = rootfs::tree(cas, &p.tree)?;
     if let Err(mm) = quod_manifest::matches(&hit.0, &tree) {
-        ledger.lose_audit(
-            p.id,
+        return lose(
+            ledger,
+            p,
             &format!("the stored tree does not match the manifest at {}", mm.path),
-        )?;
-        return Ok(None);
+        );
     }
     let spec: StepSpec = req.spec.clone().into();
     if step_key(&spec)? != key {
-        ledger.lose_audit(p.id, "the stored step spec does not key to the step")?;
-        return Ok(None);
+        return lose(ledger, p, "the stored step spec does not key to the step");
     }
     let env = spec.normalized_env()?;
     let policy = req.policy.policy();
@@ -464,7 +514,13 @@ fn run_one(
         Some(d) => Some(rootfs::open(cas, d)?),
         None => None,
     };
-    let timeout = (req.timeout_ms > 0).then(|| Duration::from_millis(req.timeout_ms));
+    // The step's own timeout, and never longer than the lease: a step that
+    // hangs must not hold the worker's lock (one worker per state dir) past
+    // the point where the next worker would treat this claim as abandoned.
+    let cap = (req.timeout_ms > 0)
+        .then(|| Duration::from_millis(req.timeout_ms))
+        .map_or(LEASE, |t| t.min(LEASE));
+    let timeout = Some(cap);
     let mut phases = Phases::default();
     say!(
         "QUOD  AUDIT  pending audit {}: would-be hit {} of step b3:{} (replay {}, enqueued {})",
@@ -488,7 +544,15 @@ fn run_one(
                     &cas.dir().join("go-test-guard"),
                 );
                 if g.is_none() {
-                    bail!("the go test cache guard no longer applies to this step on this host");
+                    // The go on the profile's PATH changed (an upgrade):
+                    // running the guarded key unguarded would let go test
+                    // serve cached results. No retry changes that.
+                    cleanup_dir(&dir);
+                    return lose(
+                        ledger,
+                        p,
+                        "the go test cache guard no longer applies to this step on this host",
+                    );
                 }
                 g
             } else {
@@ -528,23 +592,18 @@ fn run_one(
             return Err(e);
         }
     };
-    let cleanup = || {
-        let _ = quod_cas::remove_any(&dir);
-    };
+    let cleanup = || cleanup_dir(&dir);
     // Not a verdict: the step did not finish, the machine failed it, or
-    // the result is not the step's. A timeout restarts the manifest's
-    // streak as an inline audit's would; none of these counts as passed.
+    // the result is not the step's. None of these counts as passed. A
+    // timeout here is the box's as likely as the step's (the worker runs
+    // in the idle class and is starved by any job beside it), so it is
+    // another attempt, not a loss, and the manifest's proof streak stays:
+    // an inline audit that times out resets it because the user saw it.
     if let Some(killed) = ex.killed {
         cleanup();
         let why = match killed {
             Killed::Timeout => {
-                let what = format!(
-                    "timed out after {}",
-                    quod_replay::fmt_duration(Duration::from_millis(req.timeout_ms))
-                );
-                if let Some(line) = trust.record_incomplete(&tstep, Some(&hit), &what)? {
-                    say!("  {line}");
-                }
+                let what = format!("timed out after {}", quod_replay::fmt_duration(cap));
                 ledger.record_run_facts(&run_facts(
                     &run_id,
                     &key,
@@ -555,9 +614,7 @@ fn run_one(
                     ex.wall,
                     (ex.transport, &ex.observer),
                 ))?;
-                ledger.lose_audit(p.id, &format!("the step {what}: not a verdict"))?;
-                say!("QUOD  AUDIT  pending audit {} lost: the step {what}", p.id);
-                return Ok(None);
+                format!("the step {what} under the worker (idle priority): not a verdict")
             }
             Killed::Aborted => "the observer failed while the step ran".to_string(),
             Killed::Terminated(sig) => format!("the worker was terminated by signal {sig}"),
@@ -617,9 +674,7 @@ fn run_one(
             ex.wall,
             (ex.transport, &ex.observer),
         ))?;
-        ledger.lose_audit(p.id, &format!("{why}: not the step's result"))?;
-        say!("QUOD  AUDIT  pending audit {} lost: {why}", p.id);
-        return Ok(None);
+        return lose(ledger, p, &format!("{why}: not the step's result"));
     }
 
     let mid = quod_manifest::manifest_id(&ex.manifest)?;
@@ -692,6 +747,10 @@ fn run_one(
     Ok(Some(verdict))
 }
 
+fn cleanup_dir(dir: &Path) {
+    let _ = quod_cas::remove_any(dir);
+}
+
 #[allow(clippy::too_many_arguments)] // one row, every fact named
 fn run_facts<'a>(
     run_id: &'a str,
@@ -726,12 +785,24 @@ fn run_facts<'a>(
 /// A line for `status`: the state dir's deferred audits, when any are
 /// outstanding or lost.
 pub fn status_line(ledger: &Ledger) -> anyhow::Result<Option<String>> {
-    let (pending, running, owed) = ledger.backlog_counts()?;
-    if pending + running + owed == 0 {
+    let o = ledger.outstanding(&stale_cutoff())?;
+    if o.pending + o.overdue + o.running + o.lost == 0 {
         return Ok(None);
     }
     Ok(Some(format!(
-        "  deferred audits: {pending} pending, {running} running, {owed} lost and not yet repaid (a lost audit never counts as passed: the key's next would-be hit is audited inline); `quod audit` runs them"
+        "  deferred audits: {} pending, {} running, {} lost and not yet repaid (a lost or overdue audit never counts as passed: the key's next would-be hit is audited inline); `quod audit` runs them{}",
+        o.pending,
+        o.running,
+        o.lost + o.overdue,
+        if o.overdue > 0 {
+            format!(
+                " ({} pending for longer than {} h: overdue)",
+                o.overdue,
+                PENDING_TTL.as_secs() / 3600
+            )
+        } else {
+            String::new()
+        }
     )))
 }
 

@@ -230,10 +230,10 @@ timer (`quod audit`).** `quod run` and `quod step` start it right after
 serving the replay (`setsid`, output to `<state>/audit.log`; a run that
 only replays has no observer mounted, so nothing of the run is held up).
 The worker takes `<state>/audit.lock` (one worker per state dir; an extra
-one exits at once), sets itself to nice 19 and the idle I/O class (so a
-job executing beside it, on a shared box or on the same runner's next
-job, keeps the CPU: the kernel gives an idle-class process only what
-nobody else wants), expires what nobody ran in time, and drains the
+one exits at once), puts itself in the idle CPU class (SCHED_IDLE, nice 19 where
+that is refused) and the idle I/O class (so a job executing beside it,
+on a shared box or on the same runner's next job, keeps the CPU: the
+kernel runs an idle-class task only when nothing else is runnable), expires what nobody ran in time, and drains the
 queue oldest first within a time budget (`--budget`, 1 h; each audit also
 has the step's own timeout). `QUOD_AUDIT_SPAWN=0` leaves the start to the
 caller: a cron job, a runner's post-job hook, the tests. On a runner pool
@@ -308,31 +308,55 @@ A pending audit that is never executed must not count as passed. The row
 has five states: `pending`, `running` (claimed by a worker, with when and
 by whom), `passed`, `diverged`, `lost`. Before claiming, a worker expires
 the queue: a `pending` row older than `PENDING_TTL` (24 h) is `lost`
-("nobody ran it"), a `running` row claimed longer ago than `LEASE` (3 h,
-longer than any step timeout) was abandoned by a dead worker and goes
-back to `pending` for another attempt, `lost` after `MAX_ATTEMPTS` = 3.
-An attempt that produces no verdict (a Quod error, the machine's doing:
-an OOM kill, a signal) releases the row the same way; a step that times
-out restarts the manifest's proof streak, as an inline timeout does, and
-the row is `lost` (not a verdict, not a divergence); a result that is not
-the step's (a sealed-tree write refused, a second Go toolchain outside
-the test-cache guard) is `lost` too. The counters say so: `trust.audits`
-counts executed comparisons only, never a pending or lost row.
+("nobody ran it"), a `running` row claimed longer ago than `LEASE` (3 h)
+was abandoned by a dead worker and goes back to `pending` for another
+attempt, `lost` after `MAX_ATTEMPTS` = 3. No attempt runs longer than
+the lease either: the step gets the smaller of its own timeout and
+`LEASE`, so a hung step cannot hold the worker's lock past the point
+where the next worker would call the claim abandoned. An attempt that
+produces no verdict (a Quod error, the machine's doing: an OOM kill, a
+signal, a timeout, which under the worker's idle priority is the box's
+as likely as the step's) releases the row the same way and leaves the
+manifest's proof streak alone (an inline timeout resets it because the
+user saw it). What no retry would change is `lost` at once: a request
+that no longer parses, a manifest or result that is gone, a tree that no
+longer matches, a result that is not the step's (a sealed-tree write
+refused, a second Go toolchain outside the test-cache guard, the guard
+no longer applying after a toolchain upgrade). The counters say so:
+`trust.audits` counts executed comparisons only, never a pending or lost
+row.
 
 The schedule does not skip ahead over a loss: a `lost` row is *owed*
-until an inline audit of the key repays it. `decide` sees the key's
-backlog (`Ledger::backlog`: pending and owed counts) and, while anything
-is owed, audits the key's next would-be hit inline whatever the schedule
-says; that audit's row repays the oldest owed loss. The schedule's own
-audits (at 4, 7, 11, ...) are unaffected: hit k is still audited at k.
-`quod status` prints "deferred audits: N pending, M running, L lost and
-not yet repaid"; `quod audit --list` names them.
+until an inline audit of the key repays it, and so is a `pending` row
+older than `PENDING_TTL` whether or not a worker has marked it (the
+decision reads the row's age, not its state, so a worker that never
+starts cannot leave an audit counting as merely pending). `decide` sees
+the key's backlog (`Ledger::backlog`: pending and owed counts) and, while
+anything is owed, audits the key's next would-be hit inline whatever the
+schedule says (a shadow audit if the key is in its shadow); that audit's
+row repays the oldest owed one, an overdue pending row becoming `lost`
+by that. The schedule's own audits (at 4, 7, 11, ...) are unaffected:
+hit k is still audited at k. `quod status` prints "deferred audits: N
+pending, M running, L lost and not yet repaid"; `quod audit --list`
+names them.
+
+A quarantine supersedes the key's other outstanding audits. Each of them
+would compare the step's behaviour now against a served result the
+quarantine has just declared suspect, and so count the one divergence
+again (a longer shadow, a higher bar, the fresh proof streaks wiped) and
+mark the replays the re-proof later serves. At a quarantine, inline or
+deferred, `record_execution` drops them: `lost`, repaid (the restarted
+shadow checks the key harder than an owed inline audit would), with the
+reason on the row; a worker that claims one whose replay is already
+suspect drops it the same way. The replays those audits were checking
+are suspect already, by the quarantine.
 
 ### Resources
 
-A worker is one process per state dir (the lock), at nice 19 and I/O
-class idle; the step it runs inherits both. The budget (`--budget`, 1 h)
-bounds a drain; each step has its recorded timeout. Nothing in the job's
+A worker is one process per state dir (the lock), in the idle CPU class
+(SCHED_IDLE) and the idle I/O class; the step it runs inherits both. The
+budget (`--budget`, 1 h) bounds a drain; each step has its recorded
+timeout, capped at the lease (3 h). Nothing in the job's
 own path waits: the replay is served, the worker is started, the run
 exits. On a runner, a worker started by job N runs under job N+1 at idle
 priority and is preempted by it; the window grows by the next job's
@@ -365,9 +389,16 @@ been poisoned (which is what T4 and D2 exercise).
   validated: the spec must key to the step, the tree must match the
   manifest.
 - A worker that is never started (no cron, spawn disabled, the runner
-  gone) turns every deferred audit into a loss after `PENDING_TTL`, and
-  every loss into an inline audit on the key's next hit: the failure mode
-  is "audits come back inline", never "audits silently pass".
+  gone) turns every deferred audit into an owed one after `PENDING_TTL`
+  (by the row's age, in `decide`, with no worker needed to say so), and
+  every owed audit into an inline audit on the key's next hit: the
+  failure mode is "audits come back inline", never "audits silently
+  pass". Until then the cap bounds the exposure to two audits per key.
+- The worker holds the ledger's write lock while it claims a row and
+  while it records a verdict (the comparison runs inside that
+  transaction, as an inline audit's does), at idle priority: a job's run
+  that needs the lock meanwhile waits up to the ledger's busy timeout
+  (60 s) on a saturated box. Both sections are short; a residual.
 - Two state dirs never share a queue; the hooks' per-scope ledgers would
   each have their own (once the hooks defer).
 
