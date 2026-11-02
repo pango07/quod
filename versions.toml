@@ -98,3 +98,34 @@ version = ""
 # BLAKE3 of the rootfs image produced by scripts/build-guest.sh (T13).
 rootfs_b3 = ""
 kernel = ""
+
+# bench-real-small (scripts/bench-real.sh, docs/bench/real-small.md): one
+# small, popular, permissively licensed repo per toolchain whose full test
+# run takes seconds to about a minute and needs no network after the
+# dependency install. Pinned at each default branch's head on 2026-11-02;
+# the benchmark replays the N (20) first-parent commits ending at the pin,
+# all of them, chosen by that rule only. `setup` is step A (network, never
+# memoized), `step` the keyed test step.
+[bench_real.go]
+url = "https://github.com/expr-lang/expr"
+license = "MIT"
+commit = "4b31df3a2e0eefec04c017a82a00e0f08541d3e4"
+toolchain = "go"
+setup = "go mod download"
+step = "go test ./..."
+
+[bench_real.node]
+url = "https://github.com/tj/commander.js"
+license = "MIT"
+commit = "ba6d13ddb4243e5913367734f8c159089ffe7834"
+toolchain = "node"
+setup = "npm ci"
+step = "node --test"
+
+[bench_real.python]
+url = "https://github.com/python-attrs/attrs"
+license = "MIT"
+commit = "9d9f94a043de7fc4012459853a4ed597a5577855"
+toolchain = "python"
+setup = "uv sync --frozen"
+step = "python -m pytest"
