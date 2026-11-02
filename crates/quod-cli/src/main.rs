@@ -24,6 +24,7 @@ macro_rules! say_raw {
     }};
 }
 
+mod audit;
 mod bench;
 mod deps;
 mod gitdir;
@@ -68,6 +69,11 @@ enum Cmd {
     /// Observe mode (default) executes and records; replay mode replays
     /// results that proved themselves.
     Run(run::RunArgs),
+    /// Execute the audits deferred by replays (trust v2): re-run each
+    /// step on its recorded input tree and compare with what was served.
+    /// `quod run` starts one after a deferred replay; a cron job or a
+    /// runner's post-job hook may run it too.
+    Audit(audit::AuditArgs),
     /// Hits, misses, time saved and the trust state of every step key of a repo.
     Status(status::StatusArgs),
     /// Measure observer overhead (A8) and hit rate over history (A11).
@@ -135,6 +141,7 @@ fn main() -> ExitCode {
                     quod_sandbox::on_termination();
                     run::run(&state, args)
                 }
+                Cmd::Audit(args) => audit::audit(&state, args),
                 Cmd::Status(args) => status::status(&state, args),
                 Cmd::Bench(args) => bench::bench(&state, args),
                 Cmd::Hooks { policy } => quod_hooks::Policy::from_json(policy.as_deref())

@@ -12,6 +12,7 @@ use quod_replay::{fmt_duration, group};
 use quod_sandbox::{Killed, Limits, Mount, RunSpec};
 use quod_trust::{Decision, Replayed, Step, Trust, Verdict};
 
+use crate::audit;
 use crate::deps::{self, Deps};
 use crate::gitdir;
 use crate::gotest::{self, GoTestGuard, GoTests};
@@ -358,27 +359,67 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
 
     // A replay is decided again as it is recorded (another run may have
     // quarantined the key or taken the audit slot meanwhile); if that says
-    // execute, it executes.
-    // The trust update and the run row are one transaction.
+    // execute, it executes. A deferred audit (trust v2: the schedule picked
+    // this would-be hit in the decay phase) serves the replay now and
+    // leaves the audit pending, with the exact input tree in the store.
+    // The trust update, the run row and the pending audit are one
+    // transaction.
     let replayed = match decision {
-        Decision::Replay => {
+        Decision::Replay | Decision::Defer { .. } => {
             let hit = lookup.hit.as_ref().expect("a replay needs a hit");
             let result = &hit.1;
+            // Content-addressed: a tree seen before costs a hash, not a write.
+            let deferred_tree = match decision {
+                Decision::Defer { .. } => Some(rootfs::put_tree(&cas, &tree)?),
+                _ => None,
+            };
             ledger.atomically(|l| -> anyhow::Result<_> {
+                let record = |facts, nth: Option<u64>| -> anyhow::Result<_> {
+                    let replay_wall = wall_start.elapsed();
+                    let saved =
+                        Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
+                    l.record_run_facts(&info.facts(
+                        "replayed",
+                        Some(&result.manifest_id),
+                        Some(result.exit_code),
+                        replay_wall,
+                        Some(saved),
+                    ))?;
+                    let deferred = match nth {
+                        Some(nth) => {
+                            let th = match deferred_tree {
+                                Some(h) => h,
+                                None => rootfs::put_tree(&cas, &tree)?,
+                            };
+                            let req = audit::Request {
+                                v: audit::REQUEST_VERSION,
+                                kind: audit::Kind::Run,
+                                spec: (&spec).into(),
+                                script: Some(step.clone()),
+                                extra_env: extra_env.clone(),
+                                policy: (&policy).into(),
+                                repo: Some(audit::RepoDoc {
+                                    id: info.repo_id.clone(),
+                                    path: info.repo_path.clone(),
+                                    head: info.head.clone(),
+                                    host: info.host.clone(),
+                                }),
+                                rootfs: pin.rootfs.as_ref().map(|r| r.digest),
+                                warm,
+                                guard: go_guard.is_some(),
+                                ignore: ignore.clone(),
+                                timeout_ms: args.timeout.as_millis() as u64,
+                            };
+                            let id = audit::enqueue(l, &key, hit, &info.run_id, nth, &th, &req)?;
+                            Some((nth, id))
+                        }
+                        None => None,
+                    };
+                    Ok((facts, replay_wall, deferred))
+                };
                 Ok(match trust.record_replay(&tstep, hit)? {
-                    Replayed::Replayed(facts) => {
-                        let replay_wall = wall_start.elapsed();
-                        let saved =
-                            Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
-                        l.record_run_facts(&info.facts(
-                            "replayed",
-                            Some(&result.manifest_id),
-                            Some(result.exit_code),
-                            replay_wall,
-                            Some(saved),
-                        ))?;
-                        Ok((facts, replay_wall))
-                    }
+                    Replayed::Replayed(facts) => Ok(record(facts, None)?),
+                    Replayed::Deferred(facts, nth) => Ok(record(facts, Some(nth))?),
                     Replayed::Execute(reason) => Err(reason),
                 })
             })?
@@ -386,7 +427,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         Decision::Execute(reason) => Err(reason),
     };
     let reason = match replayed {
-        Ok((facts, replay_wall)) => {
+        Ok((facts, replay_wall, deferred)) => {
             let (manifest, result) = lookup.hit.as_ref().expect("a replay needs a hit");
             let mid = result.manifest_id;
             if let Some(dir) = &args.outputs {
@@ -406,6 +447,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                     manifest.entries.len(),
                     replay_wall,
                     &std::iter::once(facts.receipt_line())
+                        .chain(deferred.map(|(nth, id)| audit::receipt_line(nth, id)))
                         .chain(uncompared_line(result, &ignore))
                         .collect::<Vec<_>>()
                 )
@@ -428,7 +470,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 manifest.entries.len(),
                 warm,
                 None,
+                deferred.map(|(_, id)| id),
             );
+            if deferred.is_some() {
+                // Off the job's critical path: a detached worker, at idle
+                // priority, executes and compares it (`quod audit`).
+                audit::spawn_worker(state, args.ledger.as_deref(), args.cas.as_deref());
+            }
             return Ok(exit_byte(code));
         }
         Err(reason) => reason,
@@ -550,6 +598,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             0,
             warm,
             Some((ex.transport, &ex.observer)),
+            None,
         );
         return Ok(EXIT_TIMEOUT);
     }
@@ -722,6 +771,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         ex.manifest.entries.len(),
         warm,
         Some((ex.transport, &ex.observer)),
+        None,
     );
     Ok(exit_byte(ex.exit_code))
 }
@@ -1355,6 +1405,7 @@ fn emit_event(
     inputs: usize,
     warm: bool,
     observed: Option<(&str, &str)>,
+    deferred_audit: Option<i64>,
 ) {
     let (transport, observer) = (observed.map(|o| o.0), observed.map(|o| o.1));
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
@@ -1377,6 +1428,7 @@ fn emit_event(
         transport,
         observer,
         candidates = lookup.candidates,
+        deferred_audit,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),
         // How many recorded inputs the closest manifest disagreed on: 1
         // with first_mismatch `.git/HEAD` is a miss on the checkout's
@@ -1445,7 +1497,7 @@ fn git_head(repo: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn hostname() -> Option<String> {
+pub(crate) fn hostname() -> Option<String> {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .ok()
         .map(|s| s.trim().to_string())

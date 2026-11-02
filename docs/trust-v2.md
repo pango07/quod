@@ -49,7 +49,8 @@ manifest of its key, instead of being demanded again for every new tree.
 | What is compared | exit code; stdout/stderr up to go test durations and the GOGCCFLAGS build dir; outputs exactly, except scratch dirs | the same, plus ISO 8601 timestamps and test-runner durations erased from **stdout/stderr only**; files never normalized |
 | Determinism class | none | `exact`, `normalized` (output carries recognized volatile fields), `divergent` (recent divergences); shown in `status` and `inspect`; `divergent` gets the stricter schedule above |
 | Fingerprint tag | `quod result fingerprint v4` (main, exp/never-worse's `(cached)`) | `v5` (the normalization changed) |
-| Ledger | schema v5 (main, exp/never-worse's lookup index) | **v6**: `runs.suspect`, `trust.shadow_from`, `trust.volatile`, index `runs_by_key` |
+| Ledger | schema v5 (main, exp/never-worse's lookup index) | **v6**: `runs.suspect`, `trust.shadow_from`, `trust.volatile`, index `runs_by_key`; **v7**: `audits_pending` (deferred audits) |
+| Where a decay-phase audit runs | inline: the job waits for the re-execution | **deferred** (exp/deferred-audits): the replay is served at once and `quod audit` re-executes and compares it in the background; shadow audits stay inline; the hooks stay inline for now |
 
 Where the hit rate comes from: a key must agree with itself twice (two
 audited would-be hits, on any of its manifests) before anything of it replays
@@ -95,20 +96,20 @@ Shadow audits are *inline*: the would-be hit executes, is compared, and its
 own result is what the job gets. The hit is still a proof: the manifest's
 streak advances, so a step's second run is both the shadow audit and proof 2.
 
-### Why inline, not deferred (the cost model)
+### The cost model: inline for the shadow, deferred for the decay
 
 An audit costs one execution D of the step instead of a ~1.3 s replay.
 Inline, that D is wall time the job waits for; deferred (serve the replay
-now, re-execute later on an idle runner, compare, mark the served replay
-`suspect` if it differs), it is machine time nobody waits for. Deferred is
-cheaper for the developer and the same for the machine, and the retroactive
-marking introduced here is exactly its safety net. But a deferred audit means
-a wrong result has been *served* (and perhaps merged on) before anyone looks.
-The shadow phase exists so that nothing of a key is served blind until the
-key has agreed with itself; deferring it would undo that. Decision: inline
-for the shadow and for the floor in v2. Deferred floor audits are a
-follow-up, gated on the suspect marking reaching the dashboard, and should
-never apply to the shadow.
+now, re-execute later, compare, mark the served replay `suspect` if it
+differs), it is machine time nobody waits for. Deferred is cheaper for the
+developer and the same for the machine, and the retroactive marking is
+exactly its safety net. But a deferred audit means a wrong result has been
+*served* (and perhaps merged on) before anyone looks. The shadow phase
+exists so that nothing of a key is served blind until the key has agreed
+with itself; deferring it would undo that. Decision: inline for the shadow,
+deferred for the decay and the floor ("Deferred audits" below; the first
+version of v2 had everything inline, which 0e measured at +172 s per 87
+jobs). Deferral never applies to the shadow.
 
 ## Failure modes and the math
 
@@ -175,6 +176,254 @@ key's shadow is spent, and relies on the floor and the decay. This is the
 one place v2 is weaker than v1 per manifest, and the reason `--proofs 2`
 and `step_proofs` stay available: a repository that knows such a step can
 name it.
+
+## Deferred audits
+
+2026-11-02 · exp/deferred-audits. 0e (docs/bench/0e-combined-x86.md on
+bench/combined-x86) put a number on inline audits: +172 s over 87 jobs of
+realistic traffic and +99 s over 39 history commits, because an audit
+re-runs the full `go test` with Go's test cache expired (40-41 s against
+plain's 10-13 s) while the job waits. This section takes the decay-phase
+audits off the job's critical path without weakening what they check.
+
+**What happens now.** When replay mode selects a would-be hit for an audit
+and the key is past its shadow phase, the replay is served at once, exactly
+as a blind replay is (the job gets the recorded streams, outputs and exit
+code), and the ledger records, in the transaction that records the replay,
+a *pending audit*: the key, the manifest and result that were served, the
+would-be hit number, the exact input tree as a document in the store, and
+what the executor needs to run the step again. `quod audit` executes it
+later: it rebuilds the tree from the store, checks the manifest still
+matches it, runs the step with go test's cache expired (as every inline
+audit does), and records the execution under `Reason::DeferredAudit`,
+which compares it with the served result through the same
+`Trust::record_execution` as an inline audit. A divergence does what it
+always did: quarantine the key, reset its proofs, restart and lengthen the
+shadow, and mark every replay the key served since its last quarantine
+`suspect`, the one the audit checked included. The pending row is settled
+(`passed`, `diverged`) in that same transaction.
+
+### Where the audit runs
+
+Three places were considered.
+
+- (a) **In the same job, after the step, while later steps proceed.** The
+  step's input tree is already a content-addressed document (the imported
+  workspace plus the served `.git`), so the audit never touches the live
+  workspace: later steps may mutate it freely. But an audit running beside
+  the job's remaining steps competes with them for the same CPUs, and
+  `go test` wants all of them: the job's later steps would slow down by
+  about what the audit saves.
+- (b) **At job end, as a post-job hook.** actions/runner's `cleanup_job`
+  hook is the point (quod-hooks runs it); the runner waits for it, so an
+  audit executed *inside* the hook is still job wall time from the
+  runner's and GitHub's view. The hook can start a detached worker, which
+  is (a) at job end.
+- (c) **Queued to another runner or to Quod Cloud.** The pending row holds
+  everything a remote executor needs (the tree digest, the request), so
+  this is a transport question, not a model question. It needs the store
+  shared or shipped, and a shared ledger (exp/cloud-ledger-v2). Not now.
+
+**Chosen: a detached worker on the same machine, at idle priority, started
+by the run that served the deferred replay, and runnable by hand or by a
+timer (`quod audit`).** `quod run` and `quod step` start it right after
+serving the replay (`setsid`, output to `<state>/audit.log`; a run that
+only replays has no observer mounted, so nothing of the run is held up).
+The worker takes `<state>/audit.lock` (one worker per state dir; an extra
+one exits at once), puts itself in the idle CPU class (SCHED_IDLE, nice 19 where
+that is refused) and the idle I/O class (so a job executing beside it,
+on a shared box or on the same runner's next job, keeps the CPU: the
+kernel runs an idle-class task only when nothing else is runnable), expires what nobody ran in time, and drains the
+queue oldest first within a time budget (`--budget`, 1 h; each audit also
+has the step's own timeout). `QUOD_AUDIT_SPAWN=0` leaves the start to the
+caller: a cron job, a runner's post-job hook, the tests. On a runner pool
+this is (a) and (b) at once: the audit runs between jobs or under the next
+one at idle priority, from the recorded tree, never from the next job's
+workspace.
+
+**The hooks keep every audit inline for now.** A hooks step runs on a
+hermetic surface built per job from the job's secrets, layers and command
+files (`quod_hooks::surface`), which the hooks never store past the job
+and must not (secrets at rest). A deferred hooks audit needs that surface
+serialized with the pending row under the same rules as the rest of the
+state; that is the follow-up, and it is a design question about secrets,
+not about audits. `quod_hooks::Policy::trust` sets `defer: false`. The 0e
+numbers were measured through the CLI driver, so the expected effect below
+is what the driver sees; a runner job sees it once the hooks follow.
+
+### The exposure window
+
+The window is the time from a deferred replay to its audit's verdict,
+during which a wrong replay may have been consumed. Inline audits have a
+zero window for the audited hit, and *only* for that hit: every unaudited
+hit between two audits was always served blind and never re-checked
+except by the next audit. Deferral adds, for the audited hit, the time
+the worker takes to get to it. With the worker started by the run itself
+and the queue empty, that is one execution D of the step (plus the
+worker's start): the verdict is in before the next job on a runner
+finishes its own `go test`, and in the 0e traffic (a job every 30 s or
+so, D ≈ 41 s for `go test`) before the next would-be hit of the key in
+most cases. When it is not, the hits served meanwhile are exactly the ones
+the retroactive marking names.
+
+In the model of "Failure modes and the math" (a step whose execution
+differs from the recorded result with probability p), the expected number
+of wrong replays served before detection was (1−p)^K · (1/r − 1) with
+every audit inline. Deferring a decay audit changes two things: the audit
+still detects with probability p when it runs, but the replays served in
+the window W (H_W of them, the key's would-be hits between the deferred
+replay and the verdict) are served before it does; and the audited hit
+itself is now served, so the audit cycle serves 1/w replays instead of
+1/w − 1. Hence
+
+    E[wrong replays served] ≈ (1−p)^K · (1/r + H_W)   (deferred, at the floor)
+                            ≈ (1−p)^K · (1/r − 1)     (inline)
+
+H_W is bounded by the worker: with the queue drained as it is filled,
+H_W ≤ 1 for a key hit at most once per D. The cap `MAX_DEFERRED_PER_KEY`
+= 2 bounds it when the worker falls behind: a key with two audits
+outstanding has its next due audit executed inline, so at most two audit
+intervals of a key (2/w(k) hits; 40 at the floor) are ever served without
+a verdict, and a lost audit (below) brings the next hit inline at once.
+For p = 1 nothing changes: the shadow catches it before anything is
+served. For small p the inline and deferred expectations differ by
+(1−p)^K · (1 + H_W), about one extra replay per detection: against the
+(1/r − 1) = 19 the floor already allows, the window is a 5-10% addition
+to a bound the schedule already accepts, bought for the whole audit cost
+leaving the job.
+
+**Shadow audits stay inline.** The shadow is the key's first evidence of
+agreeing with itself; before it nothing of the key has been compared in
+production, and a p = 1 step (a timestamp in stdout) is caught at hit 1
+with zero replays served only because hit 1 executes. Deferring the
+shadow would serve K replays of a key that has never been checked, which
+is the one thing v2 promised not to do. The shadow also costs a bounded 2
+executions per key per quarantine, where the decay costs ~10 of the first
+100 hits and then 5% forever: the decay is where the wall time is (in 0e,
+11 of 17 audits), the shadow is where the safety is.
+
+### Lost audits
+
+A pending audit that is never executed must not count as passed. The row
+has five states: `pending`, `running` (claimed by a worker, with when and
+by whom), `passed`, `diverged`, `lost`. Before claiming, a worker expires
+the queue: a `pending` row older than `PENDING_TTL` (24 h) is `lost`
+("nobody ran it"), a `running` row claimed longer ago than `LEASE` (3 h)
+was abandoned by a dead worker and goes back to `pending` for another
+attempt, `lost` after `MAX_ATTEMPTS` = 3. No attempt runs longer than
+the lease either: the step gets the smaller of its own timeout and
+`LEASE`, so a hung step cannot hold the worker's lock past the point
+where the next worker would call the claim abandoned. An attempt that
+produces no verdict (a Quod error, the machine's doing: an OOM kill, a
+signal, a timeout, which under the worker's idle priority is the box's
+as likely as the step's) releases the row the same way and leaves the
+manifest's proof streak alone (an inline timeout resets it because the
+user saw it). What no retry would change is `lost` at once: a request
+that no longer parses, a manifest or result that is gone, a tree that no
+longer matches, a result that is not the step's (a sealed-tree write
+refused, a second Go toolchain outside the test-cache guard, the guard
+no longer applying after a toolchain upgrade). The counters say so:
+`trust.audits` counts executed comparisons only, never a pending or lost
+row.
+
+The schedule does not skip ahead over a loss: a `lost` row is *owed*
+until an inline audit of the key repays it, and so is a `pending` row
+older than `PENDING_TTL` whether or not a worker has marked it (the
+decision reads the row's age, not its state, so a worker that never
+starts cannot leave an audit counting as merely pending). `decide` sees
+the key's backlog (`Ledger::backlog`: pending and owed counts) and, while
+anything is owed, audits the key's next would-be hit inline whatever the
+schedule says (a shadow audit if the key is in its shadow); that audit's
+row repays the oldest owed one, an overdue pending row becoming `lost`
+by that. The schedule's own audits (at 4, 7, 11, ...) are unaffected:
+hit k is still audited at k. `quod status` prints "deferred audits: N
+pending, M running, L lost and not yet repaid"; `quod audit --list`
+names them.
+
+A quarantine supersedes the key's other outstanding audits. Each of them
+would compare the step's behaviour now against a served result the
+quarantine has just declared suspect, and so count the one divergence
+again (a longer shadow, a higher bar, the fresh proof streaks wiped) and
+mark the replays the re-proof later serves. At a quarantine, inline or
+deferred, `record_execution` drops them: `lost`, repaid (the restarted
+shadow checks the key harder than an owed inline audit would), with the
+reason on the row; a worker that claims one whose replay is already
+suspect drops it the same way. The replays those audits were checking
+are suspect already, by the quarantine.
+
+### Resources
+
+A worker is one process per state dir (the lock), in the idle CPU class
+(SCHED_IDLE) and the idle I/O class; the step it runs inherits both. The
+budget (`--budget`, 1 h) bounds a drain; each step has its recorded
+timeout, capped at the lease (3 h). Nothing in the job's
+own path waits: the replay is served, the worker is started, the run
+exits. On a runner, a worker started by job N runs under job N+1 at idle
+priority and is preempted by it; the window grows by the next job's
+length, which the retroactive marking covers.
+
+### Inputs
+
+The audit never reads the live workspace. The replay that owes the audit
+stores the tree it was decided on as a document in the store
+(`rootfs::put_tree`: the imported workspace with the served `.git`
+grafted, every blob already in the store from the import); the pending
+row names its digest. Content-addressed, so a tree seen before (the case
+of a replay, by definition) costs a hash and no write. The worker
+rebuilds the tree from the document, checks `matches(manifest, tree)`
+(a store that lost a blob fails loudly, never passes), checks the stored
+spec keys to the step, and executes the step exactly as the run would
+have: same rootfs or host pin, same warm cache, same go test guard, same
+timeout, same ignored outputs, same policy. The step's warm build cache
+is the state dir's, as for the run it stands in for: unobserved by
+design, and the one thing an audit *should* see differently if it has
+been poisoned (which is what T4 and D2 exercise).
+
+### Threat model additions
+
+- A deferred audit is decided by the same pure schedule; a step cannot
+  learn whether its hit was deferred (it sees a replay either way).
+- The pending row, the tree document and the request are written by the
+  run that served the replay, in the ledger and store it already writes;
+  a worker trusts them as it trusts any ledger row. The request is
+  validated: the spec must key to the step, the tree must match the
+  manifest.
+- A worker that is never started (no cron, spawn disabled, the runner
+  gone) turns every deferred audit into an owed one after `PENDING_TTL`
+  (by the row's age, in `decide`, with no worker needed to say so), and
+  every owed audit into an inline audit on the key's next hit: the
+  failure mode is "audits come back inline", never "audits silently
+  pass". Until then the cap bounds the exposure to two audits per key.
+- The worker holds the ledger's write lock while it claims a row and
+  while it records a verdict (the comparison runs inside that
+  transaction, as an inline audit's does), at idle priority: a job's run
+  that needs the lock meanwhile waits up to the ledger's busy timeout
+  (60 s) on a saturated box. Both sections are short; a residual.
+- Two state dirs never share a queue; the hooks' per-scope ledgers would
+  each have their own (once the hooks defer).
+
+### Expected effect on 0e's numbers
+
+Computed from 0e's per-job rows, which name each audit; the combined
+benchmark after the batch will measure it. The decay audits are the ones
+past each key's second would-be hit.
+
+| | 0e (inline) | expected (deferred) |
+| --- | --- | --- |
+| (2) traffic, audits' cost in job wall time | +172 s (17 audits: 6 shadow, 11 decay) | ≈ +69 s (the 6 shadow audits: `go test` at 2 pr and 2 merge ≈ 60 s, `go vet` at 1 merge and 2 pr, `go build` at 2 rerun and 8 rerun) |
+| of which `go test` | +149 s (5 audits) | ≈ +60 s (2 shadow); the 3 decay audits (5 pr, 10 rerun, 23 merge: +31.5, +27.6, +28.4 s over plain) leave the job |
+| (2) Quod / plain | 2,443 / 2,237 = **1.09x** | ≈ 2,340 / 2,237 = **1.05x** |
+| (2) jobs where Quod is faster | 45 of 87 | 48 of 87 (5 pr, 10 rerun and 23 merge flip: ≈ 6, 3 and 6 s against plain's 14, 17 and 17) |
+| (1) history, audits' cost | +99 s (7 audits) | ≈ +64 s: the decay audits are `go test` at commit 32 (+30 s) and `go vet` at 26 and 34 (≈ 2.3 s each) |
+| (1) Quod / plain | 1,519 / 1,250 = **1.22x** | ≈ 1,484 / 1,250 = **1.19x**; commit 32 flips (≈ 6 s against 16 s): 8 of 39 |
+
+Machine time is unchanged (every audit still executes, 41 s of `go test`
+each), plus a tree document per deferred audit (one write for a tree not
+seen before; a replay's tree was seen before) and a worker start. The
+exposure in 0e's traffic: the three `go test` decay audits would have
+been settled within ~45 s of their replay, before the next job's `go
+test` finished; none diverged (all 24 audits agreed), so no replay would
+have been marked.
 
 ## Determinism classification
 
@@ -293,11 +542,18 @@ run it labels was never verified.
 - CLI `quod run`: `--proofs N` (default 1), `--shadow K` (default 2),
   `--audit r` (default 0.05, the floor; 0 turns every audit off), env
   QUOD_PROOFS, QUOD_SHADOW, QUOD_AUDIT. `quod status --proofs` for the bar.
-- Runner API (`quod step`): `proofs`, `shadow`, `audit` in the request.
+  `--inline-audits` (QUOD_INLINE_AUDITS) executes every audit in the job
+  instead of deferring the decay-phase ones; `QUOD_AUDIT_SPAWN=0` serves
+  deferred replays without starting the worker. `quod audit [--list |
+  --one | --budget 1h]` is the worker.
+- Runner API (`quod step`): `proofs`, `shadow`, `audit`, `inline_audits`
+  in the request; a deferred replay's response carries `deferred_audit`
+  (the pending row's id).
 - Hooks policy (`quod runner pool --proofs --shadow --audit`, or the shim's
   JSON): `proofs`, `shadow`, `audit`, and `step_proofs: [{"contains":
   "<substring of the run: script>", "proofs": N}]`, first match wins, for a
-  step pattern that should keep a higher bar.
+  step pattern that should keep a higher bar. The hooks audit inline (no
+  deferral option yet; see "Deferred audits").
 
 ## Migration
 
@@ -313,6 +569,12 @@ with 7 hits and no audit starts the shadow fresh). `fixtures/ledger_schema.sql`
 is the new golden. No step-key change: the key
 describes inputs, not trust rules. The result fingerprint tag is v5. v1
 ledgers in the field are none (DECISIONS: disposable).
+
+Ledger v7 (deferred audits): `CREATE TABLE audits_pending (id, step_key,
+manifest_id, hit_run, replay_run, nth, tree, request, state, enqueued_at,
+attempts, claimed_at, claimed_by, finished_at, audit_id, detail, repaid)`
+and its index by `(step_key, state)`. Nothing else changes; a v6 ledger
+has no pending audits, so nothing is backfilled. Golden updated.
 
 ## Measured
 
@@ -351,8 +613,16 @@ for commit.
    record. The hit rate in the traffic simulation below is measured through
    the CLI (one ledger, no reader/writer split) and is an upper bound for
    the hooks.
-6. Deferred audits are not implemented; every audit still costs the job the
-   step's duration.
+6. Deferred audits (CLI only). A decay-phase audit's verdict comes after
+   its replay was served: for the window between the two, a wrong replay
+   may have been consumed, bounded as "The exposure window" says (about
+   one replay per detection over the floor's own 19, two audit intervals
+   at the worst when the worker falls behind). The hooks still audit
+   inline, so a runner job still pays the full audit cost until the
+   hermetic surface can be stored with a pending audit. A worker that
+   never runs degrades to inline audits after 24 h, not to silence. The
+   tree document a deferred audit stores (a few MB for cli/cli) lives in
+   the store with no reaper, like every blob.
 7. A lossy observer (an access dropped from the log) was likely caught by
    v1's second proof on that manifest (`equivalent` ran before every first
    replay); under v2 that check runs on the key's audit schedule. The

@@ -151,6 +151,9 @@ fn render(
             "  suspect replays: {suspect_total} (served before their step key was quarantined; the result may have been wrong: re-run them)"
         )?;
     }
+    if let Some(line) = crate::audit::status_line(ledger)? {
+        writeln!(o, "{line}")?;
+    }
     // The newest run of each key (runs are oldest first).
     let mut last_run: BTreeMap<Hash, &RunRow> = BTreeMap::new();
     for r in runs {

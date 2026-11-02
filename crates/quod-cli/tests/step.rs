@@ -33,6 +33,8 @@ impl Api {
             .arg(self.state())
             .args(args)
             .env_remove("QUOD_ROOTFS")
+            // The test runs the audit worker itself.
+            .env("QUOD_AUDIT_SPAWN", "0")
             .output()
             .unwrap()
     }
@@ -218,21 +220,59 @@ fn a_runner_runs_one_step_and_gets_result_manifest_and_outputs() {
         rb["trust"]
     );
     // A file the step never read changes nothing: the next would-be hit is
-    // the key's 4th, which the decaying schedule audits (it executes and
-    // agrees), and the one after replays.
+    // the key's 4th, which the decaying schedule audits. Deferred (trust
+    // v2): the replay is served at once and the audit is owed, named in
+    // the response; `quod audit` executes it on the recorded tree in the
+    // same rootfs with the same pinned mounts, and it agrees.
     fs::write(ws.join("unread.txt"), "changed\n").unwrap();
     let u = api.step(&req(true));
     let ru = u.response.expect("a response");
-    assert_eq!(ru["replayed"], false, "{}", u.stderr);
+    assert_eq!(ru["replayed"], true, "{}", u.stderr);
+    assert_eq!((u.code, u.stdout.as_str()), (0, "in\nv1\n"));
+    let pending = ru["deferred_audit"].as_i64().expect("a pending audit id");
     assert!(
-        ru["trust"][0]
+        ru["trust"][1]
+            .as_str()
+            .unwrap()
+            .starts_with("trust: audit deferred: would-be hit 4"),
+        "{}",
+        ru["trust"]
+    );
+    let w = api.quod(&["audit", "--one"]);
+    let w_err = String::from_utf8_lossy(&w.stderr);
+    assert!(
+        w.status.success()
+            && w_err.contains(&format!(
+                "(deferred audit {pending}: would-be hit 4 re-executed"
+            ))
+            && w_err.contains("trust: deferred audit passed")
+            && !w_err.contains("DIVERGENCE"),
+        "{w_err}"
+    );
+    let settled = std::process::Command::new("sqlite3")
+        .arg(api.state().join("ledger.sqlite"))
+        .arg(format!(
+            "SELECT state FROM audits_pending WHERE id = {pending}"
+        ))
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&settled.stdout).trim(), "passed");
+    // Hit 5 replays; with inline audits asked for, a due hit executes.
+    assert_eq!(api.step(&req(true)).response.unwrap()["replayed"], true);
+    let mut inline = req(true);
+    inline["audit"] = json!(1.0);
+    inline["inline_audits"] = json!(true);
+    let i = api.step(&inline);
+    let ri = i.response.expect("a response");
+    assert_eq!(ri["replayed"], false, "{}", i.stderr);
+    assert!(
+        ri["trust"][0]
             .as_str()
             .unwrap()
             .starts_with("trust: audit passed"),
         "{}",
-        ru["trust"]
+        ri["trust"]
     );
-    assert_eq!(api.step(&req(true)).response.unwrap()["replayed"], true);
     // lookup: false always executes.
     let c = api.step(&req(false)).response.unwrap();
     assert_eq!(c["replayed"], false);

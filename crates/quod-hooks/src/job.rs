@@ -1981,12 +1981,19 @@ fn run_step(
     let mode = policy.mode_name();
     let decision = trust.decide(&key, lookup.hit.as_ref())?;
     let replayed = match decision {
+        // The hooks' policy never defers an audit (`Policy::trust`), so a
+        // deferral cannot be decided here; a match that ignored one would
+        // serve a replay with its audit lost at birth.
+        Decision::Defer { .. } => unreachable!("the hooks' policy never defers audits"),
         Decision::Replay => {
             let hit = lookup.hit.as_ref().expect("a replay needs a hit");
             // Decided again as it is recorded (another job may have
             // quarantined the key or taken the audit slot meanwhile).
             ledger.atomically(|l| -> anyhow::Result<_> {
                 Ok(match trust.record_replay(&tstep, hit)? {
+                    Replayed::Deferred(..) => {
+                        unreachable!("the hooks' policy never defers audits")
+                    }
                     Replayed::Replayed(facts) => {
                         l.record_run_facts(&run_facts(
                             &run_id,
@@ -2519,7 +2526,7 @@ fn finish_report(
             "would replay: no, quarantined by this run's divergence".to_string()
         }
         (Some(v), None) => match &v.reason {
-            Reason::WouldReplay | Reason::Audit { .. } => {
+            Reason::WouldReplay | Reason::Audit { .. } | Reason::DeferredAudit { .. } => {
                 let saved = v
                     .would_have_saved
                     .unwrap_or(Duration::ZERO)

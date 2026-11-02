@@ -42,7 +42,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use quod_cas::{CanonError, Cas, CasError, Entry, Hash, Kind, parent_and_name};
-use quod_ledger::{AuditRow, Ledger, LedgerError, ProofRow, TrustRow, TrustState, now_rfc3339};
+use quod_ledger::{
+    AuditRow, Backlog, Ledger, LedgerError, ProofRow, TrustRow, TrustState, now_rfc3339,
+};
 use quod_manifest::{Manifest, ManifestError, StepResult, manifest_id};
 
 /// Identical executions a manifest needs before its result may replay.
@@ -67,6 +69,30 @@ pub const TRAILING_AUDITS: usize = 100;
 pub const MAX_EXTRA_PROOFS: u32 = 5;
 /// The largest `--proofs` accepted.
 pub const MAX_PROOFS: u32 = 100;
+/// Deferred audits (docs/trust-v2.md, "Deferred audits"): how many audits
+/// of one key may be owed (served, not yet executed) before the next due
+/// audit runs inline again. Bounds the exposure window in hits: at most
+/// this many audit intervals of a key are served without a verdict.
+pub const MAX_DEFERRED_PER_KEY: u64 = 2;
+/// A deferred audit nobody executed within this long is owed as if lost
+/// (the worker was never started, or the box was busy for a day): the
+/// decision counts it so, whether or not a worker has marked it.
+pub const PENDING_TTL: Duration = Duration::from_secs(24 * 3600);
+/// A claimed deferred audit whose worker has not finished it within this
+/// long was abandoned (the worker died, or the step hung): released for
+/// another attempt. Also the most one attempt may run.
+pub const LEASE: Duration = Duration::from_secs(3 * 3600);
+/// Attempts before a deferred audit that keeps failing to execute is lost.
+pub const MAX_ATTEMPTS: u32 = 3;
+
+/// Now minus `PENDING_TTL`, as the ledger's timestamps are written: a
+/// pending audit enqueued before it is overdue.
+pub fn stale_cutoff() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    quod_ledger::format_rfc3339(now.saturating_sub(PENDING_TTL).as_secs(), 0)
+}
 
 /// Paths under HOME that tools fill with per-execution state and that are
 /// therefore not compared (nor written out by `quod run --outputs`,
@@ -142,6 +168,12 @@ pub struct Policy {
     /// replay. Off by default: a failure that repeats identically is as
     /// likely the box (load, a hang to go test's timeout) as the code.
     pub replay_failures: bool,
+    /// Deferred audits (trust v2, "Deferred audits"): a decay-phase audit
+    /// serves the replay at once and is executed and compared later, off
+    /// the job's critical path; a divergence then marks the replays served
+    /// meanwhile suspect. Shadow audits are inline whatever this says. Off:
+    /// every audit executes inline, as before.
+    pub defer: bool,
 }
 
 impl Default for Policy {
@@ -152,6 +184,7 @@ impl Default for Policy {
             shadow: DEFAULT_SHADOW,
             audit: DEFAULT_AUDIT,
             replay_failures: false,
+            defer: true,
         }
     }
 }
@@ -238,6 +271,11 @@ pub enum Reason {
     /// `shadow` when it falls in the key's shadow phase (every hit audited
     /// until the key has agreed with itself `shadow` times).
     Audit { nth: u64, shadow: bool },
+    /// A deferred audit being executed now: would-be hit `nth` of the key
+    /// was served as a replay, and this is its execution (pending audit
+    /// `pending` in the ledger). Compared like an audit; not a would-be hit
+    /// of its own (the replay already counted).
+    DeferredAudit { nth: u64, pending: i64 },
     /// Observe mode: this would have replayed.
     WouldReplay,
 }
@@ -255,6 +293,7 @@ impl Reason {
         matches!(
             self,
             Reason::Audit { .. }
+                | Reason::DeferredAudit { .. }
                 | Reason::WouldReplay
                 | Reason::Proving { .. }
                 | Reason::Quarantined { .. }
@@ -270,6 +309,7 @@ impl Reason {
         match self {
             Reason::Audit { shadow: true, .. } => "shadow",
             Reason::Audit { .. } => "audit",
+            Reason::DeferredAudit { .. } => "deferred",
             Reason::WouldReplay => "observe",
             _ => "proof",
         }
@@ -279,6 +319,13 @@ impl Reason {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
     Replay,
+    /// Replay now, and audit later: the would-be hit (the `nth` of the key)
+    /// is on the audit schedule, in the decay phase, and the policy defers.
+    /// The caller serves the replay and enqueues the audit in the same
+    /// transaction (`Ledger::enqueue_audit`).
+    Defer {
+        nth: u64,
+    },
     Execute(Reason),
 }
 
@@ -287,6 +334,9 @@ pub enum Decision {
 pub enum Replayed {
     /// Recorded; the receipt's trust facts.
     Replayed(Facts),
+    /// Recorded, and the caller owes a deferred audit of would-be hit `nth`:
+    /// it must enqueue one in the same transaction.
+    Deferred(Facts, u64),
     /// Decided otherwise inside the transaction: execute, for this reason.
     Execute(Reason),
 }
@@ -462,13 +512,17 @@ pub struct HitView<'a> {
 /// ends with: the streak vouches for the result that run recorded, and for
 /// no other (a ledger where they disagree, e.g. a result that was never
 /// stored after its proof, is treated as unproven). An unprovable result
-/// never replays, whatever its streak.
+/// never replays, whatever its streak. `backlog` is the key's deferred
+/// audits: one that was lost is repaid by auditing the next would-be hit
+/// inline, schedule or not; and a due decay-phase audit is deferred only
+/// while fewer than `MAX_DEFERRED_PER_KEY` are already owed.
 pub fn decide(
     policy: &Policy,
     hit: Option<HitView>,
     trust: Option<&TrustRow>,
     proof: Option<&ProofRow>,
     recent_divergences: u64,
+    backlog: Backlog,
 ) -> Decision {
     let Some(hit) = hit else {
         return Decision::Execute(Reason::Miss);
@@ -499,13 +553,24 @@ pub fn decide(
             let eligible = trust.map_or(0, |t| t.eligible);
             let k = since_shadow(trust);
             let sched = Schedule::of(policy, recent_divergences);
-            if sched.due(k) {
-                Decision::Execute(Reason::Audit {
-                    nth: eligible + 1,
+            let nth = eligible + 1;
+            if backlog.owed > 0 && sched.floor > 0.0 {
+                // A deferred audit of this key was lost (or is overdue):
+                // this hit makes up for it, inline, whatever the schedule
+                // says; in the shadow it is a shadow audit like any other.
+                return Decision::Execute(Reason::Audit {
+                    nth,
                     shadow: sched.in_shadow(k),
-                })
+                });
+            }
+            if !sched.due(k) {
+                return Decision::Replay;
+            }
+            let shadow = sched.in_shadow(k);
+            if !shadow && policy.defer && backlog.pending < MAX_DEFERRED_PER_KEY {
+                Decision::Defer { nth }
             } else {
-                Decision::Replay
+                Decision::Execute(Reason::Audit { nth, shadow })
             }
         }
     }
@@ -1174,6 +1239,13 @@ pub struct Verdict {
     /// Would-be hits still in the key's shadow phase after this execution:
     /// how many more are audited before any replays blind.
     pub shadow_left: u64,
+    /// This inline audit made up for a deferred audit of the key that was
+    /// lost (never executed).
+    pub repaid: bool,
+    /// Deferred audits of the key still outstanding at this execution's
+    /// divergence, dropped: they would have compared against the result
+    /// the quarantine has just declared suspect.
+    pub superseded: usize,
 }
 
 impl Verdict {
@@ -1203,7 +1275,7 @@ impl Verdict {
             Reason::Miss => "miss",
             Reason::Unprovable { .. } => "unprovable",
             Reason::Proving { .. } | Reason::Quarantined { .. } => "proving",
-            Reason::Audit { .. } => "audit",
+            Reason::Audit { .. } | Reason::DeferredAudit { .. } => "audit",
             Reason::WouldReplay => "would-replay",
         }
     }
@@ -1221,6 +1293,9 @@ impl Verdict {
                 format!("  (shadow audit: would-be hit {nth} re-executed)")
             }
             (Reason::Audit { nth, .. }, _) => format!("  (audit: would-be hit {nth} re-executed)"),
+            (Reason::DeferredAudit { nth, pending }, _) => format!(
+                "  (deferred audit {pending}: would-be hit {nth} re-executed after its replay was served)"
+            ),
             _ => String::new(),
         }
     }
@@ -1255,6 +1330,14 @@ impl Verdict {
                     self.suspects,
                     plural(self.suspects as u64),
                     if self.suspects == 1 { "it" } else { "them" }
+                ));
+            }
+            if self.superseded > 0 {
+                v.push(format!(
+                    "  {} deferred audit{} of this key still outstanding dropped: {} would have compared against the result now suspect; the restarted shadow checks the key instead",
+                    self.superseded,
+                    plural(self.superseded as u64),
+                    if self.superseded == 1 { "it" } else { "they" }
                 ));
             }
             return v;
@@ -1323,7 +1406,17 @@ impl Verdict {
                     n => format!("; {n} more shadow audits before replays"),
                 }
             )],
-            Reason::Audit { .. } => vec![format!("trust: audit passed{identical}; {audited}")],
+            Reason::Audit { .. } => vec![format!(
+                "trust: audit passed{identical}{}; {audited}",
+                if self.repaid {
+                    " (making up for a lost deferred audit)"
+                } else {
+                    ""
+                }
+            )],
+            Reason::DeferredAudit { .. } => vec![format!(
+                "trust: deferred audit passed{identical}; the replay it checked was right; {audited}"
+            )],
             Reason::WouldReplay => vec![format!(
                 "trust: {audited}; `quod run --mode replay` replays this"
             )],
@@ -1371,6 +1464,7 @@ impl<'a> Trust<'a> {
             trust.as_ref(),
             proof.as_ref(),
             self.ledger.recent_divergences(key, TRAILING_AUDITS)?,
+            self.ledger.backlog(key, &stale_cutoff())?,
         ))
     }
 
@@ -1395,7 +1489,8 @@ impl<'a> Trust<'a> {
     /// Records a replay, deciding again inside the transaction: between
     /// `decide` and now another run may have quarantined the key or taken
     /// the audit slot this hit was going to skip. `Execute` means the
-    /// caller must execute after all, for that reason.
+    /// caller must execute after all, for that reason; `Deferred` means the
+    /// caller owes a deferred audit and must enqueue it in this transaction.
     pub fn record_replay(
         &self,
         step: &Step,
@@ -1415,15 +1510,22 @@ impl<'a> Trust<'a> {
                 trust.as_ref(),
                 l.proof(&step.key, &mid)?.as_ref(),
                 l.recent_divergences(&step.key, TRAILING_AUDITS)?,
+                l.backlog(&step.key, &stale_cutoff())?,
             );
-            if let Decision::Execute(reason) = decision {
-                return Ok(Replayed::Execute(reason));
-            }
+            let deferred = match decision {
+                Decision::Execute(reason) => return Ok(Replayed::Execute(reason)),
+                Decision::Defer { nth } => Some(nth),
+                Decision::Replay => None,
+            };
             let mut t = trust.unwrap_or_else(|| TrustRow::new(step.key, Some(step.cmd)));
             t.eligible += 1;
             t.replays += 1;
             l.put_trust(&t)?;
-            Ok(Replayed::Replayed(self.facts(&step.key, &mid)?))
+            let facts = self.facts(&step.key, &mid)?;
+            Ok(match deferred {
+                Some(nth) => Replayed::Deferred(facts, nth),
+                None => Replayed::Replayed(facts),
+            })
         })
     }
 
@@ -1606,6 +1708,8 @@ impl<'a> Trust<'a> {
             }
             l.put_trust(&trust)?;
             let mut suspects = 0;
+            let mut repaid = false;
+            let mut superseded = 0;
             if compared {
                 let audit_id = l.record_audit(&AuditRow {
                     id: 0,
@@ -1630,6 +1734,25 @@ impl<'a> Trust<'a> {
                 })?;
                 if !divergence.is_empty() {
                     suspects = mark_suspects(l, &key, &trust, &divergence, audit_id)?;
+                    superseded = supersede_pending(l, &key, &trust, reason, audit_id)?;
+                }
+                match reason {
+                    // The deferred audit is settled by its verdict, in the
+                    // transaction that writes it.
+                    Reason::DeferredAudit { pending, .. } => {
+                        l.finish_audit(
+                            *pending,
+                            !divergence.is_empty(),
+                            audit_id,
+                            &truncate(&verdict_detail(&divergence, byte_identical), 300),
+                        )?;
+                    }
+                    // An inline audit makes up for a lost or overdue
+                    // deferred one, if any was owed.
+                    Reason::Audit { .. } => {
+                        repaid = l.repay_audit(&key, audit_id, &stale_cutoff())?;
+                    }
+                    _ => {}
                 }
             }
             let shadow_left = Schedule::of(&self.policy, recent)
@@ -1649,6 +1772,8 @@ impl<'a> Trust<'a> {
                 unprovable: why_unprovable.clone(),
                 suspects,
                 shadow_left,
+                repaid,
+                superseded,
             })
         })
     }
@@ -1704,6 +1829,7 @@ impl<'a> Trust<'a> {
                 detail: Some(truncate(&divergence.to_string(), 2000)),
             })?;
             let suspects = mark_suspects(l, &key, &trust, &divergence, audit_id)?;
+            let superseded = supersede_pending(l, &key, &trust, reason, audit_id)?;
             let recent = l.recent_divergences(&key, TRAILING_AUDITS)?;
             let needed = needed(&self.policy, recent);
             let shadow_left = Schedule::of(&self.policy, recent).shadow_left(0);
@@ -1720,6 +1846,8 @@ impl<'a> Trust<'a> {
                 unprovable: None,
                 suspects,
                 shadow_left,
+                repaid: false,
+                superseded,
             })
         })
     }
@@ -1777,6 +1905,45 @@ fn mark_suspects(
         tracing::warn!(target: "quod", step_key = %key, suspects = n, "replays marked suspect: they may have served a wrong result");
     }
     Ok(n)
+}
+
+/// At a quarantine: the key's other deferred audits, still outstanding,
+/// would compare against the served result the quarantine has just
+/// declared suspect, and count the one divergence again (and mark the
+/// replays a re-proof later serves). Dropped as superseded, repaid by the
+/// restarted shadow. The row the quarantining execution settles itself is
+/// left to it. Returns how many were dropped.
+fn supersede_pending(
+    l: &Ledger,
+    key: &Hash,
+    trust: &TrustRow,
+    reason: &Reason,
+    audit_id: i64,
+) -> Result<usize, TrustError> {
+    let except = match reason {
+        Reason::DeferredAudit { pending, .. } => Some(*pending),
+        _ => None,
+    };
+    let why = format!(
+        "superseded by the quarantine at {} (audit {audit_id}): it would have compared against a result now suspect",
+        trust.quarantined_at.as_deref().unwrap_or("")
+    );
+    let n = l.supersede_pending(key, except, &why)?;
+    if n > 0 {
+        tracing::warn!(target: "quod", step_key = %key, superseded = n, "deferred audits dropped at a quarantine");
+    }
+    Ok(n)
+}
+
+/// One line for a pending audit's settlement.
+fn verdict_detail(divergence: &Divergence, byte_identical: bool) -> String {
+    if !divergence.is_empty() {
+        divergence.to_string()
+    } else if byte_identical {
+        "byte-identical".to_string()
+    } else {
+        "identical up to normalized volatile fields".to_string()
+    }
 }
 
 /// The first 8 characters of a run id, as receipts show it.
@@ -1838,6 +2005,7 @@ mod tests {
         shadow: 0,
         audit: 0.05,
         replay_failures: false,
+        defer: false,
     };
 
     #[test]
@@ -1859,6 +2027,7 @@ mod tests {
                 t,
                 pr,
                 t.map_or(0, |t| t.divergences),
+                Backlog::default(),
             )
         };
         assert_eq!(
@@ -1868,7 +2037,14 @@ mod tests {
         // A streak vouches only for the result of the run it ends with: a
         // hit serving another run's result is unproven, however long.
         assert_eq!(
-            decide(&replay, Some(view("01OTHER")), None, Some(&proof(9)), 0),
+            decide(
+                &replay,
+                Some(view("01OTHER")),
+                None,
+                Some(&proof(9)),
+                0,
+                Backlog::default()
+            ),
             Decision::Execute(Reason::Proving {
                 streak: 0,
                 needed: 2
@@ -1901,7 +2077,8 @@ mod tests {
                 }),
                 None,
                 Some(&proof(9)),
-                0
+                0,
+                Backlog::default()
             ),
             Decision::Execute(Reason::Unprovable {
                 why: "exit code 1".into()
@@ -2177,25 +2354,44 @@ mod tests {
             let decision = trust.decide(&self.key, hit.as_ref()).unwrap();
             let reason = match decision {
                 Decision::Execute(reason) => reason,
-                Decision::Replay => {
+                Decision::Replay | Decision::Defer { .. } => {
                     let step = Step {
                         key: self.key,
                         cmd: "go test ./...",
                         ignore: &[],
                     };
+                    let (m, r) = hit.as_ref().unwrap();
                     match trust.record_replay(&step, hit.as_ref().unwrap()).unwrap() {
-                        Replayed::Replayed(_) => {
+                        replayed @ (Replayed::Replayed(_) | Replayed::Deferred(..)) => {
                             // The run row a replay writes, as the CLI and the
                             // hooks do: what a quarantine marks suspect.
                             self.runs += 1;
+                            let run_id = format!("01RUN{:02}", self.runs);
                             self.ledger
                                 .record_run_facts(&quod_ledger::RunFacts {
-                                    id: &format!("01RUN{:02}", self.runs),
+                                    id: &run_id,
                                     step_key: Some(&self.key),
                                     outcome: Some("replayed"),
                                     ..quod_ledger::RunFacts::default()
                                 })
                                 .unwrap();
+                            // Decided again in the transaction, as the
+                            // callers do: a deferral is enqueued on what
+                            // that said, never on the first decision.
+                            if let Replayed::Deferred(_, nth) = replayed {
+                                self.ledger
+                                    .enqueue_audit(&quod_ledger::NewPending {
+                                        step_key: &self.key,
+                                        manifest_id: &manifest_id(m).unwrap(),
+                                        hit_run: &r.run_id,
+                                        replay_run: &run_id,
+                                        nth,
+                                        tree: &Hash::of(b"tree"),
+                                        request: b"{}",
+                                    })
+                                    .unwrap();
+                                return Err(Decision::Defer { nth });
+                            }
                             return Err(Decision::Replay);
                         }
                         Replayed::Execute(reason) => reason,
@@ -2231,6 +2427,54 @@ mod tests {
             self.ledger.put_result(&r).unwrap();
             Ok(v)
         }
+
+        /// The audit worker: claims the oldest pending audit of the key
+        /// and executes it with the given outcome, as `quod audit` does.
+        fn audit(&mut self, policy: &Policy, exit: i32, stdout: &[u8]) -> Verdict {
+            let pending = self
+                .ledger
+                .claim_audit("test")
+                .unwrap()
+                .expect("a pending audit");
+            let manifest = self.ledger.manifest(&pending.manifest_id).unwrap().unwrap();
+            let hr = self
+                .ledger
+                .results_for_run(&pending.hit_run)
+                .unwrap()
+                .into_iter()
+                .find(|r| r.step_key == self.key)
+                .unwrap();
+            let trust = Trust::new(&self.ledger, &self.cas, *policy).unwrap();
+            self.runs += 1;
+            let r = World::mk(
+                &self.cas,
+                self.key,
+                manifest_id(&manifest).unwrap(),
+                self.runs,
+                exit,
+                stdout,
+                vec![],
+            );
+            let v = trust
+                .record_execution(
+                    &Step {
+                        key: self.key,
+                        cmd: "go test ./...",
+                        ignore: &[],
+                    },
+                    &r.run_id,
+                    &manifest,
+                    &r,
+                    Some(&(manifest.clone(), hr)),
+                    &Reason::DeferredAudit {
+                        nth: pending.nth,
+                        pending: pending.id,
+                    },
+                )
+                .unwrap();
+            self.ledger.put_result(&r).unwrap();
+            v
+        }
     }
 
     /// v1's replay policy: two proofs, a flat 5% audit, no shadow phase.
@@ -2239,14 +2483,19 @@ mod tests {
         ..V1
     };
 
-    /// Trust v2's defaults in replay mode: one proof, a shadow of 2, 5% floor.
+    /// Trust v2's defaults in replay mode: one proof, a shadow of 2, 5%
+    /// floor, with every audit inline (the schedule tests read as audits).
     const V2: Policy = Policy {
         mode: Mode::Replay,
         proofs: DEFAULT_PROOFS,
         shadow: DEFAULT_SHADOW,
         audit: DEFAULT_AUDIT,
         replay_failures: false,
+        defer: false,
     };
+
+    /// `V2` with the default deferral: decay audits serve the replay first.
+    const V2D: Policy = Policy { defer: true, ..V2 };
 
     /// The real case: a flaky test hangs to go test's timeout on the first
     /// execution. That failure is never replayed; the next execution
@@ -3026,7 +3275,7 @@ mod tests {
                 .map(|r| (m.clone(), r));
             let reason = match trust.decide(&key, hit.as_ref()).unwrap() {
                 Decision::Execute(r) => r,
-                Decision::Replay => Reason::WouldReplay,
+                Decision::Replay | Decision::Defer { .. } => Reason::WouldReplay,
             };
             let r = World::mk(&cas, key, mid, n, 0, b"ok\n", outputs.clone());
             let step = Step {
@@ -3384,6 +3633,7 @@ mod tests {
             shadow: 1,
             audit: 0.5,
             replay_failures: false,
+            defer: false,
         };
         let s = Schedule::of(&p, 0);
         assert_eq!((0..4).filter(|k| s.due(*k)).collect::<Vec<_>>(), [0, 2]);
@@ -3487,6 +3737,326 @@ mod tests {
         assert_eq!(v.suspects, 2);
         assert_eq!(v.trust.shadow_from, v.trust.eligible);
         assert_eq!(w.ledger.suspect_runs(Some(&w.key)).unwrap().len(), 2);
+    }
+
+    /// Deferred audits (docs/trust-v2.md, "Deferred audits"): the shadow
+    /// stays inline; a decay-phase audit serves the replay and leaves a
+    /// pending audit, which its later execution settles without counting
+    /// as another would-be hit; at most `MAX_DEFERRED_PER_KEY` are owed
+    /// before the next due audit runs inline again.
+    #[test]
+    fn deferred_audits_serve_the_replay_first_and_settle_later() {
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let mut w = World::new();
+        assert_eq!(w.run(&V2D, 0, ok).unwrap().reason, Reason::Miss);
+        for nth in 1..=2 {
+            let v = w.run(&V2D, 0, ok).unwrap();
+            assert_eq!(
+                v.reason,
+                Reason::Audit { nth, shadow: true },
+                "shadow audits are inline"
+            );
+        }
+        assert_eq!(
+            w.run(&V2D, 0, ok),
+            Err(Decision::Replay),
+            "hit 3 replays blind"
+        );
+        assert_eq!(
+            w.run(&V2D, 0, ok),
+            Err(Decision::Defer { nth: 4 }),
+            "hit 4 is due: deferred"
+        );
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
+        assert_eq!(
+            (t.eligible, t.replays, t.audits),
+            (4, 2, 2),
+            "the replay counted, the audit not yet"
+        );
+        assert_eq!(
+            w.ledger.backlog(&w.key, &stale_cutoff()).unwrap(),
+            Backlog {
+                pending: 1,
+                owed: 0
+            }
+        );
+        let pending = &w
+            .ledger
+            .pending_audits(Some(&w.key), quod_ledger::PendingState::Pending)
+            .unwrap()[0];
+        assert_eq!(
+            (
+                pending.nth,
+                pending.replay_run.as_str(),
+                pending.hit_run.as_str()
+            ),
+            (4, "01RUN05", "01RUN03"),
+            "the hit is the manifest's newest result"
+        );
+        // Hits 5 and 6 replay meanwhile (the schedule has no audit there).
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        // The worker executes it: compared with the served result, an audit
+        // row in phase `deferred`, settled as passed; not a would-be hit.
+        let v = w.audit(&V2D, 0, ok);
+        assert_eq!(
+            v.reason,
+            Reason::DeferredAudit {
+                nth: 4,
+                pending: pending.id
+            }
+        );
+        assert!(v.reason.is_evidence() && v.divergence.is_none() && v.byte_identical);
+        assert_eq!(v.outcome(), "audit");
+        assert_eq!(
+            v.headline(),
+            format!(
+                "  (deferred audit {}: would-be hit 4 re-executed after its replay was served)",
+                pending.id
+            )
+        );
+        assert_eq!(
+            v.lines(),
+            [
+                "trust: deferred audit passed, byte-identical to run 01RUN03; the replay it checked was right; audited 3 times, 0 divergences"
+            ]
+        );
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
+        assert_eq!(
+            (t.eligible, t.replays, t.audits, t.state),
+            (6, 4, 3, TrustState::Proven)
+        );
+        let settled = w.ledger.pending_audit(pending.id).unwrap().unwrap();
+        assert_eq!(settled.state, quod_ledger::PendingState::Passed);
+        assert!(settled.audit_id.is_some() && settled.detail.as_deref() == Some("byte-identical"));
+        assert_eq!(
+            w.ledger.backlog(&w.key, &stale_cutoff()).unwrap(),
+            Backlog::default()
+        );
+        let phases: Vec<String> = w
+            .ledger
+            .audits(Some(&w.key), 10)
+            .unwrap()
+            .iter()
+            .map(|a| a.phase.clone())
+            .collect();
+        assert_eq!(phases, ["deferred", "shadow", "shadow"]);
+        // Hit 7 is the next on the schedule: deferred again.
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Defer { nth: 7 }));
+        // With deferral off the same hit executes inline.
+        let mut inline = World::new();
+        inline.run(&V2, 0, ok).unwrap();
+        inline.run(&V2, 0, ok).unwrap();
+        inline.run(&V2, 0, ok).unwrap();
+        assert_eq!(inline.run(&V2, 0, ok), Err(Decision::Replay));
+        assert_eq!(
+            inline.run(&V2, 0, ok).unwrap().reason,
+            Reason::Audit {
+                nth: 4,
+                shadow: false
+            }
+        );
+
+        // The cap: every hit due (floor 1) defers two, then the third runs
+        // inline until one settles.
+        let all = Policy { audit: 1.0, ..V2D };
+        let mut c = World::new();
+        c.run(&all, 0, ok).unwrap();
+        c.run(&all, 0, ok).unwrap();
+        c.run(&all, 0, ok).unwrap();
+        assert_eq!(c.run(&all, 0, ok), Err(Decision::Defer { nth: 3 }));
+        assert_eq!(c.run(&all, 0, ok), Err(Decision::Defer { nth: 4 }));
+        assert_eq!(
+            c.run(&all, 0, ok).unwrap().reason,
+            Reason::Audit {
+                nth: 5,
+                shadow: false
+            }
+        );
+        c.audit(&all, 0, ok);
+        assert_eq!(c.run(&all, 0, ok), Err(Decision::Defer { nth: 6 }));
+        // Audit 0: nothing is deferred, nothing is audited.
+        let none = Policy { audit: 0.0, ..V2D };
+        assert_eq!(c.run(&none, 0, ok), Err(Decision::Replay));
+    }
+
+    /// A deferred audit that differs quarantines the key and marks every
+    /// replay served since the last quarantine suspect, the one it checked
+    /// and those served while it waited.
+    #[test]
+    fn a_deferred_audit_that_diverges_quarantines_and_marks_the_replays_suspect() {
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let mut w = World::new();
+        for _ in 0..3 {
+            w.run(&V2D, 0, ok).unwrap();
+        }
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Defer { nth: 4 }));
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        let v = w.audit(&V2D, 0, b"FAIL\tpkg\t0.4s\n");
+        assert!(v.divergence.is_some(), "{v:?}");
+        assert_eq!(v.outcome(), "diverged");
+        assert_eq!(v.trust.state, TrustState::Quarantined);
+        assert_eq!(
+            v.suspects, 3,
+            "hits 3, 4 (the one checked) and 5 were replays"
+        );
+        assert!(v.lines().iter().any(|l| l.contains("3 earlier replays of this key may have served a wrong result")), "{:?}", v.lines());
+        let pending = &w
+            .ledger
+            .pending_audits(Some(&w.key), quod_ledger::PendingState::Diverged)
+            .unwrap()[0];
+        assert_eq!(pending.nth, 4);
+        assert!(
+            pending
+                .detail
+                .as_deref()
+                .unwrap()
+                .contains("stdout differs")
+        );
+        let suspects = w.ledger.suspect_runs(Some(&w.key)).unwrap();
+        assert!(
+            suspects.iter().any(|r| r.id == pending.replay_run),
+            "the checked replay is suspect"
+        );
+        assert_eq!(suspects.len(), 3);
+        // Quarantined: the next run executes to re-prove.
+        assert!(matches!(
+            w.run(&V2D, 0, ok).unwrap().reason,
+            Reason::Quarantined { .. }
+        ));
+    }
+
+    /// A lost deferred audit (never executed) is not passed: the key's next
+    /// would-be hit is audited inline, schedule or not, and that repays it.
+    #[test]
+    fn a_lost_deferred_audit_is_repaid_by_the_next_hit_inline() {
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let mut w = World::new();
+        for _ in 0..3 {
+            w.run(&V2D, 0, ok).unwrap();
+        }
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Defer { nth: 4 }));
+        let id = w
+            .ledger
+            .pending_audits(Some(&w.key), quod_ledger::PendingState::Pending)
+            .unwrap()[0]
+            .id;
+        w.ledger.lose_audit(id, "expired").unwrap();
+        assert_eq!(
+            w.ledger.backlog(&w.key, &stale_cutoff()).unwrap(),
+            Backlog {
+                pending: 0,
+                owed: 1
+            }
+        );
+        let t = w.ledger.trust(&w.key).unwrap().unwrap();
+        assert_eq!(t.audits, 2, "a lost audit never counts as one");
+        // Hit 5 is not on the schedule, yet it is audited, inline.
+        let v = w.run(&V2D, 0, ok).unwrap();
+        assert_eq!(
+            v.reason,
+            Reason::Audit {
+                nth: 5,
+                shadow: false
+            }
+        );
+        assert!(v.repaid);
+        assert_eq!(
+            v.lines(),
+            [
+                "trust: audit passed, byte-identical to run 01RUN03 (making up for a lost deferred audit); audited 3 times, 0 divergences"
+            ]
+        );
+        assert_eq!(
+            w.ledger.backlog(&w.key, &stale_cutoff()).unwrap(),
+            Backlog::default()
+        );
+        assert!(w.ledger.pending_audit(id).unwrap().unwrap().repaid);
+        // The schedule goes on from where it was: hit 6 replays, hit 7 is due.
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Replay));
+        assert_eq!(w.run(&V2D, 0, ok), Err(Decision::Defer { nth: 7 }));
+    }
+
+    /// The reviewer's case: two audits of a key pending; a hidden input
+    /// changes; the first diverges and quarantines the key; the second
+    /// would compare the new behaviour against the stale served result and
+    /// quarantine again. It is dropped at the first quarantine instead, as
+    /// repaid, so the re-proof's replays are never marked by it.
+    #[test]
+    fn a_quarantine_drops_the_keys_other_pending_audits() {
+        let ok = b"ok  \tpkg\t0.4s\n";
+        let all = Policy { audit: 1.0, ..V2D };
+        let mut w = World::new();
+        for _ in 0..3 {
+            w.run(&all, 0, ok).unwrap();
+        }
+        assert_eq!(w.run(&all, 0, ok), Err(Decision::Defer { nth: 3 }));
+        assert_eq!(w.run(&all, 0, ok), Err(Decision::Defer { nth: 4 }));
+        let pending = w
+            .ledger
+            .pending_audits(Some(&w.key), quod_ledger::PendingState::Pending)
+            .unwrap();
+        assert_eq!(pending.len(), 2);
+        let changed = b"ok  \tpkg\t0.4s\nnew\n";
+        let v = w.audit(&all, 0, changed);
+        assert!(v.divergence.is_some() && v.trust.state == TrustState::Quarantined);
+        assert_eq!((v.suspects, v.superseded), (2, 1));
+        assert!(
+            v.lines()
+                .iter()
+                .any(|l| l.contains("1 deferred audit of this key still outstanding dropped")),
+            "{:?}",
+            v.lines()
+        );
+        let second = w.ledger.pending_audit(pending[1].id).unwrap().unwrap();
+        assert!(second.state == quod_ledger::PendingState::Lost && second.repaid);
+        assert!(
+            second
+                .detail
+                .unwrap()
+                .starts_with("superseded by the quarantine")
+        );
+        assert_eq!(
+            w.ledger.backlog(&w.key, &stale_cutoff()).unwrap(),
+            Backlog::default()
+        );
+        assert!(
+            w.ledger.claim_audit("w").unwrap().is_none(),
+            "nothing left to run"
+        );
+        // The key re-proves with the new result (bar 2) and replays it; the
+        // quarantine was counted once.
+        assert!(matches!(
+            w.run(&all, 0, changed).unwrap().reason,
+            Reason::Quarantined { .. }
+        ));
+        let v = w.run(&all, 0, changed).unwrap();
+        assert!(v.replayable(), "{v:?}");
+        assert_eq!(v.trust.divergences, 1);
+        // An inline divergence drops them too.
+        let mut i = World::new();
+        for _ in 0..3 {
+            i.run(&all, 0, ok).unwrap();
+        }
+        assert_eq!(i.run(&all, 0, ok), Err(Decision::Defer { nth: 3 }));
+        let v = i
+            .run(
+                &Policy {
+                    defer: false,
+                    ..all
+                },
+                0,
+                changed,
+            )
+            .unwrap();
+        assert!(v.divergence.is_some());
+        assert_eq!(v.superseded, 1);
+        assert_eq!(
+            i.ledger.backlog(&i.key, &stale_cutoff()).unwrap(),
+            Backlog::default()
+        );
     }
 
     #[test]
