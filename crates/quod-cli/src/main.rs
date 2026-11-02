@@ -29,6 +29,7 @@ mod bench;
 mod deps;
 mod gitdir;
 mod gotest;
+mod hostfp;
 mod inspect;
 mod profile;
 mod rootfs;

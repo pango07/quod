@@ -85,7 +85,8 @@ const RUNTIME_DIRS: &[&str] = &["dev", "proc", "sys", "tmp"];
 /// them.
 const MOUNT_POINTS: &[&str] = &["dev", "proc", "tmp", "workspace"];
 
-const FINGERPRINT_SH: &str = include_str!("../../../scripts/host-fingerprint.sh");
+#[cfg(test)]
+use crate::hostfp::FINGERPRINT_SH;
 
 #[derive(Serialize, Deserialize)]
 struct Doc {
@@ -206,35 +207,17 @@ pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     // (~0.3s and ~0.2s): run them at once.
     let (out, platform) = std::thread::scope(|s| {
         let probe = s.spawn(|| platform(cas, runs));
-        // The toolchain binaries' hashes are kept by file identity under
-        // the store (the script's QUOD_FP_CACHE): the output is the same
-        // bytes, without reading ~200 MB of binaries every run.
-        let out = Command::new("/bin/bash")
-            .arg("-c")
-            .arg(FINGERPRINT_SH)
-            .env_clear()
-            .env("PATH", quod_key::profile::HOST_PATH)
-            .env("QUOD_FP_CACHE", cas.dir().join("host-fingerprint-cache"))
-            .output()
-            .context("run host fingerprint");
+        // Kept by the identities of everything it reads, run only when one
+        // changed (hostfp.rs); the toolchain binaries' hashes are kept by
+        // file identity too (the script's QUOD_FP_CACHE). The output is
+        // the same bytes either way.
+        let out = crate::hostfp::fingerprint(cas);
         let platform = probe
             .join()
             .unwrap_or_else(|_| Err(anyhow::anyhow!("the host platform probe panicked")));
         (out, platform)
     });
-    let out = out?;
-    if !out.status.success() {
-        bail!(
-            "host fingerprint failed ({}): {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(Image::new(
-        ImageKind::Host,
-        Hash::of(&out.stdout),
-        platform?,
-    ))
+    Ok(Image::new(ImageKind::Host, Hash::of(&out?), platform?))
 }
 
 /// The environment pin a run uses: `--rootfs` (or `$QUOD_ROOTFS`) opens

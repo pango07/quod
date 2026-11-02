@@ -11,11 +11,24 @@ export GOTOOLCHAIN=local HOME=/nonexistent GOENV=off
 # The sections run concurrently (hashing the node binary alone takes ~0.2s,
 # the whole script ~0.5s when sequential), each into its own file, and are
 # printed in one fixed order: the output is the same bytes a sequential run
-# prints. A section that fails fails the script.
+# prints. A section that fails fails the script. QUOD_FP_PROFILE=1 prints
+# each section's wall time to stderr. Quod keeps this output by the
+# identities of everything it reads (quod-cli's hostfp.rs) and runs it only
+# when one of them changed: anything this script reads beyond the paths
+# hostfp.rs lists must be added there.
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 pids=()
-job() { local name=$1; shift; "$@" > "$out/$name" & pids+=($!); }
+if [ -n "${QUOD_FP_PROFILE:-}" ]; then
+  job() {
+    local name=$1; shift
+    { t0=$EPOCHREALTIME; "$@" > "$out/$name"
+      echo "fingerprint section $name: $(awk -v a="$t0" -v b="$EPOCHREALTIME" 'BEGIN { printf "%.0f", (b - a) * 1000 }') ms" >&2; } &
+    pids+=($!)
+  }
+else
+  job() { local name=$1; shift; "$@" > "$out/$name" & pids+=($!); }
+fi
 # Each toolchain: its version string and the hash of its binary (resolved
 # through symlinks, so a venv-style launcher pins the real interpreter).
 # With QUOD_FP_CACHE (a directory Quod owns), a binary's hash is kept by its
@@ -71,7 +84,9 @@ npm_version() {
 }
 sec_go() {
   if go=$(command -v go); then
-    echo "go $(go env GOVERSION) $(go env GOOS)/$(go env GOARCH) GOROOT=$(go env GOROOT)"
+    # One go process for the four values (each start costs ~25 ms).
+    { read -r v; read -r os; read -r arch; read -r root; } < <(go env GOVERSION GOOS GOARCH GOROOT)
+    echo "go $v $os/$arch GOROOT=$root"
     echo "go binary $(bin_hash "$go")"
   else
     echo "go absent"

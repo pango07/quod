@@ -44,10 +44,11 @@ pub fn pin_uv_cache_stamps(root: &Path) -> anyhow::Result<usize> {
         };
         for item in rd.flatten() {
             let name = item.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".dist-info") && item.file_type().is_ok_and(|t| t.is_dir()) {
-                if pin_one(&item.path(), &name)? {
-                    n += 1;
-                }
+            if name.ends_with(".dist-info")
+                && item.file_type().is_ok_and(|t| t.is_dir())
+                && pin_one(&item.path(), &name)?
+            {
+                n += 1;
             }
         }
     }
