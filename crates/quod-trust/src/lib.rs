@@ -32,9 +32,13 @@ use std::io::Read;
 use std::str::FromStr;
 use std::time::Duration;
 
-use quod_cas::{CanonError, Cas, CasError, Entry, Hash, Kind, parent_and_name};
-use quod_ledger::{AuditRow, Ledger, LedgerError, ProofRow, TrustRow, TrustState, now_rfc3339};
+use quod_cas::{BlobStore, CanonError, Cas, CasError, Entry, Hash, Kind, Tree, parent_and_name};
+use quod_ledger::{
+    AuditRow, Ledger, LedgerError, LedgerStore, Lookup, ProofRow, RunRecord, TrustRow, TrustState,
+    now_rfc3339,
+};
 use quod_manifest::{Manifest, ManifestError, StepResult, manifest_id};
+use serde::{Deserialize, Serialize};
 
 /// Identical executions a manifest needs before its result may replay.
 /// Two: a result seen once is never trusted.
@@ -73,7 +77,8 @@ pub const HOME_VOLATILE: &[&str] = &[
 
 /// `observe` executes everything and reports what would have replayed;
 /// `replay` replays proven results.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     Observe,
     Replay,
@@ -107,7 +112,7 @@ impl FromStr for Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Policy {
     pub mode: Mode,
     /// Identical executions a manifest needs (plus one per past divergence
@@ -184,10 +189,14 @@ pub enum TrustError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     BadPolicy(String),
+    /// A remote step ledger (quod-server) could not be used.
+    #[error("quod server: {0}")]
+    Remote(String),
 }
 
 /// Why a step executes although the ledger was consulted.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reason {
     /// No manifest of the key matched the tree, or none had a result.
     Miss,
@@ -225,14 +234,14 @@ impl Reason {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Decision {
     Replay,
     Execute(Reason),
 }
 
 /// What `Trust::record_replay` concluded.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Replayed {
     /// Recorded; the receipt's trust facts.
     Replayed(Facts),
@@ -419,9 +428,9 @@ pub fn comparable_outputs<'a>(outputs: &'a [Entry], ignore: &[String]) -> Vec<&'
         .collect()
 }
 
-fn read_blob(cas: &Cas, h: &Hash) -> Result<Vec<u8>, TrustError> {
+fn read_blob(cas: &(impl BlobStore + ?Sized), h: &Hash) -> Result<Vec<u8>, TrustError> {
     let mut buf = Vec::new();
-    cas.open_blob(h)?.read_to_end(&mut buf)?;
+    cas.open_blob_reader(h)?.read_to_end(&mut buf)?;
     Ok(buf)
 }
 
@@ -429,7 +438,11 @@ fn read_blob(cas: &Cas, h: &Hash) -> Result<Vec<u8>, TrustError> {
 /// stderr, comparable outputs, and every write outside the workspace
 /// (`root_outputs`, rootfs mode: compared exactly, none left out). Two
 /// results with equal fingerprints are identical for the trust layer.
-pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash, TrustError> {
+pub fn fingerprint(
+    r: &StepResult,
+    cas: &(impl BlobStore + ?Sized),
+    ignore: &[String],
+) -> Result<Hash, TrustError> {
     let out = Hash::of(&normalize(&read_blob(cas, &r.stdout)?));
     let err = Hash::of(&normalize(&read_blob(cas, &r.stderr)?));
     let outputs =
@@ -464,7 +477,7 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
 pub fn unprovable(
     policy: &Policy,
     r: &StepResult,
-    cas: &Cas,
+    cas: &(impl BlobStore + ?Sized),
 ) -> Result<Option<String>, TrustError> {
     for (name, h) in [("stdout", &r.stdout), ("stderr", &r.stderr)] {
         let bytes = read_blob(cas, h)?;
@@ -487,7 +500,7 @@ pub fn unprovable(
 }
 
 /// How two results of the same manifest differ. Empty means identical.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Divergence {
     pub items: Vec<String>,
 }
@@ -521,7 +534,7 @@ impl fmt::Display for Divergence {
 pub fn compare(
     expected: &StepResult,
     actual: &StepResult,
-    cas: &Cas,
+    cas: &(impl BlobStore + ?Sized),
     ignore: &[String],
 ) -> Result<Divergence, TrustError> {
     let mut d = Divergence::default();
@@ -716,7 +729,7 @@ pub struct Step<'a> {
 }
 
 /// Trust facts about a replayed or replayable result, for receipts.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Facts {
     pub trust: TrustRow,
     pub streak: u32,
@@ -760,7 +773,7 @@ fn fmt_duration(d: Duration) -> String {
 }
 
 /// What recording an execution concluded, for the banner.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
     pub reason: Reason,
     /// The run this execution was compared with, if any.
@@ -897,15 +910,314 @@ impl Verdict {
     }
 }
 
-/// The trust layer over a ledger and a CAS.
-pub struct Trust<'a> {
-    ledger: &'a Ledger,
-    cas: &'a Cas,
+// ----- the transitions: pure -----
+
+/// What an execution's comparisons found, gathered from the ledger and the
+/// blob store by `Trust::record_execution` (the only part that does I/O).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Compared {
+    /// Every difference found so far (inputs not `equivalent` to the hit's,
+    /// result differences against the hit and against the previous
+    /// execution of this manifest).
+    pub divergence: Divergence,
+    /// The run this execution was compared with, if any.
+    pub compared_with: Option<String>,
+    /// Whether every compared result was byte-identical before normalizing.
+    pub byte_identical: bool,
+    /// The previous execution of this manifest, if the manifest has a proof
+    /// row: its fingerprint recomputed under the current rules, or `None`
+    /// when its result is gone (then only the stored fingerprint is left).
+    pub previous: Option<Option<Hash>>,
+}
+
+/// The inputs of `execution_transition`: the stored facts about the key and
+/// what this execution's comparisons found. Nothing in it is read lazily.
+#[derive(Clone, Debug)]
+pub struct ExecutionInput<'a> {
+    pub key: Hash,
+    pub cmd: &'a str,
+    pub run_id: &'a str,
+    /// The manifest this execution read, and its result's fingerprint.
+    pub manifest: Hash,
+    pub fingerprint: Hash,
+    /// Why its result can never prove itself, if it cannot.
+    pub unprovable: Option<String>,
+    pub reason: &'a Reason,
+    /// The key's trust row and this manifest's proof row, as stored.
+    pub trust: Option<TrustRow>,
+    pub prior: Option<ProofRow>,
+    pub compared: Compared,
+    /// Divergences among the key's newest `TRAILING_AUDITS - 1` audits
+    /// (this execution's own audit row is the window's last).
+    pub recent_divergences: u64,
+    /// The recorded duration of the result a replay would have served.
+    pub hit_duration_ms: Option<u64>,
+    /// The time a quarantine starts, if this execution starts one.
+    pub now: String,
+}
+
+/// What recording an execution changes, for the shell to write in this
+/// order: every proof of the key reset (`reset_proofs`), this manifest's
+/// proof row, the trust row, the audit row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecutionTransition {
+    pub reset_proofs: bool,
+    pub proof: ProofRow,
+    pub trust: TrustRow,
+    pub audit: Option<AuditRow>,
+    pub verdict: Verdict,
+}
+
+/// The trust transition of one execution. Pure: the same input gives the
+/// same transition on a laptop's ledger and on quod-server's, which is the
+/// point: the local path and the server share this function, so their
+/// trust rules cannot drift apart.
+///
+/// The streak of this manifest advances when its previous execution had
+/// the same result, and starts at 1 when it was not seen before. Any
+/// difference is a divergence: the key is quarantined and every streak of
+/// it restarts, this execution's being the first of its new streak. An
+/// unprovable result is compared like any other but never counts. Every
+/// comparison is an audit row.
+pub fn execution_transition(policy: &Policy, input: ExecutionInput) -> ExecutionTransition {
+    let ExecutionInput {
+        key,
+        cmd,
+        run_id,
+        manifest,
+        fingerprint: fp,
+        unprovable: why_unprovable,
+        reason,
+        trust,
+        prior,
+        compared,
+        recent_divergences,
+        hit_duration_ms,
+        now,
+    } = input;
+    let Compared {
+        mut divergence,
+        mut compared_with,
+        mut byte_identical,
+        previous,
+    } = compared;
+    let mut trust = trust.unwrap_or_else(|| TrustRow::new(key, Some(cmd)));
+    if trust.cmd.is_none() {
+        trust.cmd = Some(cmd.to_string());
+    }
+    if reason.eligible() {
+        trust.eligible += 1;
+    }
+    let mut streak = 1;
+    if let Some(p) = &prior {
+        let same = match previous.flatten() {
+            Some(pf) => {
+                if pf != fp && divergence.is_empty() {
+                    // compare() found nothing to name, yet the fingerprints
+                    // differ under the same rules: say so rather than call
+                    // them identical.
+                    divergence
+                        .push("result fingerprint differs from the previous execution".into());
+                }
+                pf == fp
+            }
+            None => {
+                // Equal stored fingerprints still say the results agree (on
+                // the old rules and the new alike); that counts as a
+                // comparison. A mismatch says nothing.
+                let same = p.fingerprint == fp;
+                byte_identical = false;
+                if same {
+                    compared_with.get_or_insert_with(|| p.last_run.clone());
+                }
+                same
+            }
+        };
+        if same {
+            streak = p.streak + 1;
+        }
+    }
+    let compared = compared_with.is_some();
+    byte_identical &= compared;
+    if compared {
+        trust.audits += 1;
+    }
+    let diverged = !divergence.is_empty();
+    if diverged {
+        trust.divergences += 1;
+        trust.state = TrustState::Quarantined;
+        trust.quarantined_at = Some(now);
+        trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+        // Every manifest of the key starts proving again; this one's new
+        // result is the first of its new streak.
+        streak = 1;
+    }
+    if why_unprovable.is_some() {
+        // Compared like any result (a later different one is still a
+        // divergence), but it never counts toward a replay.
+        streak = 0;
+    }
+    let proof = ProofRow {
+        step_key: key,
+        manifest_id: manifest,
+        streak,
+        fingerprint: fp,
+        last_run: run_id.to_string(),
+        updated_at: String::new(),
+    };
+    let needed = needed(policy, recent_divergences + u64::from(diverged));
+    if !diverged
+        && why_unprovable.is_none()
+        && streak >= needed
+        && trust.state != TrustState::Proven
+    {
+        trust.state = TrustState::Proven;
+        trust.quarantined_at = None;
+        trust.quarantine_reason = None;
+    }
+    let audit = compared.then(|| AuditRow {
+        id: 0,
+        step_key: key,
+        manifest_id: manifest,
+        at: String::new(),
+        phase: reason.phase().into(),
+        diverged,
+        expected_run: compared_with.clone(),
+        actual_run: Some(run_id.to_string()),
+        detail: Some(if !diverged {
+            if byte_identical {
+                "byte-identical".to_string()
+            } else {
+                "identical up to go test durations".to_string()
+            }
+        } else {
+            truncate(&divergence.to_string(), 2000)
+        }),
+    });
+    let verdict = Verdict {
+        reason: reason.clone(),
+        compared_with,
+        divergence: diverged.then_some(divergence),
+        byte_identical,
+        streak,
+        needed,
+        trust: trust.clone(),
+        would_have_saved: match reason {
+            Reason::WouldReplay => hit_duration_ms.map(Duration::from_millis),
+            _ => None,
+        },
+        unprovable: why_unprovable,
+    };
+    ExecutionTransition {
+        reset_proofs: diverged,
+        proof,
+        trust,
+        audit,
+        verdict,
+    }
+}
+
+/// The inputs of `divergence_transition`.
+#[derive(Clone, Debug)]
+pub struct DivergenceInput<'a> {
+    pub key: Hash,
+    pub cmd: &'a str,
+    pub run_id: &'a str,
+    /// The hit's manifest and the run that recorded its result.
+    pub manifest: Hash,
+    pub hit_run: &'a str,
+    pub reason: &'a Reason,
+    /// How this execution behaved otherwise than the hit's run.
+    pub why: &'a str,
+    pub trust: Option<TrustRow>,
+    /// Divergences among the key's newest `TRAILING_AUDITS - 1` audits.
+    pub recent_divergences: u64,
+    pub now: String,
+}
+
+/// What a divergence without a result changes: every proof of the key is
+/// reset, then the trust row and the audit row are written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DivergenceTransition {
+    pub trust: TrustRow,
+    pub audit: AuditRow,
+    pub verdict: Verdict,
+}
+
+/// The trust transition of an execution of a hit that produced no result
+/// to compare yet behaved otherwise than the run a replay would serve. Pure.
+pub fn divergence_transition(policy: &Policy, input: DivergenceInput) -> DivergenceTransition {
+    let mut trust = input
+        .trust
+        .unwrap_or_else(|| TrustRow::new(input.key, Some(input.cmd)));
+    if trust.cmd.is_none() {
+        trust.cmd = Some(input.cmd.to_string());
+    }
+    if input.reason.eligible() {
+        trust.eligible += 1;
+    }
+    let mut divergence = Divergence::default();
+    divergence.push(format!("this execution {}", input.why));
+    trust.audits += 1;
+    trust.divergences += 1;
+    trust.state = TrustState::Quarantined;
+    trust.quarantined_at = Some(input.now);
+    trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+    let audit = AuditRow {
+        id: 0,
+        step_key: input.key,
+        manifest_id: input.manifest,
+        at: String::new(),
+        phase: input.reason.phase().into(),
+        diverged: true,
+        expected_run: Some(input.hit_run.to_string()),
+        actual_run: Some(input.run_id.to_string()),
+        detail: Some(truncate(&divergence.to_string(), 2000)),
+    };
+    // This execution's audit row is the window's newest, and it diverged.
+    let needed = needed(policy, input.recent_divergences + 1);
+    let verdict = Verdict {
+        reason: input.reason.clone(),
+        compared_with: Some(input.hit_run.to_string()),
+        divergence: Some(divergence),
+        byte_identical: false,
+        streak: 0,
+        needed,
+        trust: trust.clone(),
+        would_have_saved: None,
+        unprovable: None,
+    };
+    DivergenceTransition {
+        trust,
+        audit,
+        verdict,
+    }
+}
+
+/// A served replay's effect on the key's trust row: one more would-be hit,
+/// one more replay. Pure.
+pub fn replay_transition(trust: Option<TrustRow>, key: Hash, cmd: &str) -> TrustRow {
+    let mut t = trust.unwrap_or_else(|| TrustRow::new(key, Some(cmd)));
+    t.eligible += 1;
+    t.replays += 1;
+    t
+}
+
+// ----- the shell: the transitions over a ledger and a blob store -----
+
+/// The trust layer over a ledger and a blob store: it reads the facts a
+/// transition needs, calls the transition, and writes what it returns, in
+/// one `atomically`. Generic so that quod-server runs exactly this code
+/// over its own stores; every local path uses the defaults (SQLite, the
+/// local CAS).
+pub struct Trust<'a, L: LedgerStore = Ledger, B: BlobStore + ?Sized = Cas> {
+    ledger: &'a L,
+    cas: &'a B,
     pub policy: Policy,
 }
 
-impl<'a> Trust<'a> {
-    pub fn new(ledger: &'a Ledger, cas: &'a Cas, policy: Policy) -> Result<Trust<'a>, TrustError> {
+impl<'a, L: LedgerStore, B: BlobStore + ?Sized> Trust<'a, L, B> {
+    pub fn new(ledger: &'a L, cas: &'a B, policy: Policy) -> Result<Trust<'a, L, B>, TrustError> {
         policy.validate()?;
         Ok(Trust {
             ledger,
@@ -920,24 +1232,7 @@ impl<'a> Trust<'a> {
         key: &Hash,
         hit: Option<&(Manifest, StepResult)>,
     ) -> Result<Decision, TrustError> {
-        let trust = self.ledger.trust(key)?;
-        let (proof, why) = match hit {
-            Some((m, r)) => (
-                self.ledger.proof(key, &manifest_id(m)?)?,
-                unprovable(&self.policy, r, self.cas)?,
-            ),
-            None => (None, None),
-        };
-        Ok(decide(
-            &self.policy,
-            hit.map(|(_, r)| HitView {
-                run_id: &r.run_id,
-                unprovable: why.as_deref(),
-            }),
-            trust.as_ref(),
-            proof.as_ref(),
-            self.ledger.recent_divergences(key, TRAILING_AUDITS)?,
-        ))
+        decide_in(self.ledger, self.cas, &self.policy, key, hit)
     }
 
     /// The facts about a key and one of its manifests.
@@ -985,10 +1280,7 @@ impl<'a> Trust<'a> {
             if let Decision::Execute(reason) = decision {
                 return Ok(Replayed::Execute(reason));
             }
-            let mut t = trust.unwrap_or_else(|| TrustRow::new(step.key, Some(step.cmd)));
-            t.eligible += 1;
-            t.replays += 1;
-            l.put_trust(&t)?;
+            l.put_trust(&replay_transition(trust, step.key, step.cmd))?;
             Ok(Replayed::Replayed(self.facts(&step.key, &mid)?))
         })
     }
@@ -1008,11 +1300,8 @@ impl<'a> Trust<'a> {
     ///
     /// The execution is compared with what a replay would have served (the
     /// hit's result) and with the last execution of the manifest it read,
-    /// if that is another run. Any difference in result, or a read set that
-    /// is not `equivalent` to the hit's, is a divergence: the key is
-    /// quarantined and every streak of it restarts. Otherwise the streak of
-    /// this manifest advances if its last execution had the same result,
-    /// and starts at 1 if not seen before. Every comparison is an audit row.
+    /// if that is another run; `execution_transition` decides what that
+    /// means for the key.
     pub fn record_execution(
         &self,
         step: &Step,
@@ -1028,21 +1317,13 @@ impl<'a> Trust<'a> {
         let why_unprovable = unprovable(&self.policy, result, self.cas)?;
         self.ledger.atomically(|l| {
             let key = step.key;
-            let mut trust = l
-                .trust(&key)?
-                .unwrap_or_else(|| TrustRow::new(key, Some(step.cmd)));
-            if trust.cmd.is_none() {
-                trust.cmd = Some(step.cmd.to_string());
-            }
-            if reason.eligible() {
-                trust.eligible += 1;
-            }
+            let trust = l.trust(&key)?;
             let prior = l.proof(&key, &manifest)?;
 
-            let mut divergence = Divergence::default();
-            let mut compared_with: Option<String> = None;
-            let mut byte_identical = true;
-
+            let mut c = Compared {
+                byte_identical: true,
+                ..Compared::default()
+            };
             // What a replay would have served. The tree matched its
             // manifest; the step must read the same inputs (up to absent
             // probes a recorded listing already pins) and produce the same
@@ -1051,15 +1332,16 @@ impl<'a> Trust<'a> {
                 if hid != manifest
                     && let Err(at) = equivalent(hm, executed)
                 {
-                    divergence.push(format!(
+                    c.divergence.push(format!(
                         "inputs differed: the tree matched manifest b3:{} but this execution read manifest b3:{} ({at})",
                         hid.short(),
                         manifest.short()
                     ));
                 }
-                divergence.merge(compare(hr, result, self.cas, step.ignore)?);
-                byte_identical &= same_bytes(hr, result, step.ignore);
-                compared_with = Some(hr.run_id.clone());
+                c.divergence
+                    .merge(compare(hr, result, self.cas, step.ignore)?);
+                c.byte_identical &= same_bytes(hr, result, step.ignore);
+                c.compared_with = Some(hr.run_id.clone());
             }
             // The last execution of the manifest this run read, when that
             // is another run than the hit's (a manifest read on another
@@ -1071,129 +1353,55 @@ impl<'a> Trust<'a> {
             // as a divergence. Only a result that is gone (purged) leaves the
             // stored one to compare, and then a mismatch restarts the streak,
             // never quarantines.
-            let mut streak = 1;
             if let Some(p) = &prior {
-                let prev_fp = if compared_with.as_deref() == Some(p.last_run.as_str()) {
+                c.previous = Some(if c.compared_with.as_deref() == Some(p.last_run.as_str()) {
                     let (_, hr) = hit.expect("compared_with is the hit's run");
                     Some(fingerprint(hr, self.cas, step.ignore)?)
                 } else {
                     match self.result_of_run(&p.last_run, &key)? {
                         Some(prev) => {
-                            compared_with.get_or_insert_with(|| p.last_run.clone());
-                            divergence.merge(compare(&prev, result, self.cas, step.ignore)?);
-                            byte_identical &= same_bytes(&prev, result, step.ignore);
+                            c.compared_with.get_or_insert_with(|| p.last_run.clone());
+                            c.divergence
+                                .merge(compare(&prev, result, self.cas, step.ignore)?);
+                            c.byte_identical &= same_bytes(&prev, result, step.ignore);
                             Some(fingerprint(&prev, self.cas, step.ignore)?)
                         }
                         None => None,
                     }
-                };
-                let same = match prev_fp {
-                    Some(pf) => {
-                        if pf != fp && divergence.is_empty() {
-                            // compare() found nothing to name, yet the
-                            // fingerprints differ under the same rules: say
-                            // so rather than call them identical.
-                            divergence.push(
-                                "result fingerprint differs from the previous execution".into(),
-                            );
-                        }
-                        pf == fp
-                    }
-                    None => {
-                        // Equal stored fingerprints still say the results
-                        // agree (on the old rules and the new alike); that
-                        // counts as a comparison. A mismatch says nothing.
-                        let same = p.fingerprint == fp;
-                        byte_identical = false;
-                        if same {
-                            compared_with.get_or_insert_with(|| p.last_run.clone());
-                        }
-                        same
-                    }
-                };
-                if same {
-                    streak = p.streak + 1;
+                });
+            }
+            // This execution's audit row is the window's newest.
+            let recent = l.recent_divergences(&key, TRAILING_AUDITS.saturating_sub(1))?;
+            let t = execution_transition(
+                &self.policy,
+                ExecutionInput {
+                    key,
+                    cmd: step.cmd,
+                    run_id,
+                    manifest,
+                    fingerprint: fp,
+                    unprovable: why_unprovable.clone(),
+                    reason,
+                    trust,
+                    prior,
+                    compared: c,
+                    recent_divergences: recent,
+                    hit_duration_ms: hit.map(|(_, r)| r.duration_ms),
+                    now: now_rfc3339(),
+                },
+            );
+            if t.reset_proofs {
+                l.reset_proofs(&key)?;
+                if let Some(divergence) = &t.verdict.divergence {
+                    tracing::warn!(target: "quod", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence: step key quarantined");
                 }
             }
-            let compared = compared_with.is_some();
-            byte_identical &= compared;
-            if compared {
-                trust.audits += 1;
+            l.put_proof(&t.proof)?;
+            l.put_trust(&t.trust)?;
+            if let Some(a) = &t.audit {
+                l.record_audit(a)?;
             }
-
-            if !divergence.is_empty() {
-                trust.divergences += 1;
-                trust.state = TrustState::Quarantined;
-                trust.quarantined_at = Some(now_rfc3339());
-                trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
-                // Every manifest of the key starts proving again; this one's
-                // new result is the first of its new streak.
-                l.reset_proofs(&key)?;
-                streak = 1;
-                tracing::warn!(target: "quod", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence: step key quarantined");
-            }
-            if why_unprovable.is_some() {
-                // Compared like any result (a later different one is still
-                // a divergence), but it never counts toward a replay.
-                streak = 0;
-            }
-            l.put_proof(&ProofRow {
-                step_key: key,
-                manifest_id: manifest,
-                streak,
-                fingerprint: fp,
-                last_run: run_id.to_string(),
-                updated_at: String::new(),
-            })?;
-            // This execution's audit row is written below: count it now.
-            let recent = l.recent_divergences(&key, TRAILING_AUDITS.saturating_sub(1))?
-                + u64::from(!divergence.is_empty());
-            let needed = needed(&self.policy, recent);
-            if divergence.is_empty()
-                && why_unprovable.is_none()
-                && streak >= needed
-                && trust.state != TrustState::Proven
-            {
-                trust.state = TrustState::Proven;
-                trust.quarantined_at = None;
-                trust.quarantine_reason = None;
-            }
-            l.put_trust(&trust)?;
-            if compared {
-                l.record_audit(&AuditRow {
-                    id: 0,
-                    step_key: key,
-                    manifest_id: manifest,
-                    at: String::new(),
-                    phase: reason.phase().into(),
-                    diverged: !divergence.is_empty(),
-                    expected_run: compared_with.clone(),
-                    actual_run: Some(run_id.to_string()),
-                    detail: Some(if divergence.is_empty() {
-                        if byte_identical {
-                            "byte-identical".to_string()
-                        } else {
-                            "identical up to go test durations".to_string()
-                        }
-                    } else {
-                        truncate(&divergence.to_string(), 2000)
-                    }),
-                })?;
-            }
-            Ok(Verdict {
-                reason: reason.clone(),
-                compared_with,
-                divergence: (!divergence.is_empty()).then_some(divergence),
-                byte_identical,
-                streak,
-                needed,
-                trust,
-                would_have_saved: match reason {
-                    Reason::WouldReplay => hit.map(|(_, r)| Duration::from_millis(r.duration_ms)),
-                    _ => None,
-                },
-                unprovable: why_unprovable.clone(),
-            })
+            Ok(t.verdict)
         })
     }
 
@@ -1217,48 +1425,28 @@ impl<'a> Trust<'a> {
         let manifest = manifest_id(m)?;
         self.ledger.atomically(|l| {
             let key = step.key;
-            let mut trust = l
-                .trust(&key)?
-                .unwrap_or_else(|| TrustRow::new(key, Some(step.cmd)));
-            if trust.cmd.is_none() {
-                trust.cmd = Some(step.cmd.to_string());
-            }
-            if reason.eligible() {
-                trust.eligible += 1;
-            }
-            let mut divergence = Divergence::default();
-            divergence.push(format!("this execution {why}"));
-            trust.audits += 1;
-            trust.divergences += 1;
-            trust.state = TrustState::Quarantined;
-            trust.quarantined_at = Some(now_rfc3339());
-            trust.quarantine_reason = Some(truncate(&divergence.to_string(), 300));
+            let t = divergence_transition(
+                &self.policy,
+                DivergenceInput {
+                    key,
+                    cmd: step.cmd,
+                    run_id,
+                    manifest,
+                    hit_run: &hr.run_id,
+                    reason,
+                    why,
+                    trust: l.trust(&key)?,
+                    recent_divergences: l
+                        .recent_divergences(&key, TRAILING_AUDITS.saturating_sub(1))?,
+                    now: now_rfc3339(),
+                },
+            );
             l.reset_proofs(&key)?;
-            l.put_trust(&trust)?;
-            l.record_audit(&AuditRow {
-                id: 0,
-                step_key: key,
-                manifest_id: manifest,
-                at: String::new(),
-                phase: reason.phase().into(),
-                diverged: true,
-                expected_run: Some(hr.run_id.clone()),
-                actual_run: Some(run_id.to_string()),
-                detail: Some(truncate(&divergence.to_string(), 2000)),
-            })?;
-            let needed = needed(&self.policy, l.recent_divergences(&key, TRAILING_AUDITS)?);
+            l.put_trust(&t.trust)?;
+            l.record_audit(&t.audit)?;
+            let divergence = t.verdict.divergence.as_ref().expect("a divergence");
             tracing::warn!(target: "quod", step_key = %key, manifest_id = %manifest, divergence = %divergence, "divergence without a result: step key quarantined");
-            Ok(Verdict {
-                reason: reason.clone(),
-                compared_with: Some(hr.run_id.clone()),
-                divergence: Some(divergence),
-                byte_identical: false,
-                streak: 0,
-                needed,
-                trust,
-                would_have_saved: None,
-                unprovable: None,
-            })
+            Ok(t.verdict)
         })
     }
 
@@ -1292,6 +1480,212 @@ impl<'a> Trust<'a> {
                 manifest.short()
             )))
         })
+    }
+}
+
+/// `Trust::decide` on any stores: the stored facts, then `decide`.
+fn decide_in<L: LedgerStore, B: BlobStore + ?Sized>(
+    ledger: &L,
+    cas: &B,
+    policy: &Policy,
+    key: &Hash,
+    hit: Option<&(Manifest, StepResult)>,
+) -> Result<Decision, TrustError> {
+    let trust = ledger.trust(key)?;
+    let (proof, why) = match hit {
+        Some((m, r)) => (
+            ledger.proof(key, &manifest_id(m)?)?,
+            unprovable(policy, r, cas)?,
+        ),
+        None => (None, None),
+    };
+    Ok(decide(
+        policy,
+        hit.map(|(_, r)| HitView {
+            run_id: &r.run_id,
+            unprovable: why.as_deref(),
+        }),
+        trust.as_ref(),
+        proof.as_ref(),
+        ledger.recent_divergences(key, TRAILING_AUDITS)?,
+    ))
+}
+
+// ----- the step ledger: one interface for local and remote -----
+
+/// What `StepLedger::claim` concluded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "decision", rename_all = "snake_case")]
+pub enum Claimed {
+    /// The hit replays; its run row is recorded. The receipt's trust facts.
+    Replay { facts: Facts },
+    /// Execute, for this reason (the lookup's hit, if any, is what the
+    /// execution is compared with).
+    Execute { reason: Reason },
+}
+
+/// Everything `quod run` and the runner hooks ask of a ledger, at the
+/// grain of a step: look up and decide, then commit what happened. Two
+/// implementations: `LocalLedger` (a SQLite ledger and the local CAS, the
+/// path every existing test exercises) and quod-wire's `RemoteLedger`
+/// (quod-server over quod.v1, where the server makes the same calls on its
+/// own stores, inside its own transactions).
+///
+/// Run rows travel as `RunRecord`s. `commit_execution` and
+/// `commit_divergence` fill the record's `outcome` (and, for an execution,
+/// `saved_ms`) from the verdict, as the callers did inline before.
+pub trait StepLedger {
+    /// Records the canonical JSON a step key was computed from.
+    fn put_step_key(&self, key: &Hash, json: &str) -> Result<(), TrustError>;
+
+    /// Looks `step` up against `tree`, decides, and on a replay records the
+    /// replay (trust counters, and the run row `run` builds from the result
+    /// being replayed) in one transaction.
+    fn claim(
+        &self,
+        step: &Step,
+        tree: &Tree,
+        run: &mut dyn FnMut(&StepResult) -> RunRecord,
+    ) -> Result<(Lookup, Claimed), TrustError>;
+
+    /// `Trust::record_execution` and the run row, manifest and result, in
+    /// one transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn commit_execution(
+        &self,
+        step: &Step,
+        run_id: &str,
+        manifest: &Manifest,
+        result: &StepResult,
+        hit: Option<&(Manifest, StepResult)>,
+        reason: &Reason,
+        run: RunRecord,
+    ) -> Result<Verdict, TrustError>;
+
+    /// `Trust::record_divergence` and the run row, in one transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn commit_divergence(
+        &self,
+        step: &Step,
+        run_id: &str,
+        hit: &(Manifest, StepResult),
+        reason: &Reason,
+        why: &str,
+        run: RunRecord,
+    ) -> Result<Verdict, TrustError>;
+
+    /// `Trust::record_incomplete` and, if given, the run row, in one
+    /// transaction.
+    fn commit_incomplete(
+        &self,
+        step: &Step,
+        hit: Option<&(Manifest, StepResult)>,
+        what: &str,
+        run: Option<RunRecord>,
+    ) -> Result<Option<String>, TrustError>;
+
+    /// A run row on its own (a killed or tainted run: nothing learned).
+    fn record_run(&self, run: RunRecord) -> Result<(), TrustError>;
+}
+
+/// The step ledger over a local ledger and the trust layer: exactly the
+/// calls `quod run` and the hooks made before the interface existed, in the
+/// same order and the same transactions.
+pub struct LocalLedger<'a, L: LedgerStore = Ledger, B: BlobStore + ?Sized = Cas> {
+    pub ledger: &'a L,
+    pub trust: &'a Trust<'a, L, B>,
+}
+
+impl<L: LedgerStore, B: BlobStore + ?Sized> StepLedger for LocalLedger<'_, L, B> {
+    fn put_step_key(&self, key: &Hash, json: &str) -> Result<(), TrustError> {
+        Ok(self.ledger.put_step_key(key, json)?)
+    }
+
+    fn claim(
+        &self,
+        step: &Step,
+        tree: &Tree,
+        run: &mut dyn FnMut(&StepResult) -> RunRecord,
+    ) -> Result<(Lookup, Claimed), TrustError> {
+        let lookup = self.ledger.find_match(&step.key, tree)?;
+        let claimed = match self.trust.decide(&step.key, lookup.hit.as_ref())? {
+            Decision::Replay => {
+                let hit = lookup.hit.as_ref().expect("a replay needs a hit");
+                // Decided again as it is recorded (another run may have
+                // quarantined the key or taken the audit slot meanwhile).
+                self.ledger.atomically(|l| -> Result<_, TrustError> {
+                    Ok(match self.trust.record_replay(step, hit)? {
+                        Replayed::Replayed(facts) => {
+                            l.record_run_facts(&run(&hit.1).facts())?;
+                            Claimed::Replay { facts }
+                        }
+                        Replayed::Execute(reason) => Claimed::Execute { reason },
+                    })
+                })?
+            }
+            Decision::Execute(reason) => Claimed::Execute { reason },
+        };
+        Ok((lookup, claimed))
+    }
+
+    fn commit_execution(
+        &self,
+        step: &Step,
+        run_id: &str,
+        manifest: &Manifest,
+        result: &StepResult,
+        hit: Option<&(Manifest, StepResult)>,
+        reason: &Reason,
+        mut run: RunRecord,
+    ) -> Result<Verdict, TrustError> {
+        self.ledger.atomically(|l| -> Result<Verdict, TrustError> {
+            let v = self
+                .trust
+                .record_execution(step, run_id, manifest, result, hit, reason)?;
+            run.outcome = Some(v.outcome().to_string());
+            run.saved_ms = v.would_have_saved.map(|d| d.as_millis() as u64);
+            l.record_execution_facts(&run.facts(), manifest, result)?;
+            Ok(v)
+        })
+    }
+
+    fn commit_divergence(
+        &self,
+        step: &Step,
+        run_id: &str,
+        hit: &(Manifest, StepResult),
+        reason: &Reason,
+        why: &str,
+        mut run: RunRecord,
+    ) -> Result<Verdict, TrustError> {
+        self.ledger.atomically(|l| -> Result<Verdict, TrustError> {
+            let v = self
+                .trust
+                .record_divergence(step, run_id, hit, reason, why)?;
+            run.outcome = Some(v.outcome().to_string());
+            l.record_run_facts(&run.facts())?;
+            Ok(v)
+        })
+    }
+
+    fn commit_incomplete(
+        &self,
+        step: &Step,
+        hit: Option<&(Manifest, StepResult)>,
+        what: &str,
+        run: Option<RunRecord>,
+    ) -> Result<Option<String>, TrustError> {
+        self.ledger.atomically(|l| -> Result<_, TrustError> {
+            let line = self.trust.record_incomplete(step, hit, what)?;
+            if let Some(run) = &run {
+                l.record_run_facts(&run.facts())?;
+            }
+            Ok(line)
+        })
+    }
+
+    fn record_run(&self, run: RunRecord) -> Result<(), TrustError> {
+        Ok(self.ledger.record_run_facts(&run.facts())?)
     }
 }
 
@@ -2487,5 +2881,200 @@ mod tests {
             trust.decide(&w.key, hit.as_ref()).unwrap(),
             Decision::Execute(Reason::Proving { streak: 0, .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+
+    fn input<'a>(
+        reason: &'a Reason,
+        prior: Option<ProofRow>,
+        compared: Compared,
+        fp: Hash,
+    ) -> ExecutionInput<'a> {
+        ExecutionInput {
+            key: Hash::of(b"k"),
+            cmd: "go test ./...",
+            run_id: "02RUN",
+            manifest: Hash::of(b"m"),
+            fingerprint: fp,
+            unprovable: None,
+            reason,
+            trust: None,
+            prior,
+            compared,
+            recent_divergences: 0,
+            hit_duration_ms: Some(1000),
+            now: "2026-11-01T00:00:00.000Z".into(),
+        }
+    }
+
+    fn prior(streak: u32, fp: Hash) -> ProofRow {
+        ProofRow {
+            step_key: Hash::of(b"k"),
+            manifest_id: Hash::of(b"m"),
+            streak,
+            fingerprint: fp,
+            last_run: "01RUN".into(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_first_execution_starts_a_streak_of_one() {
+        let t = execution_transition(
+            &Policy::default(),
+            input(&Reason::Miss, None, Compared::default(), Hash::of(b"fp")),
+        );
+        assert_eq!(t.proof.streak, 1);
+        assert_eq!(t.trust.state, TrustState::Observing);
+        assert!(t.audit.is_none() && !t.reset_proofs);
+        assert_eq!(t.verdict.outcome(), "miss");
+    }
+
+    #[test]
+    fn the_same_result_again_proves_the_key() {
+        let fp = Hash::of(b"fp");
+        let c = Compared {
+            byte_identical: true,
+            previous: Some(Some(fp)),
+            compared_with: Some("01RUN".into()),
+            ..Compared::default()
+        };
+        let reason = Reason::Proving {
+            streak: 1,
+            needed: 2,
+        };
+        let t = execution_transition(
+            &Policy::default(),
+            input(&reason, Some(prior(1, fp)), c, fp),
+        );
+        assert_eq!(t.proof.streak, 2);
+        assert_eq!(t.trust.state, TrustState::Proven);
+        assert_eq!(t.trust.audits, 1);
+        let a = t.audit.expect("a comparison is an audit");
+        assert!(!a.diverged);
+        assert_eq!(a.detail.as_deref(), Some("byte-identical"));
+        assert!(t.verdict.replayable());
+    }
+
+    #[test]
+    fn a_different_result_quarantines_and_resets_every_streak() {
+        let c = Compared {
+            byte_identical: true,
+            previous: Some(Some(Hash::of(b"old"))),
+            compared_with: Some("01RUN".into()),
+            ..Compared::default()
+        };
+        let t = execution_transition(
+            &Policy::default(),
+            input(
+                &Reason::WouldReplay,
+                Some(prior(5, Hash::of(b"old"))),
+                c,
+                Hash::of(b"new"),
+            ),
+        );
+        assert!(t.reset_proofs);
+        assert_eq!(t.proof.streak, 1);
+        assert_eq!(t.trust.state, TrustState::Quarantined);
+        assert_eq!(t.trust.divergences, 1);
+        assert_eq!(t.trust.eligible, 1);
+        assert_eq!(t.verdict.needed, DEFAULT_PROOFS + 1);
+        assert!(t.audit.unwrap().diverged);
+        assert_eq!(t.verdict.outcome(), "diverged");
+    }
+
+    #[test]
+    fn an_unprovable_result_never_counts() {
+        let fp = Hash::of(b"fp");
+        let mut i = input(
+            &Reason::Miss,
+            Some(prior(1, fp)),
+            Compared {
+                previous: Some(Some(fp)),
+                compared_with: Some("01RUN".into()),
+                byte_identical: true,
+                ..Compared::default()
+            },
+            fp,
+        );
+        i.unprovable = Some("exit code 1".into());
+        let t = execution_transition(&Policy::default(), i);
+        assert_eq!(t.proof.streak, 0);
+        assert_ne!(t.trust.state, TrustState::Proven);
+    }
+
+    #[test]
+    fn a_gone_result_falls_back_to_the_stored_fingerprint() {
+        let fp = Hash::of(b"fp");
+        let c = Compared {
+            byte_identical: true,
+            previous: Some(None),
+            ..Compared::default()
+        };
+        let t = execution_transition(
+            &Policy::default(),
+            input(&Reason::Miss, Some(prior(1, fp)), c, fp),
+        );
+        assert_eq!(t.proof.streak, 2);
+        assert_eq!(t.verdict.compared_with.as_deref(), Some("01RUN"));
+        assert!(!t.verdict.byte_identical);
+        // A mismatch restarts the streak and quarantines nothing.
+        let c = Compared {
+            byte_identical: true,
+            previous: Some(None),
+            ..Compared::default()
+        };
+        let t = execution_transition(
+            &Policy::default(),
+            input(&Reason::Miss, Some(prior(1, fp)), c, Hash::of(b"other")),
+        );
+        assert_eq!(t.proof.streak, 1);
+        assert!(!t.reset_proofs && t.audit.is_none());
+    }
+
+    #[test]
+    fn a_divergence_without_a_result_quarantines() {
+        let reason = Reason::Audit { nth: 3 };
+        let t = divergence_transition(
+            &Policy::default(),
+            DivergenceInput {
+                key: Hash::of(b"k"),
+                cmd: "go test ./...",
+                run_id: "02RUN",
+                manifest: Hash::of(b"m"),
+                hit_run: "01RUN",
+                reason: &reason,
+                why: "reached for the network",
+                trust: None,
+                recent_divergences: 0,
+                now: "2026-11-01T00:00:00.000Z".into(),
+            },
+        );
+        assert_eq!(t.trust.state, TrustState::Quarantined);
+        assert_eq!(
+            (t.trust.eligible, t.trust.audits, t.trust.divergences),
+            (1, 1, 1)
+        );
+        assert_eq!(t.verdict.needed, DEFAULT_PROOFS + 1);
+        assert!(t.audit.diverged);
+    }
+
+    #[test]
+    fn wire_types_round_trip() {
+        let r = Reason::Quarantined {
+            since: "x".into(),
+            why: "y".into(),
+            streak: 1,
+            needed: 3,
+        };
+        let j = serde_json::to_string(&r).unwrap();
+        assert_eq!(serde_json::from_str::<Reason>(&j).unwrap(), r);
+        let c = Claimed::Execute { reason: r };
+        let j = serde_json::to_string(&c).unwrap();
+        assert_eq!(serde_json::from_str::<Claimed>(&j).unwrap(), c);
     }
 }

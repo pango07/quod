@@ -4,11 +4,13 @@
 //! The store knows blobs and trees. It does not know steps, manifests, FUSE or
 //! VMs.
 
+mod blobs;
 mod canon;
 mod hash;
 mod store;
 mod tree;
 
+pub use blobs::BlobStore;
 pub use canon::{CanonError, canonical_json};
 pub use hash::{Hash, HashParseError};
 pub use store::remove_any;
