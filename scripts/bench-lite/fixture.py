@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """bench-lite's fixture: a small Go + Node + Python monorepo and its scripted
 history, generated deterministically (fixed names, dates and contents, so
-every commit hash is the same on every machine). No network.
+every commit hash is the same on every machine). The network once: pytest's
+wheels (PYTEST_WHEELS, pinned by sha256) are downloaded into a cache the
+first time; everything else is generated.
 
     fixture.py DIR      writes the repo (DIR/src), the registry the network
                         step fetches from (DIR/registry) and DIR/jobs.json,
@@ -16,9 +18,10 @@ toolchain, as a monorepo's CI does):
              the checkout, as cli/cli's tests read .git/HEAD)
   node/      a workspace of four packages (core <- fmt, stats <- cli) and a
              vendored zero-dependency helper (vendor/fnv.js); `node --test`
-  py/        package lite (geom, text, calc, store), unittest tests, a
-             requirements.lock with hashes and the wheels it pins
-             (py/wheels/fixture_dep-*.whl), installed with pip --no-index
+  py/        package lite (geom, text, calc, store), unittest tests (run by
+             unittest and, at test level, by pytest), a requirements.lock
+             with hashes and the wheels it pins (py/wheels: fixture_dep-*.whl
+             and pytest's), installed with pip --no-index
   tools/     fetch.py, the network step: downloads index.json from the
              registry on 127.0.0.1 and checks it against registry.sha256
   docs/      read by nothing
@@ -326,9 +329,40 @@ class Test{m.capitalize()}(unittest.TestCase):
     return f
 
 
+# pytest and its dependencies for the py-pytest step (test-level replay,
+# docs/test-level.md): name, version, sha256 of the py3-none-any wheel.
+PYTEST_WHEELS = [
+    ("iniconfig", "2.3.1", "9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7"),
+    ("packaging", "26.3", "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"),
+    ("pluggy", "1.7.0", "7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec"),
+    ("pytest", "9.2.0", "07acdcf88ec174f907dc01af70bf52d49b014bbab03faeeade31c96b18c2e588"),
+]
+
+
+def pytest_wheels(cache):
+    """{file name: bytes} of PYTEST_WHEELS, downloaded into `cache` once
+    and checked against the pinned digests."""
+    os.makedirs(cache, exist_ok=True)
+    out = {}
+    for name, version, digest in PYTEST_WHEELS:
+        fn = f"{name}-{version}-py3-none-any.whl"
+        path = os.path.join(cache, fn)
+        if not os.path.exists(path):
+            subprocess.run([sys.executable, "-m", "pip", "download", "-q", "--no-deps", "--only-binary", ":all:",
+                            "--dest", cache, f"{name}=={version}"], check=True)
+        data = open(path, "rb").read()
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise SystemExit(f"bench-lite: {fn} does not have the pinned sha256")
+        out[fn] = data
+    return out
+
+
 def lock(version):
     digest = hashlib.sha256(wheel(version)).hexdigest()
-    return f"fixture-dep=={version} \\\n    --hash=sha256:{digest}\n"
+    s = f"fixture-dep=={version} \\\n    --hash=sha256:{digest}\n"
+    for name, v, d in PYTEST_WHEELS:
+        s += f"{name}=={v} \\\n    --hash=sha256:{d}\n"
+    return s
 
 
 FETCH = f'''"""The network step: fetch the registry index from the loopback server
@@ -408,6 +442,10 @@ def build(out):
              "tools/registry.sha256": hashlib.sha256(registry_index()).hexdigest() + "  index.json\n",
              "py/requirements.lock": lock("1.0.0"),
              f"py/wheels/{wheel_name('1.0.0')}": wheel("1.0.0")}
+    cache = os.environ.get("BENCH_LITE_WHEELS") or os.path.join(os.path.dirname(os.path.abspath(out)),
+                                                                "bench-lite-wheels")
+    for fn, data in pytest_wheels(cache).items():
+        files[f"py/wheels/{fn}"] = data
     files.update(go_files())
     files.update(node_files())
     files.update(py_files("1.0.0"))

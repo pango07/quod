@@ -55,6 +55,10 @@ STEPS = [
     ("go-test", "go", "keyed", "cd go && go test -v ./... 2>&1"),
     ("node-test", "node", "keyed", "cd node && node --test 2>&1"),
     ("py-test", "python", "keyed", "cd py && python -m unittest discover -s tests -t . -v 2>&1"),
+    # The same tests through pytest: a step Quod runs at test level
+    # (docs/test-level.md), so a commit that changes one module re-runs that
+    # module's test and replays the others.
+    ("py-pytest", "python", "keyed", "cd py && python -m pytest -q -p no:cacheprovider tests 2>&1"),
 ]
 KEYED = [s[0] for s in STEPS if s[2] == "keyed"]
 
@@ -78,6 +82,7 @@ NORMALIZE = [
     (re.compile(r"\b\d+(?:\.\d+)?(?:ms|s)\b"), "T"),                  # go, unittest, node spec: 0.12s, 38.1ms
     (re.compile(r"duration_ms:? [\d.]+"), "duration_ms T"),           # node TAP and spec summary
     (re.compile(r"\((node|npm):\d+\)"), r"(\1:PID)"),                  # node's process warnings
+    (re.compile(r"(?m)^quod: \d+ tests replayed.*\n"), ""),          # Quod's test-level note
 ]
 
 
@@ -237,8 +242,11 @@ class Bench:
             evs, _ = self.events_since(n)
             run = [e for e in evs if e.get("message") == "run"]
             ev = run[-1] if run else {}
+            tl = [e for e in evs if e.get("message") == "tests"]
             self.row(series="quod", i=j["i"], scenario=j["scenario"], step=name, kind=kind, wall=wall, exit=rc,
                      outcome=self.outcome(kind, ev), out=normalize(out) if kind == "keyed" else None,
+                     tests={k: tl[-1].get(k) for k in ("collected", "replayed", "executed", "diverged")}
+                     if tl else None,
                      deferred_audit=ev.get("deferred_audit"), first_mismatch=ev.get("first_mismatch"),
                      phases={k: ev.get(k) for k in ("setup_ms", "import_ms", "lookup_ms", "mount_ms", "exec_ms",
                                                      "diff_ms", "record_ms", "total_ms")},
@@ -278,7 +286,7 @@ class Bench:
             return "net"
         if ev.get("hit"):
             return "replayed"
-        if ev.get("outcome") in ("audit", "diverged"):
+        if ev.get("outcome") in ("audit", "diverged", "tests"):
             return ev["outcome"]
         return "ran" if ev else "error"
 
@@ -307,7 +315,8 @@ class Bench:
             p = plain[r["step"]]
             same = p["exit"] == r["exit"] and p["out"] == r["out"]
             r["matches_plain"] = same
-            r["wrong_replay"] = r["outcome"] == "replayed" and not same
+            # A run that replayed tests (outcome `tests`) is a replay too.
+            r["wrong_replay"] = r["outcome"] in ("replayed", "tests") and not same
             if not same:
                 print(f"  MISMATCH job {j['i']} {r['series']} {r['step']} ({r['outcome']}): exit {r['exit']} vs plain "
                       f"{p['exit']}; logs {r['log']}.out, {p['log']}.out", flush=True)
@@ -341,7 +350,11 @@ def summarize(rows):
             step_outcome=sr[0]["outcome"] if sr else None, step_s=round(sr[0]["wall"], 2) if sr else None,
             wrong=sum(bool(r.get("wrong_replay")) for r in keyed + sr),
             mismatched=sum(r.get("matches_plain") is False for r in keyed + sr),
-            failed=sum(r["exit"] != 0 for r in pr + qr)))
+            failed=sum(r["exit"] != 0 for r in pr + qr),
+            pytest=next((dict(outcome=r["outcome"], wall=round(r["wall"], 2), tests=r.get("tests"),
+                              plain=round(p["wall"], 2))
+                         for r in keyed if r["step"] == "py-pytest"
+                         for p in pr if p["step"] == "py-pytest"), None)))
     for name in steps + ["node-test (quod step)"]:
         series, step = ("quod-step", "node-test") if name.endswith("(quod step)") else ("quod", name)
         q = {r["i"]: r for r in rows if r.get("series") == series and r.get("step") == step}
@@ -409,6 +422,15 @@ def table(s, base=None):
         L.append(f"Against the baseline ({base['meta'].get('version', '?')}): quod {bt['quod_s']} -> {t['quod_s']} s "
                  f"({t['quod_s'] - bt['quod_s']:+.1f} s), quod/plain {bt['quod_over_plain']} -> {t['quod_over_plain']}, "
                  f"replayed {bt['replayed']} -> {t['replayed']}.")
+    tl = [x for x in s["scenarios"] if x.get("pytest")]
+    if tl:
+        L += ["", "py-pytest at test level (docs/test-level.md): the step's outcome, and its tests that ran and "
+              "replayed (a whole-step replay ran none)", "",
+              "| # | scenario | plain s | quod s | outcome | tests ran | tests replayed |", "|---|---|---:|---:|---|---:|---:|"]
+        for x in tl:
+            p, t = x["pytest"], x["pytest"].get("tests") or {}
+            L.append(f"| {x['i']} | {x['scenario']} | {p['plain']:.2f} | {p['wall']:.2f} | {p['outcome']} | "
+                     f"{t.get('executed', 0 if p['outcome'] == 'replayed' else '-')} | {t.get('replayed', '-')} |")
     L += ["", "| step | runs | replayed | executed | diverged | plain median s | quod overhead per miss (median) | replay median s |"
           + (" baseline overhead |" if base else ""),
           "|---|---:|---:|---:|---:|---:|---:|---:|" + ("---:|" if base else "")]

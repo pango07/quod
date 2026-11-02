@@ -584,7 +584,12 @@ pub(crate) fn banner(
             s.late.join(", ")
         );
     }
-    let _ = plan;
+    if !plan.coupled.is_empty() {
+        out += &format!(
+            "  test modules that run whole (a test there once depended on another): {}\n",
+            plan.coupled.join(", ")
+        );
+    }
     out
 }
 
