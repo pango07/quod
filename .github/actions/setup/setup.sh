@@ -65,6 +65,8 @@ host() {
 # .github/workflows/quod-release.yml, prints it).
 pinned_sha256() {
   case "$1" in
+    # cc34bd9 (exp/cloud-ledger-v2), GitHub run 41511010172
+    quod-client-v0.1.0) echo 0e0f8a26fe82cfa720a15742302c66c6867c470658d15db950729f9025af9b00;;
     *) echo '';;
   esac
 }
