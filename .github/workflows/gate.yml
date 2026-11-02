@@ -35,7 +35,9 @@ on:
         default: ''
 
 concurrency:
-  group: gate-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  # A dispatch is grouped by what it runs too, so dispatching bench-real (or
+  # a corpus gate) neither cancels nor is cancelled by the push gates.
+  group: gate-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.only || github.event_name }}
   cancel-in-progress: true
 
 permissions:
