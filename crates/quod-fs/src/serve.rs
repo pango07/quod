@@ -221,10 +221,13 @@ pub struct Options {
     /// microseconds per request.
     pub uring_nice: i32,
     /// Zero-message opens, off by default (`QUOD_FUSE_ZERO_OPEN=1` turns
-    /// them on): measured on cli/cli's go test they gained nothing over
-    /// answered opens with passthrough, alone or with two steps at once,
-    /// and lost on a read-heavy step (every READ comes through this
-    /// process). Kept as an option. The first OPEN is answered ENOSYS, which the kernel
+    /// them on, `=0` off whatever the caller's default): measured on
+    /// cli/cli's go test on 18 CPUs they gained nothing over answered
+    /// opens with passthrough, alone or with two steps at once, and lost on
+    /// a read-heavy step (every READ comes through this process). `quod
+    /// run` asks for them for steps that run `go test` or `go vet`, whose
+    /// go commands open each source file about ten times and read it once
+    /// (`run::zero_open_for`). The first OPEN is answered ENOSYS, which the kernel
     /// takes as success and as "never send OPEN or RELEASE again"
     /// (`fc->no_open`); its handles then default to FOPEN_KEEP_CACHE, so a
     /// file's pages are read from here once. Excludes passthrough, whose
@@ -267,10 +270,16 @@ impl Default for Options {
 
 impl Options {
     pub fn from_env() -> Options {
-        let d = Options::default();
+        Options::from_env_over(Options::default())
+    }
+
+    /// `from_env` over the caller's defaults `d`: each variable the
+    /// environment sets wins, anything it leaves unset is `d`'s (the
+    /// transport is always the environment's, `Auto` when unset).
+    pub fn from_env_over(d: Options) -> Options {
         Options {
             transport: Transport::from_env(),
-            passthrough: std::env::var_os("QUOD_NO_PASSTHROUGH").is_none(),
+            passthrough: d.passthrough && std::env::var_os("QUOD_NO_PASSTHROUGH").is_none(),
             uring_pin: !std::env::var("QUOD_URING_PIN").is_ok_and(|v| v == "0"),
             uring_depth: std::env::var("QUOD_URING_DEPTH")
                 .ok()
