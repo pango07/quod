@@ -7,13 +7,13 @@
 #   observe.sh <project checkout> <ledger dir> <vitest args...>   (QUOD=...)
 set -uo pipefail
 proj=$(cd "$1" && pwd); dir=$2; shift 2
-qstate=${RUNNER_TEMP:-/tmp}/quod-observer-state
+qstate=/work/state/quod-observer
 mkdir -p "$qstate"
 vars=()
 for n in $(compgen -e); do
   case "$n" in PATH|HOME|CI|LANG|TMPDIR|QUOD_*|GITHUB_*|RUNNER_*|PNPM_*|NODE_*) vars+=("$n=${!n}");; esac
 done
-script="node_modules/.bin/vitest $*"
+script="node_modules/.bin/vitest $(printf "%q " "$@")"
 s=$(date +%s%3N)
 sudo env "${vars[@]}" "$QUOD" --state "$qstate" run --repo "$proj" --toolchain node --timeout 20m --step "$script" >"$qstate/run.log" 2>&1
 rc=$?

@@ -16,7 +16,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 proj=$(cd "$1" && pwd); sha=$2; n=$3; shift 3
 args=("$@")
 out=${RUNNER_TEMP:-/tmp}/bench-vitest
-state=${RUNNER_TEMP:-/tmp}/quod-vitest-state
+state=/work/state/quod-vitest
 rm -rf "$out" "$state"; mkdir -p "$out/logs"
 : "${QUOD:?QUOD must point at the quod binary}"
 cd "$proj"

@@ -250,6 +250,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
     let t_select = t0.elapsed();
+    let shared_changed: Vec<String> = ledger
+        .global
+        .iter()
+        .filter(|k| changed.contains(k))
+        .map(|k| ledger.keys[*k as usize].clone())
+        .collect();
+    for k in shared_changed.iter().take(8) {
+        eprintln!("quod vitest:   shared input changed: {k}");
+    }
     eprintln!(
         "quod vitest: {} recorded files: {} replay, {} to run{}{}; {} inputs hashed, {} changed; selected in {} ms",
         ledger.files.len(),
@@ -430,6 +439,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "failed": failed,
             "unrecordable": unobservable,
             "shared_inputs_changed": !global_ok,
+            "shared_changed_keys": shared_changed.iter().take(20).collect::<Vec<_>>(),
             "inputs_hashed": live.len(),
             "load_ms": t_load.as_secs_f64() * 1e3,
             "select_ms": t_select.as_secs_f64() * 1e3,

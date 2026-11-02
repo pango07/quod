@@ -34,9 +34,12 @@ for (const f of real.readdirSync(dumpDir)) {
 
 const codeDir = import.meta.dirname
 const r = createRecorder({ stateDir, codeDir, mode: 'main' })
-patchFs(r)
-patchEnv(r)
-patchLoader(r)
+// QUOD_VITEST_DISABLE=main: measuring the main process recorder's cost only.
+if (!(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('main')) {
+  patchFs(r)
+  patchEnv(r)
+  patchLoader(r)
+}
 process.env.QUOD_VITEST_DUMP = dumpDir
 process.env.QUOD_VITEST_STATE = stateDir
 const log = (...a) => process.env.QUOD_VITEST_QUIET || console.error('quod vitest:', ...a)
@@ -199,6 +202,7 @@ const moduleKeys = (mods) => {
 }
 const transformed = new Set()
 const dumps = new Map()
+const workerMs = { setup: 0, dump: 0 }
 for (const id of ran.keys()) {
   let d = null
   try {
@@ -206,6 +210,7 @@ for (const id of ran.keys()) {
   } catch {}
   dumps.set(id, d)
   if (d) for (const m of d.modules) transformed.add(path.resolve(m))
+  if (d?.ms) for (const k of Object.keys(workerMs)) workerMs[k] += d.ms[k] ?? 0
 }
 const interrupted = ctx.isCancelling || crashed
 for (const m of endModules) {
@@ -304,7 +309,7 @@ writeJson(outPath, {
   ran: ranOut,
   replayed: replayed.map((x) => x.id),
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun },
+  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump },
 })
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)

@@ -13,14 +13,22 @@ const dumpDir = process.env.QUOD_VITEST_DUMP
 const stateDir = process.env.QUOD_VITEST_STATE
 const ws = globalThis.__vitest_worker__
 
+// QUOD_VITEST_DISABLE (comma list: fs, env, loader, escapes): for
+// measuring the recorder's cost only; a disabled part records nothing, so
+// the driver records no file of such a run.
+const off = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(',').filter(Boolean))
+
 if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
+  const t0 = performance.now()
   const file = ws.current?.file ?? ws.current
   const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker' })
   globalThis.__quod_vitest__ = r
-  patchFs(r)
-  patchEnv(r)
-  patchLoader(r)
-  await patchEscapes(r)
+  if (!off.has('fs')) patchFs(r)
+  if (!off.has('env')) patchEnv(r)
+  if (!off.has('loader')) patchLoader(r)
+  if (!off.has('escapes')) patchEscapes(r)
+  if (off.size) r.unobs(`recorder disabled: ${[...off]}`)
+  const setupMs = performance.now() - t0
   if (r.loaderMissing) r.unobs('no module.registerHooks')
   if (!file?.id || typeof ws.onCleanup !== 'function') r.unobs('no worker hooks')
   if (ws.config?.isolate === false) r.unobs('not isolated')
@@ -28,6 +36,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   // CJS loaded before this file ran (the environment, e.g. jsdom)
   for (const k of Object.keys(req.cache)) r.add('f', k)
   ws.onCleanup?.(() => {
+    const t1 = performance.now()
     try {
       r.on = true
       for (const k of Object.keys(req.cache)) r.add('f', k)
@@ -48,6 +57,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         keys: [...r.keys],
         writes: [...r.writes],
         unobservable: [...r.unobservable],
+        ms: { setup: setupMs, dump: performance.now() - t1 },
       })
     } catch (e) {
       console.error('quod vitest: could not record', file?.filepath, e)

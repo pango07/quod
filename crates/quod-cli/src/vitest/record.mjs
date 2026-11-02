@@ -225,29 +225,54 @@ export function patchLoader(r) {
 }
 
 // What the recorder cannot follow: another process, the network, another
-// thread. Workers only (the main process's own are the tools').
-export async function patchEscapes(r) {
-  const cp = await import('node:child_process')
-  for (const n of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
-    wrap(cp.default, n, () => r.unobs('child_process'))
+// thread. Workers only (the main process's own are the tools'). A builtin
+// already loaded is patched now; any other when first resolved (loading
+// them all up front cost ~30 ms per test file).
+const ESCAPES = {
+  child_process: (m, r) => {
+    for (const n of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
+      wrap(m, n, () => r.unobs('child_process'))
+    }
+  },
+  net: (m, r) => {
+    wrap(m, 'connect', () => r.unobs('network'))
+    wrap(m, 'createConnection', () => r.unobs('network'))
+    wrap(m.Socket?.prototype, 'connect', () => r.unobs('network'))
+  },
+  tls: (m, r) => wrap(m, 'connect', () => r.unobs('network')),
+  http: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
+  https: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
+  http2: (m, r) => wrap(m, 'connect', () => r.unobs('network')),
+  dgram: (m, r) => wrap(m, 'createSocket', () => r.unobs('network')),
+  dns: (m, r) => ['lookup', 'resolve'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
+  worker_threads: (m, r) => wrap(m, 'Worker', () => r.unobs('worker_threads')),
+  cluster: (m, r) => wrap(m, 'fork', () => r.unobs('child_process')),
+}
+export function patchEscapes(r) {
+  const done = new Set()
+  const patch = (name) => {
+    if (done.has(name)) return
+    done.add(name)
+    try {
+      ESCAPES[name](process.getBuiltinModule(name), r)
+      nodeModule.syncBuiltinESMExports()
+    } catch {
+      r.unobs(`could not watch ${name}`)
+    }
   }
-  const net = (await import('node:net')).default
-  wrap(net, 'connect', () => r.unobs('network'))
-  wrap(net, 'createConnection', () => r.unobs('network'))
-  wrap(net.Socket.prototype, 'connect', () => r.unobs('network'))
-  wrap((await import('node:tls')).default, 'connect', () => r.unobs('network'))
-  for (const m of ['node:http', 'node:https']) {
-    const h = (await import(m)).default
-    wrap(h, 'request', () => r.unobs('network'))
-    wrap(h, 'get', () => r.unobs('network'))
-  }
-  wrap((await import('node:dgram')).default, 'createSocket', () => r.unobs('network'))
-  wrap((await import('node:dns')).default, 'lookup', () => r.unobs('network'))
+  const loaded = new Set(process.moduleLoadList?.filter((m) => m.startsWith('NativeModule ')).map((m) => m.slice(13)))
+  for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name)
+  if (typeof nodeModule.registerHooks === 'function') {
+    nodeModule.registerHooks({
+      resolve(specifier, context, next) {
+        const name = specifier.startsWith('node:') ? specifier.slice(5) : specifier
+        if (Object.hasOwn(ESCAPES, name)) patch(name)
+        return next(specifier, context)
+      },
+    })
+  } else for (const name of Object.keys(ESCAPES)) patch(name)
   wrap(globalThis, 'fetch', () => r.unobs('network'))
-  wrap((await import('node:worker_threads')).default, 'Worker', () => r.unobs('worker_threads'))
-  try {
-    nodeModule.syncBuiltinESMExports()
-  } catch {}
+  if (typeof globalThis.WebSocket === 'function') wrap(globalThis, 'WebSocket', () => r.unobs('network'))
 }
 
 // Write JSON atomically with the unrecorded fs.
