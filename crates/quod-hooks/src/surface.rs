@@ -54,7 +54,14 @@ pub const WITHHELD: &str = "quod-withheld";
 /// ACTIONS_* tokens) and the unreachable ACTIONS_* service address. A
 /// result that holds one is not what GitHub would give (`job::run_step`
 /// runs the step again with the runner's environment, never records it).
-pub const PLACEHOLDER_MARKS: &[&str] = &[WITHHELD, "quod-unreachable"];
+///
+/// For `WITHHELD` the mark is its first 7 bytes, which every prefix of 7 or
+/// more holds too: a short sha (`${GITHUB_SHA::7}`, the usual abbreviation)
+/// cut from the placeholder is as much the placeholder.
+pub const PLACEHOLDER_MARKS: &[&str] = &[WITHHELD_MARK, "quod-unreachable"];
+
+/// `WITHHELD`'s first 7 bytes (see `PLACEHOLDER_MARKS`).
+pub const WITHHELD_MARK: &str = "quod-wi";
 
 pub fn placeholder_marks() -> Vec<Vec<u8>> {
     PLACEHOLDER_MARKS
@@ -113,7 +120,9 @@ pub struct Surface {
     /// manifest's present-but-unkeyed names.
     pub withheld: Vec<String>,
     /// Of those, the ones whose real value the step did not get (it got
-    /// `WITHHELD`): a file naming one means the step may have needed it.
+    /// `WITHHELD`) and that are stable from run to run
+    /// (`scan::scanned`): a file naming one means the step may have needed
+    /// it.
     pub absent: Vec<String>,
     /// Hermetic and network: the command files at their fixed paths, to
     /// hand back to the runner after the step.
@@ -153,6 +162,10 @@ pub struct PinnedFile {
     /// is an input): given to the step, keyed, and not handed back.
     pub initial: Vec<u8>,
 }
+
+/// What every surface sets SOURCE_DATE_EPOCH to unless the workflow does
+/// (`base_env`): the CLI's Python profile's value.
+pub const SOURCE_DATE_EPOCH: &str = "315532800";
 
 /// The variables Quod pins so tool state lives in the observed tree.
 const PINNED: &[&str] = &[
@@ -238,6 +251,19 @@ fn base_env(
         } else {
             env.insert(name.into(), value);
         }
+    }
+    // Install-time bytecode that does not depend on when it was installed.
+    // pip (and uv with UV_COMPILE_BYTECODE) compile what they install with
+    // py_compile, whose default under SOURCE_DATE_EPOCH is a checked-hash
+    // pyc (PEP 552): validated by its source's hash, not its mtime. Without
+    // it the pyc embeds the install step's wall-clock mtime, so every
+    // re-run of the install (pip install is never replayed: the network)
+    // gave new pyc bytes, and every step that imported them missed. The
+    // value is the CLI's Python profile's (`quod_key::PYTHON`), 1980-01-01,
+    // the earliest a zip can hold. A workflow's own value is kept (and
+    // keyed, as every variable is), never a taint: it is the same knob.
+    if !env.contains_key("SOURCE_DATE_EPOCH") {
+        env.insert("SOURCE_DATE_EPOCH".into(), SOURCE_DATE_EPOCH.into());
     }
     if offline {
         env.insert("GOPROXY".into(), "off".into());
@@ -418,7 +444,9 @@ fn sealed(
         if step::withheld(&k, &v) {
             env.insert(k.clone(), WITHHELD.to_string());
             withheld.push(k.clone());
-            absent.push(k);
+            if crate::scan::scanned(&k, &v) {
+                absent.push(k);
+            }
         } else if let Some(p) = step::placeholder(&k) {
             env.insert(k.clone(), p.to_string());
             withheld.push(k);

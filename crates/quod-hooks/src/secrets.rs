@@ -695,6 +695,11 @@ pub fn command_line_holds(output: &[u8], masks: &[Vec<u8>]) -> bool {
 pub struct JobSecrets {
     pub container_env: BTreeMap<String, String>,
     pub values: BTreeSet<String>,
+    /// The whole environment of each step that ran before the workflow's
+    /// provenance could be read (`Job::ensure_provenance`): classified, and
+    /// dropped, once it is.
+    #[serde(default)]
+    pub pending_env: Vec<BTreeMap<String, String>>,
 }
 
 /// Where a job's `JobSecrets` live: `/dev/shm/quod-<state hash>/<job>.json`.
@@ -997,6 +1002,7 @@ mod tests {
         let s = JobSecrets {
             container_env: env(&[("K", "v-0123456789")]),
             values: ["v-0123456789".to_string()].into(),
+            pending_env: Vec::new(),
         };
         s.save(&state, &job, "J1").unwrap();
         let back = JobSecrets::load(&state, &job, "J1").unwrap();

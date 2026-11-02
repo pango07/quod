@@ -255,6 +255,7 @@ impl Job {
             secrets: secrets::JobSecrets {
                 container_env: c.environment_variables.clone(),
                 values: Default::default(),
+                pending_env: Vec::new(),
             },
             masks: Vec::new(),
             salt,
@@ -363,7 +364,12 @@ impl Job {
         // Only the certain ones join the known secrets (see
         // `secrets::Classified::strong`).
         let new = !c.strong.is_subset(&self.secrets.values);
-        self.env = shown;
+        // Before the provenance is read every container env value stays
+        // salted in job.json (as prepare_job wrote it): which are secrets is
+        // not known yet.
+        if self.provenance.is_some() {
+            self.env = shown;
+        }
         if new {
             self.secrets.values.extend(c.strong);
             self.save_secrets()?;
@@ -407,16 +413,30 @@ impl Job {
         }
     }
 
-    /// Reads where the job's secrets come from (`provenance`), once, at the
-    /// first step: the workflow at GITHUB_WORKFLOW_SHA from the repository's
-    /// mirror, local reusable workflows and actions from the same commit,
-    /// remote actions as the runner downloaded them. Anything that cannot
-    /// be read makes the job opaque.
-    fn ensure_provenance(&mut self, env: &BTreeMap<String, String>) {
+    /// Reads where the job's secrets come from (`provenance`), once: the
+    /// workflow at GITHUB_WORKFLOW_SHA from the repository's mirror, local
+    /// reusable workflows and actions from the same commit, remote actions
+    /// as the runner downloaded them. Anything that cannot be read makes the
+    /// job opaque, with one exception: a private repository's workflow is
+    /// fetched with the job's token, which a step before actions/checkout
+    /// (`run:` steps carry none) does not have. Such a step does not make
+    /// the job opaque: it runs as GitHub runs it (the runner's surface,
+    /// never recorded; returned here as the reason), its environment is
+    /// kept with the job's secrets outside the state, and the read is tried
+    /// again at the next step. Once it succeeds, those environments are
+    /// classified with the provenance, so a secret such a step was given
+    /// (and could have handed on through GITHUB_ENV under a plain name) is a
+    /// known secret of the job before any step is recorded. Only when a
+    /// step that carries a token still cannot read it is the job opaque.
+    fn ensure_provenance(
+        &mut self,
+        env: &BTreeMap<String, String>,
+    ) -> anyhow::Result<Option<String>> {
         if self.provenance.is_some() {
-            return;
+            return Ok(None);
         }
         let wref = env.get("GITHUB_WORKFLOW_REF").cloned().unwrap_or_default();
+        let carries_token = env.values().any(|v| step::holds_github_token(v));
         let p = match self.read_provenance(env, &wref) {
             Ok(mut p) => {
                 p.workflow = format!(
@@ -424,6 +444,15 @@ impl Job {
                     env.get("GITHUB_WORKFLOW_SHA").map_or("?", String::as_str)
                 );
                 p
+            }
+            Err(e) if !carries_token => {
+                self.secrets.pending_env.push(env.clone());
+                self.save_secrets()?;
+                let why = format!(
+                    "the workflow is not read yet (it needs the job's token, which no step has carried so far: {e:#}); until a step does, steps run as GitHub runs them"
+                );
+                tracing::info!(target: "quod", job = %self.id, workflow = %wref, pending = self.secrets.pending_env.len(), "provenance deferred");
+                return Ok(Some(why));
             }
             Err(e) => crate::provenance::Provenance::opaque(
                 wref.clone(),
@@ -435,6 +464,33 @@ impl Job {
             eprintln!("quod: this job is opaque, nothing it runs is recorded: {why}");
         }
         self.provenance = Some(p);
+        // What the steps before saw, classified now.
+        let pending = std::mem::take(&mut self.secrets.pending_env);
+        if !pending.is_empty() {
+            let container = self.container_env();
+            let image = self.image_env();
+            for e in &pending {
+                let c = secrets::classify_with(
+                    container.iter().chain(e.iter()),
+                    self.provenance(),
+                    self.known_secrets(),
+                    &self.set_by_steps,
+                    &image,
+                );
+                self.add_masks(&c.masks);
+                if !c.names.is_empty() {
+                    self.had_secrets = true;
+                }
+                self.secrets.values.extend(c.strong);
+                if c.short_strong && self.short_secret.is_none() {
+                    self.short_secret = c
+                        .short
+                        .map(|n| format!("in {n}, given to a step before the workflow was read"));
+                }
+            }
+            self.save_secrets()?;
+        }
+        Ok(None)
     }
 
     fn read_provenance(
@@ -1301,7 +1357,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
     job.check_secrets()?;
-    job.ensure_provenance(&args.environment_variables);
+    let deferred = job.ensure_provenance(&args.environment_variables)?;
     job.learn_secrets(&args.environment_variables)?;
     job.steps += 1;
     job.totals.steps += 1;
@@ -1313,6 +1369,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
     let salt = secrets::salt(state_dir)?;
 
     let mut step = step::classify(&job, &args, policy)?;
+    step.taint.extend(deferred);
     for why in &job.dirty {
         step.taint
             .push(format!("an earlier step of the job: {why}"));
@@ -2067,6 +2124,49 @@ fn run_step(
         Err(reason) => reason,
     };
 
+    // A step that reached for the network on an earlier offline try runs
+    // where it ended then, without that try (it would only be set aside
+    // again, after costing its whole run): never recorded, as before. Every
+    // `NETWORK_PROBE_EVERY`th run tries offline again, so a step that no
+    // longer needs the network records again. A run that is not recorded
+    // (`unrecorded`) reads this memory but never writes it.
+    let network = ledger.network(&key)?;
+    if let Some(n) = network
+        .as_ref()
+        .filter(|n| unrecorded.is_some() || skips_offline(n))
+    {
+        if unrecorded.is_none() {
+            ledger.network_skipped(&key)?;
+        }
+        let online = n.surface == NETWORK_SURFACE && step.retry.is_some();
+        let note = job.mask(&format!(
+            "needed the network on an earlier run ({}); ran {} without trying offline first",
+            n.reason,
+            if online {
+                "with the network"
+            } else {
+                "with the runner's environment"
+            }
+        ));
+        eprintln!("quod: `{}`: {note}", step.label);
+        let mut taint = vec![note];
+        if online
+            && let Some(code) = run_online(
+                job,
+                args,
+                step,
+                cas,
+                &tree,
+                &step_dir.join("online"),
+                salt,
+                &mut taint,
+            )?
+        {
+            return Ok(code);
+        }
+        return run_tainted(job, args, step, cas, &tree, step_dir, taint);
+    }
+
     // Execute on the hermetic surface (observe mode, a miss, or an audit).
     // A step that may need the network is captured, not streamed, until it
     // is known to have managed without. What it writes and prints is staged
@@ -2117,8 +2217,25 @@ fn run_step(
         again.push(format!("exited {} offline", ex.exit_code));
     }
     match ex.net_attempts {
-        Some(0) => {}
-        Some(n) => again.push(format!("tried to reach the network offline ({n} attempts)")),
+        Some(0) => {
+            if network.is_some() && unrecorded.is_none() {
+                ledger.clear_network(&key)?;
+            }
+        }
+        Some(n) => {
+            let why = format!("tried to reach the network offline ({n} attempts)");
+            // Where it runs next (below): the network surface for a fetch
+            // that failed offline, the runner's otherwise.
+            if unrecorded.is_none() && ex.resource_failure.is_none() && ex.signal.is_none() {
+                let surface = if step.retry.is_some() && ex.exit_code != 0 {
+                    NETWORK_SURFACE
+                } else {
+                    "runner"
+                };
+                ledger.mark_network(&key, surface, &why)?;
+            }
+            again.push(why);
+        }
         None => again.push("its network attempts could not be counted".to_string()),
     }
     if let Some(sig) = ex.signal {
@@ -2459,6 +2576,19 @@ fn run_step(
     )
 }
 
+/// How often a step that needs the network tries offline again: every
+/// this many runs of its key (the others skip the offline try).
+pub const NETWORK_PROBE_EVERY: u32 = 10;
+
+/// The ledger's name for the network surface (`Ledger::mark_network`).
+const NETWORK_SURFACE: &str = "network";
+
+/// Does this run of a step that needed the network skip its offline try?
+/// All but every `NETWORK_PROBE_EVERY`th.
+fn skips_offline(n: &quod_ledger::NetworkRow) -> bool {
+    n.skipped + 1 < NETWORK_PROBE_EVERY
+}
+
 /// `; replayable from the next matching run (its next 2 would-be hits are
 /// audited)` when this execution's manifest may replay from now on (trust
 /// v2: after its first record), else nothing.
@@ -2758,6 +2888,30 @@ fn apply_commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step that needed the network skips its offline try, except every
+    /// NETWORK_PROBE_EVERY-th run.
+    #[test]
+    fn a_network_step_tries_offline_every_so_often() {
+        let row = |skipped| quod_ledger::NetworkRow {
+            surface: "runner".into(),
+            reason: "r".into(),
+            skipped,
+        };
+        let tries: Vec<u32> = (0..3 * NETWORK_PROBE_EVERY)
+            .scan(0, |skipped, run| {
+                let skip = skips_offline(&row(*skipped));
+                // A skipped run counts; an offline try that reaches for the
+                // network again marks the key anew (the count starts over).
+                *skipped = if skip { *skipped + 1 } else { 0 };
+                Some((run, skip))
+            })
+            .filter(|(_, skip)| !skip)
+            .map(|(run, _)| run)
+            .collect();
+        let n = NETWORK_PROBE_EVERY;
+        assert_eq!(tries, [n - 1, 2 * n - 1, 3 * n - 1]);
+    }
 
     #[test]
     fn ignored_outputs_follow_quod_run() {
