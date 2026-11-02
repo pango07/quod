@@ -104,7 +104,33 @@ const MIGRATIONS: &[&str] = &[
     // state then: a run whose tree differs on those paths tries offline
     // again, since its need for the network may depend on them.
     "CREATE TABLE network (step_key TEXT PRIMARY KEY, surface TEXT NOT NULL, reason TEXT NOT NULL, skipped INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, inputs TEXT, digest TEXT);",
+    // v9: test-level replay (docs/test-level.md). `tests`: the tests a
+    // step key has run, one row per test key (the step key and the test's
+    // pytest node id hashed: `quod_tests::test_key`), with the run that
+    // last saw it collected; a test's manifests, results, proofs, trust
+    // and audits live in the step tables under its test key, so the trust
+    // layer applies per test unchanged. `test_steps`: per step key, the
+    // test-level runs so far and since the last full run (every Nth run
+    // executes every test, and a divergence asks for the next one:
+    // `full_due`), and why test-level replay is off for the key, if it is.
+    "CREATE TABLE tests (test_key TEXT PRIMARY KEY, step_key TEXT NOT NULL, nodeid TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL);
+     CREATE INDEX tests_by_step ON tests (step_key);
+     CREATE TABLE test_steps (step_key TEXT PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0, since_full INTEGER NOT NULL DEFAULT 0, full_due TEXT, disabled TEXT, updated_at TEXT NOT NULL);",
 ];
+
+/// A step key's test-level state (`Ledger::test_step`, migration v9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TestStepRow {
+    pub step_key: Hash,
+    /// Test-level runs of the key so far.
+    pub runs: u64,
+    /// Test-level runs since the last one that executed every test.
+    pub since_full: u64,
+    /// Why the next run executes every test (a divergence), if it must.
+    pub full_due: Option<String>,
+    /// Why test-level replay is off for this key, if it is.
+    pub disabled: Option<String>,
+}
 
 /// A step key that needs the network (`Ledger::network`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -598,6 +624,101 @@ impl Ledger {
             insert_result(&l.db, r)?;
             Ok(id)
         })
+    }
+
+    /// Notes that `step_key`'s run `run_id` collected these tests, as
+    /// (test key, node id).
+    pub fn put_tests(
+        &self,
+        step_key: &Hash,
+        run_id: &str,
+        tests: &[(Hash, String)],
+    ) -> Result<(), LedgerError> {
+        self.atomically(|l| {
+            let now = now_rfc3339();
+            let mut st = l.db.prepare_cached(
+                "INSERT INTO tests (test_key, step_key, nodeid, last_run, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(test_key) DO UPDATE SET last_run = excluded.last_run, updated_at = excluded.updated_at",
+            )?;
+            for (k, nodeid) in tests {
+                st.execute(params![
+                    k.to_string(),
+                    step_key.to_string(),
+                    nodeid,
+                    run_id,
+                    now
+                ])?;
+            }
+            Ok(())
+        })
+    }
+
+    /// The tests `step_key` has collected, as (test key, node id), node id
+    /// order.
+    pub fn tests_for_step(&self, step_key: &Hash) -> Result<Vec<(Hash, String)>, LedgerError> {
+        let mut st = self
+            .db
+            .prepare_cached("SELECT test_key, nodeid FROM tests WHERE step_key = ?1 ORDER BY nodeid")?;
+        let rows = st.query_map([step_key.to_string()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (k, n) = row?;
+            out.push((parse_hash(&k)?, n));
+        }
+        Ok(out)
+    }
+
+    /// `step_key`'s test-level state; a default row when it has none.
+    pub fn test_step(&self, step_key: &Hash) -> Result<TestStepRow, LedgerError> {
+        let row = self
+            .db
+            .query_row(
+                "SELECT runs, since_full, full_due, disabled FROM test_steps WHERE step_key = ?1",
+                [step_key.to_string()],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        Ok(match row {
+            Some((runs, since_full, full_due, disabled)) => TestStepRow {
+                step_key: *step_key,
+                runs: runs as u64,
+                since_full: since_full as u64,
+                full_due,
+                disabled,
+            },
+            None => TestStepRow {
+                step_key: *step_key,
+                runs: 0,
+                since_full: 0,
+                full_due: None,
+                disabled: None,
+            },
+        })
+    }
+
+    pub fn put_test_step(&self, t: &TestStepRow) -> Result<(), LedgerError> {
+        self.db.execute(
+            "INSERT INTO test_steps (step_key, runs, since_full, full_due, disabled, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(step_key) DO UPDATE SET runs = excluded.runs, since_full = excluded.since_full, full_due = excluded.full_due, disabled = excluded.disabled, updated_at = excluded.updated_at",
+            params![
+                t.step_key.to_string(),
+                t.runs as i64,
+                t.since_full as i64,
+                t.full_due,
+                t.disabled,
+                now_rfc3339()
+            ],
+        )?;
+        Ok(())
     }
 
     /// Rows per table, counted directly.
@@ -2150,6 +2271,40 @@ mod tests {
     /// `shadow_from` backfilled and `volatile` 0, its replayed runs are not
     /// suspect, and marking suspects labels only the key's replays that were
     /// not labelled yet. The schema ends equal to the golden.
+    /// v9: the test-level tables, empty on a migrated ledger, and their
+    /// round trips.
+    #[test]
+    fn a_v8_ledger_migrates_to_v9_and_keeps_tests() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        {
+            let db = Connection::open(&p).unwrap();
+            for m in &MIGRATIONS[..8] {
+                db.execute_batch(m).unwrap();
+            }
+            db.pragma_update(None, "user_version", 8).unwrap();
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), 9);
+        let step = Hash::of(b"step");
+        assert_eq!(l.tests_for_step(&step).unwrap(), vec![]);
+        let (a, b) = (Hash::of(b"a"), Hash::of(b"b"));
+        l.put_tests(&step, "01R1", &[(b, "t.py::b".into()), (a, "t.py::a".into())])
+            .unwrap();
+        l.put_tests(&step, "01R2", &[(a, "t.py::a".into())]).unwrap();
+        assert_eq!(
+            l.tests_for_step(&step).unwrap(),
+            vec![(a, "t.py::a".to_string()), (b, "t.py::b".to_string())]
+        );
+        let mut t = l.test_step(&step).unwrap();
+        assert_eq!((t.runs, t.since_full, t.full_due.clone()), (0, 0, None));
+        t.runs = 3;
+        t.since_full = 2;
+        t.full_due = Some("divergence".into());
+        l.put_test_step(&t).unwrap();
+        assert_eq!(l.test_step(&step).unwrap(), t);
+    }
+
     #[test]
     fn a_v6_ledger_migrates_through_v7_to_v8() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2168,7 +2323,7 @@ mod tests {
             .unwrap();
         }
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 8);
+        assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql"),
@@ -2188,7 +2343,10 @@ mod tests {
         );
         drop(l);
         // Reopened: nothing migrates twice.
-        assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 8);
+        assert_eq!(
+            Ledger::open(&p).unwrap().schema_version().unwrap(),
+            SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -2245,7 +2403,7 @@ mod tests {
         }
         let l = Ledger::open(&p).unwrap();
         assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 8);
+        assert_eq!(SCHEMA_VERSION, 9);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql"),

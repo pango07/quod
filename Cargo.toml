@@ -21,6 +21,7 @@ quod-ledger = { path = "crates/quod-ledger" }
 quod-replay = { path = "crates/quod-replay" }
 quod-trust = { path = "crates/quod-trust" }
 quod-hooks = { path = "crates/quod-hooks" }
+quod-tests = { path = "crates/quod-tests" }
 
 anyhow = "1"
 blake3 = "1.8"

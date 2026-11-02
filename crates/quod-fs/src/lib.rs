@@ -46,6 +46,54 @@ pub fn content_mtime(content: &quod_cas::Hash) -> std::time::SystemTime {
     std::time::UNIX_EPOCH + std::time::Duration::new(946_684_800 + u64::from(secs), nanos)
 }
 
+/// The prefix of a test-level marker's name (docs/test-level.md,
+/// "Attribution"): a lookup of `<root>/.quod-tl-<token>-<n>` is not an
+/// access but marker `n` of the process that looked it up, logged in order
+/// with that process's accesses. The token is random per run, so no tree
+/// and no step can produce one by accident.
+pub const MARKER_PREFIX: &str = ".quod-tl-";
+
+/// The name a process looks up (at the workspace root) to log marker `n`.
+pub fn marker_name(token: &str, n: u64) -> String {
+    format!("{MARKER_PREFIX}{token}-{n}")
+}
+
+/// What the observer saw, in order, for test-level attribution
+/// (`Options::trace`). Every recorded access with the thread that asked
+/// and a sequence number taken before the request was answered, so an
+/// access whose answer a process could have acted on before it logged a
+/// marker always has a smaller number than that marker. Repeats of an
+/// access by one thread between two markers (of any process) are dropped:
+/// they say nothing a window does not already hold.
+#[derive(Clone, Debug, Default)]
+pub struct Trace {
+    pub events: Vec<TraceEvent>,
+    /// Every thread id that asked, and every ancestor process of one, as
+    /// /proc said while the request was in flight (the requester was
+    /// alive): its thread group and its parent process.
+    pub procs: std::collections::BTreeMap<u32, ProcInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraceEvent {
+    pub seq: u64,
+    /// The requesting thread, as the FUSE in-header names it.
+    pub tid: u32,
+    pub what: Traced,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Traced {
+    Access(quod_manifest::Access),
+    Marker(u64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProcInfo {
+    pub tgid: u32,
+    pub ppid: u32,
+}
+
 /// How many requests of each kind the kernel sent the observer so far.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ObserverStats {
@@ -218,6 +266,7 @@ mod unsupported {
         pub zero_open: bool,
         pub zero_opendir: bool,
         pub xattr_enosys: bool,
+        pub trace: Option<String>,
         #[cfg(feature = "fault-injection")]
         #[doc(hidden)]
         pub fault: Option<Fault>,
@@ -234,6 +283,7 @@ mod unsupported {
                 zero_open: false,
                 zero_opendir: true,
                 xattr_enosys: true,
+                trace: None,
                 #[cfg(feature = "fault-injection")]
                 fault: None,
             }
@@ -327,6 +377,7 @@ mod unsupported {
     pub struct Observed {
         pub accesses: Vec<Access>,
         pub opened: Option<std::collections::BTreeSet<String>>,
+        pub trace: Option<crate::Trace>,
     }
 
     impl Overlay {

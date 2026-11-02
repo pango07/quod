@@ -8,6 +8,8 @@ CREATE TABLE proofs (step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, streak I
 CREATE TABLE results (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL);
 CREATE TABLE runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, commit_sha TEXT, host TEXT, transport TEXT, observer TEXT, step_key TEXT, repo TEXT, repo_path TEXT, mode TEXT, outcome TEXT, manifest_id TEXT, exit_code INTEGER, wall_ms INTEGER, saved_ms INTEGER, suspect TEXT);
 CREATE TABLE step_keys (step_key TEXT PRIMARY KEY, json BLOB NOT NULL);
+CREATE TABLE test_steps (step_key TEXT PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0, since_full INTEGER NOT NULL DEFAULT 0, full_due TEXT, disabled TEXT, updated_at TEXT NOT NULL);
+CREATE TABLE tests (test_key TEXT PRIMARY KEY, step_key TEXT NOT NULL, nodeid TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE trust (step_key TEXT PRIMARY KEY, cmd TEXT, state TEXT NOT NULL, eligible INTEGER NOT NULL DEFAULT 0, replays INTEGER NOT NULL DEFAULT 0, audits INTEGER NOT NULL DEFAULT 0, divergences INTEGER NOT NULL DEFAULT 0, quarantined_at TEXT, quarantine_reason TEXT, updated_at TEXT NOT NULL, shadow_from INTEGER NOT NULL DEFAULT 0, volatile INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX audits_by_key ON audits (step_key, id DESC);
 CREATE INDEX audits_pending_by_key ON audits_pending (step_key, state);
@@ -16,3 +18,4 @@ CREATE INDEX results_by_key ON results (step_key, manifest_id, created_at DESC);
 CREATE INDEX runs_by_key ON runs (step_key, started_at DESC);
 CREATE INDEX runs_by_repo ON runs (repo, started_at DESC);
 CREATE INDEX runs_by_transport ON runs (transport);
+CREATE INDEX tests_by_step ON tests (step_key);

@@ -1,0 +1,21 @@
+[package]
+name = "quod-tests"
+version = "0.0.0"
+description = "Test-level replay: the pytest plugin, test keys, and the attribution of a step's reads to its tests."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quod-cas.workspace = true
+quod-fs.workspace = true
+quod-manifest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

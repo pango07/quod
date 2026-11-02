@@ -805,6 +805,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "quod-tests"
+version = "0.0.0"
+dependencies = [
+ "quod-cas",
+ "quod-fs",
+ "quod-manifest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "quod-trust"
 version = "0.0.0"
 dependencies = [

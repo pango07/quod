@@ -53,7 +53,7 @@ use fuser::{BackingId, FileAttr, FileType};
 use io_uring::{IoUring, cqueue, opcode, squeue, types};
 
 use crate::FsError;
-use crate::serve::{Backing, CasFs, DirEnt, Fault, Opened, Options, Req, TTL, lock};
+use crate::serve::{Backing, CasFs, DirEnt, Fault, Opened, Options, Req, lock};
 
 /// The FUSE protocol minor this transport's encoders are written for and
 /// tested against: Linux 7.0's `FUSE_KERNEL_MINOR_VERSION`. A kernel that
@@ -1090,12 +1090,12 @@ fn handle(fs: &CasFs, dev: &File, hdr: &[u8], op: &[u8], payload: &[u8]) -> Repl
                 .position(|&b| b == 0)
                 .unwrap_or(payload.len())];
             match fs.lookup(&req, nodeid, name) {
-                Ok((ino, attr)) => ok(entry_out(ino, &attr)),
+                Ok((ino, attr)) => ok(entry_out(ino, &attr, fs.ttl(&attr))),
                 Err(e) => err(e),
             }
         }
         FUSE_GETATTR => match fs.getattr(&req, nodeid) {
-            Ok(attr) => ok(attr_out(&attr)),
+            Ok(attr) => ok(attr_out(&attr, fs.ttl(&attr))),
             Err(e) => err(e),
         },
         FUSE_READLINK => match fs.readlink(&req, nodeid) {
@@ -1187,12 +1187,12 @@ fn put_attr(out: &mut Vec<u8>, a: &FileAttr) {
 }
 
 /// struct fuse_entry_out (128 bytes).
-fn entry_out(ino: u64, a: &FileAttr) -> Vec<u8> {
+fn entry_out(ino: u64, a: &FileAttr, ttl: std::time::Duration) -> Vec<u8> {
     let mut out = Vec::with_capacity(ENTRY_OUT);
     put64(&mut out, ino);
     put64(&mut out, 0); // generation
-    put64(&mut out, TTL.as_secs()); // entry_valid
-    put64(&mut out, TTL.as_secs()); // attr_valid
+    put64(&mut out, ttl.as_secs()); // entry_valid
+    put64(&mut out, ttl.as_secs()); // attr_valid
     put32(&mut out, 0); // entry_valid_nsec
     put32(&mut out, 0); // attr_valid_nsec
     put_attr(&mut out, a);
@@ -1200,9 +1200,9 @@ fn entry_out(ino: u64, a: &FileAttr) -> Vec<u8> {
 }
 
 /// struct fuse_attr_out (104 bytes).
-fn attr_out(a: &FileAttr) -> Vec<u8> {
+fn attr_out(a: &FileAttr, ttl: std::time::Duration) -> Vec<u8> {
     let mut out = Vec::with_capacity(ATTR_OUT);
-    put64(&mut out, TTL.as_secs()); // attr_valid
+    put64(&mut out, ttl.as_secs()); // attr_valid
     put32(&mut out, 0); // attr_valid_nsec
     put32(&mut out, 0); // dummy
     put_attr(&mut out, a);
@@ -1785,6 +1785,7 @@ mod tests {
     use fuser::INodeNo;
 
     use super::*;
+    use crate::serve::TTL;
 
     #[repr(C)]
     struct FuseAttr {
@@ -2018,7 +2019,7 @@ mod tests {
 
     #[test]
     fn entry_out_matches_fuse_entry_out() {
-        let b = entry_out(42, &attr(FileType::RegularFile, 0o600));
+        let b = entry_out(42, &attr(FileType::RegularFile, 0o600), TTL);
         assert_eq!(b.len(), size_of::<FuseEntryOut>());
         assert_eq!(u64_at(&b, offset_of!(FuseEntryOut, nodeid)), 42);
         assert_eq!(u64_at(&b, offset_of!(FuseEntryOut, generation)), 0);
@@ -2037,7 +2038,7 @@ mod tests {
 
     #[test]
     fn attr_out_matches_fuse_attr_out() {
-        let b = attr_out(&attr(FileType::Directory, 0o755));
+        let b = attr_out(&attr(FileType::Directory, 0o755), TTL);
         assert_eq!(b.len(), size_of::<FuseAttrOut>());
         assert_eq!(
             u64_at(&b, offset_of!(FuseAttrOut, attr_valid)),

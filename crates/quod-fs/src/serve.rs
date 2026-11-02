@@ -246,6 +246,14 @@ pub struct Options {
     /// (`fc->no_getxattr`, `fc->no_listxattr`) and answers EOPNOTSUPP
     /// itself, the same errno. Xattrs are not inputs.
     pub xattr_enosys: bool,
+    /// Test-level attribution (docs/test-level.md): the run's marker token.
+    /// With it the observer keeps the ordered `Trace` beside the log,
+    /// answers lookups and getattrs of files and symlinks with no cache
+    /// time (so every process's every lookup, stat and open of a file
+    /// reaches it; directories keep `TTL`, their listings are attributed
+    /// to the whole session), and never answers opens with no message.
+    /// Not from the environment: the caller sets it.
+    pub trace: Option<String>,
     #[cfg(feature = "fault-injection")]
     #[doc(hidden)]
     pub fault: Option<Fault>,
@@ -262,6 +270,7 @@ impl Default for Options {
             zero_open: false,
             zero_opendir: true,
             xattr_enosys: true,
+            trace: None,
             #[cfg(feature = "fault-injection")]
             fault: None,
         }
@@ -294,6 +303,7 @@ impl Options {
             zero_open: flag("QUOD_FUSE_ZERO_OPEN", d.zero_open),
             zero_opendir: flag("QUOD_FUSE_ZERO_OPENDIR", d.zero_opendir),
             xattr_enosys: flag("QUOD_FUSE_XATTR_ENOSYS", d.xattr_enosys),
+            trace: d.trace,
             #[cfg(feature = "fault-injection")]
             fault: Fault::from_env(),
         }
@@ -354,6 +364,89 @@ struct Log {
     /// I/O errors served to the step. Any makes the run a Quod error:
     /// the step saw a broken filesystem, not its inputs.
     io_errors: Vec<String>,
+    /// The ordered log for test-level attribution (`Options::trace`).
+    trace: Option<TraceLog>,
+}
+
+/// One traced request, before inode numbers are turned into paths.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Raw {
+    Present(u64, Kind),
+    Absent(String),
+    Marker(u64),
+}
+
+#[derive(Default)]
+struct TraceLog {
+    events: Vec<(u64, u32, Raw)>,
+    /// The epoch (markers seen so far, of any process) in which a thread
+    /// last asked for an access: a repeat within one epoch is dropped.
+    last: HashMap<(u32, Raw), u64>,
+    epoch: u64,
+}
+
+impl TraceLog {
+    fn push(&mut self, seq: u64, tid: u32, raw: Raw) {
+        if let Raw::Marker(_) = raw {
+            self.epoch += 1;
+            self.events.push((seq, tid, raw));
+            return;
+        }
+        let epoch = self.epoch;
+        if self.last.insert((tid, raw.clone()), epoch) == Some(epoch) {
+            return;
+        }
+        self.events.push((seq, tid, raw));
+    }
+}
+
+/// The tracing half of `CasFs`: the marker name's prefix, the sequence,
+/// and what /proc said about each requester.
+struct Tracer {
+    /// `.quod-tl-<token>-`
+    prefix: Vec<u8>,
+    seq: AtomicU64,
+    procs: Mutex<HashMap<u32, crate::ProcInfo>>,
+}
+
+impl Tracer {
+    /// Learns `pid`'s thread group and parent, and its ancestors', while
+    /// its request is in flight (so it is alive). 0 is the kernel's own
+    /// request; nothing to learn.
+    fn learn(&self, pid: u32) {
+        if pid == 0 || lock(&self.procs).contains_key(&pid) {
+            return;
+        }
+        let mut next = Some(pid);
+        let mut found = Vec::new();
+        while let Some(p) = next.take() {
+            if p <= 1 || lock(&self.procs).contains_key(&p) || found.len() > 64 {
+                break;
+            }
+            let Some(info) = proc_info(p) else { break };
+            found.push((p, info));
+            // A thread's parent is its process's; walk the processes.
+            next = Some(if info.tgid != p { info.tgid } else { info.ppid });
+        }
+        let mut procs = lock(&self.procs);
+        for (p, info) in found {
+            procs.entry(p).or_insert(info);
+        }
+    }
+}
+
+/// `Tgid` and `PPid` from /proc/<pid>/status; `None` when it is gone.
+fn proc_info(pid: u32) -> Option<crate::ProcInfo> {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let field = |name: &str| {
+        s.lines()
+            .find_map(|l| l.strip_prefix(name))
+            .and_then(|v| v.trim().parse::<u32>().ok())
+    };
+    Some(crate::ProcInfo {
+        tgid: field("Tgid:")?,
+        ppid: field("PPid:")?,
+    })
 }
 
 /// Request counts, reported at unmount so the bench can see what the step
@@ -597,6 +690,8 @@ pub(crate) struct CasFs {
     /// Test-only (`fault-injection`): the path whose lookup panics (see
     /// `FAULT_ENV`). Always `None` in other builds.
     fault: Option<String>,
+    /// Test-level attribution (`Options::trace`).
+    trace: Option<Tracer>,
 }
 
 impl CasFs {
@@ -661,7 +756,8 @@ impl CasFs {
             granted: AtomicBool::new(false),
             mode: Mutex::new(None),
             want_passthrough: opts.passthrough,
-            zero_open_wanted: opts.zero_open,
+            // A zero-message open would hide every open after the first.
+            zero_open_wanted: opts.zero_open && opts.trace.is_none(),
             zero_opendir_wanted: opts.zero_opendir,
             zero_open: AtomicBool::new(false),
             zero_opendir: AtomicBool::new(false),
@@ -670,7 +766,32 @@ impl CasFs {
             stats,
             fatal,
             fault: fault_path(),
+            trace: opts.trace.as_ref().map(|token| Tracer {
+                prefix: format!("{}{token}-", crate::MARKER_PREFIX).into_bytes(),
+                seq: AtomicU64::new(0),
+                procs: Mutex::new(HashMap::new()),
+            }),
         })
+    }
+
+    /// How long the kernel may keep an entry or attributes: `TTL`, except
+    /// for files and symlinks on a traced mount, which it must ask about
+    /// again every time (`Options::trace`).
+    pub(crate) fn ttl(&self, a: &FileAttr) -> Duration {
+        if self.trace.is_some() && a.kind != FileType::Directory {
+            Duration::ZERO
+        } else {
+            TTL
+        }
+    }
+
+    /// Appends to the trace (a traced mount only), under the log's lock so
+    /// that sequence order is log order.
+    fn trace(&self, log: &mut Log, req: &Req, raw: Raw) {
+        if let (Some(t), Some(tl)) = (&self.trace, log.trace.as_mut()) {
+            let seq = t.seq.fetch_add(1, Ordering::SeqCst);
+            tl.push(seq, req.pid, raw);
+        }
     }
 
     pub(crate) fn uid_gid(&self) -> (u32, u32) {
@@ -808,15 +929,41 @@ impl CasFs {
     /// have sent for it can only re-insert what `present` already holds.
     /// Only `pids` (not part of the log) misses the later requesters.
     fn record(&self, req: &Req, ino: u64, kind: Kind) {
+        if let Some(t) = &self.trace {
+            t.learn(req.pid);
+        }
         let mut log = self.locked(&self.log);
         log.present.insert((ino, kind));
         log.pids.insert(req.pid);
+        self.trace(&mut log, req, Raw::Present(ino, kind));
     }
 
     fn record_absent(&self, req: &Req, path: String) {
+        if let Some(t) = &self.trace {
+            t.learn(req.pid);
+        }
         let mut log = self.locked(&self.log);
-        log.absent.insert(path);
+        log.absent.insert(path.clone());
         log.pids.insert(req.pid);
+        self.trace(&mut log, req, Raw::Absent(path));
+    }
+
+    /// A lookup at the root of a traced mount of the marker name: marker
+    /// `n` of the requester, logged in order and never an access. `None`
+    /// for any other name.
+    fn marker(&self, req: &Req, parent: u64, name: &[u8]) -> Option<()> {
+        let t = self.trace.as_ref()?;
+        if parent != ROOT_INO {
+            return None;
+        }
+        let n: u64 = std::str::from_utf8(name.strip_prefix(t.prefix.as_slice())?)
+            .ok()?
+            .parse()
+            .ok()?;
+        t.learn(req.pid);
+        let mut log = self.locked(&self.log);
+        self.trace(&mut log, req, Raw::Marker(n));
+        Some(())
     }
 
     /// Something the step saw, or may have seen, that is not its inputs.
@@ -908,6 +1055,7 @@ impl CasFs {
                 self.record(req, ino, n.entry.k);
                 Ok((ino, self.attr(ino, n)))
             }
+            None if self.marker(req, parent, name).is_some() => Err(libc::ENOENT),
             None => {
                 self.stats.lookup_absent.fetch_add(1, Ordering::Relaxed);
                 // A name that isn't UTF-8 can never be in a tree (import
@@ -1165,7 +1313,7 @@ impl Filesystem for Classic {
     fn lookup(&self, r: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         guarded!(self.0.fatal, "lookup", reply, {
             match self.0.lookup(&req(r), parent.0, name.as_bytes()) {
-                Ok((_, attr)) => reply.entry(&TTL, &attr, Generation(0)),
+                Ok((_, attr)) => reply.entry(&self.0.ttl(&attr), &attr, Generation(0)),
                 Err(e) => reply.error(errno(e)),
             }
         })
@@ -1174,7 +1322,7 @@ impl Filesystem for Classic {
     fn getattr(&self, r: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
         guarded!(self.0.fatal, "getattr", reply, {
             match self.0.getattr(&req(r), ino.0) {
-                Ok(attr) => reply.attr(&TTL, &attr),
+                Ok(attr) => reply.attr(&self.0.ttl(&attr), &attr),
                 Err(e) => reply.error(errno(e)),
             }
         })
@@ -1326,10 +1474,14 @@ impl Session {
 pub struct Observed {
     pub accesses: Vec<Access>,
     pub opened: Option<BTreeSet<String>>,
+    /// The ordered trace, on a traced mount (`Options::trace`).
+    pub trace: Option<crate::Trace>,
 }
 
 pub struct Served {
     session: Option<Session>,
+    /// The model, kept for the trace's process table.
+    fs: Arc<CasFs>,
     log: Arc<Mutex<Log>>,
     stats: Arc<Stats>,
     fatal: Arc<Fatal>,
@@ -1358,7 +1510,10 @@ pub fn serve_with(
     mountpoint: &Path,
     opts: &Options,
 ) -> Result<Served, FsError> {
-    let log = Arc::new(Mutex::new(Log::default()));
+    let log = Arc::new(Mutex::new(Log {
+        trace: opts.trace.as_ref().map(|_| TraceLog::default()),
+        ..Log::default()
+    }));
     let stats = Arc::new(Stats::default());
     let fatal = Arc::new(Fatal::default());
     let fs = Arc::new(CasFs::new(
@@ -1374,6 +1529,7 @@ pub fn serve_with(
         .iter()
         .map(|n| (n.ino, (n.entry.p.clone(), n.entry.k)))
         .collect();
+    let model = fs.clone();
     let session = match opts.transport {
         Transport::Classic => Session::Fuser(mount_fuser(fs, mountpoint)?),
         Transport::Uring => {
@@ -1416,6 +1572,7 @@ pub fn serve_with(
     };
     Ok(Served {
         session: Some(session),
+        fs: model,
         log,
         stats,
         fatal,
@@ -1530,6 +1687,34 @@ impl Served {
                 .map(|ino| self.paths[ino].0.clone())
                 .collect::<BTreeSet<String>>()
         });
+        let paths = &self.paths;
+        let trace = log.trace.map(|tl| crate::Trace {
+            events: tl
+                .events
+                .into_iter()
+                .map(|(seq, tid, raw)| crate::TraceEvent {
+                    seq,
+                    tid,
+                    what: match raw {
+                        Raw::Present(ino, kind) => crate::Traced::Access(Access {
+                            path: paths[&ino].0.clone(),
+                            kind,
+                        }),
+                        Raw::Absent(path) => crate::Traced::Access(Access {
+                            path,
+                            kind: Kind::Absent,
+                        }),
+                        Raw::Marker(n) => crate::Traced::Marker(n),
+                    },
+                })
+                .collect(),
+            procs: self
+                .fs
+                .trace
+                .as_ref()
+                .map(|t| lock(&t.procs).iter().map(|(k, v)| (*k, *v)).collect())
+                .unwrap_or_default(),
+        });
         let mut out: Vec<Access> = log
             .present
             .into_iter()
@@ -1546,6 +1731,7 @@ impl Served {
         Ok(Observed {
             accesses: out,
             opened,
+            trace,
         })
     }
 
