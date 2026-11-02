@@ -32,5 +32,7 @@ series history-v2 history ""
 series traffic-v2 traffic ""
 # 3. The same traffic under v1's policy, for the before/after.
 series traffic-v1 traffic "--proofs 2 --shadow 0"
-"$PY" -I "$HERE/summary.py" "history v2=$ROOT/history-v2/rows.jsonl" "traffic v2=$ROOT/traffic-v2/rows.jsonl" "traffic v1=$ROOT/traffic-v1/rows.jsonl" > "$ROOT/summary.md" 2>&1
+# 4. 0b's plain-warm baseline on this box, for like-with-like history numbers.
+series plain-warm plain ""
+"$PY" -I "$HERE/summary.py" "history v2=$ROOT/history-v2/rows.jsonl" "traffic v2=$ROOT/traffic-v2/rows.jsonl" "traffic v1=$ROOT/traffic-v1/rows.jsonl" "plain warm=$ROOT/plain-warm/rows.jsonl" > "$ROOT/summary.md" 2>&1
 echo CHAIN_DONE > "$L/chain.done"

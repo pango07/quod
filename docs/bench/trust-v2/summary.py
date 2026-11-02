@@ -15,6 +15,8 @@ STEPS = ["go build ./...", "go vet ./...", "go test ./..."]
 
 
 def outcome(r):
+    if r.get("phase") == "plain":
+        return "plain" if r["exit"] == 0 else "exit %d" % r["exit"]
     e = r.get("run_event") or {}
     f = e.get("fields", e)
     return f.get("outcome") or ("exit %d" % r["exit"] if r["exit"] else "?")

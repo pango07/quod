@@ -14,6 +14,12 @@ persistent state dir (store, ledger, warm GOCACHE):
                  the commit itself on a `pr` branch otherwise), then as the
                  merge on `main`, then with probability RERUN (seeded) a
                  re-run of the merge job.
+  MODE=plain     0b's plain-warm baseline, no Quod: a fresh `git clone
+                 --shared` checkout per commit (new mtimes, as
+                 actions/checkout gives), `go mod download`, then the three
+                 steps as uid 1001 with Quod's Go profile env, a fresh HOME
+                 and a GOCACHE and GOMODCACHE that persist across commits
+                 (a perfect actions/cache).
 
 $POLICY is appended to every keyed step: empty for trust v2's defaults
 (`--proofs 1 --shadow 2 --audit 0.05`), `--proofs 2 --shadow 0` for v1's.
@@ -21,7 +27,7 @@ Every step run is a row in $OUT/rows.jsonl with its phase, wall, exit code
 and the quod `run` event (outcome, hit, first mismatch), and summary.py
 turns the rows into the tables.
 """
-import json, os, random, subprocess, sys, time
+import json, os, random, shutil, subprocess, sys, time
 
 SRC = os.environ.get("SRC", "/work/cli-src")
 PIN = os.environ.get("PIN", "9490d204a2ba95434153dedce99898ce9f281426")
@@ -89,6 +95,51 @@ def job(i, phase, branch, commit):
     row(dict(i=i, phase=phase, commit=commit, step="job", wall=time.monotonic() - t, exit=0))
 
 
+RUNNER_UID = 1001
+PLAIN_ENV = {
+    "CGO_ENABLED": "0", "GOFLAGS": "-mod=mod", "GOTOOLCHAIN": "local",
+    "LANG": "C.UTF-8", "TZ": "UTC", "PATH": "/usr/local/go/bin:/usr/bin:/bin",
+    "GOTELEMETRY": "off",
+}
+
+
+def as_runner():
+    os.setgid(RUNNER_UID)
+    os.setgroups([])
+    os.setuid(RUNNER_UID)
+
+
+def plain_job(i, commit):
+    """0b's plain-warm job: fresh checkout at a constant path, step A, the
+    three steps, a persistent GOCACHE and GOMODCACHE, a fresh HOME."""
+    ws = f"{OUT}/plain/cli"
+    home = f"{OUT}/plain/home"
+    gocache, gomod, gopath = f"{OUT}/plain/gocache", f"{OUT}/plain/gomod", f"{OUT}/plain/gopath"
+    for d in (ws, home):
+        if os.path.exists(d):
+            shutil.rmtree(d)
+    for d in (gocache, gomod, gopath, home, f"{OUT}/plain"):
+        os.makedirs(d, exist_ok=True)
+        os.chown(d, RUNNER_UID, RUNNER_UID)
+    t0 = time.monotonic()
+    t = time.monotonic()
+    subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", SRC, ws], check=True, preexec_fn=as_runner)
+    subprocess.run(["git", "-C", ws, "checkout", "-q", "-B", "ci", commit], check=True, preexec_fn=as_runner)
+    row(dict(i=i, phase="plain", commit=commit, step="checkout", wall=time.monotonic() - t, exit=0))
+    env = dict(PLAIN_ENV, GOCACHE=gocache, GOMODCACHE=gomod, GOPATH=gopath, HOME=home)
+    for tag, step in [("A", "go mod download")] + [(f"s{k}", s) for k, s in enumerate(STEPS)]:
+        e = dict(env, GOPROXY="https://proxy.golang.org,direct" if tag == "A" else "off")
+        base = f"{LOGS}/{i:02d}-plain-{commit[:10]}-{tag}"
+        l0 = load()
+        t = time.monotonic()
+        with open(base + ".out", "wb") as o, open(base + ".err", "wb") as err:
+            rc = subprocess.run(["/bin/sh", "-e", "-c", step], cwd=ws, env=e, stdout=o, stderr=err,
+                                preexec_fn=as_runner).returncode
+        row(dict(i=i, phase="plain", commit=commit, step=step, wall=time.monotonic() - t, exit=rc,
+                 load_before=l0, load_after=load(), log=base, run_event=None))
+    row(dict(i=i, phase="plain", commit=commit, step="job", wall=time.monotonic() - t0, exit=0))
+
+
 def pr_head(commit):
     """The pull request head a merge commit merged, else the commit itself."""
     try:
@@ -104,13 +155,14 @@ def main():
                              capture_output=True, text=True, check=True).stdout.split()
     assert commits[-1] == PIN and len(commits) == N
     os.makedirs(LOGS, exist_ok=True)
-    if not os.path.exists(REPO):
+    if MODE != "plain" and not os.path.exists(REPO):
         subprocess.run(["git", "clone", "-q", SRC, REPO], check=True)
         with open(f"{REPO}/.git/info/exclude", "a") as f:
             f.write(".quod/\n")
     rng = random.Random(SEED)
+    version = "" if MODE == "plain" else subprocess.run([QUOD, "--version"], capture_output=True, text=True).stdout.strip()
     row(dict(step="meta", mode=MODE, policy=POLICY, rerun=RERUN, seed=SEED, quod=QUOD,
-             quod_version=subprocess.run([QUOD, "--version"], capture_output=True, text=True).stdout.strip(),
+             quod_version=version, host=os.uname().nodename, kernel=os.uname().release,
              n=N, t=time.time()))
     start = int(os.environ.get("START", "0"))
     for i, c in enumerate(commits):
@@ -121,7 +173,9 @@ def main():
         head = pr_head(c)
         row(dict(step="commit", i=i, commit=c, subject=subj, pr_head=head,
                  merge_commit=(head != c), load=load(), t=time.time()))
-        if MODE == "history":
+        if MODE == "plain":
+            plain_job(i, c)
+        elif MODE == "history":
             job(i, "merge", "quod-hist", c)
         else:
             job(i, "pr", "pr", head)
@@ -129,8 +183,9 @@ def main():
             if rng.random() < RERUN:
                 job(i, "rerun", "main", c)
         print(f"[{time.strftime('%H:%M:%S')}] {MODE} commit {i+1}/{N} {c[:10]} done load={load()}", flush=True)
+    ledger = f"{STATE}/ledger.sqlite"
     row(dict(step="done", t=time.time(),
-             ledger_bytes=os.path.getsize(f"{STATE}/ledger.sqlite")))
+             ledger_bytes=os.path.getsize(ledger) if os.path.exists(ledger) else None))
 
 
 if __name__ == "__main__":
