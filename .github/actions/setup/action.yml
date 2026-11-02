@@ -34,6 +34,13 @@ inputs:
     description: 'uv version for `toolchains: python`'
     required: false
     default: 0.13.6
+  normalize-etc:
+    description: >
+      Move the VM's own files out of /etc (SSH host keys, cloud-init's
+      netplan file), which differ on every GitHub-hosted VM and would keep
+      any step from replaying on another VM. false keeps them.
+    required: false
+    default: 'true'
   version:
     description: The quod client release (a release tag of the repository below)
     required: false
@@ -71,6 +78,13 @@ inputs:
     required: false
     default: replay
 outputs:
+  normalize-etc:
+    description: >
+      Move the VM's own files out of /etc (SSH host keys, cloud-init's
+      netplan file), which differ on every GitHub-hosted VM and would keep
+      any step from replaying on another VM. false keeps them.
+    required: false
+    default: 'true'
   version:
     description: The installed quod client release
     value: ${{ steps.install.outputs.version }}
@@ -86,6 +100,7 @@ runs:
         QUOD_SETUP_PYTHON: ${{ inputs.python-version }}
         QUOD_SETUP_PBS: ${{ inputs.python-release }}
         QUOD_SETUP_UV: ${{ inputs.uv-version }}
+        QUOD_SETUP_NORMALIZE_ETC: ${{ inputs.normalize-etc }}
       run: '"$GITHUB_ACTION_PATH/setup.sh" host'
     - name: quod client
       id: install

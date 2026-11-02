@@ -19,8 +19,9 @@ permissions:
   contents: write
 
 env:
-  # exp/cloud-ledger-v2 cc34bd9: what api.quodci.com runs (protocol quod.v1).
-  CLIENT_REF: cc34bd9093f5a1c94bb27c0f777604405acd1df8
+  # exp/cloud-ledger-v3 b452ae4: what api.quodci.com runs (protocol quod.v1).
+  # quod-client-v0.1.0 was built from exp/cloud-ledger-v2 cc34bd9.
+  CLIENT_REF: b452ae43edbb94b59679344fdd56e4d92a3c348d
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 

@@ -31,6 +31,19 @@ host() {
   fi
   $s mkdir -p "$state"
   $s chmod 0700 "$state"
+  # Every step key pins the host's /etc (the sandbox binds it read-only),
+  # and a GitHub-hosted VM has files there no other VM shares: its SSH host
+  # keys and cloud-init's netplan file (the NIC's MAC address). Neither is
+  # used after boot on an ephemeral runner (no sshd session, the network is
+  # up), so they are moved out of /etc: every VM of an image then shows its
+  # steps the same /etc, and a result proved on one replays on the next.
+  if [ "${QUOD_SETUP_NORMALIZE_ETC:-true}" = true ]; then
+    $s mkdir -p "$state/etc-moved"
+    local f
+    for f in /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub /etc/netplan/50-cloud-init.yaml; do
+      [ -e "$f" ] && $s mv "$f" "$state/etc-moved/" || true
+    done
+  fi
   local tc
   for tc in $QUOD_SETUP_TOOLCHAINS; do
     case "$tc" in
@@ -67,6 +80,7 @@ pinned_sha256() {
   case "$1" in
     # cc34bd9 (exp/cloud-ledger-v2), GitHub run 41511010172
     quod-client-v0.1.0) echo 0e0f8a26fe82cfa720a15742302c66c6867c470658d15db950729f9025af9b00;;
+    # b452ae4 (exp/cloud-ledger-v3); see the release notes for the run
     *) echo '';;
   esac
 }
