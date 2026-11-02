@@ -1,0 +1,32 @@
+[package]
+name = "quod-wire"
+version = "0.0.0"
+description = "quod.v1: the protocol runners and quod-server speak (types, encoding, signed results), and the client side of it."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The blocking HTTP client: RemoteLedger, a StepLedger over quod-server.
+client = ["dep:ureq", "dep:tempfile"]
+
+[dependencies]
+quod-cas.workspace = true
+quod-manifest.workspace = true
+quod-ledger.workspace = true
+quod-trust.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+ureq = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

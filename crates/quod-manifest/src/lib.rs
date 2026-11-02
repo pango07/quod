@@ -93,7 +93,7 @@ pub enum ManifestError {
 }
 
 /// The first manifest entry the tree disagrees with, and how many disagree.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mismatch {
     pub path: String,
     pub expected: Entry,

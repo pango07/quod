@@ -1,0 +1,26 @@
+# quod-server, for Railway or any container host (docs/cloud-ledger.md).
+#   docker build -f Dockerfile.server -t quod-server .
+#   docker run -e PORT=8080 -e QUOD_DATA_DIR=/data -e QUOD_SIGNING_KEY=... -v quod:/data -p 8080:8080 quod-server
+# Configuration is environment only; /healthz is the healthcheck. This
+# build stores in SQLite and QUOD_DATA_DIR (self-hosting: mount a volume
+# there); the Postgres and object-store backends are P4.
+
+# The toolchain rust-toolchain.toml pins, so rustup installs nothing more.
+FROM rust:1.98.0-slim-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+RUN cargo build --release --locked -p quod-server \
+    && cp target/release/quod-server /quod-server
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --home-dir /data --create-home quod
+COPY --from=build /quod-server /usr/local/bin/quod-server
+USER quod
+ENV QUOD_BIND=0.0.0.0 PORT=8080 QUOD_DATA_DIR=/data RUST_LOG=quod=info
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s CMD ["quod-server", "healthcheck"]
+ENTRYPOINT ["quod-server"]
+CMD ["serve"]

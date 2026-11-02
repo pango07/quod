@@ -14,6 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use quod_cas::{Hash, Tree};
 use quod_manifest::{Manifest, Mismatch, StepResult, matches};
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 
 mod index;
 
@@ -110,7 +111,7 @@ pub struct Ledger {
 const BUSY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The outcome of a lookup.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lookup {
     /// The first candidate that matches the tree, with its newest result.
     pub hit: Option<(Manifest, StepResult)>,
@@ -122,7 +123,7 @@ pub struct Lookup {
 }
 
 /// One manifest stored for a key, for `inspect`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestRow {
     pub id: Hash,
     pub run_id: String,
@@ -139,7 +140,7 @@ pub struct Observed<'a> {
 
 /// One run. The v1 columns are always present; the rest were added later
 /// and are empty for runs recorded before them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunRow {
     pub id: String,
     pub started_at: String,
@@ -171,7 +172,8 @@ pub struct RunRow {
 }
 
 /// Where a step key stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TrustState {
     /// No manifest of the key has been reproduced enough times yet.
     Observing,
@@ -201,7 +203,7 @@ impl TrustState {
 }
 
 /// The trust row of one step key.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrustRow {
     pub step_key: Hash,
     /// The step's script, for `status`.
@@ -246,7 +248,7 @@ impl TrustRow {
 
 /// The proof streak of one manifest of one key: how many consecutive
 /// executions produced the result `fingerprint` names.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProofRow {
     pub step_key: Hash,
     pub manifest_id: Hash,
@@ -257,7 +259,7 @@ pub struct ProofRow {
 }
 
 /// One re-execution of a manifest that already had a result.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditRow {
     pub id: i64,
     pub step_key: Hash,
@@ -289,6 +291,195 @@ pub struct RunFacts<'a> {
     pub exit_code: Option<i32>,
     pub wall_ms: Option<u64>,
     pub saved_ms: Option<u64>,
+}
+
+/// `RunFacts`, owned: a run row that crosses a process boundary (quod.v1
+/// sends one with every claim and commit). `facts()` borrows it back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRecord {
+    pub id: String,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub transport: Option<String>,
+    #[serde(default)]
+    pub observer: Option<String>,
+    #[serde(default)]
+    pub step_key: Option<Hash>,
+    #[serde(default)]
+    pub repo: Option<String>,
+    #[serde(default)]
+    pub repo_path: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub manifest_id: Option<Hash>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub wall_ms: Option<u64>,
+    #[serde(default)]
+    pub saved_ms: Option<u64>,
+}
+
+impl RunRecord {
+    pub fn from_facts(f: &RunFacts) -> RunRecord {
+        let s = |v: Option<&str>| v.map(String::from);
+        RunRecord {
+            id: f.id.to_string(),
+            commit_sha: s(f.commit_sha),
+            host: s(f.host),
+            transport: s(f.observed.transport),
+            observer: s(f.observed.observer),
+            step_key: f.step_key.copied(),
+            repo: s(f.repo),
+            repo_path: s(f.repo_path),
+            mode: s(f.mode),
+            outcome: s(f.outcome),
+            manifest_id: f.manifest_id.copied(),
+            exit_code: f.exit_code,
+            wall_ms: f.wall_ms,
+            saved_ms: f.saved_ms,
+        }
+    }
+
+    pub fn facts(&self) -> RunFacts<'_> {
+        RunFacts {
+            id: &self.id,
+            commit_sha: self.commit_sha.as_deref(),
+            host: self.host.as_deref(),
+            observed: Observed {
+                transport: self.transport.as_deref(),
+                observer: self.observer.as_deref(),
+            },
+            step_key: self.step_key.as_ref(),
+            repo: self.repo.as_deref(),
+            repo_path: self.repo_path.as_deref(),
+            mode: self.mode.as_deref(),
+            outcome: self.outcome.as_deref(),
+            manifest_id: self.manifest_id.as_ref(),
+            exit_code: self.exit_code,
+            wall_ms: self.wall_ms,
+            saved_ms: self.saved_ms,
+        }
+    }
+}
+
+/// The ledger as an interface: the reads and writes the trust layer and
+/// the replay decision make, whatever stores the rows. `Ledger` (SQLite)
+/// is the implementation every local path and the self-hosted quod-server
+/// use; a Postgres implementation is a later stage (docs/cloud-ledger.md).
+///
+/// `atomically` is the one contract an implementation must keep exactly:
+/// everything `f` does commits together or not at all, and no other writer
+/// interleaves with it (SQLite: BEGIN IMMEDIATE; Postgres: one transaction
+/// holding a lock on the key's trust row). The trust layer's
+/// read-modify-write of a key's rows relies on it; so does the server's
+/// ClaimReplay, which looks up, decides and records inside one call.
+pub trait LedgerStore {
+    fn atomically<T, E: From<LedgerError>>(
+        &self,
+        f: impl FnOnce(&Self) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        Self: Sized;
+    fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError>;
+    fn manifest(&self, id: &Hash) -> Result<Option<Manifest>, LedgerError>;
+    fn latest_result(
+        &self,
+        step_key: &Hash,
+        manifest_id: &Hash,
+    ) -> Result<Option<StepResult>, LedgerError>;
+    fn results_for_run(&self, run_id: &str) -> Result<Vec<StepResult>, LedgerError>;
+    fn put_step_key(&self, step_key: &Hash, json: &str) -> Result<(), LedgerError>;
+    fn record_run_facts(&self, f: &RunFacts) -> Result<(), LedgerError>;
+    fn record_execution_facts(
+        &self,
+        run: &RunFacts,
+        m: &Manifest,
+        r: &StepResult,
+    ) -> Result<Hash, LedgerError>;
+    fn trust(&self, step_key: &Hash) -> Result<Option<TrustRow>, LedgerError>;
+    fn put_trust(&self, t: &TrustRow) -> Result<(), LedgerError>;
+    fn proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<Option<ProofRow>, LedgerError>;
+    fn put_proof(&self, p: &ProofRow) -> Result<(), LedgerError>;
+    fn reset_proofs(&self, step_key: &Hash) -> Result<usize, LedgerError>;
+    fn reset_proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<usize, LedgerError>;
+    fn recent_divergences(&self, step_key: &Hash, window: usize) -> Result<u64, LedgerError>;
+    fn record_audit(&self, a: &AuditRow) -> Result<i64, LedgerError>;
+    /// Trust v2's retroactive marking: every replayed run of the key not
+    /// yet suspect is marked suspect with `why`; returns how many.
+    fn mark_suspect_replays(&self, step_key: &Hash, why: &str) -> Result<usize, LedgerError>;
+}
+
+impl LedgerStore for Ledger {
+    fn atomically<T, E: From<LedgerError>>(
+        &self,
+        f: impl FnOnce(&Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        Ledger::atomically(self, f)
+    }
+    fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
+        Ledger::find_match(self, step_key, tree)
+    }
+    fn manifest(&self, id: &Hash) -> Result<Option<Manifest>, LedgerError> {
+        Ledger::manifest(self, id)
+    }
+    fn latest_result(
+        &self,
+        step_key: &Hash,
+        manifest_id: &Hash,
+    ) -> Result<Option<StepResult>, LedgerError> {
+        Ledger::latest_result(self, step_key, manifest_id)
+    }
+    fn results_for_run(&self, run_id: &str) -> Result<Vec<StepResult>, LedgerError> {
+        Ledger::results_for_run(self, run_id)
+    }
+    fn put_step_key(&self, step_key: &Hash, json: &str) -> Result<(), LedgerError> {
+        Ledger::put_step_key(self, step_key, json)
+    }
+    fn record_run_facts(&self, f: &RunFacts) -> Result<(), LedgerError> {
+        Ledger::record_run_facts(self, f)
+    }
+    fn record_execution_facts(
+        &self,
+        run: &RunFacts,
+        m: &Manifest,
+        r: &StepResult,
+    ) -> Result<Hash, LedgerError> {
+        Ledger::record_execution_facts(self, run, m, r)
+    }
+    fn trust(&self, step_key: &Hash) -> Result<Option<TrustRow>, LedgerError> {
+        Ledger::trust(self, step_key)
+    }
+    fn put_trust(&self, t: &TrustRow) -> Result<(), LedgerError> {
+        Ledger::put_trust(self, t)
+    }
+    fn proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<Option<ProofRow>, LedgerError> {
+        Ledger::proof(self, step_key, manifest_id)
+    }
+    fn put_proof(&self, p: &ProofRow) -> Result<(), LedgerError> {
+        Ledger::put_proof(self, p)
+    }
+    fn reset_proofs(&self, step_key: &Hash) -> Result<usize, LedgerError> {
+        Ledger::reset_proofs(self, step_key)
+    }
+    fn reset_proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<usize, LedgerError> {
+        Ledger::reset_proof(self, step_key, manifest_id)
+    }
+    fn recent_divergences(&self, step_key: &Hash, window: usize) -> Result<u64, LedgerError> {
+        Ledger::recent_divergences(self, step_key, window)
+    }
+    fn record_audit(&self, a: &AuditRow) -> Result<i64, LedgerError> {
+        Ledger::record_audit(self, a)
+    }
+    fn mark_suspect_replays(&self, step_key: &Hash, why: &str) -> Result<usize, LedgerError> {
+        Ledger::mark_suspect_replays(self, step_key, why)
+    }
 }
 
 impl Ledger {

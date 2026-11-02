@@ -6,11 +6,12 @@ use anyhow::{Context, bail};
 use clap::Args;
 use quod_cas::{Cas, Hash, Kind, Tree};
 use quod_key::{Image, StepSpec, Toolchain, step_key};
-use quod_ledger::{Ledger, Lookup, Observed, RunFacts, now_rfc3339};
+use quod_ledger::{Ledger, Lookup, Observed, RunFacts, RunRecord, now_rfc3339};
 use quod_manifest::{Manifest, StepResult};
 use quod_replay::{fmt_duration, group};
 use quod_sandbox::{Killed, Limits, Mount, RunSpec};
-use quod_trust::{Decision, Replayed, Step, Trust, Verdict};
+use quod_trust::{Claimed, LocalLedger, Policy, Step, StepLedger, Trust, Verdict};
+use quod_wire::client::{RemoteLedger, ServerConfig};
 
 use crate::deps::{self, Deps};
 use crate::gitdir;
@@ -322,8 +323,25 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     }
 
     let mut phases = Phases::default();
-    ledger.put_step_key(&key, &quod_key::canonical_key_json(&spec)?)?;
+    // The local ledger, or a Quod server's when QUOD_SERVER is set (the
+    // same calls; the server makes them on its own stores).
+    let remote = step_ledger_from_env(&cas, policy);
+    let key_json = quod_key::canonical_key_json(&spec)?;
+    if remote.is_none() {
+        ledger.put_step_key(&key, &key_json)?;
+    }
     let trust = Trust::new(&ledger, &cas, policy)?;
+    let local = LocalLedger {
+        ledger: &ledger,
+        trust: &trust,
+    };
+    let store: &dyn StepLedger = match &remote {
+        Some(r) => {
+            r.put_step_key(&key, &key_json)?;
+            r
+        }
+        None => &local,
+    };
     phases.setup = wall_start.elapsed();
 
     let t = Instant::now();
@@ -351,39 +369,31 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         ignore: &ignore,
     };
 
+    // Look up and decide; a replay is decided again as it is recorded
+    // (another run may have quarantined the key or taken the audit slot
+    // meanwhile); if that says execute, it executes. The trust update and
+    // the run row are one transaction.
     let t = Instant::now();
-    let lookup = ledger.find_match(&key, &tree)?;
-    let decision = trust.decide(&key, lookup.hit.as_ref())?;
+    let replay_wall = std::cell::Cell::new(None);
+    let (lookup, claimed) = store.claim(&tstep, &tree, &mut |result| {
+        let wall = wall_start.elapsed();
+        replay_wall.set(Some(wall));
+        let saved = Duration::from_millis(result.duration_ms).saturating_sub(wall);
+        RunRecord::from_facts(&info.facts(
+            "replayed",
+            Some(&result.manifest_id),
+            Some(result.exit_code),
+            wall,
+            Some(saved),
+        ))
+    })?;
     phases.lookup = t.elapsed();
-
-    // A replay is decided again as it is recorded (another run may have
-    // quarantined the key or taken the audit slot meanwhile); if that says
-    // execute, it executes.
-    // The trust update and the run row are one transaction.
-    let replayed = match decision {
-        Decision::Replay => {
-            let hit = lookup.hit.as_ref().expect("a replay needs a hit");
-            let result = &hit.1;
-            ledger.atomically(|l| -> anyhow::Result<_> {
-                Ok(match trust.record_replay(&tstep, hit)? {
-                    Replayed::Replayed(facts) => {
-                        let replay_wall = wall_start.elapsed();
-                        let saved =
-                            Duration::from_millis(result.duration_ms).saturating_sub(replay_wall);
-                        l.record_run_facts(&info.facts(
-                            "replayed",
-                            Some(&result.manifest_id),
-                            Some(result.exit_code),
-                            replay_wall,
-                            Some(saved),
-                        ))?;
-                        Ok((facts, replay_wall))
-                    }
-                    Replayed::Execute(reason) => Err(reason),
-                })
-            })?
-        }
-        Decision::Execute(reason) => Err(reason),
+    let replayed = match claimed {
+        Claimed::Replay { facts } => Ok((
+            facts,
+            replay_wall.get().unwrap_or_else(|| wall_start.elapsed()),
+        )),
+        Claimed::Execute { reason } => Err(reason),
     };
     let reason = match replayed {
         Ok((facts, replay_wall)) => {
@@ -512,9 +522,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             fmt_duration(ex.wall)
         );
         // The streak reset and the run row are one transaction.
-        let line = ledger.atomically(|l| -> anyhow::Result<_> {
-            let line = trust.record_incomplete(&tstep, lookup.hit.as_ref(), &what)?;
-            l.record_run_facts(&RunFacts {
+        let line = store.commit_incomplete(
+            &tstep,
+            lookup.hit.as_ref(),
+            &what,
+            Some(RunRecord::from_facts(&RunFacts {
                 observed: Observed {
                     transport: Some(ex.transport),
                     observer: Some(&ex.observer),
@@ -526,9 +538,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                     ex.wall,
                     None,
                 )
-            })?;
-            Ok(line)
-        })?;
+            })),
+        )?;
         if let Some(line) = line {
             say!("{}", indent(&line));
         }
@@ -562,13 +573,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         }
         say!("QUOD  EXECUTED  {why}, not memoized");
         say!("  ran {}", fmt_duration(ex.wall));
-        ledger.record_run_facts(&RunFacts {
+        store.record_run(RunRecord::from_facts(&RunFacts {
             observed: Observed {
                 transport: Some(ex.transport),
                 observer: Some(&ex.observer),
             },
             ..info.facts("killed", None, Some(ex.exit_code), ex.wall, None)
-        })?;
+        }))?;
         return Ok(exit_byte(ex.exit_code));
     }
     if let Some(p) = go_guard
@@ -610,13 +621,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         say!("  ran {}", fmt_duration(ex.wall));
         tracing::warn!(target: "quod", run_id = %info.run_id, "sealed prefix write failed; not memoized");
         // Nothing is learned about the key: the result is not the step's.
-        ledger.record_run_facts(&RunFacts {
+        store.record_run(RunRecord::from_facts(&RunFacts {
             observed: Observed {
                 transport: Some(ex.transport),
                 observer: Some(&ex.observer),
             },
             ..info.facts("tainted", None, Some(ex.exit_code), ex.wall, None)
-        })?;
+        }))?;
         return Ok(exit_byte(ex.exit_code));
     }
 
@@ -642,34 +653,22 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // the manifest and the result commit together or not at all.
     // (record_execution_facts inserts the manifest; the trust layer reads
     // proofs by manifest id, never the manifests table.)
-    let verdict = ledger.atomically(|l| -> anyhow::Result<Verdict> {
-        let v = trust.record_execution(
-            &tstep,
-            &info.run_id,
-            &ex.manifest,
-            &result,
-            lookup.hit.as_ref(),
-            &reason,
-        )?;
-        l.record_execution_facts(
-            &RunFacts {
-                observed: Observed {
-                    transport: Some(ex.transport),
-                    observer: Some(&ex.observer),
-                },
-                ..info.facts(
-                    v.outcome(),
-                    Some(&mid),
-                    Some(ex.exit_code),
-                    ex.wall,
-                    v.would_have_saved,
-                )
+    // The run row's outcome and would-be saving come from the verdict.
+    let verdict: Verdict = store.commit_execution(
+        &tstep,
+        &info.run_id,
+        &ex.manifest,
+        &result,
+        lookup.hit.as_ref(),
+        &reason,
+        RunRecord::from_facts(&RunFacts {
+            observed: Observed {
+                transport: Some(ex.transport),
+                observer: Some(&ex.observer),
             },
-            &ex.manifest,
-            &result,
-        )?;
-        Ok(v)
-    })?;
+            ..info.facts("", Some(&mid), Some(ex.exit_code), ex.wall, None)
+        }),
+    )?;
     phases.record = t.elapsed();
     if let Some(out) = &args.outputs {
         quod_replay::materialize_outputs(
@@ -1033,6 +1032,17 @@ fn reports_erofs(path: &Path) -> anyhow::Result<bool> {
 
 fn spec_key(spec: &StepSpec) -> anyhow::Result<Hash> {
     Ok(step_key(spec)?)
+}
+
+/// The Quod server's step ledger when `QUOD_SERVER` is set
+/// (docs/cloud-ledger.md): its ledger and result store instead of the
+/// state dir's. A config that cannot be used is not an error: the step
+/// runs and nothing is recorded, as when the server is unreachable.
+pub fn step_ledger_from_env(cas: &Cas, policy: Policy) -> Option<RemoteLedger<'_>> {
+    match ServerConfig::from_env(|k| std::env::var(k).ok())? {
+        Ok(cfg) => Some(RemoteLedger::new(cfg, cas, policy)),
+        Err(why) => Some(RemoteLedger::unusable(why, cas, policy)),
+    }
 }
 
 /// A step with network (step A, the dependency install): runs directly on

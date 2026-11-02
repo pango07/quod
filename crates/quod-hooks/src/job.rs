@@ -37,7 +37,10 @@ use crate::secrets;
 use crate::step::{self, Kind, Step};
 use crate::surface::{self, Surface};
 use crate::trust::{Mode, Policy};
-use quod_trust::{Decision, Reason, Replayed, Step as TrustStep, Trust, Verdict};
+use quod_ledger::RunRecord;
+use quod_trust::{Claimed, LocalLedger, Reason, Step as TrustStep, StepLedger, Trust, Verdict};
+use quod_wire::client::{RemoteLedger, ServerConfig};
+use quod_wire::{CiContext, ScopeHint};
 
 /// Where Quod keeps a workspace's own state, under GITHUB_WORKSPACE:
 /// HOME, GOPATH, the module cache, the tool cache. Observed like the rest
@@ -1957,15 +1960,6 @@ fn run_step(
     let run_id = ulid::Ulid::generate().to_string();
 
     let surface_ms = t0.elapsed().as_millis() as u64 - load_ms;
-    let t1 = Instant::now();
-    let lookup = ledger.find_match(&key, &tree)?;
-    let lookup_ms = t1.elapsed().as_millis() as u64;
-    tracing::info!(target: "quod", job = %job.id, step = job.steps, load_ms, surface_ms, lookup_ms, candidates = lookup.candidates, "step phases");
-    let candidates = lookup.candidates;
-    let closest = lookup
-        .closest
-        .as_ref()
-        .map(|(_, m)| (m.path.clone(), m.to_string()));
     // The trust layer decides, as for `quod run`: a matching manifest
     // replays only once proven (`proofs` identical executions, the policy's
     // or the step pattern's), never as a failure, never while quarantined;
@@ -1979,33 +1973,48 @@ fn run_step(
         ignore: &ignore,
     };
     let mode = policy.mode_name();
-    let decision = trust.decide(&key, lookup.hit.as_ref())?;
-    let replayed = match decision {
-        Decision::Replay => {
-            let hit = lookup.hit.as_ref().expect("a replay needs a hit");
-            // Decided again as it is recorded (another job may have
-            // quarantined the key or taken the audit slot meanwhile).
-            ledger.atomically(|l| -> anyhow::Result<_> {
-                Ok(match trust.record_replay(&tstep, hit)? {
-                    Replayed::Replayed(facts) => {
-                        l.record_run_facts(&run_facts(
-                            &run_id,
-                            &key,
-                            job,
-                            mode,
-                            "replayed",
-                            Some(&hit.1.manifest_id),
-                            Some(hit.1.exit_code),
-                            None,
-                            None,
-                        ))?;
-                        Ok(facts)
-                    }
-                    Replayed::Execute(reason) => Err(reason),
-                })
-            })?
-        }
-        Decision::Execute(reason) => Err(reason),
+    // The scope's own ledger, or a Quod server's when the runner's
+    // environment sets QUOD_SERVER (the same calls, on the server's
+    // stores, in the scope this job decided).
+    let local = LocalLedger {
+        ledger,
+        trust: &trust,
+    };
+    let remote = remote_ledger(job, &args.environment_variables, cas, policy.trust());
+    let store: &dyn StepLedger = match &remote {
+        Some(r) => r,
+        None => &local,
+    };
+    // Looked up and decided; a replay is decided again as it is recorded
+    // (another job may have quarantined the key or taken the audit slot
+    // meanwhile), with its run row, in one transaction.
+    let t1 = Instant::now();
+    let (lookup, claimed) = {
+        let job: &Job = job;
+        store.claim(&tstep, &tree, &mut |r| {
+            RunRecord::from_facts(&run_facts(
+                &run_id,
+                &key,
+                job,
+                mode,
+                "replayed",
+                Some(&r.manifest_id),
+                Some(r.exit_code),
+                None,
+                None,
+            ))
+        })?
+    };
+    let lookup_ms = t1.elapsed().as_millis() as u64;
+    tracing::info!(target: "quod", job = %job.id, step = job.steps, load_ms, surface_ms, lookup_ms, candidates = lookup.candidates, "step phases");
+    let candidates = lookup.candidates;
+    let closest = lookup
+        .closest
+        .as_ref()
+        .map(|(_, m)| (m.path.clone(), m.to_string()));
+    let replayed = match claimed {
+        Claimed::Replay { facts } => Ok(facts),
+        Claimed::Execute { reason } => Err(reason),
     };
     let reason = match replayed {
         Ok(facts) => {
@@ -2186,12 +2195,12 @@ fn run_step(
         let again_why = job.mask(&again.join("; "));
         if let Some(hit) = lookup.hit.as_ref().filter(|_| unrecorded.is_none()) {
             if machine.is_some() || ex.signal.is_some() {
-                if let Some(line) = trust.record_incomplete(&tstep, Some(hit), &again_why)? {
+                if let Some(line) = store.commit_incomplete(&tstep, Some(hit), &again_why, None)? {
                     eprintln!("quod: `{}`: {line}", step.label);
                 }
             } else {
                 let v = record_divergence(
-                    ledger, &trust, &tstep, job, mode, &run_id, hit, &reason, &again_why, &ex,
+                    store, &tstep, job, mode, &run_id, hit, &reason, &again_why, &ex,
                 )?;
                 job.totals.audits += 1;
                 job.totals.divergences += 1;
@@ -2338,7 +2347,7 @@ fn run_step(
             match lookup.hit.as_ref() {
                 Some(hit) => {
                     let v = record_divergence(
-                        ledger, &trust, &tstep, job, mode, &run_id, hit, &reason, why, &ex,
+                        store, &tstep, job, mode, &run_id, hit, &reason, why, &ex,
                     )?;
                     job.totals.audits += 1;
                     job.totals.divergences += 1;
@@ -2383,42 +2392,37 @@ fn run_step(
             // it ran), masked: its secrets are salted already; this catches
             // one in the command. An opaque job records nothing, so never
             // writes one.
-            ledger.put_step_key(&key, &job.mask(&quod_key::canonical_key_json(&spec)?))?;
-            // (record_execution_facts inserts the manifest.)
-            let v = ledger.atomically(|l| -> anyhow::Result<Verdict> {
-                let v = trust.record_execution(
-                    &tstep,
-                    &run_id,
-                    &manifest,
-                    &result,
-                    lookup.hit.as_ref(),
-                    &reason,
-                )?;
-                l.record_execution_facts(
-                    &RunFacts {
-                        // The hooks observer is always the classic fuse
-                        // transport (quod_fs::serve, never the ring).
-                        observed: Observed {
-                            transport: Some("fuse"),
-                            observer: Some(&ex.observer),
-                        },
-                        ..run_facts(
-                            &run_id,
-                            &key,
-                            job,
-                            mode,
-                            v.outcome(),
-                            Some(&mid),
-                            Some(ex.exit_code),
-                            Some(ex.wall),
-                            v.would_have_saved,
-                        )
+            store.put_step_key(&key, &job.mask(&quod_key::canonical_key_json(&spec)?))?;
+            // One transaction (record_execution_facts inserts the
+            // manifest); the run row's outcome and would-be saving come
+            // from the verdict.
+            let v: Verdict = store.commit_execution(
+                &tstep,
+                &run_id,
+                &manifest,
+                &result,
+                lookup.hit.as_ref(),
+                &reason,
+                RunRecord::from_facts(&RunFacts {
+                    // The hooks observer is always the classic fuse
+                    // transport (quod_fs::serve, never the ring).
+                    observed: Observed {
+                        transport: Some("fuse"),
+                        observer: Some(&ex.observer),
                     },
-                    &manifest,
-                    &result,
-                )?;
-                Ok(v)
-            })?;
+                    ..run_facts(
+                        &run_id,
+                        &key,
+                        job,
+                        mode,
+                        "",
+                        Some(&mid),
+                        Some(ex.exit_code),
+                        Some(ex.wall),
+                        None,
+                    )
+                }),
+            )?;
             if v.divergence.is_some() {
                 job.totals.divergences += 1;
             }
@@ -2650,8 +2654,7 @@ fn ignored_outputs(env: &[(String, String)], workspace: &str) -> Vec<String> {
 /// status` counts the divergence.
 #[allow(clippy::too_many_arguments)]
 fn record_divergence(
-    ledger: &Ledger,
-    trust: &Trust,
+    store: &dyn StepLedger,
     tstep: &TrustStep,
     job: &Job,
     mode: &str,
@@ -2661,9 +2664,14 @@ fn record_divergence(
     why: &str,
     ex: &Executed,
 ) -> anyhow::Result<Verdict> {
-    ledger.atomically(|l| -> anyhow::Result<Verdict> {
-        let v = trust.record_divergence(tstep, run_id, hit, reason, why)?;
-        l.record_run_facts(&RunFacts {
+    // The run row's outcome comes from the verdict.
+    Ok(store.commit_divergence(
+        tstep,
+        run_id,
+        hit,
+        reason,
+        why,
+        RunRecord::from_facts(&RunFacts {
             observed: Observed {
                 transport: Some("fuse"),
                 observer: Some(&ex.observer),
@@ -2673,14 +2681,38 @@ fn record_divergence(
                 &tstep.key,
                 job,
                 mode,
-                v.outcome(),
+                "",
                 None,
                 Some(ex.exit_code),
                 Some(ex.wall),
                 None,
             )
-        })?;
-        Ok(v)
+        }),
+    )?)
+}
+
+/// A Quod server's step ledger, when the runner's own environment (the
+/// hook process's, which a workflow cannot set) has QUOD_SERVER. The
+/// runner token must be a delegated one: the job's scope is the one this
+/// job decided from its event payload, as with the local ledger.
+fn remote_ledger<'a>(
+    job: &Job,
+    step_env: &std::collections::BTreeMap<String, String>,
+    cas: &'a Cas,
+    policy: quod_trust::Policy,
+) -> Option<RemoteLedger<'a>> {
+    Some(match ServerConfig::from_env(|k| std::env::var(k).ok())? {
+        Ok(mut cfg) => {
+            cfg.scope = Some(ScopeHint {
+                repository: job.repository.clone(),
+                trust: job.scope_name.clone(),
+                writer: job.writer,
+            });
+            // For the dashboard only; the server keys nothing on it.
+            cfg.ci = Some(CiContext::from_env(|k| step_env.get(k).cloned()));
+            RemoteLedger::new(cfg, cas, policy)
+        }
+        Err(why) => RemoteLedger::unusable(why, cas, policy),
     })
 }
 
@@ -2748,6 +2780,7 @@ fn apply_commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quod_trust::Decision;
 
     #[test]
     fn ignored_outputs_follow_quod_run() {
