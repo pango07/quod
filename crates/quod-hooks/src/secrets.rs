@@ -500,13 +500,14 @@ fn exempt(name: &str, value: &str) -> bool {
         || step::placeholder(name).is_some_and(|p| p == value)
 }
 
-/// `classify_with` for an environment no step has set anything in.
+/// `classify_with` for an environment no step has set anything in, in a
+/// job whose image defines no variables.
 pub fn classify<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
 ) -> Classified {
-    classify_with(env, provenance, known, &BTreeSet::new())
+    classify_with(env, provenance, known, &BTreeSet::new(), &BTreeMap::new())
 }
 
 /// Classifies a step's environment (see the module docs): by name, by
@@ -521,13 +522,25 @@ pub fn classify<'a>(
 /// `localhost` in a DSN). Such a held-by value is a secret of its step
 /// only, never one of the job's (`strong`): nothing cascades from it.
 /// `known` is the job's secrets so far (`JobSecrets::values`).
+///
+/// `image` is the job image's own config env (`Rootfs::env`). A variable
+/// whose value is exactly the image's is defined by the image, not by a
+/// workflow secret or the runner: the official python image's `GPG_KEY` is
+/// the public fingerprint its release was verified with. Its name and shape
+/// prove nothing about it (anyone who pulls the image reads it in the
+/// config, and the image's root, which holds it, is in the state already),
+/// so neither classifies it. Provenance and the job's known secrets still
+/// do: a workflow that maps a secret onto the same name with the same value
+/// is classified as before.
 pub fn classify_with<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
     set_by_steps: &BTreeSet<String>,
+    image: &BTreeMap<String, String>,
 ) -> Classified {
     let env: Vec<(&String, &String)> = env.into_iter().collect();
+    let from_image = |k: &str, v: &str| image.get(k).is_some_and(|i| i == v);
     let computed =
         |k: &str| set_by_steps.contains(k) || provenance.derived.contains(&k.to_ascii_uppercase());
     let long = |s: &&String| s.len() >= MIN_SECRET_LEN;
@@ -545,7 +558,8 @@ pub fn classify_with<'a>(
         let held = v.len() >= MIN_SECRET_LEN
             && computed(k)
             && known_long.iter().any(|s| s.contains(v.as_str()));
-        if strong || held || step::secret_like(k) || step::looks_secret(v) {
+        let heuristic = !from_image(k, v) && (step::secret_like(k) || step::looks_secret(v));
+        if strong || held || heuristic {
             names.insert((*k).clone(), strong);
         }
     }
@@ -1072,6 +1086,7 @@ mod tests {
             &Provenance::default(),
             &known,
             &set,
+            &BTreeMap::new(),
         );
         assert_eq!(c.names, ["DB_PASS"]);
         assert!(c.strong.is_empty(), "a secret of its step, not of the job");
@@ -1083,6 +1098,7 @@ mod tests {
             &prov(&["APP_DSN"]),
             &BTreeSet::new(),
             &set,
+            &BTreeMap::new(),
         );
         assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
         assert_eq!(mask_str("pw=pa55word-x9", &c.masks), "pw=***");
@@ -1098,6 +1114,73 @@ mod tests {
             &BTreeSet::new(),
         );
         assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
+    }
+
+    /// A variable the job image itself defines (the official python
+    /// image's GPG_KEY, a public key fingerprint) is no secret by its name
+    /// or shape; the same name with another value (the workflow's), or one
+    /// the workflow maps from a secret, still is.
+    #[test]
+    fn the_image_s_own_variables_are_no_secrets_by_name() {
+        let fpr = "7169605F62C751356D054A26A821E680E5FA6305";
+        let image: BTreeMap<String, String> = [
+            ("GPG_KEY".to_string(), fpr.to_string()),
+            (
+                "IMAGE_TOKEN".to_string(),
+                "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye".to_string(),
+            ),
+        ]
+        .into();
+        let none = BTreeSet::new();
+        let c = classify_with(
+            &env(&[
+                ("GPG_KEY", fpr),
+                ("IMAGE_TOKEN", "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye"),
+            ]),
+            &Provenance::default(),
+            &none,
+            &none,
+            &image,
+        );
+        assert!(c.names.is_empty(), "{:?}", c.names);
+        // Without the image's definition: classified by name and shape.
+        let c = classify(
+            &env(&[
+                ("GPG_KEY", fpr),
+                ("IMAGE_TOKEN", "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye"),
+            ]),
+            &Provenance::default(),
+            &none,
+        );
+        assert_eq!(c.names, ["GPG_KEY", "IMAGE_TOKEN"]);
+        // The workflow overrides it: its value is not the image's.
+        let c = classify_with(
+            &env(&[("GPG_KEY", "another-key-0123456789")]),
+            &Provenance::default(),
+            &none,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
+        // Provenance wins: the workflow maps a secret onto it.
+        let c = classify_with(
+            &env(&[("GPG_KEY", fpr)]),
+            &prov(&["GPG_KEY"]),
+            &none,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
+        // So does a known secret of the job with that value.
+        let known: BTreeSet<String> = [fpr.to_string()].into();
+        let c = classify_with(
+            &env(&[("GPG_KEY", fpr)]),
+            &Provenance::default(),
+            &known,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
     }
 
     /// R1 (verification of 42c4498): configuration a structured secret
