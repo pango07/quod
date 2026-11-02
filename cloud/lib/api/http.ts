@@ -194,6 +194,23 @@ const shapes = {
   rerun: (v: unknown) => has(v, "rerun", { accepted: "boolean", message: "string" }) as unknown as { accepted: boolean; message: string },
 };
 
+/**
+ * One point per UTC day of the range, oldest first, as the chart expects:
+ * quod-server sends only the days that had steps.
+ */
+export function fillDays(days: Overview["days"], range: Range, asOf: string): Overview["days"] {
+  const n = Number(range.slice(0, -1));
+  const end = Date.parse(asOf);
+  const today = Number.isFinite(end) ? end : Date.now();
+  const by = new Map(days.map((d) => [d.day, d]));
+  const out: Overview["days"] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const day = new Date(today - i * 86_400_000).toISOString().slice(0, 10);
+    out.push(by.get(day) ?? { day, replayedMinutes: 0, ranMinutes: 0 });
+  }
+  return out;
+}
+
 const LIVE_TYPES = new Set(["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated"]);
 
 /** One stream message as a LiveEvent, or null when it is not one (unknown type, bad JSON, missing fields). */
@@ -344,7 +361,8 @@ export class HttpCloudApi implements CloudApi {
     if (!s) return this.off.getOverview(team, range);
     const v = await this.read(s.c, "GET", `${s.t}/overview?range=${range}`, shapes.overview);
     // A team quod-server does not have (yet) has no Quod data: empty, like a team without a server.
-    return v === NOT_FOUND ? { ...(await this.off.getOverview(team, range)), quod: { state: "connected" } } : { ...v, quod: { state: "connected" } };
+    if (v === NOT_FOUND) return { ...(await this.off.getOverview(team, range)), quod: { state: "connected" } };
+    return { ...v, days: fillDays(v.days, range, v.asOf), quod: { state: "connected" } };
   }
 
   // GET /v1/teams/:team/repos -> { repos: RepoSummary[] }

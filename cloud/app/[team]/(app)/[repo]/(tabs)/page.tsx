@@ -4,7 +4,7 @@ import { RunTimeChart } from "@/components/charts";
 import { RerunButton } from "@/components/rerun-button";
 import { StepsTable } from "@/components/steps-table";
 import { LiveRefresh, NowRunning } from "@/components/live/parts";
-import { ProtectionBadge, ProtectionWarning, protectionConcern, QuodNote, SectionUnavailable } from "@/components/section";
+import { ProtectionBadge, QuodNote, SectionUnavailable } from "@/components/section";
 import { Dot, EmptyState, OutcomeChip, StepDot } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
@@ -21,10 +21,9 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
   const { team } = await requireTeam(slug);
   const [found, activity] = await Promise.all([section(api().getRepo(team.slug, repoSlug)), api().getActivity(team.slug, { repo: repoSlug })]);
   // quod-server down and GitHub does not know the repo either: say so, do not 404 a repo that may exist.
-  if (!found.ok) return <SectionUnavailable s={found} what="This repository" />;
+  if (!found.ok) return <SectionUnavailable s={found} what="This repository" page />;
   const repo = found.value;
   if (!repo) notFound();
-  const concern = protectionConcern([repo.summary]);
   const base = `/${team.slug}/${repo.summary.slug}`;
   const run = repo.latestRun;
   // One list for the card: runner setup and checkout once, other steps named by job when there are several.
@@ -42,9 +41,9 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
       <h1 className="sr-only">{repo.summary.fullName}</h1>
       <LiveRefresh scope={{ kind: "repo", repo: repo.summary.slug }} />
       <QuodNote status={repo.quod} />
-      {concern ? <ProtectionWarning team={team.slug} state={concern.state} repos={concern.repos} branch={repo.summary.protection?.branch} /> : null}
       {repo.summary.protection ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+          {/* The team banner above says what to do; this says which state this repo is in. */}
           <span className="faint">Default branch</span>
           <ProtectionBadge p={repo.summary.protection} />
         </div>

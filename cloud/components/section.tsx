@@ -7,8 +7,8 @@ import type { Section } from "@/lib/api/section";
 // warning (DECISIONS.md 2026-11-02). Server components, data in props.
 
 /** A section quod-server could not fill: "not available yet" (501) or "unavailable" (down). Never the whole page. */
-export function SectionUnavailable({ s, what }: { s: Extract<Section<unknown>, { ok: false }>; what: string }) {
-  return (
+export function SectionUnavailable({ s, what, page }: { s: Extract<Section<unknown>, { ok: false }>; what: string; page?: boolean }) {
+  const card = (
     <section className="card" role="status">
       {s.kind === "not-available" ? (
         <EmptyState title={`${what}: not available yet`}>Quod&apos;s server does not provide this yet. It will appear here once it does.</EmptyState>
@@ -19,6 +19,8 @@ export function SectionUnavailable({ s, what }: { s: Extract<Section<unknown>, {
       )}
     </section>
   );
+  // In place of a whole page: with the page's own padding.
+  return page ? <div className="page">{card}</div> : card;
 }
 
 /** A one-line note when a page shows GitHub's data alone because quod-server did not answer. */

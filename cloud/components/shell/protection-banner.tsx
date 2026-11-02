@@ -13,7 +13,7 @@ export async function ProtectionBanner({ params }: { params: Promise<{ team: str
   const concern = protectionConcern(await api().listRepos(team.slug));
   if (!concern) return null;
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div className="page" style={{ paddingBottom: 0 }}>
       <ProtectionWarning team={team.slug} state={concern.state} repos={concern.repos} branch={concern.repos.length === 1 ? concern.repos[0].protection?.branch : null} />
     </div>
   );

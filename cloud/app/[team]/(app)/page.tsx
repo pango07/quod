@@ -158,6 +158,14 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
                 Add
               </Link>
             </div>
+            {ov.runners.length ? null : (
+              // quod-server does not list runners (they come from GitHub's jobs): point there.
+              <p className="muted" style={{ fontSize: 13 }}>
+                <Link href={`${base}/runners`} style={{ textDecoration: "underline" }}>
+                  Runners seen in your CI
+                </Link>
+              </p>
+            )}
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
               {ov.runners.map((r) => (
                 <li key={r.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 13 }}>

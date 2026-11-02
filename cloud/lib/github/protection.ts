@@ -51,12 +51,14 @@ interface CacheRow {
 
 /**
  * The cached protection of `repos` (the team's linked repos, by GitHub id),
- * and the ids due for a read. Repos the team cannot see are never read: the
+ * and the ids due for a read; `byRepo` is null before the migration is applied. Repos the team cannot see are never read: the
  * query joins through the team's installations, as lib/github/live.ts does.
  */
-export async function readCached(db: Queryable, teamId: TeamId, repoIds: number[], now = new Date()): Promise<{ byRepo: Map<number, BranchProtection>; due: number[] }> {
+export async function readCached(db: Queryable, teamId: TeamId, repoIds: number[], now = new Date()): Promise<{ byRepo: Map<number, BranchProtection> | null; due: number[] }> {
   const byRepo = new Map<number, BranchProtection>();
-  if (!repoIds.length || !(await protectionTableExists(db))) return { byRepo, due: [] };
+  // Before 0005 is applied there is nothing to show: null, and no badge at all (not "unknown" everywhere).
+  if (!(await protectionTableExists(db))) return { byRepo: null, due: [] };
+  if (!repoIds.length) return { byRepo, due: [] };
   const rows = await db.query<CacheRow & { id: number }>(
     `SELECT r.id, p.repo_id, p.state, p.default_branch, p.checked_at,
             (p.repo_id IS NULL OR p.stale OR p.checked_at IS NULL OR p.checked_at < $3::timestamptz - make_interval(secs => $4)) AS due

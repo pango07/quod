@@ -18,7 +18,7 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
   if (number === null) notFound();
   const { team } = await requireTeam(slug);
   const found = await section(api().getRun(team.slug, repoSlug, number));
-  if (!found.ok) return <SectionUnavailable s={found} what="This run" />;
+  if (!found.ok) return <SectionUnavailable s={found} what="This run" page />;
   const run = found.value;
   if (!run) notFound();
 

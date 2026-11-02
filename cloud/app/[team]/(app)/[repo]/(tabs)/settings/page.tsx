@@ -11,7 +11,7 @@ export default async function RepoSettingsPage({ params }: PageProps<"/[team]/[r
   const { team: slug, repo: repoSlug } = await params;
   const { team } = await requireTeam(slug);
   const found = await section(api().getRepo(team.slug, repoSlug));
-  if (!found.ok) return <SectionUnavailable s={found} what="This repository" />;
+  if (!found.ok) return <SectionUnavailable s={found} what="This repository" page />;
   const repo = found.value;
   if (!repo) notFound();
   const s = repo.summary;

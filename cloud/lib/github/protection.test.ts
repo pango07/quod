@@ -70,7 +70,7 @@ describe("default-branch protection", () => {
   it("caches per repo, refreshes what is missing, stale or 6 h old, and only for the team's repos", async () => {
     let cached = await readCached(db, TEAM, [7, 8, 999]);
     expect(cached.due.sort()).toEqual([7, 8]); // 999 is not the team's
-    expect(cached.byRepo.get(7)).toEqual({ state: "unknown", branch: null, checkedAt: null });
+    expect(cached.byRepo?.get(7)).toEqual({ state: "unknown", branch: null, checkedAt: null });
 
     const reads: string[] = [];
     const r = await refreshProtection(db, TEAM, [7, 8], { read: async (_i, name) => (reads.push(name), name === "acme/app" ? ok(false, false) : ok(true, false)) });
@@ -78,8 +78,8 @@ describe("default-branch protection", () => {
     expect(reads.sort()).toEqual(["acme/app", "acme/web"]);
     cached = await readCached(db, TEAM, [7, 8]);
     expect(cached.due).toEqual([]);
-    expect(cached.byRepo.get(7)).toMatchObject({ state: "unprotected", branch: "main" });
-    expect(cached.byRepo.get(8)).toMatchObject({ state: "protected" });
+    expect(cached.byRepo?.get(7)).toMatchObject({ state: "unprotected", branch: "main" });
+    expect(cached.byRepo?.get(8)).toMatchObject({ state: "protected" });
 
     // Fresh: nothing is read again.
     expect(await refreshProtection(db, TEAM, [7, 8], { read: async () => ok(true, true) })).toEqual({ read: 0, limited: false });
@@ -102,7 +102,7 @@ describe("default-branch protection", () => {
     expect(r.limited).toBe(true);
     const [claimed] = await claimForRefresh(db, TEAM, [7], { now: new Date(Date.now() + 3 * 60_000) });
     await recordRead(db, claimed.id, { kind: "gone", rate: NO_RATE });
-    expect((await readCached(db, TEAM, [7])).byRepo.get(7)).toMatchObject({ state: "unknown" });
+    expect((await readCached(db, TEAM, [7])).byRepo?.get(7)).toMatchObject({ state: "unknown" });
   });
 
   it("webhooks mark it stale: the repo's, or every repo of the installation for an organization ruleset", async () => {
@@ -127,7 +127,7 @@ describe("default-branch protection", () => {
   it("before the migration is applied: unknown, nothing written, webhooks still succeed", async () => {
     await db.exec("ALTER TABLE repo_protection RENAME TO repo_protection_later");
     try {
-      expect(await readCached(db, TEAM, [7])).toEqual({ byRepo: new Map(), due: [] });
+      expect(await readCached(db, TEAM, [7])).toEqual({ byRepo: null, due: [] });
       expect(await refreshProtection(db, TEAM, [7], { read: async () => ok(true, true) })).toEqual({ read: 0, limited: false });
       expect(await markProtectionStale(db, { repoId: 7, installationId: null })).toBe(0);
     } finally {

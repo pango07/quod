@@ -42,8 +42,8 @@ export interface GitHubSource {
   /** Is the GitHub App set up on this deploy (so admins can install it)? */
   appReady(): boolean;
   db(): Promise<Db>;
-  /** Default-branch protection per GitHub repo id, from the cache (lib/github/protection.ts). Absent: not shown. */
-  protection?(teamId: TeamId, db: Db, repos: GhRepo[]): Promise<Map<number, BranchProtection>>;
+  /** Default-branch protection per GitHub repo id, from the cache (lib/github/protection.ts). Absent, or null (no cache table yet): not shown. */
+  protection?(teamId: TeamId, db: Db, repos: GhRepo[]): Promise<Map<number, BranchProtection> | null>;
 }
 
 export interface CompositeOptions {
@@ -156,12 +156,24 @@ export class CompositeCloudApi implements CloudApi {
   private readonly ghStates = new Map<string, Promise<GitHubState>>();
   private readonly ghInfos = new Map<string, Promise<GhRepoInfo[]>>();
   private readonly maps = new Map<string, Promise<RepoMap>>();
+  private readonly quodRepos = new Map<string, Promise<RepoSummary[]>>();
   private readonly none = new NoQuodCloudApi();
 
   constructor(
     private readonly inner: CloudApi,
     private readonly opts: CompositeOptions,
   ) {}
+
+  /** quod-server's repo list, once per instance (the slug map and the repo list share it). A failure is not remembered. */
+  private innerRepos(team: string): Promise<RepoSummary[]> {
+    let p = this.quodRepos.get(team);
+    if (!p) {
+      p = this.inner.listRepos(team);
+      p.catch(() => this.quodRepos.delete(team));
+      this.quodRepos.set(team, p);
+    }
+    return p;
+  }
 
   private quodError(what: string, e: unknown) {
     (this.opts.onQuodError ?? warn)(what, e);
@@ -202,7 +214,7 @@ export class CompositeCloudApi implements CloudApi {
           const { latestRunsByRepo } = await live();
           const [latestByRepo, protection] = await Promise.all([
             latestRunsByRepo(teamId, db),
-            this.opts.github.protection ? this.opts.github.protection(teamId, db, repos).catch((e) => (warn("branch protection unavailable", e), new Map<number, BranchProtection>())) : Promise.resolve(null),
+            this.opts.github.protection ? this.opts.github.protection(teamId, db, repos).catch((e) => (warn("branch protection unavailable", e), null)) : Promise.resolve(null),
           ]);
           return repos.map((r) => {
             const latest = latestByRepo.get(r.id) ?? null;
@@ -250,7 +262,7 @@ export class CompositeCloudApi implements CloudApi {
         const g = await this.github(c);
         if (g.teamId === null || g.link.state !== "linked") return IDENTITY;
         try {
-          return buildRepoMap(await this.inner.listRepos(team), g.repos);
+          return buildRepoMap(await this.innerRepos(team), g.repos);
         } catch (e) {
           unstable_rethrow(e);
           if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
@@ -418,7 +430,7 @@ export class CompositeCloudApi implements CloudApi {
     const [map, g] = await Promise.all([this.repoMap(team, c), this.github(c)]);
     let repos: RepoSummary[] = [];
     try {
-      repos = (await this.inner.listRepos(team)).map((r) => mapRepoSummary(map, r));
+      repos = (await this.innerRepos(team)).map((r) => mapRepoSummary(map, r));
     } catch (e) {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError)) throw e;

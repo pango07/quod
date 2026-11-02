@@ -12,7 +12,7 @@ export default async function RepoStepsPage({ params, searchParams }: PageProps<
   const [{ team: slug, repo }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
   const found = await section(api().listSteps(team.slug, { repo }));
-  if (!found.ok) return <SectionUnavailable s={found} what="Steps" />;
+  if (!found.ok) return <SectionUnavailable s={found} what="Steps" page />;
   const steps = found.value;
   if (steps.length === 0) {
     const repoFound = await section(api().getRepo(team.slug, repo));

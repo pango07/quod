@@ -16,7 +16,7 @@ export default async function StepPage({ params }: PageProps<"/[team]/[repo]/ste
   const { team: slug, repo: repoSlug, key } = await params;
   const { team, admin } = await requireTeam(slug);
   const found = await section(api().getStepTrust(team.slug, repoSlug, key));
-  if (!found.ok) return <SectionUnavailable s={found} what="This step" />;
+  if (!found.ok) return <SectionUnavailable s={found} what="This step" page />;
   const step = found.value;
   if (!step) notFound();
   const base = `/${team.slug}/${repoSlug}`;

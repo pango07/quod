@@ -26,7 +26,7 @@ function protectionGitHub(): ProtectionGitHub | null {
   };
 }
 
-export async function protectionFor(teamId: TeamId, db: Db, repos: { id: number }[]): Promise<Map<number, BranchProtection>> {
+export async function protectionFor(teamId: TeamId, db: Db, repos: { id: number }[]): Promise<Map<number, BranchProtection> | null> {
   const ids = repos.map((r) => r.id);
   const { byRepo, due } = await readCached(db, teamId, ids);
   const client = due.length ? protectionGitHub() : null;

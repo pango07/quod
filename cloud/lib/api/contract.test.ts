@@ -46,7 +46,11 @@ describe("quod.v1 contract: quod-server's answers through the HTTP adapter", () 
     expect(ov.totals).toMatchObject({ range: "7d", stepsReplayed: 2, stepsTotal: 6, savedMinutes: 1, usdPerMinute: 0.008, wrongReplays: 0 });
     expect(ov.repos).toEqual([expect.objectContaining({ slug: "app", fullName: "acme/app", hasQuodData: true, lastRunStatus: "passed" })]);
     expect(ov.trust).toEqual({ proven: 2, proving: 0, watching: 0, spotChecksPassed: 0, paused: [] });
-    expect(ov.days[0]).toEqual({ day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), replayedMinutes: expect.any(Number), ranMinutes: expect.any(Number) });
+    // quod-server sends only days with steps; the chart gets every day of the range, the recorded one last.
+    expect(ov.days).toHaveLength(7);
+    expect(ov.days.slice(0, 6).every((d) => d.replayedMinutes === 0 && d.ranMinutes === 0)).toBe(true);
+    expect(ov.days[6]).toEqual({ day: ov.asOf.slice(0, 10), replayedMinutes: expect.any(Number), ranMinutes: expect.any(Number) });
+    expect(ov.days[6].replayedMinutes).toBeGreaterThan(0);
     expect(ov.quod).toEqual({ state: "connected" });
 
     expect((await api.listRepos("acme")).map((r) => r.slug)).toEqual(["app"]);
