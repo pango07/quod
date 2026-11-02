@@ -52,6 +52,20 @@ jobs:
       - name: npm run lint (through quod)
         working-directory: cloud
         run: quod run --toolchain node -- npm run lint
+      # TEMPORARY bring-up: GitHub's ubuntu-latest pool mixes CPU models and
+      # every step key pins the CPU's flags, so four runs in a row on one
+      # model (record, two shadow audits, replay) are rare. Running both
+      # steps twice more on this VM spends the shadow phase here (each one a
+      # full re-execution compared with the record); the next job on the same
+      # CPU model then replays.
+      - name: shadow warm-up (TEMPORARY bring-up)
+        working-directory: cloud
+        run: |
+          for i in 1 2; do
+            quod run --toolchain node -- npx vitest run --configLoader runner > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
+            quod run --toolchain node -- npm run lint > /dev/null 2> "$RUNNER_TEMP/l$i.err" || true
+            grep -h -E 'QUOD  [A-Z]|trust:' "$RUNNER_TEMP/t$i.err" "$RUNNER_TEMP/l$i.err" || true
+          done
       - name: host fingerprint (TEMPORARY bring-up diagnostics)
         if: always()
         env:
