@@ -99,8 +99,11 @@ const MIGRATIONS: &[&str] = &[
     // ended on (`surface`: `network` or `runner`); `skipped` counts those
     // runs since the last offline try, and every so often a run tries
     // offline again (a step that no longer needs the network records
-    // again, and its row goes).
-    "CREATE TABLE network (step_key TEXT PRIMARY KEY, surface TEXT NOT NULL, reason TEXT NOT NULL, skipped INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);",
+    // again, and its row goes). `inputs` is what the offline try that set
+    // the row read (the workspace paths, as a JSON array) and `digest` their
+    // state then: a run whose tree differs on those paths tries offline
+    // again, since its need for the network may depend on them.
+    "CREATE TABLE network (step_key TEXT PRIMARY KEY, surface TEXT NOT NULL, reason TEXT NOT NULL, skipped INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, inputs TEXT, digest TEXT);",
 ];
 
 /// A step key that needs the network (`Ledger::network`).
@@ -112,6 +115,10 @@ pub struct NetworkRow {
     pub reason: String,
     /// Runs that skipped the offline try since it was last made.
     pub skipped: u32,
+    /// What that offline try read (the caller's encoding), and a digest of
+    /// it as it was then (`None`: unknown, so never the same inputs).
+    pub inputs: Option<String>,
+    pub digest: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -696,32 +703,37 @@ impl Ledger {
         Ok(self
             .db
             .query_row(
-                "SELECT surface, reason, skipped FROM network WHERE step_key = ?1",
+                "SELECT surface, reason, skipped, inputs, digest FROM network WHERE step_key = ?1",
                 [step_key.to_string()],
                 |r| {
                     Ok(NetworkRow {
                         surface: r.get(0)?,
                         reason: r.get(1)?,
                         skipped: r.get::<_, i64>(2)?.max(0) as u32,
+                        inputs: r.get(3)?,
+                        digest: r.get(4)?,
                     })
                 },
             )
             .optional()?)
     }
 
-    /// `step_key` reached for the network on its offline try and ran again
-    /// on `surface`: the next runs skip that try (`skipped` starts again at
-    /// 0).
+    /// `step_key` reached for the network on its offline try, which read
+    /// `inputs` (in the state `digest` names), and ran again on `surface`:
+    /// the next runs on the same inputs skip that try (`skipped` starts
+    /// again at 0).
     pub fn mark_network(
         &self,
         step_key: &Hash,
         surface: &str,
         reason: &str,
+        inputs: &str,
+        digest: &str,
     ) -> Result<(), LedgerError> {
         self.db.execute(
-            "INSERT INTO network (step_key, surface, reason, skipped, updated_at) VALUES (?1, ?2, ?3, 0, ?4)
-             ON CONFLICT (step_key) DO UPDATE SET surface = ?2, reason = ?3, skipped = 0, updated_at = ?4",
-            params![step_key.to_string(), surface, reason, now_rfc3339()],
+            "INSERT INTO network (step_key, surface, reason, skipped, updated_at, inputs, digest) VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6)
+             ON CONFLICT (step_key) DO UPDATE SET surface = ?2, reason = ?3, skipped = 0, updated_at = ?4, inputs = ?5, digest = ?6",
+            params![step_key.to_string(), surface, reason, now_rfc3339(), inputs, digest],
         )?;
         Ok(())
     }
@@ -1797,8 +1809,8 @@ mod tests {
         assert_eq!(format_rfc3339(951_782_400, 0), "2000-02-29T00:00:00.000Z");
     }
 
-    /// v8: which step keys need the network, and how many runs skipped
-    /// their offline try since.
+    /// v8: which step keys need the network, how many runs skipped their
+    /// offline try since, and what that try read.
     #[test]
     fn the_network_memory() {
         let l = Ledger::open_in_memory().unwrap();
@@ -1810,6 +1822,8 @@ mod tests {
             &a,
             "runner",
             "tried to reach the network offline (3 attempts)",
+            r#"["go.mod"]"#,
+            "d1",
         )
         .unwrap();
         l.network_skipped(&a).unwrap();
@@ -1819,18 +1833,22 @@ mod tests {
             Some(NetworkRow {
                 surface: "runner".into(),
                 reason: "tried to reach the network offline (3 attempts)".into(),
-                skipped: 2
+                skipped: 2,
+                inputs: Some(r#"["go.mod"]"#.into()),
+                digest: Some("d1".into()),
             })
         );
         assert_eq!(l.network(&b).unwrap(), None);
-        // Marked again: the count starts over.
-        l.mark_network(&a, "network", "again").unwrap();
+        // Marked again: the count starts over, with the new try's inputs.
+        l.mark_network(&a, "network", "again", "[]", "d2").unwrap();
         assert_eq!(
             l.network(&a).unwrap(),
             Some(NetworkRow {
                 surface: "network".into(),
                 reason: "again".into(),
-                skipped: 0
+                skipped: 0,
+                inputs: Some("[]".into()),
+                digest: Some("d2".into()),
             })
         );
         l.clear_network(&a).unwrap();

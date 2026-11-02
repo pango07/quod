@@ -2126,9 +2126,11 @@ fn sha256_16(s: &str) -> String {
 ///   placeholder is caught.
 /// - P3: a step that branches on the event name gets the real one, and a
 ///   pull request's run never replays a push's.
-/// - P4: a step that needed the network runs with it directly next time.
-/// - P5: install-time Python bytecode is the same from run to run
-///   (SOURCE_DATE_EPOCH), so a step importing it replays on a new commit.
+/// - P4: a step that needed the network runs with it directly next time,
+///   unless what its offline try read has changed.
+/// - P5: install-time Python bytecode is the same from run to run (made
+///   checked-hash after the step; no SOURCE_DATE_EPOCH, as on GitHub), so
+///   a step importing it replays on a new commit.
 /// - P6: a step before checkout, while the workflow cannot be read
 ///   without the job's token, does not make the job opaque; a secret it
 ///   was given is known before any later step is recorded.
@@ -2284,7 +2286,9 @@ fn hooks_py_node() {
     // P4: a step that reaches for the network (moto's passthrough tests),
     // and a fetch that fails offline (pip install): the next run skips the
     // offline try.
-    let net = "getent hosts example.com >/dev/null || true; echo tested";
+    // It also prints whether SOURCE_DATE_EPOCH is set: on GitHub it is not,
+    // and the runner's surface (where the second run goes) must agree.
+    let net = "getent hosts example.com >/dev/null || true; echo \"tested SDE=${SOURCE_DATE_EPOCH-unset}\"";
     let n1 = r.job(net, &[]);
     check(
         n1.summary.contains("tried to reach the network offline"),
@@ -2296,8 +2300,12 @@ fn hooks_py_node() {
             .contains("ran with the runner's environment without trying offline first")
             && !n2.summary.contains("ran again")
             && n2.code == 0
-            && String::from_utf8_lossy(&n2.stdout) == "tested\n",
-        format!("P4 second: {}", n2.summary),
+            && String::from_utf8_lossy(&n2.stdout) == "tested SDE=unset\n",
+        format!(
+            "P4 second: {:?} {}",
+            String::from_utf8_lossy(&n2.stdout),
+            n2.summary
+        ),
     );
     let fetch = "# pip install -r requirements.txt\ngetent hosts pypi.org >/dev/null || exit 2\necho installed";
     let f1 = r.job(fetch, &[]);
@@ -2324,6 +2332,41 @@ fn hooks_py_node() {
             String::from_utf8_lossy(&out.stdout)
         ),
     );
+    // M3 (Fable's review of 75ebbea): a step whose network need depends on
+    // an input. Once that input changes, the next run tries offline again
+    // (the memory holds what the offline try read), records, and the row
+    // goes; before, it skipped the offline try for 9 runs in 10.
+    r.env.write("net-mode.txt", "online\n");
+    r.env.commit("P4: the step needs the network");
+    let dep = "if grep -q online net-mode.txt; then getent hosts example.org >/dev/null || true; fi; echo checked";
+    let d1 = r.job(dep, &[]);
+    check(
+        d1.summary.contains("tried to reach the network offline"),
+        format!("P4 input-dependent first: {}", d1.summary),
+    );
+    r.env.write("net-mode.txt", "offline\n");
+    r.env.commit("P4: the step no longer needs the network");
+    let d2 = r.job(dep, &[]);
+    check(
+        !d2.summary.contains("without trying offline first")
+            && d2.summary.contains("would replay: no, first run"),
+        format!(
+            "P4: a changed input tries offline again and records: {}",
+            d2.summary
+        ),
+    );
+    let out = Command::new("sqlite3")
+        .arg(r.scope().join("ledger.sqlite"))
+        .arg("SELECT count(*) FROM network")
+        .output()
+        .unwrap();
+    check(
+        String::from_utf8_lossy(&out.stdout) == "2\n",
+        format!(
+            "P4: the recordable offline success dropped its row: {:?}",
+            String::from_utf8_lossy(&out.stdout)
+        ),
+    );
     println!("P4 done: a network step runs once per job, with the network");
 
     // P5: install-time bytecode. The install step re-runs on every commit
@@ -2331,10 +2374,17 @@ fn hooks_py_node() {
     // replays on the next commit only if the bytecode is the same bytes.
     let py = "/usr/local/python/bin/python3";
     if Path::new(py).is_file() {
+        // GitHub sets no SOURCE_DATE_EPOCH, so neither does Quod (M2 of
+        // Fable's review of 75ebbea: it was set on every surface): compileall
+        // writes timestamp pycs, which Quod makes checked-hash after the step.
         let install = format!(
-            "cat version.txt >/dev/null && echo \"SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH\" && mkdir -p site/pkg && printf 'X = 41\\n' > site/pkg/mod.py && : > site/pkg/__init__.py && {py} -m compileall -q site/pkg"
+            "cat version.txt >/dev/null && echo \"SOURCE_DATE_EPOCH=${{SOURCE_DATE_EPOCH-unset}}\" && mkdir -p site/pkg && printf 'X = 41\\n' > site/pkg/mod.py && : > site/pkg/__init__.py && {py} -m compileall -q site/pkg"
         );
-        let import = format!("PYTHONPATH=site {py} -c 'import pkg.mod; print(pkg.mod.X + 1)'");
+        // The import uses the pyc as it is (checked-hash, flags 3, the
+        // source's hash as CPython computes it).
+        let import = format!(
+            "PYTHONPATH=site {py} -c 'import pkg.mod, importlib.util as u; b = open(u.cache_from_source(\"site/pkg/mod.py\"), \"rb\").read(); print(pkg.mod.X + 1, b[4], b[8:16] == u.source_hash(open(\"site/pkg/mod.py\", \"rb\").read()))'"
+        );
         let job = |r: &mut Runner| -> (StepOut, StepOut) {
             r.prepare_job();
             let co = r.checkout();
@@ -2346,8 +2396,8 @@ fn hooks_py_node() {
         };
         let (a1, b1) = job(&mut r);
         check(
-            String::from_utf8_lossy(&a1.stdout).contains("SOURCE_DATE_EPOCH=315532800")
-                && String::from_utf8_lossy(&b1.stdout) == "42\n",
+            String::from_utf8_lossy(&a1.stdout).contains("SOURCE_DATE_EPOCH=unset")
+                && String::from_utf8_lossy(&b1.stdout) == "42 3 True\n",
             format!(
                 "P5 first: {:?} {:?} {} {}",
                 String::from_utf8_lossy(&a1.stdout),
@@ -2362,7 +2412,7 @@ fn hooks_py_node() {
         let (a2, b2) = job(&mut r);
         r.mode = "observe";
         check(
-            a2.executed() && b2.replayed() && String::from_utf8_lossy(&b2.stdout) == "42\n",
+            a2.executed() && b2.replayed() && String::from_utf8_lossy(&b2.stdout) == "42 3 True\n",
             format!(
                 "P5: the import step replays over a re-run install: {}\n{}",
                 a2.summary, b2.stderr

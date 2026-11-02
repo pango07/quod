@@ -2133,14 +2133,17 @@ fn run_step(
 
     // A step that reached for the network on an earlier offline try runs
     // where it ended then, without that try (it would only be set aside
-    // again, after costing its whole run): never recorded, as before. Every
-    // `NETWORK_PROBE_EVERY`th run tries offline again, so a step that no
+    // again, after costing its whole run): never recorded, as before. Only
+    // while what that try read is unchanged (`same_inputs`): a step's need
+    // for the network can depend on its inputs (a test that reaches out only
+    // for some fixtures), so on other inputs it tries offline again. Every
+    // `NETWORK_PROBE_EVERY`th run tries offline anyway, so a step that no
     // longer needs the network records again. A run that is not recorded
     // (`unrecorded`) reads this memory but never writes it.
     let network = ledger.network(&key)?;
     if let Some(n) = network
         .as_ref()
-        .filter(|n| unrecorded.is_some() || skips_offline(n))
+        .filter(|n| unrecorded.is_some() || (skips_offline(n) && same_inputs(n, &tree)))
     {
         if unrecorded.is_none() {
             ledger.network_skipped(&key)?;
@@ -2239,7 +2242,14 @@ fn run_step(
                 } else {
                     "runner"
                 };
-                ledger.mark_network(&key, surface, &why)?;
+                let paths = network_inputs(&ex.log);
+                ledger.mark_network(
+                    &key,
+                    surface,
+                    &why,
+                    &serde_json::to_string(&paths)?,
+                    &inputs_digest(&tree, &paths),
+                )?;
             }
             again.push(why);
         }
@@ -2596,6 +2606,37 @@ fn skips_offline(n: &quod_ledger::NetworkRow) -> bool {
     n.skipped + 1 < NETWORK_PROBE_EVERY
 }
 
+/// The workspace paths an offline try read (sorted, unique): what the
+/// network memory keeps of it (`Ledger::mark_network`).
+fn network_inputs(log: &[quod_manifest::Access]) -> Vec<String> {
+    let paths: std::collections::BTreeSet<&str> = log.iter().map(|a| a.path.as_str()).collect();
+    paths.into_iter().map(String::from).collect()
+}
+
+/// `paths` as `tree` has them (each entry, or its absence), hashed.
+fn inputs_digest(tree: &Tree, paths: &[String]) -> String {
+    let mut h = blake3::Hasher::new();
+    for p in paths {
+        h.update(p.as_bytes());
+        h.update(b"\0");
+        match tree.get(p) {
+            Some(e) => h.update(&serde_json::to_vec(e).expect("an entry serializes")),
+            None => h.update(b"absent"),
+        };
+        h.update(b"\n");
+    }
+    h.finalize().to_hex().to_string()
+}
+
+/// Did the offline try that set `n` read what this run's tree holds? A row
+/// without inputs never matches: the run tries offline.
+fn same_inputs(n: &quod_ledger::NetworkRow, tree: &Tree) -> bool {
+    let (Some(inputs), Some(digest)) = (&n.inputs, &n.digest) else {
+        return false;
+    };
+    serde_json::from_str::<Vec<String>>(inputs).is_ok_and(|p| inputs_digest(tree, &p) == *digest)
+}
+
 /// `; replayable from the next matching run (its next 2 would-be hits are
 /// audited)` when this execution's manifest may replay from now on (trust
 /// v2: after its first record), else nothing.
@@ -2904,6 +2945,8 @@ mod tests {
             surface: "runner".into(),
             reason: "r".into(),
             skipped,
+            inputs: None,
+            digest: None,
         };
         let tries: Vec<u32> = (0..3 * NETWORK_PROBE_EVERY)
             .scan(0, |skipped, run| {
@@ -2918,6 +2961,56 @@ mod tests {
             .collect();
         let n = NETWORK_PROBE_EVERY;
         assert_eq!(tries, [n - 1, 2 * n - 1, 3 * n - 1]);
+    }
+
+    /// M3 (Fable's review of 75ebbea): the network memory holds only for
+    /// the inputs its offline try read. A change to one of them (or a path
+    /// it looked for that now exists) makes the next run try offline; a
+    /// change elsewhere does not. Before, only the step key was looked at.
+    #[test]
+    fn a_network_row_holds_for_the_inputs_it_was_set_on() {
+        let f = |p: &str, c: &[u8]| Entry::file(p, Hash::of(c), 0o644);
+        let t1 = Tree::from_leaves([f("net-mode.txt", b"online"), f("other", b"x")]);
+        let log = [
+            quod_manifest::Access {
+                path: "net-mode.txt".into(),
+                kind: EntryKind::File,
+            },
+            quod_manifest::Access {
+                path: "fixtures/extra".into(),
+                kind: EntryKind::File,
+            },
+            quod_manifest::Access {
+                path: "net-mode.txt".into(),
+                kind: EntryKind::File,
+            },
+        ];
+        let paths = network_inputs(&log);
+        assert_eq!(paths, ["fixtures/extra", "net-mode.txt"]);
+        let row = quod_ledger::NetworkRow {
+            surface: "runner".into(),
+            reason: "r".into(),
+            skipped: 0,
+            inputs: Some(serde_json::to_string(&paths).unwrap()),
+            digest: Some(inputs_digest(&t1, &paths)),
+        };
+        assert!(same_inputs(&row, &t1));
+        let t2 = Tree::from_leaves([f("net-mode.txt", b"online"), f("other", b"y")]);
+        assert!(same_inputs(&row, &t2), "a file it did not read changed");
+        let t3 = Tree::from_leaves([f("net-mode.txt", b"offline"), f("other", b"x")]);
+        assert!(!same_inputs(&row, &t3), "a file it read changed");
+        let t4 = Tree::from_leaves([
+            f("net-mode.txt", b"online"),
+            f("other", b"x"),
+            f("fixtures/extra", b"new"),
+        ]);
+        assert!(!same_inputs(&row, &t4), "a path it found absent exists");
+        let unknown = quod_ledger::NetworkRow {
+            inputs: None,
+            digest: None,
+            ..row
+        };
+        assert!(!same_inputs(&unknown, &t1), "a row without inputs tries offline");
     }
 
     #[test]

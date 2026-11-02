@@ -163,10 +163,6 @@ pub struct PinnedFile {
     pub initial: Vec<u8>,
 }
 
-/// What every surface sets SOURCE_DATE_EPOCH to unless the workflow does
-/// (`base_env`): the CLI's Python profile's value.
-pub const SOURCE_DATE_EPOCH: &str = "315532800";
-
 /// The variables Quod pins so tool state lives in the observed tree.
 const PINNED: &[&str] = &[
     "HOME",
@@ -252,19 +248,9 @@ fn base_env(
             env.insert(name.into(), value);
         }
     }
-    // Install-time bytecode that does not depend on when it was installed.
-    // pip (and uv with UV_COMPILE_BYTECODE) compile what they install with
-    // py_compile, whose default under SOURCE_DATE_EPOCH is a checked-hash
-    // pyc (PEP 552): validated by its source's hash, not its mtime. Without
-    // it the pyc embeds the install step's wall-clock mtime, so every
-    // re-run of the install (pip install is never replayed: the network)
-    // gave new pyc bytes, and every step that imported them missed. The
-    // value is the CLI's Python profile's (`quod_key::PYTHON`), 1980-01-01,
-    // the earliest a zip can hold. A workflow's own value is kept (and
-    // keyed, as every variable is), never a taint: it is the same knob.
-    if !env.contains_key("SOURCE_DATE_EPOCH") {
-        env.insert("SOURCE_DATE_EPOCH".into(), SOURCE_DATE_EPOCH.into());
-    }
+    // No SOURCE_DATE_EPOCH: GitHub sets none, and tools branch on its
+    // presence (setuptools, wheel, docs generators). Install-time bytecode
+    // is made reproducible after the step instead (`exec::hash_install_pycs`).
     if offline {
         env.insert("GOPROXY".into(), "off".into());
     }
