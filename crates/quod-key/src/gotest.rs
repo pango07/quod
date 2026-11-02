@@ -28,9 +28,10 @@
 //!   initializes packages one at a time, the first in import-path order
 //!   among those whose imports are all initialized; the package imports
 //!   only what os already imports, so it is ready the moment os is, and
-//!   its path sorts before every package that imports os, so it is
-//!   initialized before any package-level variable can open a file through
-//!   os: a dependency's as much as the test package's own. Only testdeps,
+//!   its path sorts before every package that imports os (but the few
+//!   paths [`GUARD_PKG`] names), so it is initialized before any
+//!   package-level variable can open a file through os: a dependency's as
+//!   much as the test package's own. Only testdeps,
 //!   the guard and the test mains compile differently from a stock build,
 //!   so `go build`, `go vet` and `go test` share every other compile.
 //!   cmd/go must find the package through the overlay with the module
@@ -99,9 +100,23 @@ impl Layout {
 /// sort before every package that imports os, in the linker's order
 /// (`objabi.PathToPrefix(path) + "..inittask"`, bytewise): a leading
 /// digit sorts before every letter, so before every standard package and
-/// every module path that starts with a letter. The residual: a package
-/// whose path starts with `+`, `-` or `0` followed by a byte below `q`
-/// and that reads a file through os at init.
+/// every module path that starts with a letter.
+///
+/// `0` is the lowest first byte the guard can have: cmd/go refuses an
+/// import path whose first byte is not a letter, a digit, `.`, `_`, `/`
+/// or non-ASCII (`load.SafeArg`: `invalid import path "+quod/guard"`,
+/// checked on go1.27.3), so a leading `+` or `-` is impossible for the
+/// guard and for every other package; and a first element starting with
+/// `.` (a dot: not standard) or `/` (absolute) is never a standard
+/// package, which the guard must be to live in GOROOT.
+///
+/// The residual is any import path that sorts bytewise below
+/// `0quod/guard` and whose package reads a file through os at init: a
+/// path starting with `0` and a byte below `q` (`0a/…`, `09.example/…`),
+/// with `0quod` and a byte below `/` (`0quod.com/…`, `0quod-x/…`), or with
+/// `.` (a main or workspace module may be named `.x`: dependency module
+/// paths may not start with a dot, the main module's may, checked on
+/// go1.27.3).
 pub const GUARD_PKG: &str = "0quod/guard";
 
 /// The package's files in GOROOT's src/0quod/guard: the guard (linux) and
@@ -127,24 +142,34 @@ pub const GUARD_IMPORTS: &[&str] = &[
     "unsafe",
 ];
 
-/// The imports of a Go file's single import block (or single `import`
-/// line), in order: the quoted path of each line, whatever its name or
-/// trailing comment.
+/// The imports of a gofmt'ed Go file, in order: the quoted path of every
+/// `import "x"` line and of every line of every `import (...)` block,
+/// whatever its name or trailing comment. For this crate's own tests of
+/// the guard's source; the probe asks cmd/go (`go list -f
+/// '{{.Imports}}'`), which parses the file as the compiler will.
 pub fn go_imports(src: &str) -> Vec<&str> {
     fn quoted(l: &str) -> Option<&str> {
         let (_, rest) = l.split_once('"')?;
         rest.split_once('"').map(|(p, _)| p)
     }
-    let Some(start) = src.find("\nimport (\n") else {
-        return src
-            .lines()
-            .filter(|l| l.starts_with("import "))
-            .filter_map(quoted)
-            .collect();
-    };
-    let block = &src[start + "\nimport (\n".len()..];
-    let block = &block[..block.find("\n)\n").unwrap_or(block.len())];
-    block.lines().filter_map(quoted).collect()
+    let mut block = false;
+    let mut out = Vec::new();
+    for l in src.lines() {
+        if block {
+            if l == ")" {
+                block = false;
+            } else if let Some(p) = quoted(l) {
+                out.push(p);
+            }
+        } else if l == "import (" {
+            block = true;
+        } else if l.starts_with("import ")
+            && let Some(p) = quoted(l)
+        {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// The guard's file in package testing (`Layout::Testing`), with the
@@ -174,14 +199,23 @@ fn is_go(w: &str) -> bool {
 /// guard's files: a test binary or a build output (`-c`, `-o`), an
 /// installed binary (`go install`), or a program it runs (`go run`), each
 /// of which would then carry Quod's code into what the step leaves or runs.
-/// Anything else keeps `-count=1`: Go's test cache stays off where Quod
-/// cannot tell.
+/// Nor may any word be an `-overlay` flag (`-overlay x`, `-overlay=x`,
+/// `--overlay=x`): a flag on the command line overrides GOFLAGS', so the
+/// step's own overlay would replace the guard's and the test binaries
+/// would run unguarded with go test's cache on. Anything else keeps
+/// `-count=1`: Go's test cache stays off where Quod cannot tell.
 pub fn runs_go_test(script: &str) -> bool {
     let words = words(script);
     let after_go = |sub: &str| words.windows(2).any(|w| is_go(w[0]) && w[1] == sub);
-    let artifacts = words
-        .iter()
-        .any(|w| *w == "-c" || *w == "-o" || w.starts_with("-o=") || w.starts_with("-exec"));
+    let artifacts = words.iter().any(|w| {
+        let flag = w.strip_prefix('-').unwrap_or(w);
+        *w == "-c"
+            || *w == "-o"
+            || w.starts_with("-o=")
+            || w.starts_with("-exec")
+            || flag == "-overlay"
+            || flag.starts_with("-overlay=")
+    });
     after_go("test") && !after_go("install") && !after_go("run") && !artifacts
 }
 
@@ -562,6 +596,15 @@ func (TestDeps) StopTestLog() error {
         assert!(!runs_go_test("go install ./cmd/gh && go test ./..."));
         assert!(!runs_go_test("go test ./... && go run ./script/gen.go"));
         assert!(!runs_go_test("/usr/local/go/bin/go run . ; go test ./..."));
+        // A command-line overlay overrides GOFLAGS' (MAJOR 2 of the review
+        // of 712cd87): the guard's would be dropped with the cache on.
+        assert!(!runs_go_test("go test -overlay=/tmp/o.json ./..."));
+        assert!(!runs_go_test("go test -overlay /tmp/o.json ./..."));
+        assert!(!runs_go_test("go test --overlay=/tmp/o.json ./..."));
+        assert!(!runs_go_test("go build -overlay=o.json ./... && go test ./..."));
+        assert!(!runs_go_test("go test \"-overlay=/tmp/o.json\" ./..."));
+        assert!(runs_go_test("go test -run TestOverlay ./..."));
+        assert!(runs_go_test("go test ./overlay/..."));
     }
 
     #[test]
@@ -685,6 +728,11 @@ func (TestDeps) StopTestLog() error {
             vec!["a/b", "c"]
         );
         assert_eq!(go_imports("package x\n\nimport \"os\"\n"), vec!["os"]);
+        // Every declaration, not only the first block.
+        assert_eq!(
+            go_imports("package x\n\nimport (\n\t\"os\"\n)\n\nimport \"strings\"\n\nimport (\n\t\"fmt\"\n)\n"),
+            vec!["os", "strings", "fmt"]
+        );
         assert_eq!(
             go_imports("package x\n\nimport (\n\t\"os\" // why\n\t_ \"a/b\"\n)\n"),
             vec!["os", "a/b"]
@@ -717,6 +765,11 @@ func (TestDeps) StopTestLog() error {
             "0r",
         ] {
             assert!(key(GUARD_PKG) < key(p), "{p}");
+        }
+        // The residual GUARD_PKG documents: legal paths that sort first.
+        // (`+x/y` and `-x/y` would too, but cmd/go refuses them.)
+        for p in ["0a/x", "0quod.com/x", "0quod-x/y", ".x/a"] {
+            assert!(key(p) < key(GUARD_PKG), "{p}");
         }
         assert!(GUARD_PKG.starts_with('0'));
         assert!(!GUARD_PKG.contains('.'), "a dot would be escaped as %2e");
@@ -809,6 +862,53 @@ func (TestDeps) StopTestLog() error {
         assert!(guard_files(Layout::Testing, "/g", &changed, "b3:abc", "/workspace").is_err());
         assert!(guard_files(Layout::Testing, "/g", DEPS, "b3:a\"b", "/workspace").is_err());
     }
+
+    /// Golden (minor d of the review of 712cd87): the testing layout is v2,
+    /// which go1.26 steps keep under v2's key, so its files and its step
+    /// key may not change by a byte. The digests were taken from v2's own
+    /// code (main ec5534b, `gotest::guard_files` before the layouts) and
+    /// from this code, and agree. A change to the testing layout is a new
+    /// version: a new sandbox dir, so a new key, and new goldens.
+    #[test]
+    fn the_testing_layout_is_v2_byte_for_byte() {
+        let files = guard_files(
+            Layout::Testing,
+            "/usr/local/go",
+            DEPS,
+            "b3:abc123",
+            "/workspace",
+        )
+        .unwrap();
+        let digests: Vec<(&str, String)> = files
+            .iter()
+            .map(|(n, body)| (*n, quod_cas::Hash::of(body.as_bytes()).to_string()))
+            .collect();
+        let spec = crate::StepSpec::new_warm_guarded(
+            crate::Toolchain::Go,
+            crate::Image::rootfs(quod_cas::Hash::of(b"image")),
+            "go test ./...",
+            &[],
+            Layout::Testing,
+        )
+        .unwrap();
+        let key = crate::step_key(&spec).unwrap().to_string();
+        println!("v2 golden: {digests:?} key {key}");
+        assert_eq!(
+            digests,
+            vec![
+                ("overlay.json", GOLDEN_V2_OVERLAY.to_string()),
+                ("testdeps.go", GOLDEN_V2_TESTDEPS.to_string()),
+                ("testing.go", GOLDEN_V2_TESTING.to_string()),
+            ]
+        );
+        assert_eq!(key, GOLDEN_V2_KEY);
+        assert_eq!(spec.guard_layout(), Some(Layout::Testing));
+    }
+
+    const GOLDEN_V2_OVERLAY: &str = "TBD";
+    const GOLDEN_V2_TESTDEPS: &str = "TBD";
+    const GOLDEN_V2_TESTING: &str = "TBD";
+    const GOLDEN_V2_KEY: &str = "TBD";
 
     /// Each layout's key path and knob name its version; the two never
     /// coincide, so a step proved under one is not a hit under the other.

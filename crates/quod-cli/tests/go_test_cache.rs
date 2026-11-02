@@ -318,6 +318,16 @@ fn small(files: &[(&str, &str)]) -> Env {
 
 const GO_MOD: &str = "module example.com/g\n\ngo 1.27\n";
 
+/// One value from the env's ledger, by `sql`.
+fn sqlite_one(env: &Env, sql: &str) -> String {
+    let out = std::process::Command::new("sqlite3")
+        .arg(env.state().join("ledger.sqlite"))
+        .arg(sql)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 /// The proofs-only defaults G6a and G6b run under: replay mode, two
 /// proofs, no audits, so the proofs are the evidence.
 fn proofs_only(env: &mut Env) {
@@ -337,7 +347,11 @@ fn proofs_only(env: &mut Env) {
 /// package, never serving `(cached)`. (Under v2 the guard lived in package
 /// testing, initialized after h, whose read was not logged; k's was, its
 /// test files importing testing: h is the case that tells the layouts
-/// apart, k the control.)
+/// apart, k the control.) The outcomes alone do not tell the guard from
+/// a proof: the files must be in the manifest of the run go test served
+/// from its cache, and the changed run must miss it there, with no
+/// divergence (review of 712cd87: with the guard's package renamed to
+/// sort after the test's packages, G6a passed on the proof alone).
 #[test]
 fn g6a_a_package_level_read_in_a_dependency_and_in_the_package_is_logged() {
     if !enabled() {
@@ -399,13 +413,60 @@ func TestK(t *testing.T) { if Conf != "v1" { t.Fatalf("conf: %q", Conf) } }
     );
     assert_eq!(of(&o4, "h"), "cached", "G6a h logged and unchanged: {o4:?}");
     assert_eq!(of(&o4, "k"), "cached", "G6a k logged and unchanged: {o4:?}");
-    // The files change: the miss reruns both packages, and they fail.
+    // What tells the guard's work from a proof's (review of 712cd87, MAJOR
+    // 1): go test served both from its cache, so only its recheck of the
+    // logged reads put the two files in r4's manifest. A guard that did
+    // not log them (a package path sorting after the test's packages)
+    // leaves them out, r5 then matches r4's manifest and only r5's proof
+    // catches the stale result, as a DIVERGENCE.
+    let ledger = quod_ledger::Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
+    let key = sqlite_one(
+        &env,
+        "SELECT step_key FROM manifests ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    );
+    let m4 = ledger
+        .candidates(&key.parse().unwrap(), 1)
+        .unwrap()
+        .remove(0);
+    for f in ["mod/h/testdata/conf.txt", "mod/k/testdata/conf.txt"] {
+        assert!(
+            m4.entries.iter().any(|e| e.p == f),
+            "G6a: r4's manifest lacks {f}, which go test rechecked only if the guard logged it: {:?}",
+            m4.entries.iter().map(|e| &e.p).collect::<Vec<_>>()
+        );
+    }
+    // The files change: a real miss (r4's manifest differs at both files),
+    // which reruns both packages, and they fail.
     env.write("mod/h/testdata/conf.txt", "v2\n");
     env.write("mod/k/testdata/conf.txt", "v2\n");
     env.commit("g: h's and k's files changed");
     let r5 = env.run_step(step, &[]);
     let o5 = outcomes(&r5.stdout);
     assert!(r5.executed() && r5.code != 0, "G6a miss: {}", r5.stderr);
+    assert!(
+        !r5.stderr.contains("DIVERGENCE"),
+        "G6a: r5 matched r4's manifest and only its proof caught the change: {}",
+        r5.stderr
+    );
+    // The closest manifest is r4's (the newest, checked above to hold both
+    // files), and r5 misses it at a changed file: the receipt names the
+    // first mismatch, h's or k's file, and counts the others.
+    let closest = r5
+        .stderr
+        .lines()
+        .skip_while(|l| !l.contains("closest manifest"))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        ["mod/h/testdata/conf.txt", "mod/k/testdata/conf.txt"]
+            .iter()
+            .any(|f| closest.contains(&format!("differed at {f}"))
+                && closest.contains(&format!("{f}: file content changed")))
+            && closest.contains(" more"),
+        "G6a: r5 is not a miss at h's and k's files: {closest:?}\n{}",
+        r5.stderr
+    );
     assert_eq!(
         of(&o5, "h"),
         "FAIL",

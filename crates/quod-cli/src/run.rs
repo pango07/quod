@@ -850,7 +850,9 @@ pub(crate) fn execute(
     go_tests: GoTests,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
-    if spec.guards_tests() != go_tests.guard.is_some() {
+    // The layout, not only its presence: the files bound are the layout's
+    // and the key names the layout's overlay path.
+    if spec.guard_layout() != go_tests.guard.map(|g| g.layout()) {
         bail!("internal error: the step key and the go test cache guard disagree");
     }
     let t = Instant::now();
