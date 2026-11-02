@@ -18,6 +18,7 @@ quod-sandbox.workspace = true
 quod-ledger.workspace = true
 quod-replay.workspace = true
 quod-trust.workspace = true
+quod-wire = { workspace = true, features = ["client"] }
 aho-corasick = "1"
 anyhow.workspace = true
 blake3.workspace = true
