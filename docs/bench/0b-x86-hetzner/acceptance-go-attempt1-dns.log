@@ -1,0 +1,15 @@
+ 20:48:35 up 5 min,  1 user,  load average: 0.69, 0.68, 0.30
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (go): go mod download (network, not memoized; deps in /root/.cache/quod/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+go: charm.land/bubbles/v2@v2.2.1: Get "https://proxy.golang.org/charm.land/bubbles/v2/@v/v2.2.1.mod": dial tcp: lookup proxy.golang.org on [::1]:53: read udp [::1]:57452->[::1]:53: read: connection refused
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:718ac0f6  x86_64 linux 7.0 4 cpus  (not portable)
+  caches in /root/.cache/quod/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/943ddb783315b2f7dc5fef989ef057da4b1c344093c77f136324156479bd696d/go
+  ran 0.1s
+
+real	0m1.005s
+user	0m1.103s
+sys	0m0.529s
+ACC_EXIT=1
+ 20:48:36 up 5 min,  1 user,  load average: 0.69, 0.68, 0.30

@@ -1,0 +1,8 @@
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+2 hits; checking up to 10
+OK  #33 5687d4ffe8 'go vet ./...': exit quod 0 plain 0; stdout lines 0 vs 0, normalized equal
+OK  #34 93d24ce9ff 'go vet ./...': exit quod 0 plain 0; stdout lines 0 vs 0, normalized equal
+SPOT_DONE checked=2 differing=0

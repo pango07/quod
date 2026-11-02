@@ -1,0 +1,139 @@
+== 2026-11-01T21:49:27Z history start N=40 COLD_EVERY=5 | 4.43 6.41 6.52 1/165 519236
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[21:53:54] commit 1/40 b1c8c0ae5a done load=8.00
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[21:54:56] commit 2/40 5b0cc54248 done load=5.51
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[21:56:00] commit 3/40 ed40e856ff done load=4.95
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[21:57:03] commit 4/40 5cfe30624f done load=5.03
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:00:10] commit 5/40 ad27e286ab done load=8.09
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:01:19] commit 6/40 401854ece8 done load=7.58
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:04:09] commit 7/40 1531837d85 done load=7.53
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:06:53] commit 8/40 ad4a6456e1 done load=7.14
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:09:35] commit 9/40 4f168ce66d done load=7.17
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:12:52] commit 10/40 a81663f7d8 done load=7.94
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:14:01] commit 11/40 b7887068cb done load=6.13
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:15:11] commit 12/40 bd0b0e085f done load=5.14
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:16:24] commit 13/40 d8474903cf done load=6.45
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:17:31] commit 14/40 316e7a80fb done load=5.11
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:22:18] commit 15/40 4a289a9e19 done load=8.57
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:23:32] commit 16/40 e62e84ca88 done load=6.74
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:26:14] commit 17/40 56682b6faf done load=8.19
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:27:28] commit 18/40 abf0e0c25a done load=6.12
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:30:09] commit 19/40 6314d776e1 done load=7.33
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:34:12] commit 20/40 547bf81aa5 done load=8.15
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:35:58] commit 21/40 ae7b971597 done load=6.25
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:37:16] commit 22/40 99750e1576 done load=5.46
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:38:24] commit 23/40 7948e8056e done load=6.01
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:39:35] commit 24/40 5056c0a8ef done load=5.23
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:43:02] commit 25/40 ed84a97a55 done load=7.59
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:44:10] commit 26/40 e87ed4c751 done load=5.82
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:45:21] commit 27/40 64d175234b done load=5.23
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:46:49] commit 28/40 059f4975b5 done load=5.96
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:48:46] commit 29/40 4f2cfe92e3 done load=6.86
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:52:02] commit 30/40 63837fb778 done load=6.59
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:54:46] commit 31/40 0186b810be done load=6.62
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:55:55] commit 32/40 9be5608274 done load=6.55
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:57:01] commit 33/40 5687d4ffe8 done load=6.13
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[22:58:08] commit 34/40 93d24ce9ff done load=5.49
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:01:21] commit 35/40 674516ff39 done load=6.75
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:02:30] commit 36/40 f7a06a18a9 done load=5.47
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:03:42] commit 37/40 8553724d15 done load=4.75
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:05:17] commit 38/40 30eb70ca63 done load=5.59
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:07:56] commit 39/40 443baeba05 done load=6.11
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:11:09] commit 40/40 9490d204a2 done load=6.70
+HIST_EXIT=0
+== 2026-11-01T23:11:09Z history end | 6.70 6.53 6.37 1/166 1222346

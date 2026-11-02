@@ -1,0 +1,30 @@
+== 2026-11-01T23:48:30Z replay start | 7.84 7.94 7.76 1/171 1639006
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:56:47] round 0 done load=7.44
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[23:59:26] round 1 done load=7.09
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[00:02:06] round 2 done load=6.38
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[00:04:46] round 3 done load=7.02
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+[00:07:26] round 4 done load=7.58
+REPLAY_EXIT=0
+== 2026-11-02T00:07:26Z replay end | 7.58 7.57 7.75 1/164 1856916

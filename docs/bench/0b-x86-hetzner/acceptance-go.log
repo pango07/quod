@@ -1,0 +1,776 @@
+ 20:55:07 up 12 min,  2 users,  load average: 3.72, 3.85, 1.88
+== host mode (no QUOD_ROOTFS): the key pins this host's fingerprint
+== step A (go): go mod download (network, not memoized; deps in /root/.cache/quod/deps)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  caches in /root/.cache/quod/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go
+  ran 2.8s
+== A1-A7 on https://github.com/cli/cli@9490d204a2ba (go profile), step: go test ./...
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step true --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --allow-net
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  caches in /root/.cache/quod/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go
+  ran 0.0s
+step A ok: dependency trees in /root/.cache/quod/deps/git:4a0eaa3da503e5117045ab4ea39ebaafae522c0b/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go, none in the checkout
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1562d793  manifest b3:5c90c816  29,937 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod inspect b3:1562d79371dbbc4593413788ae100aaf482c601162a839b5a57c4ec699ca106a
+A1 ok: EXECUTED, one manifest, 14284 outputs, none under []
+A1 observer event: {"timestamp":"2026-11-01T20:57:03.469425Z","level":"INFO","message":"observer","mounted_ms":109370,"transport":"fuse-uring","uring_fallback":false,"pids":1856,"passthrough":true,"lookup":3301,"lookup_absent":620,"getattr":1,"readlink":0,"open":26399,"read":0,"read_mb":0,"readdir":830,"ring_requests":56938,"device_requests":0,"ring_batches":56456,"ring_full_batches":19,"ring_serve_us":53262,"ring_nice":-10,"ring_nice_denied":false,"lock_contended":42,"ring_ops":"1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1","serve_user_ms":520,"serve_sys_ms":1476,"serve_threads":5,"serve_run_ms":408,"serve_runq_wait_ms":404,"serve_slices":56600,"target":"quod"}
+A1 run event: {"timestamp":"2026-11-01T20:57:03.727099Z","level":"INFO","message":"run","run_id":"01M6CEA5TQKHFDPTSTYX4VA0P7","step_key":"b3:1562d79371dbbc4593413788ae100aaf482c601162a839b5a57c4ec699ca106a","image_kind":"host","image":"b3:5a2f737c68111959c522883afdd278a97dbd193e39fd1a0b2c28f3f1385bac9d","arch":"x86_64","kernel":"7.0","cpus":4,"manifest_id":"b3:5c90c816a7a53b5e4ea1623e3acdcf7d0eb918e49a3ea519ab8a681e48da6a99","hit":false,"mode":"replay","outcome":"miss","warm":false,"exit_code":0,"inputs":29937,"transport":"fuse-uring","observer":"fuse-uring+nice-10+passthrough+zero-opendir+sealed","candidates":0,"setup_ms":659.822888,"import_ms":939.766248,"lookup_ms":0.406016,"mount_ms":568.933338,"serve_ms":102.521186,"overlay_ms":0.22146700000000002,"seal_ms":466.183265,"exec_ms":108517.20814799999,"diff_ms":412.155057,"outputs_ms":370.706407,"unmount_ms":19.896544,"manifest_ms":20.135346,"record_ms":219.977646,"cleanup_ms":4.845391,"total_ms":109731.227579,"target":"quod"}
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEA5 on 2026-11-01 20:57 UTC
+  step b3:1562d793  manifest b3:5c90c816  29,937 inputs matched
+  recorded 1m48s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+A2 ok: REPLAYED, exit 0 and 18160 stdout bytes identical
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --mode observe --proofs 2
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1562d793  manifest b3:5c90c816  29,937 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: proof 2 of 2, identical (up to go test durations) to run 01M6CEA5; replayable from the next matching run
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+P1 ok: a second execution agreed with A1 (identical up to go test durations); proof 2 of 2 under the default policy
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+manifest: 29937 entries (23982 f, 5335 d, 620 a, 0 l), 27752 under sealed prefixes [".quod/gomod"]
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEDK on 2026-11-01 20:58 UTC
+  step b3:1562d793  manifest b3:5c90c816  29,937 inputs matched
+  recorded 1m48s  replay 1.5s  saved 1m47s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+A3 ok: .experiments/tech-debt-burndown/memory.md-only commit REPLAYED
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1562d793  manifest b3:700a1c1e  29,937 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  closest manifest b3:5c90c816 differed at api/client.go
+    api/client.go: file content changed (file b3:1c6d53c1 mode 644 -> file b3:9d6c2787 mode 644)
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+A4 ok: MISS, receipt names api/client.go
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  closest manifest b3:700a1c1e differed at api
+    api: directory listing changed (directory listing b3:7027a9fb -> directory listing b3:717531c0)
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+A5 ok: MISS, mismatch names the listing of api
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A6=1
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:0b8113ab  manifest b3:7fdc3150  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+A6 ok: different key, no manifests
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7: mutated 23983 f, 5335 d, 620 a, 0 l entries in 765.9s: 0 false hits
+A7b: 250 unread files in the tree, sampling 10
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=0.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:77f15b12  manifest b3:b8de5fed  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .devcontainer/devcontainer.json mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=1.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:658f5122  manifest b3:96fd98a0  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/codeql/tests/unsanitized-response-to-terminal/hits_readall_intraproc.go mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=2.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:9daf0c70  manifest b3:008eca9e  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/extensions/terminal-mockup/library/issue-create-monas-cafe.json mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=3.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:59ba539b  manifest b3:35f1cb04  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/skills/cli-exercise/scripts/package.json mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=4.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:bc3a86a0  manifest b3:5d20bb91  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/skills/cli-exercise/tool/internal/evidence/model.go mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=5.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:4bd0566d  manifest b3:a96b3418  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/skills/cli-exercise/tool/internal/recording/models.go mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=6.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:3cfa8dfa  manifest b3:dbbd4467  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread .github/workflows/copilot-setup-steps.yml mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=7.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:55da45e6  manifest b3:251c17fb  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread docs/primer/components/images/Detail-gh-issue-view.png mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=8.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:694a605f  manifest b3:3ce17686  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread docs/primer/foundations/images/Language-02.png mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --env QUOD_A7B=9.0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:ab65b681  manifest b3:29f2135a  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m49s
+$ quod __served-git --repo /tmp/.tmpI7SWl7/repo
+A7b ok: unread git/fixtures/simple.git/objects/4b/825dc642cb6eb9a060e54bf8d69288fbee4904 mutated, replay agrees with a fresh execution, both read the same 29938 paths
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CEMF on 2026-11-01 21:02 UTC
+  step b3:1562d793  manifest b3:e545aafb  29,938 inputs matched
+  recorded 1m49s  replay 1.3s  saved 1m47s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:d8126e1f  manifest b3:0a0afed1  29,849 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpI7SWl7/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+W1 ok: first warm run (empty cache) agrees with the cold record
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1562d793  manifest b3:15d999e5  29,938 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  closest manifest b3:e545aafb differed at api/client.go
+    api/client.go: file content changed (file b3:9d6c2787 mode 644 -> file b3:1717bab3 mode 644)
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 1m48s
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:d8126e1f  manifest b3:ff3bac57  29,849 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpI7SWl7/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  closest manifest b3:0a0afed1 differed at api/client.go
+    api/client.go: file content changed (file b3:9d6c2787 mode 644 -> file b3:1717bab3 mode 644)
+  trust: proof 1 of 1; replay needs 1 identical execution
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+  ran 40.7s
+$ quod run --repo /tmp/.tmpI7SWl7/repo --step go test ./... --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGVY on 2026-11-01 21:40 UTC
+  step b3:d8126e1f  manifest b3:ff3bac57  29,849 inputs matched
+  recorded 40.7s  replay 1.3s  saved 39.4s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.cache/gh, .quod/home/.config/go/telemetry, .quod/home/.local/state/gh, .quod/home/.ssh/codespaces.auto, .quod/home/.ssh/codespaces.auto.pub
+W2 ok: warm agrees with cold after a one-file change; W3 ok: the warm key replays
+W4: warm manifest has 29849 entries with a full cache, 29849 with an empty one; 0 absent probes covered by their parent listing, 0 hidden by the cache
+W4 ok; for the record, the cold env records 89 paths the warm env does not (Go's module indexer walks whole modules; test caching stats every child of an opened directory)
+acceptance: A1-A7 and W pass under the go profile on the spike repo
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 2725.81s
+== trust suite (tiny Go module)
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step mkdir -p "$HOME" && head -c 16 /dev/urandom > "$HOME/tok"; echo done --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:8048ad87  manifest b3:332f05cd  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  ran 0.0s
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step mkdir -p "$HOME" && head -c 16 /dev/urandom > "$HOME/tok"; echo done --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:8048ad87  manifest b3:332f05cd  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXB on identical inputs
+    outputs differ at 1 path(s): .quod/home/tok changed
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 0.0s
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step mkdir -p "$HOME" && head -c 16 /dev/urandom > "$HOME/tok"; echo done --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:8048ad87  manifest b3:332f05cd  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXC on identical inputs
+    outputs differ at 1 path(s): .quod/home/tok changed
+  this key executes until 4 identical executions prove it again; audited 2 times, 2 divergences
+  ran 0.0s
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step go install -ldflags "-X main.built=$(date +%s%N)" ./cmd/tool && echo installed --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1ac2900d  manifest b3:ecd2fa0d  91 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.config/go/telemetry
+  ran 2.3s
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step go install -ldflags "-X main.built=$(date +%s%N)" ./cmd/tool && echo installed --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1ac2900d  manifest b3:ecd2fa0d  91 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXD on identical inputs
+    outputs differ at 1 path(s): .quod/gopath/bin/tool changed
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.config/go/telemetry
+  ran 2.3s
+$ quod run --repo /tmp/.tmpo5FAo7/repo --step go install -ldflags "-X main.built=$(date +%s%N)" ./cmd/tool && echo installed --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:1ac2900d  manifest b3:ecd2fa0d  91 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXG on identical inputs
+    outputs differ at 1 path(s): .quod/gopath/bin/tool changed
+  this key executes until 4 identical executions prove it again; audited 2 times, 2 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.config/go/telemetry
+  ran 2.3s
+T10 ok: random bytes in HOME and a time-stamped go install never became replayable
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  caches in /tmp/.tmpOSR6JB/state/deps/git:93ee60461e00e2c8b4566ebce7066703d7d75291/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go
+  ran 0.0s
+$ quod status --repo /tmp/.tmpOSR6JB/repo
+T11 ok: sealed and unsealed runs of one tree never diverged
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:92180c0d  manifest b3:b8936718  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  ran 0.0s
+$ quod run --repo /tmp/.tmpL8aF0U/repo --step head -c 8 /dev/urandom | od -An -tx1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:92180c0d  manifest b3:b8936718  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXS on identical inputs
+    stdout differs from line 1: " be 17 cb 5c bf 6b 58 42" vs " fc 00 f2 fa 0a a3 29 d1"
+  this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+  ran 0.0s
+$ quod run --repo /tmp/.tmpL8aF0U/repo --step head -c 8 /dev/urandom | od -An -tx1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:92180c0d  manifest b3:b8936718  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXS on identical inputs
+    stdout differs from line 1: " fc 00 f2 fa 0a a3 29 d1" vs " f4 34 c3 e4 9d f3 72 02"
+  this key executes until 4 identical executions prove it again; audited 2 times, 2 divergences
+  ran 0.0s
+$ quod run --repo /tmp/.tmpL8aF0U/repo --step head -c 8 /dev/urandom | od -An -tx1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:92180c0d  manifest b3:b8936718  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGXT on identical inputs
+    stdout differs from line 1: " f4 34 c3 e4 9d f3 72 02" vs " 91 da 70 26 a6 62 fc 38"
+  this key executes until 5 identical executions prove it again; audited 3 times, 3 divergences
+  ran 0.0s
+$ quod status --repo /tmp/.tmpL8aF0U/repo
+T1 ok: a random step executed 4 times, never replayed, quarantined after 3 divergences
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:70cded95  manifest b3:22f8d1b7  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  ran 0.0s
+$ quod status --repo /tmp/.tmpOTkALx/repo
+$ quod run --repo /tmp/.tmpOTkALx/repo --step echo hi; echo err >&2 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:70cded95  manifest b3:22f8d1b7  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: proof 2 of 2, byte-identical to run 01M6CGXV; replayable from the next matching run
+  ran 0.0s
+$ quod run --repo /tmp/.tmpOTkALx/repo --step echo hi; echo err >&2 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGXW on 2026-11-01 21:40 UTC
+  step b3:70cded95  manifest b3:22f8d1b7  0 inputs matched
+  recorded 0.0s  replay 0.6s  saved 0.0s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+$ quod status --repo /tmp/.tmpOTkALx/repo
+$ quod inspect b3:70cded95619c38c993031f4e7a4c3c1852dd6ea0f6e56b76acd0a58e218d31fa
+T2 ok: two identical executions, then a replay whose receipt carries the trust facts
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:6bfd832b  manifest b3:e045dc36  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  ran 1.0s
+$ quod run --repo /tmp/.tmpNkxsR2/repo --step sleep 1; echo observed --toolchain go
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:6bfd832b  manifest b3:e045dc36  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: proof 2 of 2, byte-identical to run 01M6CGXX; replayable from the next matching run
+  ran 1.0s
+$ quod run --repo /tmp/.tmpNkxsR2/repo --step sleep 1; echo observed --toolchain go
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  (observe mode: would have replayed, 1.0s not saved)
+  step b3:6bfd832b  manifest b3:e045dc36  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: audited 2 times, 0 divergences; `quod run --mode replay` replays this
+  ran 1.0s
+$ quod status --repo /tmp/.tmpNkxsR2/repo
+$ quod run --repo /tmp/.tmpNkxsR2/repo --step sleep 1; echo observed --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGY0 on 2026-11-01 21:41 UTC
+  step b3:6bfd832b  manifest b3:e045dc36  0 inputs matched
+  recorded 1.0s  replay 0.6s  saved 0.4s
+  trust: proven by 3 identical executions, audited 2 times, 0 divergences
+T3 ok: observe mode executed 3 times and reported the replay it did not take
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppFJDds/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppFJDds/repo --step cat "$GOCACHE/flag" 2>/dev/null || echo none --toolchain go --mode replay --warm --audit 1
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppFJDds/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: proof 2 of 2, byte-identical to run 01M6CGY2; replayable from the next matching run
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppFJDds/repo --step cat "$GOCACHE/flag" 2>/dev/null || echo none --toolchain go --mode replay --warm --audit 1
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  (audit: would-be hit 1 re-executed)
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppFJDds/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGY3 on identical inputs
+    stdout differs from line 1: "none" vs "changed"
+  this key executes until 3 identical executions prove it again; audited 2 times, 1 divergence
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppFJDds/repo --step cat "$GOCACHE/flag" 2>/dev/null || echo none --toolchain go --mode replay --warm --audit 0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppFJDds/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: quarantined since 2026-11-01 21:41 UTC (stdout differs from line 1: "none" vs "changed"); re-proof 2 of 3, byte-identical to run 01M6CGY4
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppFJDds/repo --step cat "$GOCACHE/flag" 2>/dev/null || echo none --toolchain go --mode replay --warm --audit 0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppFJDds/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: quarantined since 2026-11-01 21:41 UTC (stdout differs from line 1: "none" vs "changed"); re-proof 3 of 3, byte-identical to run 01M6CGY4; proven again, replayable from the next matching run
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppFJDds/repo --step cat "$GOCACHE/flag" 2>/dev/null || echo none --toolchain go --mode replay --warm --audit 0
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGY5 on 2026-11-01 21:41 UTC
+  step b3:c0f6ab28  manifest b3:38ea2310  2 inputs matched
+  recorded 0.0s  replay 0.6s  saved 0.0s
+  trust: proven by 3 identical executions, audited 4 times, 1 divergence
+  not compared, and not written by --outputs: .quod/gocache
+$ quod status --repo /tmp/.tmppFJDds/repo
+T4 ok: an audited hit that diverged quarantined the key; three identical runs re-proved it
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  TIMED OUT  the step ran 2.0s and was killed; not memoized
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step sleep 120 --toolchain go --allow-net --timeout 1s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  TIMED OUT  the network step ran 1.0s and was killed
+  caches in /tmp/.tmpFIr9uC/state/deps/git:fb471c8818f833672c5b22fd05bd75955af003f7/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go (whatever it fetched stays)
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 1 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:7a95bc3d  manifest b3:f741390a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpFIr9uC/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  no manifests for this step key
+  trust: proof 1 of 2; replay needs 2 identical executions
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 1 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:7a95bc3d  manifest b3:f741390a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpFIr9uC/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: proof 2 of 2, byte-identical to run 01M6CGYA; replayable from the next matching run
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 1 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  TIMED OUT  the step ran 10.0s and was killed; not memoized
+  trust: the step timed out after 10.0s, which is not a result (run 01M6CGYB finished with exit code 0); manifest b3:f741390a proves again from 0 of 2
+$ quod status --repo /tmp/.tmpFIr9uC/repo
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 0 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:7a95bc3d  manifest b3:f741390a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpFIr9uC/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: proof 1 of 2, byte-identical to run 01M6CGYB
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 0 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:7a95bc3d  manifest b3:f741390a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmpFIr9uC/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: proof 2 of 2, byte-identical to run 01M6CGYP; replayable from the next matching run
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmpFIr9uC/repo --step test -f "$GOCACHE/hang" && sleep 120; echo ok --toolchain go --mode replay --warm --audit 0 --timeout 10s
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGYP on 2026-11-01 21:41 UTC
+  step b3:7a95bc3d  manifest b3:f741390a  2 inputs matched
+  recorded 0.0s  replay 0.6s  saved 0.0s
+  trust: proven by 2 identical executions, audited 3 times, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache
+T5 ok: timeouts kill the step, record nothing, and restart the proof without a divergence
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGYR on 2026-11-01 21:41 UTC
+  step b3:1562d793  manifest b3:9e63f085  17 inputs matched
+  recorded 6.5s  replay 0.6s  saved 5.9s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+  not compared, and not written by --outputs: .quod/gocache, .quod/home/.config/go/telemetry
+$ quod run --repo /tmp/.tmpkf9Utj/repo --step true -- true
+QUOD  ERROR (exit 2, not the step's result)
+  give the step either as --step or as a trailing command, not both
+$ quod run --repo /tmp/.tmpkf9Utj/repo
+QUOD  ERROR (exit 2, not the step's result)
+  no step: give --step <script>, or the command after the flags (quod run -- go test ./...)
+T6 ok: quod run -- <cmd> from inside the checkout, in the directory it was run from
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED  network allowed, not memoized
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  caches in /tmp/.tmp0xcuoW/state/deps/git:c172758a1cb70aa86ef57b357489a064b4ce9841/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/go
+  ran 0.0s
+$ quod run --repo /tmp/.tmp0xcuoW/repo --step cat .quod/gomod/example.com/dep@v1.0.0/dep.txt; ls .quod --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:d9706b1c  manifest b3:a265271f  7 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 0.0s
+$ quod run --repo /tmp/.tmp0xcuoW/repo --step cat .quod/gomod/example.com/dep@v1.0.0/dep.txt; ls .quod --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGZF on 2026-11-01 21:41 UTC
+  step b3:d9706b1c  manifest b3:a265271f  7 inputs matched
+  recorded 0.0s  replay 0.6s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+$ quod run --repo /tmp/.tmp0xcuoW/repo --step cat .quod/gomod/example.com/dep@v1.0.0/dep.txt; ls .quod --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:d9706b1c  manifest b3:959c4e79  7 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  closest manifest b3:a265271f differed at .quod/gomod/example.com/dep@v1.0.0/dep.txt
+    .quod/gomod/example.com/dep@v1.0.0/dep.txt: file content changed (file b3:44159f35 mode 644 -> file b3:1bb6de2e mode 644)
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 0.0s
+$ quod status --repo /tmp/.tmp0xcuoW/repo
+T8 ok: the network step wrote its caches to the state dir; observed steps read them from the tree
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:97246a39  manifest b3:9f346b3a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppAoLU9/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  no manifests for this step key
+  trust: not provable (its stdout says "panic: test timed out after": killed or timed out, not finished); it executes every time
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step if [ -f "$GOCACHE/pass" ]; then echo ok; else echo '--- FAIL: TestHuhPrompterConfirm (600.00s)'; echo 'panic: test timed out after 10m0s'; exit 1; fi --toolchain go --mode replay --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:97246a39  manifest b3:9f346b3a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppAoLU9/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: not provable (its stdout says "panic: test timed out after": killed or timed out, not finished); it executes every time, byte-identical to run 01M6CGZH
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step if [ -f "$GOCACHE/pass" ]; then echo ok; else echo '--- FAIL: TestHuhPrompterConfirm (600.00s)'; echo 'panic: test timed out after 10m0s'; exit 1; fi --toolchain go --mode replay --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:97246a39  manifest b3:9f346b3a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppAoLU9/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: not provable (its stdout says "panic: test timed out after": killed or timed out, not finished); it executes every time, byte-identical to run 01M6CGZH
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step if [ -f "$GOCACHE/pass" ]; then echo ok; else echo '--- FAIL: TestHuhPrompterConfirm (600.00s)'; echo 'panic: test timed out after 10m0s'; exit 1; fi --toolchain go --mode replay --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:97246a39  manifest b3:9f346b3a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppAoLU9/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CGZJ on identical inputs
+    exit code 1 -> 0
+    stdout differs from line 1: "--- FAIL: TestHuhPrompterConfirm (<dur>)" vs "ok"
+  this key executes until 3 identical executions prove it again; audited 3 times, 1 divergence
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step if [ -f "$GOCACHE/pass" ]; then echo ok; else echo '--- FAIL: TestHuhPrompterConfirm (600.00s)'; echo 'panic: test timed out after 10m0s'; exit 1; fi --toolchain go --mode replay --warm
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:97246a39  manifest b3:9f346b3a  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  warm build cache /tmp/.tmppAoLU9/state/warm/95559387304ca6b65b26cf1035d49531f1cb6b2a5dc501236263feaad9a5d46f/gocache
+  trust: quarantined since 2026-11-01 21:41 UTC (exit code 1 -> 0; stdout differs from line 1: "--- FAIL: TestHuhPrompterConfirm (<dur>)" vs "ok"); re-proof 2 of 3, byte-identical to run 01M6CGZK
+  not compared, and not written by --outputs: .quod/gocache
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: not provable (exit code 1: failures never replay unless --replay-failures); it executes every time
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: not provable (exit code 1: failures never replay unless --replay-failures); it executes every time, byte-identical to run 01M6CGZM
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: not provable (exit code 1: failures never replay unless --replay-failures); it executes every time, byte-identical to run 01M6CGZM
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: proof 1 of 2, byte-identical to run 01M6CGZN
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: proof 2 of 2, byte-identical to run 01M6CGZP; replayable from the next matching run
+  ran 0.0s
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  REPLAYED
+  proved by run 01M6CGZP on 2026-11-01 21:41 UTC
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs matched
+  recorded 0.0s  replay 0.6s  saved 0.0s
+  trust: proven by 2 identical executions, audited 4 times, 0 divergences
+$ quod run --repo /tmp/.tmppAoLU9/repo --step echo FAIL; exit 1 --toolchain go --mode replay
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:e8ac3d15  manifest b3:974abbd5  0 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  trust: not provable (exit code 1: failures never replay unless --replay-failures); it executes every time, byte-identical to run 01M6CGZP
+  ran 0.0s
+$ quod status --repo /tmp/.tmppAoLU9/repo
+T9 ok: three identical timed-out failures never replayed, the pass quarantined the key; a plain failure replays only with --replay-failures
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 78.54s
+== observer failure paths, T7 (fault-injection build; ring too: --include-ignored)
+$ quod run --repo /tmp/.tmplX3wma/repo --step cat README.md --toolchain go --mode replay --proofs 1 --audit 0 --replay-failures
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:6c568233  manifest b3:49c9e298  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 0.0s
+T7 ok: an injected observer panic aborted the step and failed the run with exit 2 (classic)
+QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)
+QUOD  EXECUTED
+  step b3:6c568233  manifest b3:49c9e298  2 inputs recorded
+  image host fingerprint b3:5a2f737c  x86_64 linux 7.0 4 cpus  (not portable)
+  no manifests for this step key
+  trust: proof 1 of 1; replay needs 1 identical execution
+  ran 0.0s
+T7 ok: an injected panic in a ring queue aborted the step and failed the run with exit 2 (ring)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+real	47m18.187s
+user	16m14.292s
+sys	1m37.018s
+ACC_EXIT=0
+ 21:42:25 up 59 min,  3 users,  load average: 4.18, 6.40, 6.38

@@ -1,0 +1,11 @@
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+warning: unable to access '/root/.config/git/ignore': Permission denied
+warning: unable to access '/root/.config/git/attributes': Permission denied
+30 hits; checking up to 3
+OK  #1 9490d204a2 'go build ./...': exit quod 0 plain 0; stdout lines 0 vs 0, normalized equal
+OK  #1 9490d204a2 'go vet ./...': exit quod 0 plain 0; stdout lines 0 vs 0, normalized equal
+OK  #1 9490d204a2 'go test ./...': exit quod 0 plain 0; stdout lines 321 vs 321, normalized equal
+SPOT_DONE checked=3 differing=0

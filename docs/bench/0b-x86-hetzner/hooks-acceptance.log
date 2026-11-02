@@ -1,0 +1,767 @@
+== 2026-11-01T21:42:29Z hooks acceptance start | 4.18 6.40 6.38 1/161 442377
+
+running 3 tests
+prepare_job: job 01M6CH0TY63D3AV7TH1K7YPKC1
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 6.6s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A1 ok: EXECUTED through the hooks, one manifest
+prepare_job: job 01M6CH11HJSC9C83NTD1CV8C7H
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: yes, saving 6.6s (2 proofs)
+  trust: audited 1 time, 0 divergences; `quod run --mode replay` replays this
+prepare_job: job 01M6CH11T8RYACYN9GEWR2EBJ9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH11 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:2dff41aa  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+A2 ok: observe reports would-replay, replay mode REPLAYED 78 stdout bytes identical
+prepare_job: job 01M6CH11W6RGSXEE7E2NX593AD
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH11 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:2dff41aa  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+A3 ok: README-only commit REPLAYED
+prepare_job: job 01M6CH11ZHVAJKVEJK32KT0KWW
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at calc/calc.go [file content changed (file b3:9611e670 mode 644 -> file b3:5b832073 mode 644)] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A4 ok: MISS, the first mismatch outside .git is calc/calc.go
+prepare_job: job 01M6CH129WKXZDWYDMZFS4AQCC
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at calc [directory listing changed (directory listing b3:d83f5a6a -> directory listing b3:700649ca)] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A5 ok: MISS, the first mismatch outside .git is the listing of calc
+prepare_job: job 01M6CH12M182JZ53NBPT1NR90E
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH12WW8C9AP8XVW9MSYMDQ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+A6 ok: keyed env is a new key; volatile env is not
+prepare_job: job 01M6CH12YP1K5K8S7Q096HZYM5
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH137850VGM4VW9ZG3BSPH
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+C1 ok: the same step as uid 1234 and as root never replays uid 1001's result (2 new keys recorded)
+prepare_job: job 01M6CH13G48W37C6RJ9P0XTFD4
+$ step 1: exit 0
+
+$ step 2: exit 3
+quod: `run: echo c2; exit 3`: exited 3 offline; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: echo c2; exit 3`: failed in 0.0s; would replay: no, tainted: exited 3 offline; ran again with the runner's environment
+prepare_job: job 01M6CH13KTCA0GTCK5NGAB89CG
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: curl -sS -m 3 http://192.0.2.1/ >/dev/null 2>&1 || true; echo done`: tried to reach the network offline (1 attempts); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: curl -sS -m 3 http://192.0.2.1/ >/dev/null 2>&1 || true; echo done`: ok in 3.0s; would replay: no, tainted: tried to reach the network offline (1 attempts); ran again with the runner's environment
+prepare_job: job 01M6CH16NTXH8M7C9Y3GETG1RV
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: getent hosts example.com || true`: tried to reach the network offline (2 attempts); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: getent hosts example.com || true`: ok in 0.0s; would replay: no, tainted: tried to reach the network offline (2 attempts); ran again with the runner's environment
+C2 ok: a failure, a `curl || true` and a DNS lookup offline are run again, never recorded
+prepare_job: job 01M6CH16SNPN1F57HTGSNJ1N8F
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'v=%s' "$RELEASE_UPLOAD"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH16WD4R4XWQBTWAAPX6PF
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH16 on 2026-11-01 21:42 UTC
+  step b3:c1d73448  manifest b3:a534f338  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+C3 ok: a secret under a plain name is caught by value shape, masked in the stored output
+A7: mutated 6 f, 12 d, 8 a, 0 l entries in 0.0s: 0 false hits
+prepare_job: job 01M6CH16YCF8M3PVWAWY0WAQSY
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+prepare_job: job 01M6CH171GCBN5RJH0GSQ9AHF7
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A7b ok: unread README.md mutated, replay agrees with a fresh execution (26 paths; 0 only fresh, 0 only replayed)
+prepare_job: job 01M6CH17AAKEA6GSQV7EY08FM5
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+prepare_job: job 01M6CH17DF4CR5VXBZZYN03RW1
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A7b ok: unread calc/testdata/cases/a.txt mutated, replay agrees with a fresh execution (26 paths; 0 only fresh, 0 only replayed)
+prepare_job: job 01M6CH17PG2JSVRFZXYTW6WSDC
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+prepare_job: job 01M6CH17SNWJC69R9XRHPC6GM2
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A7b ok: unread calc/testdata/cases/b.txt mutated, replay agrees with a fresh execution (26 paths; 0 only fresh, 0 only replayed)
+prepare_job: job 01M6CH182BGW8QK33ESJA923WZ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+prepare_job: job 01M6CH18448191SE1ATPA0CAZT
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A7b ok: a file in the runner's RUNNER_TEMP changes nothing
+prepare_job: job 01M6CH18DC3SYB9BTCAJGNV968
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH12 on 2026-11-01 21:42 UTC
+  step b3:08a1c9b1  manifest b3:8c70e942  26 inputs matched
+  recorded 0.2s  replay 0.0s  saved 0.2s
+  trust: proven by 1 identical execution, audited 1 time, 0 divergences
+prepare_job: job 01M6CH18F78QJYGH3Z8GTVGVW7
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 6.5s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+A7b ok: an empty warm GOCACHE gives the recorded result
+prepare_job: job 01M6CH1EXZBX8ARN6844KW8HV8
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "t=\${${v}TOKEN:-}"; if [ -z "$t" ]; then echo "SKIP: no`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1F0YW0TVD5H6846CEFMQ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1E on 2026-11-01 21:42 UTC
+  step b3:3fdd3c3b  manifest b3:6c2f72dd  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1F2QKMFEG7FQ8HYZS8B2
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "t=\${${v}TOKEN:-}"; if [ -z "$t" ]; then echo "SKIP: no`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1F5EWRWDFFBEV70T25CB
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1F on 2026-11-01 21:42 UTC
+  step b3:0f8822eb  manifest b3:0a8d4790  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1F76Z2EHRQD5518B69C9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: v=ACTIONS_ID_TOKEN_; eval "u=\${${v}REQUEST_URL:-}"; if [ -n "$u" ]; the`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1F9YR567SMAC5F42G2KC
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1F on 2026-11-01 21:42 UTC
+  step b3:899dea98  manifest b3:4a17a86b  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1FBPSHD5P2G3DXMSZEBY
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: v=ACTIONS_ID_TOKEN_; eval "u=\${${v}REQUEST_URL:-}"; if [ -n "$u" ]; the`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1FEE6E00PCYVR1X8KS9K
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1F on 2026-11-01 21:42 UTC
+  step b3:324974be  manifest b3:0e273419  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1FG5ZKN69ZG9A828TW8P
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1F on 2026-11-01 21:42 UTC
+  step b3:0f8822eb  manifest b3:0a8d4790  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1FHWD7AXNVRQ05ZJN63K
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1E on 2026-11-01 21:42 UTC
+  step b3:3fdd3c3b  manifest b3:6c2f72dd  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH1FKMR6892TJ6M6T6T84R
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1F on 2026-11-01 21:42 UTC
+  step b3:324974be  manifest b3:0e273419  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+B1 ok: a job with GITHUB_TOKEN or ACTIONS_ID_TOKEN_REQUEST_URL never replays a result recorded without it
+prepare_job: job 01M6CH1FNDQNNF7YNPNYRQH6HT
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo \${${v}SHA}"`: its stdout holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo \${${v}SHA}"`: ok in 0.0s; would replay: no, tainted: its stdout holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+prepare_job: job 01M6CH1FRZ9SY75XVMP52T033Z
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo \${${v}SHA}"`: its stdout holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo \${${v}SHA}"`: ok in 0.0s; would replay: no, tainted: its stdout holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+prepare_job: job 01M6CH1FWQNFGJNEQTV2TZPW5Y
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo sha=\${${v}SHA}" >> "$GITHUB_OUTPUT"`: its GITHUB_OUTPUT holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo sha=\${${v}SHA}" >> "$GITHUB_OUTPUT"`: ok in 0.0s; would replay: no, tainted: its GITHUB_OUTPUT holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+prepare_job: job 01M6CH1G0GG7D8MAA6TA2FDMMZ
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo sha=\${${v}SHA}" >> "$GITHUB_OUTPUT"`: its GITHUB_OUTPUT holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo sha=\${${v}SHA}" >> "$GITHUB_OUTPUT"`: ok in 0.0s; would replay: no, tainted: its GITHUB_OUTPUT holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+prepare_job: job 01M6CH1G43TWMC67R8CBGW1MH8
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo \${${v}SHA}" > quod-n4.txt`: its output quod-n4.txt holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo \${${v}SHA}" > quod-n4.txt`: ok in 0.0s; would replay: no, tainted: its output quod-n4.txt holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+prepare_job: job 01M6CH1G7WGG446RYJBW36BTHY
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: v=GITHUB_; eval "echo \${${v}SHA}" > quod-n4.txt`: its output quod-n4.txt holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "echo \${${v}SHA}" > quod-n4.txt`: ok in 0.0s; would replay: no, tainted: its output quod-n4.txt holds a withheld variable's placeholder (quod-withheld), not the value GitHub would give; ran again with the runner's environment; a step that had the job's secrets wrote to the workspace
+N4 ok: a result holding a withheld variable's placeholder is never recorded; the step runs again with the real value
+prepare_job: job 01M6CH1GBEG60FGPVGYWF23E94
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo planted > "$GOCACHE/quod-nogo"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1GE8Q0YEXWQ8HSQTM78X
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: go list ./... >/dev/null && echo planted > "$GOCACHE/quod-stash"`: it wrote quod-stash into the warm build cache, which is not Go's cache layout; the scope's warm build cache was wiped
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo planted > "$GOCACHE/quod-stash"`: ok in 0.0s; would replay: no, tainted: it wrote quod-stash into the warm build cache, which is not Go's cache layout
+prepare_job: job 01M6CH1GJ0FXC1H8MJEASCXSHF
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: go list ./... >/dev/null && echo planted > "$GOCACHE/quod-stash"`: it wrote quod-stash into the warm build cache, which is not Go's cache layout; the scope's warm build cache was wiped
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo planted > "$GOCACHE/quod-stash"`: ok in 0.0s; would replay: no, tainted: it wrote quod-stash into the warm build cache, which is not Go's cache layout
+prepare_job: job 01M6CH1GMXX1F0ANXXANV0ZSVD
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: mkdir -p /tmp/hello && printf 'package main\n\nimport "fmt"\n\nfunc main`: ok in 3.6s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1M7X6JDYMF75WJZEQ9E1
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1G on 2026-11-01 21:42 UTC
+  step b3:2a281c6d  manifest b3:01a82503  15 inputs matched
+  recorded 3.6s  replay 0.0s  saved 3.6s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+M1 ok: only go steps see the warm build cache; a stash in it is not recorded and wipes it; go run's cached executable is Go's layout
+prepare_job: job 01M6CH1M9NRGZ4N9HZP9872EN0
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null; if [ -e "$GOCACHE/quod-flip" ]; then exit 3; f`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1MCWJJFY7X85P3FN8XD9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CH1M on identical inputs
+    this execution exited 3 offline
+  this key executes until 2 identical executions prove it again; audited 1 time, 1 divergence
+quod: `run: go list ./... >/dev/null; if [ -e "$GOCACHE/quod-flip" ]; then exit 3; f`: exited 3 offline; ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null; if [ -e "$GOCACHE/quod-flip" ]; then exit 3; f`: ok in 0.0s; would replay: no, tainted: exited 3 offline; ran again with the runner's environment
+D1 ok: a hit that behaves otherwise on the same inputs is quarantined, with a diverged run row
+prepare_job: job 01M6CH1MHN16GCD53KJDG3Q12B
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: mkdir -p /tmp/pr && printf 'package main\n\nimport "fmt"\n\nfunc main() `: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+$ step 3: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1G on 2026-11-01 21:42 UTC
+  step b3:2a281c6d  manifest b3:01a82503  15 inputs matched
+  recorded 3.6s  replay 0.0s  saved 3.6s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+$ step 4: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-pull-request-build`: ok in 0.0s; would replay: no, not recorded: an earlier step of this job wrote 37/3778dfb4a38a0f407589cb36d539604c1a67f7a8b242219fc9cda6f7d6228daf-a into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)
+$ step 5: exit 0
+QUOD  EXECUTED  [executed] `run: echo poison > "$GOMODCACHE/quod-pull-request"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1MXPHNC9PZEH6EWCM9JB
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-pull-request-build`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH1N0PPF0B202G3W0D5BYD
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: cat "$GOMODCACHE/quod-pull-request" 2>/dev/null || echo clean`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+W1 ok: a same-repository pull request writes only its own copy of the warm cache and workspace; its go step over its own writes is not recorded
+prepare_job: job 01M6CH1N3D71RYT8X0T3SQFJRB
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && go clean -cache`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-cache-was-altered`: ok in 0.0s; would replay: no, not recorded: an earlier step of this job wrote 00 into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)
+prepare_job: job 01M6CH1N8SA14X7XKPQXYCTWMK
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && d=$(ls -d "$GOCACHE"/[0-9a-f][0-9a-f] | head`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-cache-was-altered`: ok in 0.0s; would replay: no, not recorded: an earlier step of this job wrote 00 into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)
+prepare_job: job 01M6CH1NE622KTFTGPW6M86FWR
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && for f in "$GOCACHE"/*/*-a; do chmod o-r "$f"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-cache-was-altered`: ok in 0.0s; would replay: no, not recorded: an earlier step of this job wrote 00/001392c3083f74458985a28095a42dadf3d5de3f372d94c9d2de43ff238a17b4-a into its own layer over the warm build cache (only a default-branch push, dispatch or schedule writes the cache)
+prepare_job: job 01M6CH1NJRV1ESYSNNA2YMKXQT
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go list ./... >/dev/null && echo after-the-cache-was-altered`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+W2 ok: a pull request that empties, remakes or re-modes the warm cache leaves its later go steps unrecorded
+prepare_job: job 01M6CH1NNSKVCZ4W9TWY7WX3BS
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo trust-$((40 + 2))`: ok in 0.0s; would replay: no, first run of this step (1 of 2 identical proofs)
+  trust: proof 1 of 2; replay needs 2 identical executions
+prepare_job: job 01M6CH1NRK0JWSFVY5DPQN7MSS
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo trust-$((40 + 2))`: ok in 0.0s; would replay: not yet (2 of 2 identical proofs); replayable from the next matching run
+  trust: proof 2 of 2, byte-identical to run 01M6CH1N; replayable from the next matching run
+prepare_job: job 01M6CH1NVGNXRN1X1J3WNCMHG0
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1N on 2026-11-01 21:43 UTC
+  step b3:3800cc79  manifest b3:ff9e61a7  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+prepare_job: job 01M6CH1NXAMZ32NYYKSQW8BTDQ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo trust-$((40 + 2))`: ok in 0.0s; would replay: yes, saving 0.0s (3 proofs); audit: agrees with run 01M6CH1N
+  trust: audit passed, byte-identical to run 01M6CH1N; audited 2 times, 0 divergences
+T1 ok: once never replays, twice proves, the third replays; an audit agrees
+prepare_job: job 01M6CH1P0387MTH28J3FV381X9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: date +%s%N`: ok in 0.0s; would replay: no, first run of this step (1 of 2 identical proofs)
+  trust: proof 1 of 2; replay needs 2 identical executions
+prepare_job: job 01M6CH1P32SDZMEVN2SEF1TN0G
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: date +%s%N`: ok in 0.0s; would replay: no, quarantined by this run's divergence; **audit DIVERGED** from run 01M6CH1P: key quarantined (stdout differs from line 1: "1793569380387116843" vs "1793569380481536795")
+  QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CH1P on identical inputs
+      stdout differs from line 1: "1793569380387116843" vs "1793569380481536795"
+    this key executes until 3 identical executions prove it again; audited 1 time, 1 divergence
+prepare_job: job 01M6CH1P61XP7SD32AEACWE1HA
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: date +%s%N`: ok in 0.0s; would replay: no, quarantined by this run's divergence; **audit DIVERGED** from run 01M6CH1P: key quarantined (stdout differs from line 1: "1793569380481536795" vs "1793569380578738775")
+  QUOD  DIVERGENCE  step key quarantined: this execution differs from run 01M6CH1P on identical inputs
+      stdout differs from line 1: "1793569380481536795" vs "1793569380578738775"
+    this key executes until 4 identical executions prove it again; audited 2 times, 2 divergences
+T2 ok: a nondeterministic step diverges, is quarantined, never replays
+hooks acceptance: A1-A7, A7b, C1-C3, B1, N4, M1, D1, W1-W2 and T1-T2 pass
+.prepare_job: job 01M6CH1PARMJ1K9PWKAPRZY4P3
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 2.4s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G1 go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 2.4s; would replay: no, first run of this step (1 of 1 identical proofs)
+G1 vcs: build	vcs.revision=f68dad8be363bb6cb14c5a84e33180a693159c6e, build	vcs.time=2026-11-01T21:43:00Z, build	vcs.modified=false
+G1 manifest (entries, files): 119, 24; observer: 118 lookups, 156 opens, 0 MiB read
+prepare_job: job 01M6CH1RSAJ032N4362S6021PH
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: GIT_TRACE2_PERF=1 git status --porcelain 2>&1 >/dev/null | grep -o 'refr`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G0 git status re-checked: refresh/sum_scan:0
+prepare_job: job 01M6CH1RW6QSQWPGYET4SNAWPN
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.1s; would replay: no, closest manifest differed at .quod/gomod/cache [directory listing changed (directory listing b3:af1349b9 -> directory listing b3:5974aa22), 1 more] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G1 next job, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.1s; would replay: no, closest manifest differed at .quod/gomod/cache [directory listing changed (directory listing b3:af1349b9 -> directory listing b3:5974aa22), 1 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.1s; would replay: no, closest manifest differed at .quod/gomod/cache [directory listing changed (directory listing b3:af1349b9 -> directory listing b3:5974aa22), 1 more] (1 of 1 identical proofs)
+prepare_job: job 01M6CH1S2MMM1R8XVHY2A04GMB
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1R on 2026-11-01 21:43 UTC
+  step b3:cac2d6d7  manifest b3:c320c388  106 inputs matched
+  recorded 0.1s  replay 0.0s  saved 0.1s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+G1 same commit again, go build: QUOD  REPLAYED
+prepare_job: job 01M6CH1S4ENMECC0EPXDYKV1SE
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 4.5s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G2 go test: QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 4.5s; would replay: no, first run of this step (1 of 1 identical proofs)
+prepare_job: job 01M6CH1XMP25Y6A8EQ5F4AMPXH
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1S on 2026-11-01 21:43 UTC
+  step b3:f40c66ce  manifest b3:045792a6  33 inputs matched
+  recorded 4.5s  replay 0.0s  saved 4.5s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+G2 same commit again, go test: QUOD  REPLAYED
+prepare_job: job 01M6CH1XPN2GXJNT4S46K1D16X
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1S on 2026-11-01 21:43 UTC
+  step b3:f40c66ce  manifest b3:045792a6  33 inputs matched
+  recorded 4.5s  replay 0.0s  saved 4.5s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+G3 README commit, go test: QUOD  REPLAYED
+prepare_job: job 01M6CH1XSW246WTRQS1RKYPCX6
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:4cc6d94b mode 644 -> file b3:730bd7ea mode 644), 6 more] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G3 README commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:4cc6d94b mode 644 -> file b3:730bd7ea mode 644), 6 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:4cc6d94b mode 644 -> file b3:730bd7ea mode 644), 6 more] (1 of 1 identical proofs)
+prepare_job: job 01M6CH1Y1NV6S6XRCP5HKYFQYH
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1S on 2026-11-01 21:43 UTC
+  step b3:f40c66ce  manifest b3:045792a6  33 inputs matched
+  recorded 4.5s  replay 0.0s  saved 4.5s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+G4 .github commit, go test: QUOD  REPLAYED
+prepare_job: job 01M6CH1Y54V0EV917NW5RBJK3K
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at calc/calc.go [file content changed (file b3:9611e670 mode 644 -> file b3:997e3eaa mode 644)] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G4 Go source commit, go test: QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at calc/calc.go [file content changed (file b3:9611e670 mode 644 -> file b3:997e3eaa mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at calc/calc.go [file content changed (file b3:9611e670 mode 644 -> file b3:997e3eaa mode 644)] (1 of 1 identical proofs)
+prepare_job: job 01M6CH1YG5S6XQK1FS8TDQ1J6V
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:730bd7ea mode 644 -> file b3:4b8b4838 mode 644), 10 more] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G4 Go source commit, go build: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:730bd7ea mode 644 -> file b3:4b8b4838 mode 644), 10 more] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, closest manifest differed at .git/index [file content changed (file b3:730bd7ea mode 644 -> file b3:4b8b4838 mode 644), 10 more] (1 of 1 identical proofs)
+prepare_job: job 01M6CH1YQXQR7VDSRX8FZFGEAQ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:d235c0d6 mode 644 -> file b3:1a394eac mode 644)] (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G4 go.mod commit, go test: QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:d235c0d6 mode 644 -> file b3:1a394eac mode 644)] (1 of 1 identical proofs)
+  QUOD  EXECUTED  [executed] `run: go test ./...`: ok in 0.2s; would replay: no, closest manifest differed at go.mod [file content changed (file b3:d235c0d6 mode 644 -> file b3:1a394eac mode 644)] (1 of 1 identical proofs)
+prepare_job: job 01M6CH1Z2A2QZXQK8MT2TRH7F9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+G5 go build with GITHUB_TOKEN withheld: QUOD  EXECUTED  [executed] `run: go build -o bin/out ./cmd/x && go version -m bin/out | grep -E 'vcs\.' |`: ok in 0.2s; would replay: no, first run of this step (1 of 1 identical proofs)
+hooks git index: G1-G4 pass
+.prepare_job: job 01M6CH1ZBRYS98T4AVB54SNM90
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'raw=%s\n' "$DB_PASSWORD"`: ok in 0.0s; would replay: no, tainted: an output held a secret value (s1-secret.txt)
+prepare_job: job 01M6CH1ZG9NMBVC44V92QDFSEM
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'raw=%s\n' "$DB_PASSWORD"`: ok in 0.0s; would replay: no, tainted: an output held a secret value (s1-secret.txt)
+S1 done: a step-mapped secret in stdout, base64, a file, GITHUB_OUTPUT, the summary and a file name
+prepare_job: job 01M6CH1ZK7GRS5TVB3300BAXBQ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'dsn=%s\n' "$APP_DSN"`: ok in 0.0s; would replay: no, tainted: a path it looked up holds a secret value
+prepare_job: job 01M6CH1ZP6VMBBS6D0EET2TEYD
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'dsn=%s\n' "$APP_DSN"`: ok in 0.0s; would replay: no, tainted: a path it looked up holds a secret value
+S2 done: a job-mapped secret under a plain name
+prepare_job: job 01M6CH1ZS94742JV37RPVAM975
+$ step 1: exit 0
+quod: this job is opaque, nothing it runs is recorded: the secrets context as a whole (toJSON(secrets) or the like) at .github/workflows/quod-s3.yml:jobs.s.steps[1].env.ALL
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s3-ok`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the secrets context as a whole (toJSON(secrets) or the like) at .github/workflows/quod-s3.yml:jobs.s.steps[1].env.ALL)
+prepare_job: job 01M6CH1ZW5H249Q5QMJFWS174Y
+$ step 1: exit 0
+quod: this job is opaque, nothing it runs is recorded: the secrets context as a whole (toJSON(secrets) or the like) at .github/workflows/quod-s3.yml:jobs.s.steps[1].env.ALL
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s3-ok`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the secrets context as a whole (toJSON(secrets) or the like) at .github/workflows/quod-s3.yml:jobs.s.steps[1].env.ALL)
+S3 done: toJSON(secrets)
+prepare_job: job 01M6CH1ZZAR1X0CDE53X2YBD54
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s4-$APP_DSN`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH2022X9AQS7RVF8ERPP62
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH1Z on 2026-11-01 21:43 UTC
+  step b3:a3f2f68a  manifest b3:b06c9010  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+prepare_job: job 01M6CH203VG3G7W1716FCG51GM
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s4-$APP_DSN`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+S4 done: two values, two keys; the same value replays
+prepare_job: job 01M6CH2072MN4NQ3D4GRDN045V
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s5-ok`: ok in 0.0s; would replay: no, not recorded: the secret in DB_PASSWORD is shorter than 8 bytes, too short to mask reliably
+prepare_job: job 01M6CH209SGK41ZFCN5YNKWAYZ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo s5-ok`: ok in 0.0s; would replay: no, not recorded: the secret in DB_PASSWORD is shorter than 8 bytes, too short to mask reliably
+S5 done: a secret shorter than 8 bytes
+prepare_job: job 01M6CH20CGW7MY9FN6PF0A6F6F
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo '::add-mask::***'; echo v=***`: ok in 0.0s; would replay: no, tainted: it registered a secret (::add-mask::); a workflow command line it printed holds a secret
+prepare_job: job 01M6CH20F8VVHQT0956XFJNJ7Y
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo '::add-mask::***'; echo v=***`: ok in 0.0s; would replay: no, tainted: it registered a secret (::add-mask::); a workflow command line it printed holds a secret
+S6 done: ::add-mask::
+prepare_job: job 01M6CH20JBTH3H2VB22D5NVX9A
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "::set-output name=dsn::$APP_DSN"; echo s7`: ok in 0.0s; would replay: no, tainted: a workflow command line it printed holds a secret
+prepare_job: job 01M6CH20N4A497F44HK6W2366F
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "::set-output name=dsn::$APP_DSN"; echo s7`: ok in 0.0s; would replay: no, tainted: a workflow command line it printed holds a secret
+S7 done: a secret in a workflow command line
+prepare_job: job 01M6CH20QWG6Z1Z5TMF80GG7A9
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf '%s' "$DB_PASSWORD" > /tmp/key.pem`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH20TYDZ3HZKE701NPP7E5
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf '%s' "$DB_PASSWORD" > /tmp/key.pem`: ok in 0.0s; would replay: yes, saving 0.0s (2 proofs)
+  trust: audited 1 time, 0 divergences; `quod run --mode replay` replays this
+prepare_job: job 01M6CH20XVRDN3KBW82C1DCDCZ
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf '%s' "$DB_PASSWORD" > /tmp/key.pem`: ok in 0.0s; would replay: no, tainted: GITHUB_OUTPUT carries a secret value
+prepare_job: job 01M6CH210VAP60AB9H4TQ1W6ZS
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf '%s' "$DB_PASSWORD" > /tmp/key.pem`: ok in 0.0s; would replay: no, tainted: GITHUB_OUTPUT carries a secret value
+S8 done: wrapped base64 of a key
+prepare_job: job 01M6CH21459PJFY7E0J9PXZATE
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: printf 'raw=%s\n' "$DB_PASSWORD"`: ok in 0.0s; would replay: no, tainted: an output held a secret value (s1-***)
+S9 done: keep_jobs
+prepare_job: job 01M6CH217472XX7H4RVJ788D64
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo '::add-mask k=v::***'; echo 'v=***'`: ok in 0.0s; would replay: no, tainted: it registered a secret (::add-mask::); a workflow command line it printed holds a secret
+prepare_job: job 01M6CH219XGTDJPAEKBQ69PF32
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo '::add-mask k=v::***'; echo 'v=***'`: ok in 0.0s; would replay: no, tainted: it registered a secret (::add-mask::); a workflow command line it printed holds a secret
+S10 done: ::add-mask:: with properties and escapes
+prepare_job: job 01M6CH21D3K1S29M4MWDJX3T5E
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "DB_PASS=$(printf '%s' "$APP_DSN" | sed 's#.*:\(.*\)@.*#\1#')" >> "`: ok in 0.0s; would replay: no, tainted: GITHUB_ENV carries a part of a secret value
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: echo "pw=$DB_PASS"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH21H7XC499GWDK3N6BARM
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "DB_PASS=$(printf '%s' "$APP_DSN" | sed 's#.*:\(.*\)@.*#\1#')" >> "`: ok in 0.0s; would replay: no, tainted: GITHUB_ENV carries a part of a secret value
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: echo "pw=$DB_PASS"`: ok in 0.0s; would replay: yes, saving 0.0s (2 proofs)
+  trust: audited 1 time, 0 divergences; `quod run --mode replay` replays this
+S11 done: a part of a known secret
+prepare_job: job 01M6CH21NKD5008A5ECCSHE50Z
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "host=$PGHOST"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs)
+  trust: proof 1 of 1; replay needs 1 identical execution
+prepare_job: job 01M6CH21RGSYE7Z0TZ7K4C9A4H
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: echo "host=$PGHOST"`: ok in 0.0s; would replay: yes, saving 0.0s (2 proofs)
+  trust: audited 1 time, 0 divergences; `quod run --mode replay` replays this
+prepare_job: job 01M6CH21VDEC9WHYPKXBQ37BXV
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6CH21 on 2026-11-01 21:43 UTC
+  step b3:1d2561c0  manifest b3:da431ee9  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 2 identical executions, audited 1 time, 0 divergences
+S12 done: configuration inside a secret
+hooks secrets: S1-S12 pass
+.
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.92s
+
+HOOKS_EXIT=0
+== 2026-11-01T21:43:12Z hooks acceptance end | 4.56 6.18 6.30 1/169 453358

@@ -1,0 +1,25 @@
+== 2026-11-01T23:11:09Z overhead bench start | 6.70 6.53 6.37 1/166 1222348
+overhead [Plain (same sandbox, no FUSE or overlay)] 1/10: 108.9s (load 6.4 -> 7.1)
+overhead [Observed (import, serve, overlay, sandbox, record)] 1/10: 116.0s (execution 109.2s, load 7.1 -> 8.0; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 565/1992 ms user/sys, 5 threads ran 408 ms and waited 389 ms for a CPU, 58 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 2/10: 108.1s (load 8.0 -> 8.7)
+overhead [Observed (import, serve, overlay, sandbox, record)] 2/10: 112.2s (execution 109.6s, load 8.7 -> 7.2; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 528/1097 ms user/sys, 5 threads ran 406 ms and waited 412 ms for a CPU, 51 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 3/10: 108.3s (load 7.2 -> 7.8)
+overhead [Observed (import, serve, overlay, sandbox, record)] 3/10: 111.7s (execution 109.3s, load 7.8 -> 8.1; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 466/1166 ms user/sys, 5 threads ran 407 ms and waited 393 ms for a CPU, 57 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 4/10: 108.2s (load 8.1 -> 7.0)
+overhead [Observed (import, serve, overlay, sandbox, record)] 4/10: 111.9s (execution 109.4s, load 7.0 -> 7.4; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 499/1146 ms user/sys, 5 threads ran 408 ms and waited 403 ms for a CPU, 63 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 5/10: 108.0s (load 7.4 -> 7.4)
+overhead [Observed (import, serve, overlay, sandbox, record)] 5/10: 111.7s (execution 109.3s, load 7.4 -> 7.1; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 482/1158 ms user/sys, 5 threads ran 410 ms and waited 376 ms for a CPU, 55 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 6/10: 108.9s (load 7.1 -> 7.3)
+overhead [Observed (import, serve, overlay, sandbox, record)] 6/10: 111.8s (execution 109.3s, load 7.3 -> 7.6; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 491/1136 ms user/sys, 5 threads ran 410 ms and waited 411 ms for a CPU, 42 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 7/10: 108.9s (load 7.6 -> 7.8)
+overhead [Observed (import, serve, overlay, sandbox, record)] 7/10: 111.9s (execution 109.4s, load 7.8 -> 7.1; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 481/1149 ms user/sys, 5 threads ran 406 ms and waited 397 ms for a CPU, 48 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 8/10: 108.4s (load 7.1 -> 7.8)
+overhead [Observed (import, serve, overlay, sandbox, record)] 8/10: 112.0s (execution 109.5s, load 7.8 -> 8.0; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 518/1133 ms user/sys, 5 threads ran 411 ms and waited 413 ms for a CPU, 67 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 9/10: 108.6s (load 8.0 -> 6.9)
+overhead [Observed (import, serve, overlay, sandbox, record)] 9/10: 111.9s (execution 109.4s, load 6.9 -> 7.6; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 492/1143 ms user/sys, 5 threads ran 407 ms and waited 385 ms for a CPU, 56 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+overhead [Plain (same sandbox, no FUSE or overlay)] 10/10: 108.6s (load 7.6 -> 7.8)
+overhead [Observed (import, serve, overlay, sandbox, record)] 10/10: 111.8s (execution 109.4s, load 7.8 -> 8.4; fuse-uring+nice-10+passthrough+zero-opendir+sealed, 56938 ring / 0 device requests, serving 523/1110 ms user/sys, 5 threads ran 408 ms and waited 410 ms for a CPU, 36 lock waits; ring opcodes 1:3301,3:1,14:26399,17:2,18:26399,22:1,23:1,25:1,27:1,28:830,39:1,52:1)
+wrote /work/bench/report.md
+Observer overhead (0a, host): median +3.2%, Max +3.0% (plain 108.35s, observed 111.88s)
+BENCH_EXIT=0
+== 2026-11-01T23:48:30Z overhead bench end | 7.84 7.94 7.76 1/171 1639004
