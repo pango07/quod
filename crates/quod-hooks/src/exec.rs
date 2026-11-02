@@ -915,12 +915,12 @@ fn siphash(c: usize, d: usize, k0: u64, k1: u64, data: &[u8]) -> u64 {
         }
         v[0] ^= m;
     };
-    let mut chunks = data.chunks_exact(8);
-    for w in &mut chunks {
-        compress(&mut v, u64::from_le_bytes(w.try_into().unwrap()));
+    let (words, rest) = data.as_chunks::<8>();
+    for w in words {
+        compress(&mut v, u64::from_le_bytes(*w));
     }
     let mut last = [0u8; 8];
-    last[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
+    last[..rest.len()].copy_from_slice(rest);
     last[7] = data.len() as u8;
     compress(&mut v, u64::from_le_bytes(last));
     v[2] ^= 0xff;
