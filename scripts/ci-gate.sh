@@ -217,7 +217,7 @@ summary() {
     | grep -v -e '^== ' -e ' event: ' | cut -c1-240 | head -80 || true
   grep -E '^test result:' "$log" | awk '
     { for (i = 1; i <= NF; i++) { if ($i ~ /^passed/) p += $(i-1); if ($i ~ /^failed/) f += $(i-1); if ($i ~ /^ignored/) g += $(i-1) } }
-    END { if (NR) printf "tests: %d passed, %d failed, %d ignored (%d test binaries)\n", p, f, g, NR }'
+    END { if (NR) printf "tests: %d passed, %d failed, %d ignored (%d test binaries)\n", p, f, g, NR }' || true
   echo '```'
   if grep -qE '^test .* FAILED|panicked at|^---- ' "$log"; then
     echo
