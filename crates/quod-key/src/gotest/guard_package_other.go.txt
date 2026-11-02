@@ -1,0 +1,20 @@
+//go:build !linux
+
+// Quod's test-cache guard, version 3, where it does not build (the other
+// file is linux only: getrusage, waitid). The overlay applies to every
+// build in the step, a cross-compile included, so this package must
+// exist everywhere; here it logs nothing and calls every result
+// uncacheable. Not Go's.
+package quodguard
+
+import "internal/testlog"
+
+// Attach makes go's log the logger, as stock testdeps does.
+func Attach(to testlog.Interface) {
+	if testlog.Logger() == nil {
+		testlog.SetLogger(to)
+	}
+}
+
+// Verdict: nothing was logged before the tests started.
+func Verdict() string { return "the guard builds on linux only" }

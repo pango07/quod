@@ -1,0 +1,277 @@
+//go:build linux
+
+// Quod's test-cache guard, version 3: its own package, added to GOROOT by
+// go's -overlay and imported by testing/internal/testdeps (also changed by
+// Quod); not Go's. Linux only: it uses getrusage and waitid. Elsewhere the
+// package's other file calls every result uncacheable.
+//
+// Why this package exists, and why its path and imports are what they
+// are (crates/quod-key/src/gotest.rs has the rest): go test caches a
+// result keyed by the test binary and by what package os logged
+// (internal/testlog), and rechecks a logged path only inside the
+// package's module. Logging must start before the test package's own
+// package-level variables, its dependencies' and TestMain run, and the
+// log starts in m.Run. Go initializes packages one at a time: among the
+// packages whose imports are all initialized, the first in import-path
+// order (the linker's lexHeap over "<path>..inittask"). This package
+// imports only what package os already imports (plus os), so it is ready
+// the moment os is; and its path sorts before every package that imports
+// os, so it is initialized before any of them can open a file through os.
+// It may not import path/filepath or strings: os does not, and a wait on
+// them would let a package sorting after this one go first.
+package quodguard
+
+import (
+	"internal/stringslite"
+	"internal/testlog"
+	"os"
+	"path"
+	"sync"
+	"syscall"
+	"unsafe"
+)
+
+// guardLog decides whether go test may cache this test binary's result
+// inside a Quod-observed step. It logs from this package's init on and
+// classifies every access; the result is uncacheable when the test may
+// have depended on anything go test will not recheck: a path in the
+// workspace outside the module, scratch space the test did not create, a
+// process it started. testdeps writes the verdict into the test log as a
+// line go test cannot parse, so go test does not cache that result.
+// Installed only in a binary go test runs with a test log.
+type guardLog struct {
+	mu        sync.Mutex
+	installed bool
+	ops       []string // held until go's log is attached
+	to        testlog.Interface
+	pwd       string
+	modRoot   string
+	objdir    string
+	scratch   []string
+	existing  map[string]bool
+	unsafe    string
+}
+
+const (
+	quodWorkspace = "QUOD_WORKSPACE"
+	quodEarlyMax  = 1 << 20
+)
+
+var guard guardLog
+
+func init() {
+	logfile := ""
+	for _, a := range os.Args[1:] {
+		if f, ok := stringslite.CutPrefix(a, "-test.testlogfile="); ok {
+			logfile = f
+		}
+	}
+	if logfile == "" {
+		return
+	}
+	// Before the logger is set: nothing done here is logged.
+	guard.start(logfile)
+	guard.installed = true
+	testlog.SetLogger(&guard)
+}
+
+func isAbs(p string) bool { return len(p) > 0 && p[0] == '/' }
+
+func under(p, root string) bool {
+	return p == root || stringslite.HasPrefix(p, root+"/")
+}
+
+func (g *guardLog) start(logfile string) {
+	wd, err := os.Getwd()
+	if err != nil {
+		g.unsafe = "getwd failed"
+		return
+	}
+	g.pwd = wd
+	// go test runs the binary in the package directory (PWD) and resolves
+	// relative names there; a working directory moved earlier would make
+	// it resolve them elsewhere than the test did.
+	if pwd := os.Getenv("PWD"); pwd == "" || path.Clean(pwd) != wd {
+		g.unsafe = "the working directory is not the package's"
+	}
+	// The go command's directory for this binary (the binary, its log,
+	// profiles), made from the binary's own inputs.
+	if isAbs(logfile) {
+		g.objdir = path.Dir(path.Clean(logfile))
+	}
+	if os.Getenv("GO111MODULE") != "off" {
+		for d := wd; ; {
+			// A module in the module cache is `path@version` (and may have
+			// no go.mod of its own).
+			if stringslite.IndexByte(path.Base(d), '@') >= 0 {
+				g.modRoot = d
+				break
+			}
+			if fi, err := os.Stat(path.Join(d, "go.mod")); err == nil && fi.Mode().IsRegular() {
+				g.modRoot = d
+				break
+			}
+			p := path.Dir(d)
+			if p == d {
+				break
+			}
+			d = p
+		}
+	}
+	roots := []string{"/tmp", "/dev/shm", "/var/tmp"}
+	if t := os.Getenv("TMPDIR"); isAbs(t) {
+		roots = append(roots, path.Clean(t))
+	}
+	g.existing = map[string]bool{}
+	for _, r := range roots {
+		if under(r, quodWorkspace) {
+			continue
+		}
+		g.scratch = append(g.scratch, r)
+		ents, _ := os.ReadDir(r)
+		for _, e := range ents {
+			g.existing[r+"/"+e.Name()] = true
+		}
+	}
+}
+
+// check classifies one logged access; g.mu is held.
+func (g *guardLog) check(op, name string) {
+	switch op {
+	case "getenv":
+		return
+	case "chdir":
+		// go test hashes a chdir'd directory wherever it is.
+		g.pwd = name
+		return
+	}
+	if g.unsafe != "" {
+		return
+	}
+	p := name
+	if !isAbs(p) {
+		p = path.Join(g.pwd, p)
+	} else {
+		p = path.Clean(p)
+	}
+	switch {
+	case g.modRoot != "" && under(p, g.modRoot):
+		return // go test rechecks it
+	case g.objdir != "" && under(p, g.objdir):
+		return
+	case op == "stat" && (under(g.modRoot, p) || under(g.objdir, p)):
+		// A directory above the module or the binary's own directory
+		// (filepath.EvalSymlinks lstats every component): it exists, and
+		// a stat says nothing of what is in it.
+		return
+	case under(p, quodWorkspace):
+		g.unsafe = "read " + p + ", outside the package's module"
+		return
+	}
+	for _, r := range g.scratch {
+		if p == r {
+			// os.RemoveAll opens the parent of what it removes (every
+			// t.TempDir's cleanup), which the log cannot tell from a listing.
+			return
+		}
+		if under(p, r) {
+			rest := p[len(r)+1:]
+			if i := stringslite.IndexByte(rest, '/'); i >= 0 {
+				rest = rest[:i]
+			}
+			if g.existing[r+"/"+rest] {
+				g.unsafe = "read " + p + ", which it did not create"
+			}
+			return
+		}
+	}
+	// Anywhere else is the host's, read-only and pinned by the step key.
+}
+
+func forward(to testlog.Interface, op, name string) {
+	switch op {
+	case "getenv":
+		to.Getenv(name)
+	case "open":
+		to.Open(name)
+	case "stat":
+		to.Stat(name)
+	case "chdir":
+		to.Chdir(name)
+	}
+}
+
+func (g *guardLog) add(op, name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.check(op, name)
+	if g.to != nil {
+		forward(g.to, op, name)
+	} else if len(g.ops) < quodEarlyMax {
+		g.ops = append(g.ops, op, name)
+	} else if g.unsafe == "" {
+		g.unsafe = "logged too much before the tests started"
+	}
+}
+
+func (g *guardLog) Getenv(key string) { g.add("getenv", key) }
+func (g *guardLog) Open(name string)  { g.add("open", name) }
+func (g *guardLog) Stat(name string)  { g.add("stat", name) }
+func (g *guardLog) Chdir(name string) { g.add("chdir", name) }
+
+// Attach hands everything logged so far, and from now on, to go's log
+// (testdeps calls it when go's log starts). If the guard did not install
+// itself at init (no -test.testlogfile in the arguments then), go's log
+// becomes the logger as stock testdeps makes it, and the verdict says
+// nothing was logged before the tests started.
+func Attach(to testlog.Interface) {
+	g := &guard
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.installed {
+		if testlog.Logger() == nil {
+			testlog.SetLogger(to)
+		}
+		return
+	}
+	for i := 0; i+1 < len(g.ops); i += 2 {
+		forward(to, g.ops[i], g.ops[i+1])
+	}
+	g.ops = nil
+	g.to = to
+}
+
+// Verdict says why this result must not be cached, or "".
+func Verdict() string {
+	g := &guard
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.installed {
+		return "nothing was logged before the tests started"
+	}
+	if g.unsafe == "" {
+		// A process the test started: what it read is in no log. Every
+		// child that ran and was waited for shows in RUSAGE_CHILDREN; one
+		// not waited for is still a child (a zombie, or running).
+		var ru syscall.Rusage
+		if err := syscall.Getrusage(syscall.RUSAGE_CHILDREN, &ru); err != nil {
+			g.unsafe = "getrusage failed"
+		} else if ru.Minflt != 0 || ru.Majflt != 0 || ru.Utime != (syscall.Timeval{}) || ru.Stime != (syscall.Timeval{}) {
+			g.unsafe = "started a process"
+		} else {
+			var info [128]byte
+			const pAll, wExited, wNohang, wNowait = 0, 4, 1, 0x1000000
+			_, _, e := syscall.Syscall6(syscall.SYS_WAITID, pAll, 0, uintptr(unsafe.Pointer(&info[0])), wExited|wNohang|wNowait, 0, 0)
+			if e != syscall.ECHILD {
+				g.unsafe = "started a process"
+			}
+		}
+	}
+	b := []byte(g.unsafe)
+	for i, c := range b {
+		if c == '\n' {
+			b[i] = ' '
+		}
+	}
+	return string(b)
+}
