@@ -1,0 +1,42 @@
+[package]
+name = "quod-server"
+version = "0.0.0"
+description = "quod-server: one ledger and one result store for every runner of a team, over quod.v1."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "quod-server"
+path = "src/main.rs"
+
+[dependencies]
+quod-cas.workspace = true
+quod-manifest.workspace = true
+quod-ledger.workspace = true
+quod-trust.workspace = true
+quod-wire.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+blake3.workspace = true
+ed25519-dalek.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+jsonwebtoken.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+quod-wire = { workspace = true, features = ["client"] }
