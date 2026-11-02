@@ -217,7 +217,26 @@ impl OciRootfs {
 
     fn unpack(&self, r: &ImageRef, reference: &str) -> anyhow::Result<Rootfs> {
         let client = Registry::connect(r)?;
+        // A tag is resolved on every job (it moves), but by a HEAD request
+        // alone when what it names is unpacked already, directly or as the
+        // platform manifest of an index resolved before: no manifest is
+        // downloaded (on Docker Hub a manifest GET counts against the pull
+        // rate limit, a HEAD does not). The digest is the registry's
+        // Docker-Content-Digest, as for a GET.
+        if !reference.starts_with("sha256:")
+            && let Some(d) = client.head_digest(reference)?
+        {
+            if let Some(root) = self.unpacked(r, &d)? {
+                return Ok(root);
+            }
+            if let Ok(platform) = std::fs::read_to_string(self.alias_for(&d))
+                && let Some(root) = self.unpacked(r, platform.trim())?
+            {
+                return Ok(root);
+            }
+        }
         let (doc, digest) = client.manifest(reference)?;
+        let index_digest = digest.clone();
         let (doc, digest) = if doc.media_type.ends_with("index.v1+json")
             || doc.media_type.ends_with("manifest.list.v2+json")
             || !doc.manifests.is_empty()
@@ -239,7 +258,17 @@ impl OciRootfs {
                     format!("{}: no linux/{arch} manifest in the index", r.repository)
                 })?;
             let d = pick.digest.clone();
-            client.manifest(&d)?
+            let picked = client.manifest(&d)?;
+            // Remembered for the next resolution of the same index (a tag
+            // that has not moved): content-addressed, never stale.
+            let alias = self.alias_for(&index_digest);
+            if let Some(dir) = alias.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let tmp = alias.with_extension(format!("tmp.{}", ulid::Ulid::generate()));
+            std::fs::write(&tmp, &picked.1)?;
+            std::fs::rename(&tmp, &alias)?;
+            picked
         } else {
             (doc, digest)
         };
@@ -512,6 +541,24 @@ impl Registry {
             );
         }
         Ok((status, lines, out.stdout))
+    }
+
+    /// The digest a reference names, by HEAD (no body): `None` when the
+    /// registry does not say (no Docker-Content-Digest, or not 200).
+    fn head_digest(&self, reference: &str) -> anyhow::Result<Option<String>> {
+        let url = format!("{}/manifests/{reference}", self.base);
+        let (status, headers, _) = self.get(&url, MANIFEST_ACCEPT, true)?;
+        if status != 200 {
+            return Ok(None);
+        }
+        Ok(headers
+            .iter()
+            .find_map(|h| h.strip_prefix("docker-content-digest:"))
+            .map(|d| d.trim().to_string())
+            .filter(|d| {
+                d.strip_prefix("sha256:")
+                    .is_some_and(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+            }))
     }
 
     fn manifest(&self, reference: &str) -> anyhow::Result<(ManifestDoc, String)> {

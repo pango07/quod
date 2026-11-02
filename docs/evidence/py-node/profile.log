@@ -1,0 +1,100 @@
+== python:3.12-slim, a stdlib import (finding 4) and the per-job cost
+job 0: prepare_job 6.25s
+job 0: checkout 0.06s
+job 0: step 2 executed exit 0 0.51s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email, http.client; print(1)"`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run']
+job 0: cleanup_job 0.00s; total 6.82s
+job 1: prepare_job 0.80s
+job 1: checkout 0.01s
+job 1: step 2 replayed exit 0 0.01s  ['QUOD  REPLAYED']
+job 1: cleanup_job 0.00s; total 0.81s
+job 2: prepare_job 0.84s
+job 2: checkout 0.01s
+job 2: step 2 replayed exit 0 0.01s  ['QUOD  REPLAYED']
+job 2: cleanup_job 0.00s; total 0.85s
+
+== 5,000 files, ten steps, a new commit per job
+job 0: prepare_job 5.76s
+job 0: checkout 1.56s
+job 0: step 2 executed exit 0 0.65s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 3 executed exit 0 0.13s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 4 executed exit 0 0.13s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 5 executed exit 0 0.17s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 6 executed exit 0 0.15s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 7 executed exit 0 0.15s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 8 executed exit 0 0.20s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 9 executed exit 0 0.13s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 0: step 10 executed exit 0 0.16s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pk
+job 0: step 11 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pk
+job 0: cleanup_job 0.01s; total 9.30s
+job 1: prepare_job 0.81s
+job 1: checkout 0.67s
+job 1: step 2 executed exit 0 0.16s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 3 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 4 executed exit 0 0.12s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 5 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 6 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 7 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 8 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 9 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pkg
+job 1: step 10 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pk
+job 1: step 11 executed exit 0 0.11s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email" && head -c 12 pk
+job 1: cleanup_job 0.01s; total 2.65s
+job 2: prepare_job 1.04s
+job 2: checkout 0.65s
+job 2: step 2 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 3 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 4 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 5 replayed exit 0 0.02s  ['QUOD  REPLAYED']
+job 2: step 6 replayed exit 0 0.02s  ['QUOD  REPLAYED']
+job 2: step 7 replayed exit 0 0.02s  ['QUOD  REPLAYED']
+job 2: step 8 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 9 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 10 replayed exit 0 0.03s  ['QUOD  REPLAYED']
+job 2: step 11 replayed exit 0 0.02s  ['QUOD  REPLAYED']
+job 2: cleanup_job 0.01s; total 1.95s
+
+== phases of the last job (events.jsonl)
+{"level":"INFO","message":"observer","mounted_ms":69,"transport":"fuse-uring","uring_fallback":false,"pids":2,"passthrough":true,"lookup":6,"lookup_absent":1,"getattr":1,"readlink":0,"open":1,"read":0,"read_mb":0,"readdir":2,"ring_requests"
+{"level":"INFO","message":"hook","job":"01M6E9EKHD4GZ9JXEBC2W6HJ0D","step":11,"label":"run: 58347997","hook_ms":109,"target":"quod"}
+{"level":"INFO","message":"rootfs","image":"python:3.12-slim","digest":"sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b","ms":1006,"target":"quod"}
+{"level":"INFO","message":"checkout phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","build_ms":221,"save_ms":125,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":1,"label":"uses: actions/checkout@abc","hook_ms":643,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":2,"load_ms":23,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":2,"label":"run: b5858a58","hook_ms":25,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":3,"load_ms":20,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":3,"label":"run: 6aeca0a5","hook_ms":23,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":4,"load_ms":21,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":4,"label":"run: 093d6458","hook_ms":23,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":5,"load_ms":19,"surface_ms":1,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":5,"label":"run: 4dc2fe7b","hook_ms":21,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":6,"load_ms":19,"surface_ms":1,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":6,"label":"run: 8ad0a880","hook_ms":22,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":7,"load_ms":19,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":7,"label":"run: 24d931d0","hook_ms":21,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":8,"load_ms":20,"surface_ms":1,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":8,"label":"run: 27979ad5","hook_ms":23,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":9,"load_ms":21,"surface_ms":1,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":9,"label":"run: bdf315a7","hook_ms":23,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":10,"load_ms":20,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":10,"label":"run: 71b5af42","hook_ms":22,"target":"quod"}
+{"level":"INFO","message":"step phases","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":11,"load_ms":20,"surface_ms":0,"lookup_ms":0,"candidates":2,"target":"quod"}
+{"level":"INFO","message":"hook","job":"01M6E9EPBWCGSC3JXQTGF6HS0N","step":11,"label":"run: 58347997","hook_ms":22,"target":"quod"}
+
+== main 091035d, the same stdlib import (drive.py, 3 jobs)
+job 0: prepare_job 5.59s
+job 0: checkout 0.05s
+job 0: step 2 executed exit 0 0.49s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email, http.client; print(1)"`: ok in 0.1s; would replay: no, tainted: wrote outside the workspace (/usr)']
+job 0: cleanup_job 0.00s; total 6.13s
+job 1: prepare_job 1.10s
+job 1: checkout 0.01s
+job 1: step 2 executed exit 0 0.15s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email, http.client; print(1)"`: ok in 0.1s; would replay: no, tainted: wrote outside the workspace (/usr)']
+job 1: cleanup_job 0.00s; total 1.25s
+job 2: prepare_job 1.09s
+job 2: checkout 0.01s
+job 2: step 2 executed exit 0 0.17s  ['QUOD  EXECUTED  [executed] `run: python -c "import json, email, http.client; print(1)"`: ok in 0.1s; would replay: no, tainted: wrote outside the workspace (/usr)']
+job 2: cleanup_job 0.00s; total 1.27s
+{"timestamp":"2026-11-02T14:07:36.067707Z","level":"INFO","message":"rootfs","image":"python:3.12-slim","digest":"sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b","ms":5558,"ta
+{"timestamp":"2026-11-02T14:07:37.711850Z","level":"INFO","message":"rootfs","image":"python:3.12-slim","digest":"sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b","ms":1068,"ta
+{"timestamp":"2026-11-02T14:07:38.957864Z","level":"INFO","message":"rootfs","image":"python:3.12-slim","digest":"sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b","ms":1061,"ta
+
+[exited with code 0]
