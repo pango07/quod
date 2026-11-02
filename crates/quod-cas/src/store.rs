@@ -490,14 +490,22 @@ impl Cas {
         let Some(cache) = cache else {
             return self.put_file(path);
         };
+        if !cache.trusts(ident, path) {
+            // A file system whose file identity the client does not own.
+            return self.put_file(path);
+        }
         if let Some(h) = cache.get(rel, ident)
             && self.has(&h)
         {
             cache.keep(rel, *ident, h);
             return Ok((h, 0));
         }
+        // Settled is judged against the time the read started (the racy
+        // index rule): no write after that can carry a time older than
+        // SETTLE before it, however long the read takes.
+        let before = std::time::SystemTime::now();
         let out = self.put_file(path)?;
-        if ident.settled(std::time::SystemTime::now())
+        if ident.settled(before)
             && fs::symlink_metadata(path).is_ok_and(|m| Ident::of(&m) == *ident)
         {
             cache.keep(rel, *ident, out.0);

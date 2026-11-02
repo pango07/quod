@@ -264,7 +264,7 @@ pub fn pin(cas: &Cas, rootfs: Option<&str>, host_root: bool, runs: &Path) -> any
         }
         None => {
             if !host_root {
-                eprintln!(
+                say!(
                     "QUOD  note: no rootfs pinned; the key pins this host's fingerprint and the proof will not travel (pass --rootfs DIGEST or set QUOD_ROOTFS; --host-root silences this)"
                 );
             }
@@ -813,6 +813,56 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+
+    /// The fingerprint script, as `host_image` runs it, with its binary
+    /// hash cache in `cache`.
+    #[cfg(target_os = "linux")]
+    fn fingerprint(cache: &Path) -> Vec<u8> {
+        let out = Command::new("/bin/bash")
+            .arg("-c")
+            .arg(FINGERPRINT_SH)
+            .env_clear()
+            .env("PATH", quod_key::profile::HOST_PATH)
+            .env("QUOD_FP_CACHE", cache)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
+    }
+
+    /// A kept binary hash that is not one (a truncated write, a stray
+    /// file) is no entry: the binary is read again and the fingerprint is
+    /// the same bytes, never the garbage.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_corrupt_fingerprint_cache_entry_is_read_again() {
+        let d = tempfile::tempdir().unwrap();
+        let cache = d.path().join("fp");
+        let first = fingerprint(&cache);
+        let entries: Vec<PathBuf> = std::fs::read_dir(&cache)
+            .map(|r| r.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        if entries.is_empty() {
+            eprintln!("no toolchain binary was kept (none installed, or all too new); skipping");
+            return;
+        }
+        for (i, e) in entries.iter().enumerate() {
+            let junk = match i % 3 {
+                0 => "not a hash\n".to_string(),
+                1 => format!("{}\n", "0".repeat(63)),
+                _ => format!("{}\n", "A".repeat(64)),
+            };
+            std::fs::write(e, junk).unwrap();
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&fingerprint(&cache)),
+            String::from_utf8_lossy(&first)
+        );
+    }
 
     /// A tiny container export: merged usr, a shell, the files Docker
     /// writes per container, device nodes as empty files, a host file.

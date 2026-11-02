@@ -21,25 +21,36 @@ job() { local name=$1; shift; "$@" > "$out/$name" & pids+=($!); }
 # With QUOD_FP_CACHE (a directory Quod owns), a binary's hash is kept by its
 # identity (device, inode, size, mtime, ctime) and not read again while the
 # identity holds: writing a file moves its ctime, which nothing can set
-# back. A binary changed less than 2 s ago, or while it was read, is not
-# kept (file times are coarse). The printed hash is the same either way.
+# back. A binary changed less than 2 s before its read started, or while it
+# was read, is not kept (file times are coarse: the racy index rule). A
+# kept hash that is not 64 hex digits is no entry. A binary on a file
+# system whose identities are the server's or a daemon's (NFS, 9p, FUSE,
+# SMB, Ceph, AFS; stat -f's type) is always read. The printed hash is the
+# same either way.
 file_id() { find "$1" -maxdepth 0 -printf '%D %i %s %T@ %C@ %p'; }
+untrusted_fs() {
+  case "$(stat -f -c %t "$1" 2>/dev/null)" in
+    6969 | 1021997 | 65735546 | ff534d42 | fe534d42 | 517b | c36400 | 5346414f | "") return 0 ;;
+  esac
+  return 1
+}
 bin_hash() {
-  local f id c h
+  local f id c h now
   f=$(readlink -f "$1")
-  if [ -z "${QUOD_FP_CACHE:-}" ] || ! id=$(file_id "$f" 2>/dev/null); then
+  if [ -z "${QUOD_FP_CACHE:-}" ] || untrusted_fs "$f" || ! id=$(file_id "$f" 2>/dev/null); then
     sha256sum "$f" | cut -c1-64
     return
   fi
   c="$QUOD_FP_CACHE/$(printf '%s' "$id" | sha256sum | cut -c1-64)"
-  if [ -f "$c" ]; then
-    cat "$c"
+  if [ -f "$c" ] && h=$(cat "$c") && [[ $h =~ ^[0-9a-f]{64}$ ]]; then
+    echo "$h"
     return
   fi
+  now=$(date +%s.%N)
   h=$(sha256sum "$f" | cut -c1-64)
   echo "$h"
   if [ "$(file_id "$f" 2>/dev/null)" = "$id" ] &&
-    find "$f" -maxdepth 0 -printf '%T@ %C@\n' | awk -v now="$(date +%s.%N)" '{ exit !($1 + 2 < now && $2 + 2 < now) }'; then
+    find "$f" -maxdepth 0 -printf '%T@ %C@\n' | awk -v now="$now" '{ exit !($1 + 2 < now && $2 + 2 < now) }'; then
     mkdir -p "$QUOD_FP_CACHE" && echo "$h" > "$c.$$" && mv -f "$c.$$" "$c" || rm -f "$c.$$"
   fi
 }

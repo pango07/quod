@@ -13,6 +13,16 @@
 //! identity is taken before the read and checked after it: a file that
 //! changed while it was read is not kept.
 //!
+//! The settle time is measured from when the read starts, not from when it
+//! ends: a read longer than SETTLE would otherwise keep a file written just
+//! before it.
+//!
+//! None of this holds where the client does not own the file's identity: a
+//! network or FUSE file system (NFS, 9p, SMB, Ceph, AFS, FUSE) reports
+//! times and inode numbers its server or daemon chooses, and NFS's
+//! attribute cache can report an identity that is already stale. Files
+//! there are always hashed (`StatCache::trusts`).
+//!
 //! One cache file per imported root (and skip list), under the store, so the
 //! two go together. Losing or corrupting it costs a full import, never a
 //! wrong hash: anything that does not parse is ignored.
@@ -101,12 +111,55 @@ fn take<const N: usize>(b: &mut &[u8]) -> Option<[u8; N]> {
     Some(*head)
 }
 
+/// File systems (statfs f_type) whose file identity the stat cache does not
+/// trust: what they report is the server's or the daemon's.
+const UNTRUSTED_FS: &[(i64, &str)] = &[
+    (0x6969, "nfs"),
+    (0x0102_1997, "9p"),
+    (0x6573_5546, "fuse"),
+    (0xff53_4d42, "cifs"),
+    (0xfe53_4d42, "smb2"),
+    (0x517b, "smb"),
+    (0x00c3_6400, "ceph"),
+    (0x5346_414f, "afs"),
+];
+
+/// Whether files on a file system of type `magic` keep their hash by
+/// identity.
+pub(crate) fn trusted_fs(magic: i64) -> bool {
+    !UNTRUSTED_FS.iter().any(|(m, _)| *m == magic)
+}
+
+/// The statfs f_type of the file system holding `path`.
+#[cfg(target_os = "linux")]
+fn fs_magic(path: &std::path::Path) -> Option<i64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statfs is plain old data; all zeroes is a valid value.
+    #[allow(unsafe_code)] // statfs(2) has no safe std wrapper
+    let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid NUL-terminated path and a statfs to fill, both
+    // outliving the call.
+    #[allow(unsafe_code)]
+    let rc = unsafe { libc::statfs(c.as_ptr(), &mut st) };
+    #[allow(clippy::unnecessary_cast)] // f_type's width differs by arch
+    (rc == 0).then_some(st.f_type as i64)
+}
+
+/// Elsewhere the cache is never trusted.
+#[cfg(not(target_os = "linux"))]
+fn fs_magic(_: &std::path::Path) -> Option<i64> {
+    None
+}
+
 /// A root's cache: what the last import kept, and what this one keeps (only
 /// paths it saw, so removed files drop out).
 pub(crate) struct StatCache {
     path: PathBuf,
     old: HashMap<String, (Ident, Hash)>,
     new: Mutex<HashMap<String, (Ident, Hash)>>,
+    /// Per device: whether its file system is trusted (`trusts`).
+    devices: Mutex<HashMap<u64, bool>>,
 }
 
 impl StatCache {
@@ -119,7 +172,18 @@ impl StatCache {
             path,
             old,
             new: Mutex::new(HashMap::new()),
+            devices: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Whether a file with `ident`, at `path`, may keep its hash by
+    /// identity: its file system is not one in `UNTRUSTED_FS` (asked once
+    /// per device; a file system that cannot be asked is not trusted).
+    pub(crate) fn trusts(&self, ident: &Ident, path: &std::path::Path) -> bool {
+        let mut devices = self.devices.lock().unwrap();
+        *devices
+            .entry(ident.dev)
+            .or_insert_with(|| fs_magic(path).is_some_and(trusted_fs))
     }
 
     /// The hash kept for `rel` if the file still has `ident`.
@@ -205,6 +269,25 @@ mod tests {
         assert_eq!(c.get("f", &other), None);
         fs::write(&path, b"quod import stat cache v1\n\x05").unwrap();
         assert!(StatCache::load(path).old.is_empty());
+    }
+
+    #[test]
+    fn network_and_fuse_file_systems_are_not_trusted() {
+        for (magic, name) in UNTRUSTED_FS {
+            assert!(!trusted_fs(*magic), "{name}");
+        }
+        // ext4, xfs, btrfs, tmpfs, overlayfs.
+        for magic in [0xef53, 0x5846_5342, 0x9123_683e, 0x0102_1994, 0x794c_7630] {
+            assert!(trusted_fs(magic), "{magic:#x}");
+        }
+        // The test's own temp dir is a local file system (on Linux; the
+        // cache is never trusted elsewhere).
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("f");
+        fs::write(&f, "x").unwrap();
+        let c = StatCache::load(d.path().join("cache"));
+        let ident = Ident::of(&fs::metadata(&f).unwrap());
+        assert_eq!(c.trusts(&ident, &f), cfg!(target_os = "linux"));
     }
 
     #[test]
