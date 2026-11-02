@@ -18,6 +18,7 @@ quod-sandbox.workspace = true
 quod-ledger.workspace = true
 quod-replay.workspace = true
 quod-trust.workspace = true
+quod-wire = { workspace = true, features = ["client"] }
 quod-hooks.workspace = true
 anyhow.workspace = true
 clap.workspace = true
@@ -38,6 +39,11 @@ fault-injection = ["quod-fs/fault-injection"]
 
 [dev-dependencies]
 tempfile.workspace = true
+# tests/server.rs: a quod-server in-process.
+quod-server.workspace = true
+blake3.workspace = true
+hex.workspace = true
+tokio.workspace = true
 
 [[test]]
 name = "ring_faults"
