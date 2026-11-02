@@ -127,22 +127,24 @@ pub const GUARD_IMPORTS: &[&str] = &[
     "unsafe",
 ];
 
-/// The imports of a Go file's single import block, in order.
+/// The imports of a Go file's single import block (or single `import`
+/// line), in order: the quoted path of each line, whatever its name or
+/// trailing comment.
 pub fn go_imports(src: &str) -> Vec<&str> {
+    fn quoted(l: &str) -> Option<&str> {
+        let (_, rest) = l.split_once('"')?;
+        rest.split_once('"').map(|(p, _)| p)
+    }
     let Some(start) = src.find("\nimport (\n") else {
         return src
             .lines()
-            .filter_map(|l| l.strip_prefix("import \""))
-            .filter_map(|l| l.strip_suffix('"'))
+            .filter(|l| l.starts_with("import "))
+            .filter_map(quoted)
             .collect();
     };
     let block = &src[start + "\nimport (\n".len()..];
     let block = &block[..block.find("\n)\n").unwrap_or(block.len())];
-    block
-        .lines()
-        .filter_map(|l| l.trim().rsplit(' ').next())
-        .filter_map(|l| l.strip_prefix('"').and_then(|l| l.strip_suffix('"')))
-        .collect()
+    block.lines().filter_map(quoted).collect()
 }
 
 /// The guard's file in package testing (`Layout::Testing`), with the
@@ -199,19 +201,24 @@ const TOOLCHAIN_VARS: &[&str] = &[
     "GOTOOLCHAIN",
     "GOENV",
     "GO111MODULE",
-    "GODEBUG",
 ];
 
 /// The first assignment word in `script` to a variable the guard depends
 /// on (`GOFLAGS=-count=1 go test`, `export PATH=...`, `PATH+=...`, `go env
-/// -w GOFLAGS=...`): the go command the script runs may then not be the
-/// one, or have the flags, the guard was made for. None if there is none.
+/// -w GOFLAGS=...`), or to GODEBUG speaking of the module index
+/// (`GODEBUG=goindex=1 go test`: the probe ran with the profile's
+/// `goindex=0`, and whether cmd/go finds the guard's package through the
+/// overlay depends on it): the go command the script runs may then not be
+/// the one, or have the flags, the guard was made for. None if there is
+/// none.
 pub fn script_sets_toolchain_env(script: &str) -> Option<&str> {
+    let assigns = |w: &str, v: &str| {
+        w.strip_prefix(v)
+            .is_some_and(|r| r.starts_with('=') || r.starts_with("+="))
+    };
     words(script).into_iter().find(|w| {
-        TOOLCHAIN_VARS.iter().any(|v| {
-            w.strip_prefix(v)
-                .is_some_and(|r| r.starts_with('=') || r.starts_with("+="))
-        })
+        TOOLCHAIN_VARS.iter().any(|v| assigns(w, v))
+            || (assigns(w, "GODEBUG") && w.contains("goindex"))
     })
 }
 
@@ -586,6 +593,7 @@ func (TestDeps) StopTestLog() error {
             "GOOS=windows go build ./... && go test ./...",
             "MYPATH=/x go test ./...",
             "echo $PATH; go test ./...",
+            "GODEBUG=gctrace=1 go test ./...",
         ] {
             assert_eq!(script_sets_toolchain_env(s), None, "{s}");
         }
@@ -677,6 +685,10 @@ func (TestDeps) StopTestLog() error {
             vec!["a/b", "c"]
         );
         assert_eq!(go_imports("package x\n\nimport \"os\"\n"), vec!["os"]);
+        assert_eq!(
+            go_imports("package x\n\nimport (\n\t\"os\" // why\n\t_ \"a/b\"\n)\n"),
+            vec!["os", "a/b"]
+        );
     }
 
     /// The guard's path sorts first: in the linker's order (bytewise on
@@ -684,6 +696,9 @@ func (TestDeps) StopTestLog() error {
     /// starting with a letter, and the test main.
     #[test]
     fn the_guard_package_sorts_before_every_package_importing_os() {
+        // Raw paths, not objabi.PathToPrefix's: it escapes only a dot in
+        // the last element (as %2e) and bytes outside the printable
+        // range, which orders every case here the same way.
         let key = |p: &str| format!("{p}..inittask");
         for p in [
             "archive/zip",
