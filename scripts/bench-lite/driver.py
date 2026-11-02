@@ -77,6 +77,7 @@ NORMALIZE = [
     (re.compile(r"\(cached\)"), "T"),                               # go: (cached)
     (re.compile(r"\b\d+(?:\.\d+)?(?:ms|s)\b"), "T"),                  # go, unittest, node spec: 0.12s, 38.1ms
     (re.compile(r"duration_ms:? [\d.]+"), "duration_ms T"),           # node TAP and spec summary
+    (re.compile(r"\((node|npm):\d+\)"), r"(\1:PID)"),                  # node's process warnings
 ]
 
 

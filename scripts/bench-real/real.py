@@ -123,6 +123,10 @@ class Repo:
         self.pending = []
 
     def prepare(self):
+        # Every run starts cold: no plain cache, Quod state or log of an
+        # earlier run survives (only the pristine clone in src/ is reused).
+        for sub in ("plain", "history", "traffic", "logs"):
+            shutil.rmtree(f"{self.dir}/{sub}", ignore_errors=True)
         os.makedirs(f"{self.dir}/logs", exist_ok=True)
         for attempt in range(4):
             if os.path.isdir(f"{self.src}/.git"):

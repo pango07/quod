@@ -9,6 +9,25 @@
 > runner: `gh workflow run gate.yml --ref <branch> -f only=bench-real`, 2 vCPUs
 > on a private repository). The whole run took 18 minutes (1,099 s).
 >
+> Runs so far, all with Quod at main `3ddaaca`'s code:
+>
+> | where | wall | expr plain / Quod | commander plain / Quod | attrs plain / Quod | replayed | wrong |
+> |---|---:|---:|---:|---:|---:|---:|
+> | dev VM, 4 pinned cores (below) | 18 min | 47.5 / 60.2 s (1.27x) | 47.1 / 64.9 s (1.38x) | 101 / 110 s (1.08x) | 0 of 195 | 0 |
+> | GitHub ubuntu-latest, 2 vCPU EPYC 7763, [run 41491354108](https://github.com/pango07/quod/actions/runs/41491354108) | 75 min | 261 / 333 s (1.28x) | 246 / 327 s (1.33x) | 281 / 345 s (1.23x) | 0 of 195 | 0 |
+>
+> A run on main `5a4c18b` (observer-speed, py-node readiness) was started on
+> the dev VM and stopped when benchmarks moved off the Mac; its numbers are
+> not kept (the first attempt also reused an earlier run's caches, which
+> `real.py` now wipes). It goes on a Hetzner CCX23:
+>
+> ```sh
+> git clone https://github.com/pango07/quod && cd quod && git checkout exp/bench-lite
+> sudo QUOD_GATE_SETUP=1 scripts/ci-gate.sh setup go node python   # bwrap, fuse3, ring, toolchains at /usr/local
+> # rust from rust-toolchain.toml (rustup), then, as root:
+> sudo -E scripts/bench-real.sh            # report: .bench-real/report.md
+> ```
+>
 > **What it shows on main: Quod replayed none of the 195 test steps, on all
 > three repositories, and made no wrong replay.** Three gaps, each one a
 > fix branch, explain every one of the would-be replays it executed instead:
