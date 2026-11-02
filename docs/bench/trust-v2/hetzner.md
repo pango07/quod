@@ -72,16 +72,21 @@ comparisons were identical only up to durations, as every `go test` is.
 40 commits became 87 jobs (40 PR, 40 merge, 7 re-runs; seed 42), 261 keyed
 step runs per series, the same job sequence under both policies.
 
-| | **v2 (defaults)** | v1 (`--proofs 2 --shadow 0`), first run | v1, clean re-run |
+| | **v2 (defaults)** | **v1 (`--proofs 2 --shadow 0`), clean run** | v1, first run (apt upgrade mid-run; evidence only) |
 | --- | --- | --- | --- |
-| replayed / unchanged-input runs, all steps | **57 / 74 (77%)** | 19 / 67 (28%) | _pending_ |
-| `go test` | **13 / 18 (72%)**: PR 3/5, merge 4/6, re-run 6/7 | 1 / 16 (6%): PR 0/4, merge 0/6, re-run 1/6 | _pending_ |
-| `go vet` | **41 / 49 (84%)**: PR 7/8, merge 28/34, re-run 6/7 | 18 / 45 (40%): PR 5/6, merge 7/33, re-run 6/6 | _pending_ |
-| `go build` | 3 / 7 (re-runs only; `.git` differs between PR head and merge) | 0 / 6 | _pending_ |
-| audits (shadow + decay) / proving executions | 17 (6 + 11) / 0 | 0 / 48 | _pending_ |
-| divergences, suspect replays | **0, 0** | 0, 0 | _pending_ |
-| total wall of the 261 keyed runs; of the replays | 5,002 s; 74 s | 5,035 s; 29 s | _pending_ |
-| `go test` wall: executions / replays | 3,990 s / 28 s | 3,930 s / 1 s | _pending_ |
+| replayed / unchanged-input runs, all steps | **57 / 74 (77%)** | **21 / 74 (28%)** | 19 / 67 (28%) |
+| `go test` | **13 / 18 (72%)**: PR 3/5, merge 4/6, re-run 6/7 | **1 / 18 (6%)**: PR 0/5, merge 0/6, re-run 1/7 | 1 / 16 (6%) |
+| `go vet` | **41 / 49 (84%)**: PR 7/8, merge 28/34, re-run 6/7 | **20 / 49 (41%)**: PR 6/8, merge 7/34, re-run 7/7 | 18 / 45 (40%) |
+| `go build` | 3 / 7 (re-runs only; `.git` differs between PR head and merge) | 0 / 7 (the re-runs are its second runs: proving) | 0 / 6 |
+| audits (shadow + decay) / proving executions | 17 (6 + 11) / 0 | 1 / 52 | 0 / 48 |
+| divergences, suspect replays | **0, 0** | 0, 0 | 0, 0 |
+| total wall of the 261 keyed runs; of the replays | 5,002 s; 74 s | 4,989 s; 36 s | 5,035 s; 29 s |
+| `go test` wall: executions / replays | 3,990 s / 28 s | 3,951 s / 1 s | 3,930 s / 1 s |
+
+Same jobs, same denominator (74 unchanged-input runs), same box: v2 replays
+57 where v1 replays 21, and for `go test` 13 where v1 replays 1. The 36
+extra replays are 17 audits fewer than they look (v2 executes 17 of its 74
+as audits, v1 52 as proofs): v2 executed 17 unchanged-input runs, v1 53.
 
 Why v1's merge runs almost never replay: the merge commit's tree is the PR
 head's tree (first-parent merges, `.git` aside), so the merge run is that
@@ -94,16 +99,18 @@ head and the merge differ in `.git`, and `go test` reads it through the
 module's VCS stamping, see 0b's F6), so `go test` replays only PR-to-merge
 pairs where `.git` is not read, re-runs, and docs-only commits.
 
-**The first v1 run is handicapped and kept only as evidence** (`rows/
-traffic-v1-aptrun.jsonl` once copied; `/work/tv2/traffic-v1-aptrun` on
-server 2): Ubuntu's `apt-daily-upgrade` ran at 06:08–06:10 UTC, in the
-middle of it, rewrote /etc (`/etc/alternatives`, `/etc/ld.so.cache`,
-`/etc/apparmor.d`, ...), which the host fingerprint hashes, so from commit
-28's PR job every step key changed (twice: once per upgrade phase) and v1
-started proving from nothing on fresh keys for commits 28–40. v2's series
-ran before the upgrade and saw one key per step throughout. The timers are
-disabled and the series re-run from an empty state dir; that re-run is the
-number to quote.
+**The first v1 run is handicapped and kept only as evidence**
+(`rows/traffic-v1-aptrun.jsonl`, `logs/traffic-v1-aptrun.log`): Ubuntu's
+`apt-daily-upgrade` ran at 06:08–06:10 UTC, in the middle of it, rewrote
+/etc (`/etc/alternatives`, `/etc/ld.so.cache`, `/etc/apparmor.d`, ...),
+which the host fingerprint hashes, so from commit 28's PR job every step key
+changed (twice: once per upgrade phase) and v1 started proving from nothing
+on fresh keys for commits 28–40. v2's series ran before the upgrade and saw
+one key per step throughout. The apt timers were then disabled (a one-time
+/etc change before the re-run's empty state dir, so its keys were constant)
+and v1 re-run: `rows/traffic-v1.jsonl`, the column to quote. It came out
+within 2 replays of the handicapped run: the upgrade cost v1 little, because
+v1's merge runs are proving runs either way.
 
 ### Plain-warm baseline on server 2, against the v2 history
 

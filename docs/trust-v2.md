@@ -58,8 +58,8 @@ Measured (see "Measured"): the 14 unchanged-input step runs that gave 2
 replays under v1 in 0b's history give 7 under v2 (vet 4 of 8, test 3 of 6;
 the other 7 are the shadow audits and the decay audits, executed and
 compared, all agreeing), and in PR-then-merge traffic 57 of 74 unchanged-
-input runs replay (`go test` 13 of 18) against v1's 19 of 67 (`go test` 1 of
-16) on the same jobs.
+input runs replay (`go test` 13 of 18) against v1's 21 of 74 (`go test` 1 of
+18) on the same jobs.
 
 ## The schedule
 
@@ -321,8 +321,8 @@ drivers beside it), cli/cli's 40 commits, `go build`/`go vet`/`go test`:
 | | v1 | **v2 defaults** |
 | --- | --- | --- |
 | History, one job per commit: replayed / unchanged-input runs | 2 / 14 (0b, server 1) | **7 / 14** (vet 4/8, test 3/6; the other 7 are the shadow and decay audits) |
-| Realistic traffic (PR head, merge, 10% re-runs; 87 jobs): replayed / unchanged | 19 / 67 (28%) (first run; a clean re-run is in hetzner.md) | **57 / 74 (77%)** |
-| of which `go test` | 1 / 16 (6%) | **13 / 18 (72%)** |
+| Realistic traffic (PR head, merge, 10% re-runs; 87 jobs, same box): replayed / unchanged | 21 / 74 (28%) | **57 / 74 (77%)** |
+| of which `go test` | 1 / 18 (6%) | **13 / 18 (72%)** |
 | divergences / suspect replays, all series | 0 / 0 | **0 / 0** |
 
 A `go test` replay took 1.7–2.1 s against ~41 s executed. The projection
