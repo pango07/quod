@@ -1,0 +1,81 @@
+== plain-test
+    45.93%         46082  link           
+    21.01%         21080  compile        
+    12.69%         12733  swapper        
+    10.81%         10842  vet            
+     4.54%          4560  go             
+     0.97%           969  preview.test   
+     0.35%           350  prompter.test  
+     0.27%           275  view.test      
+distinct pids per comm:
+    557 vet
+    486 compile
+    246 link
+     70 git
+     56 git.test
+     54 go
+== quod-test
+    39.99%         44872  link           
+    28.24%         31684  compile        
+    13.95%         15655  swapper        
+     9.35%         10494  vet            
+     4.13%          4633  go             
+     0.79%           890  preview.test   
+     0.39%           442  quod           
+     0.30%           335  prompter.test  
+distinct pids per comm:
+    753 compile
+    557 vet
+    247 link
+     71 go
+     71 git
+     56 git.test
+== main-vet
+    58.70%         10233  vet         
+    26.25%          4576  swapper     
+     7.41%          1291  go          
+     3.29%           573  compile     
+     2.42%           421  quod        
+     0.43%            75  find        
+     0.30%            53  git         
+     0.26%            46  bash        
+distinct pids per comm:
+    557 vet
+     37 bash
+     16 go
+      7 sha256sum
+      6 git
+      6 find
+== vet1-vet
+    35.67%         10977  compile        
+    33.89%         10428  vet            
+    22.09%          6797  swapper        
+     5.78%          1778  go             
+     1.45%           445  quod           
+     0.25%            76  find           
+     0.19%            57  git            
+     0.14%            44  bash           
+distinct pids per comm:
+    558 vet
+    267 compile
+     52 go
+     35 bash
+      8 :-1
+      6 sha256sum
+module packages: 319
+module packages importing testing (transitively, non-test build): 265
+all packages (deps incl.) importing testing:
+277
+module packages importing testing directly:
+github.com/cli/cli/v2/git
+github.com/cli/cli/v2/internal/attachments
+github.com/cli/cli/v2/internal/config
+github.com/cli/cli/v2/internal/prompter
+github.com/cli/cli/v2/pkg/cmd/attestation/test/data
+github.com/cli/cli/v2/pkg/cmd/attestation/verification
+github.com/cli/cli/v2/pkg/cmd/auth/shared/contract
+github.com/cli/cli/v2/pkg/cmd/issue/argparsetest
+github.com/cli/cli/v2/pkg/cmd/pr/shared
+github.com/cli/cli/v2/pkg/cmd/release/shared
+github.com/cli/cli/v2/pkg/httpmock
+github.com/cli/cli/v2/pkg/jsonfieldstest

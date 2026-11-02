@@ -1,0 +1,122 @@
+== plain-test
+    45.93%  link           
+    21.01%  compile        
+    12.69%  swapper        
+    10.81%  vet            
+     4.54%  go             
+     0.97%  preview.test   
+     0.35%  prompter.test  
+     0.27%  view.test      
+     0.23%  create.test    
+     0.20%  extension.test 
+     0.18%  portforwarder.t
+     0.16%  edit.test      
+     0.16%  codespace.test 
+     0.15%  list.test      
+     0.13%  shared.test    
+     0.12%  install.test   
+     0.11%  download.test  
+     0.09%  api.test       
+     0.09%  gen-docs.test  
+     0.09%  git            
+    12.05%  [k] do_idle
+     2.70%  [.] runtime.mapaccess2
+     2.05%  [.] cmd/link/internal/loader.(*Loader).resolve
+     1.96%  [.] internal/runtime/maps.memHashAES
+     1.83%  [.] cmd/link/internal/loader.(*loadState).preloadSyms
+     1.72%  [.] cmd/link/internal/ld.(*deadcodePass).flood
+     1.68%  [.] cmd/link/internal/ld.(*heap).pop
+     1.68%  [.] runtime.memmove
+     1.55%  [k] el0_da
+     1.40%  [.] cmd/link/internal/loader.(*loadState).addSym
+     1.37%  [.] runtime.mapaccess2_faststr
+     1.22%  [.] crypto/internal/fips140/sha256.blockSHA2.abi0
+     1.11%  [.] cmd/link/internal/ld.(*deadcodePass).mark
+     1.03%  [.] cmd/link/internal/ld.(*relocSymState).relocsym
+     0.85%  [.] runtime.mapaccess2_fast32
+     0.82%  [k] charge_memcg
+     0.78%  [.] runtime.mapassign_faststr
+     0.78%  [k] folio_batch_move_lru
+     0.68%  [k] __rmqueue_pcplist
+     0.66%  [.] runtime.mallocgc
+     0.63%  [.] runtime.tryDeferToSpanScan
+     0.62%  [.] cmd/link/internal/loader.(*Loader).SymType
+     0.61%  [k] memcg1_commit_charge
+     0.60%  [.] runtime.mapaccess2_fast64
+     0.59%  [k] folios_put_refs
+     0.59%  [k] ptep_clear_flush
+     0.55%  [k] ext4_get_group_info
+     0.55%  [k] percpu_counter_add_batch
+     0.53%  [k] __arch_copy_to_user
+     0.51%  [.] cmd/link/internal/loader.(*Loader).AssignTextSymbolOrder
+     0.51%  [k] ext4_get_group_desc
+     0.50%  [.] __kernel_clock_gettime
+     0.49%  [.] cmd/link/internal/loader.abiToVer
+     0.49%  [.] cmd/compile/internal/ssa.applyRewrite
+     0.48%  [.] cmd/link/internal/loader.(*Loader).PcdataAuxs
+     0.44%  [.] runtime.scanObject
+     0.42%  [k] handle_softirqs
+     0.41%  [.] cmd/link/internal/loader.(*loadState).addSym.func4
+     0.38%  [.] cmd/link/internal/ld.(*Link).symtab
+     0.38%  [.] runtime.memmove
+== quod-test
+    39.99%  link           
+    28.24%  compile        
+    13.95%  swapper        
+     9.35%  vet            
+     4.13%  go             
+     0.79%  preview.test   
+     0.39%  quod           
+     0.30%  prompter.test  
+     0.22%  view.test      
+     0.17%  codespace.test 
+     0.16%  portforwarder.t
+     0.14%  extension.test 
+     0.13%  list.test      
+     0.11%  create.test    
+     0.11%  git            
+     0.10%  shared.test    
+     0.09%  edit.test      
+     0.08%  gen-docs.test  
+     0.07%  delete.test    
+     0.07%  api.test       
+    13.46%  [k] do_idle
+     2.31%  [.] runtime.mapaccess2
+     1.82%  [k] el0_da
+     1.79%  [.] cmd/link/internal/loader.(*Loader).resolve
+     1.69%  [.] internal/runtime/maps.memHashAES
+     1.61%  [.] cmd/link/internal/loader.(*loadState).preloadSyms
+     1.53%  [.] cmd/link/internal/ld.(*heap).pop
+     1.51%  [.] cmd/link/internal/ld.(*deadcodePass).flood
+     1.39%  [.] runtime.memmove
+     1.25%  [.] crypto/internal/fips140/sha256.blockSHA2.abi0
+     1.22%  [.] runtime.mapaccess2_faststr
+     1.19%  [.] cmd/link/internal/loader.(*loadState).addSym
+     1.05%  [.] cmd/link/internal/ld.(*deadcodePass).mark
+     0.91%  [.] runtime.mallocgc
+     0.88%  [.] runtime.mapaccess2_fast64
+     0.87%  [.] cmd/link/internal/ld.(*relocSymState).relocsym
+     0.84%  [k] folio_batch_move_lru
+     0.84%  [k] charge_memcg
+     0.70%  [k] folios_put_refs
+     0.70%  [.] runtime.mapaccess2_fast32
+     0.66%  [k] percpu_counter_add_batch
+     0.65%  [.] runtime.mapassign_faststr
+     0.61%  [.] cmd/compile/internal/ssa.applyRewrite
+     0.60%  [.] runtime.tryDeferToSpanScan
+     0.59%  [.] runtime.memmove
+     0.56%  [.] cmd/link/internal/loader.(*Loader).SymType
+     0.54%  [k] ptep_clear_flush
+     0.53%  [k] __rmqueue_pcplist
+     0.52%  [k] memcg1_commit_charge
+     0.52%  [.] __kernel_clock_gettime
+     0.51%  [.] internal/runtime/maps.memHashAES
+     0.47%  [.] cmd/link/internal/loader.abiToVer
+     0.46%  [k] __arch_copy_to_user
+     0.46%  [.] cmd/link/internal/loader.(*Loader).AssignTextSymbolOrder
+     0.44%  [.] runtime.memclrNoHeapPointers
+     0.41%  [.] cmd/link/internal/loader.(*Loader).PcdataAuxs
+     0.39%  [.] internal/pkgbits.readUvarint
+     0.39%  [.] cmd/compile/internal/ssa.(*regAllocState).regalloc
+     0.37%  [.] runtime.scanObject
+     0.37%  [.] runtime.mapaccess2_faststr
