@@ -193,10 +193,7 @@ fn open_ro(p: &Path) -> anyhow::Result<Connection> {
         }
     }
     uri.push_str("?immutable=1");
-    Ok(Connection::open_with_flags(
-        uri,
-        flags | OpenFlags::SQLITE_OPEN_URI,
-    )?)
+    Ok(Connection::open_with_flags(uri, flags | OpenFlags::SQLITE_OPEN_URI)?)
 }
 
 fn version(db: &Connection) -> anyhow::Result<i64> {
