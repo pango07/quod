@@ -42,6 +42,13 @@ hyper-util = { version = "0.1", default-features = false, features = ["server", 
 tower-service = "0.3"
 # statvfs for the volume's free-space floor, without unsafe code.
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
+# Quod Cloud's backends (P4): Postgres through the sync client and r2d2's
+# pool (blocking, like the handlers' SQLite work, inside spawn_blocking),
+# and S3 through quod-server's own SigV4 signing over ureq (HMAC-SHA256).
+r2d2 = "0.8"
+r2d2_postgres = "0.18"
+hmac = "0.12"
+sha2 = "0.10"
 
 anyhow = "1"
 blake3 = "1.8"

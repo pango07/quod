@@ -16,7 +16,7 @@ use quod_manifest::{Manifest, Mismatch, StepResult, matches};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-mod index;
+pub mod index;
 
 /// How many candidate manifests a lookup verifies, newest first. Each costs
 /// only the index nodes no newer candidate shares with it (`index`).
@@ -134,6 +134,9 @@ pub enum LedgerError {
     TooNew { found: usize, known: usize },
     #[error("ledger holds an invalid value: {0}")]
     Corrupt(String),
+    /// A store other than SQLite (quod-server's Postgres ledger) failed.
+    #[error("ledger store: {0}")]
+    Store(String),
 }
 
 pub struct Ledger {
@@ -1187,7 +1190,7 @@ impl Ledger {
                 Ok(())
             })?;
         }
-        let mut eval = index::Eval::new(&self.db, tree);
+        let mut eval = index::NodeEval::sqlite(&self.db, tree);
         let mut hit = None;
         for (id, root) in rows.iter().skip(1) {
             let mid = parse_hash(id)?;
@@ -1906,7 +1909,8 @@ type RawAudit = (
     Option<String>,
 );
 
-fn parse_hash(s: &str) -> Result<Hash, LedgerError> {
+/// A hash as the ledger stores it (`b3:<hex>`).
+pub fn parse_hash(s: &str) -> Result<Hash, LedgerError> {
     s.parse()
         .map_err(|_| LedgerError::Corrupt(format!("hash {s:?}")))
 }

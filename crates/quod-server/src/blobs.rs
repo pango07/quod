@@ -20,6 +20,7 @@ use futures_util::StreamExt;
 use quod_cas::{BlobStore, Hash};
 use quod_wire::{BlobsRequest, BlobsResponse};
 
+use crate::store::TeamBlobs;
 use crate::{ApiError, AppState, blocking};
 
 /// A hash in a path: 64 hex digits, with or without `b3:`.
@@ -32,6 +33,58 @@ pub fn parse(hash: &str) -> Result<Hash, ApiError> {
 async fn team(app: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
     let (app, headers) = (app.clone(), headers.clone());
     blocking(move || app.runner_team(&headers)).await
+}
+
+/// Whether the team's store holds `h` (a HEAD on the bucket with Postgres
+/// and S3, so off the async workers).
+async fn has(app: &AppState, team: &str, h: &Hash) -> Result<bool, ApiError> {
+    let (app, team, h) = (app.clone(), team.to_string(), *h);
+    blocking(move || {
+        app.store
+            .cas(&team)?
+            .has_blob(&h)
+            .map_err(ApiError::internal)
+    })
+    .await
+}
+
+/// Streams an object-store blob: a blocking reader on its own thread,
+/// chunks through a channel. The reader checks the bytes against the hash
+/// and fails at the end if they differ, which cuts the response short (a
+/// runner verifies every blob it fetches anyway).
+async fn s3_body(blobs: crate::s3::S3Blobs, h: Hash) -> Result<(Body, Option<u64>), ApiError> {
+    let opened = blocking(move || match blobs.open(&h) {
+        Ok(r) => Ok(Some(r)),
+        Err(quod_cas::CasError::Missing(_)) => Ok(None),
+        Err(e) => Err(ApiError::internal(e)),
+    })
+    .await?;
+    let Some((mut reader, len)) = opened else {
+        return Err(ApiError::not_found("no such blob"));
+    };
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
+    tokio::task::spawn_blocking(move || {
+        loop {
+            let mut buf = vec![0u8; 256 << 10];
+            match reader.read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => {
+                    buf.truncate(n);
+                    if tx.blocking_send(Ok(buf)).is_err() {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.blocking_send(Err(e));
+                    return;
+                }
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|c| (c, rx))
+    });
+    Ok((Body::from_stream(stream), len))
 }
 
 pub async fn missing(
@@ -62,20 +115,29 @@ pub async fn get_blob(
 ) -> Result<Response, ApiError> {
     let h = parse(&hash)?;
     let team = team(&app, &headers).await?;
-    let path = app.store.cas(&team)?.blob_path(&h);
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|_| ApiError::not_found("no such blob"))?;
-    let len = file.metadata().await.map_err(ApiError::internal)?.len();
-    let body = Body::from_stream(tokio_util::io::ReaderStream::new(file));
-    Ok((
-        [
-            ("content-type", "application/octet-stream".to_string()),
-            ("content-length", len.to_string()),
-        ],
+    let (body, len) = match app.store.cas(&team)? {
+        TeamBlobs::Local(cas) => {
+            let file = tokio::fs::File::open(cas.blob_path(&h))
+                .await
+                .map_err(|_| ApiError::not_found("no such blob"))?;
+            let len = file.metadata().await.map_err(ApiError::internal)?.len();
+            (
+                Body::from_stream(tokio_util::io::ReaderStream::new(file)),
+                Some(len),
+            )
+        }
+        TeamBlobs::S3(blobs) => s3_body(blobs, h).await?,
+    };
+    let mut resp = (
+        [("content-type", "application/octet-stream".to_string())],
         body,
     )
-        .into_response())
+        .into_response();
+    if let Some(len) = len {
+        resp.headers_mut()
+            .insert("content-length", axum::http::HeaderValue::from(len));
+    }
+    Ok(resp)
 }
 
 fn part_path(dir: &Path, h: &Hash) -> PathBuf {
@@ -89,8 +151,7 @@ pub async fn head_blob(
 ) -> Result<Response, ApiError> {
     let h = parse(&hash)?;
     let team = team(&app, &headers).await?;
-    let cas = app.store.cas(&team)?;
-    if cas.has(&h) {
+    if has(&app, &team, &h).await? {
         return Ok(StatusCode::OK.into_response());
     }
     let part = part_path(&app.store.uploads(&team)?, &h);
@@ -240,7 +301,7 @@ pub async fn put_blob(
 ) -> Result<Response, ApiError> {
     let h = parse(&hash)?;
     let team = team(&app, &headers).await?;
-    if app.store.cas(&team)?.has(&h) {
+    if has(&app, &team, &h).await? {
         return Ok(StatusCode::OK.into_response());
     }
     let dir = app.store.uploads(&team)?;
@@ -303,7 +364,7 @@ pub async fn patch_blob(
         .get("upload-complete")
         .is_some_and(|v| v.as_bytes() == b"true");
     let team = team(&app, &headers).await?;
-    if app.store.cas(&team)?.has(&h) {
+    if has(&app, &team, &h).await? {
         return Ok(StatusCode::OK.into_response());
     }
     let uploads = app.store.uploads(&team)?;
@@ -319,7 +380,7 @@ pub async fn patch_blob(
         )
             .into_response());
     };
-    if app.store.cas(&team)?.has(&h) {
+    if has(&app, &team, &h).await? {
         return Ok(StatusCode::OK.into_response());
     }
     let have = have();

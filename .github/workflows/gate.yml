@@ -22,7 +22,7 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud"
+        description: "Comma-separated jobs, or all: lint, merge-gate, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud, server-cloud"
         required: false
         default: all
 
@@ -55,6 +55,7 @@ jobs:
       acceptance-node: ${{ steps.pick.outputs.acceptance-node }}
       acceptance-python: ${{ steps.pick.outputs.acceptance-python }}
       cloud: ${{ steps.pick.outputs.cloud }}
+      server-cloud: ${{ steps.pick.outputs.server-cloud }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,7 +73,7 @@ jobs:
           core=false cloud=false
           # The corpus gates cost ~2.5 h of runner time; see docs/ci.md.
           if [ "$EVENT" = push ] || [ "$ACTION" = synchronize ]; then
-            ONLY=lint,merge-gate,cloud
+            ONLY=lint,merge-gate,cloud,server-cloud
             echo "fast gates only ($EVENT${ACTION:+ $ACTION}); the corpus gates run on a pull request opened or ready, or by dispatch"
           fi
           case "$EVENT" in
@@ -89,7 +90,7 @@ jobs:
             if grep -q '^cloud/' <<<"$files"; then cloud=true; fi
           fi
           want() { [ "$ONLY" = all ] || [[ ",${ONLY// /}," == *",$1,"* ]]; }
-          for j in lint merge-gate hooks acceptance-cli acceptance-node acceptance-python; do
+          for j in lint merge-gate hooks acceptance-cli acceptance-node acceptance-python server-cloud; do
             r=false; [ "$core" = true ] && want "$j" && r=true
             echo "$j=$r" | tee -a "$GITHUB_OUTPUT"
           done
@@ -209,6 +210,98 @@ jobs:
       toolchains: go python
       timeout: 75
       ref: ${{ inputs.ref || '' }}
+
+  # quod-server on Quod Cloud's backends (docs/cloud-ledger.md, P4): a real
+  # Postgres (service container) and a MinIO (a container this job starts:
+  # a service container cannot be given MinIO's `server` command). The
+  # server's suites run twice, on SQLite and on Postgres + S3 (S1-S15, the
+  # S2 races among them, and tests/cloud.rs P1-P5), with quod-ledger's and
+  # quod-cas's unit tests and clippy on the three crates. The job also
+  # leaves Cargo.lock and any rustfmt diff as an artifact.
+  server-cloud:
+    needs: changes
+    if: needs.changes.outputs.server-cloud == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: quod
+          POSTGRES_PASSWORD: quod-test
+          POSTGRES_DB: quod
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U quod" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      QUOD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      QUOD_TEST_S3_BUCKET: quod-test
+      QUOD_TEST_S3_ACCESS_KEY_ID: quodtest
+      QUOD_TEST_S3_SECRET_ACCESS_KEY: quodtest-secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - name: rust toolchain (rust-toolchain.toml)
+        run: |
+          ch=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$ch" --profile minimal -c rustfmt -c clippy --no-self-update
+          cargo --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: server-cloud
+          cache-on-failure: true
+      - name: MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$QUOD_TEST_S3_ACCESS_KEY_ID" \
+            -e MINIO_ROOT_PASSWORD="$QUOD_TEST_S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 60); do
+            curl -fsS http://127.0.0.1:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          docker logs minio; exit 1
+      - name: rustfmt (the diff is kept as an artifact)
+        run: |
+          mkdir -p target/gate-logs
+          cargo fmt --all
+          git diff -- '*.rs' > target/gate-logs/fmt.patch
+          if [ -s target/gate-logs/fmt.patch ]; then echo "::warning::rustfmt changes: see fmt.patch"; fi
+      - name: clippy (quod-server, quod-ledger, quod-cas)
+        if: success() || failure()
+        run: cargo clippy -q -p quod-server -p quod-ledger -p quod-cas --all-targets -- -D warnings
+      - name: quod-ledger and quod-cas unit tests
+        if: success() || failure()
+        run: cargo test -q -p quod-ledger -p quod-cas
+      - name: quod-server on SQLite
+        if: success() || failure()
+        run: cargo test -p quod-server 2>&1 | tee target/gate-logs/server-sqlite.log; exit "${PIPESTATUS[0]}"
+      - name: quod-server on Postgres + S3
+        if: success() || failure()
+        env:
+          QUOD_TEST_DATABASE_URL: postgresql://quod:quod-test@127.0.0.1:5432/quod
+        run: cargo test -p quod-server -- --test-threads 4 2>&1 | tee target/gate-logs/server-cloud.log; exit "${PIPESTATUS[0]}"
+      - name: the races on Postgres, named
+        if: success() || failure()
+        env:
+          QUOD_TEST_DATABASE_URL: postgresql://quod:quod-test@127.0.0.1:5432/quod
+        run: |
+          for i in 1 2 3; do
+            cargo test -q -p quod-server --test server -- --exact s2_racing_commits_prove_once_and_racing_claims_replay_once
+            cargo test -q -p quod-server --test cloud -- --exact p2_atomically_is_all_or_nothing_and_never_interleaves
+          done
+      - name: rustfmt is clean
+        if: success() || failure()
+        run: test ! -s target/gate-logs/fmt.patch
+      - if: always()
+        run: cp Cargo.lock target/gate-logs/Cargo.lock
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-cloud-logs
+          path: target/gate-logs/
+          retention-days: 14
 
   # cloud/ (the Next.js dashboard): its own checks, only when it changed.
   cloud:

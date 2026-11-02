@@ -102,6 +102,10 @@ pub enum CasError {
     Missing(Hash),
     #[error("{0:?} changed while it was being stored; nothing is recorded")]
     Changed(PathBuf),
+    /// A store other than the local directory (quod-server's object store)
+    /// failed.
+    #[error("blob store: {0}")]
+    Store(String),
 }
 
 trait IoContext<T> {

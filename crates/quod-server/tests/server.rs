@@ -21,6 +21,7 @@ mod common;
 
 use common::*;
 use quod_cas::{Entry, Hash, Kind, Tree};
+use quod_ledger::LedgerStore;
 use quod_trust::Reason;
 use quod_wire::client::Auth;
 
@@ -889,7 +890,8 @@ fn s9_trust_v2_on_the_server_is_trust_v2_locally() {
     );
 
     // The replay it served is marked suspect in both ledgers.
-    let server_ledger = quod_server::store::Store::new(s.data.path().join("data"))
+    let server_ledger = s
+        .store
         .ledger("acme", "acme/app", "trusted")
         .unwrap();
     assert_eq!(server_ledger.suspect_runs(None).unwrap().len(), 1);
@@ -1225,12 +1227,26 @@ fn s13_go_live_limits() {
     let mut push = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/main")));
     push.policy = policy(1, 0.0);
     step(&push, CMD, &t, "ok\n");
-    let scopes = s.data.path().join("data/teams/acme/scopes");
-    assert!(scopes.join("github-7/trusted/ledger.sqlite").is_file());
-    assert_eq!(
-        std::fs::read_to_string(scopes.join("github-7/repository")).unwrap(),
-        "acme/app"
+    let by_id = quod_server::store::RepoKey {
+        name: "acme/app",
+        github_id: Some(7),
+    };
+    assert!(s.store.has_ledger("acme", by_id, "trusted").unwrap());
+    assert!(
+        s.store
+            .scopes("acme")
+            .unwrap()
+            .iter()
+            .any(|x| x.repository == "acme/app" && x.scope == "trusted")
     );
+    if !cloud() {
+        let scopes = s.data.path().join("data/teams/acme/scopes");
+        assert!(scopes.join("github-7/trusted/ledger.sqlite").is_file());
+        assert_eq!(
+            std::fs::read_to_string(scopes.join("github-7/repository")).unwrap(),
+            "acme/app"
+        );
+    }
 
     // Tokens dated in the future are refused.
     let now = std::time::SystemTime::now()
@@ -1325,6 +1341,12 @@ fn s14_a_v6_data_dir_migrates_at_start_and_keeps_its_key() {
     use quod_server::boot::boot;
     use quod_server::config::Env;
 
+    // SQLite files on the volume; the Postgres path's start-up (its own
+    // migrations, the import of such a data dir) is tests/cloud.rs.
+    if cloud() {
+        return;
+    }
+
     let data = tempfile::tempdir().unwrap();
     let dir = data.path().join("data");
     let env = || {
@@ -1385,6 +1407,7 @@ fn s14_a_v6_data_dir_migrates_at_start_and_keeps_its_key() {
             teams: 1,
             ledgers: ledgers.len(),
             upgraded: ledgers.len(),
+            failed: 0,
         }
     );
     for p in &ledgers {
@@ -1435,6 +1458,28 @@ fn s14_a_v6_data_dir_migrates_at_start_and_keeps_its_key() {
         .unwrap();
     assert_eq!(v, 99);
     assert_eq!(std::fs::read(&key_file).unwrap(), key_bytes);
+    // The error names the team, the scope and the file.
+    assert!(e.contains("team acme") && e.contains("scope") && e.contains("ledger.sqlite"), "{e}");
+    // The dry run says so too, and writes nothing.
+    let plan = quod_server::store::Store::new(&dir).plan();
+    assert!(
+        plan.iter()
+            .any(|p| p.action == quod_server::store::Plan::TooNew(99, quod_ledger::SCHEMA_VERSION))
+    );
+
+    // A corrupt ledger (not a newer one) does not stop the boot: it is
+    // logged and counted, the other scopes serve, and the file is left
+    // as it was for an operator to look at.
+    let db = rusqlite::Connection::open(&ledgers[0]).unwrap();
+    db.pragma_update(None, "user_version", quod_ledger::SCHEMA_VERSION as i64)
+        .unwrap();
+    drop(db);
+    std::fs::write(&ledgers[0], b"not a database").unwrap();
+    let b4 = boot(&env()).unwrap();
+    assert_eq!(b4.migrated.failed, 1);
+    assert_eq!(b4.migrated.ledgers, ledgers.len() - 1);
+    assert_eq!(std::fs::read(&ledgers[0]).unwrap(), b"not a database");
+    drop(b4);
     drop(data);
 }
 
@@ -1476,7 +1521,8 @@ fn s15_a_remote_runner_never_leaves_a_pending_audit() {
             o => panic!("hit {nth} must be audited inline: {o:?}"),
         }
     }
-    let server_ledger = quod_server::store::Store::new(s.data.path().join("data"))
+    let server_ledger = s
+        .store
         .ledger("acme", "acme/app", "trusted")
         .unwrap();
     let key = key_of(CMD);
@@ -1486,7 +1532,7 @@ fn s15_a_remote_runner_never_leaves_a_pending_audit() {
             .unwrap(),
         quod_ledger::Backlog::default()
     );
-    assert!(server_ledger.claim_audit("test").unwrap().is_none());
+    assert_eq!(server_ledger.pending_total().unwrap(), 0);
     assert_eq!(server_ledger.trust(&key).unwrap().unwrap().audits, 3);
 
     // The same policy on a local ledger that can store a deferral defers.
