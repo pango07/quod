@@ -75,8 +75,10 @@ impl ServerConfig {
 
     fn build(url: String, get: &impl Fn(&str) -> Option<String>) -> Result<ServerConfig, String> {
         let url = url.trim_end_matches('/').to_string();
-        if !(url.starts_with("https://") || url.starts_with("http://")) {
-            return Err(format!("QUOD_SERVER {url:?} is not an http(s) URL"));
+        if !url.starts_with("https://") && !is_loopback_http(&url) {
+            return Err(format!(
+                "QUOD_SERVER {url:?} is not an https URL (plain http is accepted only for a server on this machine: 127.0.0.1, localhost, [::1])"
+            ));
         }
         let auth = match (
             get("QUOD_SERVER_TOKEN").filter(|v| !v.is_empty()),
@@ -121,6 +123,40 @@ impl ServerConfig {
                 .then(|| CiContext::from_env(get)),
         })
     }
+}
+
+/// `http://` to this machine only: anything else would send the token and
+/// receive results in the clear.
+fn is_loopback_http(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or("");
+    let host = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host.split(':').next().unwrap_or(""),
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
+/// A value unique to one claim: the time, the process, a counter and the
+/// key. Unpredictability is not needed, only that no earlier claim had it.
+fn claim_nonce(key: &Hash) -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let host = std::fs::read_to_string("/etc/machine-id").unwrap_or_default();
+    Hash::of(
+        format!(
+            "quod claim nonce\0{t}\0{}\0{seq}\0{key}\0{host}",
+            std::process::id()
+        )
+        .as_bytes(),
+    )
+    .hex()
 }
 
 /// A `StepLedger` over quod-server. Blobs a replay serves are fetched into
@@ -367,18 +403,37 @@ impl<'a> RemoteLedger<'a> {
                 Err(e) => return Err(e.into()),
             };
             let mut f = std::fs::File::open(&path)?;
+            let mut conflicts = 0;
             while offset < size {
                 let n = CHUNK.min(size - offset);
                 let mut buf = vec![0u8; n as usize];
                 std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(offset))?;
                 f.read_exact(&mut buf)?;
                 let last = offset + n == size;
-                self.request("PATCH", &blob)?
+                let sent = self
+                    .request("PATCH", &blob)?
                     .set("content-type", "application/octet-stream")
                     .set("upload-offset", &offset.to_string())
                     .set("upload-complete", if last { "true" } else { "false" })
-                    .send_bytes(&buf)?;
-                offset += n;
+                    .send_bytes(&buf);
+                match sent {
+                    Ok(r) if r.status() == 200 => break, // present meanwhile
+                    Ok(_) => offset += n,
+                    // Another runner is uploading the same blob, or the
+                    // server has another offset: carry on from the server's.
+                    Err(ureq::Error::Status(409, r)) => {
+                        conflicts += 1;
+                        if conflicts > 300 {
+                            return Err(CallError(format!("upload of {h} kept conflicting")));
+                        }
+                        offset = r
+                            .header("upload-offset")
+                            .and_then(|v| v.parse().ok())
+                            .ok_or_else(|| CallError("409 without upload-offset".into()))?;
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
         Ok(())
@@ -425,12 +480,14 @@ impl<'a> RemoteLedger<'a> {
             duration_ms: 0,
             commands: vec![],
         });
-        let resp: ClaimResponse = self.post(
+        let nonce = claim_nonce(&step.key);
+        let mut resp: ClaimResponse = self.post(
             "/v1/claim",
             &ClaimRequest {
                 ctx: self.ctx(step),
                 tree: tree.iter().cloned().collect(),
                 run: placeholder,
+                nonce: Some(nonce.clone()),
             },
         )?;
         let mut lookup = Lookup {
@@ -439,11 +496,15 @@ impl<'a> RemoteLedger<'a> {
             closest: resp.closest.clone(),
         };
         // A hit is kept (for the banner and for what an execution is
-        // compared with) only if it is what it says and matches this tree.
-        let hit = match resp.hit {
+        // compared with) only if it is what it says, from a schema this
+        // binary reads (as `Ledger::find_match` filters), and matches this
+        // tree.
+        let hit = match resp.hit.take() {
             Some(h) => {
                 let ok = h.result.step_key == step.key
                     && h.manifest.step_key == step.key
+                    && h.manifest.v <= quod_manifest::VERSION
+                    && h.result.v <= quod_manifest::VERSION
                     && manifest_id(&h.manifest).ok() == Some(h.result.manifest_id)
                     && matches(&h.manifest, tree).is_ok();
                 if !ok {
@@ -452,6 +513,11 @@ impl<'a> RemoteLedger<'a> {
                             "the server's hit does not match this workspace".into(),
                         ));
                     }
+                    // Without the hit the server's reason (a streak, an
+                    // audit) names a manifest this runner refused: a miss.
+                    resp.claimed = Claimed::Execute {
+                        reason: Reason::Miss,
+                    };
                     None
                 } else {
                     Some(h)
@@ -473,7 +539,7 @@ impl<'a> RemoteLedger<'a> {
                 .receipt
                 .as_ref()
                 .ok_or_else(|| CallError("a replay without a receipt".into()))?;
-            verify(&self.server_key()?, receipt, &step.key, &h.result)
+            verify(&self.server_key()?, receipt, &step.key, &h.result, &nonce)
                 .map_err(|e| CallError(e.to_string()))?;
             self.fetch_blobs(&result_blobs(&h.result, step.ignore))?;
         }
@@ -668,6 +734,30 @@ mod tests {
                 .find(|(n, _)| *n == k)
                 .map(|(_, v)| v.to_string())
         }
+    }
+
+    #[test]
+    fn plain_http_only_to_this_machine() {
+        for ok in [
+            "http://127.0.0.1:8080",
+            "http://localhost",
+            "http://[::1]:9/x",
+        ] {
+            assert!(is_loopback_http(ok), "{ok}");
+        }
+        for bad in [
+            "http://quod.internal",
+            "http://127.0.0.1.evil.com",
+            "http://localhost.evil.com:80",
+            "https://127.0.0.1",
+        ] {
+            assert!(!is_loopback_http(bad), "{bad}");
+        }
+        let t = [
+            ("QUOD_SERVER", "http://quod.internal"),
+            ("QUOD_SERVER_TOKEN", "t"),
+        ];
+        assert!(ServerConfig::from_env(env(&t)).unwrap().is_err());
     }
 
     #[test]

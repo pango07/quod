@@ -75,8 +75,10 @@ pub struct ScopeHint {
     pub repository: String,
     /// `trusted`, `fork-<owner_repo>`, `unverified`, ...
     pub trust: String,
-    /// Whether the job may write the trusted scope (a default-branch push
-    /// or dispatch, or a schedule).
+    /// Whether the runner judged the job a writer (a default-branch push or
+    /// dispatch, or a schedule). Informational: as with a local ledger, a
+    /// delegated runner's jobs write the scope it names (`trust`); the
+    /// writer flag governs the runner's own warm caches, not the ledger.
     #[serde(default)]
     pub writer: bool,
 }
@@ -161,6 +163,11 @@ pub struct ClaimRequest {
     pub tree: Vec<Entry>,
     /// The run row to record if this replays (outcome `replayed`).
     pub run: RunRecord,
+    /// A value unique to this claim, which a replay's receipt must sign:
+    /// a recorded answer to an earlier claim (from a proxy, a cache, an
+    /// attacker on the path) cannot be replayed into this one.
+    #[serde(default)]
+    pub nonce: Option<String>,
 }
 
 /// The matched manifest and the result a replay would serve, and the scope
@@ -353,6 +360,9 @@ pub struct ReplayStatement {
     pub run_id: String,
     pub result: Hash,
     pub issued_at: String,
+    /// The claim's nonce: this statement answers that claim and no other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -408,12 +418,15 @@ pub fn sign(key: &SigningKey, statement: ReplayStatement) -> Result<SignedReceip
 }
 
 /// Checks a receipt: signed by `trusted`, over a statement for this
-/// protocol, this key, this manifest and exactly this result.
+/// protocol, this key, this manifest, exactly this result, and the claim
+/// that carried `nonce` (an earlier answer, recorded and played back, names
+/// another nonce).
 pub fn verify(
     trusted: &VerifyingKey,
     receipt: &SignedReceipt,
     key: &Hash,
     result: &StepResult,
+    nonce: &str,
 ) -> Result<(), WireError> {
     let bad = |m: &str| Err(WireError::Receipt(m.to_string()));
     if receipt.key != hex::encode(trusted.to_bytes()) {
@@ -442,6 +455,9 @@ pub fn verify(
     }
     if s.result != result_hash(result)? {
         return bad("signed for other result bytes");
+    }
+    if s.nonce.as_deref() != Some(nonce) {
+        return bad("signed for another claim (a stale or replayed answer)");
     }
     Ok(())
 }
@@ -477,6 +493,7 @@ mod tests {
             run_id: r.run_id.clone(),
             result: result_hash(r).unwrap(),
             issued_at: "2026-11-01T00:00:00.000Z".into(),
+            nonce: Some("n1".into()),
         }
     }
 
@@ -486,26 +503,28 @@ mod tests {
         let r = result();
         let rec = sign(&k, statement(&r)).unwrap();
         let pk = k.verifying_key();
-        verify(&pk, &rec, &r.step_key, &r).unwrap();
+        verify(&pk, &rec, &r.step_key, &r, "n1").unwrap();
+        // A genuine receipt for an earlier claim, played back into this one.
+        assert!(verify(&pk, &rec, &r.step_key, &r, "n2").is_err());
 
         // Another result's bytes (one changed exit code).
         let mut other = r.clone();
         other.exit_code = 1;
-        assert!(verify(&pk, &rec, &r.step_key, &other).is_err());
+        assert!(verify(&pk, &rec, &r.step_key, &other, "n1").is_err());
         // Another key asked for.
-        assert!(verify(&pk, &rec, &Hash::of(b"other"), &r).is_err());
+        assert!(verify(&pk, &rec, &Hash::of(b"other"), &r, "n1").is_err());
         // A tampered statement.
         let mut t = rec.clone();
         t.statement.scope = "fork-x".into();
-        assert!(verify(&pk, &t, &r.step_key, &r).is_err());
+        assert!(verify(&pk, &t, &r.step_key, &r, "n1").is_err());
         // Signed by a key this runner does not trust.
         let k2 = signing_key_from_hex(&"08".repeat(32)).unwrap();
         let rec2 = sign(&k2, statement(&r)).unwrap();
-        assert!(verify(&pk, &rec2, &r.step_key, &r).is_err());
+        assert!(verify(&pk, &rec2, &r.step_key, &r, "n1").is_err());
         // Claiming the trusted key but signed by another.
         let mut forged = rec2.clone();
         forged.key = rec.key.clone();
-        assert!(verify(&pk, &forged, &r.step_key, &r).is_err());
+        assert!(verify(&pk, &forged, &r.step_key, &r, "n1").is_err());
     }
 
     #[test]

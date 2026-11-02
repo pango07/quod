@@ -23,6 +23,7 @@ arguments, then unsupported claims).
 | cloud/own-sign-in: our own sign-in pages on WorkOS User Management | `41af13a` | 1 blocker (open redirect: returnTo normalized to //host), 2 major (resend without a user id; pending cookie over 4 KB), minors; B1, M1, M2 and minors fixed | `99dfc10` |
 | cloud/live: realtime dashboard over SSE (+ 07bcea4 hydration fix) | `1b84645` | no blockers, 3 major (range toggle ignored by live totals; events lost between snapshot and subscribe; router.refresh storm re-reading WorkOS memberships), minors 4-11; majors 1-3 and minors fixed | `76b9044` |
 | exp/overhead4: first-run overhead, after its Opus review fixes | merged `5d296c4` | safe to push; 3 minor: a moved output linked under its hash before it was verified (a concurrent run could see unverified bytes); the rename fallback could replace and then remove another writer's blob; the run-dir sweep compared un-canonicalized paths with mount points; all fixed on fix/cas-visibility | `b3bd31b`, `54a9f7a` |
+| exp/cloud-ledger: P0 trait split, quod-wire, quod-server, OIDC (not merged) | `55e9403..f748ef3` | no blockers, safe to push with fixes; no wrong-replay path; P0 verified a faithful refactor; 3 major (receipts without freshness, so a recorded answer could be played back, and http accepted; a non-writer's execution compared with nothing; client did not filter newer schemas), 9 minor; majors and minors 4-7, 9-12 fixed (DECISIONS 2026-11-02, after the Fable review) | the fix commit after `f748ef3` |
 
 ## Reviewed by Opus: Fable re-review pending
 

@@ -128,27 +128,34 @@ client's copy.
 ### Signed results
 
 The server signs every replay it serves with Ed25519: the statement is
-`{protocol, team, scope, step_key, manifest_id, run_id, result, issued_at}`
-where `result` is the BLAKE3 of the result's canonical JSON. The runner
-verifies the signature under the key it trusts (`QUOD_SERVER_KEY`, or the
-key from `/v1/info` over the same TLS connection when not pinned) and that
-the statement names exactly the key, manifest, run and result bytes it was
-handed. The signing key comes from `QUOD_SIGNING_KEY` (or `_FILE`); the
+`{protocol, team, scope, step_key, manifest_id, run_id, result, issued_at,
+nonce}` where `result` is the BLAKE3 of the result's canonical JSON and
+`nonce` is a value the runner made for this one claim. The runner verifies
+the signature under the key it trusts (`QUOD_SERVER_KEY`, or the key from
+`/v1/info` over the same TLS connection when not pinned) and that the
+statement names exactly the key, manifest, run and result bytes it was
+handed, and its own nonce: a genuine answer to an earlier claim, recorded
+and played back (by a proxy, a cache, anyone on the path), does not verify,
+so a result the server has since stopped serving (a quarantined key) cannot
+come back that way. Plain `http://` is accepted only for a server on the
+same machine (127.0.0.1, localhost, [::1]). The signing key comes from `QUOD_SIGNING_KEY` (or `_FILE`); the
 server refuses to start without one unless `QUOD_DEV=1`, because a key
 generated per instance would make every runner that pinned the last one
 refuse its replays.
 
 What a signature buys: a runner that pins the key replays only what the
-holder of that key served, even if the endpoint, its certificate or a proxy
-in front of it is compromised. It does not make a compromised server honest;
-see the open questions.
+holder of that key served in answer to that very claim, even if the
+endpoint, its certificate or a proxy in front of it is compromised. It does
+not make a compromised server honest; see the open questions.
 
 ### The client: never a wrong replay; on any doubt, run
 
 `RemoteLedger` replays only when every check passes on the runner itself:
 
-1. the receipt verifies and names exactly what was served;
-2. the result and manifest are for this step key, and the result is for that
+1. the receipt verifies and names exactly what was served, and this claim's
+   nonce;
+2. the result and manifest are for this step key, from a schema version this
+   binary reads (as `Ledger::find_match` filters), and the result is for that
    manifest (`manifest_id`);
 3. the manifest matches this runner's own tree (`quod_manifest::matches`,
    the same check the local ledger makes), so a server bug or lie about the
@@ -245,9 +252,15 @@ token and send anything the client could, including a fabricated result. So:
 Fork pull requests get no OIDC token from GitHub. OIDC tokens carry no
 default-branch claim, hence the configured writer refs. Only writer jobs
 commit results that trusted jobs replay; a pull request replays what main
-proved but never proves anything for main (test S3). A non-writer cannot
-spend trusted's audit slots either: an audit decision does not advance the
-counter, so the next writer claim meets the same slot.
+proved but never proves anything for main (test S3). When a non-writer's
+claim does not replay and its own scope has no matching manifest, it is
+given trusted's hit and reason (proving, an audit), so its execution is
+compared with main's result; the verdict and any quarantine are written to
+its own scope only (test S3b). Trusted's rows a non-writer touches are its
+replay counters: a replay it is served advances trusted's `eligible` and
+`replays`, which can pull trusted's next audit earlier, never skip one (an
+audit decision does not advance the counter, so the next writer claim meets
+the same slot).
 
 ### Runners: static tokens (self-hosted)
 
@@ -257,7 +270,14 @@ fixed repository and scope (`trusted` by default). A delegated runner token
 the runner hooks on a self-hosted runner: each request states the
 repository and scope the hooks decided from the event payload (`trusted`,
 `fork-<owner_repo>`, `unverified`), which is exactly the local rule, because
-there Quod's runner, not the job, is the trusted computing base.
+there Quod's runner, not the job, is the trusted computing base. Its
+`writer` flag is informational, as locally: a delegated runner's jobs write
+the scope it names. The hooks read the token from the hook process's
+environment; a step never sees it: the sandbox starts every step with
+`--clearenv` and an environment the hooks build from the job's protocol
+data (quod-sandbox `env_clear`/`--clearenv`). A runner-surface action that
+runs as root on the host could read the runner's environment, which is
+already outside what a delegated token can protect (open question 11).
 
 ### Viewers
 
@@ -452,8 +472,11 @@ rather than keep results on an ephemeral disk.
   unreachable server means execute.
 - quod-server `tests/server.rs`, an in-process server and runners with their
   own state dirs (synthetic steps, so it runs on any OS):
-  S1 a fresh runner replays what another proved; S2 concurrency (commits and
-  claims); S3 forks and non-writers never poison trusted; S4 team isolation;
+  S1 a fresh runner replays what another proved; S1b a receipt signs its
+  claim's nonce and verifies for no other; S2 concurrency (commits and
+  claims); S3 forks and non-writers never poison trusted; S3b a pull
+  request's execution on main's inputs is compared with main's result and a
+  difference quarantines only its own scope; S4 team isolation;
   S5 untrusted key, dead server, refused token: the step runs; S6 zero false
   hits over 133 mutations of every recorded input (content and mode of each
   file, each file removed, each directory listing, each absent probe), A7's
@@ -504,3 +527,12 @@ rather than keep results on an ephemeral disk.
     runner executed), but a hostile runner could shift which hit is audited.
     Recording replays only on a second confirm call would close it at one more
     round trip.
+11. A delegated runner token lives in the self-hosted runner's environment.
+    Steps never see it (`--clearenv`), but whatever runs on the runner host
+    outside the sandbox does; a leaked delegated token can write any scope of
+    the team, `trusted` included. Per-repository delegated tokens, or the
+    runner proving its job's identity with the job's OIDC token alongside,
+    would bound it.
+12. Nothing is cleaned up yet: abandoned `uploads/<hash>.part` files stay,
+    and every branch or pull request leaves a `ref-...` scope ledger. A
+    retention sweep (age, and scopes whose ref is gone) is P4 work.

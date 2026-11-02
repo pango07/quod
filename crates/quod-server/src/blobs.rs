@@ -8,6 +8,7 @@
 //! a hash it does not have, and a blob over `QUOD_MAX_BLOB_BYTES` is
 //! refused. `GET` streams it back.
 
+use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -189,7 +190,31 @@ pub async fn put_blob(
     Ok(StatusCode::CREATED.into_response())
 }
 
-static PATCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Staging files being appended to, by (team, hash): appends to one must
+/// not interleave; uploads of different blobs never wait on each other.
+static UPLOADING: std::sync::Mutex<BTreeSet<(String, Hash)>> =
+    std::sync::Mutex::new(BTreeSet::new());
+
+/// Holds a staging file for one request; released on drop, however the
+/// request ends.
+struct Uploading((String, Hash));
+
+impl Uploading {
+    fn take(team: &str, h: &Hash) -> Option<Uploading> {
+        let k = (team.to_string(), *h);
+        UPLOADING
+            .lock()
+            .unwrap()
+            .insert(k.clone())
+            .then_some(Uploading(k))
+    }
+}
+
+impl Drop for Uploading {
+    fn drop(&mut self) {
+        UPLOADING.lock().unwrap().remove(&self.0);
+    }
+}
 
 pub async fn patch_blob(
     State(app): State<AppState>,
@@ -207,14 +232,24 @@ pub async fn patch_blob(
         .get("upload-complete")
         .is_some_and(|v| v.as_bytes() == b"true");
     let team = team(&app, &headers).await?;
-    // One chunk at a time per server: appends to one staging file must not
-    // interleave.
-    let _guard = PATCH_LOCK.lock().await;
     if app.store.cas(&team)?.has(&h) {
         return Ok(StatusCode::OK.into_response());
     }
     let part = part_path(&app.store.uploads(&team)?, &h);
-    let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+    let have = || std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+    // One chunk at a time per staging file; another request appending to
+    // it now is a 409 with the offset so far, and the client retries.
+    let Some(_guard) = Uploading::take(&team, &h) else {
+        return Ok((
+            StatusCode::CONFLICT,
+            [("upload-offset", have().to_string())],
+        )
+            .into_response());
+    };
+    if app.store.cas(&team)?.has(&h) {
+        return Ok(StatusCode::OK.into_response());
+    }
+    let have = have();
     if have != offset {
         return Ok((StatusCode::CONFLICT, [("upload-offset", have.to_string())]).into_response());
     }

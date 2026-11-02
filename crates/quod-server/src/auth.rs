@@ -230,8 +230,10 @@ impl Auth {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .ok_or_else(|| ApiError::unauthorized("no bearer token"))?;
-        // A JWT has two dots; a static token never needs to.
-        if token.split('.').count() == 3 {
+        // A configured static token wins, whatever it looks like; anything
+        // else shaped like a JWT (two dots) is an OIDC token.
+        let h = *blake3::hash(token.as_bytes()).as_bytes();
+        if !self.tokens.contains_key(&h) && token.split('.').count() == 3 {
             let jwks = self
                 .jwks
                 .as_ref()
@@ -244,7 +246,6 @@ impl Auth {
                 .oidc_runner(&claims)
                 .map(|r| Principal::Runner(Box::new(r)));
         }
-        let h = *blake3::hash(token.as_bytes()).as_bytes();
         let t = self
             .tokens
             .get(&h)

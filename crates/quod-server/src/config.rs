@@ -262,6 +262,18 @@ pub fn parse_document(json: &str) -> Result<Document, String> {
         let p = t.policy.policy();
         p.validate().map_err(|e| format!("team {}: {e}", t.slug))?;
     }
+    // One GitHub owner, one team: an OIDC token must map to exactly one.
+    let mut owners = std::collections::BTreeMap::new();
+    for t in &doc.teams {
+        for o in &t.github_owner_ids {
+            if let Some(other) = owners.insert(*o, &t.slug) {
+                return Err(format!(
+                    "GitHub owner id {o} is linked to both {other} and {}",
+                    t.slug
+                ));
+            }
+        }
+    }
     for t in &doc.tokens {
         if !doc.teams.iter().any(|x| x.slug == t.team) {
             return Err(format!(
@@ -340,5 +352,8 @@ mod tests {
         );
         let d = parse_document(&j).unwrap();
         assert_eq!(d.teams[0].writer_refs, vec!["refs/heads/main".to_string()]);
+        // One owner linked to two teams: refused.
+        let j = r#"{"teams":[{"slug":"a","github_owner_ids":[1]},{"slug":"b","github_owner_ids":[2,1]}]}"#;
+        assert!(parse_document(j).unwrap_err().contains("owner id 1"));
     }
 }

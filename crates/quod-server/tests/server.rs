@@ -179,6 +179,76 @@ fn s3_forks_and_non_writers_never_poison_trusted() {
     ));
 }
 
+/// A pull request's job that executes on inputs main proved (an audit, or
+/// a key still proving there) is compared with main's result, and a
+/// difference quarantines the key in the pull request's own scope only.
+#[test]
+fn s3b_a_pull_request_execution_is_compared_with_main() {
+    let s = Server::start(2);
+    let t = tree(&files());
+    let push = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/main")));
+    step(&push, CMD, &t, "PASS\n");
+    assert!(proven(&step(&push, CMD, &t, "PASS\n")));
+    // Every hit audited: the PR executes instead of replaying, and gets
+    // main's hit to compare with.
+    let mut pr = Runner::new(&s, Auth::Token(oidc("pull_request", "refs/pull/9/merge")));
+    pr.policy = policy(2, 1.0);
+    match step(&pr, CMD, &t, "PASS, but different\n") {
+        Outcome::Executed(v) => {
+            assert!(v.divergence.is_some(), "{v:?}");
+            assert_eq!(v.trust.state, quod_ledger::TrustState::Quarantined);
+        }
+        o => panic!("{o:?}"),
+    }
+    // Main is untouched: it still replays.
+    match claim(&push, CMD, &t) {
+        Outcome::Replayed(out) => assert_eq!(out, b"PASS\n"),
+        o => panic!("{o:?}"),
+    }
+}
+
+/// The server signs the claim's nonce into the receipt.
+#[test]
+fn s1b_a_receipt_answers_one_claim() {
+    let s = Server::start(1);
+    let t = tree(&files());
+    let mut r = Runner::token(&s, ACME_RUNNER);
+    r.policy = policy(1, 0.0);
+    assert!(proven(&step(&r, CMD, &t, "x\n")));
+    let req = quod_wire::ClaimRequest {
+        ctx: quod_wire::Context {
+            step: quod_wire::WireStep {
+                key: key_of(CMD),
+                cmd: CMD.into(),
+                ignore: vec![],
+            },
+            policy: policy(1, 0.0),
+            ci: None,
+            scope: None,
+        },
+        tree: t.iter().cloned().collect(),
+        run: quod_ledger::RunRecord {
+            id: run_id(),
+            ..Default::default()
+        },
+        nonce: Some("nonce-1".into()),
+    };
+    let resp: quod_wire::ClaimResponse = ureq::post(&format!("{}/v1/claim", s.url))
+        .set("quod-protocol", "quod.v1")
+        .set("authorization", &format!("Bearer {ACME_RUNNER}"))
+        .send_json(serde_json::to_value(&req).unwrap())
+        .unwrap()
+        .into_json()
+        .unwrap();
+    let receipt = resp.receipt.expect("a replay is signed");
+    assert_eq!(receipt.statement.nonce.as_deref(), Some("nonce-1"));
+    let key = quod_wire::verifying_key_from_hex(&s.public_key()).unwrap();
+    let result = resp.hit.unwrap().result;
+    quod_wire::verify(&key, &receipt, &key_of(CMD), &result, "nonce-1").unwrap();
+    // Played back into another claim, it does not verify.
+    assert!(quod_wire::verify(&key, &receipt, &key_of(CMD), &result, "nonce-2").is_err());
+}
+
 #[test]
 fn s4_one_team_never_reads_another() {
     let s = Server::start(2);

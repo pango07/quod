@@ -63,6 +63,8 @@ pub async fn claim(
         let tree = Tree::from_entries(req.tree);
         let step = req.ctx.step.step();
         let mut answer: Option<(String, Lookup, Claimed)> = None;
+        let mut own: Option<(String, Lookup, Claimed)> = None;
+        let mut compared: Option<(String, Lookup, Claimed)> = None;
         for scope in &runner.read {
             // A scope nobody wrote has nothing to replay; the runner's own
             // write scope is opened (and created) regardless.
@@ -87,8 +89,9 @@ pub async fn claim(
                                 run.manifest_id = Some(r.manifest_id);
                                 run.exit_code = Some(r.exit_code);
                                 run.step_key = Some(step.key);
-                                run.saved_ms =
-                                    Some(r.duration_ms.saturating_sub(run.wall_ms.unwrap_or(0)));
+                                // A saving only where the runner said how
+                                // long the replay took (the hooks do not).
+                                run.saved_ms = run.wall_ms.map(|w| r.duration_ms.saturating_sub(w));
                                 l.record_run_facts(&run.facts())?;
                                 Claimed::Replay { facts }
                             }
@@ -100,15 +103,27 @@ pub async fn claim(
                 Ok((lookup, claimed))
             })?;
             let replay = matches!(claimed, Claimed::Replay { .. });
-            if replay || *scope == runner.write {
-                answer = Some((scope.clone(), lookup, claimed));
-            }
             if replay {
+                answer = Some((scope.clone(), lookup, claimed));
                 break;
             }
+            if *scope == runner.write {
+                own = Some((scope.clone(), lookup, claimed));
+            } else if lookup.hit.is_some() && compared.is_none() {
+                compared = Some((scope.clone(), lookup, claimed));
+            }
         }
-        let (scope, lookup, claimed) =
-            answer.expect("the write scope is always among the read scopes");
+        // Nothing replays. The execution is compared with the own scope's
+        // hit if it has one, else with the first read scope's (a pull
+        // request then audits what main proved, for its reason: proving,
+        // an audit), and its commit still writes only the own scope.
+        let (scope, lookup, claimed) = match (answer, own, compared) {
+            (Some(a), ..) => a,
+            (None, Some(o), _) if o.1.hit.is_some() => o,
+            (None, _, Some(c)) => c,
+            (None, Some(o), None) => o,
+            (None, None, None) => unreachable!("the write scope is always among the read scopes"),
+        };
         let receipt = match (&claimed, &lookup.hit) {
             (Claimed::Replay { .. }, Some((_, r))) => Some(
                 quod_wire::sign(
@@ -122,6 +137,7 @@ pub async fn claim(
                         run_id: r.run_id.clone(),
                         result: quod_wire::result_hash(r).map_err(ApiError::internal)?,
                         issued_at: now_rfc3339(),
+                        nonce: req.nonce.clone(),
                     },
                 )
                 .map_err(ApiError::internal)?,
@@ -230,9 +246,8 @@ pub async fn commit(
         if !missing.is_empty() {
             return Err(ApiError::missing_blobs(missing));
         }
-        if !ledger.results_for_run(&req.run_id)?.is_empty() {
-            return Err(ApiError::conflict("this run is already recorded"));
-        }
+        // The hit lives in a read scope's ledger, which may be another file
+        // than this one; it is a recorded result and does not change.
         let hit = resolve_hit(
             &app,
             &runner,
@@ -245,15 +260,22 @@ pub async fn commit(
             ledger: &ledger,
             trust: &trust,
         };
-        let v = local.commit_execution(
-            &step,
-            &req.run_id,
-            m,
-            r,
-            hit.as_ref(),
-            &req.reason,
-            req.run.clone(),
-        )?;
+        // A run recorded twice (a retried commit) is a 409, checked in the
+        // same transaction that would record it.
+        let v = ledger.atomically(|l| -> Result<Verdict, ApiError> {
+            if !l.results_for_run(&req.run_id)?.is_empty() || l.run(&req.run_id)?.is_some() {
+                return Err(ApiError::conflict("this run is already recorded"));
+            }
+            Ok(local.commit_execution(
+                &step,
+                &req.run_id,
+                m,
+                r,
+                hit.as_ref(),
+                &req.reason,
+                req.run.clone(),
+            )?)
+        })?;
         note_step(
             &app,
             &runner,
