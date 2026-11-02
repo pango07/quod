@@ -1,0 +1,432 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded fallible-streaming-iterator v0.1.9
+  Downloaded cfg-if v1.0.5
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded ref-cast v1.0.27
+  Downloaded page_size v0.6.0
+  Downloaded zmij v1.0.23
+  Downloaded lazy_static v1.5.1
+  Downloaded tracing-serde v0.2.0
+  Downloaded proc-macro-crate v3.5.0
+  Downloaded matchers v0.2.0
+  Downloaded heck v0.5.0
+  Downloaded strsim v0.11.1
+  Downloaded thread_local v1.1.10
+  Downloaded utf8parse v0.2.2
+  Downloaded cfg_aliases v0.2.2
+  Downloaded zerocopy-derive v0.8.63
+  Downloaded errno v0.3.14
+  Downloaded itoa v1.0.18
+  Downloaded colorchoice v1.0.5
+  Downloaded anstyle-query v1.1.5
+  Downloaded equivalent v1.0.3
+  Downloaded memoffset v0.9.1
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded clap_lex v1.1.1
+  Downloaded constant_time_eq v0.4.2
+  Downloaded fallible-iterator v0.3.0
+  Downloaded foldhash v0.2.0
+  Downloaded pkg-config v0.3.34
+  Downloaded quote v1.0.47
+  Downloaded rand_core v0.10.1
+  Downloaded scopeguard v1.2.0
+  Downloaded anstyle v1.0.14
+  Downloaded lock_api v0.4.14
+  Downloaded nu-ansi-term v0.50.3
+  Downloaded thiserror-impl v2.0.21
+  Downloaded ulid v3.0.0
+  Downloaded toml_datetime v1.1.2+spec-1.1.0
+  Downloaded fastrand v2.5.0
+  Downloaded num_enum v0.7.6
+  Downloaded tracing-log v0.2.0
+  Downloaded anstream v1.0.0
+  Downloaded anstyle-parse v1.0.0
+  Downloaded chacha20 v0.10.2
+  Downloaded num_enum_derive v0.7.6
+  Downloaded parking_lot v0.12.5
+  Downloaded parking_lot_core v0.9.12
+  Downloaded pin-project-lite v0.2.17
+  Downloaded anyhow v1.0.104
+  Downloaded arrayvec v0.7.8
+  Downloaded autocfg v1.5.1
+  Downloaded clap_derive v4.6.7
+  Downloaded once_cell v1.21.4
+  Downloaded rustversion v1.0.23
+  Downloaded shlex v2.0.1
+  Downloaded smallvec v1.16.4
+  Downloaded thiserror v2.0.21
+  Downloaded toml_parser v1.1.5+spec-1.1.0
+  Downloaded arraydeque v0.5.1
+  Downloaded find-msvc-tools v0.1.15
+  Downloaded tempfile v3.27.0
+  Downloaded unicode-ident v1.0.27
+  Downloaded hashlink v0.12.2
+  Downloaded tracing-attributes v0.1.31
+  Downloaded getrandom v0.4.3
+  Downloaded proc-macro2 v1.0.107
+  Downloaded tracing-core v0.1.36
+  Downloaded bitflags v2.13.2
+  Downloaded log v0.4.35
+  Downloaded serde_derive v1.0.229
+  Downloaded clap v4.6.7
+  Downloaded serde_core v1.0.229
+  Downloaded sharded-slab v0.1.7
+  Downloaded toml_edit v0.25.17+spec-1.1.0
+  Downloaded serde v1.0.229
+  Downloaded indexmap v2.14.2
+  Downloaded rand v0.10.3
+  Downloaded yaml-rust2 v0.13.0
+  Downloaded memchr v2.8.3
+  Downloaded blake3 v1.8.7
+  Downloaded io-uring v0.7.15
+  Downloaded fuser v0.18.0
+  Downloaded cc v1.10.0
+  Downloaded serde_json v1.0.154
+  Downloaded hashbrown v0.17.1
+  Downloaded rusqlite v0.41.1
+  Downloaded clap_builder v4.6.7
+  Downloaded winnow v1.0.4
+  Downloaded aho-corasick v1.1.5
+  Downloaded tracing-subscriber v0.3.23
+  Downloaded vcpkg v0.2.15
+  Downloaded syn v2.0.119
+  Downloaded syn v3.0.9
+  Downloaded nix v0.31.3
+  Downloaded zerocopy v0.8.63
+  Downloaded regex-syntax v0.8.11
+  Downloaded tracing v0.1.44
+  Downloaded rustix v1.1.6
+  Downloaded regex-automata v0.4.18
+  Downloaded libc v0.2.191
+  Downloaded encoding_rs v0.8.35
+  Downloaded libsqlite3-sys v0.39.1
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling libc v0.2.191
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling serde_core v1.0.229
+   Compiling cc v1.10.0
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling pkg-config v0.3.34
+   Compiling thiserror v2.0.21
+   Compiling serde_json v1.0.154
+   Compiling blake3 v1.8.7
+   Compiling once_cell v1.21.4
+   Compiling itoa v1.0.18
+   Compiling bitflags v2.13.2
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling smallvec v1.16.4
+   Compiling tracing-core v0.1.36
+   Compiling equivalent v1.0.3
+   Compiling hashbrown v0.17.1
+   Compiling winnow v1.0.4
+   Compiling indexmap v2.14.2
+   Compiling foldhash v0.2.0
+   Compiling autocfg v1.5.1
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling vcpkg v0.2.15
+   Compiling memoffset v0.9.1
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling libsqlite3-sys v0.39.1
+   Compiling quod-cas v0.0.0 (/src/crates/quod-cas)
+   Compiling tracing-attributes v0.1.31
+   Compiling pin-project-lite v0.2.17
+   Compiling rand_core v0.10.1
+   Compiling rustversion v1.0.23
+   Compiling getrandom v0.4.3
+   Compiling parking_lot_core v0.9.12
+   Compiling cfg_aliases v0.2.2
+   Compiling nix v0.31.3
+   Compiling quod-manifest v0.0.0 (/src/crates/quod-manifest)
+   Compiling proc-macro-crate v3.5.0
+   Compiling tracing v0.1.44
+   Compiling hashlink v0.12.2
+   Compiling zerocopy v0.8.63
+   Compiling ref-cast v1.0.27
+   Compiling log v0.4.35
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling num_enum_derive v0.7.6
+   Compiling zerocopy-derive v0.8.63
+   Compiling ref-cast-impl v1.0.27
+   Compiling fuser v0.18.0
+   Compiling io-uring v0.7.15
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling num_enum v0.7.6
+   Compiling parking_lot v0.12.5
+   Compiling chacha20 v0.10.2
+   Compiling page_size v0.6.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling regex-syntax v0.8.11
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anyhow v1.0.104
+   Compiling anstream v1.0.0
+   Compiling regex-automata v0.4.18
+   Compiling rand v0.10.3
+   Compiling encoding_rs v0.8.35
+   Compiling rusqlite v0.41.1
+   Compiling strsim v0.11.1
+   Compiling arraydeque v0.5.1
+   Compiling quod-ledger v0.0.0 (/src/crates/quod-ledger)
+   Compiling heck v0.5.0
+   Compiling clap_lex v1.1.1
+   Compiling lazy_static v1.5.1
+   Compiling rustix v1.1.6
+   Compiling sharded-slab v0.1.7
+   Compiling clap_builder v4.6.7
+   Compiling quod-trust v0.0.0 (/src/crates/quod-trust)
+   Compiling clap_derive v4.6.7
+   Compiling yaml-rust2 v0.13.0
+   Compiling quod-fs v0.0.0 (/src/crates/quod-fs)
+   Compiling matchers v0.2.0
+   Compiling ulid v3.0.0
+   Compiling tracing-log v0.2.0
+   Compiling quod-sandbox v0.0.0 (/src/crates/quod-sandbox)
+   Compiling quod-replay v0.0.0 (/src/crates/quod-replay)
+   Compiling quod-key v0.0.0 (/src/crates/quod-key)
+   Compiling tracing-serde v0.2.0
+   Compiling aho-corasick v1.1.5
+   Compiling thread_local v1.1.10
+   Compiling linux-raw-sys v0.12.1
+   Compiling nu-ansi-term v0.50.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling quod-hooks v0.0.0 (/src/crates/quod-hooks)
+   Compiling clap v4.6.7
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling quod-cli v0.0.0 (/src/crates/quod-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.46s
+     Running tests/hooks_acceptance.rs (target/debug/deps/hooks_acceptance-13dd7720885099e4)
+
+running 1 test
+test hooks_py_node ... prepare_job: job 01M6E90SJ5PBGRPJHF1CMT8KK8
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+FAIL P1: a step reading langsmith/vitest/ci-info files is recorded: - [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)
+
+prepare_job: job 01M6E90T0YKBA9R3G3VVDA4QR4
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+FAIL P1: and replays: quod: `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment
+
+P1 done: files naming GITHUB_SHA and GITHUB_EVENT_NAME taint nothing
+prepare_job: job 01M6E90T5ZBR0WQJ52D96MDGCX
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+FAIL P2: the keyed step saw only the placeholder: "b0e0259f4091d6ee\nb0e0259f4091d6ee\nd27d6a93eec44651\nc5378e29ebb42de9\n" - [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)
+
+prepare_job: job 01M6E90TC61KV65YEF6685Q7SE
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+FAIL P2: replays what it derived from the placeholder: quod: `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment
+
+prepare_job: job 01M6E90TKW64FFDTKN203C6SW6
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: v=GITHUB_; eval "s=\${${v}SHA}"; echo "built ${s::7}"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+FAIL P2: a short sha from the placeholder is caught: "built quod-wi\n" - [executed] `run: v=GITHUB_; eval "s=\${${v}SHA}"; echo "built ${s::7}"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  (job so far: 2 steps, 1 would replay, 0 replayed, 0 tainted)
+
+prepare_job: job 01M6E90TQM4XT6SADTYYGZ7PM4
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  REPLAYED
+  proved by run 01M6E90T on 2026-11-02 14:01 UTC
+  step b3:539ed06a  manifest b3:6736c111  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+FAIL P2: the short sha is never recorded: QUOD  REPLAYED
+  proved by run 01M6E90T on 2026-11-02 14:01 UTC
+  step b3:539ed06a  manifest b3:6736c111  0 inputs matched
+  recorded 0.0s  replay 0.0s  saved 0.0s
+  trust: proven by 1 identical execution, audited 0 times, 0 divergences
+
+P2 done: the real values never reach a replayable result
+prepare_job: job 01M6E90TSV0551TXWHVS8DCW8J
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+FAIL P3 push: "isPR=false\nisPR=false\n" - [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)
+
+prepare_job: job 01M6E90TYSY0Z0QDBD07Q01P0Y
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+FAIL P3 push replays: quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+
+prepare_job: job 01M6E90V3QXR7YJTSMDQQEENHT
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+FAIL P3: a pull request gets its own event name, not the push's result: "isPR=false\nisPR=true\n" quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment
+
+P3 done: the event name is keyed
+prepare_job: job 01M6E90V8Y43TJ2EXH8AFDHM5G
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: getent hosts example.com >/dev/null || true; echo tested`: tried to reach the network offline (2 attempts); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: getent hosts example.com >/dev/null || true; echo tested`: ok in 0.0s; would replay: no, tainted: tried to reach the network offline (2 attempts); ran again with the runner's environment
+prepare_job: job 01M6E90VE23YH7RWEZYCB40XQJ
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: getent hosts example.com >/dev/null || true; echo tested`: tried to reach the network offline (2 attempts); ran again with the runner's environment
+QUOD  EXECUTED  [executed] `run: getent hosts example.com >/dev/null || true; echo tested`: ok in 0.0s; would replay: no, tainted: tried to reach the network offline (2 attempts); ran again with the runner's environment
+FAIL P4 second: - [executed] `run: getent hosts example.com >/dev/null || true; echo tested`: ok in 0.0s; would replay: no, tainted: tried to reach the network offline (2 attempts); ran again with the runner's environment
+  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)
+
+prepare_job: job 01M6E90VJY7S20T4GVBYG2269E
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: getent hosts pypi.org >/dev/null || exit 2`: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network
+QUOD  EXECUTED  [executed] `run: getent hosts pypi.org >/dev/null || exit 2`: ok in 0.0s with the network; would replay: no, tainted: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network
+prepare_job: job 01M6E90VQV0JZPRMDRY63SAB0Z
+$ step 1: exit 0
+
+$ step 2: exit 0
+quod: `run: getent hosts pypi.org >/dev/null || exit 2`: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network
+QUOD  EXECUTED  [executed] `run: getent hosts pypi.org >/dev/null || exit 2`: ok in 0.0s with the network; would replay: no, tainted: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network
+FAIL P4 fetch second: - [executed] `run: getent hosts pypi.org >/dev/null || exit 2`: ok in 0.0s with the network; would replay: no, tainted: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network
+  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)
+
+FAIL P4: the ledger remembers both: ""
+P4 done: a network step runs once per job, with the network
+prepare_job: job 01M6E90VWVD14QQ1MJMKPSN592
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: cat version.txt >/dev/null && echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+FAIL P5 first: "SOURCE_DATE_EPOCH=\n" "42\n" QUOD  EXECUTED  [executed] `run: cat version.txt >/dev/null && echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+ QUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+
+prepare_job: job 01M6E90W9V63MQSRTC654TX6AX
+$ step 1: exit 0
+
+$ step 2: exit 0
+QUOD  EXECUTED  [executed] `run: cat version.txt >/dev/null && echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, closest manifest differed at version.txt [file content changed (file b3:50cc1102 mode 644 -> file b3:b9a1a318 mode 644)] (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, closest manifest differed at site/pkg/__pycache__/__init__.cpython-312.pyc [file content changed (file b3:7689a5dc mode 644 -> file b3:9a4fbfc0 mode 644), 1 more] (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+FAIL P5: the import step replays over a re-run install: - [executed] `run: cat version.txt >/dev/null && echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, closest manifest differed at version.txt [file content changed (file b3:50cc1102 mode 644 -> file b3:b9a1a318 mode 644)] (1 of 1 identical proofs); replayable from the next matching run
+  (job so far: 2 steps, 1 would replay, 1 replayed, 0 tainted)
+
+QUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, closest manifest differed at site/pkg/__pycache__/__init__.cpython-312.pyc [file content changed (file b3:7689a5dc mode 644 -> file b3:9a4fbfc0 mode 644), 1 more] (1 of 1 identical proofs); replayable from the next matching run
+  trust: proof 1 of 1; replayable from the next matching run
+
+P5 done: install-time bytecode is checked by hash
+prepare_job: job 01M6E90WNP138Q8X9EYPG0HQPG
+$ step 1: exit 0
+quod: this job is opaque, nothing it runs is recorded: the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed)
+QUOD  EXECUTED  [executed] `run: echo "COPY=$PLAIN" >> "$GITHUB_ENV"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+FAIL P6 before checkout: - [executed] `run: echo "COPY=$PLAIN" >> "$GITHUB_ENV"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+  (job so far: 1 steps, 0 would replay, 0 replayed, 0 tainted)
+
+fatal: '/nonexistent/o/r' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+fatal: '/nonexistent/o/r' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+quod: this job is opaque, nothing it runs is recorded: the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed)
+QUOD  EXECUTED  [executed] `run: echo "COPY=$PLAIN" >> "$GITHUB_ENV"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+
+$ step 2: exit 0
+
+$ step 3: exit 0
+QUOD  EXECUTED  [executed] `run: echo "copy=$COPY"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+$ step 4: exit 0
+QUOD  EXECUTED  [executed] `run: echo plain-step`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+FAIL P6: the job is not opaque, a later step records: - [executed] `run: echo plain-step`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))
+  (job so far: 4 steps, 1 would replay, 0 replayed, 0 tainted)
+
+P6 done: a step before checkout does not make the job opaque
+
+thread 'hooks_py_node' (3208) panicked at crates/quod-cli/tests/hooks_acceptance.rs:2395:5:
+hooks py/node failed: [
+    "P1: a step reading langsmith/vitest/ci-info files is recorded: - [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment\n  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)\n",
+    "P1: and replays: quod: `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment\nQUOD  EXECUTED  [executed] `run: cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/ch`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json, GITHUB_SHA in third_party/langsmith/env/_runtime_env.py (withheld from offline steps); ran again with the runner's environment\n",
+    "P2: the keyed step saw only the placeholder: \"b0e0259f4091d6ee\\nb0e0259f4091d6ee\\nd27d6a93eec44651\\nc5378e29ebb42de9\\n\" - [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval \"t=\\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment\n  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)\n",
+    "P2: replays what it derived from the placeholder: quod: `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval \"t=\\${${v}T`: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment\nQUOD  EXECUTED  [executed] `run: cat third_party/github/client.py >/dev/null; v=GITHUB_; eval \"t=\\${${v}T`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_TOKEN in third_party/github/client.py (withheld from offline steps); ran again with the runner's environment\n",
+    "P2: a short sha from the placeholder is caught: \"built quod-wi\\n\" - [executed] `run: v=GITHUB_; eval \"s=\\${${v}SHA}\"; echo \"built ${s::7}\"`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run\n  (job so far: 2 steps, 1 would replay, 0 replayed, 0 tainted)\n",
+    "P2: the short sha is never recorded: QUOD  REPLAYED\n  proved by run 01M6E90T on 2026-11-02 14:01 UTC\n  step b3:539ed06a  manifest b3:6736c111  0 inputs matched\n  recorded 0.0s  replay 0.0s  saved 0.0s\n  trust: proven by 1 identical execution, audited 0 times, 0 divergences\n",
+    "P3 push: \"isPR=false\\nisPR=false\\n\" - [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval \"`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment\n  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)\n",
+    "P3 push replays: quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval \"`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment\nQUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval \"`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment\n",
+    "P3: a pull request gets its own event name, not the push's result: \"isPR=false\\nisPR=true\\n\" quod: `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval \"`: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment\nQUOD  EXECUTED  [executed] `run: cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval \"`: ok in 0.0s; would replay: no, tainted: a file it read names GITHUB_EVENT_NAME in third_party/ci-info/vendors.json (withheld from offline steps); ran again with the runner's environment\n",
+    "P4 second: - [executed] `run: getent hosts example.com >/dev/null || true; echo tested`: ok in 0.0s; would replay: no, tainted: tried to reach the network offline (2 attempts); ran again with the runner's environment\n  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)\n",
+    "P4 fetch second: - [executed] `run: getent hosts pypi.org >/dev/null || exit 2`: ok in 0.0s with the network; would replay: no, tainted: exited 2 offline; tried to reach the network offline (2 attempts); ran again with the network\n  (job so far: 2 steps, 1 would replay, 0 replayed, 1 tainted)\n",
+    "P4: the ledger remembers both: \"\"",
+    "P5 first: \"SOURCE_DATE_EPOCH=\\n\" \"42\\n\" QUOD  EXECUTED  [executed] `run: cat version.txt >/dev/null && echo \"SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run\n  trust: proof 1 of 1; replayable from the next matching run\n QUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, first run of this step (1 of 1 identical proofs); replayable from the next matching run\n  trust: proof 1 of 1; replayable from the next matching run\n",
+    "P5: the import step replays over a re-run install: - [executed] `run: cat version.txt >/dev/null && echo \"SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH`: ok in 0.1s; would replay: no, closest manifest differed at version.txt [file content changed (file b3:50cc1102 mode 644 -> file b3:b9a1a318 mode 644)] (1 of 1 identical proofs); replayable from the next matching run\n  (job so far: 2 steps, 1 would replay, 1 replayed, 0 tainted)\n\nQUOD  EXECUTED  [executed] `run: PYTHONPATH=site /usr/local/python/bin/python3 -c 'import pkg.mod; print(`: ok in 0.0s; would replay: no, closest manifest differed at site/pkg/__pycache__/__init__.cpython-312.pyc [file content changed (file b3:7689a5dc mode 644 -> file b3:9a4fbfc0 mode 644), 1 more] (1 of 1 identical proofs); replayable from the next matching run\n  trust: proof 1 of 1; replayable from the next matching run\n",
+    "P6 before checkout: - [executed] `run: echo \"COPY=$PLAIN\" >> \"$GITHUB_ENV\"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))\n  (job so far: 1 steps, 0 would replay, 0 replayed, 0 tainted)\n\nfatal: '/nonexistent/o/r' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\nfatal: '/nonexistent/o/r' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\nquod: this job is opaque, nothing it runs is recorded: the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed)\nQUOD  EXECUTED  [executed] `run: echo \"COPY=$PLAIN\" >> \"$GITHUB_ENV\"`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))\n",
+    "P6: the job is not opaque, a later step records: - [executed] `run: echo plain-step`: ok in 0.0s; would replay: no, not recorded: the job is opaque (the workflow cannot be read (git fetch file:///nonexistent/o/r refs/heads/main failed))\n  (job so far: 4 steps, 1 would replay, 0 replayed, 0 tainted)\n",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    hooks_py_node
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 3.55s
+
+error: test failed, to rerun pass `-p quod-cli --test hooks_acceptance`
