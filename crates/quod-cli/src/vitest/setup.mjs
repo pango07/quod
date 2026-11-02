@@ -1,7 +1,7 @@
 // quod vitest: the setup file Quod puts first in every recorded project's
-// setupFiles. It runs in the test file's own worker (vitest isolates each
-// file in a fresh worker), before the project's setup files and the test
-// module, and records what the file reads from here on. Its record is
+// setupFiles (from node_modules/.quod-vitest, so node loads it natively).
+// It runs in the test file's own worker (vitest isolates each file in a
+// fresh worker), before the project's setup files and the test module, and records what the file reads from here on. Its record is
 // written when the worker is torn down, after the file's last hook.
 //
 // What it cannot see it says: no record (or an `unobservable` reason) and
@@ -15,7 +15,7 @@ const ws = globalThis.__vitest_worker__
 
 if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   const file = ws.current?.file ?? ws.current
-  const r = createRecorder({ stateDir, mode: 'worker' })
+  const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker' })
   globalThis.__quod_vitest__ = r
   patchFs(r)
   patchEnv(r)

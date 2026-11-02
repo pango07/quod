@@ -35,7 +35,7 @@ export const VERSION = 'quod-vitest-1'
 
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, mode }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
   const keys = new Set()
   const r = {
     mode, // 'main' | 'worker'
@@ -46,7 +46,7 @@ export function createRecorder({ stateDir, mode }) {
     add(kind, p) {
       if (!r.on || p == null) return
       p = norm(p)
-      if (p == null || p.startsWith(stateDir)) return
+      if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {
@@ -67,7 +67,7 @@ export function createRecorder({ stateDir, mode }) {
     write(p) {
       if (!r.on || p == null) return
       p = norm(p)
-      if (p != null && !p.startsWith(stateDir)) r.writes.add(p)
+      if (p != null && !p.startsWith(stateDir) && !p.startsWith(codeDir)) r.writes.add(p)
     },
     unobs(reason) {
       if (r.on) r.unobservable.add(reason)

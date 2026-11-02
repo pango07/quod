@@ -41,6 +41,7 @@ mod state;
 mod status;
 mod step;
 mod trust;
+mod vitest;
 
 /// Exit code for Quod's own failures. A step can exit 2 by itself, so
 /// the code alone does not say whose failure it was: a Quod failure
@@ -122,6 +123,9 @@ enum Cmd {
     /// a shell can eval: toolchain, default setup and test steps, the
     /// directories to clear after setup, the sealed prefixes.
     Profile(profile::ProfileArgs),
+    /// Run a vitest suite replaying, per test file, every file whose recorded
+    /// inputs are unchanged: `quod vitest -- run --project unit`.
+    Vitest(vitest::VitestArgs),
 }
 
 fn main() -> ExitCode {
@@ -132,6 +136,10 @@ fn main() -> ExitCode {
             // nothing to log: it only reads the kernel's view and prints it.
             if matches!(cli.cmd, Cmd::HostProbe) {
                 return rootfs::host_probe();
+            }
+            // vitest keeps its own ledger next to the project; no store.
+            if let Cmd::Vitest(args) = cli.cmd {
+                return vitest::cli(args);
             }
             let state = state::State::resolve(cli.state.as_deref())?;
             match cli.cmd {
@@ -178,6 +186,7 @@ fn main() -> ExitCode {
                     Ok(0)
                 }
                 Cmd::Profile(args) => profile::profile(args).map(|()| 0),
+                Cmd::Vitest(_) => unreachable!("handled before the state resolves"),
             }
         }));
     // A panic anywhere is a Quod failure too: exit 2 with the banner,

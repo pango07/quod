@@ -32,7 +32,8 @@ for (const f of real.readdirSync(dumpDir)) {
   } catch {}
 }
 
-const r = createRecorder({ stateDir, mode: 'main' })
+const codeDir = import.meta.dirname
+const r = createRecorder({ stateDir, codeDir, mode: 'main' })
 patchFs(r)
 patchEnv(r)
 patchLoader(r)
@@ -73,7 +74,7 @@ process.env.TEST = 'true'
 process.env.VITEST = 'true'
 process.env.NODE_ENV ??= 'test'
 
-const setupPath = path.join(stateDir, 'setup.mjs')
+const setupPath = path.join(codeDir, 'setup.mjs')
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 
@@ -192,7 +193,7 @@ r.on = false
 const ranOut = []
 const auditMismatch = []
 const moduleKeys = (mods) => {
-  const w = createRecorder({ stateDir, mode: 'worker' })
+  const w = createRecorder({ stateDir, codeDir, mode: 'worker' })
   for (const m of mods) w.add('f', m)
   return w.keys
 }
