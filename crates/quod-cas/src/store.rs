@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use crate::statcache::{Ident, StatCache};
 use crate::{Entry, Hash, Kind, ROOT, Tree, child_path};
 
 /// Writes everything it is given to the inner file while hashing it.
@@ -445,18 +446,73 @@ impl Cas {
     /// read nor stored (a checkout's `.git`, for a caller that serves its
     /// own): the tree `import_dir(root)` gives with them removed.
     pub fn import_dir_except(&self, root: &Path, skip: &[&str]) -> Result<Tree, CasError> {
-        self.import_dir_walk(root, skip).map(|(t, _)| t)
+        self.import_dir_walk(root, skip, None).map(|(t, _)| t)
+    }
+
+    /// `import_dir_except` that reads again only the files that changed
+    /// since the last cached import of `root` (`statcache`): the same tree,
+    /// in time proportional to the files' count plus what changed.
+    pub fn import_dir_cached(&self, root: &Path, skip: &[&str]) -> Result<Tree, CasError> {
+        let mut id = root.to_string_lossy().into_owned();
+        for s in skip {
+            id.push('\0');
+            id.push_str(s);
+        }
+        let cache = StatCache::load(
+            self.dir
+                .join("import-cache")
+                .join(format!("{}.v1", Hash::of(id.as_bytes()).hex())),
+        );
+        let out = self.import_dir_walk(root, skip, Some(&cache));
+        if out.is_ok() {
+            cache.save();
+        }
+        out.map(|(t, _)| t)
     }
 
     /// Walks `root`, stores every regular file and returns the tree. Skips
     /// nothing; `.git` included.
     pub fn import_dir_stats(&self, root: &Path) -> Result<(Tree, ImportStats), CasError> {
-        self.import_dir_walk(root, &[])
+        self.import_dir_walk(root, &[], None)
     }
 
-    fn import_dir_walk(&self, root: &Path, skip: &[&str]) -> Result<(Tree, ImportStats), CasError> {
+    /// A file's hash and the bytes newly stored, through `cache` when
+    /// given: kept if the file still has the identity `ident` (taken when
+    /// the walk listed it) and its blob is in the store; else hashed, and
+    /// kept for next time if it was settled and unchanged across the read.
+    fn put_file_cached(
+        &self,
+        rel: &str,
+        path: &Path,
+        ident: &Ident,
+        cache: Option<&StatCache>,
+    ) -> Result<(Hash, u64), CasError> {
+        let Some(cache) = cache else {
+            return self.put_file(path);
+        };
+        if let Some(h) = cache.get(rel, ident)
+            && self.has(&h)
+        {
+            cache.keep(rel, *ident, h);
+            return Ok((h, 0));
+        }
+        let out = self.put_file(path)?;
+        if ident.settled(std::time::SystemTime::now())
+            && fs::symlink_metadata(path).is_ok_and(|m| Ident::of(&m) == *ident)
+        {
+            cache.keep(rel, *ident, out.0);
+        }
+        Ok(out)
+    }
+
+    fn import_dir_walk(
+        &self,
+        root: &Path,
+        skip: &[&str],
+        cache: Option<&StatCache>,
+    ) -> Result<(Tree, ImportStats), CasError> {
         let mut stats = ImportStats::default();
-        let mut files: Vec<(String, PathBuf, u32)> = Vec::new();
+        let mut files: Vec<(String, PathBuf, u32, Ident)> = Vec::new();
         let mut leaves: Vec<Entry> = Vec::new();
         let mut stack = vec![(ROOT.to_string(), root.to_path_buf())];
         while let Some((rel, abs)) = stack.pop() {
@@ -483,7 +539,7 @@ impl Cas {
                 } else if ft.is_file() {
                     stats.files += 1;
                     stats.bytes += meta.len();
-                    files.push((child, path, meta.mode() & 0o777));
+                    files.push((child, path, meta.mode() & 0o777, Ident::of(&meta)));
                 } else if ft.is_symlink() {
                     stats.symlinks += 1;
                     let target = fs::read_link(&path).at(&path)?;
@@ -498,9 +554,10 @@ impl Cas {
             }
         }
 
-        let paths: Vec<PathBuf> = files.iter().map(|(_, p, _)| p.clone()).collect();
-        let hashed = self.put_files(&paths)?;
-        for ((rel, _, mode), (h, new)) in files.into_iter().zip(hashed) {
+        let hashed = self.par_map(&files, |(rel, path, _, ident)| {
+            self.put_file_cached(rel, path, ident, cache)
+        })?;
+        for ((rel, _, mode, _), (h, new)) in files.into_iter().zip(hashed) {
             stats.new_bytes += new;
             leaves.push(Entry::file(rel, h, mode));
         }

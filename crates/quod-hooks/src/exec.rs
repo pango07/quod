@@ -312,12 +312,17 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             writable: true,
         }),
     };
-    let warm_before = match (&gocache_dir, gocache_checked) {
-        (Some(dir), true) => Some(go_cache_snapshot(dir)),
-        _ => None,
-    };
+    // What the step may change, before it runs. In a job's layer that is
+    // the layer alone (every write, a copy-up included, lands in its upper
+    // dir), so the check costs what the job wrote, not the cache's size;
+    // a writer works on the cache itself, which is walked whole.
     let layer_before = match &x.gocache {
         GoCache::Layered { layer, .. } => Some(go_cache_snapshot(&layer.join("upper"))),
+        _ => None,
+    };
+    let warm_before = match (&gocache_dir, gocache_checked, &x.gocache) {
+        (_, _, GoCache::Layered { .. }) => layer_before.clone(),
+        (Some(dir), true, _) => Some(go_cache_snapshot(dir)),
         _ => None,
     };
     let r = quod_sandbox::run(&rs);
@@ -346,8 +351,15 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         GoCache::Layered { lower, layer } => Some((lower.clone(), layer.join("upper"))),
         _ => None,
     };
+    // The check scans the layer's upper dir in a job's layer (reading the
+    // merged view only for what it names), the cache itself for a writer.
+    let scan = match &upper_dir {
+        Some((_, u)) => Some(u.clone()),
+        None => gocache_dir.clone(),
+    };
+    let view = gocache_dir.clone();
     let (warm_violation, warm_layer_written) = finish_warm_cache(
-        warm_before.as_ref().and(gocache_dir.as_deref()),
+        warm_before.as_ref().and(scan.as_deref()),
         warm_before.as_ref(),
         masks,
         upper_dir
@@ -355,7 +367,9 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             .zip(layer_before.as_ref())
             .map(|((l, u), b)| (l.as_path(), u.as_path(), b)),
         gocache_ov,
-        go_cache_delta,
+        |scan: &Path, before: &BTreeMap<String, Ident>, masks: &[Vec<u8>]| {
+            go_cache_delta_in(view.as_deref().unwrap_or(scan), scan, before, masks)
+        },
     );
 
     // Unmount everything whatever happened in the sandbox.
@@ -636,15 +650,39 @@ fn go_cache_path_ok(rel: &str, is_dir: bool) -> bool {
 /// as a side channel to later steps and jobs), no symlink, and no entry
 /// holding one of the step's secret values (`go run -ldflags -X` caches the
 /// value in an object file). `Some(why)` when the run must not be recorded.
+#[cfg(test)]
 fn go_cache_delta(
     dir: &Path,
     before: &BTreeMap<String, Ident>,
     masks: &[Vec<u8>],
 ) -> anyhow::Result<Option<String>> {
-    let after = go_cache_snapshot(dir);
+    go_cache_delta_in(dir, dir, before, masks)
+}
+
+/// `go_cache_delta` with what changed found under `scan` against `before`
+/// (a snapshot of `scan`), and read through `view`, the cache as the step
+/// saw it: `scan` is the cache itself for a writer, the job's layer's upper
+/// dir otherwise, where every write lands (new entries, and copy-ups of
+/// rewritten ones). A whiteout there is a deletion, which the cache
+/// itself shows as an absent entry: not a change checked here (the layer's
+/// writes report it, `layer_written`).
+fn go_cache_delta_in(
+    view: &Path,
+    scan: &Path,
+    before: &BTreeMap<String, Ident>,
+    masks: &[Vec<u8>],
+) -> anyhow::Result<Option<String>> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let whiteout = |p: &str| {
+        scan != view
+            && std::fs::symlink_metadata(scan.join(p))
+                .is_ok_and(|m| m.file_type().is_char_device() && m.rdev() == 0)
+    };
+    let after = go_cache_snapshot(scan);
     let changed: Vec<(&String, &Ident)> = after
         .iter()
         .filter(|(p, v)| before.get(*p) != Some(*v))
+        .filter(|(p, v)| !(v.kind == CacheKind::Other && whiteout(p)))
         .collect();
     for (p, v) in &changed {
         let ok = match v.kind {
@@ -671,13 +709,13 @@ fn go_cache_delta(
         })
         .collect();
     for d in exe_dirs {
-        let prefix = format!("{d}/");
-        let inside: Vec<&Ident> = after
-            .range(prefix.clone()..)
-            .take_while(|(p, _)| p.starts_with(&prefix))
-            .map(|(_, v)| v)
+        // What the step sees in it (a layer's upper holds only what this
+        // job added, the cache may hold more).
+        let inside: Vec<CacheKind> = go_cache_snapshot(&view.join(d))
+            .into_values()
+            .map(|v| v.kind)
             .collect();
-        if inside.len() > 1 || inside.iter().any(|v| v.kind != CacheKind::File) {
+        if inside.len() > 1 || inside.iter().any(|k| *k != CacheKind::File) {
             return Ok(Some(format!(
                 "it left {d} in the warm build cache holding more than one executable file, which is not Go's cache layout"
             )));
@@ -689,7 +727,7 @@ fn go_cache_delta(
             if v.kind != CacheKind::File {
                 continue;
             }
-            let Ok(f) = std::fs::File::open(dir.join(p)) else {
+            let Ok(f) = std::fs::File::open(view.join(p)) else {
                 continue;
             };
             if ac.stream_find_iter(f).next().is_some() {
@@ -886,6 +924,50 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A job's layer is checked by what the layer holds, read through the
+    /// cache as the step saw it: a second file put into an executable's
+    /// output directory the cache already had is caught though the layer
+    /// holds only that one file, and a secret in a new entry is found.
+    #[test]
+    fn a_layer_is_checked_by_what_it_wrote_through_the_merged_view() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let tmp = tempfile::tempdir().unwrap();
+        let (view, upper) = (tmp.path().join("merged"), tmp.path().join("upper"));
+        let exe = format!("ab/{id}-d");
+        std::fs::create_dir_all(view.join(&exe)).unwrap();
+        std::fs::write(view.join(&exe).join("gh"), "exe").unwrap();
+        std::fs::create_dir_all(&upper).unwrap();
+        let before = go_cache_snapshot(&upper);
+        assert_eq!(
+            go_cache_delta_in(&view, &upper, &before, &[]).unwrap(),
+            None
+        );
+        // The step adds a second file there: it lands in the layer, and the
+        // step sees both.
+        for d in [&view, &upper] {
+            std::fs::create_dir_all(d.join(&exe)).unwrap();
+            std::fs::write(d.join(&exe).join("payload"), "x").unwrap();
+        }
+        let v = go_cache_delta_in(&view, &upper, &before, &[]).unwrap();
+        assert!(v.is_some_and(|v| v.contains("more than one executable")));
+        // A new action entry with a secret value in it, in a fresh layer.
+        let upper2 = tmp.path().join("upper2");
+        std::fs::create_dir_all(upper2.join("cd")).unwrap();
+        let before2 = go_cache_snapshot(&upper2);
+        let a = format!("cd/{id}-a");
+        for d in [&view, &upper2] {
+            std::fs::create_dir_all(d.join("cd")).unwrap();
+            std::fs::write(d.join(&a), "k=s3cr3t-value-0123").unwrap();
+        }
+        let mask = vec![b"s3cr3t-value-0123".to_vec()];
+        let v = go_cache_delta_in(&view, &upper2, &before2, &mask).unwrap();
+        assert!(v.is_some_and(|v| v.contains("secret")));
+        assert_eq!(
+            go_cache_delta_in(&view, &upper2, &before2, &[]).unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn the_warm_build_cache_takes_only_go_s_layout() {

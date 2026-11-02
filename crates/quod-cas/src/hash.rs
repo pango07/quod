@@ -18,6 +18,11 @@ impl Hash {
         Hash(*h.as_bytes())
     }
 
+    /// A hash read back from its bytes (`as_bytes`).
+    pub fn from_bytes(b: [u8; 32]) -> Hash {
+        Hash(b)
+    }
+
     pub fn hex(&self) -> String {
         let mut s = String::with_capacity(64);
         for b in self.0 {

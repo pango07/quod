@@ -762,6 +762,7 @@ dependencies = [
  "quod-cas",
  "quod-manifest",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

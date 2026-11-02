@@ -18,7 +18,46 @@ pids=()
 job() { local name=$1; shift; "$@" > "$out/$name" & pids+=($!); }
 # Each toolchain: its version string and the hash of its binary (resolved
 # through symlinks, so a venv-style launcher pins the real interpreter).
-bin_hash() { sha256sum "$(readlink -f "$1")" | cut -c1-64; }
+# With QUOD_FP_CACHE (a directory Quod owns), a binary's hash is kept by its
+# identity (device, inode, size, mtime, ctime) and not read again while the
+# identity holds: writing a file moves its ctime, which nothing can set
+# back. A binary changed less than 2 s ago, or while it was read, is not
+# kept (file times are coarse). The printed hash is the same either way.
+file_id() { find "$1" -maxdepth 0 -printf '%D %i %s %T@ %C@ %p'; }
+bin_hash() {
+  local f id c h
+  f=$(readlink -f "$1")
+  if [ -z "${QUOD_FP_CACHE:-}" ] || ! id=$(file_id "$f" 2>/dev/null); then
+    sha256sum "$f" | cut -c1-64
+    return
+  fi
+  c="$QUOD_FP_CACHE/$(printf '%s' "$id" | sha256sum | cut -c1-64)"
+  if [ -f "$c" ]; then
+    cat "$c"
+    return
+  fi
+  h=$(sha256sum "$f" | cut -c1-64)
+  echo "$h"
+  if [ "$(file_id "$f" 2>/dev/null)" = "$id" ] &&
+    find "$f" -maxdepth 0 -printf '%T@ %C@\n' | awk -v now="$(date +%s.%N)" '{ exit !($1 + 2 < now && $2 + 2 < now) }'; then
+    mkdir -p "$QUOD_FP_CACHE" && echo "$h" > "$c.$$" && mv -f "$c.$$" "$c" || rm -f "$c.$$"
+  fi
+}
+# npm's version without starting node: npm --version prints its
+# package.json's version field (when that is where npm lives, read as one
+# line; anything else asks npm).
+npm_version() {
+  local cli pj v
+  if cli=$(readlink -f "$(command -v npm)" 2>/dev/null) &&
+    pj="${cli%/bin/npm-cli.js}/package.json" && [ "$pj" != "$cli/package.json" ] && [ -f "$pj" ]; then
+    v=$(sed -n 's/^  "version": "\([^"]*\)",$/\1/p' "$pj")
+    if [ -n "$v" ] && [ "$(printf '%s\n' "$v" | wc -l)" -eq 1 ]; then
+      echo "$v"
+      return
+    fi
+  fi
+  npm --version 2>/dev/null || echo absent
+}
 sec_go() {
   if go=$(command -v go); then
     echo "go $(go env GOVERSION) $(go env GOOS)/$(go env GOARCH) GOROOT=$(go env GOROOT)"
@@ -29,7 +68,7 @@ sec_go() {
 }
 sec_node() {
   if node=$(command -v node); then
-    echo "node $(node --version) npm $(npm --version 2>/dev/null || echo absent)"
+    echo "node $(node --version) npm $(npm_version)"
     echo "node binary $(bin_hash "$node")"
   else
     echo "node absent"

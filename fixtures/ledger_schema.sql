@@ -1,6 +1,7 @@
 CREATE TABLE audits (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, at TEXT NOT NULL, phase TEXT NOT NULL, diverged INTEGER NOT NULL, expected_run TEXT, actual_run TEXT, detail TEXT);
 CREATE TABLE blobs (hash TEXT PRIMARY KEY, size INTEGER NOT NULL, path TEXT NOT NULL);
-CREATE TABLE manifests (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL);
+CREATE TABLE manifest_nodes (id TEXT PRIMARY KEY, body BLOB NOT NULL);
+CREATE TABLE manifests (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL, root TEXT);
 CREATE TABLE proofs (step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, streak INTEGER NOT NULL, fingerprint TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (step_key, manifest_id));
 CREATE TABLE results (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL);
 CREATE TABLE runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, commit_sha TEXT, host TEXT, transport TEXT, observer TEXT, step_key TEXT, repo TEXT, repo_path TEXT, mode TEXT, outcome TEXT, manifest_id TEXT, exit_code INTEGER, wall_ms INTEGER, saved_ms INTEGER);

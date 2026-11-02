@@ -11,11 +11,14 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use quod_cas::{Hash, Tree};
-use quod_manifest::{Manifest, Mismatch, StepResult, manifest_id, matches};
+use quod_manifest::{Manifest, Mismatch, StepResult, matches};
 use rusqlite::{Connection, OptionalExtension, params};
 
-/// How many candidate manifests a lookup verifies, newest first.
-pub const CANDIDATES: usize = 50;
+mod index;
+
+/// How many candidate manifests a lookup verifies, newest first. Each costs
+/// only the index nodes no newer candidate shares with it (`index`).
+pub const CANDIDATES: usize = 512;
 
 /// Schema version this binary writes: one per migration.
 pub const SCHEMA_VERSION: usize = MIGRATIONS.len();
@@ -58,6 +61,12 @@ const MIGRATIONS: &[&str] = &[
      CREATE TABLE proofs (step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, streak INTEGER NOT NULL, fingerprint TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (step_key, manifest_id));
      CREATE TABLE audits (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, at TEXT NOT NULL, phase TEXT NOT NULL, diverged INTEGER NOT NULL, expected_run TEXT, actual_run TEXT, detail TEXT);
      CREATE INDEX audits_by_key ON audits (step_key, id DESC);",
+    // v5: the lookup index (`index`): every manifest also as content-
+    // addressed nodes, one per directory, shared between manifests, and its
+    // root's id. NULL: a manifest written before v5, indexed when a lookup
+    // first needs it.
+    "CREATE TABLE manifest_nodes (id TEXT PRIMARY KEY, body BLOB NOT NULL);
+     ALTER TABLE manifests ADD COLUMN root TEXT;",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -638,35 +647,95 @@ impl Ledger {
     /// binary's (`v` greater than `quod_manifest::VERSION`) never matches: an
     /// older binary would read it without the fields it does not know, and
     /// replay what it does not understand.
+    ///
+    /// The newest candidate is decoded and checked with `matches` (the usual
+    /// hit, and on a miss the receipt's "closest manifest"); older ones go
+    /// through the index (`index`): only nodes no newer one shares are read,
+    /// and only a manifest whose root matches is decoded, then checked again
+    /// in full with `matches` before it counts.
     pub fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
-        let cands: Vec<Manifest> = self
-            .candidates(step_key, CANDIDATES)?
-            .into_iter()
-            .filter(|m| m.v <= quod_manifest::VERSION)
-            .collect();
+        let rows: Vec<(String, Option<String>)> = self
+            .db
+            .prepare_cached(
+                "SELECT id, root FROM manifests WHERE step_key = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+            )?
+            .query_map(params![step_key.to_string(), CANDIDATES as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
         let total = self.manifest_count(step_key)?;
-        let closest = match cands.first().map(|m| matches(m, tree)) {
-            Some(Err(mm)) => Some((manifest_id(&cands[0])?, *mm)),
-            _ => None,
-        };
-        let mut from = 0;
-        while let Some(i) = first_match(&cands[from..], tree).map(|i| i + from) {
-            if let Some(r) = self.latest_result(step_key, &manifest_id(&cands[i])?)?
+        // The newest candidate is decoded and checked whole either way: it
+        // is the usual hit (an unchanged tree), and on a miss its
+        // mismatches are the receipt's "closest manifest".
+        let mut closest = None;
+        if let Some((id, _)) = rows.first() {
+            let mid = parse_hash(id)?;
+            if let Some(m) = self.manifest(&mid)?
+                && m.v <= quod_manifest::VERSION
+            {
+                match matches(&m, tree) {
+                    Ok(()) => {
+                        if let Some(r) = self.latest_result(step_key, &mid)?
+                            && r.v <= quod_manifest::VERSION
+                        {
+                            return Ok(Lookup {
+                                hit: Some((m, r)),
+                                candidates: total,
+                                closest: None,
+                            });
+                        }
+                    }
+                    Err(mm) => closest = Some((mid, *mm)),
+                }
+            }
+        }
+        // The older ones through the index.
+        let mut eval = index::Eval::new(&self.db, tree);
+        let mut hit = None;
+        for (id, root) in rows.iter().skip(1) {
+            let mid = parse_hash(id)?;
+            let root = match root {
+                Some(r) => parse_hash(r)?,
+                None => match self.index_manifest(&mid)? {
+                    Some(r) => r,
+                    None => continue,
+                },
+            };
+            if !eval.matches(&root)? {
+                continue;
+            }
+            let Some(m) = self.manifest(&mid)? else {
+                continue;
+            };
+            if m.v > quod_manifest::VERSION || matches(&m, tree).is_err() {
+                continue;
+            }
+            if let Some(r) = self.latest_result(step_key, &mid)?
                 && r.v <= quod_manifest::VERSION
             {
-                return Ok(Lookup {
-                    hit: Some((cands[i].clone(), r)),
-                    candidates: total,
-                    closest,
-                });
+                hit = Some((m, r));
+                break;
             }
-            from = i + 1;
         }
         Ok(Lookup {
-            hit: None,
+            hit,
             candidates: total,
             closest,
         })
+    }
+
+    /// Indexes a manifest written before the index (v5) and returns its
+    /// root; None if the manifest is gone.
+    fn index_manifest(&self, id: &Hash) -> Result<Option<Hash>, LedgerError> {
+        let Some(m) = self.manifest(id)? else {
+            return Ok(None);
+        };
+        let root = index::put_nodes(&self.db, &m)?;
+        self.db.execute(
+            "UPDATE manifests SET root = ?1 WHERE id = ?2",
+            params![root.to_string(), id.to_string()],
+        )?;
+        Ok(Some(root))
     }
 
     // ----- trust (v3) -----
@@ -970,11 +1039,13 @@ fn insert_run(db: &Connection, f: &RunFacts) -> Result<(), LedgerError> {
 }
 
 fn insert_manifest(db: &Connection, m: &Manifest, run_id: &str) -> Result<Hash, LedgerError> {
-    let id = manifest_id(m)?;
+    let json = m.canonical_json()?;
+    let id = Hash::of(json.as_bytes());
+    let root = index::put_nodes(db, m)?;
     db.execute(
         // REPLACE gives the row a new rowid, which breaks created_at ties.
-        "INSERT OR REPLACE INTO manifests (id, step_key, run_id, created_at, json) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id.to_string(), m.step_key.to_string(), run_id, now_rfc3339(), m.canonical_json()?.into_bytes()],
+        "INSERT OR REPLACE INTO manifests (id, step_key, run_id, created_at, json, root) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id.to_string(), m.step_key.to_string(), run_id, now_rfc3339(), json.into_bytes(), root.to_string()],
     )?;
     Ok(id)
 }
@@ -1027,7 +1098,7 @@ pub fn format_rfc3339(secs: u64, millis: u32) -> String {
 mod tests {
     use super::*;
     use quod_cas::Entry;
-    use quod_manifest::{Access, Kind};
+    use quod_manifest::{Access, Kind, manifest_id};
 
     fn tree(gomod: &str) -> Tree {
         Tree::from_leaves([

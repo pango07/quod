@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 mod bench;
 mod deps;
 mod gitdir;
+mod gotest;
 mod inspect;
 mod profile;
 mod rootfs;
@@ -108,7 +109,13 @@ fn main() -> ExitCode {
             }
             let state = state::State::resolve(cli.state.as_deref())?;
             match cli.cmd {
-                Cmd::Run(args) => run::run(&state, args),
+                Cmd::Run(args) => {
+                    // A SIGTERM, SIGINT or SIGHUP stops the step and lets
+                    // this run unmount what it mounted (the next run sweeps
+                    // what a SIGKILL leaves: State::claim_run_dir).
+                    quod_sandbox::on_termination();
+                    run::run(&state, args)
+                }
                 Cmd::Status(args) => status::status(&state, args),
                 Cmd::Bench(args) => bench::bench(&state, args),
                 Cmd::Hooks { policy } => quod_hooks::Policy::from_json(policy.as_deref())

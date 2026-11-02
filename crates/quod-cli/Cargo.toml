@@ -21,6 +21,8 @@ quod-trust.workspace = true
 quod-hooks.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+# umount2, for the sweep of what a killed run left mounted (state.rs).
+libc.workspace = true
 # The rootfs document and import record are serde types (rootfs.rs).
 serde.workspace = true
 serde_json.workspace = true
@@ -35,8 +37,6 @@ ulid.workspace = true
 fault-injection = ["quod-fs/fault-injection"]
 
 [dev-dependencies]
-# O_PATH, for ring_faults.rs holding a mount busy.
-libc.workspace = true
 tempfile.workspace = true
 
 [[test]]

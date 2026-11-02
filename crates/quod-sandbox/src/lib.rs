@@ -52,7 +52,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -191,6 +191,43 @@ pub enum Killed {
     Timeout,
     /// `Limits::abort` was raised (the caller's observer failed).
     Aborted,
+    /// This process got the termination signal `.0` (`on_termination`).
+    Terminated(i32),
+}
+
+/// The termination signal this process got, 0 for none (`on_termination`).
+static TERMINATED: AtomicI32 = AtomicI32::new(0);
+
+extern "C" fn note_termination(sig: libc::c_int) {
+    // An atomic store is async-signal-safe; the first signal is kept.
+    let _ = TERMINATED.compare_exchange(0, sig, Ordering::SeqCst, Ordering::SeqCst);
+}
+
+/// From now on SIGTERM, SIGINT and SIGHUP do not end this process: they are
+/// noted (`terminated`), and `run_with` kills a running step at its next
+/// poll, so the caller can unmount what it mounted and exit with 128+N
+/// instead of dying with its mounts in place.
+pub fn on_termination() {
+    for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: a zeroed sigaction with a valid handler and an empty
+        // mask is a valid argument; the handler only does an atomic store.
+        #[allow(unsafe_code)] // sigaction(2) has no safe std wrapper
+        unsafe {
+            let mut sa: libc::sigaction = std::mem::zeroed();
+            sa.sa_sigaction = note_termination as extern "C" fn(libc::c_int) as usize;
+            sa.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&mut sa.sa_mask);
+            libc::sigaction(sig, &sa, std::ptr::null_mut());
+        }
+    }
+}
+
+/// The termination signal noted since `on_termination`, if any.
+pub fn terminated() -> Option<i32> {
+    match TERMINATED.load(Ordering::SeqCst) {
+        0 => None,
+        s => Some(s),
+    }
 }
 
 /// Limits `run_with` enforces on a step from outside. Either one kills
@@ -626,11 +663,12 @@ fn wait_within(
                 .as_ref()
                 .is_some_and(|a| a.load(Ordering::SeqCst));
             let timed_out = limits.timeout.is_some_and(|t| start.elapsed() >= t);
-            if aborted || timed_out {
-                killed = Some(if aborted {
-                    Killed::Aborted
-                } else {
-                    Killed::Timeout
+            let signal = terminated();
+            if aborted || timed_out || signal.is_some() {
+                killed = Some(match signal {
+                    Some(s) => Killed::Terminated(s),
+                    None if aborted => Killed::Aborted,
+                    None => Killed::Timeout,
                 });
                 // Already gone is fine; try_wait reports it next round.
                 let _ = child.kill();

@@ -600,8 +600,11 @@ fn run_acceptance(env: &Env, tc: Toolchain, step: &str, samples: usize, real_rep
 /// durations, and the warm key must replay. Inputs (W4): a warm run with a
 /// full cache must read every path a run with the same env and an empty
 /// cache read (W1 is that run), so the cache never hides an input from the
-/// observer. W4 is what catches path-keyed caches (Go's module index, its
-/// test-result cache); the profile's knobs turn them off.
+/// observer. W4 is what catches path-keyed caches (Go's module index, which
+/// the profile's knobs turn off; its test-result cache, which a `go test`
+/// step keeps under Quod's guard, quod_key::gotest: W2 serves most packages
+/// from it, so W4 checks that what the guard let go test cache stood in for
+/// no input the run that executed those tests (W1) read).
 fn warm_checks(env: &Env, step: &str, key: &Hash, src_file: &str, profile: &quod_key::Profile) {
     let ledger = || Ledger::open(&env.state().join("ledger.sqlite")).unwrap();
     let cold = env.run_step(step, &[]);
@@ -861,8 +864,10 @@ fn normalize(tc: Toolchain, stdout: &[u8]) -> String {
 fn normalize_line(tc: Toolchain, l: &str) -> String {
     match tc {
         Toolchain::Go => {
+            // A package line's time, or `(cached)`: a warm step keeps go
+            // test's result cache under Quod's guard (quod_key::gotest).
             if let Some((head, tail)) = l.rsplit_once('\t')
-                && is_seconds(tail)
+                && (is_seconds(tail) || tail == "(cached)")
             {
                 return format!("{head}\t<dur>");
             }
@@ -930,7 +935,7 @@ mod normalize_tests {
             go("    --- FAIL: TestX (0.01s)"),
             "    --- FAIL: TestX (<dur>)"
         );
-        assert_eq!(go("ok  \tpkg/cmd\t(cached)"), "ok  \tpkg/cmd\t(cached)");
+        assert_eq!(go("ok  \tpkg/cmd\t(cached)"), "ok  \tpkg/cmd\t<dur>");
         assert_eq!(go("took 0.4s here"), "took 0.4s here");
         let node = |l| normalize_line(Toolchain::Node, l);
         assert_eq!(node("Time:        1.263 s, estimated 2 s"), "Time: <dur>");

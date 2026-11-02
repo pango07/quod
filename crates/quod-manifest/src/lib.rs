@@ -220,6 +220,12 @@ pub fn matches(manifest: &Manifest, tree: &Tree) -> Result<(), Box<Mismatch>> {
     }
 }
 
+/// Whether the tree's entry at `want`'s path (`have`) agrees with what a
+/// manifest recorded: the rule `matches` applies to every entry.
+pub fn agrees(want: &Entry, have: Option<&Entry>) -> bool {
+    entry_agrees(want, have)
+}
+
 fn entry_agrees(want: &Entry, have: Option<&Entry>) -> bool {
     match (want.k, have) {
         (Kind::Absent, None) => true,
