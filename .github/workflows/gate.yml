@@ -1,8 +1,9 @@
 # The heavy gates on GitHub's runners instead of the dev VM: lint, the merge
 # gate, the hooks acceptance suite and the CLI acceptance corpora (cli/cli,
-# luxon, starlette). Every gate is one `scripts/ci-gate.sh` command, the same
-# one the dev box runs. docs/ci.md says what each job proves, how long it
-# takes, what is cached and why, and the minute budget.
+# luxon, starlette), and bench-lite, the fast benchmark. Every gate is one
+# `scripts/ci-gate.sh` command, the same one the dev box runs. docs/ci.md says
+# what each job proves, how long it takes, what is cached and why, when each
+# runs (the trigger policy) and the minute budget.
 #
 #   gh workflow run gate.yml --ref <branch>                 # every job
 #   gh workflow run gate.yml --ref <branch> -f only=hooks,acceptance-cli
@@ -15,6 +16,9 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
   push:
     branches: ['exp/**', 'fix/**', 'cloud/**', 'ci/**']
+  # Nightly, the corpus acceptance gates on main, when main moved that day.
+  schedule:
+    - cron: '17 4 * * *'
   workflow_dispatch:
     inputs:
       ref:
@@ -22,7 +26,7 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud"
+        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud"
         required: false
         default: all
 
@@ -39,17 +43,20 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
-  # Which jobs this event runs (docs/ci.md, "Minute budget"). Rust gates run
+  # Which jobs this event runs (docs/ci.md, "Triggers"). Rust gates run
   # when anything outside cloud/ changed, the cloud job when cloud/ changed.
-  # A push, or a new commit on a pull request, runs the fast gates (lint,
-  # merge-gate, cloud); a pull request opened, reopened or marked ready runs
-  # every gate; a dispatch runs what `only` names, whatever changed.
+  # A push, or a new commit on a pull request, runs lint, merge-gate and
+  # bench-lite (and cloud); a pull request opened, reopened or marked ready
+  # adds hooks (before merge); the nightly schedule runs the three corpus
+  # acceptance gates on main when main moved in the last 24 h; a dispatch
+  # runs what `only` names (default all), whatever changed.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       lint: ${{ steps.pick.outputs.lint }}
       merge-gate: ${{ steps.pick.outputs.merge-gate }}
+      bench-lite: ${{ steps.pick.outputs.bench-lite }}
       hooks: ${{ steps.pick.outputs.hooks }}
       acceptance-cli: ${{ steps.pick.outputs.acceptance-cli }}
       acceptance-node: ${{ steps.pick.outputs.acceptance-node }}
@@ -72,24 +79,32 @@ jobs:
           core=false cloud=false
           # The corpus gates cost ~2.5 h of runner time; see docs/ci.md.
           if [ "$EVENT" = push ] || [ "$ACTION" = synchronize ]; then
-            ONLY=lint,merge-gate,cloud
-            echo "fast gates only ($EVENT${ACTION:+ $ACTION}); the corpus gates run on a pull request opened or ready, or by dispatch"
+            ONLY=lint,merge-gate,bench-lite,cloud
+            echo "fast gates only ($EVENT${ACTION:+ $ACTION}); hooks runs on a pull request opened or ready, the corpus gates nightly or by dispatch"
+          elif [ "$EVENT" = pull_request ]; then
+            ONLY=lint,merge-gate,bench-lite,hooks,cloud
+            echo "pull request $ACTION: the fast gates and hooks; the corpus gates run nightly on main or by dispatch"
+          elif [ "$EVENT" = schedule ]; then
+            ONLY=acceptance-cli,acceptance-node,acceptance-python
           fi
           case "$EVENT" in
             workflow_dispatch) core=true cloud=true;;
+            schedule)
+              if [ -n "$(git log -1 --since='24 hours ago' --format=%H HEAD)" ]; then core=true
+              else echo "main has not moved in 24 h: nothing to run"; fi;;
             pull_request) files=$(git diff --name-only "$BASE...$HEAD");;
             push)
               if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE
               else base=$(git merge-base origin/main HEAD); fi
               files=$(git diff --name-only "$base" HEAD);;
           esac
-          if [ "$EVENT" != workflow_dispatch ] && [ -n "${files:-}" ]; then
+          if [ "$EVENT" != workflow_dispatch ] && [ "$EVENT" != schedule ] && [ -n "${files:-}" ]; then
             printf 'changed:\n%s\n' "${files:-(none)}" | head -50
             if grep -qv '^cloud/' <<<"$files"; then core=true; fi
             if grep -q '^cloud/' <<<"$files"; then cloud=true; fi
           fi
           want() { [ "$ONLY" = all ] || [[ ",${ONLY// /}," == *",$1,"* ]]; }
-          for j in lint merge-gate hooks acceptance-cli acceptance-node acceptance-python; do
+          for j in lint merge-gate bench-lite hooks acceptance-cli acceptance-node acceptance-python; do
             r=false; [ "$core" = true ] && want "$j" && r=true
             echo "$j=$r" | tee -a "$GITHUB_OUTPUT"
           done
@@ -160,6 +175,46 @@ jobs:
           name: merge-gate-logs
           path: target/gate-logs/
           retention-days: 14
+
+  # The fast benchmark (scripts/bench-lite.sh, docs/bench/lite-baseline.md):
+  # a generated Go + Node + Python monorepo's 18 jobs, plain and through
+  # quod run / quod step, interleaved; every replay compared with the plain
+  # run of the same tree. Fails on any wrong replay. The table goes to the
+  # job summary with the deltas against docs/bench/lite-baseline.json; the
+  # rows and the summary JSON are uploaded.
+  bench-lite:
+    needs: changes
+    if: needs.changes.outputs.bench-lite == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: ./.github/actions/quod-host
+        with:
+          toolchains: go node python
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: release
+          cache-on-failure: true
+      - run: scripts/ci-gate.sh bench-lite --against main
+      - if: always()
+        run: |
+          if [ -f .bench-lite/table.md ]; then
+            { echo '### bench-lite'; echo; cat .bench-lite/table.md; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            scripts/ci-gate.sh summary bench-lite >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-lite
+          path: |
+            .bench-lite/
+            target/gate-logs/
+          include-hidden-files: true
+          retention-days: 30
 
   # A1-A7 (+A7b), trust, secrets and the served git index through the
   # hooks path (tests/hooks_acceptance.rs) on cli/cli at its pinned commit,

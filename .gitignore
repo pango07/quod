@@ -3,3 +3,5 @@
 report.md
 /.claude/worktrees/
 /.lab/
+/.bench-lite/
+__pycache__/
