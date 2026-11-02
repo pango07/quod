@@ -455,6 +455,12 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         guard: go_guard.as_ref(),
         expire: go_guard.is_some() && reason.is_evidence(),
     };
+    // The receipt's -buildvcs advice looks at GOFLAGS; execute takes env.
+    let goflags: Vec<(String, String)> = env
+        .iter()
+        .filter(|(k, _)| k == "GOFLAGS")
+        .cloned()
+        .collect();
     let outcome = execute(
         &cas,
         &tree,
@@ -697,6 +703,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             warm_dir.as_deref(),
             &verdict,
             uncompared_line(&result, &ignore).as_deref(),
+            &lookup
+                .closest
+                .as_ref()
+                .map(|(_, mm)| git_miss_hint(&step, &goflags, &mm.path))
+                .unwrap_or_default(),
         )
     );
     emit_event(
@@ -1230,6 +1241,50 @@ fn indent(line: &str) -> String {
     }
 }
 
+/// What a miss whose closest manifest first differed under the served
+/// `.git` means, for the receipt (DECISIONS, exp/git-head-replay). The
+/// branch or commit a step was shown is an input like any file: Quod
+/// records what was read, not what a program did with it, so `.git/HEAD`
+/// naming another branch is a changed input even where the reader only
+/// checked that a repository is there (git's discovery, which every git
+/// command does). The line says so, and for a step whose go command stamps
+/// VCS information (go build and go install; go test, go vet and go run do
+/// not, Go 1.27 cmd/go/internal/load setBuildInfo) names `-buildvcs=false`,
+/// unless the step already sets `-buildvcs`. Nothing here changes what is
+/// recorded or matched.
+fn git_miss_hint(step: &str, env: &[(String, String)], path: &str) -> Vec<String> {
+    if path != ".git" && !path.starts_with(".git/") {
+        return Vec::new();
+    }
+    let mut lines = vec![if path == ".git/HEAD" {
+        "the step read .git/HEAD: a git command it ran found the repository (git rev-parse, git config, git status, a go build's VCS stamp), so the checkout's branch or detached commit is an input; a different branch name misses even on an identical tree".to_string()
+    } else {
+        format!(
+            "the step read the served git data ({path}): the commit, branch or index it was shown is an input"
+        )
+    }];
+    let words: Vec<&str> = step
+        .split(|c: char| c.is_whitespace() || ";|&()`".contains(c))
+        .map(|w| w.trim_matches(['"', '\'']))
+        .filter(|w| !w.is_empty())
+        .collect();
+    let is_go = |w: &str| w == "go" || w.ends_with("/go");
+    let stamps = words
+        .windows(2)
+        .any(|w| is_go(w[0]) && (w[1] == "build" || w[1] == "install"));
+    // `-buildvcs=...` on the command, `GOFLAGS=-buildvcs=false` in the script.
+    let chose = words.iter().any(|w| w.contains("-buildvcs"))
+        || env
+            .iter()
+            .any(|(k, v)| k == "GOFLAGS" && v.contains("-buildvcs"));
+    if stamps && !chose {
+        lines.push(
+            "go build and go install stamp the commit into binaries (vcs.revision, vcs.time, vcs.modified), so every new commit misses; with -buildvcs=false (on the command or in GOFLAGS) the binary carries no vcs.* settings, Go reads no .git for it, and a commit that leaves the step's sources alone can replay".to_string(),
+        );
+    }
+    lines
+}
+
 #[allow(clippy::too_many_arguments)] // one banner, every line named
 fn executed_banner(
     key: &Hash,
@@ -1242,6 +1297,7 @@ fn executed_banner(
     warm: Option<&Path>,
     verdict: &Verdict,
     uncompared: Option<&str>,
+    git_hint: &[String],
 ) -> String {
     let mut s = format!("QUOD  EXECUTED{}\n", verdict.headline());
     s += &format!(
@@ -1266,6 +1322,9 @@ fn executed_banner(
                     mm.path
                 );
                 s += &format!("    {mm}\n");
+                for l in git_hint {
+                    s += &format!("    {l}\n");
+                }
             }
             None if lookup.candidates == 0 => s += "  no manifests for this step key\n",
             None => {}
@@ -1319,6 +1378,10 @@ fn emit_event(
         observer,
         candidates = lookup.candidates,
         first_mismatch = lookup.closest.as_ref().map(|(_, m)| m.path.clone()),
+        // How many recorded inputs the closest manifest disagreed on: 1
+        // with first_mismatch `.git/HEAD` is a miss on the checkout's
+        // branch or commit alone (DECISIONS, exp/git-head-replay).
+        mismatches = lookup.closest.as_ref().map(|(_, m)| m.total),
         recorded_ms = lookup.hit.as_ref().map(|(_, r)| r.duration_ms),
         setup_ms = ms(p.setup),
         import_ms = ms(p.import),
@@ -1412,5 +1475,68 @@ mod tests {
         assert!(check(b"open x: EROFS\n"));
         assert!(!check(b"--- PASS: TestNumberOfSides (0.00s)\n"));
         assert!(!check(b"powerOfSum erofs_helper SEROFS EROFS_X\n"));
+    }
+
+    #[test]
+    fn a_miss_under_git_says_what_it_means_and_names_buildvcs_only_for_stamping_steps() {
+        let env = |flags: &str| vec![("GOFLAGS".to_string(), flags.to_string())];
+        let none = env("-mod=mod");
+        // Not under .git: nothing.
+        assert!(git_miss_hint("go build ./...", &none, "main.go").is_empty());
+        assert!(git_miss_hint("go build ./...", &none, ".github/x").is_empty());
+        // go test reads HEAD through the git its tests run: the line, no
+        // -buildvcs advice (go test stamps nothing, so it would not help).
+        let t = git_miss_hint("go test ./...", &none, ".git/HEAD");
+        assert_eq!(t.len(), 1, "{t:?}");
+        assert!(
+            t[0].contains(".git/HEAD") && t[0].contains("branch"),
+            "{t:?}"
+        );
+        for s in ["go vet ./...", "go run ./cmd/x", "go test -v ./..."] {
+            assert_eq!(git_miss_hint(s, &none, ".git/HEAD").len(), 1, "{s}");
+        }
+        // go build and go install stamp: the advice, whatever .git path.
+        for s in [
+            "go build ./...",
+            "go mod download && go install ./cmd/gh",
+            "/usr/local/go/bin/go build -o bin/gh ./cmd/gh",
+            "cd sub; go build .",
+        ] {
+            for p in [".git/HEAD", ".git/index", ".git"] {
+                let h = git_miss_hint(s, &none, p);
+                assert_eq!(h.len(), 2, "{s} {p}: {h:?}");
+                assert!(h[1].contains("-buildvcs=false"), "{h:?}");
+            }
+        }
+        let other = git_miss_hint("go build ./...", &none, ".git/index");
+        assert!(other[0].contains(".git/index"), "{other:?}");
+        // Already chosen, on the command or in GOFLAGS: no advice.
+        assert_eq!(
+            git_miss_hint("go build -buildvcs=false ./...", &none, ".git/HEAD").len(),
+            1
+        );
+        assert_eq!(
+            git_miss_hint(
+                "go build ./...",
+                &env("-mod=mod -buildvcs=true"),
+                ".git/HEAD"
+            )
+            .len(),
+            1
+        );
+        // "go" must be the command word, not a substring.
+        assert_eq!(
+            git_miss_hint("echo cargo build", &none, ".git/HEAD").len(),
+            1
+        );
+        assert_eq!(
+            git_miss_hint(
+                "export GOFLAGS=-buildvcs=false; go build ./...",
+                &none,
+                ".git/HEAD"
+            )
+            .len(),
+            1
+        );
     }
 }

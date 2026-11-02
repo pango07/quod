@@ -1,0 +1,53 @@
+== processes that opened /work/tmp/headtrace/cli/.git/HEAD during 'go test -count=1 ./...' on cli/cli 9490d204 (branch pr), strace -f; per pid: argv, .git paths touched (count of stat+open lines)
+1122 ["rev-parse", "--show-toplevel"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1670 ["config", "--global", "--replace-all", "credential.https://github.com.helper", ""] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1674 ["config", "--global", "--add", "credential.https://github.com.helper", "!/path/to/gh auth git-credential"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1695 ["config", "--global", "--replace-all", "credential.https://gist.github.com.helper", ""] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1709 ["config", "--global", "--add", "credential.https://gist.github.com.helper", "!/path/to/gh auth git-credential"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1727 ["config", "credential.https://github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1757 ["config", "credential.https://gist.github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1778 ["config", "--global", "--add", "credential.helper", "test-helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1803 ["config", "credential.https://github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1818 ["config", "credential.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1839 ["config", "--global", "--add", "credential.https://github.com.helper", "test-helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1851 ["config", "credential.https://github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1858 ["config", "credential.https://github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1866 ["config", "credential.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1874 ["config", "--global", "--replace-all", "credential.https://github.com.helper", ""] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1875 ["config", "--global", "--add", "credential.https://github.com.helper", "!/path/to/gh auth git-credential"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: cli/.git/commondir 
+1877 ["config", "--global", "--replace-all", "credential.https://gist.github.com.helper", ""] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: cli/.git/commondir 
+1881 ["config", "--global", "--add", "credential.https://gist.github.com.helper", "!/path/to/gh auth git-credential"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1902 ["config", "--get", "credential.https://github.com.helper"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1920 ["config", "--global", "--add", "credential.helper", "store --file /tmp/TestUpdateAddsNewCredentials3562466711/002/creden] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1927 ["credential", "reject"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1938 ["credential", "approve"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1959 ["credential", "fill"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1979 ["config", "--global", "--add", "credential.helper", "store --file /tmp/TestUpdateReplacesOldCredentials971441115/002/cre] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+1991 ["credential", "reject"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+2023 ["credential", "approve"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: cli/.git/commondir 
+2069 ["credential", "reject"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+2112 ["credential", "approve"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+2158 ["credential", "fill"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+2936 ["rev-parse", "--show-toplevel"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: 
+2973 ["rev-parse", "--show-toplevel"] read:  2 cli/.git/HEAD 1 cli/.git/commondir  | absent: cli/.git/commondir 
+=== which test binaries exec git with cwd in repo: execve of .test binaries
+259
+
+== the same tree, warm Go test cache, no -count=1 (every package cached): HEAD opens:
+0
+
+== cmd/go, Go go1.27.3: which subcommands ask for VCS stamping (AutoVCS)
+work/build.go:472:	pkgs := load.PackagesAndErrors(moduleLoader, ctx, load.PackageOpts{AutoVCS: true}, args)
+work/build.go:701:	pkgs := load.PackagesAndErrors(moduleLoader, ctx, load.PackageOpts{AutoVCS: true}, args)
+work/build.go:876:	pkgOpts := load.PackageOpts{MainOnly: true}
+test/test.go:723:	pkgOpts := load.PackageOpts{ModResolveTests: true}
+vet/vet.go:233:	pkgOpts := load.PackageOpts{ModResolveTests: true}
+run/run.go:104:	pkgOpts := load.PackageOpts{MainOnly: true}
+	wantVCS := false
+	switch cfg.BuildBuildvcs {
+	case "true":
+		wantVCS = true // Include VCS metadata even for tests if requested explicitly; see https://go.dev/issue/52648.
+	case "auto":
+		wantVCS = autoVCS && !p.IsTestOnly()
+	case "false":
+	default:
