@@ -53,12 +53,12 @@ describe("plain states", () => {
   });
 
   it("the switch: query, then cookie, then the build default", () => {
-    expect(pickUi(undefined, undefined, undefined)).toBe("classic");
-    expect(pickUi(undefined, undefined, "1")).toBe("plain");
+    expect(pickUi(undefined, undefined, undefined)).toBe("plain");
+    expect(pickUi(undefined, undefined, "0")).toBe("classic");
     expect(pickUi("classic", "plain", "1")).toBe("classic");
     expect(pickUi(undefined, "plain", undefined)).toBe("plain");
     expect(pickUi("new", undefined, undefined)).toBe("plain");
-    expect(pickUi("nonsense", undefined, undefined)).toBe("classic");
+    expect(pickUi("nonsense", undefined, "0")).toBe("classic");
   });
 });
 

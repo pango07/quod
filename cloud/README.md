@@ -44,9 +44,10 @@ versions folded under it; states in words: "Learning: needs 1 good run",
 "Ready to skip", "Skipping", "Paused: a re-check found different output";
 "skipped" for "replayed", "re-check" for "spot check"). `lib/ui-version.ts`
 picks one: `?ui=classic` or `?ui=plain` on any page (remembered in the
-`quod_ui` cookie), else `NEXT_PUBLIC_TRUST_V2_UI=1` at build time for plain,
-else classic. Going back is setting the variable off (or `?ui=classic`); the
-classic components are untouched.
+`quod_ui` cookie), else `NEXT_PUBLIC_TRUST_V2_UI=0` at build time for
+classic, else plain (the default). Going back for everyone is that variable
+(and a redeploy); for one viewer, `?ui=classic`. The classic components are
+untouched.
 
 `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is inlined into the build: leave it unset
 for `next build` and set it at runtime, or build with exactly the runtime
