@@ -54,6 +54,13 @@ for i in "${!commits[@]}"; do
   else
     read -r q_ms q_rc < <(quod "$i"); read -r p_ms p_rc < <(plain "$i")
   fi
+  if (( i == 0 )) && [ "${OBSERVE:-1}" = 1 ]; then
+    # The observer backstop, on the record run's commit (not timed).
+    echo "::group::observer backstop"
+    bash "$here/observe.sh" "$proj" "$state" "${args[@]}" 2>&1 | tee "$out/logs/observe.log" | tail -60
+    echo "::endgroup::"
+    cd "$proj"
+  fi
   cmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/quod.json" "$state/out.json" 2>&1 | tee "$out/logs/compare-$i.log" | tail -1)
   files=$(git diff --name-only "$c^" "$c" 2>/dev/null)
   touched=$(echo "$files" | grep -c . || true)

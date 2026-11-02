@@ -77,6 +77,12 @@ pub struct VitestArgs {
     /// Write this run's numbers (files run, replayed, timings) as JSON.
     #[arg(long)]
     summary: Option<PathBuf>,
+    /// Instead of running: fold an observer manifest (`quod inspect` of a
+    /// `quod run` of the same suite) into the ledger. Every path the
+    /// observer saw read that no recorded key accounts for becomes an input
+    /// of every test file.
+    #[arg(long, value_name = "MANIFEST")]
+    absorb: Option<PathBuf>,
     /// vitest's arguments, e.g. `run --project unit`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
@@ -168,6 +174,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if fs::read_to_string(&p).ok().as_deref() != Some(body) {
             fs::write(&p, body)?;
         }
+    }
+    if let Some(m) = &a.absorb {
+        return absorb(&root, &dir, &code, m);
     }
     let full = a.full || std::env::var("QUOD_VITEST_FULL").is_ok_and(|v| v == "1");
     let ledger_path = dir.join("ledger.json");
@@ -328,6 +337,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if !r.unobservable.is_empty() {
             continue;
         }
+        if let Some(v) = keys
+            .iter()
+            .find_map(|k| k.strip_prefix("env:").filter(|n| volatile_env(n)))
+        {
+            *unobservable
+                .entry(format!("reads the per-run variable {v}"))
+                .or_default() += 1;
+            continue;
+        }
         if r.state != "pass" && r.state != "skip" {
             failed += 1;
             continue;
@@ -425,6 +443,119 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     Ok(code)
 }
 
+/// The observer backstop. The observer sees every process's reads (native
+/// code, child processes, worker threads, whatever the hooks miss) but
+/// cannot tell which test file caused one, so what the hooks did not
+/// account for goes to every file. Covered: a path some key names, or one
+/// inside a recorded package. Directory listings are not folded in: the
+/// only listing the hooks leave out on purpose is vitest's glob for test
+/// files, whose result Quod takes from vitest itself.
+fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
+    let ledger_path = dir.join("ledger.json");
+    let mut ledger: Ledger = serde_json::from_slice(&fs::read(&ledger_path).context("no ledger to absorb into")?)?;
+    let text = fs::read_to_string(manifest)?;
+    let json = &text[text.find('{').context("not a manifest")?..];
+    let m: serde_json::Value = serde_json::from_str(json)?;
+    let entries = m["entries"].as_array().context("manifest without entries")?;
+    let abs = |p: &str| -> String {
+        if p.starts_with('/') {
+            p.to_string()
+        } else {
+            root.join(p).display().to_string()
+        }
+    };
+    let mut covered: HashSet<String> = HashSet::new();
+    let mut packages: Vec<String> = Vec::new();
+    for k in &ledger.keys {
+        if let Some((kind, p)) = k.split_once(':') {
+            let a = abs(p);
+            if kind == "p" {
+                packages.push(format!("{a}/"));
+            }
+            covered.insert(a);
+        }
+    }
+    packages.sort();
+    let in_package = |a: &str| {
+        let i = packages.partition_point(|p| p.as_str() <= a);
+        i > 0 && a.starts_with(packages[i - 1].as_str())
+    };
+    let (dir_s, code_s) = (format!("{}/", dir.display()), format!("{}/", code.display()));
+    let mut add: BTreeMap<String, &str> = BTreeMap::new();
+    let (mut seen, mut skipped_dirs) = (0usize, 0usize);
+    for e in entries {
+        let (Some(p), Some(k)) = (e["p"].as_str(), e["k"].as_str()) else { continue };
+        seen += 1;
+        let a = abs(p);
+        if a.starts_with(&dir_s) || a.starts_with(&code_s) || ["/proc/", "/sys/", "/dev/"].iter().any(|x| a.starts_with(x)) {
+            continue;
+        }
+        if k == "d" {
+            skipped_dirs += 1;
+            continue;
+        }
+        if covered.contains(&a) || in_package(&a) {
+            continue;
+        }
+        if a.contains("/node_modules/.vite/") || a.contains("/node_modules/.vitest/") {
+            continue;
+        }
+        let key = if let Some(i) = a.rfind("/node_modules/") {
+            let rest = &a[i + 14..];
+            let mut seg = rest.split('/');
+            let first = seg.next().unwrap_or("");
+            let name = if first.starts_with('@') {
+                format!("{first}/{}", seg.next().unwrap_or(""))
+            } else {
+                first.to_string()
+            };
+            if name.is_empty() || name.starts_with('.') {
+                format!("{}:{a}", if k == "f" { "f" } else { "e" })
+            } else {
+                format!("p:{}{name}", &a[..i + 14])
+            }
+        } else {
+            format!("{}:{a}", if k == "f" { "f" } else { "e" })
+        };
+        add.insert(relativize(root, &key), k);
+    }
+    let mut intern: HashMap<String, u32> = ledger.keys.iter().enumerate().map(|(i, k)| (k.clone(), i as u32)).collect();
+    let mut new = Vec::new();
+    for k in add.keys() {
+        let i = *intern.entry(k.clone()).or_insert_with(|| {
+            ledger.keys.push(k.clone());
+            ledger.states.push(String::new());
+            ledger.idents.push(None);
+            (ledger.keys.len() - 1) as u32
+        });
+        if !ledger.global.contains(&i) {
+            ledger.global.push(i);
+            new.push(i);
+        }
+    }
+    let st = states(root, &ledger, &new);
+    for (k, (s, id)) in new.iter().zip(st) {
+        ledger.states[*k as usize] = s;
+        ledger.idents[*k as usize] = id;
+    }
+    ledger.global.sort_unstable();
+    let tmp = dir.join("ledger.json.tmp");
+    fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
+    fs::rename(&tmp, &ledger_path)?;
+    let by_kind = add.keys().fold(BTreeMap::<&str, usize>::new(), |mut acc, k| {
+        *acc.entry(k.split_once(':').map_or("", |x| x.0)).or_default() += 1;
+        acc
+    });
+    eprintln!(
+        "quod vitest: absorbed the observer's manifest: {seen} accesses, {} not accounted for by the hooks became shared inputs {by_kind:?} ({skipped_dirs} directory listings left out)",
+        new.len()
+    );
+    for k in add.iter().filter(|(_, k)| **k == "f").map(|(p, _)| p).take(40) {
+        eprintln!("quod vitest:   + {k}");
+    }
+    Ok(0)
+}
+
 impl Ledger {
     /// Every key the global inputs or a record refer to, once.
     fn live(&self) -> Vec<u32> {
@@ -498,6 +629,10 @@ fn state(
         }
     };
     match kind {
+        // The tools enumerate the environment (vitest copies it to its
+        // workers), reading every name: a per-run name is not an input of the
+        // main process. A test file that reads one is not recorded (ingest).
+        "env" if volatile_env(p) => ("volatile".into(), None),
         "env" => (
             std::env::var_os(p).map_or("unset".into(), |v| {
                 blake3::hash(v.as_encoded_bytes()).to_hex()[..32].to_string()
@@ -640,9 +775,7 @@ fn env_all() -> String {
                 v.to_string_lossy().into_owned(),
             )
         })
-        .filter(|(k, _)| {
-            !quod_key::unkeyed(k) && !STEP_VOLATILE.contains(&k.as_str()) && !k.starts_with("QUOD_")
-        })
+        .filter(|(k, _)| !volatile_env(k))
         .collect();
     vars.sort();
     let mut h = blake3::Hasher::new();
@@ -653,6 +786,11 @@ fn env_all() -> String {
         h.update(b"\0");
     }
     h.finalize().to_hex().to_string()
+}
+
+/// A per-run or per-step CI variable, or Quod's own.
+fn volatile_env(name: &str) -> bool {
+    quod_key::unkeyed(name) || STEP_VOLATILE.contains(&name) || name.starts_with("QUOD_")
 }
 
 fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
