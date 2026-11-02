@@ -89,16 +89,32 @@ impl ImageRef {
         if image.is_empty() {
             bail!("empty image reference");
         }
-        let (name, reference) = if let Some((n, d)) = image.split_once('@') {
-            (n, d.to_string())
-        } else {
-            // The last colon after the last slash is the tag separator.
+        // The last colon after the last slash is the tag separator.
+        let split_tag = |image: &str| -> (usize, Option<usize>) {
             let slash = image.rfind('/').map_or(0, |i| i + 1);
-            match image[slash..].rfind(':') {
-                Some(i) => (&image[..slash + i], image[slash + i + 1..].to_string()),
-                None => (image, "latest".to_string()),
+            (slash, image[slash..].rfind(':').map(|i| slash + i))
+        };
+        let (name, reference) = if let Some((n, d)) = image.split_once('@') {
+            // `name:tag@digest` (what `docker images --digests` prints and
+            // Renovate pins): the digest names the image, the tag is only a
+            // label for people and is dropped.
+            let name = match split_tag(n) {
+                (_, Some(i)) => &n[..i],
+                (_, None) => n,
+            };
+            if !d.contains(':') {
+                bail!("image reference {image:?}: a digest is `algorithm:hex`");
+            }
+            (name, d.to_string())
+        } else {
+            match split_tag(image) {
+                (_, Some(i)) => (&image[..i], image[i + 1..].to_string()),
+                (_, None) => (image, "latest".to_string()),
             }
         };
+        if name.is_empty() {
+            bail!("image reference {image:?} names no repository");
+        }
         let mut parts: Vec<&str> = name.split('/').collect();
         let registry = if parts.len() > 1
             && (parts[0].contains('.') || parts[0].contains(':') || parts[0] == "localhost")
@@ -786,6 +802,29 @@ mod tests {
             ("localhost:5000", "x/y")
         );
         assert!(ImageRef::parse(" ").is_err());
+        // name:tag@digest: the digest names the image, the tag is dropped.
+        let r = ImageRef::parse("python:3.12-slim@sha256:abc").unwrap();
+        assert_eq!(
+            r,
+            ImageRef {
+                registry: "docker.io".into(),
+                repository: "library/python".into(),
+                reference: "sha256:abc".into()
+            }
+        );
+        let r = ImageRef::parse("localhost:5000/x/y:v2@sha256:def").unwrap();
+        assert_eq!(
+            (
+                r.registry.as_str(),
+                r.repository.as_str(),
+                r.reference.as_str()
+            ),
+            ("localhost:5000", "x/y", "sha256:def")
+        );
+        let r = ImageRef::parse("localhost:5000/x/y@sha256:def").unwrap();
+        assert_eq!(r.repository, "x/y");
+        assert!(ImageRef::parse("python:3.12@abc").is_err());
+        assert!(ImageRef::parse(":3.12").is_err());
     }
 
     #[test]
