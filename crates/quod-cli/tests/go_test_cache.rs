@@ -14,6 +14,12 @@
 //! the workspace is a tainted run, never recorded. G5 every execution trust
 //! v2 takes as evidence (a proof, a shadow audit, an observe-mode would-be
 //! hit) runs every test, and only the miss that records uses the cache.
+//! G6a a package-level read through os in a dependency and in the package
+//! under test is logged (guard v3). G6b a read package os never logs still
+//! leaves a stale cached result, which no proof vouches for. G7 a
+//! cross-compile under the overlay. G8 `go clean -testcache` where the
+//! cache is expired. G9 build, vet and test share compiles, and only test
+//! binaries hold the guard.
 
 mod common;
 use common::*;
@@ -311,14 +317,26 @@ fn small(files: &[(&str, &str)]) -> Env {
 
 const GO_MOD: &str = "module example.com/g\n\ngo 1.27\n";
 
-/// MAJOR 2: package h's variable is read from a file by h's own init, which
-/// runs before package testing's (packages initialize in import-path order),
-/// so neither the guard nor go test logs it, and go test serves its cached
-/// result after the file changed (as plain go test does). A proof must not
-/// vouch for that: proofs run with go test's cache expired, so the stale
-/// result diverges instead of replaying.
+/// The proofs-only defaults G6a and G6b run under: replay mode, two
+/// proofs, no audits, so the proofs are the evidence.
+fn proofs_only(env: &mut Env) {
+    env.run_defaults = [
+        "--warm", "--mode", "replay", "--proofs", "2", "--audit", "0",
+    ]
+    .map(String::from)
+    .to_vec();
+}
+
+/// G6a (guard v3, the package layout): a file read through os by a
+/// package-level variable is logged wherever it runs: in a dependency's
+/// init (package h, read by its external test) and in the package under
+/// test's own non-test file (package k, with an internal test). The guard
+/// package initializes before any package that imports os, so go test
+/// rechecks both files: after they change, the miss runs and fails each
+/// package, never serving `(cached)`. (Under v2 the guard lived in package
+/// testing, initialized after h and k, and neither read was logged.)
 #[test]
-fn g6_a_proof_never_vouches_for_a_cached_result() {
+fn g6a_a_package_level_read_in_a_dependency_and_in_the_package_is_logged() {
     if !enabled() {
         return;
     }
@@ -330,6 +348,105 @@ fn g6_a_proof_never_vouches_for_a_cached_result() {
 import ("os"; "strings")
 var Conf = read()
 func read() string { b, _ := os.ReadFile("testdata/conf.txt"); return strings.TrimSpace(string(b)) }
+"#,
+        ),
+        (
+            "mod/h/h_test.go",
+            r#"package h_test
+import ("testing"; "example.com/g/h")
+func TestH(t *testing.T) { if h.Conf != "v1" { t.Fatalf("conf: %q", h.Conf) } }
+"#,
+        ),
+        ("mod/h/testdata/conf.txt", "v1\n"),
+        (
+            "mod/k/k.go",
+            r#"package k
+import ("os"; "strings")
+var Conf = read()
+func read() string { b, _ := os.ReadFile("testdata/conf.txt"); return strings.TrimSpace(string(b)) }
+"#,
+        ),
+        (
+            "mod/k/k_test.go",
+            r#"package k
+import "testing"
+func TestK(t *testing.T) { if Conf != "v1" { t.Fatalf("conf: %q", Conf) } }
+"#,
+        ),
+        ("mod/k/testdata/conf.txt", "v1\n"),
+    ]);
+    proofs_only(&mut env);
+    let step = "cd mod && go test ./...";
+    let r1 = env.run_step(step, &[]);
+    assert!(r1.executed() && r1.code == 0, "G6a first: {}", r1.stderr);
+    let r2 = env.run_step(step, &[]);
+    assert!(r2.executed() && r2.code == 0, "G6a proof: {}", r2.stderr);
+    let r3 = env.run_step(step, &[]);
+    assert!(r3.hit(), "G6a: proven, then replayed: {}", r3.stderr);
+    // An unrelated change: a miss that go test's cache serves whole, the
+    // reads being logged and the files unchanged.
+    env.write("mod/README", "x\n");
+    env.commit("g: unrelated");
+    let r4 = env.run_step(step, &[]);
+    let o4 = outcomes(&r4.stdout);
+    assert!(
+        r4.executed() && r4.code == 0,
+        "G6a unrelated: {}",
+        r4.stderr
+    );
+    assert_eq!(of(&o4, "h"), "cached", "G6a h logged and unchanged: {o4:?}");
+    assert_eq!(of(&o4, "k"), "cached", "G6a k logged and unchanged: {o4:?}");
+    // The files change: the miss reruns both packages, and they fail.
+    env.write("mod/h/testdata/conf.txt", "v2\n");
+    env.write("mod/k/testdata/conf.txt", "v2\n");
+    env.commit("g: h's and k's files changed");
+    let r5 = env.run_step(step, &[]);
+    let o5 = outcomes(&r5.stdout);
+    assert!(r5.executed() && r5.code != 0, "G6a miss: {}", r5.stderr);
+    assert_eq!(
+        of(&o5, "h"),
+        "FAIL",
+        "G6a h, read in a dependency's init: {o5:?}"
+    );
+    assert_eq!(
+        of(&o5, "k"),
+        "FAIL",
+        "G6a k, read in the package's init: {o5:?}"
+    );
+    println!(
+        "G6a ok: package-level reads in h (a dependency) and k (under test) were logged: {o5:?}"
+    );
+}
+
+/// MAJOR 2, G6b: package h's variable is read from a file by h's own init
+/// through syscall directly, which package os never logs, so neither the
+/// guard nor go test sees it, and go test serves its cached result after
+/// the file changed (as plain go test does). A proof must not vouch for
+/// that: proofs run with go test's cache expired, so the stale result
+/// diverges instead of replaying. (Under v2 an os.ReadFile in h's init was
+/// this case too; G6a shows v3 logs it.)
+#[test]
+fn g6b_a_proof_never_vouches_for_a_cached_result() {
+    if !enabled() {
+        return;
+    }
+    let mut env = small(&[
+        ("mod/go.mod", GO_MOD),
+        (
+            "mod/h/h.go",
+            r#"package h
+import "syscall"
+var Conf = read()
+func read() string {
+	fd, err := syscall.Open("testdata/conf.txt", syscall.O_RDONLY, 0)
+	if err != nil { return "" }
+	defer syscall.Close(fd)
+	var b [64]byte
+	n, _ := syscall.Read(fd, b[:])
+	s := string(b[:n])
+	for len(s) > 0 && s[len(s)-1] == '\n' { s = s[:len(s)-1] }
+	return s
+}
 "#,
         ),
         (
@@ -437,4 +554,85 @@ fn g8_go_clean_testcache_works_where_the_cache_is_expired() {
     assert!(r2.executed() && r2.code == 0, "G8 audit: {}", r2.stderr);
     assert!(!r2.stderr.contains("DIVERGENCE"), "G8: {}", r2.stderr);
     println!("G8 ok: go clean -testcache in an audit");
+}
+
+/// G9 (guard v3): `go build`, `go vet` and `go test` share compiles. The
+/// overlay changes testdeps and adds the guard's package, which only test
+/// mains import, so a package that imports testing (tu, a helper) compiles
+/// the same with and without it. After a build and a vet step warmed the
+/// cache, the test step compiles only testdeps, the guard and the test
+/// mains; and the guard is in every test binary's dependencies and in no
+/// non-test build's.
+#[test]
+fn g9_build_vet_and_test_share_compiles_and_only_test_binaries_hold_the_guard() {
+    if !enabled() {
+        return;
+    }
+    let mut env = small(&[
+        ("mod/go.mod", GO_MOD),
+        (
+            "mod/tu/tu.go",
+            "package tu\nimport \"testing\"\nfunc Helper(t testing.TB) { t.Helper() }\nfunc Two() int { return 2 }\n",
+        ),
+        (
+            "mod/a/a.go",
+            "package a\nimport \"example.com/g/tu\"\nfunc Two() int { return tu.Two() }\n",
+        ),
+        (
+            "mod/a/a_test.go",
+            "package a\nimport (\"testing\"; \"example.com/g/tu\")\nfunc TestA(t *testing.T) { tu.Helper(t); if Two() != 2 { t.Fatal(Two()) } }\n",
+        ),
+        ("mod/b/b.go", "package b\nfunc One() int { return 1 }\n"),
+        (
+            "mod/b/b_test.go",
+            "package b_test\nimport (\"testing\"; \"example.com/g/b\")\nfunc TestB(t *testing.T) { if b.One() != 1 { t.Fatal() } }\n",
+        ),
+    ]);
+    env.run_defaults = ["--warm"].map(String::from).to_vec();
+    let r1 = env.run_step("cd mod && go build ./... && go vet ./...", &[]);
+    assert_eq!(r1.code, 0, "G9 build and vet: {}", r1.stderr);
+    // The test step, guarded; -x names every compile it runs. (No `-c`
+    // word anywhere in it, `grep -c` included: the guard reads that as a
+    // test binary left behind and keeps -count=1.)
+    let step = "cd mod && go test -x ./... 2>/tmp/quod-g9.log >/dev/null; r=$?; \
+        echo \"compiled: $(grep '/compile ' /tmp/quod-g9.log | sed -n 's/.* -p \\([^ ]*\\).*/\\1/p' | sort | tr '\\n' ' ')\"; \
+        echo \"guard-in-build: $(go list -deps ./... | grep 0quod/guard | wc -l)\"; \
+        echo \"guard-in-test: $(go list -deps -test ./... | grep 0quod/guard | wc -l)\"; \
+        exit $r";
+    let r2 = env.run_step(step, &[]);
+    assert_eq!(r2.code, 0, "G9 test: {}", r2.stderr);
+    let out = String::from_utf8_lossy(&r2.stdout);
+    let line = |p: &str| {
+        out.lines()
+            .find_map(|l| l.strip_prefix(p))
+            .unwrap_or_else(|| panic!("G9: no {p:?} line in {out}"))
+            .trim()
+            .to_string()
+    };
+    let compiled: Vec<String> = line("compiled:")
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+    // Not tu (imports testing), not b (a plain package whose test is
+    // external), not testing itself: build and vet compiled those, and go
+    // test took them from the cache. What go test compiles is the test
+    // mains, testdeps, the guard, testdeps' own standard dependencies
+    // (internal/fuzz, runtime/pprof, ...), and the test variants (a with
+    // its _test.go, b_test): stock go1.27 recompiles those two after vet
+    // as well (checked 2026-11-02 without the overlay), the guard aside.
+    for p in ["example.com/g/tu", "example.com/g/b", "testing"] {
+        assert!(
+            !compiled.iter().any(|c| c == p),
+            "G9: go test compiled {p}, which build or vet had compiled already: {compiled:?}"
+        );
+    }
+    for p in ["main", "testing/internal/testdeps", "0quod/guard"] {
+        assert!(
+            compiled.iter().any(|c| c == p),
+            "G9: {p} not compiled by go test: {compiled:?}"
+        );
+    }
+    assert_eq!(line("guard-in-build:"), "0", "G9: {out}");
+    assert_eq!(line("guard-in-test:"), "1", "G9: {out}");
+    println!("G9 ok: go test compiled only {compiled:?}; the guard is in test builds only");
 }

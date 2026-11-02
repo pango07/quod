@@ -138,7 +138,14 @@ func TestA(t *testing.T) { if _, err := os.ReadFile("testdata/x.txt"); err != ni
     let overlay: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(overlay).unwrap()).unwrap();
     let keys: Vec<&String> = overlay["Replace"].as_object().unwrap().keys().collect();
-    assert_eq!(keys.len(), 2, "one spelling of GOROOT: {keys:?}");
+    // The package layout on this toolchain (go1.27): testdeps and the
+    // guard package's two files, every key under the one GOROOT spelling.
+    assert_eq!(keys.len(), 3, "one spelling of GOROOT: {keys:?}");
+    assert!(
+        keys.iter()
+            .any(|k| k.ends_with("/src/0quod/guard/guard.go")),
+        "{keys:?}"
+    );
     assert!(
         keys.iter().all(|k| k.starts_with(&format!("{reported}/"))),
         "the overlay names GOROOT as go reports it ({reported}): {keys:?}"

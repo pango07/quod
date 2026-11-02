@@ -439,15 +439,17 @@ impl StepSpec {
     }
 
     /// `new_warm` with the tool's test-result cache kept on under Quod's
-    /// guard (`Warm::guarded_knobs`, `gotest`). The caller decides it can:
-    /// the step runs on the host root, the script runs `go test`
-    /// (`gotest::runs_go_test`), the env allows it
-    /// (`gotest::env_allows_guard`), and the guard's files could be made.
+    /// guard in `layout` (`gotest::Layout::knob`, `Warm::guarded_knobs`).
+    /// The caller decides it can: the step runs on the host root, the
+    /// script runs `go test` (`gotest::runs_go_test`), the env allows it
+    /// (`gotest::env_allows_guard`), and the toolchain was seen to take the
+    /// layout's overlay.
     pub fn new_warm_guarded(
         toolchain: Toolchain,
         image: Image,
         script: &str,
         extra_env: &[(String, String)],
+        layout: gotest::Layout,
     ) -> Result<StepSpec, KeyError> {
         let warm = toolchain
             .profile()
@@ -457,20 +459,30 @@ impl StepSpec {
             .ok_or(KeyError::NoWarm(toolchain))?;
         let mut spec = StepSpec::new(toolchain, image, script, extra_env);
         spec.warm = true;
+        merge_knob(&mut spec.env, &layout.knob())?;
         for k in warm.guarded_knobs {
             merge_knob(&mut spec.env, k)?;
         }
         Ok(spec)
     }
 
-    /// Whether this step's tool caches test results under Quod's guard.
-    pub fn guards_tests(&self) -> bool {
-        let k = gotest::OVERLAY_KNOB;
-        self.warm
-            && self
-                .env
+    /// The layout under which this step's tool caches test results under
+    /// Quod's guard, if it does.
+    pub fn guard_layout(&self) -> Option<gotest::Layout> {
+        if !self.warm {
+            return None;
+        }
+        gotest::LAYOUTS.into_iter().find(|l| {
+            let k = l.knob();
+            self.env
                 .iter()
                 .any(|(n, v)| n == k.name && v.split(k.sep).any(|s| s == k.item))
+        })
+    }
+
+    /// Whether this step's tool caches test results under Quod's guard.
+    pub fn guards_tests(&self) -> bool {
+        self.guard_layout().is_some()
     }
 
     pub fn profile(&self) -> &'static Profile {
