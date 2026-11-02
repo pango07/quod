@@ -524,6 +524,37 @@ pub fn decide(
     recent_divergences: u64,
     backlog: Backlog,
 ) -> Decision {
+    decide_phased(policy, hit, trust, proof, recent_divergences, backlog, 0)
+}
+
+/// How far a key's decay-phase audits are shifted along the schedule
+/// (`decide_phased`): a function of the key alone, below `PHASES`.
+pub fn audit_phase(key: &Hash) -> u64 {
+    let b = key.as_bytes();
+    u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) % PHASES
+}
+
+/// The spread of `audit_phase`: 64 would-be hits, more than one floor
+/// period (20 at 5%).
+pub const PHASES: u64 = 64;
+
+/// `decide`, with the key's decay-phase audits shifted `phase` hits along
+/// the schedule. Many keys that share a history (the tests of one step,
+/// each hit once per run) would otherwise all be audited in the same runs
+/// (hits 4, 7, 11, ...), so every few runs would execute every test; with
+/// a phase per key the same number of audits spreads over the runs. The
+/// shadow phase is unshifted (every key's first `shadow` hits are still
+/// audited), the schedule stays a pure function of the ledger and the key,
+/// and the floor's rate is unchanged.
+pub fn decide_phased(
+    policy: &Policy,
+    hit: Option<HitView>,
+    trust: Option<&TrustRow>,
+    proof: Option<&ProofRow>,
+    recent_divergences: u64,
+    backlog: Backlog,
+    phase: u64,
+) -> Decision {
     let Some(hit) = hit else {
         return Decision::Execute(Reason::Miss);
     };
@@ -563,10 +594,15 @@ pub fn decide(
                     shadow: sched.in_shadow(k),
                 });
             }
-            if !sched.due(k) {
+            let shadow = sched.in_shadow(k);
+            let due = if shadow {
+                sched.due(k)
+            } else {
+                sched.due(k + phase)
+            };
+            if !due {
                 return Decision::Replay;
             }
-            let shadow = sched.in_shadow(k);
             if !shadow && policy.defer && backlog.pending < MAX_DEFERRED_PER_KEY {
                 Decision::Defer { nth }
             } else {
@@ -1429,6 +1465,9 @@ pub struct Trust<'a> {
     ledger: &'a Ledger,
     cas: &'a Cas,
     pub policy: Policy,
+    /// Shift each key's decay-phase audits by `audit_phase` (test-level
+    /// replay: a step's tests share one history).
+    pub phased: bool,
 }
 
 impl<'a> Trust<'a> {
@@ -1438,7 +1477,12 @@ impl<'a> Trust<'a> {
             ledger,
             cas,
             policy,
+            phased: false,
         })
+    }
+
+    fn phase(&self, key: &Hash) -> u64 {
+        if self.phased { audit_phase(key) } else { 0 }
     }
 
     /// Replay or execute, given what the lookup found.
@@ -1455,7 +1499,7 @@ impl<'a> Trust<'a> {
             ),
             None => (None, None),
         };
-        Ok(decide(
+        Ok(decide_phased(
             &self.policy,
             hit.map(|(_, r)| HitView {
                 run_id: &r.run_id,
@@ -1465,6 +1509,7 @@ impl<'a> Trust<'a> {
             proof.as_ref(),
             self.ledger.recent_divergences(key, TRAILING_AUDITS)?,
             self.ledger.backlog(key, &stale_cutoff())?,
+            self.phase(key),
         ))
     }
 
@@ -1501,7 +1546,7 @@ impl<'a> Trust<'a> {
         let why = unprovable(&self.policy, r, self.cas)?;
         self.ledger.atomically(|l| {
             let trust = l.trust(&step.key)?;
-            let decision = decide(
+            let decision = decide_phased(
                 &self.policy,
                 Some(HitView {
                     run_id: &r.run_id,
@@ -1511,6 +1556,7 @@ impl<'a> Trust<'a> {
                 l.proof(&step.key, &mid)?.as_ref(),
                 l.recent_divergences(&step.key, TRAILING_AUDITS)?,
                 l.backlog(&step.key, &stale_cutoff())?,
+                self.phase(&step.key),
             );
             let deferred = match decision {
                 Decision::Execute(reason) => return Ok(Replayed::Execute(reason)),
@@ -1995,6 +2041,64 @@ mod tests {
             last_run: "01RUN".into(),
             updated_at: String::new(),
         }
+    }
+
+    /// Test-level replay: many keys hit once per run. Phased, every key's
+    /// shadow is still audited in full, and afterwards no run audits more
+    /// than a small share of the keys, where unphased every key is audited
+    /// in the same runs; the total number of audits stays about the same.
+    #[test]
+    fn phased_audits_keep_the_shadow_and_spread_the_decay() {
+        let policy = Policy {
+            mode: Mode::Replay,
+            defer: false,
+            ..Policy::default()
+        };
+        let keys: Vec<Hash> = (0..500u32).map(|i| Hash::of(&i.to_le_bytes())).collect();
+        let hit = HitView {
+            run_id: "01RUN",
+            unprovable: None,
+        };
+        let audited = |k_before: u64, phase: u64| {
+            let t = trust_row(TrustState::Proven, k_before, 0);
+            matches!(
+                decide_phased(
+                    &policy,
+                    Some(hit),
+                    Some(&t),
+                    Some(&proof(1)),
+                    0,
+                    Backlog::default(),
+                    phase
+                ),
+                Decision::Execute(Reason::Audit { .. })
+            )
+        };
+        let (mut phased_total, mut flat_total) = (0, 0);
+        for k_before in 0..200u64 {
+            let phased = keys
+                .iter()
+                .filter(|k| audited(k_before, audit_phase(k)))
+                .count();
+            let flat = keys.iter().filter(|_| audited(k_before, 0)).count();
+            if k_before < u64::from(policy.shadow) {
+                assert_eq!(phased, keys.len(), "the shadow is unshifted");
+            } else {
+                assert!(
+                    phased <= keys.len() / 4,
+                    "run {k_before}: {phased} of {} audited",
+                    keys.len()
+                );
+                assert!(flat == 0 || flat == keys.len());
+            }
+            phased_total += phased;
+            flat_total += flat;
+        }
+        let ratio = phased_total as f64 / flat_total as f64;
+        assert!(
+            (0.8..=1.05).contains(&ratio),
+            "{phased_total} vs {flat_total}"
+        );
     }
 
     /// v1's policy (two proofs, a flat 5% audit): the behavioural tests

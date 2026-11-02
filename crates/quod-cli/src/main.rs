@@ -39,6 +39,7 @@ mod snapshot;
 mod state;
 mod status;
 mod step;
+mod testlevel;
 mod trust;
 
 /// Exit code for Quod's own failures. A step can exit 2 by itself, so

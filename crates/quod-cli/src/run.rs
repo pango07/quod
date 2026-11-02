@@ -10,7 +10,7 @@ use quod_ledger::{Ledger, Lookup, Observed, RunFacts, now_rfc3339};
 use quod_manifest::{Manifest, StepResult};
 use quod_replay::{fmt_duration, group};
 use quod_sandbox::{Killed, Limits, Mount, RunSpec};
-use quod_trust::{Decision, Replayed, Step, Trust, Verdict};
+use quod_trust::{Decision, Reason, Replayed, Step, Trust, Verdict};
 
 use crate::audit;
 use crate::deps::{self, Deps};
@@ -20,6 +20,7 @@ use crate::rootfs::{self, Rootfs};
 use crate::seal;
 use crate::snapshot;
 use crate::state::State;
+use crate::testlevel;
 use crate::trust::{PolicyArgs, ignored_outputs, parse_timeout, shell_join};
 
 /// Exit code of a step Quod killed for running past --timeout (as
@@ -269,6 +270,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         Some(t) => t,
         None => detect_toolchain(&repo)?,
     };
+    // A pytest step runs at test level (docs/test-level.md): with Quod's
+    // plugin, so under its own step key.
+    let test_level = !args.allow_net && testlevel::applies(toolchain, &step);
+    let mut extra_env = extra_env;
+    if test_level {
+        extra_env.push((
+            quod_tests::KEY_ENV.to_string(),
+            quod_tests::KEY_TAG.to_string(),
+        ));
+    }
     let warm = args.warm && !args.allow_net;
     // Go's test cache stays on, under Quod's guard, where the guard can
     // reach every go test the step runs: on the host root (a rootfs's
@@ -490,6 +501,24 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     }
     let run_dir = state.claim_run_dir(&info.run_id, args.keep)?;
     let dir = run_dir.path.clone();
+    let mut trust_tests = Trust::new(&ledger, &cas, testlevel::policy(&policy))?;
+    trust_tests.phased = true;
+    let mut tl_plan = if test_level {
+        // Only a step-level miss (or a failing whole-step result) may
+        // replay tests: an execution that is evidence about a recorded
+        // whole-step result (a proof, an audit) runs every test, so the
+        // step-level trust keeps comparing whole runs.
+        let full = match &reason {
+            Reason::Miss | Reason::Unprovable { .. } => None,
+            _ => Some("the whole step's inputs matched a recorded run".to_string()),
+        };
+        let tp = Instant::now();
+        let p = testlevel::plan(&ledger, &trust_tests, &cas, &key, &tree, &dir, full)?;
+        phases.lookup += tp.elapsed();
+        Some(p)
+    } else {
+        None
+    };
     let warm_dir = match (warm, &spec.profile().warm) {
         (true, Some(w)) => Some(state.warm_cache_dir(&image.id()?, w.cache_env)),
         _ => None,
@@ -520,9 +549,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         &[],
         timeout,
         go_tests,
+        tl_plan.as_ref().map(testlevel::Plan::exec),
         &mut phases,
     );
-    let ex = match outcome {
+    let mut ex = match outcome {
         Ok(v) => v,
         Err(e) => {
             if !args.keep {
@@ -531,6 +561,78 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             return Err(e);
         }
     };
+    // Test level: attribute the run. A run that replayed tests and then
+    // failed (or cannot be attributed) is run again with every test, and
+    // that run is the step's result: replaying a test never makes a step
+    // fail that a full run passes (a test that needs another to run first,
+    // say). The first attempt's executed tests are recorded, so a test
+    // whose result depended on what else ran diverges and is quarantined.
+    let mut attribution = None;
+    if let Some(p) = tl_plan.as_mut()
+        && ex.killed.is_none()
+        && ex.signal.is_none()
+        && ex.resource_failure.is_none()
+    {
+        let att = p.attribute(ex.trace.as_ref(), &ex.extra_accesses);
+        let why = match &att {
+            _ if p.replay.is_empty() => None,
+            Err(e) => Some(format!("the run could not be attributed ({e})")),
+            Ok(_) if ex.exit_code != 0 => Some(format!(
+                "the step failed (exit {}) in a run that replayed tests",
+                ex.exit_code
+            )),
+            Ok(_) => None,
+        };
+        if let Some(why) = why {
+            if let Ok(a) = &att {
+                let s = testlevel::record_attempt(
+                    &ledger,
+                    &trust_tests,
+                    &cas,
+                    p,
+                    a,
+                    &key,
+                    &spec.roots,
+                    &tree,
+                    &testlevel::RowInfo {
+                        run_id: &format!("{}.a", info.run_id),
+                        commit: info.head.as_deref(),
+                        host: info.host.as_deref(),
+                        repo: &info.repo_id,
+                        repo_path: &info.repo_path,
+                    },
+                )?;
+                p.attempt = s.failed;
+            }
+            say!("QUOD  TEST LEVEL  {why}; running every test");
+            p.go_full(&why)?;
+            ex = match execute(
+                &cas,
+                &tree,
+                &spec,
+                spec.normalized_env()?,
+                &dir.join("full"),
+                warm_dir.as_deref(),
+                pin.rootfs.as_ref(),
+                &[],
+                timeout,
+                go_tests,
+                Some(p.exec()),
+                &mut phases,
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    if !args.keep {
+                        let _ = quod_cas::remove_any(&dir);
+                    }
+                    return Err(e);
+                }
+            };
+            attribution = Some(p.attribute(ex.trace.as_ref(), &ex.extra_accesses));
+        } else {
+            attribution = Some(att);
+        }
+    }
     if let Some(killed) = ex.killed {
         if !args.keep {
             quod_cas::remove_any(&dir)?;
@@ -675,6 +777,67 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         return Ok(exit_byte(ex.exit_code));
     }
 
+    let mut tests_line = None;
+    if let (Some(p), Some(att)) = (&tl_plan, &attribution) {
+        match att {
+            Ok(a) => {
+                let t = Instant::now();
+                let row = testlevel::RowInfo {
+                    run_id: &info.run_id,
+                    commit: info.head.as_deref(),
+                    host: info.host.as_deref(),
+                    repo: &info.repo_id,
+                    repo_path: &info.repo_path,
+                };
+                let s = testlevel::record(
+                    &ledger,
+                    &trust_tests,
+                    &cas,
+                    p,
+                    a,
+                    &key,
+                    &spec.roots,
+                    &tree,
+                    &row,
+                )?;
+                phases.record += t.elapsed();
+                testlevel::emit(&info.run_id, &key, p, a, &s, ex.wall);
+                if !a.replayed.is_empty() {
+                    // Some tests replayed: the step's own output is not a
+                    // whole run's, so no step-level result is recorded.
+                    ledger.record_run_facts(&RunFacts {
+                        observed: Observed {
+                            transport: Some(ex.transport),
+                            observer: Some(&ex.observer),
+                        },
+                        ..info.facts("tests", None, Some(ex.exit_code), ex.wall, None)
+                    })?;
+                    if !args.keep {
+                        quod_cas::remove_any(&dir)?;
+                    }
+                    say_raw!("{}", testlevel::banner(&key, p, a, &s, ex.wall));
+                    emit_event(
+                        &info,
+                        None,
+                        false,
+                        "tests",
+                        &lookup,
+                        &phases,
+                        start.elapsed(),
+                        ex.exit_code,
+                        ex.manifest.entries.len(),
+                        warm,
+                        Some((ex.transport, &ex.observer)),
+                        None,
+                    );
+                    return Ok(exit_byte(ex.exit_code));
+                }
+                tests_line = Some(testlevel::full_line(p, &s));
+            }
+            Err(why) => tests_line = Some(format!("test level: not recorded ({why})")),
+        }
+    }
+
     let t = Instant::now();
     let mid = quod_manifest::manifest_id(&ex.manifest)?;
     let result = StepResult {
@@ -759,6 +922,9 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 .unwrap_or_default(),
         )
     );
+    if let Some(l) = tests_line {
+        say!("  {l}");
+    }
     emit_event(
         &info,
         Some(&mid),
@@ -803,6 +969,10 @@ pub(crate) struct Executed {
     pub(crate) observer: String,
     /// The step ran with a sealed prefix and its output reports EROFS.
     pub(crate) sealed_write_failed: bool,
+    /// Test level: the observer's ordered trace, and the accesses recorded
+    /// whole rather than observed (sealed prefixes, their carve-outs).
+    pub(crate) trace: Option<quod_fs::Trace>,
+    pub(crate) extra_accesses: Vec<quod_manifest::Access>,
 }
 
 /// Whether the observer answers opens with no message for this step (the
@@ -848,6 +1018,7 @@ pub(crate) fn execute(
     extra_mounts: &[Mount],
     timeout: Option<Duration>,
     go_tests: GoTests,
+    tl: Option<testlevel::Exec>,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
     if spec.guards_tests() != go_tests.guard.is_some() {
@@ -858,8 +1029,13 @@ pub(crate) fn execute(
     std::fs::create_dir_all(&lower)?;
     let opts = quod_fs::Options::from_env_over(quod_fs::Options {
         zero_open: zero_open_for(spec),
+        trace: tl.as_ref().map(|t| t.token.to_string()),
         ..quod_fs::Options::default()
     });
+    let mut env = env;
+    if let Some(t) = &tl {
+        testlevel::sandbox_env(&mut env, t.token);
+    }
     let served = quod_fs::serve_with(tree, cas, &lower, &opts)?;
     phases.serve = t.elapsed();
     let ov = quod_fs::overlay(
@@ -879,6 +1055,13 @@ pub(crate) fn execute(
         writable: true,
     }];
     mounts.extend(extra_mounts.iter().cloned());
+    if let Some(t) = &tl {
+        mounts.push(Mount {
+            src: t.dir.to_path_buf(),
+            dst: quod_tests::SANDBOX_DIR.into(),
+            writable: true,
+        });
+    }
     if let (Some(warm), Some(w)) = (warm, &spec.profile().warm) {
         let cache = env
             .iter()
@@ -996,19 +1179,22 @@ pub(crate) fn execute(
     };
     let stats = served.stats();
     let tu = Instant::now();
-    let mut log = served.unmount()?;
+    let observed = served.unmount_observed()?;
+    let (mut log, trace) = (observed.accesses, observed.trace);
     phases.unmount = tu.elapsed();
     let tm = Instant::now();
+    let mut extra_accesses = Vec::new();
     for s in &sealable {
-        log.extend(seal::accesses(tree, s));
+        extra_accesses.extend(seal::accesses(tree, s));
         // Each carve-out too, as the tree has it (a listing, or absent): a
         // sealed run's mounting of it is a lookup the observer records, so
         // an unsealed run records it as well.
-        log.extend(s.carve_outs.iter().map(|c| quod_manifest::Access {
+        extra_accesses.extend(s.carve_outs.iter().map(|c| quod_manifest::Access {
             path: c.clone(),
             kind: tree.get(c).map_or(Kind::Absent, |e| e.k),
         }));
     }
+    log.extend(extra_accesses.iter().cloned());
     if let Some(s) = sealed.first() {
         // Housekeeping never fails a completed run (gc warns instead).
         let removed = snapshot::gc(&snapshots, snapshot::KEEP, &s.snapshot.dir);
@@ -1058,6 +1244,8 @@ pub(crate) fn execute(
         stderr,
         transport: stats.transport(),
         observer,
+        trace,
+        extra_accesses,
     })
 }
 

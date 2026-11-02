@@ -47,15 +47,18 @@ pub fn content_mtime(content: &quod_cas::Hash) -> std::time::SystemTime {
 }
 
 /// The prefix of a test-level marker's name (docs/test-level.md,
-/// "Attribution"): a lookup of `<root>/.quod-tl-<token>-<n>` is not an
-/// access but marker `n` of the process that looked it up, logged in order
-/// with that process's accesses. The token is random per run, so no tree
-/// and no step can produce one by accident.
+/// "Attribution"): a lookup of `<root>/.quod-tl-<token>-<pid>-<n>` is not
+/// an access but marker `n` of the process that looked it up, logged in
+/// order with that process's accesses. `pid` is the process's own id as it
+/// sees it (inside the sandbox's pid namespace), which ties the marker to
+/// the plugin's output for that process; the requester's id the observer
+/// logs is the host's. The token is random per run, so no tree and no step
+/// can produce one by accident.
 pub const MARKER_PREFIX: &str = ".quod-tl-";
 
 /// The name a process looks up (at the workspace root) to log marker `n`.
-pub fn marker_name(token: &str, n: u64) -> String {
-    format!("{MARKER_PREFIX}{token}-{n}")
+pub fn marker_name(token: &str, pid: u32, n: u64) -> String {
+    format!("{MARKER_PREFIX}{token}-{pid}-{n}")
 }
 
 /// What the observer saw, in order, for test-level attribution
@@ -85,7 +88,8 @@ pub struct TraceEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Traced {
     Access(quod_manifest::Access),
-    Marker(u64),
+    /// (the process's own pid, n)
+    Marker(u32, u64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

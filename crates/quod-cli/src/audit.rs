@@ -575,6 +575,7 @@ fn run_one(
                 &[],
                 timeout,
                 go_tests,
+                None,
                 &mut phases,
             )
         }

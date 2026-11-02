@@ -38,7 +38,7 @@ fn sh(cwd: &Path, script: &str) {
 
 /// Marker `n`, as a separate process looks it up (its own stat).
 fn mark(n: u64) -> String {
-    format!("stat {} >/dev/null 2>&1 || true", marker_name(TOKEN, n))
+    format!("stat {} >/dev/null 2>&1 || true", marker_name(TOKEN, 7, n))
 }
 
 /// The accesses of `path` between markers `a` and `b` (by sequence).
@@ -46,7 +46,7 @@ fn between<'t>(t: &'t Trace, a: u64, b: u64, path: &str) -> Vec<&'t TraceEvent> 
     let seq = |n: u64| {
         t.events
             .iter()
-            .find(|e| e.what == Traced::Marker(n))
+            .find(|e| e.what == Traced::Marker(7, n))
             .unwrap_or_else(|| panic!("marker {n} not traced"))
             .seq
     };
@@ -109,7 +109,12 @@ fn traced(transport: Transport) {
             .all(|a| !a.path.contains(quod_fs::MARKER_PREFIX)),
         "a marker was logged as an access"
     );
-    for (a, b, what) in [(1, 2, "cat"), (2, 3, "stat"), (3, 4, "open"), (5, 6, "cat again")] {
+    for (a, b, what) in [
+        (1, 2, "cat"),
+        (2, 3, "stat"),
+        (3, 4, "open"),
+        (5, 6, "cat again"),
+    ] {
         let seen = between(&t, a, b, "pkg/data.txt");
         assert!(
             seen.iter()
@@ -119,7 +124,11 @@ fn traced(transport: Transport) {
         );
         // Learned from /proc while the request was in flight.
         for e in seen {
-            assert!(t.procs.contains_key(&e.tid), "no process info for {}", e.tid);
+            assert!(
+                t.procs.contains_key(&e.tid),
+                "no process info for {}",
+                e.tid
+            );
         }
     }
     assert!(

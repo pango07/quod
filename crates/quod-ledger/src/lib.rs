@@ -112,10 +112,13 @@ const MIGRATIONS: &[&str] = &[
     // layer applies per test unchanged. `test_steps`: per step key, the
     // test-level runs so far and since the last full run (every Nth run
     // executes every test, and a divergence asks for the next one:
-    // `full_due`), and why test-level replay is off for the key, if it is.
+    // `full_due`), why test-level replay is off for the key, if it is, and
+    // the test modules whose tests run all together or not at all
+    // (`coupled`, one per line: a test there failed beside replayed tests
+    // and passed in the full run).
     "CREATE TABLE tests (test_key TEXT PRIMARY KEY, step_key TEXT NOT NULL, nodeid TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL);
      CREATE INDEX tests_by_step ON tests (step_key);
-     CREATE TABLE test_steps (step_key TEXT PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0, since_full INTEGER NOT NULL DEFAULT 0, full_due TEXT, disabled TEXT, updated_at TEXT NOT NULL);",
+     CREATE TABLE test_steps (step_key TEXT PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0, since_full INTEGER NOT NULL DEFAULT 0, full_due TEXT, disabled TEXT, coupled TEXT, updated_at TEXT NOT NULL);",
 ];
 
 /// A step key's test-level state (`Ledger::test_step`, migration v9).
@@ -130,6 +133,8 @@ pub struct TestStepRow {
     pub full_due: Option<String>,
     /// Why test-level replay is off for this key, if it is.
     pub disabled: Option<String>,
+    /// Test modules whose tests never replay beside an executed one.
+    pub coupled: Vec<String>,
 }
 
 /// A step key that needs the network (`Ledger::network`).
@@ -656,9 +661,9 @@ impl Ledger {
     /// The tests `step_key` has collected, as (test key, node id), node id
     /// order.
     pub fn tests_for_step(&self, step_key: &Hash) -> Result<Vec<(Hash, String)>, LedgerError> {
-        let mut st = self
-            .db
-            .prepare_cached("SELECT test_key, nodeid FROM tests WHERE step_key = ?1 ORDER BY nodeid")?;
+        let mut st = self.db.prepare_cached(
+            "SELECT test_key, nodeid FROM tests WHERE step_key = ?1 ORDER BY nodeid",
+        )?;
         let rows = st.query_map([step_key.to_string()], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })?;
@@ -675,7 +680,7 @@ impl Ledger {
         let row = self
             .db
             .query_row(
-                "SELECT runs, since_full, full_due, disabled FROM test_steps WHERE step_key = ?1",
+                "SELECT runs, since_full, full_due, disabled, coupled FROM test_steps WHERE step_key = ?1",
                 [step_key.to_string()],
                 |r| {
                     Ok((
@@ -683,17 +688,23 @@ impl Ledger {
                         r.get::<_, i64>(1)?,
                         r.get::<_, Option<String>>(2)?,
                         r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
                     ))
                 },
             )
             .optional()?;
         Ok(match row {
-            Some((runs, since_full, full_due, disabled)) => TestStepRow {
+            Some((runs, since_full, full_due, disabled, coupled)) => TestStepRow {
                 step_key: *step_key,
                 runs: runs as u64,
                 since_full: since_full as u64,
                 full_due,
                 disabled,
+                coupled: coupled
+                    .unwrap_or_default()
+                    .lines()
+                    .map(String::from)
+                    .collect(),
             },
             None => TestStepRow {
                 step_key: *step_key,
@@ -701,20 +712,22 @@ impl Ledger {
                 since_full: 0,
                 full_due: None,
                 disabled: None,
+                coupled: Vec::new(),
             },
         })
     }
 
     pub fn put_test_step(&self, t: &TestStepRow) -> Result<(), LedgerError> {
         self.db.execute(
-            "INSERT INTO test_steps (step_key, runs, since_full, full_due, disabled, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(step_key) DO UPDATE SET runs = excluded.runs, since_full = excluded.since_full, full_due = excluded.full_due, disabled = excluded.disabled, updated_at = excluded.updated_at",
+            "INSERT INTO test_steps (step_key, runs, since_full, full_due, disabled, coupled, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(step_key) DO UPDATE SET runs = excluded.runs, since_full = excluded.since_full, full_due = excluded.full_due, disabled = excluded.disabled, coupled = excluded.coupled, updated_at = excluded.updated_at",
             params![
                 t.step_key.to_string(),
                 t.runs as i64,
                 t.since_full as i64,
                 t.full_due,
                 t.disabled,
+                (!t.coupled.is_empty()).then(|| t.coupled.join("\n")),
                 now_rfc3339()
             ],
         )?;
@@ -2289,9 +2302,14 @@ mod tests {
         let step = Hash::of(b"step");
         assert_eq!(l.tests_for_step(&step).unwrap(), vec![]);
         let (a, b) = (Hash::of(b"a"), Hash::of(b"b"));
-        l.put_tests(&step, "01R1", &[(b, "t.py::b".into()), (a, "t.py::a".into())])
+        l.put_tests(
+            &step,
+            "01R1",
+            &[(b, "t.py::b".into()), (a, "t.py::a".into())],
+        )
+        .unwrap();
+        l.put_tests(&step, "01R2", &[(a, "t.py::a".into())])
             .unwrap();
-        l.put_tests(&step, "01R2", &[(a, "t.py::a".into())]).unwrap();
         assert_eq!(
             l.tests_for_step(&step).unwrap(),
             vec![(a, "t.py::a".to_string()), (b, "t.py::b".to_string())]
@@ -2301,6 +2319,7 @@ mod tests {
         t.runs = 3;
         t.since_full = 2;
         t.full_due = Some("divergence".into());
+        t.coupled = vec!["tests/test_a.py".into(), "tests/test_b.py".into()];
         l.put_test_step(&t).unwrap();
         assert_eq!(l.test_step(&step).unwrap(), t);
     }

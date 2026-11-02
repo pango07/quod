@@ -373,7 +373,7 @@ struct Log {
 enum Raw {
     Present(u64, Kind),
     Absent(String),
-    Marker(u64),
+    Marker(u32, u64),
 }
 
 #[derive(Default)]
@@ -387,7 +387,7 @@ struct TraceLog {
 
 impl TraceLog {
     fn push(&mut self, seq: u64, tid: u32, raw: Raw) {
-        if let Raw::Marker(_) = raw {
+        if let Raw::Marker(..) = raw {
             self.epoch += 1;
             self.events.push((seq, tid, raw));
             return;
@@ -956,13 +956,12 @@ impl CasFs {
         if parent != ROOT_INO {
             return None;
         }
-        let n: u64 = std::str::from_utf8(name.strip_prefix(t.prefix.as_slice())?)
-            .ok()?
-            .parse()
-            .ok()?;
+        let rest = std::str::from_utf8(name.strip_prefix(t.prefix.as_slice())?).ok()?;
+        let (pid, n) = rest.split_once('-')?;
+        let (pid, n): (u32, u64) = (pid.parse().ok()?, n.parse().ok()?);
         t.learn(req.pid);
         let mut log = self.locked(&self.log);
-        self.trace(&mut log, req, Raw::Marker(n));
+        self.trace(&mut log, req, Raw::Marker(pid, n));
         Some(())
     }
 
@@ -1704,7 +1703,7 @@ impl Served {
                             path,
                             kind: Kind::Absent,
                         }),
-                        Raw::Marker(n) => crate::Traced::Marker(n),
+                        Raw::Marker(pid, n) => crate::Traced::Marker(pid, n),
                     },
                 })
                 .collect(),

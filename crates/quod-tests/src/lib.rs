@@ -76,9 +76,7 @@ pub fn runs_pytest(script: &str) -> bool {
         .collect();
     words.iter().enumerate().any(|(i, w)| {
         let base = w.rsplit('/').next().unwrap_or(w);
-        base == "pytest"
-            || base == "py.test"
-            || (*w == "pytest" && i > 0 && words[i - 1] == "-m")
+        base == "pytest" || base == "py.test" || (*w == "pytest" && i > 0 && words[i - 1] == "-m")
     })
 }
 
@@ -293,13 +291,26 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
         }
     }
     let tgid = |tid: u32| trace.procs.get(&tid).map_or(tid, |p| p.tgid);
+    // A runner's host process: the one that logged its markers (the plugin
+    // knows its pid only inside the sandbox's pid namespace).
+    let mut host: HashMap<u32, u32> = HashMap::new();
+    for e in &trace.events {
+        if let Traced::Marker(pid, _) = e.what
+            && runners.iter().any(|o| o.pid == pid)
+            && *host.entry(pid).or_insert_with(|| tgid(e.tid)) != tgid(e.tid)
+        {
+            return Err(unusable(format!(
+                "markers of pytest process {pid} came from two processes"
+            )));
+        }
+    }
     let mut segments: HashMap<u32, Segments> = HashMap::new();
     for o in &runners {
         let markers: Vec<(u64, u64)> = trace
             .events
             .iter()
             .filter_map(|e| match e.what {
-                Traced::Marker(n) if tgid(e.tid) == o.pid => Some((e.seq, n)),
+                Traced::Marker(pid, n) if pid == o.pid => Some((e.seq, n)),
                 _ => None,
             })
             .collect();
@@ -337,11 +348,17 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
             }
             starts.push((*seq, stack.last().cloned()));
         }
-        segments.insert(o.pid, Segments { starts });
+        let Some(&h) = host.get(&o.pid) else {
+            return Err(unusable(format!(
+                "pytest process {}: no marker traced",
+                o.pid
+            )));
+        };
+        segments.insert(h, Segments { starts });
     }
     let offthread: BTreeSet<(u32, u64)> = runners
         .iter()
-        .flat_map(|o| o.offthread.iter().map(|n| (o.pid, *n)))
+        .flat_map(|o| o.offthread.iter().map(|n| (host[&o.pid], *n)))
         .collect();
 
     // The process whose windows an access belongs to: the requester's
@@ -380,11 +397,7 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
             session.insert(a.clone());
             continue;
         }
-        let at = runner_of(e.tid).and_then(|p| {
-            segments[&p]
-                .at(e.seq)
-                .map(|(n, w)| (p, *n, w))
-        });
+        let at = runner_of(e.tid).and_then(|p| segments[&p].at(e.seq).map(|(n, w)| (p, *n, w)));
         let bucket = match at {
             None => &mut session,
             Some((p, n, _)) if offthread.contains(&(p, n)) => &mut session,
@@ -415,7 +428,7 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
             let into = match windows.get(&n) {
                 None if n == 0 => &mut session_imports,
                 None => return Err(unusable(format!("edges of unknown window {n}"))),
-                Some(_) if offthread.contains(&(o.pid, n)) => &mut session_imports,
+                Some(_) if offthread.contains(&(host[&o.pid], n)) => &mut session_imports,
                 Some(Win::Session) => &mut session_imports,
                 Some(Win::Test(id)) => test_imports.entry(id.clone()).or_default(),
                 Some(Win::Module(id)) => module_imports.entry(id.clone()).or_default(),
@@ -461,7 +474,13 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
         for (nodeid, t) in &o.tests {
             let module = t.module.clone().unwrap_or_default();
             let mut imports = test_imports.get(nodeid).cloned().unwrap_or_default();
-            imports.extend(module_imports.get(&module).unwrap_or(&empty).iter().cloned());
+            imports.extend(
+                module_imports
+                    .get(&module)
+                    .unwrap_or(&empty)
+                    .iter()
+                    .cloned(),
+            );
             let mut accesses = closure(&imports);
             accesses.extend(tests.get(nodeid).unwrap_or(&none).iter().cloned());
             accesses.extend(modules.get(&module).unwrap_or(&none).iter().cloned());
@@ -484,7 +503,10 @@ pub fn attribute(trace: &Trace, outs: &[PluginOut]) -> Result<Attribution, Tests
         }
     }
     let all: BTreeSet<&String> = collected.iter().collect();
-    if executed.keys().chain(replayed.iter()).any(|t| !all.contains(t))
+    if executed
+        .keys()
+        .chain(replayed.iter())
+        .any(|t| !all.contains(t))
         || all.len() != executed.len() + replayed.len()
     {
         return Err(unusable(format!(

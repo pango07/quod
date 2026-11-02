@@ -80,7 +80,7 @@ class _State:
 
     def _marker(self, n):
         try:
-            os.stat(os.path.join(_ROOT, ".quod-tl-%s-%d" % (_TOKEN, n)))
+            os.stat(os.path.join(_ROOT, ".quod-tl-%s-%d-%d" % (_TOKEN, os.getpid(), n)))
         except OSError:
             pass
 

@@ -25,15 +25,17 @@ struct Run {
 
 impl Run {
     fn new() -> Run {
-        let mut r = Run::default();
-        r.out = PluginOut {
-            v: 1,
-            pid: MAIN,
-            role: "main".into(),
-            done: true,
-            imports_tracked: true,
-            exitstatus: Some(0),
-            ..PluginOut::default()
+        let mut r = Run {
+            out: PluginOut {
+                v: 1,
+                pid: MAIN,
+                role: "main".into(),
+                done: true,
+                imports_tracked: true,
+                exitstatus: Some(0),
+                ..PluginOut::default()
+            },
+            ..Run::default()
         };
         r.proc(MAIN, MAIN, 1);
         r
@@ -54,10 +56,9 @@ impl Run {
 
     fn marker(&mut self, be: &str, kind: &str, id: &str) -> u64 {
         let n = self.out.events.len() as u64 + 1;
-        self.out
-            .events
-            .push((n, be.into(), kind.into(), id.into()));
-        self.push(MAIN, Traced::Marker(n));
+        self.out.events.push((n, be.into(), kind.into(), id.into()));
+        let pid = self.out.pid;
+        self.push(MAIN, Traced::Marker(pid, n));
         n
     }
 
@@ -151,7 +152,10 @@ fn reads_go_to_their_windows_and_imports_carry_their_loads() {
     r.test("tests/test_a.py::test_one", "tests/test_a.py", "passed");
     r.test("tests/test_b.py::test_two", "tests/test_b.py", "passed");
     let a = r.attribute().unwrap();
-    assert_eq!(paths(&a.session), ["data", "data/stranger.txt", "pyproject.toml"]);
+    assert_eq!(
+        paths(&a.session),
+        ["data", "data/stranger.txt", "pyproject.toml"]
+    );
     assert_eq!(
         paths(&a.executed["tests/test_a.py::test_one"].accesses),
         [
@@ -224,7 +228,9 @@ fn a_lost_marker_or_a_taint_makes_the_run_unusable() {
         out: r.out.clone(),
         ..Run::default()
     };
-    lost.trace.events.retain(|e| e.what != Traced::Marker(2));
+    lost.trace
+        .events
+        .retain(|e| e.what != Traced::Marker(MAIN, 2));
     assert!(lost.attribute().is_err());
     let mut tainted = Run {
         trace: r.trace.clone(),
@@ -326,7 +332,10 @@ fn keys_and_detection() {
     let s = Hash::of(b"step");
     assert_ne!(test_key(&s, "t.py::a"), test_key(&s, "t.py::b"));
     assert_ne!(test_key(&s, "t.py::a[1]"), test_key(&s, "t.py::a[2]"));
-    assert_ne!(test_key(&s, "t.py::a"), test_key(&Hash::of(b"other"), "t.py::a"));
+    assert_ne!(
+        test_key(&s, "t.py::a"),
+        test_key(&Hash::of(b"other"), "t.py::a")
+    );
     assert_ne!(session_key(&s), test_key(&s, ""));
     for yes in [
         "pytest",
@@ -338,7 +347,12 @@ fn keys_and_detection() {
     ] {
         assert!(runs_pytest(yes), "{yes}");
     }
-    for no in ["go test ./...", "npm test", "python -m unittest", "pytest-cov --help-me"] {
+    for no in [
+        "go test ./...",
+        "npm test",
+        "python -m unittest",
+        "pytest-cov --help-me",
+    ] {
         assert!(!runs_pytest(no), "{no}");
     }
 }
