@@ -516,3 +516,34 @@ fn limits_kill_the_step_and_report_why() {
     .unwrap();
     assert_eq!((r.killed, r.exit_code), (None, 0));
 }
+
+/// On the host root an offline step sees fixed /etc/hostname, /etc/hosts,
+/// /etc/resolv.conf and /etc/machine-id, whatever the host has there (the fingerprint leaves
+/// their contents out), including where the host's are symlinks, as on
+/// Ubuntu (resolv.conf into /run/systemd/resolve).
+#[test]
+fn an_offline_step_sees_fixed_name_resolution_files() {
+    if !enabled() {
+        return;
+    }
+    let (code, out, err) = exec("cat /etc/hostname /etc/hosts /etc/resolv.conf");
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        format!(
+            "quod\n{}{}",
+            quod_sandbox::OFFLINE_HOSTS,
+            quod_sandbox::OFFLINE_RESOLV_CONF
+        )
+    );
+    // The host's machine-id, where it has one, is replaced too; where it
+    // has none the step has none.
+    let (code, out, _) = exec("cat /etc/machine-id 2>/dev/null || echo none");
+    assert_eq!(code, 0);
+    let want = if Path::new("/etc/machine-id").exists() {
+        "71756f64000000000000000000000000\n"
+    } else {
+        "none\n"
+    };
+    assert_eq!(out, want);
+}

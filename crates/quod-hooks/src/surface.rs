@@ -83,11 +83,10 @@ pub fn placeholder_in_files(files: &[PinnedFile]) -> Option<String> {
 const FILE_COMMANDS_DIR: &str = "_runner_file_commands";
 /// What an offline step resolves names with: an address with no route, so
 /// a lookup is counted as a network attempt instead of going to loopback.
-const RESOLV_CONF: &str = "nameserver 192.0.2.1\noptions attempts:1 timeout:1\n";
+const RESOLV_CONF: &str = quod_sandbox::OFFLINE_RESOLV_CONF;
 /// The sandbox's own name (`quod_sandbox::HOSTNAME`) resolves locally, as a
 /// container's does: a test that looks itself up must not reach for DNS.
-const HOSTS: &str =
-    "127.0.0.1\tlocalhost\n127.0.1.1\tquod\n::1\tlocalhost ip6-localhost ip6-loopback\n";
+const HOSTS: &str = quod_sandbox::OFFLINE_HOSTS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SurfaceKind {

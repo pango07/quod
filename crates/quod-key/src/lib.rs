@@ -254,7 +254,12 @@ fn normalized_mounts(
 /// served files' content-derived times are whole microseconds (they had
 /// nanoseconds, which some filesystems round on a sealed snapshot), so
 /// every file a step stats shows another time than under v7.
-pub const VERSION: u32 = 8;
+/// v9 (2026-11-01, fix/sandbox-symlinked-etc): on the host root an offline
+/// step sees fixed /etc/hostname, /etc/hosts, /etc/resolv.conf and
+/// /etc/machine-id (it saw the host's, whose contents the fingerprint leaves
+/// out), and the fingerprint keys those files' forms (file or symlink and
+/// its target).
+pub const VERSION: u32 = 9;
 
 /// Variables whose values change on every run. Putting one in a key would
 /// make every run a miss, or, if normalized silently, hide a real input, so
@@ -548,7 +553,7 @@ mod tests {
         assert!(j.contains(
             r#"["GOMODCACHE","/workspace/.quod/gomod"],["GOPATH","/workspace/.quod/gopath"],"#
         ));
-        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":8,"warm":false}"#));
+        assert!(j.ends_with(r#""roots":["/workspace"],"toolchain":"go","v":9,"warm":false}"#));
         let mut host = StepSpec::new(
             Toolchain::Go,
             Image::new(

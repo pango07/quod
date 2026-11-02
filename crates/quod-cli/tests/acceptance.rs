@@ -76,7 +76,12 @@ fn acceptance_python_fixture() {
     run_acceptance(
         &env,
         Toolchain::Python,
-        "python -m unittest discover -s tests -t . -v",
+        // unittest's summary carries the run's duration ("Ran 4 tests in
+        // 0.001s"), which P1's normalization (go test durations) does not
+        // cover: two executions on identical inputs differed there under
+        // load, a flake. The duration is cut; the exit code is kept.
+        "python -m unittest discover -s tests -t . -v 2>/tmp/unittest.err; rc=$?; \
+         sed -E 's/^(Ran [0-9]+ tests?) in [0-9.]+s$/\\1/' /tmp/unittest.err >&2; exit $rc",
         2,
         false,
     );

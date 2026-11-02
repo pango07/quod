@@ -6,7 +6,8 @@
 //! profile, 2026-10-31; v5: GOPATH in the Go profile's env, 2026-10-31;
 //! v6: the rename to Quod, `.quod/` in the profiles' env, 2026-10-31; v7:
 //! the served index and `.git`, what a step is shown, 2026-10-31; v8:
-//! served file times in whole microseconds, 2026-11-01).
+//! served file times in whole microseconds, 2026-11-01; v9: fixed
+//! name-resolution and identity files in /etc on the host root, 2026-11-01).
 
 use quod_cas::Hash;
 use quod_key::{Image, ImageKind, Platform, StepSpec, Toolchain, shell_cmd, step_key};
