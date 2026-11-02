@@ -5,7 +5,8 @@ import fs from 'node:fs'
 const [path, args, url] = process.argv.slice(2)
 const all = fs.readFileSync(path, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
 const warm = all.find((r) => r.warmup)
-const rows = all.filter((r) => !r.warmup)
+const rows = all.filter((r) => !r.warmup && !r.mutation)
+const muts = all.filter((r) => r.mutation)
 const s = (ms) => (ms / 1000).toFixed(1)
 const x = (a, b) => (b > 0 ? a / b : 0)
 const median = (v) => {
@@ -43,14 +44,14 @@ if (best) {
   out.push(`Best case: \`${best.commit.slice(0, 9)}\` ${best.subject} (${best.touched} file${best.touched === 1 ? '' : 's'} changed: ${best.areas}): plain ${s(best.plain_ms)} s, Quod ${s(best.quod_ms)} s (${best.ran} of ${total(best)} test files ran).`)
   out.push('')
 }
-out.push('| # | commit | what it touched | plain | Quod | speedup | files run / replayed | audits | wrong |')
+out.push('| # | commit | what it touched | plain | Quod | speedup | files run / replayed (function-level) | audits | wrong |')
 out.push('|---:|---|---|---:|---:|---:|---|---:|---:|')
 for (const r of rows) {
   const subj = r.subject.length > 60 ? `${r.subject.slice(0, 57)}...` : r.subject
   const link = repo ? `[${r.commit.slice(0, 9)}](${repo}/commit/${r.commit})` : r.commit.slice(0, 9)
   const why = r.shared_changed && r.replayed === 0 ? ' (shared inputs)' : ''
   out.push(
-    `| ${r.i} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched} files: ${r.areas || '-'} | ${s(r.plain_ms)} s | ${s(r.quod_ms)} s | ${x(r.plain_ms, r.quod_ms).toFixed(1)}x | ${r.ran ?? '?'} / ${r.replayed ?? '?'}${why} | ${r.audited ?? 0}${r.audit_mismatches?.length ? ` (${r.audit_mismatches.length} mismatch)` : ''} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
+    `| ${r.i} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched} files: ${r.areas || '-'} | ${s(r.plain_ms)} s | ${s(r.quod_ms)} s | ${x(r.plain_ms, r.quod_ms).toFixed(1)}x | ${r.ran ?? '?'} / ${r.replayed ?? '?'}${r.narrowed ? ` (${r.narrowed})` : ''}${why} | ${r.audited ?? 0}${r.audit_mismatches?.length ? ` (${r.audit_mismatches.length} mismatch)` : ''} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
   )
 }
 out.push('')
@@ -64,6 +65,17 @@ for (const r of rows) for (const [k, v] of Object.entries(r.unrecordable ?? {}))
 if (Object.keys(unrec).length) out.push(`Files that always run (the recorder cannot follow them): ${Object.entries(unrec).map(([k, v]) => `${v} (${k})`).join(', ')}.`)
 const installs = rows.filter((r) => r.install_ms > 0)
 if (installs.length) out.push(`Dependencies reinstalled (lockfile changed; not timed, same for both): commits ${installs.map((r) => r.i).join(', ')}.`)
+if (muts.length) {
+  out.push('')
+  out.push('Mutation check (not timed): a `throw` put into a function a recorded test executed; Quod must run the tests it breaks and report what plain vitest reports.')
+  out.push('')
+  out.push('| after # | mutated function | plain: failing files | Quod: files run / replayed | Quod exit | wrong |')
+  out.push('|---:|---|---:|---|---:|---:|')
+  for (const m of muts) out.push(`| ${m.i} | \`${m.target}\` | ${m.plain_failed_files} | ${m.ran} / ${m.replayed} | ${m.quod_exit} | ${m.wrong ? m.wrong.length : 'not compared'} |`)
+}
+const keys = {}
+for (const r of rows) for (const k of r.shared_changed_keys ?? []) keys[k] = (keys[k] ?? 0) + 1
+if (Object.keys(keys).length) out.push(`\nShared inputs that changed (commits): ${Object.entries(keys).map(([k, n]) => `\`${k}\` (${n})`).join(', ')}.`)
 for (const r of rows) {
   if (r.wrong?.length) out.push(`\n**WRONG REPLAY at ${r.commit.slice(0, 9)}**: ${r.wrong.join(', ')}`)
 }

@@ -37,10 +37,13 @@ use serde::{Deserialize, Serialize};
 const DRIVER: &str = include_str!("vitest/driver.mjs");
 const SETUP: &str = include_str!("vitest/setup.mjs");
 const RECORD: &str = include_str!("vitest/record.mjs");
+const COVERAGE: &str = include_str!("vitest/coverage.mjs");
+const NARROW: &str = include_str!("vitest/narrow.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
-/// another version is dropped (every file runs once).
-const LEDGER_VERSION: u32 = 1;
+/// another version is dropped (every file runs once). v2: function-level
+/// coverage and pinned states.
+const LEDGER_VERSION: u32 = 2;
 
 /// How old a file's times must be for its hash to be cached by identity
 /// (git's racy-index rule, as `quod_cas`'s import stat cache).
@@ -77,6 +80,10 @@ pub struct VitestArgs {
     /// Write this run's numbers (files run, replayed, timings) as JSON.
     #[arg(long)]
     summary: Option<PathBuf>,
+    /// File-level only: no function-level narrowing (a test file whose
+    /// inputs changed always runs).
+    #[arg(long)]
+    no_narrow: bool,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -121,6 +128,15 @@ struct Rec {
     runs: u32,
     #[serde(default)]
     replays: u32,
+    /// Per workspace source file the test file reached as a module: the
+    /// functions it executed (0-based line and column of start and end, in
+    /// the version it was recorded on).
+    #[serde(default)]
+    cov: BTreeMap<u32, Vec<[u32; 4]>>,
+    /// Inputs that changed since the record without making the file run
+    /// (function-level narrowing): the state the record saw.
+    #[serde(default)]
+    pinned: BTreeMap<u32, String>,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +162,8 @@ struct Ran {
     keys: Option<Vec<String>>,
     unobservable: Vec<String>,
     result: String,
+    #[serde(default)]
+    cov: Option<BTreeMap<String, Vec<[u32; 4]>>>,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -169,6 +187,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("driver.mjs", DRIVER),
         ("setup.mjs", SETUP),
         ("record.mjs", RECORD),
+        ("coverage.mjs", COVERAGE),
+        ("narrow.mjs", NARROW),
     ] {
         let p = code.join(name);
         if fs::read_to_string(&p).ok().as_deref() != Some(body) {
@@ -178,6 +198,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     if let Some(m) = &a.absorb {
         return absorb(&root, &dir, &code, m);
     }
+    let blobs = dir.join("blobs");
+    fs::create_dir_all(&blobs)?;
     let full = a.full || std::env::var("QUOD_VITEST_FULL").is_ok_and(|v| v == "1");
     let ledger_path = dir.join("ledger.json");
     let mut ledger: Ledger = fs::read(&ledger_path)
@@ -190,7 +212,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
 
     // Every recorded input, hashed once.
     let live = ledger.live();
-    let cur = states(&root, &ledger, &live);
+    let cur = states(&root, &ledger, &live, Some(&blobs));
     let mut now: HashMap<u32, (String, Option<[i64; 6]>)> = HashMap::with_capacity(live.len());
     let mut changed: HashSet<u32> = HashSet::new();
     for (k, s) in live.iter().zip(cur) {
@@ -205,16 +227,113 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         && ledger.global.iter().all(|k| !changed.contains(k));
     let mut replay: BTreeMap<String, String> = BTreeMap::new();
     let mut affected: Vec<String> = Vec::new();
+    // Files whose only changed inputs are source files they reached as
+    // modules, with the states their records saw: narrowing candidates.
+    let mut maybe: Vec<(String, Vec<(u32, String)>)> = Vec::new();
     for (id, rec) in &ledger.files {
-        let ok = global_ok
-            && !rec.quarantined
-            && (rec.state == "pass" || rec.state == "skip")
-            && rec.deps.iter().all(|d| !changed.contains(d));
-        if ok {
+        if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
+            affected.push(id.clone());
+            continue;
+        }
+        let seen = |d: u32| {
+            rec.pinned
+                .get(&d)
+                .unwrap_or(&ledger.states[d as usize])
+                .clone()
+        };
+        let moved: Vec<(u32, String)> = rec
+            .deps
+            .iter()
+            .filter(|d| now[*d].0 != seen(**d))
+            .map(|d| (*d, seen(*d)))
+            .collect();
+        if moved.is_empty() {
             replay.insert(id.clone(), rec.result.clone());
+            continue;
+        }
+        let narrowable = !a.no_narrow
+            && moved.iter().all(|(d, old)| {
+                rec.cov.contains_key(d)
+                    && ledger.keys[*d as usize].starts_with("f:")
+                    && old.len() == 64
+                    && now[d].0.len() == 64
+                    && blobs.join(old).is_file()
+            });
+        if narrowable {
+            maybe.push((id.clone(), moved));
         } else {
             affected.push(id.clone());
         }
+    }
+    let mut narrowed: HashMap<String, Vec<(u32, String)>> = HashMap::new();
+    let mut narrow_note = serde_json::Value::Null;
+    if !maybe.is_empty() {
+        let tn = Instant::now();
+        let tests: Vec<serde_json::Value> = maybe
+            .iter()
+            .map(|(id, moved)| {
+                let rec = &ledger.files[id];
+                let checks: Vec<serde_json::Value> = moved
+                    .iter()
+                    .map(|(d, old)| {
+                        serde_json::json!({
+                            "file": root.join(&ledger.keys[*d as usize][2..]),
+                            "old": blobs.join(old),
+                            "ranges": rec.cov[d],
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "id": id, "checks": checks })
+            })
+            .collect();
+        let req_path = dir.join("narrow-request.json");
+        let ans_path = dir.join("narrow-answer.json");
+        let _ = fs::remove_file(&ans_path);
+        fs::write(
+            &req_path,
+            serde_json::to_vec(&serde_json::json!({ "root": root, "tests": tests }))?,
+        )?;
+        let ok = Command::new(&a.node)
+            .arg(code.join("narrow.mjs"))
+            .arg(&req_path)
+            .arg(&ans_path)
+            .status()
+            .is_ok_and(|s| s.success());
+        let ans: Option<serde_json::Value> = if ok {
+            fs::read(&ans_path)
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+        } else {
+            None
+        };
+        let skip: HashSet<String> = ans
+            .as_ref()
+            .and_then(|v| v["skip"].as_array())
+            .map(|v| {
+                v.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (id, moved) in maybe {
+            if skip.contains(&id) {
+                replay.insert(id.clone(), ledger.files[&id].result.clone());
+                narrowed.insert(id, moved);
+            } else {
+                affected.push(id);
+            }
+        }
+        narrow_note = serde_json::json!({
+            "ms": tn.elapsed().as_secs_f64() * 1e3,
+            "why": ans.as_ref().map(|v| v["why"].clone()),
+        });
+        eprintln!(
+            "quod vitest: function-level: {} of {} test files with changed source replay ({} ms): {}",
+            narrowed.len(),
+            narrowed.len() + affected.len(),
+            tn.elapsed().as_millis(),
+            ans.as_ref().map_or("narrowing failed".into(), |v| v["why"].to_string())
+        );
     }
 
     // Audits on the workers the files to run leave idle.
@@ -234,6 +353,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .collect();
     let mut rng = Rng::new();
     let mut audit = Vec::new();
+    // Narrowed replays first: they are the newer rule.
+    let mut first: Vec<&String> = candidates
+        .iter()
+        .copied()
+        .filter(|id| narrowed.contains_key(*id))
+        .collect();
+    candidates.retain(|id| !narrowed.contains_key(*id));
+    while audit.len() < n_audit && !first.is_empty() {
+        let i = rng.below(first.len());
+        audit.push(first.swap_remove(i).clone());
+    }
     while audit.len() < n_audit && !candidates.is_empty() {
         let i = rng.below(candidates.len());
         audit.push(candidates.swap_remove(i).clone());
@@ -362,6 +492,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         let mut deps: Vec<u32> = keys.iter().map(|k| key(&mut ledger, k)).collect();
         deps.sort_unstable();
         deps.dedup();
+        let mut cov = BTreeMap::new();
+        for (f, fns) in r.cov.iter().flatten() {
+            let k = key(&mut ledger, &format!("f:{f}"));
+            if deps.binary_search(&k).is_ok() {
+                cov.insert(k, fns.clone());
+            }
+        }
         recorded += 1;
         ledger.files.insert(
             r.id.clone(),
@@ -375,12 +512,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 quarantined,
                 runs: old.as_ref().map_or(0, |o| o.runs) + 1,
                 replays: old.as_ref().map_or(0, |o| o.replays),
+                cov,
+                pinned: BTreeMap::new(),
             },
         );
     }
     for id in &out.replayed {
         if let Some(r) = ledger.files.get_mut(id) {
             r.replays += 1;
+            for (d, old) in narrowed.get(id).into_iter().flatten() {
+                r.pinned.entry(*d).or_insert_with(|| old.clone());
+            }
         }
     }
     ledger.facts = out.facts;
@@ -393,7 +535,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .copied()
         .filter(|k| !now.contains_key(k))
         .collect();
-    let fresh = states(&root, &ledger, &missing);
+    let fresh = states(&root, &ledger, &missing, Some(&blobs));
     for (k, s) in missing.into_iter().zip(fresh) {
         now.insert(k, s);
     }
@@ -439,6 +581,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "failed": failed,
             "unrecordable": unobservable,
             "shared_inputs_changed": !global_ok,
+            "narrowed": narrowed.len(),
+            "narrow": narrow_note,
             "shared_changed_keys": shared_changed.iter().take(20).collect::<Vec<_>>(),
             "inputs_hashed": live.len(),
             "load_ms": t_load.as_secs_f64() * 1e3,
@@ -561,7 +705,7 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
             new.push(i);
         }
     }
-    let st = states(root, &ledger, &new);
+    let st = states(root, &ledger, &new, None);
     for (k, (s, id)) in new.iter().zip(st) {
         ledger.states[*k as usize] = s;
         ledger.idents[*k as usize] = id;
@@ -623,6 +767,14 @@ impl Ledger {
             for d in &mut r.deps {
                 *d = map[*d as usize];
             }
+            r.cov = std::mem::take(&mut r.cov)
+                .into_iter()
+                .map(|(k, v)| (map[k as usize], v))
+                .collect();
+            r.pinned = std::mem::take(&mut r.pinned)
+                .into_iter()
+                .map(|(k, v)| (map[k as usize], v))
+                .collect();
         }
     }
 }
@@ -639,7 +791,12 @@ fn relativize(root: &Path, k: &str) -> String {
 }
 
 /// The current state of each key, in parallel.
-fn states(root: &Path, ledger: &Ledger, keys: &[u32]) -> Vec<(String, Option<[i64; 6]>)> {
+fn states(
+    root: &Path,
+    ledger: &Ledger,
+    keys: &[u32],
+    blobs: Option<&Path>,
+) -> Vec<(String, Option<[i64; 6]>)> {
     let started = wall_ns();
     let envall = std::sync::OnceLock::new();
     par_map(keys, |k| {
@@ -650,7 +807,7 @@ fn states(root: &Path, ledger: &Ledger, keys: &[u32]) -> Vec<(String, Option<[i6
             .copied()
             .flatten()
             .map(|id| (id, ledger.states[i].as_str()));
-        state(root, &ledger.keys[i], cached, started, &envall)
+        state(root, &ledger.keys[i], cached, started, &envall, blobs)
     })
 }
 
@@ -660,6 +817,7 @@ fn state(
     cached: Option<([i64; 6], &str)>,
     started: i128,
     envall: &std::sync::OnceLock<String>,
+    blobs: Option<&Path>,
 ) -> (String, Option<[i64; 6]>) {
     let (kind, p) = key.split_once(':').unwrap_or((key, ""));
     let path = || -> PathBuf {
@@ -713,6 +871,16 @@ fn state(
             } else {
                 blake3::hash(&bytes).to_hex().to_string()
             };
+            // Workspace source is kept by content, for function-level
+            // narrowing to diff a record's version against the current one.
+            if let Some(b) = blobs
+                && kind == "f"
+                && !p.starts_with('/')
+                && bytes.len() < (2 << 20)
+                && is_source(p)
+            {
+                keep_blob(b, &h, &bytes);
+            }
             // Keep the identity only for a file settled before the read and
             // unchanged by it.
             let settled = started - (id[3].max(id[4]) as i128) > SETTLE_NS;
@@ -720,6 +888,23 @@ fn state(
             (h, (settled && same).then_some(id))
         }
         _ => (format!("unknown kind {kind}"), None),
+    }
+}
+
+fn is_source(p: &str) -> bool {
+    [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+        .iter()
+        .any(|e| p.ends_with(e))
+}
+
+fn keep_blob(dir: &Path, hash: &str, bytes: &[u8]) {
+    let p = dir.join(hash);
+    if p.exists() {
+        return;
+    }
+    let tmp = dir.join(format!("{hash}.{}.tmp", std::process::id()));
+    if fs::write(&tmp, bytes).is_ok() {
+        let _ = fs::rename(&tmp, &p);
     }
 }
 
@@ -926,7 +1111,7 @@ mod tests {
         fs::create_dir(root.join("d")).unwrap();
         std::os::unix::fs::symlink("a", root.join("l")).unwrap();
         let env = std::sync::OnceLock::new();
-        let st = |k: &str| state(root, k, None, wall_ns(), &env).0;
+        let st = |k: &str| state(root, k, None, wall_ns(), &env, None).0;
         let (fa, dl, el) = (st("f:a"), st("d:d"), st("e:l"));
         assert_eq!(st("f:missing"), "absent");
         assert_eq!(st("f:d"), "dir");
@@ -947,11 +1132,11 @@ mod tests {
         let env = std::sync::OnceLock::new();
         let m = fs::metadata(root.join("a")).unwrap();
         let id = ident(&m);
-        let (s, _) = state(root, "f:a", Some((id, "cached")), wall_ns(), &env);
+        let (s, _) = state(root, "f:a", Some((id, "cached")), wall_ns(), &env, None);
         assert_eq!(s, "cached");
         let mut other = id;
         other[2] += 1;
-        let (s, _) = state(root, "f:a", Some((other, "cached")), wall_ns(), &env);
+        let (s, _) = state(root, "f:a", Some((other, "cached")), wall_ns(), &env, None);
         assert_ne!(s, "cached");
     }
 
@@ -976,12 +1161,16 @@ mod tests {
                 quarantined: false,
                 runs: 1,
                 replays: 0,
+                cov: BTreeMap::from([(2, vec![[1, 0, 3, 0]])]),
+                pinned: BTreeMap::from([(0, "old".to_string())]),
             },
         );
         l.compact();
         assert_eq!(l.keys, vec!["f:a".to_string(), "f:b".to_string()]);
         assert_eq!(l.global, vec![1]);
         assert_eq!(l.files["x"].deps, vec![0, 1]);
+        assert_eq!(l.files["x"].cov.keys().copied().collect::<Vec<_>>(), vec![1]);
+        assert_eq!(l.files["x"].pinned.keys().copied().collect::<Vec<_>>(), vec![0]);
         assert_eq!(l.states, vec!["1".to_string(), "3".to_string()]);
     }
 

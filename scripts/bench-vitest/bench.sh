@@ -75,8 +75,35 @@ for i in "${!commits[@]}"; do
       ran: s.ran, replayed: s.replayed, audited: s.audited, audit_mismatches: s.audit_mismatches,
       shared_changed: s.shared_inputs_changed, unrecordable: s.unrecordable,
       select_ms: s.select_ms, record_ms: s.record_ms, vitest_ms: s.vitest_ms, driver: s.driver,
+      narrowed: s.narrowed, narrow: s.narrow, shared_changed_keys: s.shared_changed_keys,
       files: k.files, wrong: k.wrong ?? null, flaky: k.flaky ?? null, compare_error: k.error }))
   ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$install_ms" "$cmp" "$out/summary.json" | tee -a "$out/results.jsonl"
+
+  # Mutation check (not timed): on some commits, a throw put into a
+  # function some recorded test executed must make Quod run that test and
+  # report the same failures as plain vitest. Then the tree is restored and
+  # Quod re-records.
+  if [[ " ${MUTATE:-4 9 14 19} " == *" $i "* ]]; then
+    target=$(node "$here/mutate-pick.mjs" "$state/ledger.json" "$i" 2>/dev/null)
+    if [ -n "$target" ]; then
+      mfile=${target% *}; mline=${target##* }
+      what=$(node "$proj/node_modules/.quod-vitest/narrow.mjs" mutate "$mfile" "$mline" 2>&1)
+      plain "m$i" >/dev/null
+      read -r mq_ms mq_rc < <(quod "m$i")
+      mcmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/quod.json" "$state/out.json" 2>&1 | tee "$out/logs/compare-m$i.log" | tail -1)
+      node -e '
+        const [i, target, what, rc, cmp, sumPath, plainPath] = process.argv.slice(1)
+        const fs = require("fs")
+        let s = {}; try { s = JSON.parse(fs.readFileSync(sumPath, "utf8")) } catch {}
+        let k = {}; try { k = JSON.parse(cmp) } catch { k = { error: cmp } }
+        let failedFiles = 0; try { failedFiles = JSON.parse(fs.readFileSync(plainPath, "utf8")).testResults.filter(t => t.status === "failed").length } catch {}
+        console.log(JSON.stringify({ mutation: true, i: +i, target, what, quod_exit: +rc, ran: s.ran, replayed: s.replayed, narrowed: s.narrowed,
+          plain_failed_files: failedFiles, wrong: k.wrong ?? null, flaky: k.flaky ?? null }))
+      ' "$i" "$target" "$what" "$mq_rc" "$mcmp" "$out/summary.json" "$out/plain.json" | tee -a "$out/results.jsonl"
+      git checkout -q --force "$c"
+      quod "r$i" >/dev/null
+    fi
+  fi
 done
 node "$here/report.mjs" "$out/results.jsonl" "${args[*]}" "$(git remote get-url origin)" > "$out/report.md"
 cat "$out/report.md"

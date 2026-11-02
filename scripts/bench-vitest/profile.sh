@@ -29,6 +29,7 @@ for round in 1 2; do
   run "plain-$round" node_modules/.bin/vitest "${args[@]}"
   run "quod-all-$round" q ""
   run "plain-b-$round" node_modules/.bin/vitest "${args[@]}"
+  run "quod-no-cov-$round" q cov
   run "quod-no-escapes-$round" q escapes
   run "quod-no-loader-$round" q loader
   run "quod-no-fs-env-$round" q fs,env

@@ -80,6 +80,7 @@ process.env.NODE_ENV ??= 'test'
 const setupPath = path.join(codeDir, 'setup.mjs')
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
+process.env.QUOD_VITEST_ROOT = ctx.config.root
 
 // Projects Quod can record: isolated node workers. Others always run.
 const recorded = new Set()
@@ -202,7 +203,7 @@ const moduleKeys = (mods) => {
 }
 const transformed = new Set()
 const dumps = new Map()
-const workerMs = { setup: 0, dump: 0 }
+const workerMs = { setup: 0, dump: 0, cov: 0 }
 for (const id of ran.keys()) {
   let d = null
   try {
@@ -223,6 +224,7 @@ for (const m of endModules) {
   const d = dumps.get(id)
   let keys = null
   let unobservable = []
+  let cov = null
   if (d) {
     const ks = new Set(d.keys)
     for (const k of moduleKeys(d.modules)) ks.add(k)
@@ -231,6 +233,14 @@ for (const m of endModules) {
     const root = ctx.config.root + '/'
     const ws = d.writes.filter((w) => w.startsWith(root) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
+    // Function-level data only for source the file reached as modules (a
+    // file it also read, or loaded natively, counts whole), not itself.
+    if (d.cov) {
+      cov = {}
+      for (const [f, fns] of Object.entries(d.cov)) {
+        if (f !== file.filepath && !d.keys.includes(`f:${f}`) && !d.keys.includes(`e:${f}`)) cov[f] = fns
+      }
+    }
   }
   const resultRel = `results/${id}.json`
   if (state === 'pass' || state === 'skip') real.writeFileSync(path.join(stateDir, resultRel), strip(file))
@@ -245,7 +255,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov })
 }
 
 // The main process's reads: inputs of every file, except the source the
@@ -309,7 +319,7 @@ writeJson(outPath, {
   ran: ranOut,
   replayed: replayed.map((x) => x.id),
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump },
+  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
 })
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)
