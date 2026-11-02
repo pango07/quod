@@ -47,6 +47,18 @@ pub struct PolicyArgs {
         value_parser = clap::builder::BoolishValueParser::new()
     )]
     replay_failures: bool,
+    /// Execute every audit inline, waiting for it, instead of deferring
+    /// decay-phase audits (trust v2, "Deferred audits": the replay is
+    /// served at once and `quod audit` re-executes and compares it in the
+    /// background; a divergence marks the replay suspect). Shadow audits
+    /// are inline either way. QUOD_INLINE_AUDITS takes 1/0, true/false.
+    #[arg(
+        long,
+        env = "QUOD_INLINE_AUDITS",
+        action = clap::ArgAction::SetTrue,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    inline_audits: bool,
 }
 
 impl PolicyArgs {
@@ -57,6 +69,7 @@ impl PolicyArgs {
             shadow: self.shadow,
             audit: self.audit,
             replay_failures: self.replay_failures,
+            defer: !self.inline_audits,
         };
         p.validate()?;
         Ok(p)

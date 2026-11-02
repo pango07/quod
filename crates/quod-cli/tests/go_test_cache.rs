@@ -438,3 +438,73 @@ fn g8_go_clean_testcache_works_where_the_cache_is_expired() {
     assert!(!r2.stderr.contains("DIVERGENCE"), "G8: {}", r2.stderr);
     println!("G8 ok: go clean -testcache in an audit");
 }
+
+/// Trust v2, deferred audits: a decay-phase audit of a guarded warm step
+/// runs later, from the recorded tree, with go test's cache expired for
+/// it: every package runs, none is served from the cache the earlier
+/// executions left, exactly as an inline audit (G1, G5) does.
+#[test]
+fn g9_a_deferred_audit_expires_go_tests_cache_too() {
+    if !enabled() {
+        return;
+    }
+    let mut env = module();
+    env.run_defaults.clear();
+    let repo = env.repo.to_str().unwrap().to_string();
+    let run = || {
+        env.quod_in(
+            &env.state(),
+            &[
+                "run",
+                "--repo",
+                &repo,
+                "--toolchain",
+                "go",
+                "--step",
+                STEP,
+                "--warm",
+                "--mode",
+                "replay",
+                "--audit",
+                "1",
+            ],
+            &[("QUOD_AUDIT_SPAWN", "0")],
+        )
+    };
+    let r1 = run();
+    assert!(r1.executed() && r1.code == 0, "G9 first: {}", r1.stderr);
+    for nth in 1..=2 {
+        let r = run();
+        assert!(
+            r.executed()
+                && r.stderr
+                    .contains(&format!("(shadow audit: would-be hit {nth} re-executed)")),
+            "G9 shadow {nth}: {}",
+            r.stderr
+        );
+    }
+    // Hit 3: deferred; the job gets the replay and runs nothing.
+    let r = run();
+    assert!(
+        r.hit() && r.stderr.contains("trust: audit deferred: would-be hit 3"),
+        "{}",
+        r.stderr
+    );
+    let w = env.quod_in(&env.state(), &["audit"], &[("QUOD_AUDIT_SPAWN", "0")]);
+    assert_eq!(w.code, 0, "{}", w.stderr);
+    let o = outcomes(&w.stdout);
+    assert!(
+        o.len() == PKGS.len() && o.iter().all(|(_, what)| what == "ran"),
+        "G9: a deferred audit runs every test fresh: {o:?}\n{}",
+        w.stderr
+    );
+    assert!(
+        w.stderr.contains("trust: deferred audit passed") && !w.stderr.contains("DIVERGENCE"),
+        "{}",
+        w.stderr
+    );
+    println!(
+        "G9 ok: the deferred audit ran all {} packages fresh",
+        o.len()
+    );
+}

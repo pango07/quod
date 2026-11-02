@@ -1,4 +1,5 @@
 CREATE TABLE audits (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, at TEXT NOT NULL, phase TEXT NOT NULL, diverged INTEGER NOT NULL, expected_run TEXT, actual_run TEXT, detail TEXT);
+CREATE TABLE audits_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, hit_run TEXT NOT NULL, replay_run TEXT NOT NULL, nth INTEGER NOT NULL, tree TEXT NOT NULL, request BLOB NOT NULL, state TEXT NOT NULL, enqueued_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, claimed_by TEXT, finished_at TEXT, audit_id INTEGER, detail TEXT, repaid INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE blobs (hash TEXT PRIMARY KEY, size INTEGER NOT NULL, path TEXT NOT NULL);
 CREATE TABLE manifest_nodes (id TEXT PRIMARY KEY, body BLOB NOT NULL);
 CREATE TABLE manifests (id TEXT PRIMARY KEY, step_key TEXT NOT NULL, run_id TEXT NOT NULL, created_at TEXT NOT NULL, json BLOB NOT NULL, root TEXT);
@@ -8,6 +9,7 @@ CREATE TABLE runs (id TEXT PRIMARY KEY, started_at TEXT NOT NULL, commit_sha TEX
 CREATE TABLE step_keys (step_key TEXT PRIMARY KEY, json BLOB NOT NULL);
 CREATE TABLE trust (step_key TEXT PRIMARY KEY, cmd TEXT, state TEXT NOT NULL, eligible INTEGER NOT NULL DEFAULT 0, replays INTEGER NOT NULL DEFAULT 0, audits INTEGER NOT NULL DEFAULT 0, divergences INTEGER NOT NULL DEFAULT 0, quarantined_at TEXT, quarantine_reason TEXT, updated_at TEXT NOT NULL, shadow_from INTEGER NOT NULL DEFAULT 0, volatile INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX audits_by_key ON audits (step_key, id DESC);
+CREATE INDEX audits_pending_by_key ON audits_pending (step_key, state);
 CREATE INDEX manifests_by_key ON manifests (step_key, created_at DESC);
 CREATE INDEX results_by_key ON results (step_key, manifest_id, created_at DESC);
 CREATE INDEX runs_by_key ON runs (step_key, started_at DESC);

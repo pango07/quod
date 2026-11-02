@@ -72,6 +72,7 @@ use serde::{Deserialize, Serialize};
 
 use quod_trust::{Decision, Mode, Policy, Replayed, Step, Trust};
 
+use crate::audit;
 use crate::rootfs;
 use crate::run::{Phases, execute};
 use crate::state::State;
@@ -118,6 +119,10 @@ pub struct Request {
     pub audit: Option<f64>,
     #[serde(default)]
     pub replay_failures: bool,
+    /// Execute every audit inline instead of deferring decay-phase audits
+    /// (trust v2, "Deferred audits"; `quod run --inline-audits`).
+    #[serde(default)]
+    pub inline_audits: bool,
 }
 
 impl Request {
@@ -133,6 +138,7 @@ impl Request {
             shadow: self.shadow.unwrap_or(quod_trust::DEFAULT_SHADOW),
             audit: self.audit.unwrap_or(quod_trust::DEFAULT_AUDIT),
             replay_failures: self.replay_failures,
+            defer: !self.inline_audits,
         };
         p.validate()?;
         Ok(p)
@@ -156,6 +162,10 @@ pub struct Outcome {
     pub result: StepResult,
     /// The trust layer's lines about this step.
     pub trust: Vec<String>,
+    /// A replay whose audit was deferred (trust v2): the pending audit's
+    /// id in the ledger; `quod audit` executes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred_audit: Option<i64>,
 }
 
 /// Runs (or replays) one step. `run_dir` is a fresh scratch directory on the
@@ -228,17 +238,26 @@ pub fn run_step(
         ignore: &ignore,
     };
     let lookup = ledger.find_match(&key, &tree)?;
-    let reason = match trust.decide(&key, lookup.hit.as_ref())? {
-        Decision::Replay => {
+    let decision = trust.decide(&key, lookup.hit.as_ref())?;
+    let reason = match decision {
+        Decision::Replay | Decision::Defer { .. } => {
             let hit = lookup.hit.as_ref().expect("a replay needs a hit");
+            // A deferred audit (trust v2) needs the exact input tree in the
+            // store; content-addressed, so a tree seen before is free.
+            let deferred_tree = match decision {
+                Decision::Defer { .. } => Some(rootfs::put_tree(cas, &tree)?),
+                _ => None,
+            };
             // The replay's run row joins the trust update (as `quod run` and
             // the hooks do): a later quarantine of the key marks it suspect
-            // through that row (trust v2).
+            // through that row (trust v2). A deferred audit is enqueued in
+            // the same transaction.
             let replayed = ledger.atomically(|l| -> anyhow::Result<_> {
                 let r = trust.record_replay(&tstep, hit)?;
-                if let Replayed::Replayed(_) = &r {
+                let run_id = ulid::Ulid::generate().to_string();
+                if let Replayed::Replayed(_) | Replayed::Deferred(..) = &r {
                     l.record_run_facts(&quod_ledger::RunFacts {
-                        id: &ulid::Ulid::generate().to_string(),
+                        id: &run_id,
                         step_key: Some(&key),
                         mode: Some("replay"),
                         outcome: Some("replayed"),
@@ -247,11 +266,43 @@ pub fn run_step(
                         ..quod_ledger::RunFacts::default()
                     })?;
                 }
-                Ok(r)
+                let deferred = match &r {
+                    Replayed::Deferred(_, nth) => {
+                        let th = match deferred_tree {
+                            Some(h) => h,
+                            None => rootfs::put_tree(cas, &tree)?,
+                        };
+                        let req = audit::Request {
+                            v: 1,
+                            kind: audit::Kind::Step,
+                            spec: (&spec).into(),
+                            script: None,
+                            extra_env: vec![],
+                            policy: (&trust.policy).into(),
+                            repo: None,
+                            rootfs: Some(digest),
+                            warm: false,
+                            guard: false,
+                            ignore: ignore.clone(),
+                            timeout_ms: 0,
+                        };
+                        Some((
+                            *nth,
+                            audit::enqueue(l, &key, hit, &run_id, *nth, &th, &req)?,
+                        ))
+                    }
+                    _ => None,
+                };
+                Ok((r, deferred))
             })?;
             match replayed {
-                Replayed::Replayed(facts) => {
+                (Replayed::Replayed(facts), _) | (Replayed::Deferred(facts, _), _) => {
                     let (manifest, result) = hit.clone();
+                    let deferred = replayed.1;
+                    let mut lines = vec![facts.receipt_line()];
+                    if let Some((nth, id)) = deferred {
+                        lines.push(audit::receipt_line(nth, id));
+                    }
                     return Ok(Outcome {
                         step_key: key,
                         key: key_doc,
@@ -260,10 +311,11 @@ pub fn run_step(
                         signal: None,
                         manifest,
                         result,
-                        trust: vec![facts.receipt_line()],
+                        trust: lines,
+                        deferred_audit: deferred.map(|(_, id)| id),
                     });
                 }
-                Replayed::Execute(reason) => reason,
+                (Replayed::Execute(reason), _) => reason,
             }
         }
         Decision::Execute(reason) => reason,
@@ -331,12 +383,13 @@ pub fn run_step(
         manifest: ex.manifest,
         result,
         trust: trust_lines,
+        deferred_audit: None,
     })
 }
 
 /// Serves the pinned mounts (each its own FUSE mount under `run_dir`),
 /// executes, and unmounts them, reporting a mount's I/O error as an error.
-fn execute_with_mounts(
+pub(crate) fn execute_with_mounts(
     cas: &Cas,
     tree: &quod_cas::Tree,
     spec: &StepSpec,
@@ -425,6 +478,9 @@ pub fn cli(state: &State, args: StepArgs) -> anyhow::Result<u8> {
     }
     std::fs::write(&args.response, serde_json::to_vec(&out)?)
         .with_context(|| format!("write {}", args.response.display()))?;
+    if out.deferred_audit.is_some() {
+        audit::spawn_worker(state);
+    }
     Ok(u8::try_from(out.result.exit_code).unwrap_or(1))
 }
 

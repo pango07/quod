@@ -82,6 +82,17 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE trust ADD COLUMN volatile INTEGER NOT NULL DEFAULT 0;
      UPDATE trust SET shadow_from = max(0, eligible - audits);
      CREATE INDEX runs_by_key ON runs (step_key, started_at DESC);",
+    // v7: deferred audits (docs/trust-v2.md, "Deferred audits"). One row
+    // per decay-phase audit whose replay was served at once and whose
+    // execution is owed: which run was served (`replay_run`), what it served
+    // (`hit_run`, `manifest_id`), the exact input tree as a document in the
+    // store (`tree`), and what the executor needs (`request`, JSON the CLI
+    // owns). `state`: pending, running (claimed by a worker), passed,
+    // diverged, lost (never executed: expired, or given up after retries;
+    // never counts as passed, and `repaid` says whether an inline audit of
+    // the key has since made up for it).
+    "CREATE TABLE audits_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, hit_run TEXT NOT NULL, replay_run TEXT NOT NULL, nth INTEGER NOT NULL, tree TEXT NOT NULL, request BLOB NOT NULL, state TEXT NOT NULL, enqueued_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, claimed_by TEXT, finished_at TEXT, audit_id INTEGER, detail TEXT, repaid INTEGER NOT NULL DEFAULT 0);
+     CREATE INDEX audits_pending_by_key ON audits_pending (step_key, state);",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -270,6 +281,95 @@ pub struct AuditRow {
     pub expected_run: Option<String>,
     pub actual_run: Option<String>,
     pub detail: Option<String>,
+}
+
+/// Where a deferred audit stands (`audits_pending.state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingState {
+    /// Enqueued, not yet picked up.
+    Pending,
+    /// Claimed by a worker (`claimed_by`, `claimed_at`).
+    Running,
+    /// Executed and compared: identical.
+    Passed,
+    /// Executed and compared: differed (the key was quarantined).
+    Diverged,
+    /// Never executed: expired, or given up after retries. Not passed.
+    Lost,
+}
+
+impl PendingState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PendingState::Pending => "pending",
+            PendingState::Running => "running",
+            PendingState::Passed => "passed",
+            PendingState::Diverged => "diverged",
+            PendingState::Lost => "lost",
+        }
+    }
+
+    fn parse(s: &str) -> Result<PendingState, LedgerError> {
+        Ok(match s {
+            "pending" => PendingState::Pending,
+            "running" => PendingState::Running,
+            "passed" => PendingState::Passed,
+            "diverged" => PendingState::Diverged,
+            "lost" => PendingState::Lost,
+            other => return Err(LedgerError::Corrupt(format!("pending state {other:?}"))),
+        })
+    }
+}
+
+/// A deferred audit (trust v2, "Deferred audits"): a decay-phase audit
+/// whose replay was served at once and whose execution is owed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAudit {
+    pub id: i64,
+    pub step_key: Hash,
+    pub manifest_id: Hash,
+    /// The run whose result the replay served (what the audit compares with).
+    pub hit_run: String,
+    /// The replay that was served: the run row a divergence marks suspect.
+    pub replay_run: String,
+    /// The would-be hit number of the key this audit stands for.
+    pub nth: u64,
+    /// The exact input tree, a document in the store (every blob in it).
+    pub tree: Hash,
+    /// What the executor needs to run the step again, as the caller wrote it.
+    pub request: Vec<u8>,
+    pub state: PendingState,
+    pub enqueued_at: String,
+    pub attempts: u32,
+    pub claimed_at: Option<String>,
+    pub claimed_by: Option<String>,
+    pub finished_at: Option<String>,
+    /// The audit row the execution wrote, once there is one.
+    pub audit_id: Option<i64>,
+    pub detail: Option<String>,
+    /// A lost audit an inline audit of the key has since made up for.
+    pub repaid: bool,
+}
+
+/// What `enqueue_audit` stores.
+#[derive(Debug, Clone)]
+pub struct NewPending<'a> {
+    pub step_key: &'a Hash,
+    pub manifest_id: &'a Hash,
+    pub hit_run: &'a str,
+    pub replay_run: &'a str,
+    pub nth: u64,
+    pub tree: &'a Hash,
+    pub request: &'a [u8],
+}
+
+/// Pending and lost audits of a key, for the replay decision.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Backlog {
+    /// Deferred audits of the key not yet executed (pending or running).
+    pub pending: u64,
+    /// Lost audits of the key not yet repaid by an inline audit.
+    pub owed: u64,
 }
 
 /// What `record_run_facts` stores about a run.
@@ -1059,7 +1159,303 @@ impl Ledger {
         let rows = st.query_map(params![step_key.map(|h| h.to_string())], Self::run_row)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
+
+    // ----- deferred audits (v7) -----
+
+    const PENDING_COLUMNS: &'static str = "id, step_key, manifest_id, hit_run, replay_run, nth, tree, request, state, enqueued_at, attempts, claimed_at, claimed_by, finished_at, audit_id, detail, repaid";
+
+    fn pending_row(r: &rusqlite::Row) -> rusqlite::Result<RawPending> {
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            r.get(2)?,
+            r.get(3)?,
+            r.get(4)?,
+            r.get(5)?,
+            r.get(6)?,
+            r.get(7)?,
+            r.get(8)?,
+            r.get(9)?,
+            r.get(10)?,
+            r.get(11)?,
+            r.get(12)?,
+            r.get(13)?,
+            r.get(14)?,
+            r.get(15)?,
+            r.get(16)?,
+        ))
+    }
+
+    fn finish_pending(raw: RawPending) -> Result<PendingAudit, LedgerError> {
+        let (
+            id,
+            key,
+            mid,
+            hit_run,
+            replay_run,
+            nth,
+            tree,
+            request,
+            state,
+            enqueued_at,
+            attempts,
+            claimed_at,
+            claimed_by,
+            finished_at,
+            audit_id,
+            detail,
+            repaid,
+        ) = raw;
+        Ok(PendingAudit {
+            id,
+            step_key: parse_hash(&key)?,
+            manifest_id: parse_hash(&mid)?,
+            hit_run,
+            replay_run,
+            nth: nth.max(0) as u64,
+            tree: parse_hash(&tree)?,
+            request,
+            state: PendingState::parse(&state)?,
+            enqueued_at,
+            attempts: attempts.max(0) as u32,
+            claimed_at,
+            claimed_by,
+            finished_at,
+            audit_id,
+            detail,
+            repaid: repaid != 0,
+        })
+    }
+
+    fn pending_where(
+        &self,
+        where_sql: &str,
+        p: &[&dyn rusqlite::ToSql],
+    ) -> Result<Vec<PendingAudit>, LedgerError> {
+        let sql = format!(
+            "SELECT {} FROM audits_pending WHERE {where_sql} ORDER BY id",
+            Self::PENDING_COLUMNS
+        );
+        let mut st = self.db.prepare(&sql)?;
+        let rows: Vec<RawPending> = st
+            .query_map(p, Self::pending_row)?
+            .collect::<Result<_, _>>()?;
+        rows.into_iter().map(Self::finish_pending).collect()
+    }
+
+    /// Trust v2: records a deferred audit for a replay just served, in the
+    /// transaction that records the replay (a replay served with an audit
+    /// owed and no row for it would be an audit lost at birth).
+    pub fn enqueue_audit(&self, a: &NewPending) -> Result<i64, LedgerError> {
+        self.db.execute(
+            "INSERT INTO audits_pending (step_key, manifest_id, hit_run, replay_run, nth, tree, request, state, enqueued_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)",
+            params![
+                a.step_key.to_string(),
+                a.manifest_id.to_string(),
+                a.hit_run,
+                a.replay_run,
+                a.nth as i64,
+                a.tree.to_string(),
+                a.request,
+                now_rfc3339(),
+            ],
+        )?;
+        Ok(self.db.last_insert_rowid())
+    }
+
+    pub fn pending_audit(&self, id: i64) -> Result<Option<PendingAudit>, LedgerError> {
+        Ok(self.pending_where("id = ?1", &[&id])?.into_iter().next())
+    }
+
+    /// Deferred audits in a state, oldest first; `None` for every key.
+    pub fn pending_audits(
+        &self,
+        step_key: Option<&Hash>,
+        state: PendingState,
+    ) -> Result<Vec<PendingAudit>, LedgerError> {
+        let key = step_key.map(|h| h.to_string());
+        self.pending_where(
+            "state = ?1 AND (?2 IS NULL OR step_key = ?2)",
+            &[&state.as_str(), &key],
+        )
+    }
+
+    /// Pending and lost-unrepaid audits of a key, for `decide`.
+    pub fn backlog(&self, step_key: &Hash) -> Result<Backlog, LedgerError> {
+        let key = step_key.to_string();
+        let pending = self.db.query_row(
+            "SELECT count(*) FROM audits_pending WHERE step_key = ?1 AND state IN ('pending', 'running')",
+            [&key],
+            |r| r.get::<_, i64>(0),
+        )?;
+        let owed = self.db.query_row(
+            "SELECT count(*) FROM audits_pending WHERE step_key = ?1 AND state = 'lost' AND repaid = 0",
+            [&key],
+            |r| r.get::<_, i64>(0),
+        )?;
+        Ok(Backlog {
+            pending: pending as u64,
+            owed: owed as u64,
+        })
+    }
+
+    /// Pending audits across every key: how many wait, run, are lost and
+    /// not repaid.
+    pub fn backlog_counts(&self) -> Result<(u64, u64, u64), LedgerError> {
+        let n = |sql: &str| -> Result<u64, LedgerError> {
+            Ok(self.db.query_row(sql, [], |r| r.get::<_, i64>(0))? as u64)
+        };
+        Ok((
+            n("SELECT count(*) FROM audits_pending WHERE state = 'pending'")?,
+            n("SELECT count(*) FROM audits_pending WHERE state = 'running'")?,
+            n("SELECT count(*) FROM audits_pending WHERE state = 'lost' AND repaid = 0")?,
+        ))
+    }
+
+    /// Takes the oldest pending audit for `worker` (one transaction: two
+    /// workers never claim the same row), and returns it `running`.
+    pub fn claim_audit(&self, worker: &str) -> Result<Option<PendingAudit>, LedgerError> {
+        self.atomically(|l| {
+            let Some(a) = l
+                .pending_where("state = 'pending'", &[])?
+                .into_iter()
+                .next()
+            else {
+                return Ok(None);
+            };
+            l.db.execute(
+                "UPDATE audits_pending SET state = 'running', attempts = attempts + 1, claimed_at = ?2, claimed_by = ?3 WHERE id = ?1",
+                params![a.id, now_rfc3339(), worker],
+            )?;
+            l.pending_audit(a.id)
+        })
+    }
+
+    /// Settles a deferred audit that was executed and compared, with the
+    /// audit row it wrote.
+    pub fn finish_audit(
+        &self,
+        id: i64,
+        diverged: bool,
+        audit_id: i64,
+        detail: &str,
+    ) -> Result<(), LedgerError> {
+        self.db.execute(
+            "UPDATE audits_pending SET state = ?2, finished_at = ?3, audit_id = ?4, detail = ?5 WHERE id = ?1",
+            params![
+                id,
+                if diverged { "diverged" } else { "passed" }.to_string(),
+                now_rfc3339(),
+                audit_id,
+                detail,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// A claimed audit whose attempt produced no verdict (a Quod error, the
+    /// machine's doing, a step that did not finish): back to `pending` for
+    /// another attempt while attempts are left, else `lost`. Returns the
+    /// state it is in now.
+    pub fn release_audit(
+        &self,
+        id: i64,
+        max_attempts: u32,
+        why: &str,
+    ) -> Result<PendingState, LedgerError> {
+        self.atomically(|l| {
+            let Some(a) = l.pending_audit(id)? else {
+                return Err(LedgerError::Corrupt(format!("pending audit {id} is gone")));
+            };
+            let state = if a.attempts >= max_attempts {
+                PendingState::Lost
+            } else {
+                PendingState::Pending
+            };
+            l.db.execute(
+                "UPDATE audits_pending SET state = ?2, finished_at = CASE WHEN ?2 = 'lost' THEN ?3 ELSE NULL END, detail = ?4 WHERE id = ?1",
+                params![id, state.as_str(), now_rfc3339(), why],
+            )?;
+            Ok(state)
+        })
+    }
+
+    /// Marks one audit lost for good (`why`), whatever its attempts.
+    pub fn lose_audit(&self, id: i64, why: &str) -> Result<(), LedgerError> {
+        self.db.execute(
+            "UPDATE audits_pending SET state = 'lost', finished_at = ?2, detail = ?3 WHERE id = ?1",
+            params![id, now_rfc3339(), why],
+        )?;
+        Ok(())
+    }
+
+    /// Housekeeping before a worker claims: a `pending` audit enqueued
+    /// before `pending_before` is lost (nothing ran it in time); a `running`
+    /// one claimed before `running_before` was abandoned (its worker died),
+    /// and is released for another attempt, or lost after `max_attempts`.
+    /// Both cutoffs are RFC 3339 strings (`format_rfc3339`), which sort as
+    /// time does. Returns the ids now lost.
+    pub fn expire_audits(
+        &self,
+        pending_before: &str,
+        running_before: &str,
+        max_attempts: u32,
+    ) -> Result<Vec<i64>, LedgerError> {
+        self.atomically(|l| {
+            let mut lost = Vec::new();
+            for a in
+                l.pending_where("state = 'pending' AND enqueued_at < ?1", &[&pending_before])?
+            {
+                l.lose_audit(
+                    a.id,
+                    &format!("not executed since {} (expired)", a.enqueued_at),
+                )?;
+                lost.push(a.id);
+            }
+            for a in l.pending_where("state = 'running' AND claimed_at < ?1", &[&running_before])? {
+                let why = format!(
+                    "worker {} did not finish it (claimed {})",
+                    a.claimed_by.as_deref().unwrap_or("?"),
+                    a.claimed_at.as_deref().unwrap_or("?")
+                );
+                if l.release_audit(a.id, max_attempts, &why)? == PendingState::Lost {
+                    lost.push(a.id);
+                }
+            }
+            Ok(lost)
+        })
+    }
+
+    /// An inline audit of the key made up for its oldest lost audit, if
+    /// one was owed. Returns whether one was.
+    pub fn repay_audit(&self, step_key: &Hash, audit_id: i64) -> Result<bool, LedgerError> {
+        Ok(self.db.execute(
+            "UPDATE audits_pending SET repaid = 1, detail = detail || ' (repaid by audit ' || ?2 || ')' WHERE id = (SELECT id FROM audits_pending WHERE step_key = ?1 AND state = 'lost' AND repaid = 0 ORDER BY id LIMIT 1)",
+            params![step_key.to_string(), audit_id],
+        )? > 0)
+    }
 }
+
+/// A pending-audit row as SQLite hands it over, before parsing.
+type RawPending = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    Vec<u8>,
+    String,
+    String,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    i64,
+);
 
 /// A trust row as SQLite hands it over, before parsing.
 type RawTrust = (
@@ -1595,7 +1991,7 @@ mod tests {
         }
         let l = Ledger::open(&p).unwrap();
         assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 6);
+        assert_eq!(SCHEMA_VERSION, 7);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql"),
@@ -1691,7 +2087,7 @@ mod tests {
             }
         }
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 6);
+        assert_eq!(l.schema_version().unwrap(), 7);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql")
@@ -2013,5 +2409,157 @@ mod tests {
         assert_eq!(l.runs(Some("root1")).unwrap().len(), 1);
         assert_eq!(l.runs(None).unwrap().len(), 2);
         assert_eq!(l.runs(Some("nope")).unwrap().len(), 0);
+    }
+
+    /// Trust v2, deferred audits: a row is enqueued pending, claimed once
+    /// (two claims never take the same row), settled by its verdict; one
+    /// nobody ran expires lost, one whose worker died is released for
+    /// another attempt until the attempts run out, and a lost audit is owed
+    /// until an inline audit repays it.
+    #[test]
+    fn deferred_audits_are_claimed_once_expire_lost_and_are_owed_until_repaid() {
+        let l = Ledger::open_in_memory().unwrap();
+        let key = Hash::of(b"key");
+        let mid = Hash::of(b"manifest");
+        let tree = Hash::of(b"tree");
+        let new = |replay: &'static str, nth: u64| NewPending {
+            step_key: &key,
+            manifest_id: &mid,
+            hit_run: "r1",
+            replay_run: replay,
+            nth,
+            tree: &tree,
+            request: b"{}",
+        };
+        let a = l.enqueue_audit(&new("r4", 4)).unwrap();
+        let b = l.enqueue_audit(&new("r7", 7)).unwrap();
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 2,
+                owed: 0
+            }
+        );
+        assert_eq!(l.backlog_counts().unwrap(), (2, 0, 0));
+
+        let first = l.claim_audit("w1").unwrap().unwrap();
+        assert_eq!(
+            (first.id, first.state, first.attempts),
+            (a, PendingState::Running, 1)
+        );
+        assert_eq!(first.claimed_by.as_deref(), Some("w1"));
+        assert_eq!(
+            (first.nth, first.replay_run.as_str(), &first.request[..]),
+            (4, "r4", &b"{}"[..])
+        );
+        let second = l.claim_audit("w2").unwrap().unwrap();
+        assert_eq!(second.id, b, "the second claim takes the next row");
+        assert!(l.claim_audit("w3").unwrap().is_none());
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 2,
+                owed: 0
+            }
+        );
+
+        l.finish_audit(a, false, 11, "byte-identical").unwrap();
+        let done = l.pending_audit(a).unwrap().unwrap();
+        assert_eq!(
+            (done.state, done.audit_id),
+            (PendingState::Passed, Some(11))
+        );
+        assert!(done.finished_at.is_some());
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 1,
+                owed: 0
+            }
+        );
+
+        // The second's worker died: released once, then lost.
+        assert_eq!(
+            l.release_audit(b, 2, "worker died").unwrap(),
+            PendingState::Pending
+        );
+        let again = l.claim_audit("w4").unwrap().unwrap();
+        assert_eq!((again.id, again.attempts), (b, 2));
+        assert_eq!(
+            l.release_audit(b, 2, "worker died again").unwrap(),
+            PendingState::Lost
+        );
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 0,
+                owed: 1
+            }
+        );
+        assert_eq!(
+            l.pending_audits(Some(&key), PendingState::Lost)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // Expiry: a pending row older than the cutoff is lost; a running
+        // one claimed before its lease is released (attempt 1 of 3).
+        let c = l.enqueue_audit(&new("r11", 11)).unwrap();
+        let d = l.enqueue_audit(&new("r19", 19)).unwrap();
+        l.claim_audit("w5").unwrap().unwrap();
+        let future = format_rfc3339(4_102_444_800, 0); // 2100-01-01
+        let lost = l.expire_audits(&future, &future, 3).unwrap();
+        assert_eq!(
+            lost,
+            vec![d],
+            "the pending one expired; the running one got another attempt"
+        );
+        let c_row = l.pending_audit(c).unwrap().unwrap();
+        assert_eq!(c_row.state, PendingState::Pending);
+        assert!(
+            l.pending_audit(d)
+                .unwrap()
+                .unwrap()
+                .detail
+                .unwrap()
+                .contains("expired")
+        );
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 1,
+                owed: 2
+            }
+        );
+        // Nothing is older than the epoch: nothing more expires.
+        assert!(
+            l.expire_audits(&format_rfc3339(0, 0), &format_rfc3339(0, 0), 3)
+                .unwrap()
+                .is_empty()
+        );
+
+        // An inline audit repays the oldest lost one; a second repays the next.
+        assert!(l.repay_audit(&key, 12).unwrap());
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 1,
+                owed: 1
+            }
+        );
+        let repaid = l.pending_audit(b).unwrap().unwrap();
+        assert!(repaid.repaid && repaid.detail.unwrap().ends_with("(repaid by audit 12)"));
+        assert!(l.repay_audit(&key, 13).unwrap());
+        assert!(!l.repay_audit(&key, 14).unwrap(), "nothing owed");
+        assert_eq!(
+            l.backlog(&key).unwrap(),
+            Backlog {
+                pending: 1,
+                owed: 0
+            }
+        );
+        // Another key's backlog is its own.
+        assert_eq!(l.backlog(&Hash::of(b"other")).unwrap(), Backlog::default());
     }
 }

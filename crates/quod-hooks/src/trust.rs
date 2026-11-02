@@ -154,7 +154,10 @@ impl Policy {
     /// What `quod_trust` decides by. A failure never proves itself in the
     /// hooks: an offline failure is run again and never recorded, and a
     /// step that fails online or on the runner's surface is never recorded
-    /// either.
+    /// either. Audits stay inline in the hooks: a deferred audit needs the
+    /// step's hermetic surface (its masks, layers and command files) kept
+    /// past the job, which the hooks do not store (docs/trust-v2.md,
+    /// "Deferred audits", the hooks follow-up).
     pub fn trust(&self) -> quod_trust::Policy {
         quod_trust::Policy {
             mode: self.mode,
@@ -162,6 +165,7 @@ impl Policy {
             shadow: self.shadow,
             audit: self.audit,
             replay_failures: false,
+            defer: false,
         }
     }
 
