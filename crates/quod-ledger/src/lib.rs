@@ -58,6 +58,20 @@ const MIGRATIONS: &[&str] = &[
      CREATE TABLE proofs (step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, streak INTEGER NOT NULL, fingerprint TEXT NOT NULL, last_run TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (step_key, manifest_id));
      CREATE TABLE audits (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, at TEXT NOT NULL, phase TEXT NOT NULL, diverged INTEGER NOT NULL, expected_run TEXT, actual_run TEXT, detail TEXT);
      CREATE INDEX audits_by_key ON audits (step_key, id DESC);",
+    // v5: trust v2 (docs/trust-v2.md). `runs.suspect`: set on a replayed run
+    // when its key is later quarantined (the replay may have served a wrong
+    // result; re-run it), NULL otherwise. `trust.shadow_from`: the key's
+    // `eligible` count at its last quarantine, where the shadow audit phase
+    // counts from. `trust.volatile`: comparisons that were identical only
+    // after normalization (the output carries recognized volatile fields).
+    // The index serves the retroactive marking and `status`.
+    // A v4 key's shadow starts so that only its audits so far count as
+    // agreement (its would-be hits were mostly blind replays under v1).
+    "ALTER TABLE runs ADD COLUMN suspect TEXT;
+     ALTER TABLE trust ADD COLUMN shadow_from INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE trust ADD COLUMN volatile INTEGER NOT NULL DEFAULT 0;
+     UPDATE trust SET shadow_from = max(0, eligible - audits);
+     CREATE INDEX runs_by_key ON runs (step_key, started_at DESC);",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -139,6 +153,11 @@ pub struct RunRow {
     pub wall_ms: Option<u64>,
     /// Time a replay saved, or (observe mode) would have saved.
     pub saved_ms: Option<u64>,
+    /// Set on a `replayed` run when its key was quarantined afterwards: the
+    /// result it served may have been wrong (the step's output is not a
+    /// function of its inputs), and the run should be re-run. Says when and
+    /// why (`<when>: <divergence> (audit <id>)`). Never cleared.
+    pub suspect: Option<String>,
 }
 
 /// Where a step key stands.
@@ -188,6 +207,12 @@ pub struct TrustRow {
     pub quarantined_at: Option<String>,
     pub quarantine_reason: Option<String>,
     pub updated_at: String,
+    /// `eligible` at the key's last quarantine (0 if never): the shadow
+    /// audit phase counts would-be hits from here (trust v2).
+    pub shadow_from: u64,
+    /// Comparisons that were identical only after normalization: the step's
+    /// output carries recognized volatile fields (durations, timestamps).
+    pub volatile: u64,
 }
 
 impl TrustRow {
@@ -203,6 +228,8 @@ impl TrustRow {
             quarantined_at: None,
             quarantine_reason: None,
             updated_at: now_rfc3339(),
+            shadow_from: 0,
+            volatile: 0,
         }
     }
 }
@@ -441,7 +468,7 @@ impl Ledger {
         })
     }
 
-    const RUN_COLUMNS: &'static str = "id, started_at, commit_sha, host, transport, observer, step_key, repo, repo_path, mode, outcome, manifest_id, exit_code, wall_ms, saved_ms";
+    const RUN_COLUMNS: &'static str = "id, started_at, commit_sha, host, transport, observer, step_key, repo, repo_path, mode, outcome, manifest_id, exit_code, wall_ms, saved_ms, suspect";
 
     fn run_row(r: &rusqlite::Row) -> rusqlite::Result<RunRow> {
         let hash = |v: Option<String>| v.and_then(|s| s.parse().ok());
@@ -461,6 +488,7 @@ impl Ledger {
             exit_code: r.get(12)?,
             wall_ms: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
             saved_ms: r.get::<_, Option<i64>>(14)?.map(|v| v as u64),
+            suspect: r.get(15)?,
         })
     }
 
@@ -675,7 +703,7 @@ impl Ledger {
         let row = self
             .db
             .query_row(
-                "SELECT step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at FROM trust WHERE step_key = ?1",
+                "SELECT step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at, shadow_from, volatile FROM trust WHERE step_key = ?1",
                 [step_key.to_string()],
                 Self::trust_row,
             )
@@ -686,7 +714,7 @@ impl Ledger {
     /// Every trust row, most recently updated first.
     pub fn trust_rows(&self) -> Result<Vec<TrustRow>, LedgerError> {
         let mut st = self.db.prepare(
-            "SELECT step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at FROM trust ORDER BY updated_at DESC",
+            "SELECT step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at, shadow_from, volatile FROM trust ORDER BY updated_at DESC",
         )?;
         let rows: Vec<_> = st
             .query_map([], Self::trust_row)?
@@ -706,11 +734,26 @@ impl Ledger {
             r.get(7)?,
             r.get(8)?,
             r.get(9)?,
+            r.get(10)?,
+            r.get(11)?,
         ))
     }
 
     fn finish_trust(raw: RawTrust) -> Result<TrustRow, LedgerError> {
-        let (key, cmd, state, eligible, replays, audits, divergences, qa, qr, updated_at) = raw;
+        let (
+            key,
+            cmd,
+            state,
+            eligible,
+            replays,
+            audits,
+            divergences,
+            qa,
+            qr,
+            updated_at,
+            shadow_from,
+            volatile,
+        ) = raw;
         Ok(TrustRow {
             step_key: parse_hash(&key)?,
             cmd,
@@ -722,13 +765,15 @@ impl Ledger {
             quarantined_at: qa,
             quarantine_reason: qr,
             updated_at,
+            shadow_from: shadow_from as u64,
+            volatile: volatile as u64,
         })
     }
 
     pub fn put_trust(&self, t: &TrustRow) -> Result<(), LedgerError> {
         self.db.execute(
-            "INSERT OR REPLACE INTO trust (step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO trust (step_key, cmd, state, eligible, replays, audits, divergences, quarantined_at, quarantine_reason, updated_at, shadow_from, volatile)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 t.step_key.to_string(),
                 t.cmd,
@@ -740,6 +785,8 @@ impl Ledger {
                 t.quarantined_at,
                 t.quarantine_reason,
                 now_rfc3339(),
+                t.shadow_from as i64,
+                t.volatile as i64,
             ],
         )?;
         Ok(())
@@ -899,6 +946,28 @@ impl Ledger {
             })
             .collect()
     }
+
+    /// Trust v2: marks every `replayed` run of a key that is not already
+    /// marked as `suspect` with `why`, and returns how many. Called in the
+    /// transaction that quarantines the key: the result those replays served
+    /// may have been wrong (see docs/trust-v2.md, "Retroactive marking").
+    pub fn mark_suspect_replays(&self, step_key: &Hash, why: &str) -> Result<usize, LedgerError> {
+        Ok(self.db.execute(
+            "UPDATE runs SET suspect = ?2 WHERE step_key = ?1 AND outcome = 'replayed' AND suspect IS NULL",
+            params![step_key.to_string(), why],
+        )?)
+    }
+
+    /// Every run marked suspect, newest first, for one key or (None) all.
+    pub fn suspect_runs(&self, step_key: Option<&Hash>) -> Result<Vec<RunRow>, LedgerError> {
+        let sql = format!(
+            "SELECT {} FROM runs WHERE suspect IS NOT NULL AND (?1 IS NULL OR step_key = ?1) ORDER BY started_at DESC, rowid DESC",
+            Self::RUN_COLUMNS
+        );
+        let mut st = self.db.prepare(&sql)?;
+        let rows = st.query_map(params![step_key.map(|h| h.to_string())], Self::run_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
 }
 
 /// A trust row as SQLite hands it over, before parsing.
@@ -913,6 +982,8 @@ type RawTrust = (
     Option<String>,
     Option<String>,
     String,
+    i64,
+    i64,
 );
 
 /// A proof row as SQLite hands it over, before parsing.
@@ -1369,6 +1440,93 @@ mod tests {
         assert!(l.trust(&key).unwrap().is_none());
         assert!(l.proof(&key, &rs[0].manifest_id).unwrap().is_none());
         assert_eq!(l.runs(None).unwrap().len(), 1);
+    }
+
+    /// Trust v2 (v5): a v4 ledger migrates in place. Its trust rows read
+    /// back with `shadow_from` 0 and `volatile` 0, its replayed runs are not
+    /// suspect, and marking suspects labels only the key's replays that were
+    /// not labelled yet.
+    #[test]
+    fn a_v4_ledger_migrates_to_v5_and_replays_can_be_marked_suspect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        let key = Hash::of(b"k");
+        let other = Hash::of(b"other");
+        {
+            let db = Connection::open(&p).unwrap();
+            for m in &MIGRATIONS[..4] {
+                db.execute_batch(m).unwrap();
+            }
+            db.pragma_update(None, "user_version", 4).unwrap();
+            db.execute(
+                "INSERT INTO trust (step_key, state, eligible, replays, audits, divergences, updated_at) VALUES (?1, 'proven', 7, 5, 2, 0, 'x')",
+                [key.to_string()],
+            )
+            .unwrap();
+            for (id, k, outcome) in [
+                ("01R1", &key, "replayed"),
+                ("01R2", &key, "miss"),
+                ("01R3", &key, "replayed"),
+                ("01R4", &other, "replayed"),
+            ] {
+                db.execute(
+                    "INSERT INTO runs (id, started_at, step_key, outcome) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        id,
+                        format!("2026-11-02T00:00:0{}.000Z", &id[3..]),
+                        k.to_string(),
+                        outcome
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
+        let t = l.trust(&key).unwrap().unwrap();
+        assert_eq!(
+            (t.eligible, t.shadow_from, t.volatile),
+            (7, 5, 0),
+            "7 would-be hits, 2 audits: the shadow counts the 2 audits only"
+        );
+        assert!(l.runs(None).unwrap().iter().all(|r| r.suspect.is_none()));
+        assert!(l.suspect_runs(None).unwrap().is_empty());
+
+        assert_eq!(l.mark_suspect_replays(&key, "first").unwrap(), 2);
+        let s = l.suspect_runs(Some(&key)).unwrap();
+        assert_eq!(
+            s.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["01R3", "01R1"],
+            "newest first, misses and other keys untouched"
+        );
+        assert!(s.iter().all(|r| r.suspect.as_deref() == Some("first")));
+        assert!(l.run("01R4").unwrap().unwrap().suspect.is_none());
+        // A later quarantine marks only what came since.
+        l.record_run_facts(&RunFacts {
+            id: "01R5",
+            step_key: Some(&key),
+            outcome: Some("replayed"),
+            ..RunFacts::default()
+        })
+        .unwrap();
+        assert_eq!(l.mark_suspect_replays(&key, "second").unwrap(), 1);
+        assert_eq!(
+            l.run("01R1").unwrap().unwrap().suspect.as_deref(),
+            Some("first")
+        );
+        assert_eq!(
+            l.run("01R5").unwrap().unwrap().suspect.as_deref(),
+            Some("second")
+        );
+        assert_eq!(l.suspect_runs(None).unwrap().len(), 3);
+        // The new trust columns round-trip.
+        let mut t = t;
+        t.shadow_from = 7;
+        t.volatile = 3;
+        l.put_trust(&t).unwrap();
+        let back = l.trust(&key).unwrap().unwrap();
+        assert_eq!((back.shadow_from, back.volatile), (7, 3));
+        assert_eq!(l.trust_rows().unwrap()[0].shadow_from, 7);
     }
 
     #[test]

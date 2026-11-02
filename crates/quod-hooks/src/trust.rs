@@ -13,8 +13,15 @@ pub struct Policy {
     pub mode: Mode,
     /// Identical results a manifest needs before it may replay.
     pub proofs: u32,
-    /// Fraction of would-be hits (0..=1) that execute anyway and compare.
+    /// Would-be hits of a key audited in full before any of it replays
+    /// blind (trust v2's shadow phase); the rate then decays to `audit`.
+    pub shadow: u32,
+    /// Fraction of would-be hits (0..=1) that execute anyway and compare,
+    /// once the shadow phase has decayed. 0 turns every audit off.
     pub audit: f64,
+    /// A higher bar for steps whose `run:` script contains a substring
+    /// (trust v2, "per pattern"): the first match wins.
+    pub step_proofs: Vec<StepProofs>,
     /// Substrings of a `run:` script that mark it as possibly needing the
     /// network: it runs offline first, then again online, tainted.
     pub net_steps: Vec<String>,
@@ -29,6 +36,15 @@ pub struct Policy {
     /// listed here that anyone can push to reopens the poisoning a writer
     /// guards against (see `job::scope_of`).
     pub writer_refs: Vec<String>,
+}
+
+/// `{"contains": "go test", "proofs": 2}`: steps whose script contains the
+/// substring need `proofs` identical executions before they replay.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepProofs {
+    pub contains: String,
+    pub proofs: u32,
 }
 
 /// Scripts that fetch: the spike's `--allow-net` by pattern.
@@ -53,7 +69,9 @@ impl Default for Policy {
         Policy {
             mode: Mode::Observe,
             proofs: quod_trust::DEFAULT_PROOFS,
+            shadow: quod_trust::DEFAULT_SHADOW,
             audit: quod_trust::DEFAULT_AUDIT,
+            step_proofs: Vec::new(),
             net_steps: DEFAULT_NET_STEPS.iter().map(|s| s.to_string()).collect(),
             host_root: false,
             keep_jobs: false,
@@ -69,7 +87,9 @@ impl Default for Policy {
 struct PolicyDoc {
     mode: Option<String>,
     proofs: Option<u32>,
+    shadow: Option<u32>,
     audit: Option<f64>,
+    step_proofs: Option<Vec<StepProofs>>,
     net_steps: Option<Vec<String>>,
     rootfs: Option<String>,
     keep_jobs: Option<bool>,
@@ -90,12 +110,27 @@ impl Policy {
         if let Some(n) = doc.proofs {
             p.proofs = n;
         }
+        if let Some(n) = doc.shadow {
+            p.shadow = n;
+        }
         if let Some(a) = doc.audit {
             p.audit = a;
         }
         p.trust()
             .validate()
             .map_err(|e| anyhow::anyhow!("hook policy: {e}"))?;
+        for s in doc.step_proofs.unwrap_or_default() {
+            if s.contains.is_empty() {
+                anyhow::bail!("policy step_proofs: an empty `contains` would match every step");
+            }
+            quod_trust::Policy {
+                proofs: s.proofs,
+                ..p.trust()
+            }
+            .validate()
+            .map_err(|e| anyhow::anyhow!("hook policy step_proofs {:?}: {e}", s.contains))?;
+            p.step_proofs.push(s);
+        }
         if let Some(n) = doc.net_steps {
             p.net_steps = n.into_iter().filter(|x| !x.is_empty()).collect();
         }
@@ -124,9 +159,24 @@ impl Policy {
         quod_trust::Policy {
             mode: self.mode,
             proofs: self.proofs,
+            shadow: self.shadow,
             audit: self.audit,
             replay_failures: false,
         }
+    }
+
+    /// `trust()` for one step: its `step_proofs` bar when a pattern matches
+    /// the script, the policy's otherwise.
+    pub fn trust_for(&self, script: &str) -> quod_trust::Policy {
+        let mut p = self.trust();
+        if let Some(s) = self
+            .step_proofs
+            .iter()
+            .find(|s| script.contains(s.contains.as_str()))
+        {
+            p.proofs = s.proofs;
+        }
+        p
     }
 
     pub fn mode_name(&self) -> &'static str {
@@ -259,9 +309,14 @@ mod tests {
 
     #[test]
     fn policy_documents() {
-        let p = Policy::from_json(Some(r#"{"mode":"replay","proofs":3,"audit":1}"#)).unwrap();
-        assert_eq!((p.mode, p.proofs, p.audit), (Mode::Replay, 3, 1.0));
+        let p = Policy::from_json(Some(r#"{"mode":"replay","proofs":3,"shadow":5,"audit":1}"#))
+            .unwrap();
+        assert_eq!(
+            (p.mode, p.proofs, p.shadow, p.audit),
+            (Mode::Replay, 3, 5, 1.0)
+        );
         assert!(!p.trust().replay_failures);
+        assert_eq!(p.trust().shadow, 5);
         assert!(
             p.writer_refs.is_empty(),
             "no writer refs but the default branch"
@@ -270,20 +325,34 @@ mod tests {
         assert_eq!(w.writer_refs, ["refs/heads/release"]);
         let d = Policy::from_json(None).unwrap();
         assert_eq!(
-            (d.mode, d.proofs, d.audit),
+            (d.mode, d.proofs, d.shadow, d.audit),
             (
                 Mode::Observe,
                 quod_trust::DEFAULT_PROOFS,
+                quod_trust::DEFAULT_SHADOW,
                 quod_trust::DEFAULT_AUDIT
             )
         );
+        // Trust v2: a higher bar per step pattern; the first match wins.
+        let s = Policy::from_json(Some(
+            r#"{"step_proofs":[{"contains":"go test","proofs":2},{"contains":"test","proofs":4}]}"#,
+        ))
+        .unwrap();
+        assert_eq!(s.trust_for("go test ./...").proofs, 2);
+        assert_eq!(s.trust_for("npm test").proofs, 4);
+        assert_eq!(s.trust_for("go build ./...").proofs, 1);
+        assert_eq!(s.trust_for("go build ./...").shadow, s.shadow);
         for bad in [
             r#"{"proofs":0}"#,
             r#"{"audit":2}"#,
+            r#"{"shadow":100000}"#,
             r#"{"mode":"fast"}"#,
             r#"{"rootfs":"vm"}"#,
             r#"{"unknown":1}"#,
             r#"{"writer_refs":["release"]}"#,
+            r#"{"step_proofs":[{"contains":"","proofs":2}]}"#,
+            r#"{"step_proofs":[{"contains":"x","proofs":0}]}"#,
+            r#"{"step_proofs":[{"pattern":"x","proofs":2}]}"#,
         ] {
             assert!(Policy::from_json(Some(bad)).is_err(), "{bad}");
         }

@@ -108,6 +108,32 @@ fn render_trust(ledger: &Ledger, key: &Hash) -> anyhow::Result<String> {
             diverged as f64 / total as f64 * 100.0
         )?;
     }
+    // Trust v2: the output class, where the shadow phase stands, suspects.
+    let class = quod_trust::determinism(&t, diverged as u64);
+    writeln!(
+        o,
+        "  output {}: {}; {} would-be hit(s) since the shadow phase began",
+        class.as_str(),
+        class.describe(),
+        t.eligible.saturating_sub(t.shadow_from)
+    )?;
+    let suspects = ledger.suspect_runs(Some(key))?;
+    if !suspects.is_empty() {
+        writeln!(
+            o,
+            "  suspect: {} replay(s) may have served a wrong result (re-run them):",
+            suspects.len()
+        )?;
+        for r in &suspects {
+            writeln!(
+                o,
+                "    run {}  {}  {}",
+                r.id,
+                human_time(&r.started_at),
+                r.suspect.as_deref().unwrap_or("")
+            )?;
+        }
+    }
     for p in ledger.proofs_for_key(key)? {
         writeln!(
             o,

@@ -50,6 +50,17 @@ pub enum Kind {
     Command,
 }
 
+impl Step {
+    /// The text a `step_proofs` pattern is matched against: a `run:` step's
+    /// script, any other step's label.
+    pub fn pattern_text(&self) -> &str {
+        match &self.kind {
+            Kind::Script { text, .. } => text,
+            _ => &self.label,
+        }
+    }
+}
+
 /// One classified step.
 #[derive(Clone, Debug)]
 pub struct Step {

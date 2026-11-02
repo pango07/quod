@@ -56,11 +56,16 @@ pub struct PoolArgs {
     #[arg(long, default_value = "observe")]
     mode: String,
     /// Identical results a step needs before it replays (the trust layer's
-    /// streak, as for `quod run`).
+    /// streak, as for `quod run`; 1 under trust v2).
     #[arg(long, default_value_t = quod_trust::DEFAULT_PROOFS)]
     proofs: u32,
-    /// Fraction of would-be hits that execute anyway and compare (0..=1);
-    /// 0 turns audits off, on purpose only.
+    /// Would-be hits of a step key audited in full before any of it replays
+    /// blind (trust v2's shadow phase); the rate then decays to --audit.
+    #[arg(long, default_value_t = quod_trust::DEFAULT_SHADOW)]
+    shadow: u32,
+    /// The audit floor: the fraction of would-be hits that execute anyway
+    /// and compare (0..=1) once the shadow phase has decayed; 0 turns every
+    /// audit off, on purpose only.
     #[arg(long, default_value_t = quod_trust::DEFAULT_AUDIT)]
     audit: f64,
     /// A protected ref besides the default branch whose push and
@@ -224,6 +229,7 @@ fn install(base: &Path, i: u32, a: &PoolArgs, state: &State) -> anyhow::Result<P
         "policy": {
             "mode": a.mode,
             "proofs": a.proofs,
+            "shadow": a.shadow,
             "audit": a.audit,
             "writer_refs": a.writer_refs,
         },
