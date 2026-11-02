@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LiveRefresh, LiveTotals, NowRunning } from "@/components/live/parts";
 import { GitHubStatusCard } from "@/components/github-status";
+import { QuodNote } from "@/components/section";
 import { RangeToggle } from "@/components/range-toggle";
 import { RepoTable } from "@/components/repo-table";
 import { Dot, EmptyState } from "@/components/ui";
@@ -23,6 +24,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
     return (
       <div className="page">
         <h1 className="h1">Overview</h1>
+        <QuodNote status={ov.quod} />
         {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
         {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
         {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
@@ -76,6 +78,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         </div>
       </div>
 
+      <QuodNote status={ov.quod} />
       {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
       <NowRunning team={team.slug} initial={activity} />
       <LiveRefresh scope={{ kind: "team" }} />

@@ -22,6 +22,15 @@ export interface QuodMarks {
   savedSeconds: number;
 }
 
+/**
+ * Is Quod's run (found by run number, which GitHub numbers per workflow) this
+ * GitHub run? Its githubUrl names the run id when the runner reported it.
+ */
+export function sameGitHubRun(githubUrl: string, runId: number): boolean {
+  const m = /\/actions\/runs\/(\d+)/.exec(githubUrl);
+  return !m || Number(m[1]) === runId;
+}
+
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
 /** Does GitHub's job name belong to Quod's job (GITHUB_JOB)? "test", "test (a, b)", "test / lint". */

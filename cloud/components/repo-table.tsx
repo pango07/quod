@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { RepoSummary } from "@/lib/api/types";
 import { formatAgo, formatMinutes, formatPercent } from "@/lib/format";
+import { ProtectionBadge } from "@/components/section";
 import { Dot, Icon } from "@/components/ui";
 
-const LANG_RUNNER = (r: RepoSummary) => (r.hasQuodData === false ? "from GitHub" : `${r.language} · ${r.runner === "self-hosted" ? "self-hosted" : "GitHub-hosted"}`);
+// quod-server does not know a repo's language (it sends ""): just the runner then.
+const LANG_RUNNER = (r: RepoSummary) => (r.hasQuodData === false ? "from GitHub" : [r.language, r.runner === "self-hosted" ? "self-hosted" : "GitHub-hosted"].filter(Boolean).join(" · "));
 
 /** Quod's numbers for a repo it has not run in yet. */
 const NOT_YET = "Appears once Quod runs in this repo";
@@ -42,6 +44,11 @@ export function RepoTable({ team, repos, asOf, savedLabel = "Saved" }: { team: s
             <span className="cell-main">
               <span style={{ fontWeight: 500 }}>{r.fullName}</span>
               <span className="mono cell-sub">{LANG_RUNNER(r)}</span>
+              {r.protection ? (
+                <span style={{ marginTop: 4 }}>
+                  <ProtectionBadge p={r.protection} />
+                </span>
+              ) : null}
             </span>
             {r.hasQuodData === false ? (
               <span className="faint" style={{ fontSize: 12, gridColumn: "span 2" }}>

@@ -4,8 +4,10 @@ import { RunTimeChart } from "@/components/charts";
 import { RerunButton } from "@/components/rerun-button";
 import { StepsTable } from "@/components/steps-table";
 import { LiveRefresh, NowRunning } from "@/components/live/parts";
+import { ProtectionBadge, ProtectionWarning, protectionConcern, QuodNote, SectionUnavailable } from "@/components/section";
 import { Dot, EmptyState, OutcomeChip, StepDot } from "@/components/ui";
 import { api } from "@/lib/api";
+import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { formatDuration, median, shortSha } from "@/lib/format";
 import { parseStepFilter } from "@/lib/params";
@@ -17,8 +19,12 @@ const SHOWN = 6;
 export default async function RepoPage({ params, searchParams }: PageProps<"/[team]/[repo]">) {
   const [{ team: slug, repo: repoSlug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
-  const [repo, activity] = await Promise.all([api().getRepo(team.slug, repoSlug), api().getActivity(team.slug, { repo: repoSlug })]);
+  const [found, activity] = await Promise.all([section(api().getRepo(team.slug, repoSlug)), api().getActivity(team.slug, { repo: repoSlug })]);
+  // quod-server down and GitHub does not know the repo either: say so, do not 404 a repo that may exist.
+  if (!found.ok) return <SectionUnavailable s={found} what="This repository" />;
+  const repo = found.value;
   if (!repo) notFound();
+  const concern = protectionConcern([repo.summary]);
   const base = `/${team.slug}/${repo.summary.slug}`;
   const run = repo.latestRun;
   // One list for the card: runner setup and checkout once, other steps named by job when there are several.
@@ -35,6 +41,14 @@ export default async function RepoPage({ params, searchParams }: PageProps<"/[te
     <div className="page">
       <h1 className="sr-only">{repo.summary.fullName}</h1>
       <LiveRefresh scope={{ kind: "repo", repo: repo.summary.slug }} />
+      <QuodNote status={repo.quod} />
+      {concern ? <ProtectionWarning team={team.slug} state={concern.state} repos={concern.repos} branch={repo.summary.protection?.branch} /> : null}
+      {repo.summary.protection ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+          <span className="faint">Default branch</span>
+          <ProtectionBadge p={repo.summary.protection} />
+        </div>
+      ) : null}
       <NowRunning team={team.slug} initial={activity} repo={repo.summary.slug} />
       <section className="card" aria-labelledby="latest-h" style={{ overflow: "hidden" }}>
         <div className="card-head ruled">

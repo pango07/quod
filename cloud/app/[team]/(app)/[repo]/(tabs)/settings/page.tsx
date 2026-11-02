@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SectionUnavailable } from "@/components/section";
 import { api } from "@/lib/api";
+import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 
 export const metadata = { title: "Repository settings" };
@@ -8,7 +10,9 @@ export const metadata = { title: "Repository settings" };
 export default async function RepoSettingsPage({ params }: PageProps<"/[team]/[repo]/settings">) {
   const { team: slug, repo: repoSlug } = await params;
   const { team } = await requireTeam(slug);
-  const repo = await api().getRepo(team.slug, repoSlug);
+  const found = await section(api().getRepo(team.slug, repoSlug));
+  if (!found.ok) return <SectionUnavailable s={found} what="This repository" />;
+  const repo = found.value;
   if (!repo) notFound();
   const s = repo.summary;
   return (
@@ -27,7 +31,7 @@ export default async function RepoSettingsPage({ params }: PageProps<"/[team]/[r
                 ["Repository", s.fullName],
                 ["Default branch", repo.defaultBranch],
                 ["Runners", s.runner === "self-hosted" ? "Your own runners" : "GitHub-hosted, via quodci/setup"],
-                ["Language", s.language],
+                ["Language", s.language || "Not known yet"],
               ]
           ).map(([k, v], i) => (
             <div key={k} className="kv" style={i === 0 ? { borderTop: 0, paddingTop: 0 } : undefined}>
