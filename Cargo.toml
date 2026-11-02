@@ -35,6 +35,13 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time",
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+# quod-server's own accept loop: hyper's header-read timeout needs a timer,
+# which axum::serve does not set (DECISIONS, exp/cloud-ledger-v2 review).
+hyper = { version = "1", default-features = false, features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", default-features = false, features = ["server", "server-auto", "tokio", "service", "http1", "http2"] }
+tower-service = "0.3"
+# statvfs for the volume's free-space floor, without unsafe code.
+rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 
 anyhow = "1"
 blake3 = "1.8"

@@ -598,7 +598,14 @@ impl StepLedger for RemoteLedger<'_> {
                 json: json.to_string(),
             },
         ) {
-            self.go_offline(e.0);
+            // The server keeps only JSON that hashes to its key; JSON with
+            // masked secrets does not, and is refused (400). That is
+            // metadata lost, not a reason to stop using the server.
+            if e.0.starts_with("HTTP 400") {
+                tracing::info!(target: "quod", why = %e.0, "step key JSON not stored on the server");
+            } else {
+                self.go_offline(e.0);
+            }
         }
         Ok(())
     }

@@ -153,10 +153,12 @@ handed, and its own nonce: a genuine answer to an earlier claim, recorded
 and played back (by a proxy, a cache, anyone on the path), does not verify,
 so a result the server has since stopped serving (a quarantined key) cannot
 come back that way. Plain `http://` is accepted only for a server on the
-same machine (127.0.0.1, localhost, [::1]). The signing key comes from `QUOD_SIGNING_KEY` (or `_FILE`); the
-server refuses to start without one unless `QUOD_DEV=1`, because a key
-generated per instance would make every runner that pinned the last one
-refuse its replays.
+same machine (127.0.0.1, localhost, [::1]). The signing key is the key
+file on the data dir's persistent volume (`QUOD_SIGNING_KEY_FILE`, default
+`$QUOD_DATA_DIR/signing.ed25519`), generated there at first boot and reused
+on every later one, or `QUOD_SIGNING_KEY` when self-hosting sets it; never
+a key per instance, which would make every runner that pinned the last one
+refuse its replays ("Go-live on Railway" has the details).
 
 What a signature buys: a runner that pins the key replays only what the
 holder of that key served in answer to that very claim, even if the
@@ -371,7 +373,7 @@ Server configuration. Secrets are marked; everything else may be shown.
 | `WORKOS_ISSUER` | no | the access tokens' issuer, if a custom auth domain is set |
 | `WORKOS_API_KEY` | **yes**, optional | the membership fallback for a viewer whose token names another organization |
 | `QUOD_LOCK_WAIT_SECS` | no | how long a second instance waits for the lock (default 30) |
-| `QUOD_MAX_BLOB_BYTES`, `QUOD_MAX_JSON_BYTES`, `QUOD_SSE_HOLD_SECS` | no | limits |
+| `QUOD_MAX_BLOB_BYTES`, `QUOD_MAX_JSON_BYTES`, `QUOD_SSE_HOLD_SECS` | no | limits (defaults 1 GiB, 32 MiB, 240 s) |
 | `QUOD_DEV=1` | no | development only: a relative data dir, no persistence check |
 | `QUOD_ALLOW_ROOT=1` | no | serve as root (the image never needs it) |
 | `DATABASE_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | | refused in this build (P4), never silently ignored |
@@ -591,7 +593,31 @@ unprotected or unknown ref are recorded and warned about.
    hard-linked to its name (never replacing an existing key), the directory
    fsynced. The log carries only the public key's fingerprint and whether
    it was generated.
-6. The teams document, then listen.
+6. The teams document, then listen, and sweep upload staging files older
+   than a day (then hourly).
+
+Redeploys and the lock. A redeploy's new instance starts while the old one
+may still hold the lock; it waits up to `QUOD_LOCK_WAIT_SECS` (30 s) and
+otherwise exits non-zero for Railway to retry. On SIGTERM the old instance
+stops accepting at once and drops open connections, event streams
+included (the dashboard reconnects with `Last-Event-ID`; `QUOD_SSE_HOLD_SECS`
+does not delay shutdown), and gives in-flight blocking work at most 5 s, so
+it lets go of the lock well inside the new instance's wait.
+
+Limits (from the go-live review): runner JSON endpoints authenticate from
+the headers before the body is read, so an unauthenticated caller costs no
+body buffering; JSON bodies are at most `QUOD_MAX_JSON_BYTES` (32 MiB) and
+must finish within 120 s; headers must arrive within 20 s; blobs are at
+most `QUOD_MAX_BLOB_BYTES` (1 GiB), and an upload that sends nothing for
+60 s is dropped; a result whose stdout or stderr is over 64 MiB is refused
+at commit, by file size, before it is read; uploads are refused (507)
+while the volume has less than 2 GiB or 10% free; client strings kept for
+the dashboard (job and step names, runner, actor, a divergence's why, an
+incomplete step's what) are cut at 4 KiB; step-key JSON is stored only if
+it hashes to its key (JSON with masked secrets does not, and is not kept on
+the server); OIDC repositories are stored under GitHub's repository id
+(`scopes/github-<id>`), so a rename keeps them and a new repository under an
+old name starts empty.
 
 The image starts as root only long enough to give the volume (mounted
 root-owned by Railway) to the `quod` user (uid 10001), then drops to it with

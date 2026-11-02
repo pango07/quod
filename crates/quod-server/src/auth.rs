@@ -71,6 +71,20 @@ pub struct Runner {
     /// GitHub's `ref_protected` claim: whether the job's ref is protected.
     /// `None` for a static token (unknown).
     pub ref_protected: Option<bool>,
+    /// GitHub's `repository_id` (OIDC): the repository's ledgers are kept
+    /// under it, so a renamed repository keeps them and a new repository
+    /// that takes an old name does not inherit them.
+    pub repository_id: Option<u64>,
+}
+
+impl Runner {
+    /// Where this runner's repository is stored.
+    pub fn repo(&self) -> crate::store::RepoKey<'_> {
+        crate::store::RepoKey {
+            name: &self.repository,
+            github_id: self.repository_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +136,9 @@ pub struct Jwks {
     url: String,
     file: Option<PathBuf>,
     cache: RwLock<Option<(JwkSet, Instant)>>,
+    /// One fetch at a time: concurrent requests for an unknown key wait
+    /// for it and then read the cache, instead of each fetching.
+    fetching: Mutex<()>,
 }
 
 impl Jwks {
@@ -130,7 +147,20 @@ impl Jwks {
             url,
             file,
             cache: RwLock::new(None),
+            fetching: Mutex::new(()),
         }
+    }
+
+    /// The cached set's key for `kid`; `Err` when the set is fresh and
+    /// lacks it; `None` when a fetch is due.
+    fn cached(&self, kid: &str) -> Option<Result<DecodingKey, String>> {
+        let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
+        let (set, at) = cache.as_ref()?;
+        if let Some(k) = set.find(kid) {
+            return Some(DecodingKey::from_jwk(k).map_err(|e| e.to_string()));
+        }
+        (at.elapsed() < Duration::from_secs(60))
+            .then(|| Err(format!("no key {kid:?} in the issuer's JWKS")))
     }
 
     fn load(&self) -> Result<JwkSet, String> {
@@ -151,18 +181,28 @@ impl Jwks {
 
     /// The key for `kid`, fetching the set if needed (blocking).
     fn key(&self, kid: &str) -> Result<DecodingKey, String> {
-        let find = |set: &JwkSet| set.find(kid).map(DecodingKey::from_jwk);
-        if let Some((set, at)) = self.cache.read().unwrap().as_ref() {
-            if let Some(k) = find(set) {
-                return k.map_err(|e| e.to_string());
-            }
-            if at.elapsed() < Duration::from_secs(60) {
-                return Err(format!("no key {kid:?} in the issuer's JWKS"));
-            }
+        if let Some(k) = self.cached(kid) {
+            return k;
         }
-        let set = self.load()?;
+        let _one = self.fetching.lock().unwrap_or_else(|e| e.into_inner());
+        // Another request may have fetched while this one waited.
+        if let Some(k) = self.cached(kid) {
+            return k;
+        }
+        let find = |set: &JwkSet| set.find(kid).map(DecodingKey::from_jwk);
+        let set = self.load();
+        let set = match set {
+            Ok(s) => s,
+            Err(e) => {
+                // A failed fetch also waits a minute before the next one.
+                let mut c = self.cache.write().unwrap_or_else(|e| e.into_inner());
+                let old = c.take().map(|(s, _)| s).unwrap_or(JwkSet { keys: vec![] });
+                *c = Some((old, Instant::now()));
+                return Err(e);
+            }
+        };
         let k = find(&set);
-        *self.cache.write().unwrap() = Some((set, Instant::now()));
+        *self.cache.write().unwrap_or_else(|e| e.into_inner()) = Some((set, Instant::now()));
         match k {
             Some(k) => k.map_err(|e| e.to_string()),
             None => Err(format!("no key {kid:?} in the issuer's JWKS")),
@@ -195,9 +235,18 @@ impl Jwks {
         }
         v.set_required_spec_claims(required);
         v.leeway = 60;
-        jsonwebtoken::decode::<T>(token, &key, &v)
+        v.validate_nbf = true;
+        let claims = jsonwebtoken::decode::<serde_json::Value>(token, &key, &v)
             .map(|d| d.claims)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        // A token issued in the future is not accepted beyond clock skew.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        if claims["iat"].as_u64().is_some_and(|iat| iat > now + 600) {
+            return Err("the token is issued in the future".into());
+        }
+        serde_json::from_value(claims).map_err(|e| e.to_string())
     }
 }
 
@@ -306,7 +355,11 @@ impl Workos {
             return Ok(None);
         };
         let k = (c.sub.clone(), org.to_string());
-        if let Some((r, at)) = self.memberships.lock().unwrap().get(&k)
+        if let Some((r, at)) = self
+            .memberships
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&k)
             && at.elapsed() < MEMBERSHIP_TTL
         {
             return Ok(r.clone());
@@ -354,7 +407,7 @@ impl Workos {
         });
         self.memberships
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(k, (role.clone(), Instant::now()));
         Ok(role)
     }
@@ -514,6 +567,7 @@ impl Auth {
                     via: "token",
                     claims: None,
                     ref_protected: None,
+                    repository_id: None,
                 }))
             }
         })
@@ -538,6 +592,7 @@ impl Auth {
             via: "token",
             claims: None,
             ref_protected: None,
+            repository_id: None,
         })
     }
 
@@ -574,6 +629,7 @@ impl Auth {
             writer,
             via: "oidc",
             ref_protected: c.ref_protected.as_deref().map(|p| p == "true"),
+            repository_id: Some(repo_id),
             claims: Some(CiContext {
                 repository: Some(c.repository.clone()),
                 run_id: c.run_id.clone(),

@@ -12,6 +12,8 @@
 //! S9  trust v2 (proofs 1, shadow audits, suspect marking) on the server equals local
 //! S10 the dashboard contract's go-live fields (job and step identity, runs by id and attempt, writer trust)
 //! S11 WorkOS access tokens for dashboard viewers
+//! S12 runner endpoints authenticate before reading the body
+//! S13 go-live limits: output size, step-key JSON, repository ids, token dates, upload sweep
 
 mod common;
 
@@ -1072,4 +1074,189 @@ fn s11_workos_viewers() {
     // The secret is never in an answer.
     let (_, b) = s2.get("/v1/teams/org_acme/health", &elsewhere);
     assert!(!b.contains("sk_test_key"));
+}
+
+/// An unauthenticated caller cannot make the server read a large body:
+/// runner endpoints authenticate from the headers first, so a request
+/// that announces 100 MB and sends none of it is answered 401 at once.
+#[test]
+fn s12_auth_before_the_body() {
+    use std::io::{Read, Write};
+    let s = Server::start(1);
+    let addr = s.url.trim_start_matches("http://").to_string();
+    for path in ["/v1/claim", "/v1/commit", "/v1/blobs/missing"] {
+        let mut c = std::net::TcpStream::connect(&addr).unwrap();
+        c.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        write!(
+            c,
+            "POST {path} HTTP/1.1\r\nhost: x\r\nquod-protocol: quod.v1\r\ncontent-type: application/json\r\ncontent-length: 100000000\r\n\r\n{{"
+        )
+        .unwrap();
+        let mut buf = [0u8; 64];
+        let n = c.read(&mut buf).expect("answered before the body was sent");
+        let head = String::from_utf8_lossy(&buf[..n]).to_string();
+        assert!(head.starts_with("HTTP/1.1 401"), "{path}: {head}");
+    }
+}
+
+/// The review's go-live limits: a result whose stdout is over 64 MiB is
+/// refused at commit; step-key JSON must hash to its key; OIDC repository
+/// ledgers live under GitHub's repository id; future-dated tokens are
+/// refused; stale uploads are swept.
+#[test]
+fn s13_go_live_limits() {
+    let s = Server::start(1);
+    let t = tree(&files());
+    let mut r = Runner::token(&s, ACME_RUNNER);
+    r.policy = policy(1, 0.0);
+    let post = |path: &str, tok: &str, body: serde_json::Value| -> (u16, String) {
+        match ureq::post(&format!("{}{path}", s.url))
+            .set("quod-protocol", "quod.v1")
+            .set("authorization", &format!("Bearer {tok}"))
+            .send_json(body)
+        {
+            Ok(r) => (r.status(), r.into_string().unwrap()),
+            Err(ureq::Error::Status(c, r)) => (c, r.into_string().unwrap_or_default()),
+            Err(e) => panic!("{e}"),
+        }
+    };
+
+    // A stdout past 64 MiB: uploaded, then refused by size at commit.
+    let key = key_of(CMD);
+    let m = manifest(key, &t);
+    let big = vec![b'x'; (64 << 20) + 1];
+    let out = r.cas.put(&big).unwrap();
+    let err = r.cas.put(b"").unwrap();
+    r.ledger().upload_blobs(&[out, err]).unwrap();
+    let res = quod_manifest::StepResult {
+        v: quod_manifest::VERSION,
+        step_key: key,
+        manifest_id: quod_manifest::manifest_id(&m).unwrap(),
+        run_id: "BIG1".into(),
+        recorded_at: String::new(),
+        exit_code: 0,
+        stdout: out,
+        stderr: err,
+        outputs: vec![],
+        root_outputs: vec![],
+        duration_ms: 1,
+        commands: vec![],
+    };
+    let ctx = quod_wire::Context {
+        step: quod_wire::WireStep {
+            key,
+            cmd: CMD.into(),
+            ignore: vec![],
+        },
+        policy: policy(1, 0.0),
+        ci: None,
+        scope: None,
+    };
+    let body = quod_wire::CommitRequest {
+        ctx: ctx.clone(),
+        run_id: "BIG1".into(),
+        manifest: m,
+        result: res,
+        hit: None,
+        reason: Reason::Miss,
+        run: quod_ledger::RunRecord {
+            id: "BIG1".into(),
+            ..Default::default()
+        },
+    };
+    let (c, b) = post(
+        "/v1/commit",
+        ACME_RUNNER,
+        serde_json::to_value(&body).unwrap(),
+    );
+    assert_eq!(c, 413, "{b}");
+    assert!(b.contains("stdout"), "{b}");
+
+    // Step-key JSON that is not the key's: refused.
+    let req = quod_wire::StepKeyRequest {
+        ctx: ctx.clone(),
+        json: "{\"not\":\"the key's\"}".into(),
+    };
+    assert_eq!(
+        post(
+            "/v1/step-keys",
+            ACME_RUNNER,
+            serde_json::to_value(&req).unwrap()
+        )
+        .0,
+        400
+    );
+    let json = "{\"v\":1}".to_string();
+    let mut ctx2 = ctx.clone();
+    ctx2.step.key = Hash::of(json.as_bytes());
+    let req = quod_wire::StepKeyRequest { ctx: ctx2, json };
+    assert_eq!(
+        post(
+            "/v1/step-keys",
+            ACME_RUNNER,
+            serde_json::to_value(&req).unwrap()
+        )
+        .0,
+        200
+    );
+
+    // A GitHub OIDC writer's ledgers are under the repository id.
+    let mut push = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/main")));
+    push.policy = policy(1, 0.0);
+    step(&push, CMD, &t, "ok\n");
+    let scopes = s.data.path().join("data/teams/acme/scopes");
+    assert!(scopes.join("github-7/trusted/ledger.sqlite").is_file());
+    assert_eq!(
+        std::fs::read_to_string(scopes.join("github-7/repository")).unwrap(),
+        "acme/app"
+    );
+
+    // Tokens dated in the future are refused.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let sign = |claims: serde_json::Value| {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+        header.kid = Some("quod-test-key".into());
+        let key = jsonwebtoken::EncodingKey::from_rsa_pem(
+            &std::fs::read(fixture("test-oidc-key.pem")).unwrap(),
+        )
+        .unwrap();
+        jsonwebtoken::encode(&header, &claims, &key).unwrap()
+    };
+    let iss = format!("https://api.workos.com/user_management/{WORKOS_CLIENT}");
+    let ok = sign(
+        serde_json::json!({"iss": iss, "sub": "u", "org_id": ACME_ORG, "iat": now, "exp": now + 3600}),
+    );
+    assert_eq!(s.get("/v1/teams/org_acme/health", &ok).0, 200);
+    let not_yet = sign(
+        serde_json::json!({"iss": iss, "sub": "u", "org_id": ACME_ORG, "iat": now, "nbf": now + 3000, "exp": now + 7200}),
+    );
+    assert_eq!(s.get("/v1/teams/org_acme/health", &not_yet).0, 401);
+    let future = sign(
+        serde_json::json!({"iss": iss, "sub": "u", "org_id": ACME_ORG, "iat": now + 3000, "exp": now + 7200}),
+    );
+    assert_eq!(s.get("/v1/teams/org_acme/health", &future).0, 401);
+
+    // Staging files older than a day are swept; newer ones stay.
+    let uploads = s.data.path().join("data/teams/acme/uploads");
+    std::fs::create_dir_all(&uploads).unwrap();
+    let old = uploads.join(format!("{}.part", Hash::of(b"old").hex()));
+    let new = uploads.join(format!("{}.part", Hash::of(b"new").hex()));
+    std::fs::write(&old, b"x").unwrap();
+    std::fs::write(&new, b"x").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 86_400))
+        .unwrap();
+    let n = quod_server::blobs::sweep_uploads(
+        &s.data.path().join("data"),
+        quod_server::blobs::STALE_UPLOAD,
+    );
+    assert_eq!(n, 1);
+    assert!(!old.exists() && new.exists());
 }

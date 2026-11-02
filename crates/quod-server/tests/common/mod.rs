@@ -111,7 +111,7 @@ impl Server {
             signing_key: quod_wire::signing_key_from_hex(SIGNING_SEED).unwrap(),
             doc,
             sse_hold: Duration::from_secs(3),
-            max_blob: 64 << 20,
+            max_blob: 128 << 20,
             max_json: 64 << 20,
             workos_api_key: workos_api_key.map(String::from),
         };

@@ -26,6 +26,28 @@ use quod_ledger::Ledger;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
+/// A repository as storage keys it: its name, and GitHub's id when known.
+#[derive(Clone, Copy, Debug)]
+pub struct RepoKey<'a> {
+    pub name: &'a str,
+    pub github_id: Option<u64>,
+}
+
+impl<'a> From<&'a str> for RepoKey<'a> {
+    fn from(name: &'a str) -> RepoKey<'a> {
+        RepoKey {
+            name,
+            github_id: None,
+        }
+    }
+}
+
+impl<'a> From<&'a String> for RepoKey<'a> {
+    fn from(name: &'a String) -> RepoKey<'a> {
+        RepoKey::from(name.as_str())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Store {
     root: PathBuf,
@@ -59,7 +81,15 @@ impl Store {
         Ok(d)
     }
 
-    fn repo_dir(&self, team: &str, repository: &str) -> PathBuf {
+    /// A repository's directory: `github-<repository_id>` when GitHub's id
+    /// is known (OIDC), so a rename keeps the ledgers and a new repository
+    /// under an old name starts empty; else its readable name plus a hash.
+    fn repo_dir(&self, team: &str, repo: RepoKey) -> PathBuf {
+        let scopes = self.team_dir(team).join("scopes");
+        if let Some(id) = repo.github_id {
+            return scopes.join(format!("github-{id}"));
+        }
+        let repository = repo.name;
         let readable: String = repository
             .chars()
             .map(|c| {
@@ -72,32 +102,53 @@ impl Store {
             .take(80)
             .collect();
         let h = &blake3::hash(repository.as_bytes()).to_hex()[..12];
-        self.team_dir(team)
-            .join("scopes")
-            .join(format!("{readable}-{h}"))
+        scopes.join(format!("{readable}-{h}"))
     }
 
-    fn ledger_path(&self, team: &str, repository: &str, scope: &str) -> PathBuf {
+    fn ledger_path(&self, team: &str, repo: RepoKey, scope: &str) -> PathBuf {
         debug_assert!(crate::valid_id(scope));
-        self.repo_dir(team, repository)
-            .join(scope)
-            .join("ledger.sqlite")
+        self.repo_dir(team, repo).join(scope).join("ledger.sqlite")
     }
 
-    pub fn has_ledger(&self, team: &str, repository: &str, scope: &str) -> bool {
-        self.ledger_path(team, repository, scope).is_file()
+    pub fn has_ledger<'a>(&self, team: &str, repo: impl Into<RepoKey<'a>>, scope: &str) -> bool {
+        self.ledger_path(team, repo.into(), scope).is_file()
     }
 
-    /// Opens (creating) a scope's ledger.
-    pub fn ledger(&self, team: &str, repository: &str, scope: &str) -> anyhow::Result<Ledger> {
-        let p = self.ledger_path(team, repository, scope);
-        let repo_dir = self.repo_dir(team, repository);
+    /// Opens (creating) a scope's ledger. The directory's `repository`
+    /// file holds the repository's newest name.
+    pub fn ledger<'a>(
+        &self,
+        team: &str,
+        repo: impl Into<RepoKey<'a>>,
+        scope: &str,
+    ) -> anyhow::Result<Ledger> {
+        let repo = repo.into();
+        let p = self.ledger_path(team, repo, scope);
+        let repo_dir = self.repo_dir(team, repo);
         std::fs::create_dir_all(p.parent().unwrap())?;
         let name = repo_dir.join("repository");
-        if !name.is_file() {
-            std::fs::write(&name, repository)?;
+        if std::fs::read_to_string(&name).ok().as_deref() != Some(repo.name) {
+            std::fs::write(&name, repo.name)?;
         }
         Ok(Ledger::open(&p)?)
+    }
+
+    /// A scope ledger found by the repository's name (as the dashboard
+    /// knows repositories), if there is one.
+    pub fn ledger_by_name(
+        &self,
+        team: &str,
+        repository: &str,
+        scope: &str,
+    ) -> anyhow::Result<Option<Ledger>> {
+        match self
+            .scopes(team)
+            .into_iter()
+            .find(|s| s.repository == repository && s.scope == scope)
+        {
+            Some(s) => Ok(Some(Ledger::open(&s.path)?)),
+            None => Ok(None),
+        }
     }
 
     /// Every scope ledger of a team.
@@ -153,6 +204,7 @@ ALTER TABLE steps ADD COLUMN job_name TEXT;
 CREATE TABLE IF NOT EXISTS trusted_writes (
   repository TEXT NOT NULL, git_ref TEXT NOT NULL, protected INTEGER, first_at TEXT NOT NULL,
   last_at TEXT NOT NULL, writes INTEGER NOT NULL, PRIMARY KEY (repository, git_ref));
+CREATE INDEX IF NOT EXISTS steps_by_quod_run ON steps (quod_run);
 ";
 
 const ACTIVITY_SCHEMA: &str = "
@@ -314,6 +366,20 @@ impl Activity {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The CI run number of the newest step row of a quod run.
+    pub fn run_number_of(&self, quod_run: &str) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT run_number FROM steps WHERE quod_run = ?1 ORDER BY id DESC LIMIT 1",
+                params![quod_run],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten()
+            .map(|v| v as u64))
     }
 
     /// Every step row, oldest first (optionally one repository's).

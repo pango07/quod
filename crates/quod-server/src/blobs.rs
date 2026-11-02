@@ -36,11 +36,11 @@ async fn team(app: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
 
 pub async fn missing(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    axum::Extension(principal): axum::Extension<crate::auth::Principal>,
     axum::Json(req): axum::Json<BlobsRequest>,
 ) -> Result<axum::Json<BlobsResponse>, ApiError> {
     blocking(move || {
-        let team = app.runner_team(&headers)?;
+        let team = crate::App::runner_team_of(&principal)?;
         let cas = app.store.cas(&team)?;
         let mut missing = vec![];
         for h in req.hashes {
@@ -102,7 +102,68 @@ pub async fn head_blob(
         .into_response())
 }
 
-/// Streams `body` onto the end of `file`, failing past `max` total bytes.
+/// Staging files older than this are swept (`sweep_uploads`).
+pub const STALE_UPLOAD: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// How long an upload may go without sending a byte.
+pub const CHUNK_READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+/// Uploads are refused while the volume has less free space than this...
+pub const FREE_FLOOR_BYTES: u64 = 2 << 30;
+/// ...or less than this share of its size, whichever is larger.
+pub const FREE_FLOOR_SHARE: f64 = 0.10;
+
+/// Removes `*.part` and `*.put.*` staging files older than `age` from
+/// every team's uploads directory; returns how many.
+pub fn sweep_uploads(data_dir: &Path, age: std::time::Duration) -> usize {
+    let mut n = 0;
+    let Ok(teams) = std::fs::read_dir(data_dir.join("teams")) else {
+        return 0;
+    };
+    for t in teams.flatten() {
+        let Ok(files) = std::fs::read_dir(t.path().join("uploads")) else {
+            continue;
+        };
+        for f in files.flatten() {
+            let name = f.file_name().to_string_lossy().into_owned();
+            if !(name.ends_with(".part") || name.contains(".put.")) {
+                continue;
+            }
+            let old = f
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|m| m.elapsed().ok())
+                .is_some_and(|e| e >= age);
+            if old && std::fs::remove_file(f.path()).is_ok() {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Refuses an upload when the data dir's filesystem is short of space:
+/// below `FREE_FLOOR_BYTES` or `FREE_FLOOR_SHARE` of its size, whichever
+/// is larger. The ledgers need room to commit what is already uploaded.
+fn check_free_space(dir: &Path) -> Result<(), ApiError> {
+    let Ok(s) = rustix::fs::statvfs(dir) else {
+        return Ok(());
+    };
+    let free = s.f_bavail.saturating_mul(s.f_frsize);
+    let total = s.f_blocks.saturating_mul(s.f_frsize);
+    let floor = FREE_FLOOR_BYTES.max((total as f64 * FREE_FLOOR_SHARE) as u64);
+    if free < floor {
+        tracing::warn!(target: "quod", free, floor, "uploads refused: the volume is nearly full");
+        return Err(ApiError::new(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "insufficient_storage",
+            "the server's volume is nearly full; uploads are refused until space is freed",
+        ));
+    }
+    Ok(())
+}
+
+/// Streams `body` onto the end of `file`, failing past `max` total bytes
+/// or when no data comes for `CHUNK_READ_DEADLINE`.
 async fn append(file: &Path, body: Body, max: u64) -> Result<u64, ApiError> {
     let mut f = tokio::fs::OpenOptions::new()
         .create(true)
@@ -112,7 +173,13 @@ async fn append(file: &Path, body: Body, max: u64) -> Result<u64, ApiError> {
         .map_err(ApiError::internal)?;
     let mut len = f.metadata().await.map_err(ApiError::internal)?.len();
     let mut stream = body.into_data_stream();
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let next = tokio::time::timeout(CHUNK_READ_DEADLINE, stream.next())
+            .await
+            .map_err(|_| {
+                ApiError::new(StatusCode::REQUEST_TIMEOUT, "timeout", "the upload stalled")
+            })?;
+        let Some(chunk) = next else { break };
         let chunk = chunk.map_err(|e| ApiError::bad_request(format!("body: {e}")))?;
         len += chunk.len() as u64;
         if len > max {
@@ -177,6 +244,7 @@ pub async fn put_blob(
         return Ok(StatusCode::OK.into_response());
     }
     let dir = app.store.uploads(&team)?;
+    check_free_space(&dir)?;
     let tmp = tempfile::Builder::new()
         .prefix(&format!("{}.put.", h.hex()))
         .tempfile_in(&dir)
@@ -204,7 +272,7 @@ impl Uploading {
         let k = (team.to_string(), *h);
         UPLOADING
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(k.clone())
             .then_some(Uploading(k))
     }
@@ -212,7 +280,10 @@ impl Uploading {
 
 impl Drop for Uploading {
     fn drop(&mut self) {
-        UPLOADING.lock().unwrap().remove(&self.0);
+        UPLOADING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
     }
 }
 
@@ -235,7 +306,9 @@ pub async fn patch_blob(
     if app.store.cas(&team)?.has(&h) {
         return Ok(StatusCode::OK.into_response());
     }
-    let part = part_path(&app.store.uploads(&team)?, &h);
+    let uploads = app.store.uploads(&team)?;
+    check_free_space(&uploads)?;
+    let part = part_path(&uploads, &h);
     let have = || std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
     // One chunk at a time per staging file; another request appending to
     // it now is a 409 with the offset so far, and the client retries.

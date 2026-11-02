@@ -36,7 +36,12 @@ fn main() -> anyhow::Result<()> {
             let boot =
                 quod_server::boot::boot(&env).map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
             let settings = boot.settings.clone();
-            let served = tokio::runtime::Runtime::new()?.block_on(quod_server::serve(settings));
+            let rt = tokio::runtime::Runtime::new()?;
+            let served = rt.block_on(quod_server::serve(settings));
+            // In-flight blocking work (a commit's transaction) gets a few
+            // seconds; open streams are dropped. A redeploy's new instance
+            // waits on the lock for QUOD_LOCK_WAIT_SECS, longer than this.
+            rt.shutdown_timeout(std::time::Duration::from_secs(5));
             // The instance lock is held until the server has stopped.
             drop(boot);
             served
@@ -46,7 +51,11 @@ fn main() -> anyhow::Result<()> {
             // QUOD_SIGNING_KEY, else the key file (never created here).
             let env = quod_server::config::Env::from_env(get)
                 .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
-            let k = match &env.signing_key_hex {
+            let k = match env
+                .signing_key_hex
+                .as_ref()
+                .map(quod_server::config::Secret::expose)
+            {
                 Some(h) => quod_wire::signing_key_from_hex(h)?,
                 None => {
                     if !env.key_file.is_file() {

@@ -24,7 +24,7 @@ use std::time::Instant;
 
 use ed25519_dalek::SigningKey;
 
-use crate::config::{Env, Settings, fingerprint, generate_key};
+use crate::config::{Env, Secret, Settings, fingerprint, generate_key};
 
 /// The lock file's name inside the data dir.
 pub const LOCK_FILE: &str = "quod-server.lock";
@@ -81,7 +81,7 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
             data_dir: dir.clone(),
             signing_key,
             doc,
-            workos_api_key: env.workos_api_key.clone(),
+            workos_api_key: env.workos_api_key.as_ref().map(|s| s.expose().to_string()),
             sse_hold: env.sse_hold,
             max_blob: env.max_blob,
             max_json: env.max_json,
@@ -208,7 +208,7 @@ pub fn lock(dir: &Path, wait: std::time::Duration) -> Result<InstanceLock, Strin
 
 /// The signing key, and whether it was generated now.
 fn signing_key(env: &Env) -> Result<(SigningKey, bool), String> {
-    if let Some(hex) = &env.signing_key_hex {
+    if let Some(hex) = env.signing_key_hex.as_ref().map(Secret::expose) {
         let k =
             quod_wire::signing_key_from_hex(hex).map_err(|e| format!("QUOD_SIGNING_KEY: {e}"))?;
         return Ok((k, false));

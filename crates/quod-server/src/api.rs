@@ -3,10 +3,10 @@
 //! on the scope's ledger inside one transaction (the same `LocalLedger`
 //! a laptop uses), then note the step for the dashboard.
 
+use axum::Extension;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use quod_cas::{BlobStore, Cas, Hash, Tree};
-use quod_ledger::{Ledger, Lookup, TrustState, now_rfc3339};
+use quod_ledger::{Ledger, Lookup, RunRecord, TrustState, now_rfc3339};
 use quod_manifest::{Manifest, StepResult, manifest_id};
 use quod_trust::{Claimed, Decision, LocalLedger, Policy, Replayed, StepLedger, Trust, Verdict};
 use quod_wire::{
@@ -16,7 +16,7 @@ use quod_wire::{
 };
 use serde_json::json;
 
-use crate::auth::Runner;
+use crate::auth::{Principal, Runner};
 use crate::store::StepRow;
 use crate::{ApiError, App, AppState, blocking, dash};
 
@@ -31,6 +31,24 @@ fn policy(app: &App, runner: &Runner, ctx: &Context) -> Result<Policy, ApiError>
     let p = effective_policy(&ctx.policy, &team.policy.policy());
     p.validate()?;
     Ok(p)
+}
+
+/// The largest stdout or stderr a recorded result may have.
+pub const MAX_OUTPUT_BYTES: u64 = 64 << 20;
+/// The longest client-supplied text kept (names, reasons), in bytes.
+pub const MAX_TEXT: usize = 4096;
+
+/// `s` cut to at most `MAX_TEXT` bytes, on a character boundary.
+pub fn cap(s: &str) -> String {
+    let mut end = s.len().min(MAX_TEXT);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
+fn cap_opt(s: &Option<String>) -> Option<String> {
+    s.as_deref().map(cap)
 }
 
 fn check_step(ctx: &Context) -> Result<(), ApiError> {
@@ -51,27 +69,32 @@ fn repository(runner: &Runner) -> Result<&str, ApiError> {
 
 pub async fn claim(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<ClaimRequest>,
 ) -> Result<Json<ClaimResponse>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         check_step(&req.ctx)?;
         let policy = policy(&app, &runner, &req.ctx)?;
-        let repo = repository(&runner)?.to_string();
+        repository(&runner)?;
         let cas = app.store.cas(&runner.team)?;
         let tree = Tree::from_entries(req.tree);
         let step = req.ctx.step.step();
         let mut answer: Option<(String, Lookup, Claimed)> = None;
         let mut own: Option<(String, Lookup, Claimed)> = None;
         let mut compared: Option<(String, Lookup, Claimed)> = None;
+        // A replay served from a scope the runner does not write (a pull
+        // request replaying main's result): its run row goes to the
+        // runner's own scope, never into the scope it read.
+        let mut foreign_run: Option<RunRecord> = None;
         for scope in &runner.read {
             // A scope nobody wrote has nothing to replay; the runner's own
             // write scope is opened (and created) regardless.
-            if *scope != runner.write && !app.store.has_ledger(&runner.team, &repo, scope) {
+            if *scope != runner.write && !app.store.has_ledger(&runner.team, runner.repo(), scope) {
                 continue;
             }
-            let ledger = app.store.ledger(&runner.team, &repo, scope)?;
+            let ledger = app.store.ledger(&runner.team, runner.repo(), scope)?;
+            let own_scope = *scope == runner.write;
             let trust = Trust::new(&ledger, &cas, policy)?;
             // Look up, decide and record in one transaction: two runners
             // claiming at once are serialized, so an audit slot or a
@@ -92,7 +115,11 @@ pub async fn claim(
                                 // A saving only where the runner said how
                                 // long the replay took (the hooks do not).
                                 run.saved_ms = run.wall_ms.map(|w| r.duration_ms.saturating_sub(w));
-                                l.record_run_facts(&run.facts())?;
+                                if own_scope {
+                                    l.record_run_facts(&run.facts())?;
+                                } else {
+                                    foreign_run = Some(run);
+                                }
                                 Claimed::Replay { facts }
                             }
                             Replayed::Execute(reason) => Claimed::Execute { reason },
@@ -124,6 +151,11 @@ pub async fn claim(
             (None, Some(o), None) => o,
             (None, None, None) => unreachable!("the write scope is always among the read scopes"),
         };
+        if let Some(run) = foreign_run {
+            app.store
+                .ledger(&runner.team, runner.repo(), &runner.write)?
+                .record_run_facts(&run.facts())?;
+        }
         let receipt = match (&claimed, &lookup.hit) {
             (Claimed::Replay { .. }, Some((_, r))) => Some(
                 quod_wire::sign(
@@ -177,20 +209,20 @@ pub async fn claim(
 fn resolve_hit(
     app: &App,
     runner: &Runner,
-    repo: &str,
     key: &Hash,
     hit: Option<&HitRef>,
 ) -> Result<Option<(Manifest, StepResult)>, ApiError> {
     let Some(h) = hit else { return Ok(None) };
+    repository(runner)?;
     if !runner.read.contains(&h.scope) {
         return Err(ApiError::forbidden(
             "the hit names a scope this runner cannot read",
         ));
     }
-    if !app.store.has_ledger(&runner.team, repo, &h.scope) {
+    if !app.store.has_ledger(&runner.team, runner.repo(), &h.scope) {
         return Ok(None);
     }
-    let l = app.store.ledger(&runner.team, repo, &h.scope)?;
+    let l = app.store.ledger(&runner.team, runner.repo(), &h.scope)?;
     let Some(m) = l.manifest(&h.manifest_id)? else {
         return Ok(None);
     };
@@ -202,20 +234,21 @@ fn resolve_hit(
 }
 
 fn write_ledger(app: &App, runner: &Runner) -> Result<(Ledger, Cas), ApiError> {
-    let repo = repository(runner)?;
+    repository(runner)?;
     Ok((
-        app.store.ledger(&runner.team, repo, &runner.write)?,
+        app.store
+            .ledger(&runner.team, runner.repo(), &runner.write)?,
         app.store.cas(&runner.team)?,
     ))
 }
 
 pub async fn commit(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<CommitRequest>,
 ) -> Result<Json<CommitResponse>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         check_step(&req.ctx)?;
         let policy = policy(&app, &runner, &req.ctx)?;
         let step = req.ctx.step.step();
@@ -246,12 +279,23 @@ pub async fn commit(
         if !missing.is_empty() {
             return Err(ApiError::missing_blobs(missing));
         }
+        // stdout and stderr are read whole to normalize and compare them:
+        // refused past MAX_OUTPUT_BYTES, by size, before any is read.
+        for (what, h) in [("stdout", &r.stdout), ("stderr", &r.stderr)] {
+            let len = std::fs::metadata(cas.blob_path(h)).map_or(0, |m| m.len());
+            if len > MAX_OUTPUT_BYTES {
+                return Err(ApiError::new(
+                    axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                    "too_large",
+                    format!("the result's {what} is {len} bytes; at most {MAX_OUTPUT_BYTES} are recorded"),
+                ));
+            }
+        }
         // The hit lives in a read scope's ledger, which may be another file
         // than this one; it is a recorded result and does not change.
         let hit = resolve_hit(
             &app,
             &runner,
-            repository(&runner)?,
             &step.key,
             req.hit.as_ref(),
         )?;
@@ -297,22 +341,15 @@ pub async fn commit(
 
 pub async fn divergence(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<DivergenceRequest>,
 ) -> Result<Json<CommitResponse>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         check_step(&req.ctx)?;
         let policy = policy(&app, &runner, &req.ctx)?;
         let step = req.ctx.step.step();
-        let Some(hit) = resolve_hit(
-            &app,
-            &runner,
-            repository(&runner)?,
-            &step.key,
-            Some(&req.hit),
-        )?
-        else {
+        let Some(hit) = resolve_hit(&app, &runner, &step.key, Some(&req.hit))? else {
             return Err(ApiError::conflict("the hit is not in the ledger"));
         };
         let (ledger, cas) = write_ledger(&app, &runner)?;
@@ -326,7 +363,7 @@ pub async fn divergence(
             &req.run_id,
             &hit,
             &req.reason,
-            &req.why,
+            &cap(&req.why),
             req.run.clone(),
         )?;
         note_step(
@@ -350,27 +387,22 @@ pub async fn divergence(
 
 pub async fn incomplete(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<IncompleteRequest>,
 ) -> Result<Json<IncompleteResponse>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         let policy = policy(&app, &runner, &req.ctx)?;
         let step = req.ctx.step.step();
-        let hit = resolve_hit(
-            &app,
-            &runner,
-            repository(&runner)?,
-            &step.key,
-            req.hit.as_ref(),
-        )?;
+        let hit = resolve_hit(&app, &runner, &step.key, req.hit.as_ref())?;
         let (ledger, cas) = write_ledger(&app, &runner)?;
         let trust = Trust::new(&ledger, &cas, policy)?;
         let local = LocalLedger {
             ledger: &ledger,
             trust: &trust,
         };
-        let line = local.commit_incomplete(&step, hit.as_ref(), &req.what, req.run.clone())?;
+        let line =
+            local.commit_incomplete(&step, hit.as_ref(), &cap(&req.what), req.run.clone())?;
         Ok(Json(IncompleteResponse { line }))
     })
     .await
@@ -378,11 +410,11 @@ pub async fn incomplete(
 
 pub async fn runs(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<RunRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         let (ledger, _) = write_ledger(&app, &runner)?;
         ledger.record_run_facts(&req.run.facts())?;
         let outcome = req.run.outcome.clone().unwrap_or_else(|| "ran".into());
@@ -405,13 +437,19 @@ pub async fn runs(
 
 pub async fn step_keys(
     State(app): State<AppState>,
-    headers: HeaderMap,
+    Extension(principal): Extension<Principal>,
     Json(req): Json<StepKeyRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     blocking(move || {
-        let runner = app.runner(&headers, req.ctx.scope.as_ref())?;
+        let runner = App::runner_of(&principal, req.ctx.scope.as_ref())?;
         if req.json.len() > 1 << 20 {
             return Err(ApiError::bad_request("step key JSON too large"));
+        }
+        // Only the JSON a key is computed from may be stored under it.
+        if Hash::of(req.json.as_bytes()) != req.ctx.step.key {
+            return Err(ApiError::bad_request(
+                "the JSON does not hash to the step key",
+            ));
         }
         let (ledger, _) = write_ledger(&app, &runner)?;
         ledger.put_step_key(&req.ctx.step.key, &req.json)?;
@@ -463,11 +501,11 @@ fn note_step(
         run_id: ci.run_id.clone(),
         run_number: ci.run_number,
         run_attempt: ci.run_attempt,
-        job: ci.job.clone(),
-        job_id: ci.job_id.clone(),
-        job_name: ci.job_name.clone(),
+        job: cap_opt(&ci.job),
+        job_id: cap_opt(&ci.job_id),
+        job_name: cap_opt(&ci.job_name),
         step_index: ci.step_index,
-        step_name: ci.step_name.clone(),
+        step_name: cap_opt(&ci.step_name),
         step_key: Some(ctx.step.key.to_string()),
         cmd: Some(ctx.step.cmd.chars().take(2000).collect()),
         outcome: outcome.to_string(),
@@ -484,12 +522,12 @@ fn note_step(
             .flatten(),
         streak: trust.map(|t| t.0),
         needed: trust.map(|t| t.1),
-        git_ref: ci.git_ref.clone(),
-        sha: ci.sha.clone(),
-        actor: ci.actor.clone(),
-        event: ci.event.clone(),
-        workflow: ci.workflow.clone(),
-        runner: ci.runner.clone(),
+        git_ref: cap_opt(&ci.git_ref),
+        sha: cap_opt(&ci.sha),
+        actor: cap_opt(&ci.actor),
+        event: cap_opt(&ci.event),
+        workflow: cap_opt(&ci.workflow),
+        runner: cap_opt(&ci.runner),
     };
     let out = (|| -> anyhow::Result<()> {
         let a = app.store.activity(&runner.team)?;

@@ -20,6 +20,27 @@ pub const WORKOS_API: &str = "https://api.workos.com";
 pub const TEAMS_FILE: &str = "teams.json";
 /// The signing key's file name inside the data dir.
 pub const KEY_FILE: &str = "signing.ed25519";
+/// The largest blob accepted unless `QUOD_MAX_BLOB_BYTES` says otherwise.
+pub const DEFAULT_MAX_BLOB: u64 = 1 << 30;
+/// The largest JSON body unless `QUOD_MAX_JSON_BYTES` says otherwise (a
+/// claim carries the whole workspace tree).
+pub const DEFAULT_MAX_JSON: u64 = 32 << 20;
+
+/// A secret from the environment: its `Debug` never shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(pub String);
+
+impl Secret {
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret([redacted])")
+    }
+}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -315,8 +336,8 @@ impl Settings {
             doc,
             workos_api_key: None,
             sse_hold: Duration::from_secs(240),
-            max_blob: 8 << 30,
-            max_json: 256 << 20,
+            max_blob: DEFAULT_MAX_BLOB,
+            max_json: DEFAULT_MAX_JSON as usize,
         }
     }
 }
@@ -336,12 +357,12 @@ pub struct Env {
     /// Whether this runs on Railway at all.
     pub on_railway: bool,
     /// `QUOD_SIGNING_KEY`: a seed in the environment (self-hosting).
-    pub signing_key_hex: Option<String>,
+    pub signing_key_hex: Option<Secret>,
     pub key_file: PathBuf,
     pub teams: TeamsSource,
     pub workos_client_id: Option<String>,
     pub workos_issuer: Option<String>,
-    pub workos_api_key: Option<String>,
+    pub workos_api_key: Option<Secret>,
     pub lock_wait: Duration,
     pub sse_hold: Duration,
     pub max_blob: u64,
@@ -432,16 +453,16 @@ impl Env {
             railway_volume: set("RAILWAY_VOLUME_MOUNT_PATH").map(PathBuf::from),
             on_railway: set("RAILWAY_PROJECT_ID").is_some()
                 || set("RAILWAY_ENVIRONMENT_ID").is_some(),
-            signing_key_hex: set("QUOD_SIGNING_KEY"),
+            signing_key_hex: set("QUOD_SIGNING_KEY").map(Secret),
             key_file,
             teams,
             workos_client_id: set("WORKOS_CLIENT_ID"),
             workos_issuer: set("WORKOS_ISSUER"),
-            workos_api_key: set("WORKOS_API_KEY"),
+            workos_api_key: set("WORKOS_API_KEY").map(Secret),
             lock_wait: Duration::from_secs(num("QUOD_LOCK_WAIT_SECS", 30)?),
             sse_hold: Duration::from_secs(num("QUOD_SSE_HOLD_SECS", 240)?),
-            max_blob: num("QUOD_MAX_BLOB_BYTES", 8 << 30)?,
-            max_json: num("QUOD_MAX_JSON_BYTES", 256 << 20)? as usize,
+            max_blob: num("QUOD_MAX_BLOB_BYTES", DEFAULT_MAX_BLOB)?,
+            max_json: num("QUOD_MAX_JSON_BYTES", DEFAULT_MAX_JSON)? as usize,
             data_dir,
         })
     }
@@ -653,6 +674,23 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn secrets_never_show_in_debug() {
+        let e = Env::from_env(env(&[
+            ("QUOD_DATA_DIR", "/d"),
+            ("WORKOS_API_KEY", "sk_live_secret"),
+            ("QUOD_SIGNING_KEY", "ab"),
+        ]))
+        .unwrap();
+        let d = format!("{e:?}");
+        assert!(
+            !d.contains("sk_live_secret") && d.contains("redacted"),
+            "{d}"
+        );
+        assert_eq!(e.max_json, 32 << 20);
+        assert_eq!(e.max_blob, 1 << 30);
     }
 
     #[test]

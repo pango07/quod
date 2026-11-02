@@ -66,9 +66,18 @@ impl App {
         headers: &HeaderMap,
         hint: Option<&quod_wire::ScopeHint>,
     ) -> Result<Runner, ApiError> {
-        match self.auth.authenticate(headers)? {
-            Principal::Runner(r) => Ok(*r),
-            Principal::Delegated { team } => Auth::delegated(&team, hint),
+        App::runner_of(&self.auth.authenticate(headers)?, hint)
+    }
+
+    /// The runner an authenticated principal is, for this request's scope
+    /// hint.
+    pub fn runner_of(
+        p: &Principal,
+        hint: Option<&quod_wire::ScopeHint>,
+    ) -> Result<Runner, ApiError> {
+        match p {
+            Principal::Runner(r) => Ok((**r).clone()),
+            Principal::Delegated { team } => Auth::delegated(team, hint),
             Principal::Viewer(_) => {
                 Err(ApiError::forbidden("a viewer token cannot act as a runner"))
             }
@@ -77,13 +86,47 @@ impl App {
 
     /// The team a runner request may touch blobs of.
     pub fn runner_team(&self, headers: &HeaderMap) -> Result<String, ApiError> {
-        match self.auth.authenticate(headers)? {
-            Principal::Runner(r) => Ok(r.team),
-            Principal::Delegated { team } => Ok(team),
+        App::runner_team_of(&self.auth.authenticate(headers)?)
+    }
+
+    pub fn runner_team_of(p: &Principal) -> Result<String, ApiError> {
+        match p {
+            Principal::Runner(r) => Ok(r.team.clone()),
+            Principal::Delegated { team } => Ok(team.clone()),
             Principal::Viewer(_) => {
                 Err(ApiError::forbidden("a viewer token cannot act as a runner"))
             }
         }
+    }
+}
+
+/// How long a JSON request may take, end to end.
+pub const JSON_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long a client may take to send a request's headers.
+pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The runner JSON endpoints authenticate from the headers before anything
+/// reads the body: an unauthenticated caller is refused without the server
+/// buffering (or even receiving) up to `QUOD_MAX_JSON_BYTES`. The principal
+/// goes to the handler as an extension. The whole request then has
+/// `JSON_DEADLINE` to finish.
+async fn runner_auth(State(app): State<AppState>, mut req: Request, next: Next) -> Response {
+    let headers = req.headers().clone();
+    let a = app.clone();
+    match blocking(move || a.auth.authenticate(&headers)).await {
+        Ok(p) => {
+            req.extensions_mut().insert(p);
+        }
+        Err(e) => return e.into_response(),
+    }
+    match tokio::time::timeout(JSON_DEADLINE, next.run(req)).await {
+        Ok(r) => r,
+        Err(_) => ApiError::new(
+            StatusCode::REQUEST_TIMEOUT,
+            "timeout",
+            "the request took too long",
+        )
+        .into_response(),
     }
 }
 
@@ -247,7 +290,8 @@ pub fn router(app: AppState) -> Router {
         .route("/v1/runs", post(api::runs))
         .route("/v1/step-keys", post(api::step_keys))
         .route("/v1/blobs/missing", post(blobs::missing))
-        .layer(DefaultBodyLimit::max(max_json));
+        .layer(DefaultBodyLimit::max(max_json))
+        .layer(middleware::from_fn_with_state(app.clone(), runner_auth));
     let blob = Router::new()
         .route(
             "/v1/blobs/{hash}",
@@ -269,6 +313,69 @@ pub fn router(app: AppState) -> Router {
         .with_state(app)
 }
 
+/// Accepts connections until `shutdown` resolves. Each connection is
+/// served by hyper with a header-read timeout (axum::serve sets no timer,
+/// so a client that never finishes its headers would hold a connection
+/// forever). On shutdown it stops accepting and returns at once: open
+/// connections, event streams included, are dropped with the runtime
+/// (`main` gives in-flight blocking work a few seconds), so a redeploy's
+/// new instance is not kept waiting on the lock by a held SSE stream.
+async fn accept_loop(
+    listener: tokio::net::TcpListener,
+    app: AppState,
+    shutdown: impl std::future::Future<Output = ()>,
+) {
+    use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+    use hyper_util::server::conn::auto::Builder;
+    use hyper_util::service::TowerToHyperService;
+
+    let svc = router(app);
+    tokio::pin!(shutdown);
+    loop {
+        let stream = tokio::select! {
+            _ = &mut shutdown => return,
+            acc = listener.accept() => match acc {
+                Ok((s, _)) => s,
+                Err(e) => {
+                    tracing::warn!(target: "quod", error = %e, "accept failed");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+            },
+        };
+        let svc = TowerToHyperService::new(svc.clone());
+        tokio::spawn(async move {
+            let mut b = Builder::new(TokioExecutor::new());
+            b.http1()
+                .timer(TokioTimer::new())
+                .header_read_timeout(HEADER_READ_TIMEOUT);
+            let _ = b
+                .serve_connection_with_upgrades(TokioIo::new(stream), svc)
+                .await;
+        });
+    }
+}
+
+/// Removes upload staging files older than a day under every team, at
+/// start and then hourly (an abandoned resumable upload would otherwise
+/// keep its bytes on the volume forever).
+fn spawn_upload_sweeper(app: &AppState) {
+    let app = app.clone();
+    tokio::spawn(async move {
+        loop {
+            let a = app.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let n = blobs::sweep_uploads(&a.settings.data_dir, blobs::STALE_UPLOAD);
+                if n > 0 {
+                    tracing::info!(target: "quod", removed = n, "stale uploads removed");
+                }
+            })
+            .await;
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
+    });
+}
+
 /// Serves until ctrl-c or SIGTERM. The caller holds the instance lock
 /// (`boot::Boot`) for as long as this runs.
 pub async fn serve(settings: Settings) -> anyhow::Result<()> {
@@ -276,20 +383,21 @@ pub async fn serve(settings: Settings) -> anyhow::Result<()> {
     let app = Arc::new(App::new(settings));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(target: "quod", %addr, "quod-server listening");
-    axum::serve(listener, router(app))
-        .with_graceful_shutdown(async {
-            let ctrl_c = tokio::signal::ctrl_c();
-            #[cfg(unix)]
-            {
-                let mut term =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                        .expect("SIGTERM handler");
-                tokio::select! { _ = ctrl_c => {}, _ = term.recv() => {} }
-            }
-            #[cfg(not(unix))]
-            let _ = ctrl_c.await;
-        })
-        .await?;
+    spawn_upload_sweeper(&app);
+    accept_loop(listener, app, async {
+        let ctrl_c = tokio::signal::ctrl_c();
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! { _ = ctrl_c => {}, _ = term.recv() => {} }
+        }
+        #[cfg(not(unix))]
+        let _ = ctrl_c.await;
+    })
+    .await;
+    tracing::info!(target: "quod", "quod-server stopping");
     Ok(())
 }
 
@@ -302,8 +410,6 @@ pub async fn spawn_local(
     let app = Arc::new(App::new(settings));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}", listener.local_addr()?);
-    let h = tokio::spawn(async move {
-        let _ = axum::serve(listener, router(app)).await;
-    });
+    let h = tokio::spawn(accept_loop(listener, app, std::future::pending()));
     Ok((url, h))
 }

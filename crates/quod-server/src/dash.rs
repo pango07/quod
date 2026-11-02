@@ -222,6 +222,59 @@ impl TeamData {
         (Value::Array(list), json!(warning))
     }
 
+    /// Only what one step row's event needs: the team's repository names
+    /// (for the slug), that key's trust in its repository's trusted scope,
+    /// and the run number of the run a replay came from. Not the team's
+    /// every row, which `load` reads (once per step otherwise).
+    fn for_row(app: &App, team: &str, row: &StepRow) -> Result<TeamData, ApiError> {
+        let scopes = app.store.scopes(team);
+        let mut repos: BTreeSet<String> = scopes.iter().map(|s| s.repository.clone()).collect();
+        repos.insert(row.repository.clone());
+        let (mut trust, mut streaks, mut recent_div) =
+            (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+        let key = row.step_key.as_deref().and_then(|k| k.parse::<Hash>().ok());
+        if let (Some(key), Some(s)) = (
+            key,
+            scopes
+                .iter()
+                .find(|s| s.repository == row.repository && s.scope == TRUSTED),
+        ) {
+            let l = Ledger::open(&s.path)?;
+            if let Some(t) = l.trust(&key)? {
+                let k = (row.repository.clone(), key.hex());
+                let best = l.proofs_for_key(&key)?.iter().map(|p| p.streak).max();
+                streaks.insert(k.clone(), best.unwrap_or(0));
+                recent_div.insert(k.clone(), l.recent_divergences(&key, TRAILING_AUDITS)?);
+                trust.insert(k, t);
+            }
+        }
+        let mut rows = vec![];
+        if let Some(src) = &row.source_run
+            && let Some(n) = app.store.activity(team)?.run_number_of(src)?
+        {
+            rows.push(StepRow {
+                quod_run: src.clone(),
+                run_number: Some(n),
+                ..StepRow::default()
+            });
+        }
+        let cfg = app.auth.team(team).cloned();
+        Ok(TeamData {
+            rows,
+            repos,
+            trust,
+            streaks,
+            audits: vec![],
+            recent_div,
+            proofs: cfg
+                .as_ref()
+                .map_or(quod_trust::DEFAULT_PROOFS, |t| t.policy.proofs),
+            writes: vec![],
+            team: cfg,
+            id: team.to_string(),
+        })
+    }
+
     fn slug(&self, repository: &str) -> String {
         slug(repository, &self.repos)
     }
@@ -939,10 +992,10 @@ fn inputs(app: &App, team: &str, repo: &str, row: Option<&StepRow>) -> Result<Va
         return Ok(counts);
     };
     let scope = &row.unwrap().scope;
-    if !app.store.has_ledger(team, repo, scope) {
+    let Some(l) = app.store.ledger_by_name(team, repo, scope)? else {
         return Ok(counts);
-    }
-    if let Some(m) = app.store.ledger(team, repo, scope)?.manifest(&mid)? {
+    };
+    if let Some(m) = l.manifest(&mid)? {
         let n = |k: Kind| m.entries.iter().filter(|e| e.k == k).count();
         counts["filesRead"] = json!(n(Kind::File) + n(Kind::Symlink));
         counts["foldersListed"] = json!(n(Kind::Dir));
@@ -1054,7 +1107,7 @@ pub fn step_finished_event(
     row: &StepRow,
     _state: Option<TrustState>,
 ) -> Value {
-    let d = TeamData::load(app, team).unwrap_or(TeamData {
+    let d = TeamData::for_row(app, team, row).unwrap_or_else(|_| TeamData {
         rows: vec![],
         repos: [row.repository.clone()].into(),
         trust: BTreeMap::new(),
