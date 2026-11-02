@@ -278,7 +278,8 @@ pub const DENYLIST: &[&str] = &[
 ];
 
 /// Variables a GitHub Actions step has whose values change from run to run
-/// or commit to commit (run ids, the commit, actors, tokens, the event).
+/// or commit to commit (run ids, the commit, actors, tokens, the event's
+/// payload).
 /// The runner hooks (quod-hooks) build their own keys: they leave these out
 /// of the key, withhold them from keyed steps (or give a fixed placeholder)
 /// and record the names in the manifest as present-but-unkeyed. The CLI
@@ -290,7 +291,6 @@ pub const VOLATILE: &[&str] = &[
     "GITHUB_ACTOR",
     "GITHUB_ACTOR_ID",
     "GITHUB_TRIGGERING_ACTOR",
-    "GITHUB_EVENT_NAME",
     "GITHUB_EVENT_PATH",
     "GITHUB_WORKFLOW_SHA",
     "GITHUB_WORKFLOW_REF",
@@ -309,7 +309,10 @@ pub const VOLATILE: &[&str] = &[
 ///
 /// Not volatile: `GITHUB_REF*`, `GITHUB_HEAD_REF`, `GITHUB_BASE_REF`. They
 /// vary by branch, not by run: keyed, a branch's runs replay each other and
-/// another branch's are another key. Withheld, they would make every step
+/// another branch's are another key. Nor `GITHUB_EVENT_NAME`: a handful of
+/// values (push, pull_request, schedule, ...), the same for every run of a
+/// trigger, and one libraries branch on (ci-info's `isPR`, which jest
+/// vendors); keyed, a step gets the real one. Withheld, they would make every step
 /// whose code names them (any action bundling `@actions/cache`) unable to
 /// replay, since a keyed step never runs without a variable its code names.
 pub const VOLATILE_PREFIXES: &[&str] = &["GITHUB_RUN_", "RUNNER_", "ACTIONS_"];

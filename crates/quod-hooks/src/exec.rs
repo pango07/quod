@@ -171,7 +171,7 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     let mut ws_lowers: Vec<&Path> = x.ws_layers.iter().map(PathBuf::as_path).collect();
     ws_lowers.push(served.mountpoint());
     let upper = x.step_dir.join("upper");
-    let ov = quod_fs::overlay_layers(
+    let mut ov = quod_fs::overlay_layers(
         &ws_lowers,
         &upper,
         &x.step_dir.join("work"),
@@ -327,6 +327,17 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     };
     let r = quod_sandbox::run(&rs);
     let phases_exec = t.elapsed();
+    // Install-time bytecode the step wrote with its source, made the same
+    // bytes on every run (`hash_install_pycs`). Only for what may be stored
+    // (the hermetic and network surfaces): the runner's surface keeps
+    // exactly what the step wrote. The upper dir is edited unmounted.
+    if x.keep == Keep::Store && r.is_ok() {
+        ov.unmount().context("unmount workspace overlay")?;
+        let n = hash_install_pycs(&upper)?;
+        if n > 0 {
+            tracing::info!(target: "quod", pycs = n, "install-time bytecode made hash-based");
+        }
+    }
     // A value the step registered with `::add-mask::` (the runner reads both
     // streams) is a secret from now on: masked in what is stored of this
     // run, and the run's workspace writes are kept as a layer.
@@ -458,6 +469,9 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
     let mut root_layer = None;
     if let Some(o) = root_ov {
         o.release().context("unmount image root overlay")?;
+        if let Some(r) = x.rootfs {
+            drop_image_bytecode(&r.dir, x.root_layers, &root_upper)?;
+        }
         let skeleton: BTreeSet<PathBuf> = rs
             .mounts
             .iter()
@@ -516,6 +530,404 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
             diff: phases_diff,
         },
     })
+}
+
+/// Takes out of a step's root upper dir the bytecode Python wrote for the
+/// image's own modules, and the directories it made or copied up for
+/// nothing else: they are not a write outside the workspace.
+///
+/// The official python image ships its stdlib without `.pyc` files, so the
+/// first import of a module writes `__pycache__/<name>.<tag>.pyc` next to
+/// it under /usr/local, and the step looked like it wrote outside the
+/// workspace: its root upper became a layer and every later step of the
+/// job was tainted. Such a file is a pure cache of an image file: a
+/// timestamp pyc whose header names the source's mtime and size, which
+/// Python checks on every import and recompiles from the source when they
+/// differ, so a later step that does not find it behaves exactly as one
+/// that does (it compiles the same source with the same interpreter, and
+/// writes the same file again). Only that is dropped: a pyc whose source is
+/// not the image's own (the step wrote or replaced it, or an earlier step's
+/// layer did), whose header does not validate against the image's source,
+/// a hash-based pyc, anything not named as Python names its cache, and
+/// every other write stay, and still make a layer.
+///
+/// The header proves the pyc was compiled from the image's source only as
+/// far as the source's mtime tells that file apart. An image whose sources
+/// carry no mtime information (a reproducible build clamps them all to 0, 1
+/// or 1980, or to one SOURCE_DATE_EPOCH) leaves the size alone to check, so
+/// for such a source nothing is dropped (`MtimePools::informative`): the
+/// step makes a layer, as before this function existed. Residual: a step
+/// that writes a pyc whose header validates against an informative mtime
+/// but whose code is not its source's (deliberately; Python never does) has
+/// it dropped, so a later step runs the source where a container would have
+/// run that code.
+fn drop_image_bytecode(image: &Path, layers: &[PathBuf], upper: &Path) -> anyhow::Result<()> {
+    let mut caches = Vec::new();
+    find_pycache_dirs(upper, upper, &mut caches);
+    let mut touched: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut pools = MtimePools::default();
+    for rel_dir in caches {
+        let dir = upper.join(&rel_dir);
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for item in rd.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            let Some(stem) = pyc_source_stem(&name) else {
+                continue;
+            };
+            let parent = rel_dir.parent().unwrap_or(Path::new(""));
+            let src_rel = parent.join(format!("{stem}.py"));
+            // The source must be the image's own, untouched by this step or
+            // an earlier one.
+            if upper_has(upper, &src_rel)
+                || layers.iter().any(|l| upper_has(l, &src_rel))
+                || layers.iter().any(|l| hides(l, &src_rel))
+                || hides(upper, &src_rel)
+            {
+                continue;
+            }
+            let Ok(src) = std::fs::symlink_metadata(image.join(&src_rel)) else {
+                continue;
+            };
+            if !src.is_file() || !pools.informative(image, &src_rel, &src) {
+                continue;
+            }
+            let pyc = item.path();
+            if valid_timestamp_pyc(&pyc, &src) {
+                std::fs::remove_file(&pyc).with_context(|| format!("remove {}", pyc.display()))?;
+                touched.insert(rel_dir.clone());
+            }
+        }
+    }
+    // The directories that held them, then their parents, while each is
+    // empty and adds nothing to the image: a `__pycache__` the step made,
+    // or a directory copied up from the image unchanged.
+    for rel_dir in touched {
+        let mut rel = rel_dir;
+        loop {
+            let d = upper.join(&rel);
+            let empty = std::fs::read_dir(&d).is_ok_and(|mut r| r.next().is_none());
+            let opaque = quod_fs::is_opaque_dir(&d).unwrap_or(true);
+            let in_image = std::fs::symlink_metadata(image.join(&rel)).ok();
+            let made_cache = in_image.is_none()
+                && rel.file_name().is_some_and(|n| n == "__pycache__")
+                && !layers.iter().any(|l| l.join(&rel).exists());
+            let copied_up = in_image
+                .as_ref()
+                .is_some_and(|i| i.is_dir() && same_owner_and_mode(i, &d));
+            if !empty || opaque || !(made_cache || copied_up) {
+                break;
+            }
+            std::fs::remove_dir(&d).with_context(|| format!("remove {}", d.display()))?;
+            match rel.parent() {
+                Some(p) if !p.as_os_str().is_empty() => rel = p.to_path_buf(),
+                _ => break,
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The latest mtime a reproducible build clamps files to (1980-01-01, the
+/// ZIP epoch; Nix uses 1, others 0): at or before it, an mtime says nothing.
+const CLAMPED_MTIME: i64 = 315_532_800;
+
+/// Whether an image source's mtime tells it apart from other sources
+/// (`drop_image_bytecode`), judged over the `.py` files of the image tree it
+/// belongs to (its innermost ancestor named `python*`, such as
+/// `usr/local/lib/python3.12`, else its directory), counted once per call.
+/// Not informative: an mtime at or before `CLAMPED_MTIME`, or one that 90%
+/// or more of that tree's sources share (a build that set them all to its
+/// SOURCE_DATE_EPOCH). The official python:3.12-slim image's 1,097 stdlib
+/// sources have 5 distinct mtimes, the most common held by 40% (a `make
+/// install` over several seconds), so its bytecode is still dropped.
+#[derive(Default)]
+struct MtimePools {
+    /// Tree -> (its `.py` files, how many have each mtime).
+    pools: BTreeMap<PathBuf, (usize, BTreeMap<i64, usize>)>,
+}
+
+impl MtimePools {
+    fn informative(&mut self, image: &Path, src_rel: &Path, src: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let mtime = src.mtime();
+        if mtime <= CLAMPED_MTIME {
+            return false;
+        }
+        let parent = src_rel.parent().unwrap_or(Path::new(""));
+        let root = parent
+            .ancestors()
+            .find(|a| {
+                a.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("python"))
+            })
+            .unwrap_or(parent)
+            .to_path_buf();
+        let (total, by_mtime) = self.pools.entry(root.clone()).or_insert_with(|| {
+            let mut pool = (0, BTreeMap::new());
+            count_py_mtimes(&image.join(&root), &mut pool);
+            pool
+        });
+        let same = by_mtime.get(&mtime).copied().unwrap_or(0);
+        !(*total >= 2 && same * 10 >= *total * 9)
+    }
+}
+
+/// Counts the regular `.py` files under `dir` by mtime (symlinks are not
+/// followed).
+fn count_py_mtimes(dir: &Path, pool: &mut (usize, BTreeMap<i64, usize>)) {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for item in rd.flatten() {
+        let Ok(t) = item.file_type() else {
+            continue;
+        };
+        if t.is_dir() {
+            count_py_mtimes(&item.path(), pool);
+        } else if t.is_file()
+            && item.file_name().to_string_lossy().ends_with(".py")
+            && let Ok(m) = item.metadata()
+        {
+            pool.0 += 1;
+            *pool.1.entry(m.mtime()).or_insert(0) += 1;
+        }
+    }
+}
+
+/// `__pycache__` directories under `dir`, relative to `base`.
+fn find_pycache_dirs(base: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for item in rd.flatten() {
+        if !item.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let path = item.path();
+        if item.file_name() == "__pycache__" {
+            out.push(path.strip_prefix(base).unwrap().to_path_buf());
+        } else {
+            find_pycache_dirs(base, &path, out);
+        }
+    }
+}
+
+/// The module a cache file is named after: `<stem>.<tag>.pyc` or
+/// `<stem>.<tag>.opt-<n>.pyc` (PEP 3147, PEP 488), `<tag>` an interpreter
+/// tag such as `cpython-312`.
+fn pyc_source_stem(name: &str) -> Option<&str> {
+    let base = name.strip_suffix(".pyc")?;
+    let base = match base.rsplit_once(".opt-") {
+        Some((b, n)) if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => b,
+        _ => base,
+    };
+    let (stem, tag) = base.rsplit_once('.')?;
+    let tagged = tag.split_once('-').is_some_and(|(imp, ver)| {
+        !imp.is_empty()
+            && imp.bytes().all(|c| c.is_ascii_alphanumeric())
+            && !ver.is_empty()
+            && ver.bytes().all(|c| c.is_ascii_digit())
+    });
+    (tagged && !stem.is_empty()).then_some(stem)
+}
+
+/// Is `pyc` a regular file whose header (PEP 552: magic ending `\r\n`,
+/// flags 0, the source's mtime and size, each as 32 bits) validates
+/// against `src`, as Python checks it on import?
+fn valid_timestamp_pyc(pyc: &Path, src: &std::fs::Metadata) -> bool {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
+    let Ok(m) = std::fs::symlink_metadata(pyc) else {
+        return false;
+    };
+    if !m.is_file() || m.nlink() != 1 {
+        return false;
+    }
+    let mut h = [0u8; 16];
+    let Ok(mut f) = std::fs::File::open(pyc) else {
+        return false;
+    };
+    if f.read_exact(&mut h).is_err() {
+        return false;
+    }
+    let u32_at = |i: usize| u32::from_le_bytes([h[i], h[i + 1], h[i + 2], h[i + 3]]);
+    h[2..4] == *b"\r\n"
+        && u32_at(4) == 0
+        && u32_at(8) == src.mtime() as u32
+        && u32_at(12) == src.size() as u32
+}
+
+/// Does `upper` hold `rel` itself (a write, or a whiteout for it)?
+fn upper_has(upper: &Path, rel: &Path) -> bool {
+    std::fs::symlink_metadata(upper.join(rel)).is_ok()
+}
+
+/// Does `upper` hide `rel` from below: one of its ancestors is replaced by
+/// something else, or is an opaque directory?
+fn hides(upper: &Path, rel: &Path) -> bool {
+    rel.ancestors()
+        .skip(1)
+        .filter(|a| !a.as_os_str().is_empty())
+        .any(|a| match std::fs::symlink_metadata(upper.join(a)) {
+            Ok(m) if m.is_dir() => quod_fs::is_opaque_dir(&upper.join(a)).unwrap_or(true),
+            Ok(_) => true,
+            Err(_) => false,
+        })
+}
+
+fn same_owner_and_mode(a: &std::fs::Metadata, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(b)
+        .is_ok_and(|b| b.mode() == a.mode() && b.uid() == a.uid() && b.gid() == a.gid())
+}
+
+/// Rewrites, in a step's workspace upper dir, each timestamp pyc the step
+/// wrote together with its source as a checked-hash pyc (PEP 552) of the
+/// same code; returns how many.
+///
+/// Why: pip (and uv with UV_COMPILE_BYTECODE) compile what they install with
+/// py_compile, and without SOURCE_DATE_EPOCH (GitHub sets none) a timestamp
+/// pyc embeds its source's mtime, the install step's wall clock. An install
+/// re-runs on every job (it fetches, so it is never replayed), wrote new pyc
+/// bytes each time, and every step that imported them read new inputs and
+/// missed. A checked-hash pyc holds the source's hash instead: the same
+/// bytes for the same source and interpreter.
+///
+/// Python's own semantics are kept. Only a pyc whose header validates
+/// against its source as the step left it (magic ending `\r\n`, flags 0,
+/// the source's mtime and size) is rewritten, so the code in it is what
+/// Python would have used for that source after the step; a checked-hash
+/// pyc is validated on every import against the source's content (Python
+/// recompiles it when they differ), as the timestamp one was against the
+/// mtime. Later steps see the source with the observed tree's content
+/// mtime, not the install's, so without this they recompiled it anyway.
+/// The hash is CPython's `importlib.util.source_hash` (SipHash keyed with
+/// the magic number: 2-4 up to 3.10, 1-3 from 3.11); a magic number this
+/// does not know is left alone, and a wrong hash only makes Python
+/// recompile. What differs from GitHub: the pyc's bytes (its header), never
+/// what runs.
+fn hash_install_pycs(upper: &Path) -> anyhow::Result<usize> {
+    let mut caches = Vec::new();
+    find_pycache_dirs(upper, upper, &mut caches);
+    let mut n = 0;
+    for rel_dir in caches {
+        let Ok(rd) = std::fs::read_dir(upper.join(&rel_dir)) else {
+            continue;
+        };
+        let parent = rel_dir.parent().unwrap_or(Path::new("")).to_path_buf();
+        for item in rd.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            let Some(stem) = pyc_source_stem(&name) else {
+                continue;
+            };
+            // The source, written (or copied up) by this step.
+            let src = upper.join(&parent).join(format!("{stem}.py"));
+            let Ok(sm) = std::fs::symlink_metadata(&src) else {
+                continue;
+            };
+            if sm.is_file() && rehash_pyc(&item.path(), &src, &sm)? {
+                n += 1;
+            }
+        }
+    }
+    Ok(n)
+}
+
+/// `hash_install_pycs` for one pyc and its source.
+fn rehash_pyc(pyc: &Path, src: &Path, sm: &std::fs::Metadata) -> anyhow::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(m) = std::fs::symlink_metadata(pyc) else {
+        return Ok(false);
+    };
+    if !m.is_file() || m.nlink() != 1 {
+        return Ok(false);
+    }
+    let mut b = std::fs::read(pyc).with_context(|| format!("read {}", pyc.display()))?;
+    let u32_at = |b: &[u8], i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    if b.len() < 16
+        || b[2..4] != *b"\r\n"
+        || u32_at(&b, 4) != 0
+        || u32_at(&b, 8) != sm.mtime() as u32
+        || u32_at(&b, 12) != sm.size() as u32
+    {
+        return Ok(false);
+    }
+    let source = std::fs::read(src).with_context(|| format!("read {}", src.display()))?;
+    if source.len() as u64 != sm.size() {
+        return Ok(false);
+    }
+    let Some(hash) = pyc_source_hash(b[..4].try_into().unwrap(), &source) else {
+        return Ok(false);
+    };
+    // Flags: hash-based (bit 0), checked against the source (bit 1).
+    b[4..8].copy_from_slice(&3u32.to_le_bytes());
+    b[8..16].copy_from_slice(&hash);
+    std::fs::write(pyc, &b).with_context(|| format!("write {}", pyc.display()))?;
+    Ok(true)
+}
+
+/// CPython's `importlib.util.source_hash(source)` for the interpreter whose
+/// pyc magic number is `magic`: SipHash of the source keyed with the magic
+/// number (k0, little-endian) and 0 (k1), as 8 little-endian bytes;
+/// SipHash-2-4 for 3.7-3.10 (magic 3394-3439), SipHash-1-3 from 3.11
+/// (3495 on). `None` for another magic number (an older CPython, 3.11's
+/// pre-releases, another implementation).
+fn pyc_source_hash(magic: [u8; 4], source: &[u8]) -> Option<[u8; 8]> {
+    if magic[2..4] != *b"\r\n" {
+        return None;
+    }
+    let version = u16::from_le_bytes([magic[0], magic[1]]);
+    let (c, d) = match version {
+        3394..=3439 => (2, 4),
+        3495..=3999 => (1, 3),
+        _ => return None,
+    };
+    Some(siphash(c, d, u64::from(u32::from_le_bytes(magic)), 0, source).to_le_bytes())
+}
+
+/// SipHash-c-d (Aumasson and Bernstein) of `data` under the key (k0, k1).
+fn siphash(c: usize, d: usize, k0: u64, k1: u64, data: &[u8]) -> u64 {
+    let mut v = [
+        k0 ^ 0x736f_6d65_7073_6575,
+        k1 ^ 0x646f_7261_6e64_6f6d,
+        k0 ^ 0x6c79_6765_6e65_7261,
+        k1 ^ 0x7465_6462_7974_6573,
+    ];
+    let round = |v: &mut [u64; 4]| {
+        v[0] = v[0].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(13) ^ v[0];
+        v[0] = v[0].rotate_left(32);
+        v[2] = v[2].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(16) ^ v[2];
+        v[0] = v[0].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(21) ^ v[0];
+        v[2] = v[2].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(17) ^ v[2];
+        v[2] = v[2].rotate_left(32);
+    };
+    let compress = |v: &mut [u64; 4], m: u64| {
+        v[3] ^= m;
+        for _ in 0..c {
+            round(v);
+        }
+        v[0] ^= m;
+    };
+    let (words, rest) = data.as_chunks::<8>();
+    for w in words {
+        compress(&mut v, u64::from_le_bytes(*w));
+    }
+    let mut last = [0u8; 8];
+    last[..rest.len()].copy_from_slice(rest);
+    last[7] = data.len() as u8;
+    compress(&mut v, u64::from_le_bytes(last));
+    v[2] ^= 0xff;
+    for _ in 0..d {
+        round(&mut v);
+    }
+    v[0] ^ v[1] ^ v[2] ^ v[3]
 }
 
 /// Every path in a root upper dir that is not a mount point bubblewrap
@@ -1338,5 +1750,302 @@ mod tests {
             out.into_iter().collect::<Vec<_>>(),
             ["go", "go/pkg", "go/pkg/mod", "go/pkg/mod/x"]
         );
+    }
+
+    /// The python image's stdlib bytecode, written at a step's first import
+    /// under /usr/local, is no write outside the workspace; any other write
+    /// there still is (the finding on real Python jobs).
+    #[test]
+    fn image_bytecode_is_no_write_outside_the_workspace() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let tmp = tempfile::tempdir().unwrap();
+        let image = tmp.path().join("image");
+        let upper = tmp.path().join("upper");
+        let lib = "usr/local/lib/python3.12";
+        let src = |rel: &str, body: &str, mtime: u64| {
+            let p = image.join(lib).join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+                .unwrap();
+        };
+        src("os.py", "import abc\n", 1_700_000_000);
+        src("json/__init__.py", "x = 1\n", 1_700_000_100);
+        src("site.py", "y = 2\n", 1_700_000_200);
+        src("mod3.py", "z = 3\n", 1_700_000_300);
+        std::fs::create_dir_all(image.join(lib).join("__pycache__")).unwrap();
+        let pyc = |rel: &str, mtime: u32, size: u32| {
+            let p = upper.join(lib).join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            let mut b = vec![0xcb, 0x0d, b'\r', b'\n', 0, 0, 0, 0];
+            b.extend_from_slice(&mtime.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(b"code");
+            std::fs::write(p, b).unwrap();
+        };
+        // Copied-up directories carry the image's modes, as overlayfs makes
+        // them.
+        let copy_up = |rel: &str| {
+            use std::os::unix::fs::PermissionsExt;
+            let mut acc = PathBuf::new();
+            for c in Path::new(rel).components() {
+                acc.push(c);
+                let (i, u) = (image.join(&acc), upper.join(&acc));
+                std::fs::create_dir_all(&u).unwrap();
+                let mode = std::fs::metadata(&i).unwrap().permissions().mode();
+                std::fs::set_permissions(&u, std::fs::Permissions::from_mode(mode)).unwrap();
+            }
+        };
+        copy_up(lib);
+        copy_up(&format!("{lib}/json"));
+        let writes = |upper: &Path| {
+            let mut out = BTreeSet::new();
+            walk_upper(upper, upper, &BTreeSet::new(), &mut out).unwrap();
+            out.into_iter().collect::<Vec<_>>()
+        };
+        // Only the image's own bytecode: nothing is left, so no layer.
+        pyc("__pycache__/os.cpython-312.pyc", 1_700_000_000, 11);
+        pyc(
+            "json/__pycache__/__init__.cpython-312.pyc",
+            1_700_000_100,
+            6,
+        );
+        pyc("__pycache__/site.cpython-312.opt-1.pyc", 1_700_000_200, 6);
+        drop_image_bytecode(&image, &[], &upper).unwrap();
+        assert!(writes(&upper).is_empty(), "{:?}", writes(&upper));
+
+        // Anything else stays.
+        copy_up(lib);
+        pyc("__pycache__/os.cpython-312.pyc", 1_700_000_000, 11);
+        // A header that does not validate against the image's source.
+        pyc("__pycache__/site.cpython-312.pyc", 1_700_000_201, 6);
+        // No source in the image.
+        pyc("__pycache__/evil.cpython-312.pyc", 1_700_000_000, 11);
+        // A source the step replaced.
+        std::fs::write(upper.join(lib).join("mod3.py"), "z = 4\n").unwrap();
+        pyc("__pycache__/mod3.cpython-312.pyc", 1_700_000_300, 6);
+        // Not named as Python names its cache, and not bytecode at all.
+        pyc("__pycache__/os.pyc", 1_700_000_000, 11);
+        std::fs::write(upper.join(lib).join("__pycache__/notes.txt"), "n").unwrap();
+        // A hash-based pyc (flags 3) is not checked against a timestamp.
+        let mut hashed = vec![0xcb, 0x0d, b'\r', b'\n', 3, 0, 0, 0];
+        hashed.extend_from_slice(&[0; 8]);
+        std::fs::write(
+            upper.join(lib).join("__pycache__/json.cpython-312.pyc"),
+            hashed,
+        )
+        .unwrap();
+        // A write elsewhere.
+        std::fs::create_dir_all(upper.join("etc")).unwrap();
+        std::fs::write(upper.join("etc/motd"), "hi").unwrap();
+        drop_image_bytecode(&image, &[], &upper).unwrap();
+        let w = writes(&upper);
+        let p = |r: &str| format!("{lib}/{r}");
+        for kept in [
+            p("__pycache__/site.cpython-312.pyc"),
+            p("__pycache__/evil.cpython-312.pyc"),
+            p("mod3.py"),
+            p("__pycache__/mod3.cpython-312.pyc"),
+            p("__pycache__/os.pyc"),
+            p("__pycache__/notes.txt"),
+            p("__pycache__/json.cpython-312.pyc"),
+            "etc/motd".to_string(),
+        ] {
+            assert!(w.contains(&kept), "{kept} kept: {w:?}");
+        }
+        assert!(
+            !w.contains(&p("__pycache__/os.cpython-312.pyc")),
+            "the image's own os bytecode dropped: {w:?}"
+        );
+
+        // A source an earlier step's layer replaced is not the image's.
+        let layer = tmp.path().join("layer");
+        std::fs::create_dir_all(layer.join(lib)).unwrap();
+        std::fs::write(layer.join(lib).join("os.py"), "import abc\n").unwrap();
+        let upper2 = tmp.path().join("upper2");
+        std::fs::create_dir_all(upper2.join(lib).join("__pycache__")).unwrap();
+        std::fs::copy(
+            upper.join(lib).join("__pycache__/site.cpython-312.pyc"),
+            upper2.join(lib).join("__pycache__/x.cpython-312.pyc"),
+        )
+        .unwrap();
+        let mut b = vec![0xcb, 0x0d, b'\r', b'\n', 0, 0, 0, 0];
+        b.extend_from_slice(&1_700_000_000u32.to_le_bytes());
+        b.extend_from_slice(&11u32.to_le_bytes());
+        std::fs::write(upper2.join(lib).join("__pycache__/os.cpython-312.pyc"), &b).unwrap();
+        drop_image_bytecode(&image, &[layer], &upper2).unwrap();
+        assert!(
+            upper2
+                .join(lib)
+                .join("__pycache__/os.cpython-312.pyc")
+                .is_file()
+        );
+    }
+
+    /// M4 (Fable's review of 75ebbea): an image whose sources carry no
+    /// mtime information (all clamped to one value, or to 0) keeps the
+    /// bytecode a step wrote for them: a layer, as without the drop.
+    #[test]
+    fn uniform_mtime_images_keep_their_bytecode() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let lib = "usr/local/lib/python3.12";
+        let fixture = |mtimes: &[(&str, u64)]| {
+            let tmp = tempfile::tempdir().unwrap();
+            let (image, upper) = (tmp.path().join("image"), tmp.path().join("upper"));
+            for (name, mtime) in mtimes {
+                let p = image.join(lib).join(format!("{name}.py"));
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(&p, "x = 1\n").unwrap();
+                std::fs::File::options()
+                    .write(true)
+                    .open(&p)
+                    .unwrap()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(*mtime))
+                    .unwrap();
+                let pyc = upper
+                    .join(lib)
+                    .join(format!("__pycache__/{name}.cpython-312.pyc"));
+                std::fs::create_dir_all(pyc.parent().unwrap()).unwrap();
+                let mut b = vec![0xcb, 0x0d, b'\r', b'\n', 0, 0, 0, 0];
+                b.extend_from_slice(&(*mtime as u32).to_le_bytes());
+                b.extend_from_slice(&6u32.to_le_bytes());
+                std::fs::write(pyc, b).unwrap();
+            }
+            drop_image_bytecode(&image, &[], &upper).unwrap();
+            let left: Vec<String> = mtimes
+                .iter()
+                .map(|(n, _)| n.to_string())
+                .filter(|n| {
+                    upper
+                        .join(lib)
+                        .join(format!("__pycache__/{n}.cpython-312.pyc"))
+                        .exists()
+                })
+                .collect();
+            (tmp, left)
+        };
+        let t = 1_700_000_000;
+        // Every source has the same mtime (a build's SOURCE_DATE_EPOCH).
+        let (_t, left) = fixture(&[("a", t), ("b", t), ("c", t), ("d", t)]);
+        assert_eq!(left, ["a", "b", "c", "d"]);
+        // Clamped to the epoch, or to 1980: kept even alone.
+        let (_t, left) = fixture(&[("z", 0)]);
+        assert_eq!(left, ["z"]);
+        let (_t, left) = fixture(&[("z", CLAMPED_MTIME as u64)]);
+        assert_eq!(left, ["z"]);
+        // Informative mtimes (the official image: a few seconds of `make
+        // install`, the most common held by well under 90%): dropped.
+        let (_t, left) = fixture(&[("a", t), ("b", t), ("c", t + 1), ("d", t + 2)]);
+        assert!(left.is_empty(), "{left:?}");
+        // On old code (no mtime check) the uniform image's were dropped.
+    }
+
+    /// CPython's `importlib.util.source_hash`, as 3.9, 3.10, 3.11, 3.12 and
+    /// 3.14 print it (keyed with their magic numbers).
+    #[test]
+    fn pyc_source_hashes_are_cpythons() {
+        let hex = |b: [u8; 8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let magic = |h: &str| -> [u8; 4] {
+            let v: Vec<u8> = (0..4)
+                .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap())
+                .collect();
+            v.try_into().unwrap()
+        };
+        let long = "import os\nprint(os.getcwd())\n".repeat(7);
+        for (m, src, want) in [
+            ("610d0d0a", long.as_str(), "a16a3b2ed40727c6"),
+            ("6f0d0d0a", "x = 1\n", "d94aade28c8cbebf"),
+            ("a70d0d0a", "x = 1\n", "4c0372aa93f75252"),
+            ("cb0d0d0a", "x = 1\n", "1522561917f5df08"),
+            ("cb0d0d0a", "", "baf18eedc9387a25"),
+            ("cb0d0d0a", long.as_str(), "012632851a9fbc45"),
+            ("2b0e0d0a", "x = 1\n", "1db2b6325ca282a7"),
+        ] {
+            assert_eq!(
+                pyc_source_hash(magic(m), src.as_bytes())
+                    .map(hex)
+                    .as_deref(),
+                Some(want),
+                "{m} {src:?}"
+            );
+        }
+        // 3.11's pre-releases, pre-3.7, and no magic at all: not known.
+        assert_eq!(pyc_source_hash(magic("840d0d0a"), b""), None);
+        assert_eq!(pyc_source_hash(magic("330d0d0a"), b""), None);
+        assert_eq!(pyc_source_hash(*b"abcd", b""), None);
+    }
+
+    /// M2 (Fable's review of 75ebbea): the timestamp pyc an install step
+    /// writes with its source becomes a checked-hash pyc of the same code,
+    /// the same bytes on every run; anything else is left as written.
+    #[test]
+    fn install_pycs_become_checked_hash() {
+        use std::os::unix::fs::MetadataExt;
+        use std::time::{Duration, UNIX_EPOCH};
+        let run = |mtime: u64| {
+            let tmp = tempfile::tempdir().unwrap();
+            let upper = tmp.path().to_path_buf();
+            let pkg = upper.join(".venv/lib/python3.12/site-packages/pkg");
+            std::fs::create_dir_all(pkg.join("__pycache__")).unwrap();
+            let src = pkg.join("mod.py");
+            std::fs::write(&src, "x = 1\n").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&src)
+                .unwrap()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(mtime))
+                .unwrap();
+            let header = |mtime: u64| {
+                let mut b = vec![0xcb, 0x0d, b'\r', b'\n', 0, 0, 0, 0];
+                b.extend_from_slice(&(mtime as u32).to_le_bytes());
+                b.extend_from_slice(&6u32.to_le_bytes());
+                b.extend_from_slice(b"code");
+                b
+            };
+            let pyc = pkg.join("__pycache__/mod.cpython-312.pyc");
+            std::fs::write(&pyc, header(mtime)).unwrap();
+            // Does not validate against its source: left alone.
+            std::fs::write(pkg.join("other.py"), "y = 22\n").unwrap();
+            let stale = pkg.join("__pycache__/other.cpython-312.pyc");
+            std::fs::write(&stale, header(mtime)).unwrap();
+            // No source written by the step: left alone.
+            let orphan = pkg.join("__pycache__/gone.cpython-312.pyc");
+            std::fs::write(&orphan, header(mtime)).unwrap();
+            assert_eq!(hash_install_pycs(&upper).unwrap(), 1);
+            let read = |p: &Path| std::fs::read(p).unwrap();
+            assert_eq!(read(&stale), header(mtime));
+            assert_eq!(read(&orphan), header(mtime));
+            assert_eq!(std::fs::metadata(&pyc).unwrap().nlink(), 1);
+            (tmp, read(&pyc))
+        };
+        let (_a, a) = run(1_800_000_000);
+        let (_b, b) = run(1_800_000_777);
+        assert_eq!(a, b, "the same bytes whenever the install ran");
+        let mut want = vec![0xcb, 0x0d, b'\r', b'\n', 3, 0, 0, 0];
+        want.extend_from_slice(&0x08df_f517_1956_2215u64.to_le_bytes());
+        want.extend_from_slice(b"code");
+        assert_eq!(
+            a, want,
+            "flags 3 (checked hash), CPython 3.12's source hash"
+        );
+    }
+
+    #[test]
+    fn pyc_names() {
+        assert_eq!(pyc_source_stem("os.cpython-312.pyc"), Some("os"));
+        assert_eq!(pyc_source_stem("a.b.cpython-312.opt-2.pyc"), Some("a.b"));
+        assert_eq!(pyc_source_stem("__init__.pypy-73.pyc"), Some("__init__"));
+        for no in [
+            "os.pyc",
+            "os.cpython.pyc",
+            "os.cpython-312.py",
+            ".cpython-312.pyc",
+        ] {
+            assert_eq!(pyc_source_stem(no), None, "{no}");
+        }
     }
 }

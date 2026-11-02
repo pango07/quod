@@ -500,13 +500,14 @@ fn exempt(name: &str, value: &str) -> bool {
         || step::placeholder(name).is_some_and(|p| p == value)
 }
 
-/// `classify_with` for an environment no step has set anything in.
+/// `classify_with` for an environment no step has set anything in, in a
+/// job whose image defines no variables.
 pub fn classify<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
 ) -> Classified {
-    classify_with(env, provenance, known, &BTreeSet::new())
+    classify_with(env, provenance, known, &BTreeSet::new(), &BTreeMap::new())
 }
 
 /// Classifies a step's environment (see the module docs): by name, by
@@ -521,13 +522,27 @@ pub fn classify<'a>(
 /// `localhost` in a DSN). Such a held-by value is a secret of its step
 /// only, never one of the job's (`strong`): nothing cascades from it.
 /// `known` is the job's secrets so far (`JobSecrets::values`).
+///
+/// `image` is the job image's own config env (`Job::image_env`: empty
+/// unless the job's scope is trusted and its image pinned by digest or from
+/// a trusted registry, `job::image_env_exempts`). A variable
+/// whose value is exactly the image's is defined by the image, not by a
+/// workflow secret or the runner: the official python image's `GPG_KEY` is
+/// the public fingerprint its release was verified with. Its name and shape
+/// prove nothing about it (anyone who pulls the image reads it in the
+/// config, and the image's root, which holds it, is in the state already),
+/// so neither classifies it. Provenance and the job's known secrets still
+/// do: a workflow that maps a secret onto the same name with the same value
+/// is classified as before.
 pub fn classify_with<'a>(
     env: impl IntoIterator<Item = (&'a String, &'a String)>,
     provenance: &Provenance,
     known: &BTreeSet<String>,
     set_by_steps: &BTreeSet<String>,
+    image: &BTreeMap<String, String>,
 ) -> Classified {
     let env: Vec<(&String, &String)> = env.into_iter().collect();
+    let from_image = |k: &str, v: &str| image.get(k).is_some_and(|i| i == v);
     let computed =
         |k: &str| set_by_steps.contains(k) || provenance.derived.contains(&k.to_ascii_uppercase());
     let long = |s: &&String| s.len() >= MIN_SECRET_LEN;
@@ -545,7 +560,8 @@ pub fn classify_with<'a>(
         let held = v.len() >= MIN_SECRET_LEN
             && computed(k)
             && known_long.iter().any(|s| s.contains(v.as_str()));
-        if strong || held || step::secret_like(k) || step::looks_secret(v) {
+        let heuristic = !from_image(k, v) && (step::secret_like(k) || step::looks_secret(v));
+        if strong || held || heuristic {
             names.insert((*k).clone(), strong);
         }
     }
@@ -681,6 +697,95 @@ pub fn command_line_holds(output: &[u8], masks: &[Vec<u8>]) -> bool {
 pub struct JobSecrets {
     pub container_env: BTreeMap<String, String>,
     pub values: BTreeSet<String>,
+    /// Of each step that ran before the workflow's provenance could be
+    /// read (`Job::ensure_provenance`), what of its environment could still
+    /// be classified a secret (`pending_entries`): classified, and dropped
+    /// from this file, in the same write, once the provenance is read.
+    #[serde(default)]
+    pub pending_env: Vec<BTreeMap<String, String>>,
+}
+
+/// Variables the runner sets to the run's public metadata, never to a
+/// secret: a workflow cannot set them (the runner's own value wins), and
+/// none of them holds a credential. Not kept for later classification
+/// (`pending_entries`). The tokens the runner hands out
+/// (ACTIONS_RUNTIME_TOKEN, ACTIONS_ID_TOKEN_REQUEST_TOKEN, GITHUB_TOKEN)
+/// are not here: they are kept.
+const RUNNER_METADATA: &[&str] = &[
+    "CI",
+    "GITHUB_ACTION",
+    "GITHUB_ACTION_PATH",
+    "GITHUB_ACTION_REF",
+    "GITHUB_ACTION_REPOSITORY",
+    "GITHUB_ACTIONS",
+    "GITHUB_ACTOR",
+    "GITHUB_ACTOR_ID",
+    "GITHUB_API_URL",
+    "GITHUB_BASE_REF",
+    "GITHUB_ENV",
+    "GITHUB_EVENT_NAME",
+    "GITHUB_EVENT_PATH",
+    "GITHUB_GRAPHQL_URL",
+    "GITHUB_HEAD_REF",
+    "GITHUB_JOB",
+    "GITHUB_OUTPUT",
+    "GITHUB_PATH",
+    "GITHUB_REF",
+    "GITHUB_REF_NAME",
+    "GITHUB_REF_PROTECTED",
+    "GITHUB_REF_TYPE",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_RETENTION_DAYS",
+    "GITHUB_RUN_ATTEMPT",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_SERVER_URL",
+    "GITHUB_SHA",
+    "GITHUB_STATE",
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_TRIGGERING_ACTOR",
+    "GITHUB_WORKFLOW",
+    "GITHUB_WORKFLOW_REF",
+    "GITHUB_WORKFLOW_SHA",
+    "GITHUB_WORKSPACE",
+    "RUNNER_ARCH",
+    "RUNNER_DEBUG",
+    "RUNNER_ENVIRONMENT",
+    "RUNNER_NAME",
+    "RUNNER_OS",
+    "RUNNER_TEMP",
+    "RUNNER_TOOL_CACHE",
+    "RUNNER_WORKSPACE",
+];
+
+/// What `JobSecrets::pending_env` keeps of the environment of a step that
+/// ran before the provenance could be read: only what classifying it later
+/// can still need. Left out: an empty value or Quod's own placeholder
+/// (never classified), a variable the job container's env sets to the same
+/// value (classified with that env anyway), the runner's public metadata
+/// (`RUNNER_METADATA`), and a variable an earlier pending step had with the
+/// same value (classified with that step's, and a secret found there is a
+/// known secret of the job by the time the next is classified). That leaves
+/// the workflow's and the earlier steps' variables, PATH and HOME, and the
+/// runner's tokens: names provenance may make secrets, values a known secret
+/// may be held by.
+pub fn pending_entries(
+    env: &BTreeMap<String, String>,
+    container_env: &BTreeMap<String, String>,
+    earlier: &[BTreeMap<String, String>],
+) -> BTreeMap<String, String> {
+    env.iter()
+        .filter(|(k, v)| {
+            !exempt(k, v)
+                && container_env.get(*k) != Some(*v)
+                && !RUNNER_METADATA.contains(&k.as_str())
+                && !earlier.iter().any(|e| e.get(*k) == Some(*v))
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// Where a job's `JobSecrets` live: `/dev/shm/quod-<state hash>/<job>.json`.
@@ -776,6 +881,42 @@ impl JobSecrets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B2 (Fable's review of 75ebbea): the sidecar keeps, of a step before
+    /// the provenance, only what could still be classified a secret; before
+    /// it kept the whole environment.
+    #[test]
+    fn pending_keeps_only_what_could_classify() {
+        let container = env(&[("APP_ENV", "production-0123")]);
+        let step = env(&[
+            ("GITHUB_SHA", "0123456789abcdef0123456789abcdef01234567"),
+            ("GITHUB_REPOSITORY", "o/r"),
+            ("RUNNER_TEMP", "/__w/_temp"),
+            ("CI", "true"),
+            ("APP_ENV", "production-0123"),
+            ("EMPTY", ""),
+            ("GITHUB_RUN_ID", crate::surface::WITHHELD),
+            ("PLAIN", "correct horse battery staple"),
+            ("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "eyJhbGciOiJSUzI1NiJ9.x.y"),
+            ("PATH", "/usr/bin:/bin"),
+        ]);
+        let kept = pending_entries(&step, &container, &[]);
+        assert_eq!(
+            kept.keys().collect::<Vec<_>>(),
+            ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "PATH", "PLAIN"]
+        );
+        // A second step before the provenance: only what is new.
+        let next = env(&[
+            ("PLAIN", "correct horse battery staple"),
+            ("PATH", "/opt/bin:/usr/bin:/bin"),
+            ("COPY", "correct horse battery staple"),
+        ]);
+        let kept2 = pending_entries(&next, &container, &[kept]);
+        assert_eq!(kept2.keys().collect::<Vec<_>>(), ["COPY", "PATH"]);
+        // The container env's value under another value is kept.
+        let other = env(&[("APP_ENV", "staging-0123456")]);
+        assert_eq!(pending_entries(&other, &container, &[]).len(), 1);
+    }
 
     #[test]
     fn salt_is_stable_and_salting_hides_the_value() {
@@ -983,6 +1124,7 @@ mod tests {
         let s = JobSecrets {
             container_env: env(&[("K", "v-0123456789")]),
             values: ["v-0123456789".to_string()].into(),
+            pending_env: Vec::new(),
         };
         s.save(&state, &job, "J1").unwrap();
         let back = JobSecrets::load(&state, &job, "J1").unwrap();
@@ -1072,6 +1214,7 @@ mod tests {
             &Provenance::default(),
             &known,
             &set,
+            &BTreeMap::new(),
         );
         assert_eq!(c.names, ["DB_PASS"]);
         assert!(c.strong.is_empty(), "a secret of its step, not of the job");
@@ -1083,6 +1226,7 @@ mod tests {
             &prov(&["APP_DSN"]),
             &BTreeSet::new(),
             &set,
+            &BTreeMap::new(),
         );
         assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
         assert_eq!(mask_str("pw=pa55word-x9", &c.masks), "pw=***");
@@ -1098,6 +1242,73 @@ mod tests {
             &BTreeSet::new(),
         );
         assert_eq!(c.names, ["APP_DSN", "DB_PASS"]);
+    }
+
+    /// A variable the job image itself defines (the official python
+    /// image's GPG_KEY, a public key fingerprint) is no secret by its name
+    /// or shape; the same name with another value (the workflow's), or one
+    /// the workflow maps from a secret, still is.
+    #[test]
+    fn the_image_s_own_variables_are_no_secrets_by_name() {
+        let fpr = "7169605F62C751356D054A26A821E680E5FA6305";
+        let image: BTreeMap<String, String> = [
+            ("GPG_KEY".to_string(), fpr.to_string()),
+            (
+                "IMAGE_TOKEN".to_string(),
+                "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye".to_string(),
+            ),
+        ]
+        .into();
+        let none = BTreeSet::new();
+        let c = classify_with(
+            &env(&[
+                ("GPG_KEY", fpr),
+                ("IMAGE_TOKEN", "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye"),
+            ]),
+            &Provenance::default(),
+            &none,
+            &none,
+            &image,
+        );
+        assert!(c.names.is_empty(), "{:?}", c.names);
+        // Without the image's definition: classified by name and shape.
+        let c = classify(
+            &env(&[
+                ("GPG_KEY", fpr),
+                ("IMAGE_TOKEN", "q8Zr2xLm4Np7Vt1Ks9Wd3Fh6Jb0Gc5Ye"),
+            ]),
+            &Provenance::default(),
+            &none,
+        );
+        assert_eq!(c.names, ["GPG_KEY", "IMAGE_TOKEN"]);
+        // The workflow overrides it: its value is not the image's.
+        let c = classify_with(
+            &env(&[("GPG_KEY", "another-key-0123456789")]),
+            &Provenance::default(),
+            &none,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
+        // Provenance wins: the workflow maps a secret onto it.
+        let c = classify_with(
+            &env(&[("GPG_KEY", fpr)]),
+            &prov(&["GPG_KEY"]),
+            &none,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
+        // So does a known secret of the job with that value.
+        let known: BTreeSet<String> = [fpr.to_string()].into();
+        let c = classify_with(
+            &env(&[("GPG_KEY", fpr)]),
+            &Provenance::default(),
+            &known,
+            &none,
+            &image,
+        );
+        assert_eq!(c.names, ["GPG_KEY"]);
     }
 
     /// R1 (verification of 42c4498): configuration a structured secret

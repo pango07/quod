@@ -93,7 +93,33 @@ const MIGRATIONS: &[&str] = &[
     // the key has since made up for it).
     "CREATE TABLE audits_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, step_key TEXT NOT NULL, manifest_id TEXT NOT NULL, hit_run TEXT NOT NULL, replay_run TEXT NOT NULL, nth INTEGER NOT NULL, tree TEXT NOT NULL, request BLOB NOT NULL, state TEXT NOT NULL, enqueued_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, claimed_at TEXT, claimed_by TEXT, finished_at TEXT, audit_id INTEGER, detail TEXT, repaid INTEGER NOT NULL DEFAULT 0);
      CREATE INDEX audits_pending_by_key ON audits_pending (step_key, state);",
+    // v8: the runner hooks' memory of steps that need the network (one row
+    // per step key): such a step reached for the network offline, so the
+    // next runs skip the offline try and go straight to the surface it
+    // ended on (`surface`: `network` or `runner`); `skipped` counts those
+    // runs since the last offline try, and every so often a run tries
+    // offline again (a step that no longer needs the network records
+    // again, and its row goes). `inputs` is what the offline try that set
+    // the row read (the workspace paths, as a JSON array) and `digest` their
+    // state then: a run whose tree differs on those paths tries offline
+    // again, since its need for the network may depend on them.
+    "CREATE TABLE network (step_key TEXT PRIMARY KEY, surface TEXT NOT NULL, reason TEXT NOT NULL, skipped INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, inputs TEXT, digest TEXT);",
 ];
+
+/// A step key that needs the network (`Ledger::network`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkRow {
+    /// Where it ran after its offline try: `network` (the fetch surface)
+    /// or `runner`.
+    pub surface: String,
+    pub reason: String,
+    /// Runs that skipped the offline try since it was last made.
+    pub skipped: u32,
+    /// What that offline try read (the caller's encoding), and a digest of
+    /// it as it was then (`None`: unknown, so never the same inputs).
+    pub inputs: Option<String>,
+    pub digest: Option<String>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum LedgerError {
@@ -668,6 +694,66 @@ impl Ledger {
 
     pub fn put_result(&self, r: &StepResult) -> Result<(), LedgerError> {
         insert_result(&self.db, r)
+    }
+
+    /// If `step_key` needs the network (see migration v8): the surface it
+    /// ended on, why, and how many runs have skipped the offline try since
+    /// it was last made.
+    pub fn network(&self, step_key: &Hash) -> Result<Option<NetworkRow>, LedgerError> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT surface, reason, skipped, inputs, digest FROM network WHERE step_key = ?1",
+                [step_key.to_string()],
+                |r| {
+                    Ok(NetworkRow {
+                        surface: r.get(0)?,
+                        reason: r.get(1)?,
+                        skipped: r.get::<_, i64>(2)?.max(0) as u32,
+                        inputs: r.get(3)?,
+                        digest: r.get(4)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// `step_key` reached for the network on its offline try, which read
+    /// `inputs` (in the state `digest` names), and ran again on `surface`:
+    /// the next runs on the same inputs skip that try (`skipped` starts
+    /// again at 0).
+    pub fn mark_network(
+        &self,
+        step_key: &Hash,
+        surface: &str,
+        reason: &str,
+        inputs: &str,
+        digest: &str,
+    ) -> Result<(), LedgerError> {
+        self.db.execute(
+            "INSERT INTO network (step_key, surface, reason, skipped, updated_at, inputs, digest) VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6)
+             ON CONFLICT (step_key) DO UPDATE SET surface = ?2, reason = ?3, skipped = 0, updated_at = ?4, inputs = ?5, digest = ?6",
+            params![step_key.to_string(), surface, reason, now_rfc3339(), inputs, digest],
+        )?;
+        Ok(())
+    }
+
+    /// One more run of `step_key` skipped its offline try.
+    pub fn network_skipped(&self, step_key: &Hash) -> Result<(), LedgerError> {
+        self.db.execute(
+            "UPDATE network SET skipped = skipped + 1, updated_at = ?2 WHERE step_key = ?1",
+            params![step_key.to_string(), now_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// `step_key` managed without the network: forget that it needed it.
+    pub fn clear_network(&self, step_key: &Hash) -> Result<(), LedgerError> {
+        self.db.execute(
+            "DELETE FROM network WHERE step_key = ?1",
+            [step_key.to_string()],
+        )?;
+        Ok(())
     }
 
     /// Records the canonical JSON a step key was computed from (idempotent).
@@ -1723,6 +1809,52 @@ mod tests {
         assert_eq!(format_rfc3339(951_782_400, 0), "2000-02-29T00:00:00.000Z");
     }
 
+    /// v8: which step keys need the network, how many runs skipped their
+    /// offline try since, and what that try read.
+    #[test]
+    fn the_network_memory() {
+        let l = Ledger::open_in_memory().unwrap();
+        let (a, b) = (Hash::of(b"a"), Hash::of(b"b"));
+        assert_eq!(l.network(&a).unwrap(), None);
+        l.network_skipped(&a).unwrap();
+        assert_eq!(l.network(&a).unwrap(), None, "nothing to count");
+        l.mark_network(
+            &a,
+            "runner",
+            "tried to reach the network offline (3 attempts)",
+            r#"["go.mod"]"#,
+            "d1",
+        )
+        .unwrap();
+        l.network_skipped(&a).unwrap();
+        l.network_skipped(&a).unwrap();
+        assert_eq!(
+            l.network(&a).unwrap(),
+            Some(NetworkRow {
+                surface: "runner".into(),
+                reason: "tried to reach the network offline (3 attempts)".into(),
+                skipped: 2,
+                inputs: Some(r#"["go.mod"]"#.into()),
+                digest: Some("d1".into()),
+            })
+        );
+        assert_eq!(l.network(&b).unwrap(), None);
+        // Marked again: the count starts over, with the new try's inputs.
+        l.mark_network(&a, "network", "again", "[]", "d2").unwrap();
+        assert_eq!(
+            l.network(&a).unwrap(),
+            Some(NetworkRow {
+                surface: "network".into(),
+                reason: "again".into(),
+                skipped: 0,
+                inputs: Some("[]".into()),
+                digest: Some("d2".into()),
+            })
+        );
+        l.clear_network(&a).unwrap();
+        assert_eq!(l.network(&a).unwrap(), None);
+    }
+
     #[test]
     fn a_newer_schema_never_matches() {
         let l = Ledger::open_in_memory().unwrap();
@@ -2019,6 +2151,47 @@ mod tests {
     /// suspect, and marking suspects labels only the key's replays that were
     /// not labelled yet. The schema ends equal to the golden.
     #[test]
+    fn a_v6_ledger_migrates_through_v7_to_v8() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        let key = Hash::of(b"k");
+        {
+            let db = Connection::open(&p).unwrap();
+            for m in &MIGRATIONS[..6] {
+                db.execute_batch(m).unwrap();
+            }
+            db.pragma_update(None, "user_version", 6).unwrap();
+            db.execute(
+                "INSERT INTO trust (step_key, state, eligible, replays, audits, divergences, updated_at) VALUES (?1, 'proven', 3, 2, 1, 0, 'x')",
+                [key.to_string()],
+            )
+            .unwrap();
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), 8);
+        assert_eq!(
+            l.schema_sql().unwrap(),
+            include_str!("../../../fixtures/ledger_schema.sql"),
+            "a migrated v6 ledger has the golden schema"
+        );
+        // v6's rows are kept; v7's deferred audits and v8's network memory
+        // are both there and usable.
+        assert!(l.trust(&key).unwrap().is_some());
+        let pending: i64 =
+            l.db.query_row("SELECT count(*) FROM audits_pending", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(pending, 0);
+        l.mark_network(&key, "runner", "r", "[]", "d").unwrap();
+        assert_eq!(
+            l.network(&key).unwrap().unwrap().digest.as_deref(),
+            Some("d")
+        );
+        drop(l);
+        // Reopened: nothing migrates twice.
+        assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 8);
+    }
+
+    #[test]
     fn a_v4_ledger_migrates_through_v5_to_v6_and_replays_can_be_marked_suspect() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("ledger.sqlite");
@@ -2072,7 +2245,7 @@ mod tests {
         }
         let l = Ledger::open(&p).unwrap();
         assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 7);
+        assert_eq!(SCHEMA_VERSION, 8);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql"),
@@ -2168,7 +2341,7 @@ mod tests {
             }
         }
         let l = Ledger::open(&p).unwrap();
-        assert_eq!(l.schema_version().unwrap(), 7);
+        assert_eq!(l.schema_version().unwrap(), SCHEMA_VERSION);
         assert_eq!(
             l.schema_sql().unwrap(),
             include_str!("../../../fixtures/ledger_schema.sql")

@@ -99,6 +99,11 @@ pub struct Job {
     /// build cache and persisted workspace (see `scope_of`).
     #[serde(default)]
     pub writer: bool,
+    /// The job image's own config env may exempt a variable from
+    /// classification by name or shape (`image_env_exempts`): decided with
+    /// the scope.
+    #[serde(default)]
+    pub image_env_trusted: bool,
     /// Not a writer: the first entry a step of this job wrote into the job's
     /// own layer over the warm build cache (`exec::GoCache::Layered`). From
     /// then on a step that reads the layer reads something no key covers,
@@ -239,6 +244,7 @@ impl Job {
             repository: String::new(),
             scope_name: String::new(),
             writer: false,
+            image_env_trusted: false,
             warm_layer_written: None,
             scope: None,
             root_layers: Vec::new(),
@@ -255,6 +261,7 @@ impl Job {
             secrets: secrets::JobSecrets {
                 container_env: c.environment_variables.clone(),
                 values: Default::default(),
+                pending_env: Vec::new(),
             },
             masks: Vec::new(),
             salt,
@@ -290,6 +297,21 @@ impl Job {
         let mut env = self.env.clone();
         env.extend(self.secrets.container_env.clone());
         env
+    }
+
+    /// The job image's own config env (empty in host-root mode): what the
+    /// image, not the workflow or the runner, defines. Empty too unless the
+    /// job's scope and image are trusted (`image_env_exempts`): the env
+    /// exempts a variable from classification, and a pull request from a
+    /// fork, or one naming an image anyone can push, controls it.
+    pub fn image_env(&self) -> BTreeMap<String, String> {
+        if !self.image_env_trusted {
+            return BTreeMap::new();
+        }
+        self.rootfs
+            .as_ref()
+            .map(|r| r.env.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// The provenance read at the first step (empty before).
@@ -333,6 +355,7 @@ impl Job {
             self.provenance(),
             self.known_secrets(),
             &self.set_by_steps,
+            &self.image_env(),
         );
         self.add_masks(&c.masks);
         let salt = secrets::salt(&self.state_dir)?;
@@ -353,7 +376,12 @@ impl Job {
         // Only the certain ones join the known secrets (see
         // `secrets::Classified::strong`).
         let new = !c.strong.is_subset(&self.secrets.values);
-        self.env = shown;
+        // Before the provenance is read every container env value stays
+        // salted in job.json (as prepare_job wrote it): which are secrets is
+        // not known yet.
+        if self.provenance.is_some() {
+            self.env = shown;
+        }
         if new {
             self.secrets.values.extend(c.strong);
             self.save_secrets()?;
@@ -397,16 +425,30 @@ impl Job {
         }
     }
 
-    /// Reads where the job's secrets come from (`provenance`), once, at the
-    /// first step: the workflow at GITHUB_WORKFLOW_SHA from the repository's
-    /// mirror, local reusable workflows and actions from the same commit,
-    /// remote actions as the runner downloaded them. Anything that cannot
-    /// be read makes the job opaque.
-    fn ensure_provenance(&mut self, env: &BTreeMap<String, String>) {
+    /// Reads where the job's secrets come from (`provenance`), once: the
+    /// workflow at GITHUB_WORKFLOW_SHA from the repository's mirror, local
+    /// reusable workflows and actions from the same commit, remote actions
+    /// as the runner downloaded them. Anything that cannot be read makes the
+    /// job opaque, with one exception: a private repository's workflow is
+    /// fetched with the job's token, which a step before actions/checkout
+    /// (`run:` steps carry none) does not have. Such a step does not make
+    /// the job opaque: it runs as GitHub runs it (the runner's surface,
+    /// never recorded; returned here as the reason), its environment is
+    /// kept with the job's secrets outside the state, and the read is tried
+    /// again at the next step. Once it succeeds, those environments are
+    /// classified with the provenance, so a secret such a step was given
+    /// (and could have handed on through GITHUB_ENV under a plain name) is a
+    /// known secret of the job before any step is recorded. Only when a
+    /// step that carries a token still cannot read it is the job opaque.
+    fn ensure_provenance(
+        &mut self,
+        env: &BTreeMap<String, String>,
+    ) -> anyhow::Result<Option<String>> {
         if self.provenance.is_some() {
-            return;
+            return Ok(None);
         }
         let wref = env.get("GITHUB_WORKFLOW_REF").cloned().unwrap_or_default();
+        let carries_token = env.values().any(|v| step::holds_github_token(v));
         let p = match self.read_provenance(env, &wref) {
             Ok(mut p) => {
                 p.workflow = format!(
@@ -414,6 +456,19 @@ impl Job {
                     env.get("GITHUB_WORKFLOW_SHA").map_or("?", String::as_str)
                 );
                 p
+            }
+            Err(e) if !carries_token => {
+                let keep =
+                    secrets::pending_entries(env, &self.container_env(), &self.secrets.pending_env);
+                if !keep.is_empty() {
+                    self.secrets.pending_env.push(keep);
+                    self.save_secrets()?;
+                }
+                let why = format!(
+                    "the workflow is not read yet (it needs the job's token, which no step has carried so far: {e:#}); until a step does, steps run as GitHub runs them"
+                );
+                tracing::info!(target: "quod", job = %self.id, workflow = %wref, pending = self.secrets.pending_env.len(), "provenance deferred");
+                return Ok(Some(why));
             }
             Err(e) => crate::provenance::Provenance::opaque(
                 wref.clone(),
@@ -425,6 +480,35 @@ impl Job {
             eprintln!("quod: this job is opaque, nothing it runs is recorded: {why}");
         }
         self.provenance = Some(p);
+        // What the steps before saw, classified now, and gone from the
+        // sidecar in the same write (below): it is kept no longer than it
+        // takes to learn which of it are secrets.
+        let pending = std::mem::take(&mut self.secrets.pending_env);
+        if !pending.is_empty() {
+            let container = self.container_env();
+            let image = self.image_env();
+            for e in &pending {
+                let c = secrets::classify_with(
+                    container.iter().chain(e.iter()),
+                    self.provenance(),
+                    self.known_secrets(),
+                    &self.set_by_steps,
+                    &image,
+                );
+                self.add_masks(&c.masks);
+                if !c.names.is_empty() {
+                    self.had_secrets = true;
+                }
+                self.secrets.values.extend(c.strong);
+                if c.short_strong && self.short_secret.is_none() {
+                    self.short_secret = c
+                        .short
+                        .map(|n| format!("in {n}, given to a step before the workflow was read"));
+                }
+            }
+            self.save_secrets()?;
+        }
+        Ok(None)
     }
 
     fn read_provenance(
@@ -490,6 +574,7 @@ impl Job {
         cas: &Cas,
         event_name: Option<&str>,
         writer_refs: &[String],
+        trusted_registries: &[String],
     ) -> anyhow::Result<()> {
         if self.scope.is_some() {
             return Ok(());
@@ -514,6 +599,7 @@ impl Job {
             .join(&scope_name);
         std::fs::create_dir_all(&scope)?;
         self.repository = repository;
+        self.image_env_trusted = image_env_exempts(&scope_name, &self.image, trusted_registries);
         self.scope_name = scope_name;
         self.writer = writer;
         self.scope = Some(scope);
@@ -1181,6 +1267,33 @@ fn scope_of(event_name: Option<&str>, event: Option<&[u8]>, writer_refs: &[Strin
     }
 }
 
+/// May the job image's own config env exempt a variable from classification
+/// by name or shape (`secrets::classify_with`)? An image's env is whatever
+/// its builder wrote, so this trusts the builder: only for a job in a
+/// trusted scope (a push, dispatch or schedule of the repository, or a
+/// pull request from a branch of the repository itself; never a fork's or
+/// an unverified event), and only for an image pinned by digest (the
+/// workflow names exactly that config) or from one of the operator's
+/// `trusted_registries` (`registry/namespace` prefixes, matched on path
+/// components; the Docker Official Images by default). Anywhere else a
+/// secret-shaped variable is classified whatever the image says.
+pub fn image_env_exempts(scope_name: &str, image: &str, trusted_registries: &[String]) -> bool {
+    if scope_name != "trusted" {
+        return false;
+    }
+    let Ok(r) = crate::rootfs::ImageRef::parse(image) else {
+        return false;
+    };
+    if r.reference.starts_with("sha256:") {
+        return true;
+    }
+    let name = format!("{}/{}", r.registry, r.repository);
+    trusted_registries.iter().any(|t| {
+        name.strip_prefix(t.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
+}
+
 /// `--user UID[:GID]` (or `-u`) in docker create options. Other options are
 /// not honoured; they are logged so the omission is visible.
 fn user_option(create_options: Option<&str>) -> anyhow::Result<(Option<u32>, Option<u32>)> {
@@ -1287,11 +1400,12 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
             .get("GITHUB_EVENT_NAME")
             .map(String::as_str),
         &policy.writer_refs,
+        &policy.trusted_registries,
     )?;
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
     job.check_secrets()?;
-    job.ensure_provenance(&args.environment_variables);
+    let deferred = job.ensure_provenance(&args.environment_variables)?;
     job.learn_secrets(&args.environment_variables)?;
     job.steps += 1;
     job.totals.steps += 1;
@@ -1303,6 +1417,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
     let salt = secrets::salt(state_dir)?;
 
     let mut step = step::classify(&job, &args, policy)?;
+    step.taint.extend(deferred);
     for why in &job.dirty {
         step.taint
             .push(format!("an earlier step of the job: {why}"));
@@ -2064,6 +2179,52 @@ fn run_step(
         Err(reason) => reason,
     };
 
+    // A step that reached for the network on an earlier offline try runs
+    // where it ended then, without that try (it would only be set aside
+    // again, after costing its whole run): never recorded, as before. Only
+    // while what that try read is unchanged (`same_inputs`): a step's need
+    // for the network can depend on its inputs (a test that reaches out only
+    // for some fixtures), so on other inputs it tries offline again. Every
+    // `NETWORK_PROBE_EVERY`th run tries offline anyway, so a step that no
+    // longer needs the network records again. A run that is not recorded
+    // (`unrecorded`) reads this memory but never writes it.
+    let network = ledger.network(&key)?;
+    if let Some(n) = network
+        .as_ref()
+        .filter(|n| unrecorded.is_some() || (skips_offline(n) && same_inputs(n, &tree)))
+    {
+        if unrecorded.is_none() {
+            ledger.network_skipped(&key)?;
+        }
+        let online = n.surface == NETWORK_SURFACE && step.retry.is_some();
+        let note = job.mask(&format!(
+            "needed the network on an earlier run ({}); ran {} without trying offline first",
+            n.reason,
+            if online {
+                "with the network"
+            } else {
+                "with the runner's environment"
+            }
+        ));
+        eprintln!("quod: `{}`: {note}", step.label);
+        let mut taint = vec![note];
+        if online
+            && let Some(code) = run_online(
+                job,
+                args,
+                step,
+                cas,
+                &tree,
+                &step_dir.join("online"),
+                salt,
+                &mut taint,
+            )?
+        {
+            return Ok(code);
+        }
+        return run_tainted(job, args, step, cas, &tree, step_dir, taint);
+    }
+
     // Execute on the hermetic surface (observe mode, a miss, or an audit).
     // A step that may need the network is captured, not streamed, until it
     // is known to have managed without. What it writes and prints is staged
@@ -2114,8 +2275,32 @@ fn run_step(
         again.push(format!("exited {} offline", ex.exit_code));
     }
     match ex.net_attempts {
-        Some(0) => {}
-        Some(n) => again.push(format!("tried to reach the network offline ({n} attempts)")),
+        Some(0) => {
+            if network.is_some() && unrecorded.is_none() {
+                ledger.clear_network(&key)?;
+            }
+        }
+        Some(n) => {
+            let why = format!("tried to reach the network offline ({n} attempts)");
+            // Where it runs next (below): the network surface for a fetch
+            // that failed offline, the runner's otherwise.
+            if unrecorded.is_none() && ex.resource_failure.is_none() && ex.signal.is_none() {
+                let surface = if step.retry.is_some() && ex.exit_code != 0 {
+                    NETWORK_SURFACE
+                } else {
+                    "runner"
+                };
+                let paths = network_inputs(&ex.log);
+                ledger.mark_network(
+                    &key,
+                    surface,
+                    &why,
+                    &serde_json::to_string(&paths)?,
+                    &inputs_digest(&tree, &paths),
+                )?;
+            }
+            again.push(why);
+        }
         None => again.push("its network attempts could not be counted".to_string()),
     }
     if let Some(sig) = ex.signal {
@@ -2456,6 +2641,50 @@ fn run_step(
     )
 }
 
+/// How often a step that needs the network tries offline again: every
+/// this many runs of its key (the others skip the offline try).
+pub const NETWORK_PROBE_EVERY: u32 = 10;
+
+/// The ledger's name for the network surface (`Ledger::mark_network`).
+const NETWORK_SURFACE: &str = "network";
+
+/// Does this run of a step that needed the network skip its offline try?
+/// All but every `NETWORK_PROBE_EVERY`th.
+fn skips_offline(n: &quod_ledger::NetworkRow) -> bool {
+    n.skipped + 1 < NETWORK_PROBE_EVERY
+}
+
+/// The workspace paths an offline try read (sorted, unique): what the
+/// network memory keeps of it (`Ledger::mark_network`).
+fn network_inputs(log: &[quod_manifest::Access]) -> Vec<String> {
+    let paths: std::collections::BTreeSet<&str> = log.iter().map(|a| a.path.as_str()).collect();
+    paths.into_iter().map(String::from).collect()
+}
+
+/// `paths` as `tree` has them (each entry, or its absence), hashed.
+fn inputs_digest(tree: &Tree, paths: &[String]) -> String {
+    let mut h = blake3::Hasher::new();
+    for p in paths {
+        h.update(p.as_bytes());
+        h.update(b"\0");
+        match tree.get(p) {
+            Some(e) => h.update(&serde_json::to_vec(e).expect("an entry serializes")),
+            None => h.update(b"absent"),
+        };
+        h.update(b"\n");
+    }
+    h.finalize().to_hex().to_string()
+}
+
+/// Did the offline try that set `n` read what this run's tree holds? A row
+/// without inputs never matches: the run tries offline.
+fn same_inputs(n: &quod_ledger::NetworkRow, tree: &Tree) -> bool {
+    let (Some(inputs), Some(digest)) = (&n.inputs, &n.digest) else {
+        return false;
+    };
+    serde_json::from_str::<Vec<String>>(inputs).is_ok_and(|p| inputs_digest(tree, &p) == *digest)
+}
+
 /// `; replayable from the next matching run (its next 2 would-be hits are
 /// audited)` when this execution's manifest may replay from now on (trust
 /// v2: after its first record), else nothing.
@@ -2756,6 +2985,125 @@ fn apply_commands(
 mod tests {
     use super::*;
 
+    /// A step that needed the network skips its offline try, except every
+    /// NETWORK_PROBE_EVERY-th run.
+    #[test]
+    fn a_network_step_tries_offline_every_so_often() {
+        let row = |skipped| quod_ledger::NetworkRow {
+            surface: "runner".into(),
+            reason: "r".into(),
+            skipped,
+            inputs: None,
+            digest: None,
+        };
+        let tries: Vec<u32> = (0..3 * NETWORK_PROBE_EVERY)
+            .scan(0, |skipped, run| {
+                let skip = skips_offline(&row(*skipped));
+                // A skipped run counts; an offline try that reaches for the
+                // network again marks the key anew (the count starts over).
+                *skipped = if skip { *skipped + 1 } else { 0 };
+                Some((run, skip))
+            })
+            .filter(|(_, skip)| !skip)
+            .map(|(run, _)| run)
+            .collect();
+        let n = NETWORK_PROBE_EVERY;
+        assert_eq!(tries, [n - 1, 2 * n - 1, 3 * n - 1]);
+    }
+
+    /// N1 (Fable's review of 75ebbea): the image's env exempts a variable
+    /// from classification only in a trusted scope, for an image pinned by
+    /// digest or from a trusted registry. Before, any job's image did.
+    #[test]
+    fn the_image_env_exempts_only_trusted_images_in_trusted_scopes() {
+        let official = ["docker.io/library".to_string()];
+        let digest = "ghcr.io/anyone/img@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(image_env_exempts("trusted", "python:3.12-slim", &official));
+        assert!(image_env_exempts(
+            "trusted",
+            "docker.io/library/python",
+            &official
+        ));
+        assert!(image_env_exempts("trusted", digest, &official));
+        assert!(!image_env_exempts(
+            "trusted",
+            "ghcr.io/anyone/img:v1",
+            &official
+        ));
+        assert!(!image_env_exempts(
+            "trusted",
+            "anyone/python:3.12",
+            &official
+        ));
+        // A prefix matches whole components only.
+        let acme = ["ghcr.io/acme".to_string()];
+        assert!(image_env_exempts("trusted", "ghcr.io/acme/base:1", &acme));
+        assert!(!image_env_exempts(
+            "trusted",
+            "ghcr.io/acme-evil/base:1",
+            &acme
+        ));
+        assert!(!image_env_exempts("trusted", "python:3.12-slim", &[]));
+        // Never for a fork's pull request or an unverified event.
+        for scope in ["fork-evil_r", "fork-unknown", "unverified"] {
+            assert!(!image_env_exempts(scope, "python:3.12-slim", &official));
+            assert!(!image_env_exempts(scope, digest, &official));
+        }
+    }
+
+    /// M3 (Fable's review of 75ebbea): the network memory holds only for
+    /// the inputs its offline try read. A change to one of them (or a path
+    /// it looked for that now exists) makes the next run try offline; a
+    /// change elsewhere does not. Before, only the step key was looked at.
+    #[test]
+    fn a_network_row_holds_for_the_inputs_it_was_set_on() {
+        let f = |p: &str, c: &[u8]| Entry::file(p, Hash::of(c), 0o644);
+        let t1 = Tree::from_leaves([f("net-mode.txt", b"online"), f("other", b"x")]);
+        let log = [
+            quod_manifest::Access {
+                path: "net-mode.txt".into(),
+                kind: EntryKind::File,
+            },
+            quod_manifest::Access {
+                path: "fixtures/extra".into(),
+                kind: EntryKind::File,
+            },
+            quod_manifest::Access {
+                path: "net-mode.txt".into(),
+                kind: EntryKind::File,
+            },
+        ];
+        let paths = network_inputs(&log);
+        assert_eq!(paths, ["fixtures/extra", "net-mode.txt"]);
+        let row = quod_ledger::NetworkRow {
+            surface: "runner".into(),
+            reason: "r".into(),
+            skipped: 0,
+            inputs: Some(serde_json::to_string(&paths).unwrap()),
+            digest: Some(inputs_digest(&t1, &paths)),
+        };
+        assert!(same_inputs(&row, &t1));
+        let t2 = Tree::from_leaves([f("net-mode.txt", b"online"), f("other", b"y")]);
+        assert!(same_inputs(&row, &t2), "a file it did not read changed");
+        let t3 = Tree::from_leaves([f("net-mode.txt", b"offline"), f("other", b"x")]);
+        assert!(!same_inputs(&row, &t3), "a file it read changed");
+        let t4 = Tree::from_leaves([
+            f("net-mode.txt", b"online"),
+            f("other", b"x"),
+            f("fixtures/extra", b"new"),
+        ]);
+        assert!(!same_inputs(&row, &t4), "a path it found absent exists");
+        let unknown = quod_ledger::NetworkRow {
+            inputs: None,
+            digest: None,
+            ..row
+        };
+        assert!(
+            !same_inputs(&unknown, &t1),
+            "a row without inputs tries offline"
+        );
+    }
+
     #[test]
     fn ignored_outputs_follow_quod_run() {
         let ws = "/__w/cli/cli";
@@ -2929,7 +3277,7 @@ mod tests {
             // (Job::create makes the runner's directories the event lives in.)
             let mut job = job_with_workflow_mount(tmp.path());
             std::fs::write(&event, payload).unwrap();
-            job.ensure_scope(&cas, Some(name), &[]).unwrap();
+            job.ensure_scope(&cas, Some(name), &[], &[]).unwrap();
             job.scope().to_path_buf()
         };
         let fork = scope_for(

@@ -54,7 +54,14 @@ pub const WITHHELD: &str = "quod-withheld";
 /// ACTIONS_* tokens) and the unreachable ACTIONS_* service address. A
 /// result that holds one is not what GitHub would give (`job::run_step`
 /// runs the step again with the runner's environment, never records it).
-pub const PLACEHOLDER_MARKS: &[&str] = &[WITHHELD, "quod-unreachable"];
+///
+/// For `WITHHELD` the mark is its first 7 bytes, which every prefix of 7 or
+/// more holds too: a short sha (`${GITHUB_SHA::7}`, the usual abbreviation)
+/// cut from the placeholder is as much the placeholder.
+pub const PLACEHOLDER_MARKS: &[&str] = &[WITHHELD_MARK, "quod-unreachable"];
+
+/// `WITHHELD`'s first 7 bytes (see `PLACEHOLDER_MARKS`).
+pub const WITHHELD_MARK: &str = "quod-wi";
 
 pub fn placeholder_marks() -> Vec<Vec<u8>> {
     PLACEHOLDER_MARKS
@@ -113,7 +120,9 @@ pub struct Surface {
     /// manifest's present-but-unkeyed names.
     pub withheld: Vec<String>,
     /// Of those, the ones whose real value the step did not get (it got
-    /// `WITHHELD`): a file naming one means the step may have needed it.
+    /// `WITHHELD`) and that are stable from run to run
+    /// (`scan::scanned`): a file naming one means the step may have needed
+    /// it.
     pub absent: Vec<String>,
     /// Hermetic and network: the command files at their fixed paths, to
     /// hand back to the runner after the step.
@@ -239,6 +248,9 @@ fn base_env(
             env.insert(name.into(), value);
         }
     }
+    // No SOURCE_DATE_EPOCH: GitHub sets none, and tools branch on its
+    // presence (setuptools, wheel, docs generators). Install-time bytecode
+    // is made reproducible after the step instead (`exec::hash_install_pycs`).
     if offline {
         env.insert("GOPROXY".into(), "off".into());
     }
@@ -327,6 +339,7 @@ pub fn network(
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     env.retain(|k, _| !c.is_secret(k));
     sealed(
@@ -417,7 +430,9 @@ fn sealed(
         if step::withheld(&k, &v) {
             env.insert(k.clone(), WITHHELD.to_string());
             withheld.push(k.clone());
-            absent.push(k);
+            if crate::scan::scanned(&k, &v) {
+                absent.push(k);
+            }
         } else if let Some(p) = step::placeholder(&k) {
             env.insert(k.clone(), p.to_string());
             withheld.push(k);
@@ -435,6 +450,7 @@ fn sealed(
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     let mut key_env = env.clone();
     for k in &c.names {
@@ -564,6 +580,7 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     let env = finish_env(env, &mut taint);
     let mut cmd = vec![args.entry_point.clone()];

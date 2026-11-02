@@ -67,6 +67,12 @@ const WORKFLOWS: &[(&str, &str)] = &[
         "quod-s2.yml",
         "on: push\njobs:\n  s:\n    runs-on: [self-hosted, quod]\n    container: golang\n    env:\n      APP_DSN: ${{ secrets.DSN }}\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./s.sh\n",
     ),
+    // P6: a secret mapped only into a step before checkout, which hands it
+    // on through GITHUB_ENV under a plain name.
+    (
+        "quod-p6.yml",
+        "on: push\njobs:\n  s:\n    runs-on: [self-hosted, quod]\n    container: golang\n    steps:\n      - run: echo \"COPY=$PLAIN\" >> \"$GITHUB_ENV\"\n        env:\n          PLAIN: ${{ secrets.P }}\n      - uses: actions/checkout@v4\n      - run: echo \"copy=$COPY\"\n",
+    ),
     // S3: every secret at once, which no name can follow.
     (
         "quod-s3.yml",
@@ -1191,6 +1197,16 @@ fn hooks_acceptance() {
     let slots_before = files_under(&workspaces);
     assert!(!slots_before.is_empty(), "W1: a persisted workspace");
     let writer_event = std::mem::replace(&mut r.event, same_repo_pull_request());
+    // A clean pull-request run of the go step main recorded: the event name
+    // is in the key (GITHUB_EVENT_NAME is keyed, as GITHUB_REF is, which
+    // tells a real pull request from a push anyway), so a pull request
+    // records under its own key, and replays it below.
+    let clean = r.job(gorun, &[]);
+    assert!(
+        clean.code == 0 && !clean.summary.contains("not recorded"),
+        "W1 clean pull request: {}",
+        clean.summary
+    );
     r.prepare_job();
     let co = r.checkout();
     assert_eq!(co.code, 0, "W1 checkout: {}", co.stderr);
@@ -1213,7 +1229,7 @@ fn hooks_acceptance() {
         changed.is_empty() && now.len() == warm_before.len(),
         "W1: the pull request's go step changed the scope's warm build cache: {changed:?}"
     );
-    // A go step main recorded: still replays.
+    // A go step a clean run recorded: still replays.
     let w2 = r.script(gorun, &[]);
     assert!(
         w2.replayed(),
@@ -2081,4 +2097,380 @@ fn hooks_secrets() {
     let fails = fails.into_inner();
     assert!(fails.is_empty(), "hooks secrets failed: {fails:#?}");
     println!("hooks secrets: S1-S12 pass");
+}
+
+/// The first hex characters of sha256(`s`), as `sha256sum | cut -c1-16`
+/// prints them.
+fn sha256_16(s: &str) -> String {
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("printf '%s' \"$1\" | sha256sum | cut -c1-16")
+        .arg("sh")
+        .arg(s)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// What blocked the runner integration on real Python and Node projects
+/// (getmoto/moto, LangChain, vitest, jest), each with a fixture that
+/// mimics it without the network:
+///
+/// - P1: test stacks whose libraries name GITHUB_SHA or GITHUB_EVENT_NAME
+///   (langsmith's runtime env, vitest's CLI chunk, jest's ci-info vendors)
+///   are recorded and replayed: the withheld-name scan no longer looks for
+///   run-unique names, and the event name is keyed.
+/// - P2: the real value of a withheld variable never reaches a replayable
+///   result: a step that derives from GITHUB_TOKEN and GITHUB_SHA records
+///   what it derived from the placeholder, and a short sha cut from the
+///   placeholder is caught.
+/// - P3: a step that branches on the event name gets the real one, and a
+///   pull request's run never replays a push's.
+/// - P4: a step that needed the network runs with it directly next time,
+///   unless what its offline try read has changed.
+/// - P5: install-time Python bytecode is the same from run to run (made
+///   checked-hash after the step; no SOURCE_DATE_EPOCH, as on GitHub), so
+///   a step importing it replays on a new commit.
+/// - P6: a step before checkout, while the workflow cannot be read
+///   without the job's token, does not make the job opaque; a secret it
+///   was given is known before any later step is recorded.
+#[test]
+fn hooks_py_node() {
+    if !enabled() {
+        return;
+    }
+    let env = Env::new();
+    std::fs::create_dir_all(env.tmp.path().join("o")).unwrap();
+    std::os::unix::fs::symlink(&env.repo, env.tmp.path().join("o/r")).unwrap();
+    // The libraries' files, as the projects vendor or install them.
+    env.write(
+        "third_party/langsmith/env/_runtime_env.py",
+        "import os\n\ndef get_release_shas():\n    common_release_envs = [\n        \"VERCEL_GIT_COMMIT_SHA\",\n        \"CI_COMMIT_SHA\",\n        \"GITHUB_SHA\",\n    ]\n    return {e: os.environ[e] for e in common_release_envs if os.environ.get(e)}\n",
+    );
+    env.write(
+        "third_party/vitest/dist/chunks/cli-api.js",
+        "const sha = process.env.GITHUB_SHA || process.env.CI_COMMIT_SHA;\nexport function blob() { return { sha }; }\n",
+    );
+    env.write(
+        "third_party/ci-info/vendors.json",
+        r#"[{"name":"GitHub Actions","constant":"GITHUB_ACTIONS","env":"GITHUB_ACTIONS","pr":{"GITHUB_EVENT_NAME":"pull_request"}}]"#,
+    );
+    env.write(
+        "third_party/github/client.py",
+        "import os\n\nTOKEN = os.environ.get(\"GITHUB_TOKEN\")\n",
+    );
+    env.write("version.txt", "1\n");
+    commit_workflows(&env);
+    let mut r = Runner::new(env);
+    let fails = std::cell::RefCell::new(Vec::<String>::new());
+    let check = |ok: bool, msg: String| {
+        if !ok {
+            eprintln!("FAIL {msg}");
+            fails.borrow_mut().push(msg);
+        }
+    };
+
+    // P1: the files are read (and so scanned) by a test step.
+    let tests = "cat third_party/langsmith/env/_runtime_env.py third_party/vitest/dist/chunks/cli-api.js third_party/ci-info/vendors.json >/dev/null && echo 'tests passed'";
+    let first = r.job(tests, &[]);
+    check(
+        first.code == 0 && first.summary.contains("would replay: no, first run"),
+        format!(
+            "P1: a step reading langsmith/vitest/ci-info files is recorded: {}",
+            first.summary
+        ),
+    );
+    r.mode = "replay";
+    let again = r.job(tests, &[]);
+    check(
+        again.replayed(),
+        format!("P1: and replays: {}", again.stderr),
+    );
+    r.mode = "observe";
+    println!("P1 done: files naming GITHUB_SHA and GITHUB_EVENT_NAME taint nothing");
+
+    // P2: derived from the token and the sha without naming them in the
+    // script (a library reads them): what is recorded is derived from the
+    // placeholder, never from the real values.
+    let token = "ghs_0123456789abcdefghijABCDEFGHIJ0123";
+    let head = r.head();
+    let derive = r#"cat third_party/github/client.py >/dev/null; v=GITHUB_; eval "t=\${${v}TOKEN}"; eval "s=\${${v}SHA}"; printf '%s' "$t" | sha256sum | cut -c1-16; printf '%s' "$s" | sha256sum | cut -c1-16"#;
+    let placeholder = sha256_16("quod-withheld");
+    let want = format!("{placeholder}\n{placeholder}\n");
+    let d1 = r.job(derive, &[("GITHUB_TOKEN", token)]);
+    check(
+        d1.code == 0 && String::from_utf8_lossy(&d1.stdout) == want,
+        format!(
+            "P2: the keyed step saw only the placeholder: {:?} {}",
+            String::from_utf8_lossy(&d1.stdout),
+            d1.summary
+        ),
+    );
+    r.mode = "replay";
+    let d2 = r.job(derive, &[("GITHUB_TOKEN", token)]);
+    r.mode = "observe";
+    check(
+        d2.replayed() && String::from_utf8_lossy(&d2.stdout) == want,
+        format!(
+            "P2: replays what it derived from the placeholder: {}",
+            d2.stderr
+        ),
+    );
+    for (what, real) in [("token", token), ("sha", head.as_str())] {
+        let found = leaks(&r.state, &sha256_16(real));
+        check(
+            found.is_empty(),
+            format!("P2: the state holds a value derived from the real {what}: {found:?}"),
+        );
+    }
+    let found = leaks(&r.state, token);
+    check(
+        found.is_empty(),
+        format!("P2: the state holds the real token: {found:?}"),
+    );
+    // A short sha cut from the placeholder is the placeholder: never
+    // recorded, and the job gets the real one.
+    let short = r#"v=GITHUB_; eval "s=\${${v}SHA}"; echo "built ${s::7}""#;
+    let s1 = r.job(short, &[]);
+    check(
+        s1.summary
+            .contains("holds a withheld variable's placeholder")
+            && String::from_utf8_lossy(&s1.stdout).contains(&format!("built {}", &head[..7])),
+        format!(
+            "P2: a short sha from the placeholder is caught: {:?} {}",
+            String::from_utf8_lossy(&s1.stdout),
+            s1.summary
+        ),
+    );
+    r.mode = "replay";
+    let s2 = r.job(short, &[]);
+    r.mode = "observe";
+    check(
+        !s2.replayed(),
+        format!("P2: the short sha is never recorded: {}", s2.stderr),
+    );
+    println!("P2 done: the real values never reach a replayable result");
+
+    // P3: ci-info's isPR, from the event name read indirectly.
+    let is_pr = r#"cat third_party/ci-info/vendors.json >/dev/null; v=GITHUB_EVENT_; eval "e=\${${v}NAME}"; if [ "$e" = pull_request ]; then echo isPR=true; else echo isPR=false; fi"#;
+    let push = r.job(is_pr, &[]);
+    check(
+        String::from_utf8_lossy(&push.stdout) == "isPR=false\n"
+            && push.summary.contains("would replay: no, first run"),
+        format!(
+            "P3 push: {:?} {}",
+            String::from_utf8_lossy(&push.stdout),
+            push.summary
+        ),
+    );
+    r.mode = "replay";
+    let push2 = r.job(is_pr, &[]);
+    check(
+        push2.replayed(),
+        format!("P3 push replays: {}", push2.stderr),
+    );
+    r.event = same_repo_pull_request();
+    let pr = r.job(is_pr, &[]);
+    r.event = push_to_main();
+    r.mode = "observe";
+    check(
+        !pr.replayed() && String::from_utf8_lossy(&pr.stdout) == "isPR=true\n",
+        format!(
+            "P3: a pull request gets its own event name, not the push's result: {:?} {}",
+            String::from_utf8_lossy(&pr.stdout),
+            pr.stderr
+        ),
+    );
+    println!("P3 done: the event name is keyed");
+
+    // P4: a step that reaches for the network (moto's passthrough tests),
+    // and a fetch that fails offline (pip install): the next run skips the
+    // offline try.
+    // It also prints whether SOURCE_DATE_EPOCH is set: on GitHub it is not,
+    // and the runner's surface (where the second run goes) must agree.
+    let net = "getent hosts example.com >/dev/null || true; echo \"tested SDE=${SOURCE_DATE_EPOCH-unset}\"";
+    let n1 = r.job(net, &[]);
+    check(
+        n1.summary.contains("tried to reach the network offline"),
+        format!("P4 first: {}", n1.summary),
+    );
+    let n2 = r.job(net, &[]);
+    check(
+        n2.summary
+            .contains("ran with the runner's environment without trying offline first")
+            && !n2.summary.contains("ran again")
+            && n2.code == 0
+            && String::from_utf8_lossy(&n2.stdout) == "tested SDE=unset\n",
+        format!(
+            "P4 second: {:?} {}",
+            String::from_utf8_lossy(&n2.stdout),
+            n2.summary
+        ),
+    );
+    let fetch = "# pip install -r requirements.txt\ngetent hosts pypi.org >/dev/null || exit 2\necho installed";
+    let f1 = r.job(fetch, &[]);
+    check(
+        f1.summary.contains("tried to reach the network offline")
+            && f1.summary.contains("with the network"),
+        format!("P4 fetch first: {}", f1.summary),
+    );
+    let f2 = r.job(fetch, &[]);
+    check(
+        f2.summary
+            .contains("ran with the network without trying offline first"),
+        format!("P4 fetch second: {}", f2.summary),
+    );
+    let out = Command::new("sqlite3")
+        .arg(r.scope().join("ledger.sqlite"))
+        .arg("SELECT surface || ':' || skipped FROM network ORDER BY surface")
+        .output()
+        .unwrap();
+    check(
+        String::from_utf8_lossy(&out.stdout) == "network:1\nrunner:1\n",
+        format!(
+            "P4: the ledger remembers both: {:?}",
+            String::from_utf8_lossy(&out.stdout)
+        ),
+    );
+    // M3 (Fable's review of 75ebbea): a step whose network need depends on
+    // an input. Once that input changes, the next run tries offline again
+    // (the memory holds what the offline try read), records, and the row
+    // goes; before, it skipped the offline try for 9 runs in 10.
+    r.env.write("net-mode.txt", "online\n");
+    r.env.commit("P4: the step needs the network");
+    let dep = "if grep -q online net-mode.txt; then getent hosts example.org >/dev/null || true; fi; echo checked";
+    let d1 = r.job(dep, &[]);
+    check(
+        d1.summary.contains("tried to reach the network offline"),
+        format!("P4 input-dependent first: {}", d1.summary),
+    );
+    r.env.write("net-mode.txt", "offline\n");
+    r.env.commit("P4: the step no longer needs the network");
+    let d2 = r.job(dep, &[]);
+    check(
+        !d2.summary.contains("without trying offline first")
+            && d2.summary.contains("would replay: no, first run"),
+        format!(
+            "P4: a changed input tries offline again and records: {}",
+            d2.summary
+        ),
+    );
+    let out = Command::new("sqlite3")
+        .arg(r.scope().join("ledger.sqlite"))
+        .arg("SELECT count(*) FROM network")
+        .output()
+        .unwrap();
+    check(
+        String::from_utf8_lossy(&out.stdout) == "2\n",
+        format!(
+            "P4: the recordable offline success dropped its row: {:?}",
+            String::from_utf8_lossy(&out.stdout)
+        ),
+    );
+    println!("P4 done: a network step runs once per job, with the network");
+
+    // P5: install-time bytecode. The install step re-runs on every commit
+    // (here: it reads version.txt); the step that imports what it compiled
+    // replays on the next commit only if the bytecode is the same bytes.
+    let py = "/usr/local/python/bin/python3";
+    if Path::new(py).is_file() {
+        // GitHub sets no SOURCE_DATE_EPOCH, so neither does Quod (M2 of
+        // Fable's review of 75ebbea: it was set on every surface): compileall
+        // writes timestamp pycs, which Quod makes checked-hash after the step.
+        let install = format!(
+            "cat version.txt >/dev/null && echo \"SOURCE_DATE_EPOCH=${{SOURCE_DATE_EPOCH-unset}}\" && mkdir -p site/pkg && printf 'X = 41\\n' > site/pkg/mod.py && : > site/pkg/__init__.py && {py} -m compileall -q site/pkg"
+        );
+        // The import uses the pyc as it is (checked-hash, flags 3, the
+        // source's hash as CPython computes it).
+        let import = format!(
+            "PYTHONPATH=site {py} -c 'import pkg.mod, importlib.util as u; b = open(u.cache_from_source(\"site/pkg/mod.py\"), \"rb\").read(); print(pkg.mod.X + 1, b[4], b[8:16] == u.source_hash(open(\"site/pkg/mod.py\", \"rb\").read()))'"
+        );
+        let job = |r: &mut Runner| -> (StepOut, StepOut) {
+            r.prepare_job();
+            let co = r.checkout();
+            assert_eq!(co.code, 0, "P5 checkout: {}", co.stderr);
+            let a = r.script(&install, &[]);
+            let b = r.script(&import, &[]);
+            r.cleanup_job();
+            (a, b)
+        };
+        let (a1, b1) = job(&mut r);
+        check(
+            String::from_utf8_lossy(&a1.stdout).contains("SOURCE_DATE_EPOCH=unset")
+                && String::from_utf8_lossy(&b1.stdout) == "42 3 True\n",
+            format!(
+                "P5 first: {:?} {:?} {} {}",
+                String::from_utf8_lossy(&a1.stdout),
+                String::from_utf8_lossy(&b1.stdout),
+                a1.stderr,
+                b1.stderr
+            ),
+        );
+        r.env.write("version.txt", "2\n");
+        r.env.commit("P5: a new commit");
+        r.mode = "replay";
+        let (a2, b2) = job(&mut r);
+        r.mode = "observe";
+        check(
+            a2.executed() && b2.replayed() && String::from_utf8_lossy(&b2.stdout) == "42 3 True\n",
+            format!(
+                "P5: the import step replays over a re-run install: {}\n{}",
+                a2.summary, b2.stderr
+            ),
+        );
+        println!("P5 done: install-time bytecode is checked by hash");
+    } else {
+        println!("P5 skipped: no {py}");
+    }
+
+    // P6: a `run:` step before checkout. Here its workflow cannot be read
+    // (GITHUB_SERVER_URL points nowhere for it), as a private repository's
+    // cannot without the job's token, which only checkout carries.
+    r.workflow = "quod-p6.yml";
+    let secret = "correct horse battery staple";
+    r.prepare_job();
+    let pre = r.script(
+        "echo \"COPY=$PLAIN\" >> \"$GITHUB_ENV\"",
+        &[
+            ("PLAIN", secret),
+            ("GITHUB_SERVER_URL", "file:///nonexistent"),
+        ],
+    );
+    check(
+        pre.code == 0
+            && pre.summary.contains("the workflow is not read yet")
+            && !pre.stderr.contains("this job is opaque"),
+        format!("P6 before checkout: {}\n{}", pre.summary, pre.stderr),
+    );
+    let co = r.checkout();
+    check(
+        co.code == 0 && !co.stderr.contains("this job is opaque"),
+        format!("P6 checkout: {}", co.stderr),
+    );
+    // The runner hands the copy to the next step under the plain name.
+    let copy = r.script("echo \"copy=$COPY\"", &[("COPY", secret)]);
+    check(
+        String::from_utf8_lossy(&copy.stdout).contains(&format!("copy={secret}")),
+        format!("P6: the step itself prints the value: {}", copy.stderr),
+    );
+    let plain = r.script("echo plain-step", &[]);
+    check(
+        plain.summary.contains("would replay: no, first run"),
+        format!(
+            "P6: the job is not opaque, a later step records: {}",
+            plain.summary
+        ),
+    );
+    r.cleanup_job();
+    r.workflow = "quod-plain.yml";
+    let found = leaks(&r.state, secret);
+    check(
+        found.is_empty(),
+        format!("P6: the state holds the secret handed on before checkout: {found:#?}"),
+    );
+    println!("P6 done: a step before checkout does not make the job opaque");
+
+    let fails = fails.into_inner();
+    assert!(fails.is_empty(), "hooks py/node failed: {fails:#?}");
+    println!("hooks py/node: P1-P6 pass");
 }

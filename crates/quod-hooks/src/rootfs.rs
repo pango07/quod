@@ -89,16 +89,32 @@ impl ImageRef {
         if image.is_empty() {
             bail!("empty image reference");
         }
-        let (name, reference) = if let Some((n, d)) = image.split_once('@') {
-            (n, d.to_string())
-        } else {
-            // The last colon after the last slash is the tag separator.
+        // The last colon after the last slash is the tag separator.
+        let split_tag = |image: &str| -> (usize, Option<usize>) {
             let slash = image.rfind('/').map_or(0, |i| i + 1);
-            match image[slash..].rfind(':') {
-                Some(i) => (&image[..slash + i], image[slash + i + 1..].to_string()),
-                None => (image, "latest".to_string()),
+            (slash, image[slash..].rfind(':').map(|i| slash + i))
+        };
+        let (name, reference) = if let Some((n, d)) = image.split_once('@') {
+            // `name:tag@digest` (what `docker images --digests` prints and
+            // Renovate pins): the digest names the image, the tag is only a
+            // label for people and is dropped.
+            let name = match split_tag(n) {
+                (_, Some(i)) => &n[..i],
+                (_, None) => n,
+            };
+            if !d.contains(':') {
+                bail!("image reference {image:?}: a digest is `algorithm:hex`");
+            }
+            (name, d.to_string())
+        } else {
+            match split_tag(image) {
+                (_, Some(i)) => (&image[..i], image[i + 1..].to_string()),
+                (_, None) => (image, "latest".to_string()),
             }
         };
+        if name.is_empty() {
+            bail!("image reference {image:?} names no repository");
+        }
         let mut parts: Vec<&str> = name.split('/').collect();
         let registry = if parts.len() > 1
             && (parts[0].contains('.') || parts[0].contains(':') || parts[0] == "localhost")
@@ -201,7 +217,28 @@ impl OciRootfs {
 
     fn unpack(&self, r: &ImageRef, reference: &str) -> anyhow::Result<Rootfs> {
         let client = Registry::connect(r)?;
+        // A tag is resolved on every job (it moves), but by a HEAD request
+        // alone when what it names is unpacked already: no manifest is
+        // downloaded (on Docker Hub a manifest GET counts against the pull
+        // rate limit, a HEAD does not). The HEAD's Docker-Content-Digest is
+        // the registry's word, unverified (no body comes with it), so it is
+        // only a cache hint (`hinted`): it is taken only when that digest
+        // names a root unpacked and verified before (the manifest's bytes
+        // hashed to that digest, every blob to its own), directly or as the
+        // platform manifest of an index resolved and verified before. Then
+        // the job runs on exactly the image that digest names; which digest
+        // the tag names now is the registry's word, as it is for a GET (the
+        // tag-to-manifest binding is never signed). There is no other pull
+        // to confirm it against: under the container hooks the runner pulls
+        // nothing, this is the pull. Anything else takes the verified GET.
+        if !reference.starts_with("sha256:")
+            && let Some(d) = client.head_digest(reference)?
+            && let Some(root) = self.hinted(r, &d)?
+        {
+            return Ok(root);
+        }
         let (doc, digest) = client.manifest(reference)?;
+        let index_digest = digest.clone();
         let (doc, digest) = if doc.media_type.ends_with("index.v1+json")
             || doc.media_type.ends_with("manifest.list.v2+json")
             || !doc.manifests.is_empty()
@@ -223,7 +260,17 @@ impl OciRootfs {
                     format!("{}: no linux/{arch} manifest in the index", r.repository)
                 })?;
             let d = pick.digest.clone();
-            client.manifest(&d)?
+            let picked = client.manifest(&d)?;
+            // Remembered for the next resolution of the same index (a tag
+            // that has not moved): content-addressed, never stale.
+            let alias = self.alias_for(&index_digest);
+            if let Some(dir) = alias.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            let tmp = alias.with_extension(format!("tmp.{}", ulid::Ulid::generate()));
+            std::fs::write(&tmp, &picked.1)?;
+            std::fs::rename(&tmp, &alias)?;
+            picked
         } else {
             (doc, digest)
         };
@@ -232,6 +279,9 @@ impl OciRootfs {
         }
         let dest = self.dir_for(&digest);
         if let Some(done) = complete(&dest)? {
+            // The manifest that names it was just verified (`manifest`), and
+            // its layers were when it was unpacked.
+            self.mark_verified(&digest)?;
             return Ok(Rootfs {
                 digest,
                 reference: format!("{}/{}@{}", r.registry, r.repository, done.digest),
@@ -292,6 +342,7 @@ impl OciRootfs {
             }
             Err(e) => return Err(e).with_context(|| format!("publish {}", dest.display())),
         }
+        self.mark_verified(&digest)?;
         Ok(Rootfs {
             reference: format!("{}/{}@{}", r.registry, r.repository, digest),
             digest,
@@ -316,10 +367,58 @@ impl OciRootfs {
     /// index is content-addressed, so for one platform the answer never
     /// changes; remembering it saves the registry round trips (about two
     /// seconds) on every job that names an image by index digest.
+    /// Only ever written after the index and the platform manifest were
+    /// fetched and verified (`Registry::manifest`); `v2` leaves behind the
+    /// aliases written before manifests were verified.
     fn alias_for(&self, digest: &str) -> PathBuf {
         let (arch, _) = Self::platform();
         self.root
-            .join(format!("index-{arch}-{}", digest.replace(':', "-")))
+            .join(format!("index-v2-{arch}-{}", digest.replace(':', "-")))
+    }
+
+    /// Next to an unpacked root (outside it, so no step sees it): the root
+    /// was unpacked from, or reached through, a manifest whose bytes were
+    /// verified against its digest. Roots unpacked before manifests were
+    /// verified have none, so no cache hint is taken for them until a
+    /// verified GET names them again.
+    fn verified_marker(&self, digest: &str) -> PathBuf {
+        let dir = self.dir_for(digest);
+        let mut name = dir
+            .file_name()
+            .expect("dir_for names a file")
+            .to_os_string();
+        name.push(".verified");
+        dir.with_file_name(name)
+    }
+
+    fn mark_verified(&self, digest: &str) -> anyhow::Result<()> {
+        let marker = self.verified_marker(digest);
+        if !marker.exists() {
+            let tmp = marker.with_extension(format!("tmp.{}", ulid::Ulid::generate()));
+            std::fs::write(&tmp, digest)?;
+            std::fs::rename(&tmp, &marker)?;
+        }
+        Ok(())
+    }
+
+    /// The root a digest names, if it is unpacked and was verified: the
+    /// digest itself, or the platform manifest an index digest was resolved
+    /// to. For a digest from an unverified source (a HEAD's header, the
+    /// workflow's reference) nothing is fetched.
+    fn hinted(&self, r: &ImageRef, digest: &str) -> anyhow::Result<Option<Rootfs>> {
+        let verified = |d: &str| -> anyhow::Result<Option<Rootfs>> {
+            if !self.verified_marker(d).is_file() {
+                return Ok(None);
+            }
+            self.unpacked(r, d)
+        };
+        if let Some(root) = verified(digest)? {
+            return Ok(Some(root));
+        }
+        match std::fs::read_to_string(self.alias_for(digest)) {
+            Ok(platform) => verified(platform.trim()),
+            Err(_) => Ok(None),
+        }
     }
 
     fn unpacked(&self, r: &ImageRef, digest: &str) -> anyhow::Result<Option<Rootfs>> {
@@ -337,17 +436,12 @@ impl OciRootfs {
 impl RootfsProvider for OciRootfs {
     fn prepare(&self, image: &str) -> anyhow::Result<Rootfs> {
         let r = ImageRef::parse(image)?;
-        // A digest reference may already be unpacked, directly or as the
-        // platform manifest of an index: no network at all.
-        if r.reference.starts_with("sha256:") {
-            if let Some(root) = self.unpacked(&r, &r.reference)? {
-                return Ok(root);
-            }
-            if let Ok(platform) = std::fs::read_to_string(self.alias_for(&r.reference))
-                && let Some(root) = self.unpacked(&r, platform.trim())?
-            {
-                return Ok(root);
-            }
+        // A digest reference may already be unpacked and verified, directly
+        // or as the platform manifest of an index: no network at all.
+        if r.reference.starts_with("sha256:")
+            && let Some(root) = self.hinted(&r, &r.reference)?
+        {
+            return Ok(root);
         }
         let root = self.unpack(&r, &r.reference)?;
         if r.reference.starts_with("sha256:") && root.digest != r.reference {
@@ -498,6 +592,24 @@ impl Registry {
         Ok((status, lines, out.stdout))
     }
 
+    /// The digest a reference names, by HEAD (no body): `None` when the
+    /// registry does not say (no Docker-Content-Digest, or not 200).
+    fn head_digest(&self, reference: &str) -> anyhow::Result<Option<String>> {
+        let url = format!("{}/manifests/{reference}", self.base);
+        let (status, headers, _) = self.get(&url, MANIFEST_ACCEPT, true)?;
+        if status != 200 {
+            return Ok(None);
+        }
+        Ok(headers
+            .iter()
+            .find_map(|h| h.strip_prefix("docker-content-digest:"))
+            .map(|d| d.trim().to_string())
+            .filter(|d| {
+                d.strip_prefix("sha256:")
+                    .is_some_and(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+            }))
+    }
+
     fn manifest(&self, reference: &str) -> anyhow::Result<(ManifestDoc, String)> {
         let url = format!("{}/manifests/{reference}", self.base);
         let (status, headers, body) = self.get(&url, MANIFEST_ACCEPT, false)?;
@@ -510,14 +622,11 @@ impl Registry {
                     .collect::<String>()
             );
         }
-        let digest = headers
+        let header = headers
             .iter()
             .find_map(|h| h.strip_prefix("docker-content-digest:"))
-            .map(|d| d.trim().to_string())
-            .unwrap_or_else(|| format!("sha256:{}", sha256_hex(&body)));
-        if reference.starts_with("sha256:") && digest != reference {
-            bail!("{url}: digest mismatch ({digest})");
-        }
+            .map(str::trim);
+        let digest = manifest_digest(&url, reference, header, &body)?;
         let doc: ManifestDoc =
             serde_json::from_slice(&body).with_context(|| format!("{url}: not a manifest"))?;
         Ok((doc, digest))
@@ -600,6 +709,27 @@ fn fetch_token(challenge: &str) -> anyhow::Result<String> {
         .and_then(|t| t.as_str())
         .map(String::from)
         .context("token response without a token")
+}
+
+/// A manifest's digest is the hash of its bytes, never the registry's
+/// word for it: a Docker-Content-Digest that differs, or a digest reference
+/// the bytes do not hash to, is refused.
+fn manifest_digest(
+    url: &str,
+    reference: &str,
+    header: Option<&str>,
+    body: &[u8],
+) -> anyhow::Result<String> {
+    let digest = format!("sha256:{}", sha256_hex(body));
+    if let Some(h) = header.filter(|h| h.starts_with("sha256:"))
+        && h != digest
+    {
+        bail!("{url}: Docker-Content-Digest {h} is not the manifest's digest ({digest})");
+    }
+    if reference.starts_with("sha256:") && digest != reference {
+        bail!("{url}: digest mismatch ({digest})");
+    }
+    Ok(digest)
 }
 
 fn verify_sha256(digest: &str, body: &[u8]) -> anyhow::Result<()> {
@@ -786,6 +916,87 @@ mod tests {
             ("localhost:5000", "x/y")
         );
         assert!(ImageRef::parse(" ").is_err());
+        // name:tag@digest: the digest names the image, the tag is dropped.
+        let r = ImageRef::parse("python:3.12-slim@sha256:abc").unwrap();
+        assert_eq!(
+            r,
+            ImageRef {
+                registry: "docker.io".into(),
+                repository: "library/python".into(),
+                reference: "sha256:abc".into()
+            }
+        );
+        let r = ImageRef::parse("localhost:5000/x/y:v2@sha256:def").unwrap();
+        assert_eq!(
+            (
+                r.registry.as_str(),
+                r.repository.as_str(),
+                r.reference.as_str()
+            ),
+            ("localhost:5000", "x/y", "sha256:def")
+        );
+        let r = ImageRef::parse("localhost:5000/x/y@sha256:def").unwrap();
+        assert_eq!(r.repository, "x/y");
+        assert!(ImageRef::parse("python:3.12@abc").is_err());
+        assert!(ImageRef::parse(":3.12").is_err());
+    }
+
+    /// N3 (Fable's review of 75ebbea): a manifest's digest is its bytes'
+    /// hash; the registry's header is checked against it, never trusted.
+    #[test]
+    fn manifest_digests_are_verified() {
+        let body = b"{}";
+        let d = format!("sha256:{}", sha256_hex(body));
+        assert_eq!(manifest_digest("u", "latest", None, body).unwrap(), d);
+        assert_eq!(manifest_digest("u", "latest", Some(&d), body).unwrap(), d);
+        assert_eq!(manifest_digest("u", &d, Some(&d), body).unwrap(), d);
+        let other = format!("sha256:{}", sha256_hex(b"other"));
+        assert!(manifest_digest("u", "latest", Some(&other), body).is_err());
+        assert!(manifest_digest("u", &other, None, body).is_err());
+    }
+
+    /// N3: the HEAD's digest (or a digest reference) is a cache hint only:
+    /// taken for a root unpacked and verified before, directly or through
+    /// an alias written after verified GETs; a root without the verified
+    /// marker (unpacked before manifests were verified) and an alias of the
+    /// old naming are not. Before, any unpacked root was taken.
+    #[test]
+    fn a_head_digest_is_only_a_hint_for_verified_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let o = OciRootfs::new(tmp.path());
+        let r = ImageRef::parse("python:3.12-slim").unwrap();
+        let (index, platform) = ("sha256:1111", "sha256:2222");
+        let unpack = |d: &str| {
+            let dir = o.dir_for(d);
+            std::fs::create_dir_all(&dir).unwrap();
+            let done = Complete {
+                digest: d.into(),
+                env: vec![("GPG_KEY".into(), "x".into())],
+                is_alpine: false,
+            };
+            std::fs::write(dir.join(".complete"), serde_json::to_vec(&done).unwrap()).unwrap();
+        };
+        unpack(platform);
+        let (arch, _) = OciRootfs::platform();
+        // The alias the old code wrote: not taken.
+        std::fs::write(
+            tmp.path().join(format!("index-{arch}-sha256-1111")),
+            platform,
+        )
+        .unwrap();
+        assert!(o.hinted(&r, index).unwrap().is_none());
+        // Unpacked but never verified: not taken, directly or by alias.
+        std::fs::write(o.alias_for(index), platform).unwrap();
+        assert!(o.hinted(&r, platform).unwrap().is_none());
+        assert!(o.hinted(&r, index).unwrap().is_none());
+        // Verified: taken both ways, and the marker is not in the root.
+        o.mark_verified(platform).unwrap();
+        let root = o.hinted(&r, platform).unwrap().unwrap();
+        assert_eq!(root.digest, platform);
+        assert!(!root.dir.join(".verified").exists());
+        assert_eq!(o.hinted(&r, index).unwrap().unwrap().digest, platform);
+        // A digest nothing is unpacked for.
+        assert!(o.hinted(&r, "sha256:3333").unwrap().is_none());
     }
 
     #[test]
