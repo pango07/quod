@@ -78,8 +78,10 @@ pub struct RunArgs {
     /// Not observed and not an output: the cache is keyed by content
     /// hashes, so a correct cache cannot change a result (see DECISIONS.md).
     /// Uses its own step key: the profile's knobs turn off the parts of the
-    /// cache keyed by path or mtime (for Go, GOFLAGS gains -count=1 and
-    /// GODEBUG goindex=0). Refused for a profile without warm state;
+    /// cache keyed by path or mtime (for Go, GODEBUG goindex=0, and GOFLAGS
+    /// gains -count=1, except for a `go test` step on the host root, which
+    /// keeps go test's result cache under Quod's guard instead:
+    /// quod_key::gotest). Refused for a profile without warm state;
     /// ignored with --allow-net.
     #[arg(long)]
     warm: bool,
