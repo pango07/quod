@@ -335,7 +335,9 @@ fn proofs_only(env: &mut Env) {
 /// package initializes before any package that imports os, so go test
 /// rechecks both files: after they change, the miss runs and fails each
 /// package, never serving `(cached)`. (Under v2 the guard lived in package
-/// testing, initialized after h and k, and neither read was logged.)
+/// testing, initialized after h, whose read was not logged; k's was, its
+/// test files importing testing: h is the case that tells the layouts
+/// apart, k the control.)
 #[test]
 fn g6a_a_package_level_read_in_a_dependency_and_in_the_package_is_logged() {
     if !enabled() {

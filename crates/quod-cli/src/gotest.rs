@@ -173,10 +173,11 @@ impl GoTestGuard {
         let deps_go = std::fs::read_to_string(Path::new(goroot).join(gotest::TESTDEPS))
             .map_err(|e| format!("{goroot}/{}: {e}", gotest::TESTDEPS))?;
         // Seen to apply: remembered by the binary's identity, its GOROOT
-        // spelling, the version and the guard's layouts.
+        // spelling, the version, the guard's layouts and the knobs the
+        // probe ran with (goindex decides whether the package resolves).
         let id = Hash::of(
             format!(
-                "{}\0{}\0{}\0{}\0{}\0{:?}\0{:?}\0{goroot}\0{version}\0{}",
+                "{}\0{}\0{}\0{}\0{}\0{:?}\0{:?}\0{goroot}\0{version}\0{}\0{}",
                 real.display(),
                 meta.dev(),
                 meta.ino(),
@@ -187,6 +188,11 @@ impl GoTestGuard {
                 gotest::LAYOUTS
                     .iter()
                     .map(|l| l.sandbox_dir())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                guarded_knobs
+                    .iter()
+                    .map(|k| format!("{}{}{}", k.name, k.sep, k.item))
                     .collect::<Vec<_>>()
                     .join(","),
             )
