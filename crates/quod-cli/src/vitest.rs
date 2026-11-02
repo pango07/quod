@@ -452,11 +452,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
 /// files, whose result Quod takes from vitest itself.
 fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
     let ledger_path = dir.join("ledger.json");
-    let mut ledger: Ledger = serde_json::from_slice(&fs::read(&ledger_path).context("no ledger to absorb into")?)?;
+    let mut ledger: Ledger =
+        serde_json::from_slice(&fs::read(&ledger_path).context("no ledger to absorb into")?)?;
     let text = fs::read_to_string(manifest)?;
     let json = &text[text.find('{').context("not a manifest")?..];
     let m: serde_json::Value = serde_json::from_str(json)?;
-    let entries = m["entries"].as_array().context("manifest without entries")?;
+    let entries = m["entries"]
+        .as_array()
+        .context("manifest without entries")?;
     let abs = |p: &str| -> String {
         if p.starts_with('/') {
             p.to_string()
@@ -480,14 +483,24 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
         let i = packages.partition_point(|p| p.as_str() <= a);
         i > 0 && a.starts_with(packages[i - 1].as_str())
     };
-    let (dir_s, code_s) = (format!("{}/", dir.display()), format!("{}/", code.display()));
+    let (dir_s, code_s) = (
+        format!("{}/", dir.display()),
+        format!("{}/", code.display()),
+    );
     let mut add: BTreeMap<String, &str> = BTreeMap::new();
     let (mut seen, mut skipped_dirs) = (0usize, 0usize);
     for e in entries {
-        let (Some(p), Some(k)) = (e["p"].as_str(), e["k"].as_str()) else { continue };
+        let (Some(p), Some(k)) = (e["p"].as_str(), e["k"].as_str()) else {
+            continue;
+        };
         seen += 1;
         let a = abs(p);
-        if a.starts_with(&dir_s) || a.starts_with(&code_s) || ["/proc/", "/sys/", "/dev/"].iter().any(|x| a.starts_with(x)) {
+        if a.starts_with(&dir_s)
+            || a.starts_with(&code_s)
+            || ["/proc/", "/sys/", "/dev/"]
+                .iter()
+                .any(|x| a.starts_with(x))
+        {
             continue;
         }
         if k == "d" {
@@ -519,7 +532,12 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
         };
         add.insert(relativize(root, &key), k);
     }
-    let mut intern: HashMap<String, u32> = ledger.keys.iter().enumerate().map(|(i, k)| (k.clone(), i as u32)).collect();
+    let mut intern: HashMap<String, u32> = ledger
+        .keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.clone(), i as u32))
+        .collect();
     let mut new = Vec::new();
     for k in add.keys() {
         let i = *intern.entry(k.clone()).or_insert_with(|| {
@@ -542,15 +560,23 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
     let tmp = dir.join("ledger.json.tmp");
     fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
     fs::rename(&tmp, &ledger_path)?;
-    let by_kind = add.keys().fold(BTreeMap::<&str, usize>::new(), |mut acc, k| {
-        *acc.entry(k.split_once(':').map_or("", |x| x.0)).or_default() += 1;
-        acc
-    });
+    let by_kind = add
+        .keys()
+        .fold(BTreeMap::<&str, usize>::new(), |mut acc, k| {
+            *acc.entry(k.split_once(':').map_or("", |x| x.0))
+                .or_default() += 1;
+            acc
+        });
     eprintln!(
         "quod vitest: absorbed the observer's manifest: {seen} accesses, {} not accounted for by the hooks became shared inputs {by_kind:?} ({skipped_dirs} directory listings left out)",
         new.len()
     );
-    for k in add.iter().filter(|(_, k)| **k == "f").map(|(p, _)| p).take(40) {
+    for k in add
+        .iter()
+        .filter(|(_, k)| **k == "f")
+        .map(|(p, _)| p)
+        .take(40)
+    {
         eprintln!("quod vitest:   + {k}");
     }
     Ok(0)
@@ -608,7 +634,12 @@ fn states(root: &Path, ledger: &Ledger, keys: &[u32]) -> Vec<(String, Option<[i6
     let envall = std::sync::OnceLock::new();
     par_map(keys, |k| {
         let i = *k as usize;
-        let cached = ledger.idents.get(i).copied().flatten().map(|id| (id, ledger.states[i].as_str()));
+        let cached = ledger
+            .idents
+            .get(i)
+            .copied()
+            .flatten()
+            .map(|id| (id, ledger.states[i].as_str()));
         state(root, &ledger.keys[i], cached, started, &envall)
     })
 }
@@ -715,7 +746,11 @@ fn exists(p: &Path) -> String {
 /// A directory's names and types (recursively: every path under it).
 fn listing(p: &Path, recursive: bool) -> String {
     if !p.is_dir() {
-        return if p.exists() { "notdir".into() } else { "absent".into() };
+        return if p.exists() {
+            "notdir".into()
+        } else {
+            "absent".into()
+        };
     }
     let mut names = Vec::new();
     let mut stack = vec![PathBuf::new()];
@@ -740,7 +775,9 @@ fn listing(p: &Path, recursive: bool) -> String {
         }
     }
     names.sort_unstable();
-    blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+    blake3::hash(names.join("\n").as_bytes())
+        .to_hex()
+        .to_string()
 }
 
 /// A workspace package.json as the tools read it: the dependency version
@@ -863,7 +900,9 @@ mod tests {
         let a = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.1.0"}}"#);
         let b = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0"}}"#);
         let c = pj_hash(br#"{"name":"x","type":"commonjs","devDependencies":{"eslint":"^9.2.0"}}"#);
-        let d = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0","vite":"1"}}"#);
+        let d = pj_hash(
+            br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0","vite":"1"}}"#,
+        );
         assert_eq!(a, b);
         assert_ne!(b, c);
         assert_ne!(b, d, "a dependency added or removed counts");
@@ -939,6 +978,9 @@ mod tests {
     #[test]
     fn par_map_keeps_order() {
         let v: Vec<u32> = (0..1000).collect();
-        assert_eq!(par_map(&v, |x| x * 2), v.iter().map(|x| x * 2).collect::<Vec<_>>());
+        assert_eq!(
+            par_map(&v, |x| x * 2),
+            v.iter().map(|x| x * 2).collect::<Vec<_>>()
+        );
     }
 }
