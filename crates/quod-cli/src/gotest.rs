@@ -696,7 +696,9 @@ func (TestDeps) StopTestLog() error {
         // testdeps imports the guard when the overlay replaces it (but
         // `TestdepsUnpatched`), and the guard what its file imports.
         let testdeps_imports = match fake {
-            Fake::TestdepsUnpatched => "echo 'testing/internal/testdeps: bufio internal/testlog'".to_string(),
+            Fake::TestdepsUnpatched => {
+                "echo 'testing/internal/testdeps: bufio internal/testlog'".to_string()
+            }
             _ => format!(
                 "grep -qF '\"{}/{}\"' \"$ov\" && echo 'testing/internal/testdeps: bufio {} internal/testlog' || echo 'testing/internal/testdeps: bufio internal/testlog'",
                 alias.display(),

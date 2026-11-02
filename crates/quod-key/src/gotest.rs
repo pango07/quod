@@ -601,7 +601,9 @@ func (TestDeps) StopTestLog() error {
         assert!(!runs_go_test("go test -overlay=/tmp/o.json ./..."));
         assert!(!runs_go_test("go test -overlay /tmp/o.json ./..."));
         assert!(!runs_go_test("go test --overlay=/tmp/o.json ./..."));
-        assert!(!runs_go_test("go build -overlay=o.json ./... && go test ./..."));
+        assert!(!runs_go_test(
+            "go build -overlay=o.json ./... && go test ./..."
+        ));
         assert!(!runs_go_test("go test \"-overlay=/tmp/o.json\" ./..."));
         assert!(runs_go_test("go test -run TestOverlay ./..."));
         assert!(runs_go_test("go test ./overlay/..."));
@@ -730,7 +732,9 @@ func (TestDeps) StopTestLog() error {
         assert_eq!(go_imports("package x\n\nimport \"os\"\n"), vec!["os"]);
         // Every declaration, not only the first block.
         assert_eq!(
-            go_imports("package x\n\nimport (\n\t\"os\"\n)\n\nimport \"strings\"\n\nimport (\n\t\"fmt\"\n)\n"),
+            go_imports(
+                "package x\n\nimport (\n\t\"os\"\n)\n\nimport \"strings\"\n\nimport (\n\t\"fmt\"\n)\n"
+            ),
             vec!["os", "strings", "fmt"]
         );
         assert_eq!(
