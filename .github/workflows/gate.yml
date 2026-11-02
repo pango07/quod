@@ -26,9 +26,13 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud"
+        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; bench-real only when named"
         required: false
         default: all
+      bench_real:
+        description: "bench-real's arguments (scripts/bench-real.sh), e.g. --repos go --n 5"
+        required: false
+        default: ''
 
 concurrency:
   group: gate-${{ github.event.pull_request.number || inputs.ref || github.ref }}
@@ -57,6 +61,7 @@ jobs:
       lint: ${{ steps.pick.outputs.lint }}
       merge-gate: ${{ steps.pick.outputs.merge-gate }}
       bench-lite: ${{ steps.pick.outputs.bench-lite }}
+      bench-real: ${{ steps.pick.outputs.bench-real }}
       hooks: ${{ steps.pick.outputs.hooks }}
       acceptance-cli: ${{ steps.pick.outputs.acceptance-cli }}
       acceptance-node: ${{ steps.pick.outputs.acceptance-node }}
@@ -110,6 +115,9 @@ jobs:
           done
           r=false; [ "$cloud" = true ] && want cloud && r=true
           echo "cloud=$r" | tee -a "$GITHUB_OUTPUT"
+          # bench-real (~1-2 h here) runs only when a dispatch names it.
+          r=false; [ "$EVENT" = workflow_dispatch ] && [[ ",${ONLY// /}," == *",bench-real,"* ]] && r=true
+          echo "bench-real=$r" | tee -a "$GITHUB_OUTPUT"
 
   # fmt, clippy (default and all features), every workspace test with
   # QUOD_INTEGRATION=1 as root, with every corpus toolchain installed, as the
@@ -215,6 +223,44 @@ jobs:
             target/gate-logs/
           include-hidden-files: true
           retention-days: 30
+
+  # bench-real-small (scripts/bench-real.sh, docs/bench/real-small.md): Quod
+  # against plain on three small real repos' last 20 first-parent commits,
+  # history and PR traffic, every replay spot-checked. Dispatch only:
+  #   gh workflow run gate.yml --ref <branch> -f only=bench-real
+  # ubuntu-latest has 2 vCPUs for a private repository (4 for a public one).
+  bench-real:
+    needs: changes
+    if: needs.changes.outputs.bench-real == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: ./.github/actions/quod-host
+        with:
+          toolchains: go node python
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: release
+          cache-on-failure: true
+      - env:
+          ARGS: ${{ inputs.bench_real }}
+        run: scripts/ci-gate.sh bench-real $ARGS
+      - if: always()
+        run: |
+          if [ -f .bench-real/report.md ]; then cat .bench-real/report.md >> "$GITHUB_STEP_SUMMARY"
+          else scripts/ci-gate.sh summary bench-real >> "$GITHUB_STEP_SUMMARY"; fi
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-real
+          path: |
+            .bench-real/
+            target/gate-logs/
+          include-hidden-files: true
+          retention-days: 90
 
   # A1-A7 (+A7b), trust, secrets and the served git index through the
   # hooks path (tests/hooks_acceptance.rs) on cli/cli at its pinned commit,

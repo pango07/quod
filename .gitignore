@@ -5,3 +5,4 @@ report.md
 /.lab/
 /.bench-lite/
 __pycache__/
+/.bench-real/

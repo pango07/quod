@@ -13,6 +13,7 @@
 #   scripts/ci-gate.sh hooks [dir]                  hooks_acceptance on cli/cli
 #   scripts/ci-gate.sh acceptance go|node|python [dir]
 #   scripts/ci-gate.sh bench-lite [--against main]  scripts/bench-lite.sh (the fast benchmark)
+#   scripts/ci-gate.sh bench-real [--repos ..] [--n N]  scripts/bench-real.sh (real repos, slow)
 #   scripts/ci-gate.sh summary NAME                 markdown for $GITHUB_STEP_SUMMARY
 #
 # Locally, inside the dev container and under the shared lock:
@@ -241,6 +242,7 @@ case "$cmd" in
   hooks) as_root hooks "$@"; logged hooks hooks "$@";;
   acceptance) as_root acceptance "$@"; logged "acceptance-${1:-go}" acceptance "$@";;
   bench-lite) as_root bench-lite "$@"; logged bench-lite "$root/scripts/bench-lite.sh" "$@";;
+  bench-real) as_root bench-real "$@"; logged bench-real "$root/scripts/bench-real.sh" "$@";;
   summary) summary "${1:?summary needs a gate name}";;
-  *) sed -n '2,25p' "$0" >&2; exit 2;;
+  *) sed -n '2,26p' "$0" >&2; exit 2;;
 esac

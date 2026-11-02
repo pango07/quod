@@ -124,3 +124,10 @@ gh workflow run gate.yml --ref <branch> -f only=bench-lite
 The job summary prints the table with a `Δ quod s` column and the per-step
 overhead beside the baseline's. Seconds compare only on the same host class
 (the table says when they do not); the outcome columns compare everywhere.
+
+Runner noise: the next push of the same code (run 41486482488) got a slower
+runner of the same class: plain 82.7 s against 54.1, Quod 161.9 against
+113.5, quod/plain 1.96x against 2.10x, every outcome cell identical. So on
+GitHub, read a branch's effect from the outcome columns and the quod/plain
+ratio (about ±7% between runs), not from the `Δ quod s` seconds, which move
+by up to 40% with the runner.
