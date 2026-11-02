@@ -293,7 +293,9 @@ impl Runner {
                 url: url.to_string(),
                 auth,
                 server_key: key.map(|k| quod_wire::verifying_key_from_hex(k).unwrap()),
-                timeout: Duration::from_secs(20),
+                // On the cloud backend a large upload's last chunk waits for
+                // the copy to the bucket (P4 residual): more time there.
+                timeout: Duration::from_secs(if cloud() { 90 } else { 20 }),
                 scope: None,
                 ci: Some(quod_wire::CiContext {
                     repository: Some("acme/app".into()),

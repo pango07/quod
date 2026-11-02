@@ -772,6 +772,12 @@ key `signing.ed25519` stays there), `QUOD_TEAMS_JSON`, `WORKOS_*`,
 
 - Upload staging is per instance (on its volume): a resumable upload
   continues only on the instance that has its first chunks.
+- A blob's last upload chunk is answered only after the whole blob is
+  copied to the bucket. For outputs of hundreds of MB that can pass the
+  client's `QUOD_SERVER_TIMEOUT` (30 s); the client then treats the server
+  as gone and the step's result stands unrecorded (the safe direction).
+  Raise `QUOD_SERVER_TIMEOUT` for repositories with large outputs; the fix
+  is uploading parts as chunks arrive, or in parallel.
 - No retention: blobs and `ref-...` scopes accumulate (open question 12).
 - P3's keyed object names and encryption are not applied yet: object
   names are plain BLAKE3 hashes under the team's prefix.
