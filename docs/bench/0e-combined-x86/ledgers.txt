@@ -1,0 +1,52 @@
+### /work/0e/hist/q/state/ledger.sqlite
+outcome   n    suspect
+--------  ---  -------
+audit     7    0      
+miss      107  0      
+net       40   0      
+replayed  6    0      
+key             cmd             state   eligible  replays  audits  divergences  quarantined_at
+--------------  --------------  ------  --------  -------  ------  -----------  --------------
+b3:9845cf95efb  go build ./...  proven  0         0        0       0                          
+b3:a31b230ccba  go vet ./...    proven  8         4        4       0                          
+b3:dd25215ef73  go test ./...   proven  5         2        3       0                          
+key             manifest        at                        phase   diverged  detail                                    
+--------------  --------------  ------------------------  ------  --------  ------------------------------------------
+b3:a31b230ccba  b3:252616e5053  2026-11-02T11:00:12.818Z  shadow  0         byte-identical                            
+b3:dd25215ef73  b3:8a5ddc460a1  2026-11-02T11:00:54.320Z  shadow  0         identical up to normalized volatile fields
+b3:a31b230ccba  b3:2a447df3e3b  2026-11-02T11:02:30.872Z  shadow  0         byte-identical                            
+b3:dd25215ef73  b3:32386cb6814  2026-11-02T11:03:11.452Z  shadow  0         identical up to normalized volatile fields
+b3:a31b230ccba  b3:bdf2eabb7f9  2026-11-02T11:32:02.425Z  audit   0         byte-identical                            
+b3:dd25215ef73  b3:d494aaacb39  2026-11-02T11:40:08.761Z  audit   0         identical up to normalized volatile fields
+b3:a31b230ccba  b3:743e1e932b1  2026-11-02T11:41:04.096Z  audit   0         byte-identical                            
+### /work/0e/traffic/state/ledger.sqlite
+outcome   n    suspect
+--------  ---  -------
+audit     17   0      
+miss      188  0      
+net       87   0      
+replayed  56   0      
+key             cmd             state   eligible  replays  audits  divergences  quarantined_at
+--------------  --------------  ------  --------  -------  ------  -----------  --------------
+b3:9845cf95efb  go build ./...  proven  7         3        4       0                          
+b3:a31b230ccba  go vet ./...    proven  49        41       8       0                          
+b3:dd25215ef73  go test ./...   proven  17        12       5       0                          
+key             manifest        at                        phase   diverged  detail                                    
+--------------  --------------  ------------------------  ------  --------  ------------------------------------------
+b3:a31b230ccba  b3:252616e5053  2026-11-02T11:52:16.799Z  shadow  0         byte-identical                            
+b3:a31b230ccba  b3:252616e5053  2026-11-02T11:52:55.838Z  shadow  0         byte-identical                            
+b3:dd25215ef73  b3:75179c65396  2026-11-02T11:53:36.777Z  shadow  0         identical up to normalized volatile fields
+b3:dd25215ef73  b3:495d1d783a6  2026-11-02T11:54:22.317Z  shadow  0         identical up to normalized volatile fields
+b3:9845cf95efb  b3:83b7b8d29c3  2026-11-02T11:54:53.272Z  shadow  0         byte-identical                            
+b3:a31b230ccba  b3:252616e5053  2026-11-02T11:54:56.373Z  audit   0         byte-identical                            
+b3:dd25215ef73  b3:a9123bbb065  2026-11-02T11:57:42.098Z  audit   0         identical up to normalized volatile fields
+b3:a31b230ccba  b3:2a447df3e3b  2026-11-02T11:58:17.965Z  audit   0         byte-identical                            
+b3:9845cf95efb  b3:06883b28e0e  2026-11-02T12:06:13.034Z  shadow  0         byte-identical                            
+b3:a31b230ccba  b3:151761b5a21  2026-11-02T12:09:24.236Z  audit   0         byte-identical                            
+b3:dd25215ef73  b3:f81c7a22412  2026-11-02T12:12:11.103Z  audit   0         identical up to normalized volatile fields
+b3:9845cf95efb  b3:c69377e270f  2026-11-02T12:15:32.225Z  audit   0         byte-identical                            
+b3:a31b230ccba  b3:cca25e81ff2  2026-11-02T12:19:50.762Z  audit   0         byte-identical                            
+b3:dd25215ef73  b3:c8bbd0e4b9f  2026-11-02T12:36:48.903Z  audit   0         identical up to normalized volatile fields
+b3:a31b230ccba  b3:d1c1167bba0  2026-11-02T12:42:31.363Z  audit   0         byte-identical                            
+b3:9845cf95efb  b3:184c885f404  2026-11-02T12:46:00.817Z  audit   0         byte-identical                            
+b3:a31b230ccba  b3:5ff17d1c6e1  2026-11-02T13:05:30.235Z  audit   0         byte-identical                            

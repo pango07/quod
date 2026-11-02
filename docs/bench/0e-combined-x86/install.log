@@ -1,0 +1,148 @@
++ export DEBIAN_FRONTEND=noninteractive
++ DEBIAN_FRONTEND=noninteractive
++ apt-get update -q
+Get:1 https://mirror.hetzner.com/ubuntu/packages resolute InRelease [136 kB]
+Get:2 https://mirror.hetzner.com/ubuntu/packages resolute-updates InRelease [137 kB]
+Get:3 https://mirror.hetzner.com/ubuntu/packages resolute-backports InRelease [137 kB]
+Get:4 https://mirror.hetzner.com/ubuntu/security resolute-security InRelease [137 kB]
+Get:5 https://mirror.hetzner.com/ubuntu/packages resolute/main amd64 Packages [1,480 kB]
+Get:6 https://mirror.hetzner.com/ubuntu/packages resolute/main Translation-en [524 kB]
+Get:7 https://mirror.hetzner.com/ubuntu/packages resolute/main amd64 c-n-f Metadata [32.4 kB]
+Get:8 https://mirror.hetzner.com/ubuntu/packages resolute/universe amd64 Packages [16.0 MB]
+Get:9 https://mirror.hetzner.com/ubuntu/packages resolute/universe Translation-en [6,329 kB]
+Get:10 https://mirror.hetzner.com/ubuntu/packages resolute/universe amd64 c-n-f Metadata [313 kB]
+Get:11 https://mirror.hetzner.com/ubuntu/packages resolute/restricted amd64 Packages [152 kB]
+Get:12 https://mirror.hetzner.com/ubuntu/packages resolute/restricted Translation-en [25.8 kB]
+Get:13 https://mirror.hetzner.com/ubuntu/packages resolute/restricted amd64 c-n-f Metadata [388 B]
+Get:14 https://mirror.hetzner.com/ubuntu/packages resolute/multiverse amd64 Packages [290 kB]
+Get:15 https://mirror.hetzner.com/ubuntu/packages resolute/multiverse Translation-en [127 kB]
+Get:16 https://mirror.hetzner.com/ubuntu/packages resolute/multiverse amd64 c-n-f Metadata [8,276 B]
+Get:17 https://mirror.hetzner.com/ubuntu/packages resolute-updates/main amd64 Packages [803 kB]
+Get:18 https://mirror.hetzner.com/ubuntu/packages resolute-updates/main Translation-en [184 kB]
+Get:19 https://mirror.hetzner.com/ubuntu/packages resolute-updates/main amd64 c-n-f Metadata [5,756 B]
+Get:20 https://mirror.hetzner.com/ubuntu/packages resolute-updates/universe amd64 Packages [374 kB]
+Get:21 https://mirror.hetzner.com/ubuntu/packages resolute-updates/universe Translation-en [118 kB]
+Get:22 https://mirror.hetzner.com/ubuntu/packages resolute-updates/universe amd64 c-n-f Metadata [4,704 B]
+Get:23 https://mirror.hetzner.com/ubuntu/packages resolute-updates/restricted amd64 Packages [542 kB]
+Get:24 https://mirror.hetzner.com/ubuntu/packages resolute-updates/restricted Translation-en [112 kB]
+Get:25 https://mirror.hetzner.com/ubuntu/packages resolute-updates/restricted amd64 c-n-f Metadata [392 B]
+Get:26 https://mirror.hetzner.com/ubuntu/packages resolute-updates/multiverse amd64 Packages [21.0 kB]
+Get:27 https://mirror.hetzner.com/ubuntu/packages resolute-updates/multiverse Translation-en [4,168 B]
+Get:28 https://mirror.hetzner.com/ubuntu/packages resolute-updates/multiverse amd64 c-n-f Metadata [256 B]
+Get:29 https://mirror.hetzner.com/ubuntu/packages resolute-backports/main amd64 c-n-f Metadata [112 B]
+Get:30 https://mirror.hetzner.com/ubuntu/packages resolute-backports/universe amd64 Packages [3,136 B]
+Get:31 https://mirror.hetzner.com/ubuntu/packages resolute-backports/universe Translation-en [7,988 B]
+Get:32 https://mirror.hetzner.com/ubuntu/packages resolute-backports/universe amd64 c-n-f Metadata [116 B]
+Get:33 https://mirror.hetzner.com/ubuntu/packages resolute-backports/restricted amd64 c-n-f Metadata [120 B]
+Get:34 https://mirror.hetzner.com/ubuntu/packages resolute-backports/multiverse amd64 c-n-f Metadata [120 B]
+Get:35 https://mirror.hetzner.com/ubuntu/security resolute-security/main amd64 Packages [607 kB]
+Get:36 https://mirror.hetzner.com/ubuntu/security resolute-security/main Translation-en [141 kB]
+Get:37 https://mirror.hetzner.com/ubuntu/security resolute-security/main amd64 c-n-f Metadata [4,616 B]
+Get:38 https://mirror.hetzner.com/ubuntu/security resolute-security/universe amd64 Packages [206 kB]
+Get:39 https://mirror.hetzner.com/ubuntu/security resolute-security/universe Translation-en [67.9 kB]
+Get:40 https://mirror.hetzner.com/ubuntu/security resolute-security/universe amd64 c-n-f Metadata [3,552 B]
+Get:41 https://mirror.hetzner.com/ubuntu/security resolute-security/restricted amd64 Packages [495 kB]
+Get:42 https://mirror.hetzner.com/ubuntu/security resolute-security/restricted Translation-en [99.6 kB]
+Get:43 https://mirror.hetzner.com/ubuntu/security resolute-security/restricted amd64 c-n-f Metadata [396 B]
+Get:44 https://mirror.hetzner.com/ubuntu/security resolute-security/multiverse amd64 Packages [20.0 kB]
+Get:45 https://mirror.hetzner.com/ubuntu/security resolute-security/multiverse Translation-en [3,728 B]
+Get:46 https://mirror.hetzner.com/ubuntu/security resolute-security/multiverse amd64 c-n-f Metadata [120 B]
+Fetched 29.6 MB in 2s (19.3 MB/s)
+Reading package lists...
++ apt-get install -y -q --no-install-recommends bubblewrap ca-certificates curl fuse3 git build-essential pkg-config sqlite3 util-linux procps time openssh-client jq linux-tools-common hyperfine
++ tail -3
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
++ GO=1.27.3
++ NODE=24.22.2
++ PY=3.12.16
++ PBS=20261026
++ UV=0.13.6
++ curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tgz
++ echo '65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tgz'
++ sha256sum -c
+/tmp/go.tgz: OK
++ rm -rf /usr/local/go
++ tar -C /usr/local -xzf /tmp/go.tgz
++ curl -fsSL https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.gz
++ tar -C /usr/local -xz
++ rm -rf /usr/local/node
++ mv /usr/local/node-v24.22.2-linux-x64 /usr/local/node
++ curl -fsSL https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16+20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz
++ tar -C /usr/local -xz
++ mkdir -p /usr/local/uv/bin
++ curl -fsSL https://github.com/astral-sh/uv/releases/download/0.13.6/uv-x86_64-unknown-linux-gnu.tar.gz
++ tar -C /usr/local/uv/bin -xz --strip-components=1
++ export RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
++ RUSTUP_HOME=/usr/local/rustup
++ CARGO_HOME=/usr/local/cargo
++ curl -fsSL https://sh.rustup.rs
++ sh -s -- -y --profile minimal --default-toolchain 1.98.0 -c rustfmt -c clippy
+info: downloading installer
+info: profile set to minimal
+info: default host tuple is x86_64-unknown-linux-gnu
+info: syncing channel updates for 1.98.0-x86_64-unknown-linux-gnu
+info: latest update on 2026-08-20 for version 1.98.0 (88d9e12ae 2026-08-18)
+info: downloading 5 components
+info: default toolchain set to 1.98.0-x86_64-unknown-linux-gnu
+
+  1.98.0-x86_64-unknown-linux-gnu installed - rustc 1.98.0 (88d9e12ae 2026-08-18)
+
+
+Rust is installed now. Great!
+
+To get started you may need to restart your current shell.
+This would reload your PATH environment variable to include
+Cargo's bin directory (/usr/local/cargo/bin).
+
+To configure your current shell, you need to source the
+corresponding env file under /usr/local/cargo.
+
+Consider running the right command for your shell (note the leading DOT):
+. "/usr/local/cargo/env" # For sh/ash/dash/pdksh/bash
+cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
+CC_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
+CC_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CC
+HOST_CC = None
+cargo:rerun-if-env-changed=CC
+CC = None
+cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CFLAGS
+CFLAGS = None
+cargo:rerun-if-env-changed=HOST_CFLAGS
+HOST_CFLAGS = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
+CFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
+CFLAGS_x86_64-unknown-linux-gnu = None
++ grep -q '^user_allow_other' /etc/fuse.conf
++ echo user_allow_other
++ cat
++ . /etc/profile.d/quod.sh
+++ export PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/node/bin:/usr/local/python/bin:/usr/local/uv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+++ PATH=/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/node/bin:/usr/local/python/bin:/usr/local/uv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+++ export RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+++ RUSTUP_HOME=/usr/local/rustup
+++ CARGO_HOME=/usr/local/cargo
++ go version
+go version go1.27.3 linux/amd64
++ node --version
+v24.22.2
++ python3 --version
+Python 3.12.16
++ uv --version
+uv 0.13.6 (x86_64-unknown-linux-gnu)
++ cargo --version
+cargo 1.98.0 (797e8a9bc 2026-08-05)
++ bwrap --version
+bubblewrap 0.11.1
++ fusermount3 -V
+fusermount3 version: 3.18.2
++ echo INSTALL_DONE
+INSTALL_DONE
+INSTALL_EXIT=0

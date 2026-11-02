@@ -1,0 +1,37 @@
+Linux quod-bench-3 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64 GNU/Linux
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+NAME="Ubuntu"
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           40 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  4
+On-line CPU(s) list:                     0-3
+Vendor ID:                               AuthenticAMD
+Model name:                              AMD EPYC-Milan Processor
+CPU family:                              25
+Model:                                   1
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+Socket(s):                               1
+Stepping:                                1
+BogoMIPS:                                4593.10
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm rep_good nopl xtopology cpuid extd_apicid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext perfctr_core ssbd ibrs ibpb stibp vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves clzero xsaveerptr wbnoinvd arat umip pku ospke rdpid fsrm
+Hypervisor vendor:                       KVM
+Virtualization type:                     full
+L1d cache:                               64 KiB (2 instances)
+L1i cache:                               64 KiB (2 instances)
+               total        used        free      shared  buff/cache   available
+Mem:     16363577344   820908032  2540179456    77832192 13435564032 15542669312
+Swap:              0           0           0
+Y
+lrwxrwxrwx 1 root root 39 Apr 20  2026 /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf
+NEXT LEFT LAST PASSED UNIT                         ACTIVATES
+-       - -         - apport-autoreport.timer      apport-autoreport.service
+-       - -         - snapd.snap-repair.timer      snapd.snap-repair.service
+-       - -         - systemd-tmpfiles-clean.timer -
+-       - -         - ua-timer.timer               ua-timer.service
+
+4 timers listed.
+go version go1.27.3 linux/amd64
+bubblewrap 0.11.1

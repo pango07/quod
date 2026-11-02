@@ -1,0 +1,36 @@
+## 0c (exp/never-worse b4e238d)
+  warm  total    1237 s  median job  18.3 s  (39 commits)
+  quod  total    1439 s  median job  21.1 s  (39 commits)
+  quod/warm total: 1.16x
+  quod slower than plain-warm on 34 of 39 commits
+  go mod download  warm  median  0.03 s total     2.0 s
+  go mod download  quod  median  0.30 s total    12.7 s
+    quod outcomes {None: 39}  median phases ms setup=0 import=0 lookup=0 exec=0 record=0
+  go build ./...   warm  median  2.67 s total   171.0 s
+  go build ./...   quod  median  4.32 s total   244.0 s
+    quod outcomes {'miss': 39}  median phases ms setup=245 import=604 lookup=56 exec=2922 record=243
+  go vet ./...     warm  median  1.20 s total   109.1 s
+  go vet ./...     quod  median  3.35 s total   190.5 s
+    quod outcomes {'proving': 6, 'miss': 31, 'replayed': 2}  median phases ms setup=245 import=348 lookup=78 exec=2272 record=237
+  go test ./...    warm  median 14.45 s total   948.5 s
+  go test ./...    quod  median 12.91 s total   991.9 s
+    quod outcomes {'proving': 5, 'miss': 34}  median phases ms setup=243 import=349 lookup=72 exec=11782 record=236
+  go test lookup ms first/last 82/76, quod peak RSS MB first/last 77/83
+## 0e (main 37e938a)
+  warm  total    1250 s  median job  18.9 s  (39 commits)
+  quod  total    1519 s  median job  23.2 s  (39 commits)
+  quod/warm total: 1.22x
+  quod slower than plain-warm on 32 of 39 commits
+  go mod download  warm  median  0.03 s total     1.8 s
+  go mod download  quod  median  0.31 s total    13.5 s
+    quod outcomes {None: 39}  median phases ms setup=0 import=0 lookup=0 exec=0 record=0
+  go build ./...   warm  median  2.68 s total   173.9 s
+  go build ./...   quod  median  4.39 s total   248.3 s
+    quod outcomes {'miss': 39}  median phases ms setup=253 import=601 lookup=57 exec=2982 record=245
+  go vet ./...     warm  median  1.25 s total   110.2 s
+  go vet ./...     quod  median  3.50 s total   189.3 s
+    quod outcomes {'audit': 4, 'miss': 31, 'replayed': 4}  median phases ms setup=253 import=359 lookup=82 exec=2293 record=240
+  go test ./...    warm  median 14.51 s total   957.6 s
+  go test ./...    quod  median 14.98 s total  1068.2 s
+    quod outcomes {'audit': 3, 'miss': 34, 'replayed': 2}  median phases ms setup=252 import=356 lookup=76 exec=13825 record=238
+  go test lookup ms first/last 88/81, quod peak RSS MB first/last 77/82

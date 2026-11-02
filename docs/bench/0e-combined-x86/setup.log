@@ -1,0 +1,82 @@
++ sed -i -E 's/^#?\s*PasswordAuthentication .*/PasswordAuthentication no/; s/^#?\s*KbdInteractiveAuthentication .*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
++ grep -q '^PasswordAuthentication no' /etc/ssh/sshd_config
++ grep -q '^KbdInteractiveAuthentication no' /etc/ssh/sshd_config
++ for f in /etc/ssh/sshd_config.d/*.conf
++ '[' -e '/etc/ssh/sshd_config.d/*.conf' ']'
++ systemctl reload ssh
++ command -v ufw
++ ufw default deny incoming
+Default incoming policy changed to 'deny'
+(be sure to update your rules accordingly)
++ ufw default allow outgoing
+Default outgoing policy changed to 'allow'
+(be sure to update your rules accordingly)
++ ufw allow OpenSSH
+Rules updated
+Rules updated (v6)
++ ufw --force enable
+Firewall is active and enabled on system startup
++ id runner
++ useradd -m -u 1001 -U runner
++ git config --system safe.directory '*'
++ echo Y
++ systemctl disable --now unattended-upgrades.service
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now apt-daily.timer
++ systemctl mask apt-daily.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now apt-daily-upgrade.timer
++ systemctl mask apt-daily-upgrade.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now update-notifier-download.timer
++ systemctl mask update-notifier-download.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now update-notifier-motd.timer
++ systemctl mask update-notifier-motd.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now motd-news.timer
++ systemctl mask motd-news.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now man-db.timer
++ systemctl mask man-db.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now dpkg-db-backup.timer
++ systemctl mask dpkg-db-backup.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now logrotate.timer
++ systemctl mask logrotate.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now sysstat-collect.timer
++ systemctl mask sysstat-collect.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now sysstat-summary.timer
++ systemctl mask sysstat-summary.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now sysstat-rotate.timer
++ systemctl mask sysstat-rotate.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now e2scrub_all.timer
++ systemctl mask e2scrub_all.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now xfs_scrub_all.timer
++ systemctl mask xfs_scrub_all.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now fstrim.timer
++ systemctl mask fstrim.timer
++ for t in apt-daily apt-daily-upgrade update-notifier-download update-notifier-motd motd-news man-db dpkg-db-backup logrotate sysstat-collect sysstat-summary sysstat-rotate e2scrub_all xfs_scrub_all fstrim systemd-tmpfiles-clean
++ systemctl disable --now systemd-tmpfiles-clean.timer
++ systemctl mask systemd-tmpfiles-clean.timer
++ systemctl list-timers --all --no-pager
+NEXT LEFT LAST PASSED UNIT                         ACTIVATES
+-       - -         - apport-autoreport.timer      apport-autoreport.service
+-       - -         - snapd.snap-repair.timer      snapd.snap-repair.service
+-       - -         - systemd-tmpfiles-clean.timer -
+-       - -         - ua-timer.timer               ua-timer.service
+
+4 timers listed.
++ cat /sys/module/fuse/parameters/enable_uring
+Y
++ ls -la /etc/resolv.conf
+lrwxrwxrwx 1 root root 39 Apr 20  2026 /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf
++ echo SETUP_DONE
+SETUP_DONE

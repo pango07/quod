@@ -1,0 +1,25 @@
+## history
+
+Misses by first changed input:
+
+- `go build ./...`: .git (VCS stamping) 39, (none) 1
+- `go vet ./...`: Go source file or a directory listing 22, module cache (dependency bump) 6, test file or testdata 3, (none) 1
+- `go test ./...`: Go source file or a directory listing 23, module cache (dependency bump) 5, test file or testdata 4, (none) 1, .github/... 1, docs/... 1
+
+go test lookup ms: run 2 88, median 74, last 81 (candidates at the last run: 34)
+go test quod peak RSS MB: first 70, median 73.0, last 82
+replays: 6, wall median 0.78 s (min 0.77, max 0.82)
+sizes after the last commit (MB): state 8,426, cas 1,021, warm 6,460, deps 388, ledger 556, plain_gocache 4,862
+
+## traffic
+
+Misses by first changed input:
+
+- `go build ./...`: .git (VCS stamping) 79, (none) 1
+- `go vet ./...`: Go source file or a directory listing 25, module cache (dependency bump) 7, test file or testdata 5, (none) 1
+- `go test ./...`: .git (VCS stamping) 68, (none) 1, module cache (dependency bump) 1
+
+go test lookup ms: run 2 31, median 118, last 174 (candidates at the last run: 69)
+replays: 56, wall median 0.80 s (min 0.73, max 0.92)
+ledger at the end: 978 MB
+
