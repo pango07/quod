@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(sealed.len(), 1);
         let s = &sealed[0];
         let snap = &s.snapshot.dir;
-        for c in [".cache", ".vite", ".vitest"] {
+        for c in [".cache", ".vite", ".vite-temp", ".vitest"] {
             let d = snap.join("node_modules").join(c);
             assert!(d.is_dir(), "{c}");
             assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0, "{c} is empty");

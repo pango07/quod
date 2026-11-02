@@ -409,7 +409,8 @@ pub static GO: Profile = Profile {
 /// os.tmpdir(), the sandbox's fresh tmpfs, so every run is cold and no
 /// mtime-keyed haste map survives between runs (see DECISIONS.md).
 /// Vitest writes its results cache under node_modules/.vite, a carve-out of
-/// the sealed node_modules; babel and others under node_modules/.cache.
+/// the sealed node_modules, and vite (7+) its bundled config under
+/// node_modules/.vite-temp; babel and others under node_modules/.cache.
 pub static NODE: Profile = Profile {
     toolchain: Toolchain::Node,
     markers: &["package.json"],
@@ -434,7 +435,7 @@ pub static NODE: Profile = Profile {
     seed_dirs: &[],
     seals: &[SealRule::Named {
         name: "node_modules",
-        carve_outs: &[".cache", ".vite", ".vitest"],
+        carve_outs: &[".cache", ".vite", ".vite-temp", ".vitest"],
     }],
     warm: None,
     // @babel/register (keyed by filename and mtime) and babel-loader, terser
@@ -614,6 +615,7 @@ mod tests {
             [
                 "node_modules/.cache",
                 "node_modules/.vite",
+                "node_modules/.vite-temp",
                 "node_modules/.vitest"
             ]
         );
