@@ -1546,8 +1546,29 @@ pub fn probe_in_sandbox(program: &Path, args: &[&str]) -> Result<String, Sandbox
     Ok(out)
 }
 
-/// The filesystem type of `path` (statfs f_type), by name where known.
-fn fs_type(path: &Path) -> Result<String, SandboxError> {
+/// Is `path` on a filesystem whose file identities (inode, times) a
+/// process can trust to change whenever a file does? Not where they are a
+/// server's or a daemon's (NFS, 9p, FUSE, SMB/CIFS, Ceph, AFS: the host
+/// fingerprint script's list); `false` when statfs fails.
+pub fn trusted_identities(path: &Path) -> bool {
+    match statfs_magic(path) {
+        Ok(m) => !matches!(
+            m,
+            0x6969
+                | 0x0102_1997
+                | 0x6573_5546
+                | 0xFF53_4D42
+                | 0xFE53_4D42
+                | 0x517B
+                | 0x00C3_6400
+                | 0x5346_414F
+        ),
+        Err(_) => false,
+    }
+}
+
+/// statfs's f_type for `path`.
+fn statfs_magic(path: &Path) -> Result<u64, SandboxError> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io_err("statfs")(io::ErrorKind::InvalidInput.into()))?;
@@ -1562,7 +1583,12 @@ fn fs_type(path: &Path) -> Result<String, SandboxError> {
             io::Error::last_os_error(),
         ));
     }
-    let magic = st.f_type as u64;
+    Ok(st.f_type as u64)
+}
+
+/// The filesystem type of `path` (statfs f_type), by name where known.
+fn fs_type(path: &Path) -> Result<String, SandboxError> {
+    let magic = statfs_magic(path)?;
     Ok(match magic {
         0xEF53 => "ext4".into(),
         0x5846_5342 => "xfs".into(),

@@ -20,6 +20,7 @@ pub mod snapshot;
 pub mod step;
 pub mod surface;
 pub mod trust;
+pub mod uvstamp;
 
 use std::path::Path;
 

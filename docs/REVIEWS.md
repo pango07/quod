@@ -94,3 +94,4 @@ by Fable" when its pass is done.
 | exp/bench-lite (fast and small-real-repo benchmarks) | branch, in progress | Opus review | benchmark tooling only |
 | exp/cloud-ledger-v3 (server on main semantics), deployed to api.quodci.com 2026-11-02 | `b452ae4` | Opus review: safe to deploy; MAJOR 2 (boot stops on one bad ledger) and minors handed to exp/cloud-p4 | live on Railway |
 | exp/guard-outside-testing + fix/guard-v3-review (go test guard v3) | merged `eede225` | Fable-authored, Opus-reviewed, Opus fixes | go1.27 only |
+| fix/replay-gaps (bench-real-small and Moto replay gaps) | branch, not merged | Opus review pending, then Fable | fingerprint tag v6, xdist/jest order rule, uv stamp rewrite, host fingerprint kept by identities, network memory without the tool cache |

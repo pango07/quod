@@ -456,7 +456,16 @@ them, and a normalized file would be a file Quod silently rewrote.
 | 2 | go test per-test duration | `--- PASS: T (0.00s)` and FAIL/SKIP/BENCH → `(<dur>)` | v1 |
 | 3 | go's temporary build dir | `GOGCCFLAGS=...-ffile-prefix-map=/tmp/go-build<n>=...` | v1; setup-go prints `go env` |
 | 4 | ISO 8601 timestamp | `2026-11-02T09:12:03Z`, `2026-11-02T09:12:03.007+01:00`, `2026-11-02 09:12:03` → `<ts>` | logs with a timestamp prefix; a date alone (`2026-11-02`) is **not** erased: it is as likely a version or a fixture as the clock |
-| 5 | test-runner duration | a number with a unit in a bounded context: `(12ms)`, `(1.23 s)`, `in 3.21s`, `in 1.2 seconds`, `took 450ms`, `Time: 1.234 s`, `Duration: 2.1s`, `Done in 2.30s` → `<dur>` | jest, vitest, pytest, mocha, cargo test, yarn; only the number before the unit goes, so `1 passed in 3s` and `2 passed in 3s` still differ |
+| 5 | test-runner duration | a number with a unit in a bounded context: `(12ms)`, `(1.23 s)`, `in 3.21s`, `in 1.2 seconds`, `took 450ms`, `Time: 1.234 s`, `estimated 2 s`, `Duration: 2.1s`, `Done in 2.30s` → `<dur>` | jest, vitest, pytest, mocha, cargo test, yarn; only the number before the unit goes, so `1 passed in 3s` and `2 passed in 3s` still differ |
+| 6 | go test package line, every form (fix/replay-gaps) | the duration or `(cached)` at the head of the third field, whatever follows: `0.001s [no tests to run]`, `(cached) [no tests to run]`, `0.004s\tcoverage: 0.0% of statements [no tests to run]`; go test -json's `"Elapsed":N` and the package line in its escaped `Output` | expr-lang/expr's audits diverged on `[no tests to run]`; the note and coverage stay |
+| 7 | node:test durations (fix/replay-gaps) | the unitless number after `duration_ms`: `ℹ duration_ms 1541.8`, `# duration_ms 61.2`, `duration_ms: 0.4567` | commander.js and bench-lite's node-test never replayed |
+| 8 | vitest timing lines, pytest's clock (fix/replay-gaps) | every duration on a line starting `Duration ` (its `(transform 45ms, ...)` breakdown), the clock after `Start at`, `(3 tests) 5ms` ending a file's line; `in 62.01s (0:01:02)`'s clock | not seen on a corpus yet; added with the node:test rule |
+| 9 | parallel runners' completion order (fix/replay-gaps) | in output with xdist's marker (`created: N/N workers`, `N workers [M items]`, `bringing up nodes...`): progress-line status characters sorted (lengths and percentages kept), `-v` result lines as `[gw*] [pct] ` + sorted `STATUS nodeid` (start lines sorted ahead), worker and short-summary lines sorted within their runs; with jest's `Test Suites:` line, runs of `PASS`/`FAIL` suite lines sorted | pytest -n 4 (Moto) diverged on every audit; the multiset of results and every count stay compared |
+
+Workspace outputs left out of the comparison (`WORKSPACE_VOLATILE`, on
+`HOME_VOLATILE`'s terms: seen differing on identical inputs, still recorded
+and restored): `.hypothesis/unicode_data` (gzip headers name a random
+temporary file; attrs).
 
 Nothing else: not hex ids, not ports, not temp names (`/tmp/tmp.XXXXXX`),
 not `[no test files]`. A shape joins the table with a case that shows two

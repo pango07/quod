@@ -123,7 +123,11 @@ pub use quod_trust::HOME_VOLATILE;
 /// Outputs a profile forbids (`no_outputs_under`) never get this far: they
 /// are dropped before a result is recorded.
 pub fn ignored_outputs(profile: &Profile, env: &[(String, String)], tree: &Tree) -> Vec<String> {
-    let mut out = Vec::new();
+    // Volatile caches tools keep in the workspace (`WORKSPACE_VOLATILE`).
+    let mut out: Vec<String> = quod_trust::WORKSPACE_VOLATILE
+        .iter()
+        .map(|v| v.to_string())
+        .collect();
     for (var, value) in env {
         let Some(dir) = quod_key::profile::workspace_relative(value) else {
             continue;
@@ -216,6 +220,7 @@ mod tests {
         assert_eq!(
             got,
             [
+                ".hypothesis/unicode_data",
                 ".quod/gocache",
                 ".quod/gomod/cache",
                 ".quod/home/.cache/gh",
@@ -287,5 +292,15 @@ mod tests {
         assert!(got.contains(&".quod/pip-cache".to_string()), "{got:?}");
         assert!(got.contains(&".quod/uv-cache".to_string()), "{got:?}");
         assert!(!got.iter().any(|g| g.starts_with(".quod/venv")), "{got:?}");
+        // Hypothesis's Unicode tables (random gzip name field), not its
+        // example database.
+        assert!(
+            got.contains(&".hypothesis/unicode_data".to_string()),
+            "{got:?}"
+        );
+        assert!(
+            !got.iter()
+                .any(|g| g == ".hypothesis" || g.starts_with(".hypothesis/examples"))
+        );
     }
 }
