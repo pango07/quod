@@ -744,6 +744,23 @@ pub(crate) struct Executed {
     pub(crate) sealed_write_failed: bool,
 }
 
+/// Whether the observer answers opens with no message for this step (the
+/// default when `QUOD_FUSE_ZERO_OPEN` is unset): for a Go step that runs
+/// `go test` or `go vet`. Their go commands open every source file about
+/// ten times (loading, hashing, compile, vet, each test variant) and read
+/// it once: on cli/cli's go test 26,650 OPENs and as many RELEASEs, each a
+/// round trip the opener waits on, against ~1,800 READs once opens need no
+/// answer. Elsewhere opens stay answered with passthrough, which wins
+/// where reads dominate (a zero-message mount serves every first read
+/// here). Only the observer's speed depends on it: the access log is the
+/// same in both modes (`CasFs::record`; quod-cli's transports test
+/// compares go test's manifests).
+fn zero_open_for(spec: &StepSpec) -> bool {
+    let script = spec.cmd.last().map(String::as_str).unwrap_or_default();
+    spec.toolchain == Toolchain::Go
+        && (quod_key::gotest::runs_go(script, "test") || quod_key::gotest::runs_go(script, "vet"))
+}
+
 /// Serve the tree, overlay it, run the step in the sandbox, diff the outputs.
 /// With `warm`, that host directory is bound over the step's GOCACHE, on top
 /// of the overlay: Go reads and writes it directly, unobserved, and it
@@ -778,7 +795,11 @@ pub(crate) fn execute(
     let t = Instant::now();
     let lower = dir.join("lower");
     std::fs::create_dir_all(&lower)?;
-    let served = quod_fs::serve(tree, cas, &lower)?;
+    let opts = quod_fs::Options::from_env_over(quod_fs::Options {
+        zero_open: zero_open_for(spec),
+        ..quod_fs::Options::default()
+    });
+    let served = quod_fs::serve_with(tree, cas, &lower, &opts)?;
     phases.serve = t.elapsed();
     let ov = quod_fs::overlay(
         &served,

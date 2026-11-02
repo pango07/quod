@@ -79,6 +79,12 @@ pub fn runs_go_test(script: &str) -> bool {
     after_go("test") && !after_go("install") && !after_go("run") && !artifacts
 }
 
+/// Whether `script` runs `go <sub>` (a `go` word, or a path ending in
+/// `/go`, followed by `sub`).
+pub fn runs_go(script: &str, sub: &str) -> bool {
+    words(script).windows(2).any(|w| is_go(w[0]) && w[1] == sub)
+}
+
 /// Variables the guard's decision depends on: the step's env may not set
 /// them (`env_allows_guard`), and neither may its script
 /// (`script_sets_toolchain_env`).
@@ -369,6 +375,16 @@ func (TestDeps) StopTestLog() error {
         assert!(!runs_go_test("go install ./cmd/gh && go test ./..."));
         assert!(!runs_go_test("go test ./... && go run ./script/gen.go"));
         assert!(!runs_go_test("/usr/local/go/bin/go run . ; go test ./..."));
+    }
+
+    #[test]
+    fn go_subcommands_are_found() {
+        assert!(runs_go("go vet ./...", "vet"));
+        assert!(runs_go("cd x && /usr/local/go/bin/go test ./...", "test"));
+        assert!(runs_go("go build ./... && go vet ./...", "vet"));
+        assert!(!runs_go("go build ./...", "vet"));
+        assert!(!runs_go("make vet", "vet"));
+        assert!(!runs_go("golangci-lint run ./...", "run"));
     }
 
     #[test]
