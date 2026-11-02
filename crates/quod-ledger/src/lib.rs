@@ -648,11 +648,11 @@ impl Ledger {
     /// older binary would read it without the fields it does not know, and
     /// replay what it does not understand.
     ///
-    /// Candidates are checked through the index (`index`): only the nodes no
-    /// newer candidate shares are read, and only the manifest that matches is
-    /// decoded, then checked again in full with `matches` before it counts.
-    /// On a miss the newest candidate is decoded for its mismatches (the
-    /// receipt's "closest manifest").
+    /// The newest candidate is decoded and checked with `matches` (the usual
+    /// hit, and on a miss the receipt's "closest manifest"); older ones go
+    /// through the index (`index`): only nodes no newer one shares are read,
+    /// and only a manifest whose root matches is decoded, then checked again
+    /// in full with `matches` before it counts.
     pub fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
         let rows: Vec<(String, Option<String>)> = self
             .db
@@ -664,10 +664,35 @@ impl Ledger {
             })?
             .collect::<Result<_, _>>()?;
         let total = self.manifest_count(step_key)?;
+        // The newest candidate is decoded and checked whole either way: it
+        // is the usual hit (an unchanged tree), and on a miss its
+        // mismatches are the receipt's "closest manifest".
+        let mut closest = None;
+        if let Some((id, _)) = rows.first() {
+            let mid = parse_hash(id)?;
+            if let Some(m) = self.manifest(&mid)?
+                && m.v <= quod_manifest::VERSION
+            {
+                match matches(&m, tree) {
+                    Ok(()) => {
+                        if let Some(r) = self.latest_result(step_key, &mid)?
+                            && r.v <= quod_manifest::VERSION
+                        {
+                            return Ok(Lookup {
+                                hit: Some((m, r)),
+                                candidates: total,
+                                closest: None,
+                            });
+                        }
+                    }
+                    Err(mm) => closest = Some((mid, *mm)),
+                }
+            }
+        }
+        // The older ones through the index.
         let mut eval = index::Eval::new(&self.db, tree);
         let mut hit = None;
-        let mut newest_matches = false;
-        for (i, (id, root)) in rows.iter().enumerate() {
+        for (id, root) in rows.iter().skip(1) {
             let mid = parse_hash(id)?;
             let root = match root {
                 Some(r) => parse_hash(r)?,
@@ -685,7 +710,6 @@ impl Ledger {
             if m.v > quod_manifest::VERSION || matches(&m, tree).is_err() {
                 continue;
             }
-            newest_matches |= i == 0;
             if let Some(r) = self.latest_result(step_key, &mid)?
                 && r.v <= quod_manifest::VERSION
             {
@@ -693,20 +717,6 @@ impl Ledger {
                 break;
             }
         }
-        // The newest candidate's mismatches, unless it matched.
-        let closest = match rows.first() {
-            Some((id, _)) if !newest_matches => match self.manifest(&parse_hash(id)?)? {
-                Some(m) if m.v <= quod_manifest::VERSION => {
-                    matches(&m, tree).err().map(|mm| (parse_hash(id), *mm))
-                }
-                _ => None,
-            },
-            _ => None,
-        };
-        let closest = match closest {
-            Some((id, mm)) => Some((id?, mm)),
-            None => None,
-        };
         Ok(Lookup {
             hit,
             candidates: total,
