@@ -120,16 +120,17 @@ pub fn import_workspace(
     profile: &Profile,
 ) -> anyhow::Result<Tree> {
     // The checkout's .git (served separately, gitdir) and Quod's own
-    // directory are not walked or hashed at all.
+    // directory are not walked or hashed at all. Both imports read again
+    // only the files that changed since the last (quod_cas's stat cache).
     let mut tree = cas
-        .import_dir_except(repo, &[".git", DOT])
+        .import_dir_cached(repo, &[".git", DOT])
         .context("import workspace")?;
     for name in served(profile) {
         let dir = deps.dir(name);
         adopt_legacy(&repo.join(DOT).join(name), &dir)?;
         if dir.is_dir() {
             let sub = cas
-                .import_dir(&dir)
+                .import_dir_cached(&dir, &[])
                 .with_context(|| format!("import {} from {}", name, dir.display()))?;
             tree = tree.merged_at(&format!("{DOT}/{name}"), &sub);
         }

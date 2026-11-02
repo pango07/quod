@@ -6,6 +6,7 @@
 
 mod canon;
 mod hash;
+mod statcache;
 mod store;
 mod tree;
 

@@ -206,11 +206,15 @@ pub fn host_image(cas: &Cas, runs: &Path) -> anyhow::Result<Image> {
     // (~0.3s and ~0.2s): run them at once.
     let (out, platform) = std::thread::scope(|s| {
         let probe = s.spawn(|| platform(cas, runs));
+        // The toolchain binaries' hashes are kept by file identity under
+        // the store (the script's QUOD_FP_CACHE): the output is the same
+        // bytes, without reading ~200 MB of binaries every run.
         let out = Command::new("/bin/bash")
             .arg("-c")
             .arg(FINGERPRINT_SH)
             .env_clear()
             .env("PATH", quod_key::profile::HOST_PATH)
+            .env("QUOD_FP_CACHE", cas.dir().join("host-fingerprint-cache"))
             .output()
             .context("run host fingerprint");
         let platform = probe
