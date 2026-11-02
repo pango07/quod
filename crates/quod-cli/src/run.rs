@@ -1213,6 +1213,14 @@ fn run_unobserved(
     }
     deps::after_network_step(repo);
     let r = r?;
+    // The dependency trees the step wrote (the venv) are served to later
+    // steps whole: uv's freshness stamp in an installed local project, the
+    // install's wall clock, is pinned so that installing one commit again
+    // yields the same bytes (quod_hooks::uvstamp).
+    let pinned = deps::pin_install_stamps(deps, profile)?;
+    if pinned > 0 {
+        tracing::info!(target: "quod", files = pinned, "uv cache stamps pinned");
+    }
     quod_cas::remove_any(&dir)?;
     if r.killed == Some(Killed::Timeout) {
         say!(

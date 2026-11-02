@@ -337,6 +337,13 @@ pub fn execute(x: &Exec) -> anyhow::Result<Executed> {
         if n > 0 {
             tracing::info!(target: "quod", pycs = n, "install-time bytecode made hash-based");
         }
+        // uv's freshness stamp in an installed local project, the install's
+        // wall clock (`uvstamp`): pinned so a re-install of one commit is
+        // the same bytes.
+        let n = crate::uvstamp::pin_uv_cache_stamps(&upper)?;
+        if n > 0 {
+            tracing::info!(target: "quod", files = n, "uv cache stamps pinned");
+        }
     }
     // A value the step registered with `::add-mask::` (the runner reads both
     // streams) is a secret from now on: masked in what is stored of this

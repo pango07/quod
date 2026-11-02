@@ -2851,7 +2851,11 @@ fn finish_report(
 /// cache) whole. Paths are workspace-relative, as outputs are.
 fn ignored_outputs(env: &[(String, String)], workspace: &str) -> Vec<String> {
     let profile = Toolchain::Go.profile();
-    let mut out = Vec::new();
+    // Volatile caches tools keep in the workspace (`WORKSPACE_VOLATILE`).
+    let mut out: Vec<String> = quod_trust::WORKSPACE_VOLATILE
+        .iter()
+        .map(|v| v.to_string())
+        .collect();
     for (var, value) in env {
         let Some(dir) = value
             .strip_prefix(workspace)
@@ -3127,7 +3131,11 @@ mod tests {
                 .any(|p| p == ".quod/home" || p.starts_with(".quod/go/"))
         );
         assert!(!ign.iter().any(|p| p.contains("_temp")));
-        assert_eq!(ign.len(), quod_trust::HOME_VOLATILE.len() + 1);
+        assert!(ign.contains(&".hypothesis/unicode_data".to_string()));
+        assert_eq!(
+            ign.len(),
+            quod_trust::HOME_VOLATILE.len() + quod_trust::WORKSPACE_VOLATILE.len() + 1
+        );
     }
 
     fn age(dir: &Path, by: Duration) {

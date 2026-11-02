@@ -114,6 +114,20 @@ pub const HOME_VOLATILE: &[&str] = &[
     ".ssh/codespaces.auto.pub",
 ];
 
+/// Workspace paths left out when two results are compared (still recorded,
+/// still restored by a replay), on the same terms as `HOME_VOLATILE`: each
+/// one was seen differing between two executions on identical inputs, and
+/// what differs is not a result. Hypothesis's Unicode tables
+/// (python-attrs/attrs on bench-real-small, fix/replay-gaps): it writes them
+/// with `gzip.GzipFile(tmpfile, "wb", mtime=1)` to a fresh `mkstemp` name and
+/// renames, so the gzip header's file name field is random on every run,
+/// while the content is a pure function of the interpreter's `unicodedata`
+/// (keyed: the interpreter is in the host fingerprint or the rootfs) and
+/// Hypothesis reads only the decompressed content. Hypothesis's example
+/// database (`.hypothesis/examples`), which changes what later runs try,
+/// stays compared.
+pub const WORKSPACE_VOLATILE: &[&str] = &[".hypothesis/unicode_data"];
+
 /// `observe` executes everything and reports what would have replayed;
 /// `replay` replays proven results.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -652,13 +666,13 @@ fn normalize_line(line: &[u8]) -> Vec<u8> {
     // served the result from its cache (a warm step under Quod's guard,
     // quod_key::gotest), either one possibly followed by more fields
     // (`\tcoverage: 81.2% of statements`).
-    if s.starts_with("ok  \t") || s.starts_with("FAIL\t") {
-        let mut fields: Vec<&str> = s.split('\t').collect();
-        if fields.len() >= 3 && (is_duration(fields[2]) || fields[2] == "(cached)") {
-            fields[2] = "<dur>";
-            return fields.join("\t").into_bytes();
-        }
+    if let Some(masked) = mask_go_package_line(s, "\t") {
+        return masked.into_bytes();
     }
+    // go test -json: an event's `"Elapsed":0.412`, and the package and
+    // per-test lines its `"Output"` carries (JSON-escaped: `\t`, `\n`).
+    let json = mask_go_json_event(s);
+    let s = json.as_deref().unwrap_or(s);
     let t = s.trim_start();
     if ["--- PASS: ", "--- FAIL: ", "--- SKIP: ", "--- BENCH: "]
         .iter()
@@ -669,12 +683,240 @@ fn normalize_line(line: &[u8]) -> Vec<u8> {
     {
         return format!("{}(<dur>)", &s[..open + 1]).into_bytes();
     }
-    // Trust v2: timestamps and test-runner durations, anywhere in a line.
-    let masked = mask_runner_durations(&mask_timestamps(s));
-    if masked != s {
+    // Trust v2: timestamps and test-runner durations, anywhere in a line;
+    // then the shapes particular to one runner (node:test, vitest, pytest's
+    // clock after its duration).
+    let masked = mask_vitest(&mask_node_test(&mask_clock_after_duration(
+        &mask_runner_durations(&mask_timestamps(s)),
+    )));
+    if masked != s || json.is_some() {
         return masked.into_bytes();
     }
     line.to_vec()
+}
+
+/// A go test package line with its fields separated by `sep` (a tab, or
+/// the two bytes `\t` inside go test -json's escaped `Output`), its
+/// duration erased: `ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`, or `(cached)`
+/// where go test served the result from its cache (a warm step under
+/// Quod's guard, quod_key::gotest). The duration may be followed by a note
+/// in the same field (`0.001s [no tests to run]`, `(cached) [no tests to
+/// run]`) or by more fields (`\tcoverage: 81.2% of statements`,
+/// `\tcoverage: 0.0% of statements [no tests to run]`), all kept. `None`
+/// for any other line, among them `?   \tpkg\t[no test files]` (it has no
+/// duration) and `FAIL\tpkg [build failed]`.
+fn mask_go_package_line(s: &str, sep: &str) -> Option<String> {
+    if !(s.starts_with(&format!("ok  {sep}")) || s.starts_with(&format!("FAIL{sep}"))) {
+        return None;
+    }
+    let mut fields: Vec<&str> = s.split(sep).collect();
+    let third = *fields.get(2)?;
+    let (head, tail) = match third.find(' ') {
+        Some(i) => third.split_at(i),
+        None => (third, ""),
+    };
+    if !(is_duration(head) || head == "(cached)") {
+        return None;
+    }
+    let masked = format!("<dur>{tail}");
+    fields[2] = &masked;
+    Some(fields.join(sep))
+}
+
+/// A go test -json event line (`{"Time":"...","Action":"pass",...}`) with
+/// its `"Elapsed":<seconds>` erased and the package line its `"Output"`
+/// may carry masked as `mask_go_package_line` masks one (a per-test
+/// `--- PASS: T (0.00s)` inside it goes with the parenthesized durations,
+/// the `Time` with the timestamps). `None` for any other line.
+fn mask_go_json_event(s: &str) -> Option<String> {
+    if !(s.starts_with("{\"Time\":\"") || s.starts_with("{\"Action\":\""))
+        || !s.contains("\"Action\":\"")
+        || !s.ends_with('}')
+    {
+        return None;
+    }
+    let mut out = s.to_string();
+    const ELAPSED: &str = "\"Elapsed\":";
+    if let Some(i) = out.find(ELAPSED) {
+        let from = i + ELAPSED.len();
+        let n = number_len(&out.as_bytes()[from..]);
+        if n > 0 {
+            out.replace_range(from..from + n, "\"<dur>\"");
+        }
+    }
+    const OUTPUT: &str = "\"Output\":\"";
+    if let Some(i) = out.find(OUTPUT) {
+        let from = i + OUTPUT.len();
+        let body = &out[from..];
+        // The line itself, up to its escaped newline or the string's end.
+        if let Some(end) = body.find("\\n").or_else(|| body.find('"'))
+            && let Some(masked) = mask_go_package_line(&body[..end], "\\t")
+        {
+            out.replace_range(from..from + end, &masked);
+        }
+    }
+    Some(out)
+}
+
+/// node:test's durations, which carry no unit: the spec reporter's summary
+/// `ℹ duration_ms 1541.8`, the TAP reporter's `# duration_ms 1541.8` and
+/// its per-test YAML `duration_ms: 0.4567`. The number after the word
+/// `duration_ms` (an optional `:`, then spaces) becomes `<dur>`; the
+/// per-test spec lines (`✔ name (1.2ms)`) go with the parenthesized
+/// durations.
+fn mask_node_test(s: &str) -> String {
+    const WORD: &str = "duration_ms";
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(WORD) {
+        let b = rest.as_bytes();
+        let boundary = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
+        let mut j = i + WORD.len();
+        if b.get(j) == Some(&b':') {
+            j += 1;
+        }
+        let spaces = b[j..].iter().take_while(|c| **c == b' ').count();
+        let num = number_len(&b[j + spaces..]);
+        if boundary && spaces > 0 && num > 0 {
+            out.push_str(&rest[..j + spaces]);
+            out.push_str("<dur>");
+            rest = &rest[j + spaces + num..];
+        } else {
+            out.push_str(&rest[..i + WORD.len()]);
+            rest = &rest[i + WORD.len()..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The length of a plain number at the start of `b` (digits, an optional
+/// fraction) that ends there: followed by the end or a byte that is not
+/// alphanumeric, `.` or `_`. 0 if there is none.
+fn number_len(b: &[u8]) -> usize {
+    let int = b.iter().take_while(|c| c.is_ascii_digit()).count();
+    if int == 0 {
+        return 0;
+    }
+    let mut i = int;
+    if b.get(i) == Some(&b'.') {
+        let frac = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if frac == 0 {
+            return 0;
+        }
+        i += 1 + frac;
+    }
+    match b.get(i) {
+        Some(c) if c.is_ascii_alphanumeric() || *c == b'.' || *c == b'_' => 0,
+        _ => i,
+    }
+}
+
+/// `H:MM:SS` (or `HH:MM:SS`) at the start of `b`, followed by the end or a
+/// byte that is not alphanumeric: its length.
+fn clock_len(b: &[u8]) -> Option<usize> {
+    let d = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
+    let h = b.iter().take_while(|c| c.is_ascii_digit()).count();
+    if !(h == 1 || h == 2) {
+        return None;
+    }
+    let ok = b.get(h) == Some(&b':')
+        && d(h + 1)
+        && d(h + 2)
+        && b.get(h + 3) == Some(&b':')
+        && d(h + 4)
+        && d(h + 5)
+        && !b.get(h + 6).is_some_and(u8::is_ascii_alphanumeric);
+    ok.then_some(h + 6)
+}
+
+/// pytest's long-run summary prints the clock after the duration: `in
+/// 62.01s (0:01:02)`. Once the duration is `<dur>`, a parenthesized clock
+/// right after it goes too.
+fn mask_clock_after_duration(s: &str) -> String {
+    const AFTER: &str = "<dur> (";
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(AFTER) {
+        let from = i + AFTER.len();
+        match clock_len(&rest.as_bytes()[from..]) {
+            Some(n) if rest.as_bytes().get(from + n) == Some(&b')') => {
+                out.push_str(&rest[..from]);
+                out.push_str("<dur>");
+                rest = &rest[from + n..];
+            }
+            _ => {
+                out.push_str(&rest[..from]);
+                rest = &rest[from..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// vitest's timing lines, beyond what the generic rules erase: the summary
+/// `Duration  1.23s (transform 45ms, setup 0ms, collect 100ms, tests 20ms,
+/// environment 0ms, prepare 50ms)` (every duration on a line that starts
+/// with `Duration`), `Start at  09:12:03` (a clock time after `Start at`),
+/// and a test file's line `✓ src/a.test.ts (3 tests | 1 skipped) 5ms` (a
+/// duration ending the line right after a parenthesized test count).
+fn mask_vitest(s: &str) -> String {
+    let t = s.trim_start();
+    let lead = &s[..s.len() - t.len()];
+    if t.starts_with("Duration ") {
+        return format!("{lead}{}", mask_every_duration(t));
+    }
+    if let Some(rest) = t.strip_prefix("Start at ") {
+        let spaces = rest.bytes().take_while(|c| *c == b' ').count();
+        if let Some(n) = clock_len(&rest.as_bytes()[spaces..]) {
+            return format!(
+                "{lead}Start at {}<ts>{}",
+                &rest[..spaces],
+                &rest[spaces + n..]
+            );
+        }
+        return s.to_string();
+    }
+    if let Some(close) = s.rfind(") ")
+        && let Some(open) = s[..close].rfind('(')
+    {
+        let tail = &s[close + 2..];
+        let count = &s[open + 1..close];
+        if duration_len(tail.as_bytes()) == Some(tail.len())
+            && count.bytes().next().is_some_and(|c| c.is_ascii_digit())
+            && count
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .starts_with(" test")
+        {
+            return format!("{}<dur>", &s[..close + 2]);
+        }
+    }
+    s.to_string()
+}
+
+/// `s` with every duration (`duration_len`) that starts a word replaced by
+/// `<dur>`.
+fn mask_every_duration(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let (mut i, mut from) = (0, 0);
+    while i < b.len() {
+        let word_start = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'.');
+        if word_start
+            && b[i].is_ascii_digit()
+            && let Some(n) = duration_len(&b[i..])
+        {
+            out.push_str(&s[from..i]);
+            out.push_str("<dur>");
+            i += n;
+            from = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&s[from..]);
+    out
 }
 
 /// `0.412s`, `600.00s`: digits with an optional point, then `s`.
@@ -803,7 +1045,7 @@ fn duration_len(b: &[u8]) -> Option<usize> {
 /// printed (`12 passed in 3.21s`, `took 450ms`, `Time: 1.234 s`,
 /// `Duration  1.23s`, `Finished in 0.5 seconds`). An optional `:` and
 /// spaces may follow the word.
-const DURATION_WORDS: &[&str] = &["in", "took", "Time", "Duration", "Finished"];
+const DURATION_WORDS: &[&str] = &["in", "took", "Time", "Duration", "Finished", "estimated"];
 
 /// `s` with every test-runner duration replaced by `<dur>`: a duration in
 /// parentheses, or one after a `DURATION_WORDS` word at a word boundary.
@@ -894,8 +1136,11 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
     // the rename to Quod (the tag only; the rules are v2's). v4: a package
     // line's `(cached)` reads as a duration, and its duration is erased
     // when more fields follow it (exp/never-worse). v5: trust v2,
-    // timestamps and test-runner durations normalized.
-    buf.extend_from_slice(b"quod result fingerprint v5\0");
+    // timestamps and test-runner durations normalized. v6: every go test
+    // package-line form ([no tests to run], go test -json), node:test's
+    // duration_ms, vitest's and jest's remaining timing fields
+    // (fix/replay-gaps).
+    buf.extend_from_slice(b"quod result fingerprint v6\0");
     buf.extend_from_slice(&i64::from(r.exit_code).to_le_bytes());
     for h in [out, err, outputs, root] {
         buf.extend_from_slice(h.hex().as_bytes());
@@ -2251,6 +2496,170 @@ mod tests {
         );
         assert_eq!(a, b);
         assert_ne!(n("12 passed in 3.21s\n"), n("11 passed in 3.21s\n"));
+    }
+
+    /// fix/replay-gaps: every go test package-line form keeps only its
+    /// duration out (expr-lang/expr's `[no tests to run]` lines diverged
+    /// every audit), go test -json's Elapsed and escaped package lines,
+    /// stdout and stderr alike.
+    #[test]
+    fn normalizes_every_go_test_status_line() {
+        let n = |s: &str| String::from_utf8(normalize(s.as_bytes())).unwrap();
+        // expr-lang/expr, go test ./... (go 1.27).
+        let a = "ok  \tgithub.com/expr-lang/expr\t0.412s\n\
+                 ok  \tgithub.com/expr-lang/expr/test/gen\t0.001s [no tests to run]\n\
+                 ?   \tgithub.com/expr-lang/expr/internal/spew\t[no test files]\n\
+                 ok  \tgithub.com/expr-lang/expr/test/fuzz\t(cached) [no tests to run]\n\
+                 ok  \tgithub.com/expr-lang/expr/vm\t1.207s\tcoverage: 81.2% of statements\n\
+                 ok  \tgithub.com/expr-lang/expr/test/mock\t0.004s\tcoverage: 0.0% of statements [no tests to run]\n\
+                 ok  \tgithub.com/expr-lang/expr/types\t0.004s\tcoverage: [no statements]\n\
+                 FAIL\tgithub.com/expr-lang/expr/vm\t0.031s\n\
+                 FAIL\tgithub.com/expr-lang/expr/bad [build failed]\n";
+        let b = "ok  \tgithub.com/expr-lang/expr\t0.398s\n\
+                 ok  \tgithub.com/expr-lang/expr/test/gen\t0.002s [no tests to run]\n\
+                 ?   \tgithub.com/expr-lang/expr/internal/spew\t[no test files]\n\
+                 ok  \tgithub.com/expr-lang/expr/test/fuzz\t0.003s [no tests to run]\n\
+                 ok  \tgithub.com/expr-lang/expr/vm\t(cached)\tcoverage: 81.2% of statements\n\
+                 ok  \tgithub.com/expr-lang/expr/test/mock\t0.005s\tcoverage: 0.0% of statements [no tests to run]\n\
+                 ok  \tgithub.com/expr-lang/expr/types\t0.006s\tcoverage: [no statements]\n\
+                 FAIL\tgithub.com/expr-lang/expr/vm\t0.044s\n\
+                 FAIL\tgithub.com/expr-lang/expr/bad [build failed]\n";
+        assert_eq!(n(a), n(b));
+        assert_eq!(
+            n("ok  \tgithub.com/expr-lang/expr/test/gen\t0.001s [no tests to run]\n"),
+            "ok  \tgithub.com/expr-lang/expr/test/gen\t<dur> [no tests to run]\n"
+        );
+        assert_eq!(
+            n("ok  \tpkg\t0.004s\tcoverage: 0.0% of statements [no tests to run]\n"),
+            "ok  \tpkg\t<dur>\tcoverage: 0.0% of statements [no tests to run]\n"
+        );
+        // What the note says still counts: a package that ran tests is not
+        // one that had none to run, and coverage numbers stay.
+        assert_ne!(
+            n("ok  \tpkg\t0.001s [no tests to run]\n"),
+            n("ok  \tpkg\t0.001s\n")
+        );
+        assert_ne!(
+            n("ok  \tpkg\t0.1s\tcoverage: 81.2% of statements\n"),
+            n("ok  \tpkg\t0.1s\tcoverage: 81.3% of statements\n")
+        );
+        // A third field that does not start with a duration stays whole.
+        assert_eq!(n("ok  \tpkg\t(stale) [x]\n"), "ok  \tpkg\t(stale) [x]\n");
+        assert_eq!(n("ok  \tpkg\t1m0s [x]\n"), "ok  \tpkg\t1m0s [x]\n");
+        // go test -v: RUN/PAUSE/CONT/NAME carry nothing; PASS/FAIL/SKIP
+        // lines at any depth lose their duration.
+        assert_eq!(
+            n(
+                "=== RUN   TestRun\n=== PAUSE TestRun\n=== CONT  TestRun\n=== NAME  TestRun\n    --- PASS: TestRun/sub_1 (0.00s)\n--- PASS: TestRun (0.01s)\nPASS\n"
+            ),
+            "=== RUN   TestRun\n=== PAUSE TestRun\n=== CONT  TestRun\n=== NAME  TestRun\n    --- PASS: TestRun/sub_1 (<dur>)\n--- PASS: TestRun (<dur>)\nPASS\n"
+        );
+        assert_eq!(
+            n("testing: warning: no tests to run\nPASS\n"),
+            "testing: warning: no tests to run\nPASS\n"
+        );
+        // go test -json (go 1.27): Time, Elapsed, and the lines in Output.
+        let j1 = r#"{"Time":"2026-11-02T09:12:03.123456789Z","Action":"output","Package":"github.com/expr-lang/expr/test/gen","Output":"ok  \tgithub.com/expr-lang/expr/test/gen\t0.001s [no tests to run]\n"}
+{"Time":"2026-11-02T09:12:03.123500000Z","Action":"pass","Package":"github.com/expr-lang/expr/test/gen","Elapsed":0.001}
+{"Time":"2026-11-02T09:12:03.1Z","Action":"output","Package":"p","Test":"TestX","Output":"--- PASS: TestX (0.00s)\n"}
+{"Time":"2026-11-02T09:12:03.1Z","Action":"pass","Package":"p","Test":"TestX","Elapsed":0}
+"#;
+        let j2 = r#"{"Time":"2026-11-03T10:00:00.5Z","Action":"output","Package":"github.com/expr-lang/expr/test/gen","Output":"ok  \tgithub.com/expr-lang/expr/test/gen\t0.012s [no tests to run]\n"}
+{"Time":"2026-11-03T10:00:00.6Z","Action":"pass","Package":"github.com/expr-lang/expr/test/gen","Elapsed":0.012}
+{"Time":"2026-11-03T10:00:00.7Z","Action":"output","Package":"p","Test":"TestX","Output":"--- PASS: TestX (0.31s)\n"}
+{"Time":"2026-11-03T10:00:00.8Z","Action":"pass","Package":"p","Test":"TestX","Elapsed":0.31}
+"#;
+        assert_eq!(n(j1), n(j2));
+        assert_ne!(
+            n(r#"{"Time":"2026-11-02T09:12:03Z","Action":"pass","Package":"p","Elapsed":1}"#),
+            n(r#"{"Time":"2026-11-02T09:12:03Z","Action":"fail","Package":"p","Elapsed":1}"#)
+        );
+        // Not a go test event: an Elapsed elsewhere stays.
+        assert_eq!(n(r#"{"Elapsed":0.5}"#), r#"{"Elapsed":0.5}"#);
+    }
+
+    /// fix/replay-gaps: node:test's unitless duration_ms (spec and TAP
+    /// reporters; commander.js and bench-lite's node-test diverged on every
+    /// audit), and the timing fields jest, vitest, pytest and mocha print
+    /// that the generic rules did not reach.
+    #[test]
+    fn normalizes_node_test_and_other_runner_timings() {
+        let n = |s: &str| String::from_utf8(normalize(s.as_bytes())).unwrap();
+        // node --test, spec reporter (node 24, commander.js).
+        let spec = |d1: &str, d2: &str, total: &str| {
+            format!(
+                "▶ .addHelpText\n  ✔ when \"before\" string then string before built-in help ({d1}ms)\n  ✔ when \"after\" string then string after built-in help ({d2}ms)\n▶ .addHelpText ({d2}ms)\nℹ tests 1243\nℹ suites 412\nℹ pass 1243\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms {total}\n"
+            )
+        };
+        assert_eq!(
+            n(&spec("0.9113", "0.2", "1541.8")),
+            n(&spec("1.0402", "0.31", "1297.412"))
+        );
+        assert!(n(&spec("1", "2", "1541.8")).ends_with("ℹ duration_ms <dur>\n"));
+        // The counts stay.
+        assert_ne!(
+            n("ℹ pass 1243\nℹ duration_ms 1.5\n"),
+            n("ℹ pass 1242\nℹ duration_ms 1.5\n")
+        );
+        // node --test, TAP reporter.
+        let tap = |d: &str, total: &str| {
+            format!(
+                "TAP version 13\n# Subtest: adds\nok 1 - adds\n  ---\n  duration_ms: {d}\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# duration_ms {total}\n"
+            )
+        };
+        assert_eq!(n(&tap("0.4567", "61.2")), n(&tap("12", "70.03")));
+        assert!(n(&tap("1", "2")).contains("  duration_ms: <dur>\n"));
+        // Not a duration: another word, no number, a version-like token.
+        assert_eq!(n("max_duration_ms 5\n"), "max_duration_ms 5\n");
+        assert_eq!(n("duration_ms: unknown\n"), "duration_ms: unknown\n");
+        assert_eq!(n("duration_ms 1.2.3\n"), "duration_ms 1.2.3\n");
+        assert_eq!(n("duration_ms 12abc\n"), "duration_ms 12abc\n");
+        // jest: the estimate after Time.
+        assert_eq!(
+            n("Time:        1.234 s, estimated 2 s\n"),
+            "Time:        <dur>, estimated <dur>\n"
+        );
+        assert_eq!(
+            n("PASS src/sum.test.js (5.123 s)\n"),
+            "PASS src/sum.test.js (<dur>)\n"
+        );
+        // vitest: start clock, the Duration breakdown, a file's line.
+        assert_eq!(n(" Start at  09:12:03\n"), " Start at  <ts>\n");
+        assert_eq!(
+            n(
+                "   Duration  1.23s (transform 45ms, setup 0ms, collect 100ms, tests 20ms, environment 0ms, prepare 50ms)\n"
+            ),
+            "   Duration  <dur> (transform <dur>, setup <dur>, collect <dur>, tests <dur>, environment <dur>, prepare <dur>)\n"
+        );
+        assert_eq!(
+            n(
+                " ✓ src/a.test.ts (3 tests) 5ms\n ✓ src/b.test.ts (4 tests | 1 skipped) 125ms\n ✓ src/c.test.ts (1 test) 2ms\n"
+            ),
+            " ✓ src/a.test.ts (3 tests) <dur>\n ✓ src/b.test.ts (4 tests | 1 skipped) <dur>\n ✓ src/c.test.ts (1 test) <dur>\n"
+        );
+        assert_eq!(
+            n("      Tests  3 passed (3)\n"),
+            "      Tests  3 passed (3)\n"
+        );
+        assert_eq!(
+            n(" ✓ src/a.test.ts (3 items) 5ms\n"),
+            " ✓ src/a.test.ts (3 items) 5ms\n"
+        );
+        assert_eq!(n("Start at noon\n"), "Start at noon\n");
+        // pytest: the clock after a long run's duration.
+        assert_eq!(
+            n("======= 1203 passed, 4 skipped in 62.01s (0:01:02) =======\n"),
+            "======= 1203 passed, 4 skipped in <dur> (<dur>) =======\n"
+        );
+        assert_eq!(
+            n("in 3.2s (version 1:02:03)\n"),
+            "in <dur> (version 1:02:03)\n"
+        );
+        // mocha.
+        assert_eq!(
+            n("  12 passing (12ms)\n  1 pending\n"),
+            "  12 passing (<dur>)\n  1 pending\n"
+        );
     }
 
     struct World {

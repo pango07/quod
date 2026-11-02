@@ -232,6 +232,20 @@ pub fn mount_point(deps: &Deps, repo: &Path, rel: &str) -> PathBuf {
     }
 }
 
+/// After a network step: pins uv's cache stamps (`quod_hooks::uvstamp`)
+/// in the dependency trees the profile serves to later steps (Python's
+/// venv); returns how many files were rewritten.
+pub fn pin_install_stamps(deps: &Deps, profile: &Profile) -> anyhow::Result<usize> {
+    let mut n = 0;
+    for name in served(profile) {
+        let dir = deps.dir(name);
+        if dir.is_dir() {
+            n += quod_hooks::uvstamp::pin_uv_cache_stamps(&dir)?;
+        }
+    }
+    Ok(n)
+}
+
 /// After a network step: the checkout keeps nothing of Quod's but the
 /// mount point, removed when empty (a `.quod/` with anything of the
 /// user's in it stays).
