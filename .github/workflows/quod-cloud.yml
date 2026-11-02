@@ -9,7 +9,7 @@ name: quod-cloud
 
 on:
   push:
-    branches: [main, exp/cloud-dogfood]  # exp/cloud-dogfood: TEMPORARY, for the bring-up
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -53,37 +53,23 @@ jobs:
       - name: npm run lint (through quod)
         working-directory: cloud
         run: quod run --toolchain node -- npm run lint
-      # TEMPORARY bring-up: GitHub's ubuntu-latest pool mixes CPU models and
-      # every step key pins the CPU's flags, so four runs in a row on one
-      # model (record, two shadow audits, replay) are rare. Running both
-      # steps twice more on this VM spends the shadow phase here (each one a
-      # full re-execution compared with the record); the next job on the same
-      # CPU model then replays.
-      - name: shadow warm-up (TEMPORARY bring-up)
+      # GitHub's ubuntu-latest pool mixes CPU models (EPYC 7763, 9V74, 9V45,
+      # Xeon 8370C, 8573C seen), and every step key pins the CPU's flags, so
+      # four jobs in a row on one model (record, two shadow audits, replay)
+      # are rare. When a step did not replay, run it twice more on this VM:
+      # each run is a full re-execution compared with the record (the
+      # shadow phase, spent here), and the next job on the same CPU model
+      # replays. Skipped when both steps replayed.
+      - name: shadow phase on this VM (when a step did not replay)
         working-directory: cloud
         run: |
+          replayed=$(sudo jq -s '[.[] | select(.message == "run" and .outcome == "replayed")] | length' /var/lib/quod/events.jsonl)
+          if [ "$replayed" -ge 2 ]; then echo "both steps replayed"; exit 0; fi
           for i in 1 2; do
             quod run --toolchain node -- node scripts/vitest-quod.mjs > /dev/null 2> "$RUNNER_TEMP/t$i.err" || true
             quod run --toolchain node -- npm run lint > /dev/null 2> "$RUNNER_TEMP/l$i.err" || true
             grep -h -E 'QUOD  [A-Z]|trust:' "$RUNNER_TEMP/t$i.err" "$RUNNER_TEMP/l$i.err" || true
           done
-      - name: host fingerprint (TEMPORARY bring-up diagnostics)
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          grep -m1 'model name' /proc/cpuinfo
-          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | sort -u | tr '\n' ' '; echo
-          echo "hwcap: $(LD_SHOW_AUXV=1 /bin/true | grep -E 'AT_HWCAP' | tr '\n' ' ')"
-          sudo bash -c 'c=$(sed -n "s/^0:://p" /proc/self/cgroup); echo "cgroup $c"; d=/sys/fs/cgroup$c; while [ "$d" != /sys/fs ]; do echo "$d pids.max=$(cat $d/pids.max 2>/dev/null) memory.max=$(cat $d/memory.max 2>/dev/null)"; d=$(dirname $d); done'
-          echo "binfmt: $(ls /proc/sys/fs/binfmt_misc 2>/dev/null | tr '\n' ' ')"
-          echo "lsm: $(cat /sys/kernel/security/lsm 2>/dev/null)"
-          echo "fs: $(stat -f -c %T /var/lib/quod) bwrap: $(bwrap --version)"
-          echo "host-probe: $(sudo /usr/local/lib/quod/quod __host-probe 2>&1 | head -c 4000)"
-          gh api 'repos/${{ github.repository }}/contents/scripts/host-fingerprint.sh?ref=cc34bd9093f5a1c94bb27c0f777604405acd1df8' -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/fp.sh"
-          sudo env -i PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/python/bin:/usr/bin:/bin bash "$RUNNER_TEMP/fp.sh"
-          echo "--- /etc files"
-          sudo find /etc -readable -type f ! -path /etc/hostname ! -path /etc/hosts ! -path /etc/resolv.conf ! -path /etc/mtab ! -path /etc/machine-id ! -path /etc/passwd ! -path /etc/group ! -path '/etc/shadow*' ! -path '/etc/gshadow*' -print0 2>/dev/null | sudo xargs -0 -r sha256sum | awk '{print "etcfile", $2, substr($1,1,16)}' | LC_ALL=C sort
       - name: what quod did
         if: always()
         run: |

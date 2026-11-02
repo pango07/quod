@@ -85,7 +85,11 @@ step's trust state.
 
 What keeps a step from replaying: any input it read changed; a different
 runner image, kernel or CPU (the result is only proved for the machine class
-it ran on); a failed step (failures are not replayed by default).
+it ran on); a failed step (failures are not replayed by default); output
+that differs between identical runs, such as a test runner printing the
+wall clock (the first audit finds the difference and quarantines the step;
+print a summary without timings, as this repository's
+`cloud/scripts/vitest-quod.mjs` does for vitest).
 
 ## Limits today
 
@@ -98,3 +102,10 @@ it ran on); a failed step (failures are not replayed by default).
   finish unrecorded. Shorter steps are unaffected.
 - Fork pull requests get no OIDC token from GitHub: their steps run and
   nothing is recorded.
+- GitHub's `ubuntu-latest` pool mixes CPU models (five seen in one
+  afternoon), and a result is proved per CPU model, so each model goes
+  through its own shadow phase. `.github/workflows/quod-cloud.yml` spends
+  it in one job (the step twice more when it did not replay).
+- The first `quod run` of a job spends about a minute fingerprinting the
+  fresh runner and hashing the workspace (a large `node_modules` included);
+  later steps in the job start in about a second.
