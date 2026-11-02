@@ -1,5 +1,10 @@
+//go:build linux
+
 // Code added to package testing by Quod, through go's -overlay; not Go's.
-// Quod's test-cache guard, version 1 (crates/quod-key/src/gotest.rs).
+// Quod's test-cache guard, version 2 (crates/quod-key/src/gotest.rs).
+// Linux only: it uses getrusage and waitid, and the overlay applies to
+// every build in the step, a cross-compile included. Elsewhere testdeps'
+// half finds no guard and calls every result uncacheable.
 
 package testing
 

@@ -28,41 +28,89 @@
 use crate::Knob;
 
 /// Where the guard's files are bound in the sandbox, read-only, outside the
-/// observed tree. The version is part of the path, so of the key.
-pub const SANDBOX_DIR: &str = "/quod/go-test-guard/v1";
+/// observed tree. The version is part of the path, so of the key: v2
+/// (2026-11-02: the testing file builds on linux only, the overlay names
+/// the GOROOT `go env` reports, proofs run with the cache expired) re-keys
+/// every step v1 proved.
+pub const SANDBOX_DIR: &str = "/quod/go-test-guard/v2";
 
 /// The GOFLAGS setting that compiles test binaries with the guard: the
 /// warm Go profile's replacement for `-count=1`.
 pub const OVERLAY_KNOB: Knob = Knob {
     name: "GOFLAGS",
     sep: ' ',
-    item: "-overlay=/quod/go-test-guard/v1/overlay.json",
+    item: "-overlay=/quod/go-test-guard/v2/overlay.json",
 };
 
 /// The guard's file in package testing, with the workspace path to fill in.
 const TESTING_GUARD: &str = include_str!("gotest/testing_guard.go.txt");
 
-/// The name it gets in the toolchain's src/testing.
-const TESTING_FILE: &str = "quod_test_cache_guard.go";
-
 /// testdeps' own file, relative to GOROOT.
 pub const TESTDEPS: &str = "src/testing/internal/testdeps/deps.go";
 
-/// Whether `script` runs `go test` (a `go` word followed by `test`), and no
-/// go invocation in it builds an artifact from test binaries (`-c`, `-o`),
-/// which would then carry the guard's files. Anything else keeps
-/// `-count=1`: Go's test cache stays off where Quod cannot tell.
-pub fn runs_go_test(script: &str) -> bool {
-    let words: Vec<&str> = script
+/// The script's words, as the guard reads them: split at whitespace and
+/// the shell's operators, with leading quotes dropped (`"GOFLAGS=x"`).
+fn words(script: &str) -> Vec<&str> {
+    script
         .split(|c: char| c.is_whitespace() || ";|&()`".contains(c))
+        .map(|w| w.trim_start_matches(['"', '\'']))
         .filter(|w| !w.is_empty())
-        .collect();
-    let go = |w: &str| w == "go" || w.ends_with("/go");
-    let tests = words.windows(2).any(|w| go(w[0]) && w[1] == "test");
+        .collect()
+}
+
+/// A word that names the go command: `go`, or a path ending in `/go`.
+fn is_go(w: &str) -> bool {
+    w == "go" || w.ends_with("/go")
+}
+
+/// Whether `script` runs `go test` (a `go` word followed by `test`), and no
+/// go invocation in it makes something from packages compiled with the
+/// guard's files: a test binary or a build output (`-c`, `-o`), an
+/// installed binary (`go install`), or a program it runs (`go run`), each
+/// of which would then carry Quod's code into what the step leaves or runs.
+/// Anything else keeps `-count=1`: Go's test cache stays off where Quod
+/// cannot tell.
+pub fn runs_go_test(script: &str) -> bool {
+    let words = words(script);
+    let after_go = |sub: &str| words.windows(2).any(|w| is_go(w[0]) && w[1] == sub);
     let artifacts = words
         .iter()
         .any(|w| *w == "-c" || *w == "-o" || w.starts_with("-o=") || w.starts_with("-exec"));
-    tests && !artifacts
+    after_go("test") && !after_go("install") && !after_go("run") && !artifacts
+}
+
+/// Variables the guard's decision depends on: the step's env may not set
+/// them (`env_allows_guard`), and neither may its script
+/// (`script_sets_toolchain_env`).
+const TOOLCHAIN_VARS: &[&str] = &[
+    "GOFLAGS",
+    "GOROOT",
+    "PATH",
+    "GOTOOLCHAIN",
+    "GOENV",
+    "GO111MODULE",
+];
+
+/// The first assignment word in `script` to a variable the guard depends
+/// on (`GOFLAGS=-count=1 go test`, `export PATH=...`, `PATH+=...`, `go env
+/// -w GOFLAGS=...`): the go command the script runs may then not be the
+/// one, or have the flags, the guard was made for. None if there is none.
+pub fn script_sets_toolchain_env(script: &str) -> Option<&str> {
+    words(script).into_iter().find(|w| {
+        TOOLCHAIN_VARS.iter().any(|v| {
+            w.strip_prefix(v)
+                .is_some_and(|r| r.starts_with('=') || r.starts_with("+="))
+        })
+    })
+}
+
+/// The go commands `script` names by path (`/usr/local/go/bin/go test`):
+/// each must be the toolchain the guard was made for.
+pub fn script_go_paths(script: &str) -> Vec<&str> {
+    words(script)
+        .into_iter()
+        .filter(|w| *w != "go" && w.ends_with("/go"))
+        .collect()
 }
 
 /// Whether the guard can stand in for `-count=1` given the step's extra
@@ -76,35 +124,68 @@ pub fn env_allows_guard(extra_env: &[(String, String)]) -> bool {
     })
 }
 
+/// The Go releases whose cmd/go and package testing this guard was
+/// reviewed against (the test cache's rules, testdeps, the overlay):
+/// `go1.26`, `go1.27` and their patch releases. Any other version (a
+/// release candidate, an experiment build, the next minor) keeps
+/// `-count=1` until the guard is reviewed against it.
+pub const REVIEWED_GO: &[&str] = &["1.26", "1.27"];
+
+/// Whether `goversion` (as `go env GOVERSION` prints it) is a release in
+/// `REVIEWED_GO`.
+pub fn reviewed_go_version(goversion: &str) -> bool {
+    let Some(v) = goversion.strip_prefix("go") else {
+        return false;
+    };
+    REVIEWED_GO.iter().any(|minor| {
+        v.strip_prefix(minor).is_some_and(|rest| {
+            rest.is_empty()
+                || rest
+                    .strip_prefix('.')
+                    .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+    })
+}
+
+/// The name the guard's testing file has in GOROOT's src/testing; a `go
+/// list` of package testing under the overlay lists it exactly when the
+/// overlay applies.
+pub const TESTING_FILE: &str = "quod_test_cache_guard.go";
+
+/// The overlay (`go -overlay` JSON) that adds `testing_go` to package
+/// testing under `goroot` and replaces testdeps with `testdeps_go`.
+pub fn overlay_json(goroot: &str, testdeps_go: &str, testing_go: &str) -> String {
+    let root = goroot.trim_end_matches('/');
+    let mut replace = serde_json::Map::new();
+    replace.insert(format!("{root}/{TESTDEPS}"), testdeps_go.into());
+    replace.insert(
+        format!("{root}/src/testing/{TESTING_FILE}"),
+        testing_go.into(),
+    );
+    serde_json::json!({ "Replace": replace }).to_string()
+}
+
 /// The guard's files, as (name in [`SANDBOX_DIR`], contents): the overlay
-/// JSON naming both replaced files under every spelling of GOROOT in
-/// `goroots` (the go command may spell it either way), the patched testdeps
-/// (from `deps_go`, the toolchain's own), and the testing file. `namespace`
-/// (the step key) goes into the testdeps file, so test binaries, and with
-/// them cached results, of different keys never coincide. `Err` when
-/// testdeps is not the file this patch knows; the step then keeps
-/// `-count=1`.
+/// JSON naming both replaced files under `goroot`, spelled exactly as the
+/// step's go command spells GOROOT (`go env GOROOT`: cmd/go matches overlay
+/// paths by spelling, not by file), the patched testdeps (from `deps_go`,
+/// the toolchain's own), and the testing file. `namespace` (the step key)
+/// goes into the testdeps file, so test binaries, and with them cached
+/// results, of different keys never coincide. `Err` when testdeps is not
+/// the file this patch knows; the step then keeps `-count=1`.
 pub fn guard_files(
-    goroots: &[String],
+    goroot: &str,
     deps_go: &str,
     namespace: &str,
     workspace: &str,
 ) -> Result<Vec<(&'static str, String)>, String> {
     let testdeps = patch_testdeps(deps_go, namespace)?;
     let testing = TESTING_GUARD.replace("QUOD_WORKSPACE", workspace);
-    let mut replace = serde_json::Map::new();
-    for root in goroots {
-        let root = root.trim_end_matches('/');
-        replace.insert(
-            format!("{root}/{TESTDEPS}"),
-            format!("{SANDBOX_DIR}/testdeps.go").into(),
-        );
-        replace.insert(
-            format!("{root}/src/testing/{TESTING_FILE}"),
-            format!("{SANDBOX_DIR}/testing.go").into(),
-        );
-    }
-    let overlay = serde_json::json!({ "Replace": replace }).to_string();
+    let overlay = overlay_json(
+        goroot,
+        &format!("{SANDBOX_DIR}/testdeps.go"),
+        &format!("{SANDBOX_DIR}/testing.go"),
+    );
     Ok(vec![
         ("overlay.json", overlay),
         ("testdeps.go", testdeps),
@@ -149,6 +230,11 @@ const STOP_NEW: &str = "func (TestDeps) StopTestLog() error {
 	why := quodVerdict()
 	log.mu.Lock()
 	defer log.mu.Unlock()
+	// A test-log entry, not a variable anything sets or reads: go test
+	// hashes each logged getenv's name and value (here: unset) into the
+	// result's inputs, so they name the step key too. What separates keys
+	// is quodNamespace, compiled into the binary; this is a second
+	// separation, not one the guard relies on.
 	log.w.WriteString(\"getenv QUOD_TESTCACHE_\" + quodNamespace + \"\\n\")
 	if why != \"\" {
 		log.w.WriteString(\"quod-uncacheable \" + why + \"\\n\")
@@ -156,7 +242,7 @@ const STOP_NEW: &str = "func (TestDeps) StopTestLog() error {
 	err := log.w.Flush()";
 
 const TESTDEPS_TAIL: &str = "
-// ---- Quod's test-cache guard, version 1: testdeps' half (the other is
+// ---- Quod's test-cache guard, version 2: testdeps' half (the other is
 // the guard's file in package testing). Changed by Quod, through go's
 // -overlay; not Go's. ----
 
@@ -278,6 +364,66 @@ func (TestDeps) StopTestLog() error {
             "go test ./... && go build -o bin/gh ./cmd/gh"
         ));
         assert!(!runs_go_test("go test -exec=sudo ./..."));
+        // An installed binary or a program run would carry the guard's
+        // files (MINOR 5).
+        assert!(!runs_go_test("go install ./cmd/gh && go test ./..."));
+        assert!(!runs_go_test("go test ./... && go run ./script/gen.go"));
+        assert!(!runs_go_test("/usr/local/go/bin/go run . ; go test ./..."));
+    }
+
+    #[test]
+    fn a_script_that_sets_the_toolchain_or_names_a_go_is_seen() {
+        for s in [
+            "GOFLAGS=-count=1 go test ./...",
+            "export PATH=/opt/go/bin:$PATH && go test ./...",
+            "PATH+=:/x go test ./...",
+            "env GOROOT=/opt/go go test ./...",
+            "GOTOOLCHAIN=go1.28.0 go test ./...",
+            "go env -w GOFLAGS=-count=1; go test ./...",
+            "\"GOFLAGS=-x\" go test ./...",
+        ] {
+            assert!(script_sets_toolchain_env(s).is_some(), "{s}");
+        }
+        for s in [
+            "go test ./...",
+            "GOOS=windows go build ./... && go test ./...",
+            "MYPATH=/x go test ./...",
+            "echo $PATH; go test ./...",
+        ] {
+            assert_eq!(script_sets_toolchain_env(s), None, "{s}");
+        }
+        assert_eq!(
+            script_go_paths("cd sub; /usr/local/go/bin/go test ./... && ./bin/go vet"),
+            vec!["/usr/local/go/bin/go", "./bin/go"]
+        );
+        assert!(script_go_paths("go test ./...").is_empty());
+    }
+
+    #[test]
+    fn only_reviewed_go_releases_get_the_guard() {
+        for v in [
+            "go1.26",
+            "go1.26.0",
+            "go1.26.4",
+            "go1.27",
+            "go1.27.3",
+            "go1.27.12",
+        ] {
+            assert!(reviewed_go_version(v), "{v}");
+        }
+        for v in [
+            "go1.25.7",
+            "go1.28.0",
+            "go1.270",
+            "go1.27rc1",
+            "go1.27.3 X:boringcrypto",
+            "go1.27.",
+            "devel go1.28-abc",
+            "1.27.3",
+            "",
+        ] {
+            assert!(!reviewed_go_version(v), "{v}");
+        }
     }
 
     #[test]
@@ -291,15 +437,22 @@ func (TestDeps) StopTestLog() error {
         assert!(!env_allows_guard(&e("GO111MODULE", "off")));
     }
 
+    /// The testing file builds for linux only: it calls getrusage and
+    /// waitid, which other GOOSes' syscall lacks, and the overlay applies
+    /// to every build in the step (`GOOS=windows go build`, MAJOR 3).
+    #[test]
+    fn the_testing_file_is_linux_only() {
+        let first = TESTING_GUARD.lines().next().unwrap();
+        assert_eq!(first, "//go:build linux");
+        // A constraint must be followed by a blank line, before the package
+        // clause.
+        assert_eq!(TESTING_GUARD.lines().nth(1), Some(""));
+        assert!(TESTING_GUARD.contains("\npackage testing\n"));
+    }
+
     #[test]
     fn testdeps_is_patched_or_refused() {
-        let files = guard_files(
-            &["/usr/local/go".into(), "/usr/local/go1.27".into()],
-            DEPS,
-            "b3:abc123",
-            "/workspace",
-        )
-        .unwrap();
+        let files = guard_files("/usr/local/go/", DEPS, "b3:abc123", "/workspace").unwrap();
         let get = |n: &str| &files.iter().find(|(f, _)| *f == n).unwrap().1;
         let deps = get("testdeps.go");
         assert!(deps.contains("quodAttach()"));
@@ -309,14 +462,15 @@ func (TestDeps) StopTestLog() error {
         assert!(get("testing.go").contains("quodWorkspace = \"/workspace\""));
         let overlay: serde_json::Value = serde_json::from_str(get("overlay.json")).unwrap();
         let r = overlay["Replace"].as_object().unwrap();
-        assert_eq!(r.len(), 4);
+        // One spelling of GOROOT: the one the go command reports.
+        assert_eq!(r.len(), 2, "{r:?}");
         assert_eq!(
             r["/usr/local/go/src/testing/internal/testdeps/deps.go"],
-            "/quod/go-test-guard/v1/testdeps.go"
+            "/quod/go-test-guard/v2/testdeps.go"
         );
         assert_eq!(
-            r["/usr/local/go1.27/src/testing/quod_test_cache_guard.go"],
-            "/quod/go-test-guard/v1/testing.go"
+            r["/usr/local/go/src/testing/quod_test_cache_guard.go"],
+            "/quod/go-test-guard/v2/testing.go"
         );
         assert!(
             OVERLAY_KNOB
@@ -328,7 +482,7 @@ func (TestDeps) StopTestLog() error {
             "defer log.mu.Unlock()\n\terr",
             "defer log.mu.Unlock()\n\n\terr",
         );
-        assert!(guard_files(&["/g".into()], &changed, "b3:abc", "/workspace").is_err());
-        assert!(guard_files(&["/g".into()], DEPS, "b3:a\"b", "/workspace").is_err());
+        assert!(guard_files("/g", &changed, "b3:abc", "/workspace").is_err());
+        assert!(guard_files("/g", DEPS, "b3:a\"b", "/workspace").is_err());
     }
 }

@@ -194,7 +194,7 @@ fn adopt_legacy(old: &Path, new: &Path) -> anyhow::Result<()> {
         let _ = std::fs::remove_dir(parent);
     }
     tracing::info!(target: "quod", from = %old.display(), to = %new.display(), "adopted a legacy cache from the checkout");
-    eprintln!(
+    say!(
         "QUOD  moved {} out of the checkout to {}",
         old.display(),
         new.display()

@@ -293,3 +293,148 @@ fn g5_proofs_shadow_audits_and_observe_hits_expire_go_tests() {
     );
     println!("G5 ok: proof 2, both shadow audits and the observe hit ran fresh");
 }
+
+/// A module of `files` (paths relative to the repo) in place of the tiny
+/// one, committed.
+fn small(files: &[(&str, &str)]) -> Env {
+    let env = Env::new();
+    for p in ["go.mod", "calc", "other"] {
+        let _ = std::fs::remove_dir_all(env.repo.join(p));
+        let _ = std::fs::remove_file(env.repo.join(p));
+    }
+    for (p, src) in files {
+        env.write(p, src);
+    }
+    env.commit("g: a small module");
+    env
+}
+
+const GO_MOD: &str = "module example.com/g\n\ngo 1.27\n";
+
+/// MAJOR 2: package h's variable is read from a file by h's own init, which
+/// runs before package testing's (packages initialize in import-path order),
+/// so neither the guard nor go test logs it, and go test serves its cached
+/// result after the file changed (as plain go test does). A proof must not
+/// vouch for that: proofs run with go test's cache expired, so the stale
+/// result diverges instead of replaying.
+#[test]
+fn g6_a_proof_never_vouches_for_a_cached_result() {
+    if !enabled() {
+        return;
+    }
+    let mut env = small(&[
+        ("mod/go.mod", GO_MOD),
+        (
+            "mod/h/h.go",
+            r#"package h
+import ("os"; "strings")
+var Conf = read()
+func read() string { b, _ := os.ReadFile("testdata/conf.txt"); return strings.TrimSpace(string(b)) }
+"#,
+        ),
+        (
+            "mod/h/h_test.go",
+            r#"package h_test
+import ("testing"; "example.com/g/h")
+func TestH(t *testing.T) { if h.Conf != "v1" { t.Fatalf("conf: %q", h.Conf) } }
+"#,
+        ),
+        ("mod/h/testdata/conf.txt", "v1\n"),
+    ]);
+    // Replay mode, two proofs, no audits: the proofs are the evidence.
+    env.run_defaults = [
+        "--warm", "--mode", "replay", "--proofs", "2", "--audit", "0",
+    ]
+    .map(String::from)
+    .to_vec();
+    let step = "cd mod && go test ./...";
+    let r1 = env.run_step(step, &[]);
+    assert!(r1.executed() && r1.code == 0, "G6 first: {}", r1.stderr);
+    let r2 = env.run_step(step, &[]);
+    assert!(r2.executed() && r2.code == 0, "G6 proof: {}", r2.stderr);
+    let r3 = env.run_step(step, &[]);
+    assert!(r3.hit(), "G6: proven, then replayed: {}", r3.stderr);
+
+    env.write("mod/h/testdata/conf.txt", "v2\n");
+    env.commit("g: h's file changed");
+    // A miss: go test serves its cached result, stale, as plain go test.
+    let r4 = env.run_step(step, &[]);
+    assert!(r4.executed(), "G6 miss: {}", r4.stderr);
+    assert_eq!(
+        of(&outcomes(&r4.stdout), "h"),
+        "cached",
+        "G6: the guard is on and go test served h"
+    );
+    // Its proof runs h again, fails, and diverges; nothing replays the
+    // stale result, and h fails as it does without a cache.
+    let mut last = r4;
+    for i in 5..=6 {
+        let r = env.run_step(step, &[]);
+        assert!(!r.hit(), "G6 run {i} replayed a stale result: {}", r.stderr);
+        last = r;
+    }
+    assert_ne!(last.code, 0, "G6: {}", last.stderr);
+    assert_eq!(of(&outcomes(&last.stdout), "h"), "FAIL");
+    println!("G6 ok: a stale cached result diverged in its proof, never replayed");
+}
+
+/// MAJOR 3: the overlay applies to every build in a guarded step, a
+/// cross-compile included; the guard's testing file is linux only, so a
+/// package importing testing still builds for windows.
+#[test]
+fn g7_a_cross_compile_of_testing_builds_in_a_guarded_step() {
+    if !enabled() {
+        return;
+    }
+    let mut env = small(&[
+        ("mod/go.mod", GO_MOD),
+        (
+            "mod/tu/tu.go",
+            "package tu\nimport \"testing\"\nfunc Helper(t testing.TB) { t.Helper() }\n",
+        ),
+        (
+            "mod/tu/tu_test.go",
+            "package tu\nimport \"testing\"\nfunc TestTU(t *testing.T) { Helper(t) }\n",
+        ),
+    ]);
+    env.run_defaults = ["--warm"].map(String::from).to_vec();
+    let step = "cd mod && GOOS=windows go build ./... && go test ./...";
+    let r1 = env.run_step(step, &[]);
+    assert_eq!(r1.code, 0, "G7: {}", r1.stderr);
+    // And the guard was on: after an unrelated change, go test serves tu.
+    env.write("mod/README", "x\n");
+    env.commit("g: unrelated");
+    let r2 = env.run_step(step, &[]);
+    assert_eq!(r2.code, 0, "G7: {}", r2.stderr);
+    assert_eq!(of(&outcomes(&r2.stdout), "tu"), "cached", "G7");
+    println!("G7 ok: GOOS=windows go build compiled package testing under the guard");
+}
+
+/// MINOR 7: an execution with go test's cache expired (here the audit)
+/// lets the step's own `go clean -testcache` write the expiry file it was
+/// given.
+#[test]
+fn g8_go_clean_testcache_works_where_the_cache_is_expired() {
+    if !enabled() {
+        return;
+    }
+    let mut env = small(&[
+        ("mod/go.mod", GO_MOD),
+        (
+            "mod/a/a_test.go",
+            "package a\nimport \"testing\"\nfunc TestA(t *testing.T) {}\n",
+        ),
+    ]);
+    env.run_defaults = [
+        "--warm", "--mode", "replay", "--proofs", "1", "--audit", "1",
+    ]
+    .map(String::from)
+    .to_vec();
+    let step = "cd mod && go clean -testcache && go test ./...";
+    let r1 = env.run_step(step, &[]);
+    assert!(r1.executed() && r1.code == 0, "G8 first: {}", r1.stderr);
+    let r2 = env.run_step(step, &[]);
+    assert!(r2.executed() && r2.code == 0, "G8 audit: {}", r2.stderr);
+    assert!(!r2.stderr.contains("DIVERGENCE"), "G8: {}", r2.stderr);
+    println!("G8 ok: go clean -testcache in an audit");
+}

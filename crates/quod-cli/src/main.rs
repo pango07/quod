@@ -5,6 +5,25 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+/// `eprintln!` that never panics. A terminal that hung up (the SIGHUP
+/// `quod run` survives to clean up) fails every write to it with EIO, and
+/// `eprintln!` panics on a failed write: the run would end in a panic, or
+/// abort in the error banner's own `eprintln!`, before reporting its exit.
+macro_rules! say {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($t)*);
+    }};
+}
+
+/// `eprint!` that never panics (`say!`).
+macro_rules! say_raw {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        let _ = write!(std::io::stderr(), $($t)*);
+    }};
+}
+
 mod bench;
 mod deps;
 mod gitdir;
@@ -169,9 +188,9 @@ fn main() -> ExitCode {
             // The machine-readable marker (tracing goes to events.jsonl once
             // the state dir resolved; before that there is only the banner).
             tracing::error!(target: "quod", outcome = "error", exit_code = EXIT_QUOD_ERROR, error = %format!("{e:#}"), "quod error");
-            eprintln!("QUOD  ERROR (exit {EXIT_QUOD_ERROR}, not the step's result)");
+            say!("QUOD  ERROR (exit {EXIT_QUOD_ERROR}, not the step's result)");
             for cause in e.chain() {
-                eprintln!("  {cause}");
+                say!("  {cause}");
             }
             ExitCode::from(EXIT_QUOD_ERROR)
         }

@@ -273,7 +273,14 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     // reach every go test the step runs: on the host root (a rootfs's
     // toolchain is not read here), for a script that runs go test.
     let go_guard = (warm && pin.rootfs.is_none() && toolchain == Toolchain::Go)
-        .then(|| GoTestGuard::for_step(&step, &extra_env, toolchain.profile().env))
+        .then(|| {
+            GoTestGuard::for_step(
+                &step,
+                &extra_env,
+                toolchain.profile().env,
+                &cas.dir().join("go-test-guard"),
+            )
+        })
         .flatten();
     let spec = if go_guard.is_some() {
         StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env)?
@@ -392,7 +399,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                     dir,
                 )?;
             }
-            eprint!(
+            say_raw!(
                 "{}",
                 quod_replay::receipt(
                     result,
@@ -430,7 +437,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     let start = Instant::now();
     if let Some(sig) = quod_sandbox::terminated() {
         // Nothing mounted yet: stop here.
-        eprintln!("QUOD  TERMINATED  by signal {sig} before the step started; nothing recorded");
+        say!("QUOD  TERMINATED  by signal {sig} before the step started; nothing recorded");
         return Ok(128u8.saturating_add(sig as u8));
     }
     let run_dir = state.claim_run_dir(&info.run_id, args.keep)?;
@@ -483,7 +490,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             // Stopped from outside: the step was killed, its mounts are
             // gone with this run's directory, and nothing is learned about
             // the key (as for any signal death).
-            eprintln!(
+            say!(
                 "QUOD  TERMINATED  by signal {sig} after {}; the step was stopped, nothing recorded",
                 fmt_duration(ex.wall)
             );
@@ -500,7 +507,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         // (load or a slow observer can do it as well as the step). If a
         // result was expected, the matched manifest proves again from 0.
         let what = format!("timed out after {}", fmt_duration(args.timeout));
-        eprintln!(
+        say!(
             "QUOD  TIMED OUT  the step ran {} and was killed; not memoized",
             fmt_duration(ex.wall)
         );
@@ -523,7 +530,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             Ok(line)
         })?;
         if let Some(line) = line {
-            eprintln!("{}", indent(&line));
+            say!("{}", indent(&line));
         }
         emit_event(
             &info,
@@ -553,8 +560,8 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         if !args.keep {
             quod_cas::remove_any(&dir)?;
         }
-        eprintln!("QUOD  EXECUTED  {why}, not memoized");
-        eprintln!("  ran {}", fmt_duration(ex.wall));
+        say!("QUOD  EXECUTED  {why}, not memoized");
+        say!("  ran {}", fmt_duration(ex.wall));
         ledger.record_run_facts(&RunFacts {
             observed: Observed {
                 transport: Some(ex.transport),
@@ -574,10 +581,10 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         if !args.keep {
             quod_cas::remove_any(&dir)?;
         }
-        eprintln!(
+        say!(
             "QUOD  EXECUTED  a Go toolchain in the workspace ({p}) ran outside the test-cache guard, not memoized"
         );
-        eprintln!("  ran {}", fmt_duration(ex.wall));
+        say!("  ran {}", fmt_duration(ex.wall));
         ledger.record_run_facts(&RunFacts {
             observed: Observed {
                 transport: Some(ex.transport),
@@ -594,13 +601,13 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         if !args.keep {
             quod_cas::remove_any(&dir)?;
         }
-        eprintln!(
+        say!(
             "QUOD  EXECUTED  a write hit a read-only sealed dependency tree (the step reported EROFS), not memoized"
         );
-        eprintln!(
+        say!(
             "  a directory the tool writes under a sealed prefix belongs in the profile's carve-outs"
         );
-        eprintln!("  ran {}", fmt_duration(ex.wall));
+        say!("  ran {}", fmt_duration(ex.wall));
         tracing::warn!(target: "quod", run_id = %info.run_id, "sealed prefix write failed; not memoized");
         // Nothing is learned about the key: the result is not the step's.
         ledger.record_run_facts(&RunFacts {
@@ -677,7 +684,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     }
     phases.cleanup = t.elapsed();
 
-    eprint!(
+    say_raw!(
         "{}",
         executed_banner(
             &key,
@@ -804,10 +811,12 @@ pub(crate) fn execute(
         });
         if go_tests.expire {
             let (src, _) = gotest::expired_tests(dir, warm)?;
+            // Writable: this run's own copy, which the step's `go clean
+            // -testcache` edits in place (gotest::expired_tests).
             mounts.push(Mount {
                 src,
                 dst: Path::new(&cache).join("testexpire.txt"),
-                writable: false,
+                writable: true,
             });
         }
     }
@@ -1056,7 +1065,15 @@ fn run_unobserved(
             None => env.push((name.to_string(), value.to_string())),
         }
     }
-    let dir = state.run_dir(&info.run_id);
+    if let Some(sig) = quod_sandbox::terminated() {
+        say!("QUOD  TERMINATED  by signal {sig} before the network step started");
+        return Ok(128u8.saturating_add(sig as u8));
+    }
+    // Claimed like an observed run's: locked from before its first mount
+    // to after its last unmount, so a SIGKILL's leftovers (a rootfs mount)
+    // are swept by the next run and a live run's never are.
+    let run_dir = state.claim_run_dir(&info.run_id, false)?;
+    let dir = run_dir.path.clone();
     std::fs::create_dir_all(&dir)?;
     let root = match rootfs {
         Some(r) => Some(rootfs::ReadOnlyRoot::mount(r, cas, &dir)?),
@@ -1116,11 +1133,11 @@ fn run_unobserved(
     let r = r?;
     quod_cas::remove_any(&dir)?;
     if r.killed == Some(Killed::Timeout) {
-        eprintln!(
+        say!(
             "QUOD  TIMED OUT  the network step ran {} and was killed",
             fmt_duration(r.wall)
         );
-        eprintln!(
+        say!(
             "  caches in {} (whatever it fetched stays)",
             deps.root.display()
         );
@@ -1135,17 +1152,17 @@ fn run_unobserved(
         return Ok(EXIT_TIMEOUT);
     }
     if let Some(Killed::Terminated(sig)) = r.killed {
-        eprintln!(
+        say!(
             "QUOD  TERMINATED  by signal {sig}; the network step was stopped (whatever it fetched stays in {})",
             deps.root.display()
         );
         ledger.record_run_facts(&info.facts("killed", None, None, r.wall, None))?;
         return Ok(128u8.saturating_add(sig as u8));
     }
-    eprintln!("QUOD  EXECUTED  network allowed, not memoized");
-    eprintln!("  {}", image_line(&spec.image));
-    eprintln!("  caches in {}", deps.root.display());
-    eprintln!("  ran {}", fmt_duration(r.wall));
+    say!("QUOD  EXECUTED  network allowed, not memoized");
+    say!("  {}", image_line(&spec.image));
+    say!("  caches in {}", deps.root.display());
+    say!("  ran {}", fmt_duration(r.wall));
     ledger.record_run_facts(&info.facts("net", None, Some(r.exit_code), r.wall, None))?;
     tracing::info!(target: "quod", run_id = %info.run_id, memoized = false, egress = true, exit_code = r.exit_code, wall_ms = r.wall.as_millis() as u64, "run");
     Ok(exit_byte(r.exit_code))

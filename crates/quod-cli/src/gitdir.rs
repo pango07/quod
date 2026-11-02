@@ -260,7 +260,7 @@ pub fn graft(
         Ok(Some(dot)) => dot,
         Ok(None) => return Ok(tree),
         Err(e) => {
-            eprintln!("QUOD  note: no .git served: {e:#}");
+            say!("QUOD  note: no .git served: {e:#}");
             tracing::warn!(target: "quod", error = %format!("{e:#}"), "no .git served");
             return Ok(tree);
         }

@@ -59,7 +59,7 @@ impl State {
         lock.lock()
             .with_context(|| format!("lock {}", lock_path.display()))?;
         Ok(RunDir {
-            path: runs.join(run_id),
+            path: self.run_dir(run_id),
             lock_path,
             _lock: lock,
             keep,
@@ -146,10 +146,28 @@ impl Drop for RunDir {
 /// upper dir (`Cas::take_files` links, then unlinks); nothing may ever
 /// write through it, so it goes. Then the private fusectl mounts
 /// (`quod_fs`'s ring teardown) of processes that are gone. Never fails a
-/// run: problems are warnings.
+/// run: problems are warnings. Without a readable mountinfo nothing is
+/// swept: what is mounted under a run directory cannot be known, and
+/// removing one through a mount would delete what the mount shows.
 fn sweep_runs(runs: &Path) {
-    sweep_runs_with(runs, &mount_points(), mount_points, detach);
-    sweep_fusectl(&mount_points(), &std::env::temp_dir(), detach);
+    sweep_runs_from(runs, mount_points, detach);
+}
+
+/// `sweep_runs` with mountinfo read by `mountinfo` and mounts detached by
+/// `unmount`.
+fn sweep_runs_from(
+    runs: &Path,
+    mountinfo: impl Fn() -> Option<Vec<PathBuf>>,
+    unmount: impl Fn(&Path) -> std::io::Result<()>,
+) {
+    let Some(mounts) = mountinfo() else {
+        tracing::warn!(target: "quod", "/proc/self/mountinfo unreadable; stale run directories left");
+        return;
+    };
+    sweep_runs_with(runs, &mounts, &mountinfo, &unmount);
+    if let Some(mounts) = mountinfo() {
+        sweep_fusectl(&mounts, &std::env::temp_dir(), &unmount);
+    }
 }
 
 /// Lazily unmounts `p` (umount2 with MNT_DETACH).
@@ -205,13 +223,13 @@ fn sweep_fusectl(mounts: &[PathBuf], tmp: &Path, unmount: impl Fn(&Path) -> std:
 
 /// `sweep_runs` against a given list of mount points (as /proc lists them:
 /// absolute, symlinks resolved), re-read with `remount` after detaching
-/// with `unmount`. `runs` is resolved the same way first, so a state dir
-/// given relative or through a symlink still sees what is mounted under its
-/// run directories.
+/// with `unmount` (None: unreadable, so the directory stays). `runs` is
+/// resolved the same way first, so a state dir given relative or through a
+/// symlink still sees what is mounted under its run directories.
 fn sweep_runs_with(
     runs: &Path,
     mounts: &[PathBuf],
-    remount: impl Fn() -> Vec<PathBuf>,
+    remount: impl Fn() -> Option<Vec<PathBuf>>,
     unmount: impl Fn(&Path) -> std::io::Result<()>,
 ) {
     let Ok(runs) = runs.canonicalize() else {
@@ -248,10 +266,9 @@ fn sweep_runs_with(
                     tracing::warn!(target: "quod", mount = %m.display(), error = %e, "stale mount not detached");
                 }
             }
-            let left = remount()
-                .into_iter()
-                .filter(|m| m.starts_with(&dir))
-                .count();
+            let left = remount().map_or(usize::MAX, |now| {
+                now.into_iter().filter(|m| m.starts_with(&dir)).count()
+            });
             if left > 0 {
                 tracing::warn!(target: "quod", dir = %dir.display(), left, "stale run directory still has mounts; left");
                 continue;
@@ -270,10 +287,12 @@ fn sweep_runs_with(
     }
 }
 
-/// Mount points from /proc/self/mountinfo, octal escapes decoded.
-fn mount_points() -> Vec<PathBuf> {
-    let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-    text.lines()
+/// Mount points from /proc/self/mountinfo, octal escapes decoded; None
+/// when it cannot be read (or is empty: there is always a root mount).
+fn mount_points() -> Option<Vec<PathBuf>> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+    let points: Vec<PathBuf> = text
+        .lines()
         .filter_map(|l| l.split(' ').nth(4))
         .map(|m| {
             let b = m.as_bytes();
@@ -297,7 +316,8 @@ fn mount_points() -> Vec<PathBuf> {
             }
             PathBuf::from(<std::ffi::OsString as std::os::unix::ffi::OsStringExt>::from_vec(out))
         })
-        .collect()
+        .collect();
+    (!points.is_empty()).then_some(points)
 }
 
 #[cfg(test)]
@@ -372,7 +392,7 @@ mod run_dir_tests {
         std::fs::write(&lock, b"").unwrap();
         // What /proc/self/mountinfo would list: the resolved path.
         let mounted = real.canonicalize().unwrap().join("runs/dead/merged");
-        let stuck = || vec![mounted.clone()];
+        let stuck = || Some(vec![mounted.clone()]);
         let refuse = |_: &Path| Err(std::io::Error::from_raw_os_error(libc::EBUSY));
         for runs in [
             link.join("runs"),
@@ -387,7 +407,7 @@ mod run_dir_tests {
             );
         }
         // Unmounted, it goes.
-        sweep_runs_with(&link.join("runs"), &[], Vec::new, refuse);
+        sweep_runs_with(&link.join("runs"), &[], || Some(Vec::new()), refuse);
         assert!(!real.join("runs/dead").exists());
     }
 
@@ -420,7 +440,7 @@ mod run_dir_tests {
         sweep_runs_with(
             &runs,
             &mounts,
-            || vec![runs.join("live/merged")],
+            || Some(vec![runs.join("live/merged")]),
             |p: &Path| {
                 detached.borrow_mut().push(p.to_path_buf());
                 Ok(())
@@ -432,6 +452,42 @@ mod run_dir_tests {
         assert!(!runs.join("dead").exists() && !lock.exists());
         assert!(runs.join("live/merged").exists());
         drop(live);
+    }
+
+    /// When mountinfo cannot be read, what is mounted under a stale run
+    /// directory is unknown: nothing is swept (a remove would go through
+    /// the mounts), neither before detaching nor after.
+    #[test]
+    fn an_unreadable_mountinfo_sweeps_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = State {
+            dir: tmp.path().to_path_buf(),
+        };
+        let dead = state.claim_run_dir("dead", false).unwrap();
+        std::fs::create_dir_all(dead.path.join("merged/data")).unwrap();
+        std::mem::forget(dead); // as if killed
+        let runs = tmp.path().join("runs").canonicalize().unwrap();
+        let lock = runs.join("dead.lock");
+        std::fs::remove_file(&lock).unwrap();
+        std::fs::write(&lock, b"").unwrap();
+        // Unreadable from the start.
+        sweep_runs_from(&runs, || None, |_: &Path| Ok(()));
+        assert!(runs.join("dead/merged/data").exists(), "swept blind");
+        // Readable, a mount detached, then unreadable.
+        let m = runs.join("dead/merged");
+        let first = std::cell::Cell::new(true);
+        sweep_runs_from(
+            &runs,
+            || first.replace(false).then(|| vec![m.clone()]),
+            |_: &Path| Ok(()),
+        );
+        assert!(
+            runs.join("dead/merged/data").exists(),
+            "swept without seeing its mounts gone"
+        );
+        // Readable and nothing mounted: it goes.
+        sweep_runs_from(&runs, || Some(Vec::new()), |_: &Path| Ok(()));
+        assert!(!runs.join("dead").exists());
     }
 
     #[test]
