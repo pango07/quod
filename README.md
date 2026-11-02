@@ -4,8 +4,6 @@
 
 <h1 align="center">Your CI already did this.</h1>
 
-<p align="center"><b>Push. Prove. Done.</b></p>
-
 Quod replays any CI step whose inputs haven't changed, and shows you the
 proof. It watches what each step actually reads, at the filesystem level, in
 any language, and when every one of those inputs is byte-identical to a run it
