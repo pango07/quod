@@ -173,6 +173,8 @@ pub struct RemoteLedger<'a> {
     offline: RefCell<Option<String>>,
     /// The scope each hit a claim returned came from, by (manifest, run).
     hits: RefCell<HashMap<(Hash, String), String>>,
+    /// Whether the server's notice was printed.
+    noticed: std::cell::Cell<bool>,
 }
 
 #[derive(Debug)]
@@ -211,6 +213,7 @@ impl<'a> RemoteLedger<'a> {
             .build();
         RemoteLedger {
             server_key: RefCell::new(cfg.server_key),
+            noticed: std::cell::Cell::new(false),
             cfg,
             agent,
             cas,
@@ -305,6 +308,10 @@ impl<'a> RemoteLedger<'a> {
             .map_err(|e| CallError(format!("bad answer: {e}")))
     }
 
+    /// The server's key: the pinned one (`QUOD_SERVER_KEY`), else the one
+    /// `GET /v1/info` serves over the TLS connection that authenticates
+    /// the server, with a one-line notice in the job log saying how to pin
+    /// it (docs/cloud-ledger.md, "Pinning the server's key").
     fn server_key(&self) -> Result<VerifyingKey, CallError> {
         if let Some(k) = *self.server_key.borrow() {
             return Ok(k);
@@ -316,8 +323,24 @@ impl<'a> RemoteLedger<'a> {
             .call()?
             .into_json()?;
         let k = verifying_key_from_hex(&info.signing_key).map_err(|e| CallError(e.to_string()))?;
+        eprintln!(
+            "quod: QUOD_SERVER_KEY is not set; trusting the receipt key {} serves over TLS ({}). Pin it: QUOD_SERVER_KEY={}",
+            self.cfg.url,
+            key_fingerprint(&k),
+            hex::encode(k.to_bytes())
+        );
         *self.server_key.borrow_mut() = Some(k);
         Ok(k)
+    }
+
+    /// A server notice for the job log (the writer-trust warning), once
+    /// per process.
+    fn notice(&self, notice: Option<&str>) {
+        if let Some(n) = notice
+            && !self.noticed.replace(true)
+        {
+            eprintln!("quod: {n}");
+        }
     }
 
     fn ctx(&self, step: &Step) -> Context {
@@ -635,6 +658,7 @@ impl StepLedger for RemoteLedger<'_> {
                     run,
                 },
             )?;
+            self.notice(resp.notice.as_deref());
             Ok(resp.verdict)
         };
         Ok(go().unwrap_or_else(|e| {
@@ -667,7 +691,10 @@ impl StepLedger for RemoteLedger<'_> {
             },
         );
         Ok(match r {
-            Ok(r) => r.verdict,
+            Ok(r) => {
+                self.notice(r.notice.as_deref());
+                r.verdict
+            }
             Err(e) => {
                 self.go_offline(e.0);
                 self.unrecorded(step, reason)

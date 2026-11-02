@@ -97,8 +97,18 @@ pub struct CiContext {
     pub run_number: Option<u64>,
     #[serde(default)]
     pub run_attempt: Option<u64>,
+    /// The workflow's job id (`GITHUB_JOB`, e.g. `test`).
     #[serde(default)]
     pub job: Option<String>,
+    /// GitHub's id of this job run (`${{ job.check_run_id }}`, passed as
+    /// `QUOD_JOB_ID`): matrix legs of one workflow job differ.
+    #[serde(default)]
+    pub job_id: Option<String>,
+    /// GitHub's display name of the job (`QUOD_JOB_NAME`, e.g.
+    /// `check / ubuntu-24.04`).
+    #[serde(default)]
+    pub job_name: Option<String>,
+    /// GitHub's 1-based step number within the job (`QUOD_STEP_INDEX`).
     #[serde(default)]
     pub step_index: Option<u32>,
     #[serde(default)]
@@ -126,6 +136,8 @@ impl CiContext {
             run_number: get("GITHUB_RUN_NUMBER").and_then(|v| v.parse().ok()),
             run_attempt: get("GITHUB_RUN_ATTEMPT").and_then(|v| v.parse().ok()),
             job: get("GITHUB_JOB"),
+            job_id: get("QUOD_JOB_ID").filter(|v| !v.is_empty()),
+            job_name: get("QUOD_JOB_NAME").filter(|v| !v.is_empty()),
             step_index: get("QUOD_STEP_INDEX").and_then(|v| v.parse().ok()),
             step_name: get("QUOD_STEP_NAME"),
             git_ref: get("GITHUB_REF"),
@@ -278,6 +290,10 @@ pub struct StepKeyRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CommitResponse {
     pub verdict: Verdict,
+    /// A line for the job log, e.g. that trusted results are being
+    /// written from an unprotected branch (DECISIONS 2026-11-02).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 /// POST /v1/blobs/missing: which of these the server does not hold.
@@ -298,6 +314,45 @@ pub struct Info {
     pub version: String,
     /// The Ed25519 key receipts are signed with, hex.
     pub signing_key: String,
+}
+
+/// GET /v1/keys: the public keys receipts are signed with, for clients
+/// to pin (`QUOD_SERVER_KEY`). Never a private key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Keys {
+    pub protocol: String,
+    pub keys: Vec<PublicKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicKey {
+    /// `ed25519`.
+    pub alg: String,
+    /// `receipts`: what the key signs.
+    #[serde(rename = "use")]
+    pub key_use: String,
+    /// The 32-byte public key, hex: the value of `QUOD_SERVER_KEY`.
+    pub public_key: String,
+    /// `key_fingerprint`, as the server's log shows it.
+    pub fingerprint: String,
+}
+
+impl PublicKey {
+    pub fn of(k: &VerifyingKey) -> PublicKey {
+        PublicKey {
+            alg: "ed25519".into(),
+            key_use: "receipts".into(),
+            public_key: hex::encode(k.to_bytes()),
+            fingerprint: key_fingerprint(k),
+        }
+    }
+}
+
+/// A public key's fingerprint: `ed25519:` and the first 16 hex digits of
+/// BLAKE3 over its 32 bytes. Short enough to compare by eye between the
+/// server's boot log, `GET /v1/keys` and a client's notice.
+pub fn key_fingerprint(k: &VerifyingKey) -> String {
+    format!("ed25519:{}", &Hash::of(k.as_bytes()).hex()[..16])
 }
 
 /// Every error body.

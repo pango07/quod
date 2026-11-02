@@ -6,9 +6,10 @@
 //! (team resolution from WorkOS, re-runs, the proofs toggle, runners, the
 //! Connect choice) answer 501 with a message saying so.
 //!
-//! Viewers authenticate with a static viewer token in this build; WorkOS
-//! access tokens and membership checks are P5. A team that is not the
-//! viewer's is 404, never 403, so existence does not leak.
+//! Viewers authenticate with their WorkOS access token (the path's team is
+//! then the team's WorkOS organization id) or a static viewer token
+//! (`auth::Auth::viewer`). A team that is not the viewer's is 404, never
+//! 403, so existence does not leak.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
@@ -26,8 +27,8 @@ use quod_trust::{TRAILING_AUDITS, Verdict};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::{Principal, TRUSTED};
-use crate::store::{EventRow, StepRow};
+use crate::auth::{Role, TRUSTED, Viewer};
+use crate::store::{EventRow, StepRow, TrustedWrite};
 use crate::{ApiError, App, AppState, blocking, valid_id};
 
 type Json = axum::Json<Value>;
@@ -70,18 +71,22 @@ pub fn router() -> Router<AppState> {
         .route("/v1/teams/{team}/events", get(events))
 }
 
-/// The viewer's team, checked against the path: 404 for any other.
-fn viewer(app: &App, headers: &HeaderMap, team: &str) -> Result<(), ApiError> {
+/// The viewer, for the team the path names (its slug or WorkOS org id):
+/// 404 for any team that is not theirs.
+fn viewer(app: &App, headers: &HeaderMap, team: &str) -> Result<Viewer, ApiError> {
     if !valid_id(team) {
         return Err(ApiError::not_found("no such team"));
     }
-    match app.auth.authenticate(headers)? {
-        Principal::Viewer(v) if v.team == team => Ok(()),
-        Principal::Viewer(_) => Err(ApiError::not_found("no such team")),
-        _ => Err(ApiError::forbidden(
-            "runner tokens cannot read the dashboard",
-        )),
+    app.auth.viewer(headers, team)
+}
+
+/// An admin of the team, for the endpoints that change settings.
+fn admin(app: &App, headers: &HeaderMap, team: &str) -> Result<Viewer, ApiError> {
+    let v = viewer(app, headers, team)?;
+    if v.role != Role::Admin {
+        return Err(ApiError::forbidden("only a team admin can change this"));
     }
+    Ok(v)
 }
 
 // ----- the team's data, gathered once per request -----
@@ -125,11 +130,18 @@ struct TeamData {
     audits: Vec<(String, String, quod_ledger::AuditRow)>,
     recent_div: BTreeMap<(String, String), u64>,
     proofs: u32,
+    /// Writes into each repository's trusted scope, by ref.
+    writes: Vec<TrustedWrite>,
+    team: Option<crate::config::TeamConfig>,
+    /// The team's id on this server (the path may have named its org id).
+    id: String,
 }
 
 impl TeamData {
     fn load(app: &App, team: &str) -> Result<TeamData, ApiError> {
-        let rows = app.store.activity(team)?.steps(None)?;
+        let act = app.store.activity(team)?;
+        let rows = act.steps(None)?;
+        let writes = act.trusted_writes(None)?;
         let mut repos: BTreeSet<String> = rows.iter().map(|r| r.repository.clone()).collect();
         let mut trust = BTreeMap::new();
         let mut streaks = BTreeMap::new();
@@ -172,7 +184,42 @@ impl TeamData {
             audits,
             recent_div,
             proofs,
+            writes,
+            team: app.auth.team(team).cloned(),
+            id: team.to_string(),
         })
+    }
+
+    fn require_protected_ref(&self, repo: Option<&str>) -> bool {
+        match (&self.team, repo) {
+            (Some(t), Some(r)) => t.requires_protected_ref(r),
+            (Some(t), None) => t.require_protected_ref,
+            (None, _) => false,
+        }
+    }
+
+    /// Where a repository's trusted results come from, and the warning
+    /// when a ref that writes them is not known to be protected and the
+    /// repository does not require it (DECISIONS 2026-11-02).
+    fn writer_trust(&self, repo: &str) -> (Value, Value) {
+        let ws: Vec<&TrustedWrite> = self
+            .writes
+            .iter()
+            .filter(|w| w.repository == repo)
+            .collect();
+        let list: Vec<Value> = ws
+            .iter()
+            .map(|w| json!({"ref": w.git_ref, "protected": w.protected, "lastAt": w.last_at, "writes": w.writes}))
+            .collect();
+        let warning = if self.require_protected_ref(Some(repo)) {
+            None
+        } else {
+            ws.iter()
+                .filter(|w| w.protected != Some(true))
+                .max_by(|a, b| a.last_at.cmp(&b.last_at))
+                .map(|w| crate::api::writer_warning(repo, &w.git_ref, w.protected))
+        };
+        (Value::Array(list), json!(warning))
     }
 
     fn slug(&self, repository: &str) -> String {
@@ -283,12 +330,32 @@ fn why(d: &TeamData, r: &StepRow) -> Value {
 }
 
 fn run_step(d: &TeamData, r: &StepRow) -> Value {
-    json!({
+    let mut v = json!({
         "name": r.step_name.clone().or_else(|| r.cmd.clone()).unwrap_or_default(),
         "outcome": if replayed(r) { "replayed" } else { "ran" },
         "seconds": secs(r.wall_ms),
         "why": why(d, r),
-    })
+    });
+    // GitHub's 1-based step number, when the runner reported it.
+    if let Some(i) = r.step_index {
+        v["index"] = json!(i);
+    }
+    v
+}
+
+/// A step row's job: GitHub's job id when the runner sent it (matrix legs
+/// apart), else the workflow's job id.
+fn job_id(r: &StepRow) -> String {
+    r.job_id
+        .clone()
+        .or_else(|| r.job.clone())
+        .unwrap_or_else(|| "job".into())
+}
+
+/// A step key as the events carry it: hex, or null for a step without one.
+fn key_or_null(r: &StepRow) -> Value {
+    let k = key_hex(r);
+    if k.is_empty() { Value::Null } else { json!(k) }
 }
 
 fn branch(git_ref: Option<&str>) -> String {
@@ -297,21 +364,48 @@ fn branch(git_ref: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// Rows grouped by (repository, run number), runs without a number left out.
-fn runs_of<'a>(d: &'a TeamData, repo: Option<&str>) -> BTreeMap<(String, u64), Vec<&'a StepRow>> {
-    let mut m: BTreeMap<(String, u64), Vec<&StepRow>> = BTreeMap::new();
+/// One CI run attempt's step rows.
+struct RunGroup<'a> {
+    repo: String,
+    number: u64,
+    run_id: Option<String>,
+    attempt: Option<u64>,
+    rows: Vec<&'a StepRow>,
+}
+
+/// Rows grouped by run: GitHub's run id and attempt when the runner sent
+/// them (two workflows share run numbers; attempts are separate runs), else
+/// (repository, run number). Rows without a run number are left out (the
+/// dashboard's paths name runs by number). Oldest first.
+fn runs_of<'a>(d: &'a TeamData, repo: Option<&str>) -> Vec<RunGroup<'a>> {
+    type Key = (String, String, u64);
+    let mut m: BTreeMap<Key, Vec<&StepRow>> = BTreeMap::new();
     for r in &d.rows {
         if repo.is_some_and(|x| x != r.repository) {
             continue;
         }
-        if let Some(n) = r.run_number {
-            m.entry((r.repository.clone(), n)).or_default().push(r);
-        }
+        let Some(n) = r.run_number else { continue };
+        let id = r.run_id.clone().unwrap_or_else(|| format!("#{n}"));
+        m.entry((r.repository.clone(), id, r.run_attempt.unwrap_or(0)))
+            .or_default()
+            .push(r);
     }
-    m
+    let mut v: Vec<RunGroup> = m
+        .into_iter()
+        .map(|((repo, _, _), rows)| RunGroup {
+            repo,
+            number: rows[0].run_number.unwrap_or(0),
+            run_id: rows[0].run_id.clone(),
+            attempt: rows[0].run_attempt,
+            rows,
+        })
+        .collect();
+    v.sort_by(|a, b| (&a.rows[0].at, a.number).cmp(&(&b.rows[0].at, b.number)));
+    v
 }
 
-fn run_summary(d: &TeamData, repo: &str, number: u64, rows: &[&StepRow]) -> Value {
+fn run_summary(d: &TeamData, g: &RunGroup) -> Value {
+    let (repo, number, rows) = (g.repo.as_str(), g.number, g.rows.as_slice());
     let first = rows[0];
     let failed = rows.iter().any(|r| r.exit_code.is_some_and(|c| c != 0));
     let took: f64 = rows.iter().map(|r| secs(r.wall_ms)).sum();
@@ -343,6 +437,8 @@ fn run_summary(d: &TeamData, repo: &str, number: u64, rows: &[&StepRow]) -> Valu
     json!({
         "repoSlug": d.slug(repo),
         "number": number,
+        "runId": g.run_id.as_deref().and_then(|s| s.parse::<u64>().ok()),
+        "runAttempt": g.attempt,
         "title": first.workflow.clone().unwrap_or_else(|| format!("Run {number}")),
         "branch": branch(first.git_ref.as_deref()),
         "sha": first.sha.clone().unwrap_or_default(),
@@ -360,25 +456,38 @@ fn run_summary(d: &TeamData, repo: &str, number: u64, rows: &[&StepRow]) -> Valu
     })
 }
 
-fn run_detail(d: &TeamData, repo: &str, number: u64, rows: &[&StepRow]) -> Value {
-    let mut v = run_summary(d, repo, number, rows);
-    let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+fn run_detail(d: &TeamData, g: &RunGroup) -> Value {
+    let mut v = run_summary(d, g);
+    let repo = &g.repo;
+    let mut jobs: BTreeMap<String, (String, Vec<Value>)> = BTreeMap::new();
     let mut order: Vec<String> = vec![];
-    for r in rows {
-        let j = r.job.clone().unwrap_or_else(|| "job".into());
+    for r in &g.rows {
+        let j = job_id(r);
         if !order.contains(&j) {
             order.push(j.clone());
         }
-        jobs.entry(j).or_default().push(run_step(d, r));
+        let name = r
+            .job_name
+            .clone()
+            .or_else(|| r.job.clone())
+            .unwrap_or_else(|| j.clone());
+        jobs.entry(j)
+            .or_insert_with(|| (name, vec![]))
+            .1
+            .push(run_step(d, r));
     }
-    v["githubUrl"] = json!(match rows[0].run_id.as_deref() {
-        Some(id) => format!("https://github.com/{repo}/actions/runs/{id}"),
-        None => format!("https://github.com/{repo}/actions"),
+    v["githubUrl"] = json!(match (g.run_id.as_deref(), g.attempt) {
+        (Some(id), Some(a)) => format!("https://github.com/{repo}/actions/runs/{id}/attempts/{a}"),
+        (Some(id), None) => format!("https://github.com/{repo}/actions/runs/{id}"),
+        (None, _) => format!("https://github.com/{repo}/actions"),
     });
     v["jobs"] = Value::Array(
         order
             .into_iter()
-            .map(|j| json!({"id": j, "name": j, "steps": jobs.remove(&j).unwrap_or_default()}))
+            .map(|j| {
+                let (name, steps) = jobs.remove(&j).unwrap_or_default();
+                json!({"id": j, "name": name, "steps": steps})
+            })
             .collect(),
     );
     v
@@ -429,7 +538,8 @@ fn step_summary(d: &TeamData, repo: &str, key: &str, rows: &[&StepRow]) -> Value
 fn repo_summary(d: &TeamData, repo: &str) -> Value {
     let rows: Vec<&StepRow> = d.rows.iter().filter(|r| r.repository == repo).collect();
     let runs = runs_of(d, Some(repo));
-    let last = runs.iter().next_back();
+    let last = runs.last();
+    let (writes, warning) = d.writer_trust(repo);
     let paused = d
         .trust
         .iter()
@@ -442,10 +552,12 @@ fn repo_summary(d: &TeamData, repo: &str) -> Value {
         "runner": "github-hosted",
         "replayRate": if rows.is_empty() { 0.0 } else { rows.iter().filter(|r| replayed(r)).count() as f64 / rows.len() as f64 },
         "savedMinutes": minutes(rows.iter().filter_map(|r| r.saved_ms).sum()),
-        "lastRunAt": last.map(|(_, rs)| json!(rs[0].at)).unwrap_or(Value::Null),
-        "lastRunStatus": last.map(|((r, n), rs)| run_summary(d, r, *n, rs)["status"].clone()).unwrap_or(Value::Null),
+        "lastRunAt": last.map(|g| json!(g.rows[0].at)).unwrap_or(Value::Null),
+        "lastRunStatus": last.map(|g| run_summary(d, g)["status"].clone()).unwrap_or(Value::Null),
         "pausedSteps": paused,
         "hasQuodData": !rows.is_empty(),
+        "trustedWrites": writes,
+        "writerTrustWarning": warning,
     })
 }
 
@@ -490,8 +602,8 @@ where
     F: FnOnce(&App, &TeamData) -> Result<Value, ApiError> + Send + 'static,
 {
     blocking(move || {
-        viewer(&app, &headers, &team)?;
-        let d = TeamData::load(&app, &team)?;
+        let v = viewer(&app, &headers, &team)?;
+        let d = TeamData::load(&app, &v.team)?;
         Ok(axum::Json(f(&app, &d)?))
     })
     .await
@@ -515,6 +627,7 @@ async fn health(
             "spotChecks": spot,
             "pausedSteps": d.trust.values().filter(|t| t.state == TrustState::Quarantined).count(),
             "repos": d.repos.len(),
+            "requireProtectedRef": d.require_protected_ref(None),
         }))
     })
     .await
@@ -554,7 +667,11 @@ async fn overview(
         let rows: Vec<&StepRow> = d.rows.iter().filter(|r| r.at >= from).collect();
         let saved = minutes(rows.iter().filter_map(|r| r.saved_ms).sum());
         let (spot, identical, wrong) = spot_checks(d, Some(&from));
-        let mut days: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+        // One point per UTC day of the range, zeros included, oldest first.
+        let mut days: BTreeMap<String, (u64, u64)> = day_range(&range)
+            .into_iter()
+            .map(|d| (d, (0, 0)))
+            .collect();
         for r in &rows {
             let e = days.entry(r.at[..10].to_string()).or_default();
             if replayed(r) {
@@ -597,6 +714,24 @@ async fn overview(
     .await
 }
 
+/// The UTC days of a range ending today, oldest first.
+fn day_range(range: &str) -> Vec<String> {
+    let n: u64 = match range {
+        "30d" => 30,
+        "90d" => 90,
+        _ => 7,
+    };
+    let today = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        / 86_400;
+    (0..n)
+        .rev()
+        .map(|i| quod_ledger::format_rfc3339((today - i) * 86_400, 0)[..10].to_string())
+        .collect()
+}
+
 async fn repos(
     State(app): State<AppState>,
     headers: HeaderMap,
@@ -618,24 +753,26 @@ async fn repo(
             .repo_by_slug(&slug)
             .ok_or_else(|| ApiError::not_found("no such repo"))?;
         let runs = runs_of(d, Some(&repo));
-        let latest = runs
-            .iter()
-            .next_back()
-            .map(|((r, n), rs)| run_detail(d, r, *n, rs));
+        let latest = runs.last().map(|g| run_detail(d, g));
         let times: Vec<Value> = runs
             .iter()
             .rev()
             .take(30)
             .rev()
-            .map(|((r, n), rs)| {
-                let s = run_summary(d, r, *n, rs);
-                json!({"number": n, "withQuodSeconds": s["tookSeconds"], "withoutSeconds": s["wouldHaveTakenSeconds"]})
+            .map(|g| {
+                let s = run_summary(d, g);
+                json!({"number": g.number, "withQuodSeconds": s["tookSeconds"], "withoutSeconds": s["wouldHaveTakenSeconds"]})
             })
             .collect();
+        let default_branch = d
+            .team
+            .as_ref()
+            .map_or_else(|| "main".to_string(), |t| t.default_branch(&repo));
         Ok(json!({
             "asOf": now_rfc3339(),
             "summary": repo_summary(d, &repo),
-            "defaultBranch": "main",
+            "defaultBranch": default_branch,
+            "requireProtectedRef": d.require_protected_ref(Some(&repo)),
             "latestRun": latest,
             "runTimes": times,
             "steps": step_summaries(d, Some(&repo)),
@@ -666,7 +803,7 @@ async fn runs(
         };
         let mut all: Vec<(String, Value)> = runs_of(d, repo.as_deref())
             .iter()
-            .map(|((r, n), rs)| (rs[0].at.clone(), run_summary(d, r, *n, rs)))
+            .map(|g| (g.rows[0].at.clone(), run_summary(d, g)))
             .collect();
         all.sort_by(|a, b| b.0.cmp(&a.0));
         let limit = q.limit.unwrap_or(50).min(500);
@@ -684,11 +821,14 @@ async fn run(
         let repo = d
             .repo_by_slug(&slug)
             .ok_or_else(|| ApiError::not_found("no such repo"))?;
+        // The newest run (and attempt) with that number.
         let runs = runs_of(d, Some(&repo));
-        let rows = runs
-            .get(&(repo.clone(), number))
+        let g = runs
+            .iter()
+            .rev()
+            .find(|g| g.number == number)
             .ok_or_else(|| ApiError::not_found("no such run"))?;
-        Ok(run_detail(d, &repo, number, rows))
+        Ok(run_detail(d, g))
     })
     .await
 }
@@ -722,7 +862,6 @@ async fn step(
     headers: HeaderMap,
     Path((team, slug, key)): Path<(String, String, String)>,
 ) -> Result<Json, ApiError> {
-    let team2 = team.clone();
     with_team(app, headers, team, move |app, d| {
         let repo = d
             .repo_by_slug(&slug)
@@ -783,7 +922,7 @@ async fn step(
         }
         history.sort_by(|a, b| b["at"].as_str().cmp(&a["at"].as_str()));
         v["history"] = Value::Array(history);
-        v["inputs"] = inputs(app, &team2, &repo, rows.last().copied())?;
+        v["inputs"] = inputs(app, &d.id, &repo, rows.last().copied())?;
         Ok(v)
     })
     .await
@@ -822,9 +961,9 @@ async fn search_index(
             .iter()
             .rev()
             .take(100)
-            .map(|((r, n), rs)| {
-                let s = run_summary(d, r, *n, rs);
-                json!({"repoSlug": s["repoSlug"], "number": n, "title": s["title"], "status": s["status"]})
+            .map(|g| {
+                let s = run_summary(d, g);
+                json!({"repoSlug": s["repoSlug"], "number": g.number, "title": s["title"], "status": s["status"]})
             })
             .collect();
         let steps: Vec<Value> = step_summaries(d, None)
@@ -846,8 +985,8 @@ async fn activity(
     Path(team): Path<String>,
 ) -> Result<Json, ApiError> {
     blocking(move || {
-        viewer(&app, &headers, &team)?;
-        let last = app.store.activity(&team)?.last_event()?;
+        let v = viewer(&app, &headers, &team)?;
+        let last = app.store.activity(&v.team)?.last_event()?;
         // Live job status (queued, running) comes from the GitHub App's
         // tables, which the dashboard reads itself (cloud/docs/api.md);
         // quod-server has step events, not jobs.
@@ -867,8 +1006,18 @@ async fn rerun() -> ApiError {
     )
 }
 
-async fn set_proofs() -> ApiError {
-    ApiError::not_implemented("per-step proofs are not stored yet; the team policy sets them (P5)")
+async fn set_proofs(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Path((team, _, _)): Path<(String, String, String)>,
+) -> Result<Json, ApiError> {
+    blocking(move || {
+        admin(&app, &headers, &team)?;
+        Err(ApiError::not_implemented(
+            "per-step proofs are not stored yet; the team policy sets them (P5)",
+        ))
+    })
+    .await
 }
 
 async fn runners() -> ApiError {
@@ -881,8 +1030,18 @@ async fn connect() -> ApiError {
     ApiError::not_implemented("the Connect setup is not stored by quod-server yet (P5)")
 }
 
-async fn save_connect() -> ApiError {
-    ApiError::not_implemented("the Connect choice is not stored by quod-server yet (P5)")
+async fn save_connect(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Path(team): Path<String>,
+) -> Result<Json, ApiError> {
+    blocking(move || {
+        admin(&app, &headers, &team)?;
+        Err(ApiError::not_implemented(
+            "the Connect choice is not stored by quod-server yet (P5)",
+        ))
+    })
+    .await
 }
 
 // ----- events -----
@@ -903,14 +1062,19 @@ pub fn step_finished_event(
         audits: vec![],
         recent_div: BTreeMap::new(),
         proofs: quod_trust::DEFAULT_PROOFS,
+        writes: vec![],
+        team: None,
+        id: team.to_string(),
     });
     json!({
         "at": row.at,
         "repoSlug": d.slug(&row.repository),
         "run": row.run_number.unwrap_or(0),
-        "jobId": row.job.clone().unwrap_or_default(),
+        "runId": row.run_id.as_deref().and_then(|s| s.parse::<u64>().ok()),
+        "runAttempt": row.run_attempt,
+        "jobId": job_id(row),
         "index": row.step_index.unwrap_or(0),
-        "stepKey": key_hex(row),
+        "stepKey": key_or_null(row),
         "step": run_step(&d, row),
     })
 }
@@ -987,14 +1151,15 @@ async fn events(
         .and_then(|v| v.parse().ok())
         .unwrap_or(-1);
     let (a2, h2, t2) = (app.clone(), headers.clone(), team.clone());
-    let start = blocking(move || {
-        viewer(&a2, &h2, &t2)?;
+    let (start, team) = blocking(move || {
+        let v = viewer(&a2, &h2, &t2)?;
         // Without Last-Event-ID the stream starts now.
-        Ok(if after >= 0 {
+        let start = if after >= 0 {
             after
         } else {
-            a2.store.activity(&t2)?.last_event()?
-        })
+            a2.store.activity(&v.team)?.last_event()?
+        };
+        Ok((start, v.team))
     })
     .await?;
     let hold = app.settings.sse_hold;

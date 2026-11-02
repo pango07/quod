@@ -10,6 +10,8 @@
 //! S7  GitHub OIDC: verified against a local JWKS, mapped to a team and scope
 //! S8  the dashboard's read API and event stream
 //! S9  trust v2 (proofs 1, shadow audits, suspect marking) on the server equals local
+//! S10 the dashboard contract's go-live fields (job and step identity, runs by id and attempt, writer trust)
+//! S11 WorkOS access tokens for dashboard viewers
 
 mod common;
 
@@ -497,13 +499,25 @@ fn s7_github_oidc_is_verified_and_mapped() {
     assert_eq!(runs["runs"][0]["number"], 12);
     assert_eq!(runs["runs"][0]["actor"], "octocat");
 
-    let refused = |tok: String| {
-        let (c, _) = s.get("/v1/teams/acme/health", &tok);
-        // A runner on the dashboard is 403 once authenticated; refused
-        // tokens are 401 before that.
-        c
+    // On the dashboard a JWT is a WorkOS access token: GitHub's does not
+    // verify as one (401); a runner's static token is 403.
+    assert_eq!(
+        s.get("/v1/teams/acme/health", &oidc("push", "refs/heads/main"))
+            .0,
+        401
+    );
+    assert_eq!(s.get("/v1/teams/acme/health", ACME_RUNNER).0, 403);
+    // A runner endpoint: what GitHub OIDC tokens are refused for.
+    let refused = |tok: String| match ureq::post(&format!("{}/v1/blobs/missing", s.url))
+        .set("quod-protocol", "quod.v1")
+        .set("authorization", &format!("Bearer {tok}"))
+        .send_json(serde_json::json!({"hashes": []}))
+    {
+        Ok(r) => r.status(),
+        Err(ureq::Error::Status(c, _)) => c,
+        Err(e) => panic!("{e}"),
     };
-    assert_eq!(refused(oidc("push", "refs/heads/main")), 403);
+    assert_eq!(refused(oidc("push", "refs/heads/main")), 200);
     assert_eq!(
         refused(oidc_with(
             "push",
@@ -639,7 +653,25 @@ fn s8_dashboard_reads_and_streams() {
 fn protocol_and_health() {
     let s = Server::start(2);
     let r = ureq::get(&format!("{}/healthz", s.url)).call().unwrap();
-    assert_eq!(r.into_string().unwrap(), "ok");
+    let health: serde_json::Value = r.into_json().unwrap();
+    assert_eq!(health["status"], "ok");
+    assert_eq!(health["keys"][0]["public_key"], s.public_key());
+    // The public key clients pin, never the private one.
+    let keys: serde_json::Value = ureq::get(&format!("{}/v1/keys", s.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(keys["keys"][0]["alg"], "ed25519");
+    assert_eq!(keys["keys"][0]["public_key"], s.public_key());
+    assert!(
+        keys["keys"][0]["fingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("ed25519:")
+    );
+    let all = keys.to_string() + &health.to_string();
+    assert!(!all.contains(SIGNING_SEED), "the private key was served");
     let info: serde_json::Value = ureq::get(&format!("{}/v1/info", s.url))
         .call()
         .unwrap()
@@ -844,4 +876,200 @@ fn s9_trust_v2_on_the_server_is_trust_v2_locally() {
         server_ledger.schema_version().unwrap(),
         quod_ledger::SCHEMA_VERSION
     );
+}
+
+/// The dashboard contract's cheap server changes (cloud/docs/api.md,
+/// "Server changes needed" 4, 5, 8, 9, 11): GitHub's job id, job name and
+/// step number; runs by run id and attempt; the configured default branch;
+/// one day per day of the range; and where trusted results come from, with
+/// the warning while a writer's ref is not known to be protected.
+#[test]
+fn s10_dashboard_contract_go_live_fields() {
+    let s = Server::start(1);
+    let t = tree(&files());
+    let mut r = Runner::token(&s, ACME_RUNNER);
+    r.policy = policy(1, 0.0);
+    r.cfg.ci = Some(quod_wire::CiContext {
+        repository: Some("acme/app".into()),
+        run_id: Some("555".into()),
+        run_number: Some(7),
+        run_attempt: Some(2),
+        job: Some("test".into()),
+        job_id: Some("9001".into()),
+        job_name: Some("test (ubuntu-24.04)".into()),
+        step_index: Some(3),
+        step_name: Some("go test".into()),
+        git_ref: Some("refs/heads/main".into()),
+        ..Default::default()
+    });
+    step(&r, CMD, &t, "ok\n");
+    let j = |path: &str| -> serde_json::Value {
+        let (c, b) = s.get(path, ACME_VIEWER);
+        assert_eq!(c, 200, "{path}: {b}");
+        serde_json::from_str(&b).unwrap()
+    };
+    let run = j("/v1/teams/acme/repos/app/runs/7");
+    assert_eq!(run["runId"], 555);
+    assert_eq!(run["runAttempt"], 2);
+    assert!(
+        run["githubUrl"]
+            .as_str()
+            .unwrap()
+            .ends_with("/actions/runs/555/attempts/2")
+    );
+    assert_eq!(run["jobs"][0]["id"], "9001");
+    assert_eq!(run["jobs"][0]["name"], "test (ubuntu-24.04)");
+    assert_eq!(run["jobs"][0]["steps"][0]["index"], 3);
+    let o = j("/v1/teams/acme/overview?range=30d");
+    assert_eq!(o["days"].as_array().unwrap().len(), 30);
+    assert!(o["days"][0]["day"].as_str() < o["days"][29]["day"].as_str());
+    // A static runner token wrote trusted: protection unknown, so warned.
+    let repo = j("/v1/teams/acme/repos/app");
+    assert_eq!(repo["defaultBranch"], "trunk");
+    assert_eq!(repo["requireProtectedRef"], false);
+    let w = &repo["summary"]["trustedWrites"][0];
+    assert_eq!(w["ref"], "refs/heads/main");
+    assert!(w["protected"].is_null());
+    assert!(
+        repo["summary"]["writerTrustWarning"]
+            .as_str()
+            .unwrap()
+            .contains("require_protected_ref")
+    );
+    assert_eq!(j("/v1/teams/acme/health")["requireProtectedRef"], false);
+    // A GitHub OIDC writer on a protected main: the warning goes.
+    let mut push = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/main")));
+    push.policy = policy(1, 0.0);
+    step(
+        &push,
+        CMD,
+        &tree(&[("go.mod", "module acme/app v2")]),
+        "ok\n",
+    );
+    let repo = j("/v1/teams/acme/repos/app");
+    assert_eq!(repo["summary"]["trustedWrites"][0]["protected"], true);
+    assert!(repo["summary"]["writerTrustWarning"].is_null(), "{repo}");
+    // step.finished names the job by GitHub's id and the key as hex.
+    let body = ureq::get(&format!("{}/v1/teams/acme/events", s.url))
+        .set("authorization", &format!("Bearer {ACME_VIEWER}"))
+        .set("last-event-id", "0")
+        .call()
+        .unwrap()
+        .into_string()
+        .unwrap();
+    assert!(body.contains("\"jobId\":\"9001\""), "{body}");
+    assert!(
+        body.contains(&format!("\"stepKey\":\"{}\"", key_of(CMD).hex())),
+        "{body}"
+    );
+}
+
+/// A WorkOS access token, signed with the test key the JWKS fixture holds.
+fn workos(sub: &str, org: Option<&str>, role: &str, iss: Option<&str>, ttl: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let iss = iss
+        .map(String::from)
+        .unwrap_or_else(|| format!("https://api.workos.com/user_management/{WORKOS_CLIENT}"));
+    let claims = serde_json::json!({
+        "iss": iss, "sub": sub, "org_id": org, "role": role,
+        "iat": now - 10, "exp": now + ttl, "sid": "session_1",
+    });
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some("quod-test-key".into());
+    let key = jsonwebtoken::EncodingKey::from_rsa_pem(
+        &std::fs::read(fixture("test-oidc-key.pem")).unwrap(),
+    )
+    .unwrap();
+    jsonwebtoken::encode(&header, &claims, &key).unwrap()
+}
+
+/// Dashboard viewers with WorkOS access tokens (cloud/docs/api.md, "Server
+/// changes needed" 1): the path's team is the org id; the token's own
+/// organization makes a member; another organization is asked of WorkOS
+/// (with an API key) or is 404; admins only for the settings endpoints.
+#[test]
+fn s11_workos_viewers() {
+    let s = Server::start(1);
+    let get = |path: &str, tok: &str| s.get(path, tok).0;
+    let member = workos("user_1", Some(ACME_ORG), "member", None, 300);
+    assert_eq!(get("/v1/teams/org_acme/health", &member), 200);
+    assert_eq!(get("/v1/teams/acme/health", &member), 200);
+    // Another organization's team: 404, never 403.
+    assert_eq!(get("/v1/teams/org_beta/health", &member), 404);
+    assert_eq!(get("/v1/teams/org_nope/health", &member), 404);
+    // Bad issuer, or expired: 401.
+    let other_iss = workos(
+        "user_1",
+        Some(ACME_ORG),
+        "member",
+        Some("https://evil"),
+        300,
+    );
+    assert_eq!(get("/v1/teams/org_acme/health", &other_iss), 401);
+    let expired = workos("user_1", Some(ACME_ORG), "member", None, -300);
+    assert_eq!(get("/v1/teams/org_acme/health", &expired), 401);
+    // Static viewer tokens still work, by slug or org id.
+    assert_eq!(get("/v1/teams/org_acme/health", ACME_VIEWER), 200);
+    // Settings: members 403, admins reach the (not built) endpoint.
+    let put = |tok: &str| match ureq::put(&format!("{}/v1/teams/org_acme/connect", s.url))
+        .set("quod-protocol", "quod.v1")
+        .set("authorization", &format!("Bearer {tok}"))
+        .send_json(serde_json::json!({}))
+    {
+        Ok(r) => r.status(),
+        Err(ureq::Error::Status(c, _)) => c,
+        Err(e) => panic!("{e}"),
+    };
+    assert_eq!(put(&member), 403);
+    let admin = workos("user_2", Some(ACME_ORG), "admin", None, 300);
+    assert_eq!(put(&admin), 501);
+
+    // The membership fallback: a token for another organization, checked
+    // with WorkOS's API (a local stand-in here), cached per (user, org).
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let c2 = calls.clone();
+    let api = rt.block_on(async move {
+        let app = axum::Router::new().route(
+            "/user_management/organization_memberships",
+            axum::routing::get(
+                move |q: axum::extract::Query<std::collections::HashMap<String, String>>,
+                      h: axum::http::HeaderMap| {
+                    let c2 = c2.clone();
+                    async move {
+                        c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        assert_eq!(h["authorization"], "Bearer sk_test_key");
+                        let member = q.get("user_id").map(String::as_str) == Some("user_3")
+                            && q.get("organization_id").map(String::as_str) == Some(ACME_ORG);
+                        axum::Json(if member {
+                            serde_json::json!({"data": [{"user_id": "user_3", "organization_id": ACME_ORG,
+                                                          "status": "active", "role": {"slug": "admin"}}]})
+                        } else {
+                            serde_json::json!({"data": []})
+                        })
+                    }
+                },
+            ),
+        );
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+        url
+    });
+    let s2 = Server::start_full(
+        document_json(serde_json::json!({"proofs": 1}), Some(&api)),
+        Some("sk_test_key"),
+    );
+    let elsewhere = workos("user_3", Some(BETA_ORG), "member", None, 300);
+    assert_eq!(s2.get("/v1/teams/org_acme/health", &elsewhere).0, 200);
+    assert_eq!(s2.get("/v1/teams/org_acme/health", &elsewhere).0, 200);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "cached");
+    let stranger = workos("user_4", Some(BETA_ORG), "admin", None, 300);
+    assert_eq!(s2.get("/v1/teams/org_acme/health", &stranger).0, 404);
+    // The secret is never in an answer.
+    let (_, b) = s2.get("/v1/teams/org_acme/health", &elsewhere);
+    assert!(!b.contains("sk_test_key"));
 }

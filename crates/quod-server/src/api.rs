@@ -289,7 +289,8 @@ pub async fn commit(
             Some(r.duration_ms),
         );
         note_trust(&app, &runner, &req.ctx, &v);
-        Ok(Json(CommitResponse { verdict: v }))
+        let notice = note_trusted_write(&app, &runner, &req.ctx);
+        Ok(Json(CommitResponse { verdict: v, notice }))
     })
     .await
 }
@@ -341,7 +342,8 @@ pub async fn divergence(
             req.run.wall_ms,
         );
         note_trust(&app, &runner, &req.ctx, &v);
-        Ok(Json(CommitResponse { verdict: v }))
+        let notice = note_trusted_write(&app, &runner, &req.ctx);
+        Ok(Json(CommitResponse { verdict: v, notice }))
     })
     .await
 }
@@ -425,6 +427,8 @@ fn ci(runner: &Runner, ctx: &Context) -> quod_wire::CiContext {
     match &runner.claims {
         Some(c) => quod_wire::CiContext {
             job: own.job,
+            job_id: own.job_id,
+            job_name: own.job_name,
             step_index: own.step_index,
             step_name: own.step_name,
             runner: own.runner,
@@ -460,6 +464,8 @@ fn note_step(
         run_number: ci.run_number,
         run_attempt: ci.run_attempt,
         job: ci.job.clone(),
+        job_id: ci.job_id.clone(),
+        job_name: ci.job_name.clone(),
         step_index: ci.step_index,
         step_name: ci.step_name.clone(),
         step_key: Some(ctx.step.key.to_string()),
@@ -501,6 +507,54 @@ fn note_step(
     if let Err(e) = out {
         tracing::warn!(target: "quod", error = %format!("{e:#}"), "dashboard row not written");
     }
+}
+
+/// Records a write into the trusted scope (its ref, and GitHub's
+/// `ref_protected` claim), and returns the job-log notice when that ref
+/// is not known to be protected and the repository does not require it
+/// (DECISIONS 2026-11-02: warn, do not require). Best effort, like the
+/// dashboard rows.
+fn note_trusted_write(app: &App, runner: &Runner, ctx: &Context) -> Option<String> {
+    if runner.write != crate::auth::TRUSTED {
+        return None;
+    }
+    let git_ref = ci(runner, ctx).git_ref.unwrap_or_default();
+    if let Err(e) = app
+        .store
+        .activity(&runner.team)
+        .and_then(|a| a.record_trusted_write(&runner.repository, &git_ref, runner.ref_protected))
+    {
+        tracing::warn!(target: "quod", error = %format!("{e:#}"), "trusted write not recorded");
+    }
+    let required = app
+        .auth
+        .team(&runner.team)
+        .is_some_and(|t| t.requires_protected_ref(&runner.repository));
+    if required || runner.ref_protected == Some(true) {
+        return None;
+    }
+    Some(writer_warning(
+        &runner.repository,
+        &git_ref,
+        runner.ref_protected,
+    ))
+}
+
+/// The writer-trust warning, for the job log and the dashboard.
+pub fn writer_warning(repository: &str, git_ref: &str, protected: Option<bool>) -> String {
+    let branch = git_ref.strip_prefix("refs/heads/").unwrap_or(git_ref);
+    let branch = if branch.is_empty() {
+        "this ref"
+    } else {
+        branch
+    };
+    format!(
+        "trusted results for {repository} are written from {branch}, {}: anyone who can push to {branch} can record results that every CI job will reuse; protect {branch} or turn on require_protected_ref",
+        match protected {
+            Some(false) => "which is not a protected branch",
+            _ => "whose protection is unknown",
+        }
+    )
 }
 
 /// Pushes `trust.changed` when a verdict changed what a key does.

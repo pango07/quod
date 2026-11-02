@@ -1,9 +1,10 @@
-//! quod-server's configuration: everything from environment variables, so
-//! a container (Railway, docs/cloud-ledger.md) needs no files. Teams,
-//! tokens and OIDC come as one JSON document, inline
-//! (`QUOD_SERVER_CONFIG_JSON`) or from a file (`QUOD_SERVER_CONFIG`).
+//! quod-server's configuration. Plain settings come from environment
+//! variables; teams, tokens, OIDC and viewer auth come as one JSON document,
+//! from `QUOD_TEAMS_JSON` (inline), `QUOD_SERVER_CONFIG` (a path), or
+//! `$QUOD_DATA_DIR/teams.json` on the volume. What needs the disk (the data
+//! dir checks, the instance lock, the signing key) is `boot`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ed25519_dalek::SigningKey;
@@ -13,8 +14,14 @@ use serde::Deserialize;
 pub const GITHUB_ISSUER: &str = "https://token.actions.githubusercontent.com";
 /// The audience runners request by default.
 pub const DEFAULT_AUDIENCE: &str = "quodci";
+/// WorkOS's API, for the JWKS and the membership fallback.
+pub const WORKOS_API: &str = "https://api.workos.com";
+/// The teams document's file name inside the data dir.
+pub const TEAMS_FILE: &str = "teams.json";
+/// The signing key's file name inside the data dir.
+pub const KEY_FILE: &str = "signing.ed25519";
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
     #[serde(default)]
@@ -23,20 +30,33 @@ pub struct Document {
     pub tokens: Vec<TokenConfig>,
     #[serde(default)]
     pub oidc: Option<OidcConfig>,
+    /// How dashboard viewers authenticate besides static viewer tokens.
+    #[serde(default)]
+    pub viewers: Option<ViewersConfig>,
 }
 
 /// One team: its slug (`/v1/teams/<slug>`), which GitHub accounts' jobs
-/// belong to it, which refs write its trusted scope, and its policy floor.
+/// belong to it, which WorkOS organization its viewers come from, which
+/// refs write its trusted scope, and its policy floor.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TeamConfig {
     pub slug: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// The WorkOS organization whose members view this team (the
+    /// dashboard sends it as the path's team id, `org_...`).
+    #[serde(default)]
+    pub workos_org_id: Option<String>,
+    /// The GitHub App installation linked to the team, for the record (an
+    /// OIDC token names the repository and its owner, not the
+    /// installation; `github_owner_ids` and `github_repository_ids` are
+    /// what runner auth checks).
+    #[serde(default)]
+    pub github_installation_id: Option<u64>,
     /// GitHub `repository_owner_id`s (numbers, not logins: a login can be
     /// renamed and re-registered by someone else; an id cannot) whose
-    /// OIDC tokens map to this team. Until the GitHub App's installation
-    /// links are read from the database (P5), this is the link.
+    /// OIDC tokens map to this team.
     #[serde(default)]
     pub github_owner_ids: Vec<u64>,
     /// If non-empty, only these `repository_id`s.
@@ -47,14 +67,59 @@ pub struct TeamConfig {
     #[serde(default = "default_writer_refs")]
     pub writer_refs: Vec<String>,
     /// Writers must also run on a protected ref (`ref_protected` claim).
+    /// Off by default (DECISIONS 2026-11-02): an unprotected writer ref is
+    /// recorded and warned about instead.
     #[serde(default)]
     pub require_protected_ref: bool,
     /// If non-empty, writers must also run one of these workflows
     /// (`job_workflow_ref`, e.g. `acme/app/.github/workflows/ci.yml@refs/heads/main`).
     #[serde(default)]
     pub writer_workflows: Vec<String>,
+    /// Per-repository settings.
+    #[serde(default)]
+    pub repos: Vec<RepoConfig>,
     #[serde(default)]
     pub policy: TeamPolicy,
+}
+
+/// A repository's settings within its team.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepoConfig {
+    /// `owner/name`.
+    pub full_name: String,
+    /// Its default branch (the dashboard's `defaultBranch`); otherwise the
+    /// branch of the team's first writer ref.
+    #[serde(default)]
+    pub default_branch: Option<String>,
+    /// Overrides the team's `require_protected_ref` for this repository.
+    #[serde(default)]
+    pub require_protected_ref: Option<bool>,
+}
+
+impl TeamConfig {
+    pub fn repo(&self, full_name: &str) -> Option<&RepoConfig> {
+        self.repos.iter().find(|r| r.full_name == full_name)
+    }
+
+    /// Whether a writer of `repository` must run on a protected ref.
+    pub fn requires_protected_ref(&self, repository: &str) -> bool {
+        self.repo(repository)
+            .and_then(|r| r.require_protected_ref)
+            .unwrap_or(self.require_protected_ref)
+    }
+
+    /// The default branch of `repository`, as far as the server knows.
+    pub fn default_branch(&self, repository: &str) -> String {
+        self.repo(repository)
+            .and_then(|r| r.default_branch.clone())
+            .or_else(|| {
+                self.writer_refs
+                    .iter()
+                    .find_map(|r| r.strip_prefix("refs/heads/").map(String::from))
+            })
+            .unwrap_or_else(|| "main".into())
+    }
 }
 
 fn default_writer_refs() -> Vec<String> {
@@ -168,6 +233,59 @@ fn default_audiences() -> Vec<String> {
     vec![DEFAULT_AUDIENCE.into()]
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewersConfig {
+    #[serde(default)]
+    pub workos: Option<WorkosConfig>,
+}
+
+/// WorkOS access tokens as dashboard viewer credentials
+/// (cloud/docs/api.md, "Server changes needed" 1). The client id is
+/// public; the API key (`WORKOS_API_KEY`, environment only) is needed only
+/// for a viewer whose token names another organization than the path's.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkosConfig {
+    pub client_id: String,
+    /// The access tokens' `iss` (default
+    /// `https://api.workos.com/user_management/<client_id>`; a custom auth
+    /// domain's issuer otherwise).
+    #[serde(default)]
+    pub issuer: Option<String>,
+    /// Default `https://api.workos.com/sso/jwks/<client_id>`; `jwks_file`
+    /// reads it from disk (tests).
+    #[serde(default)]
+    pub jwks_url: Option<String>,
+    #[serde(default)]
+    pub jwks_file: Option<PathBuf>,
+    /// The API base for the membership fallback (default WorkOS's; tests).
+    #[serde(default)]
+    pub api_url: Option<String>,
+}
+
+impl WorkosConfig {
+    pub fn issuer(&self) -> String {
+        self.issuer
+            .clone()
+            .unwrap_or_else(|| format!("{WORKOS_API}/user_management/{}", self.client_id))
+    }
+
+    pub fn jwks_url(&self) -> String {
+        self.jwks_url
+            .clone()
+            .unwrap_or_else(|| format!("{WORKOS_API}/sso/jwks/{}", self.client_id))
+    }
+
+    pub fn api_url(&self) -> String {
+        self.api_url
+            .clone()
+            .unwrap_or_else(|| WORKOS_API.into())
+            .trim_end_matches('/')
+            .to_string()
+    }
+}
+
 /// Everything the server runs with.
 #[derive(Clone)]
 pub struct Settings {
@@ -176,6 +294,8 @@ pub struct Settings {
     pub data_dir: PathBuf,
     pub signing_key: SigningKey,
     pub doc: Document,
+    /// `WORKOS_API_KEY`, for the membership fallback. Never logged.
+    pub workos_api_key: Option<String>,
     /// How long one event stream is held before `event: bye`.
     pub sse_hold: Duration,
     /// The largest blob accepted.
@@ -185,93 +305,224 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// From the environment. Refuses what this build cannot honor rather
-    /// than run with less: `DATABASE_URL` or object-store settings (the
-    /// Postgres and S3 backends are P4; serving from local disk on a host
-    /// without a persistent disk would lose every result on redeploy), and
-    /// a missing signing key outside `QUOD_DEV=1`.
-    pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Result<Settings, String> {
-        let dev = get("QUOD_DEV").is_some_and(|v| v == "1");
-        for v in ["DATABASE_URL", "S3_ENDPOINT", "S3_BUCKET"] {
-            if get(v).is_some_and(|x| !x.is_empty()) {
-                return Err(format!(
-                    "{v} is set, but this build stores only in SQLite and a local directory (QUOD_DATA_DIR); the Postgres and object-store backends are not built yet (docs/cloud-ledger.md, P4). Unset {v} to run self-hosted."
-                ));
-            }
-        }
-        let data_dir = match get("QUOD_DATA_DIR") {
-            Some(d) if !d.is_empty() => PathBuf::from(d),
-            _ if dev => PathBuf::from("quod-data"),
-            _ => return Err("QUOD_DATA_DIR is not set (a persistent directory for the SQLite ledgers and blobs)".into()),
-        };
-        let signing_key = match (get("QUOD_SIGNING_KEY"), get("QUOD_SIGNING_KEY_FILE")) {
-            (Some(k), _) if !k.is_empty() => {
-                quod_wire::signing_key_from_hex(&k).map_err(|e| format!("QUOD_SIGNING_KEY: {e}"))?
-            }
-            (_, Some(f)) if !f.is_empty() => {
-                let k = std::fs::read_to_string(&f)
-                    .map_err(|e| format!("QUOD_SIGNING_KEY_FILE {f}: {e}"))?;
-                quod_wire::signing_key_from_hex(&k)
-                    .map_err(|e| format!("QUOD_SIGNING_KEY_FILE {f}: {e}"))?
-            }
-            _ if dev => {
-                tracing::warn!(target: "quod", "QUOD_DEV=1 and no QUOD_SIGNING_KEY: signing with a key generated for this process only");
-                generate_key()?
-            }
-            _ => {
-                return Err(
-                    "QUOD_SIGNING_KEY (an Ed25519 seed, 64 hex digits; `quod-server keygen`) or QUOD_SIGNING_KEY_FILE is required: a key generated per instance would make every runner that pinned the last one refuse its replays".into(),
-                );
-            }
-        };
-        let doc = match (get("QUOD_SERVER_CONFIG_JSON"), get("QUOD_SERVER_CONFIG")) {
-            (Some(j), _) if !j.is_empty() => parse_document(&j)?,
-            (_, Some(p)) if !p.is_empty() => parse_document(
-                &std::fs::read_to_string(&p).map_err(|e| format!("QUOD_SERVER_CONFIG {p}: {e}"))?,
-            )?,
-            _ => Document {
-                teams: vec![],
-                tokens: vec![],
-                oidc: None,
-            },
-        };
-        let port = match get("PORT") {
-            Some(p) => p.parse().map_err(|_| format!("PORT {p:?} is not a port"))?,
-            None => 8080,
-        };
-        Ok(Settings {
-            bind: get("QUOD_BIND").unwrap_or_else(|| "0.0.0.0".into()),
-            port,
-            data_dir,
+    /// Settings with the defaults, for tests and embedding.
+    pub fn new(data_dir: impl Into<PathBuf>, signing_key: SigningKey, doc: Document) -> Settings {
+        Settings {
+            bind: "127.0.0.1".into(),
+            port: 0,
+            data_dir: data_dir.into(),
             signing_key,
             doc,
-            sse_hold: Duration::from_secs(
-                get("QUOD_SSE_HOLD_SECS")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(240),
-            ),
-            max_blob: get("QUOD_MAX_BLOB_BYTES")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(8 << 30),
-            max_json: get("QUOD_MAX_JSON_BYTES")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(256 << 20),
-        })
+            workos_api_key: None,
+            sse_hold: Duration::from_secs(240),
+            max_blob: 8 << 30,
+            max_json: 256 << 20,
+        }
     }
 }
 
-/// Parses and checks the teams/tokens/OIDC document.
+/// The environment, read once: everything but what needs the disk.
+#[derive(Clone, Debug)]
+pub struct Env {
+    pub dev: bool,
+    pub bind: String,
+    pub port: u16,
+    pub data_dir: PathBuf,
+    /// `QUOD_DATA_DIR_PERSISTENT=1`: the operator attests the data dir
+    /// survives restarts and redeploys.
+    pub persistent_attested: bool,
+    /// Railway's mount path of the service's volume, if one is attached.
+    pub railway_volume: Option<PathBuf>,
+    /// Whether this runs on Railway at all.
+    pub on_railway: bool,
+    /// `QUOD_SIGNING_KEY`: a seed in the environment (self-hosting).
+    pub signing_key_hex: Option<String>,
+    pub key_file: PathBuf,
+    pub teams: TeamsSource,
+    pub workos_client_id: Option<String>,
+    pub workos_issuer: Option<String>,
+    pub workos_api_key: Option<String>,
+    pub lock_wait: Duration,
+    pub sse_hold: Duration,
+    pub max_blob: u64,
+    pub max_json: usize,
+}
+
+/// Where the teams document comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TeamsSource {
+    Inline(String),
+    File(PathBuf),
+    /// `$QUOD_DATA_DIR/teams.json` if it exists, else no teams.
+    DataDir,
+}
+
+impl Env {
+    /// From the environment. Refuses what this build cannot honor rather
+    /// than run with less: `DATABASE_URL` or object-store settings (the
+    /// Postgres and S3 backends are P4), and no `QUOD_DATA_DIR` outside
+    /// `QUOD_DEV=1`.
+    pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Result<Env, String> {
+        let set = |k: &str| get(k).filter(|v| !v.trim().is_empty());
+        let dev = get("QUOD_DEV").is_some_and(|v| v == "1");
+        for v in [
+            "DATABASE_URL",
+            "S3_ENDPOINT",
+            "S3_BUCKET",
+            "S3_ACCESS_KEY_ID",
+            "S3_SECRET_ACCESS_KEY",
+        ] {
+            if set(v).is_some() {
+                return Err(format!(
+                    "{v} is set, but this build stores only in SQLite and a local directory (QUOD_DATA_DIR on a persistent volume); the Postgres and object-store backends are not built yet (docs/cloud-ledger.md, P4). Unset {v}."
+                ));
+            }
+        }
+        let data_dir = match set("QUOD_DATA_DIR") {
+            Some(d) => PathBuf::from(d),
+            None if dev => PathBuf::from("quod-data"),
+            None => {
+                return Err("QUOD_DATA_DIR is not set (the persistent directory for the SQLite ledgers, blobs and the signing key, e.g. a Railway volume at /data)".into());
+            }
+        };
+        if !data_dir.is_absolute() && !dev {
+            return Err(format!(
+                "QUOD_DATA_DIR {} is not an absolute path",
+                data_dir.display()
+            ));
+        }
+        let persistent_attested = match get("QUOD_DATA_DIR_PERSISTENT").as_deref() {
+            None | Some("") | Some("0") => false,
+            Some("1") => true,
+            Some(v) => {
+                return Err(format!(
+                    "QUOD_DATA_DIR_PERSISTENT is {v:?}; set it to 1 only when QUOD_DATA_DIR is on a persistent volume"
+                ));
+            }
+        };
+        let key_file = set("QUOD_SIGNING_KEY_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data_dir.join(KEY_FILE));
+        let teams = match (
+            set("QUOD_TEAMS_JSON").or_else(|| set("QUOD_SERVER_CONFIG_JSON")),
+            set("QUOD_SERVER_CONFIG"),
+        ) {
+            (Some(_), Some(_)) => {
+                return Err("both QUOD_TEAMS_JSON and QUOD_SERVER_CONFIG are set: use one".into());
+            }
+            (Some(j), None) => TeamsSource::Inline(j),
+            (None, Some(p)) => TeamsSource::File(PathBuf::from(p)),
+            (None, None) => TeamsSource::DataDir,
+        };
+        let port = match set("PORT") {
+            Some(p) => p.parse().map_err(|_| format!("PORT {p:?} is not a port"))?,
+            None => 8080,
+        };
+        let num = |k: &str, d: u64| -> Result<u64, String> {
+            match set(k) {
+                Some(v) => v.parse().map_err(|_| format!("{k} {v:?} is not a number")),
+                None => Ok(d),
+            }
+        };
+        Ok(Env {
+            dev,
+            bind: set("QUOD_BIND").unwrap_or_else(|| "0.0.0.0".into()),
+            port,
+            persistent_attested,
+            railway_volume: set("RAILWAY_VOLUME_MOUNT_PATH").map(PathBuf::from),
+            on_railway: set("RAILWAY_PROJECT_ID").is_some()
+                || set("RAILWAY_ENVIRONMENT_ID").is_some(),
+            signing_key_hex: set("QUOD_SIGNING_KEY"),
+            key_file,
+            teams,
+            workos_client_id: set("WORKOS_CLIENT_ID"),
+            workos_issuer: set("WORKOS_ISSUER"),
+            workos_api_key: set("WORKOS_API_KEY"),
+            lock_wait: Duration::from_secs(num("QUOD_LOCK_WAIT_SECS", 30)?),
+            sse_hold: Duration::from_secs(num("QUOD_SSE_HOLD_SECS", 240)?),
+            max_blob: num("QUOD_MAX_BLOB_BYTES", 8 << 30)?,
+            max_json: num("QUOD_MAX_JSON_BYTES", 256 << 20)? as usize,
+            data_dir,
+        })
+    }
+
+    /// The teams document from its source (the data dir's file is read
+    /// only once the data dir is checked).
+    pub fn document(&self) -> Result<Document, String> {
+        let mut doc = match &self.teams {
+            TeamsSource::Inline(j) => parse_document(j)?,
+            TeamsSource::File(p) => read_document(p)?,
+            TeamsSource::DataDir => {
+                let p = self.data_dir.join(TEAMS_FILE);
+                if p.is_file() {
+                    read_document(&p)?
+                } else {
+                    Document::default()
+                }
+            }
+        };
+        // WORKOS_CLIENT_ID (not secret) turns WorkOS viewer auth on when
+        // the document does not configure it.
+        if let Some(id) = &self.workos_client_id {
+            let viewers = doc.viewers.get_or_insert_with(ViewersConfig::default);
+            if viewers.workos.is_none() {
+                viewers.workos = Some(WorkosConfig {
+                    client_id: id.clone(),
+                    issuer: self.workos_issuer.clone(),
+                    jwks_url: None,
+                    jwks_file: None,
+                    api_url: None,
+                });
+            }
+        }
+        check_document(&doc)?;
+        Ok(doc)
+    }
+}
+
+fn read_document(p: &Path) -> Result<Document, String> {
+    parse_document(
+        &std::fs::read_to_string(p).map_err(|e| format!("teams config {}: {e}", p.display()))?,
+    )
+}
+
+/// Parses and checks the teams/tokens/OIDC/viewers document.
 pub fn parse_document(json: &str) -> Result<Document, String> {
-    let doc: Document = serde_json::from_str(json).map_err(|e| format!("server config: {e}"))?;
+    let doc: Document = serde_json::from_str(json).map_err(|e| format!("teams config: {e}"))?;
+    check_document(&doc)?;
+    Ok(doc)
+}
+
+fn check_document(doc: &Document) -> Result<(), String> {
+    let mut slugs = std::collections::BTreeSet::new();
     for t in &doc.teams {
         if !crate::valid_id(&t.slug) {
             return Err(format!("team slug {:?} is not a valid id", t.slug));
         }
+        if !slugs.insert(&t.slug) {
+            return Err(format!("team {} is configured twice", t.slug));
+        }
         let p = t.policy.policy();
         p.validate().map_err(|e| format!("team {}: {e}", t.slug))?;
+        if let Some(o) = &t.workos_org_id
+            && !crate::valid_id(o)
+        {
+            return Err(format!("team {}: workos_org_id {o:?} is not an id", t.slug));
+        }
+        for r in &t.repos {
+            if !crate::auth::valid_repository(&r.full_name) {
+                return Err(format!(
+                    "team {}: repository {:?} is not owner/name",
+                    t.slug, r.full_name
+                ));
+            }
+        }
     }
-    // One GitHub owner, one team: an OIDC token must map to exactly one.
+    // One GitHub owner, one team; one WorkOS organization, one team; and
+    // no org id that is another team's slug (the dashboard path takes
+    // either).
     let mut owners = std::collections::BTreeMap::new();
+    let mut orgs = std::collections::BTreeMap::new();
     for t in &doc.teams {
         for o in &t.github_owner_ids {
             if let Some(other) = owners.insert(*o, &t.slug) {
@@ -279,6 +530,17 @@ pub fn parse_document(json: &str) -> Result<Document, String> {
                     "GitHub owner id {o} is linked to both {other} and {}",
                     t.slug
                 ));
+            }
+        }
+        if let Some(o) = &t.workos_org_id {
+            if let Some(other) = orgs.insert(o.clone(), &t.slug) {
+                return Err(format!(
+                    "WorkOS organization {o} is linked to both {other} and {}",
+                    t.slug
+                ));
+            }
+            if slugs.iter().any(|s| *s == o && **s != t.slug) {
+                return Err(format!("WorkOS organization {o} is also a team slug"));
             }
         }
     }
@@ -298,7 +560,19 @@ pub fn parse_document(json: &str) -> Result<Document, String> {
             return Err(format!("token trust {s:?} is not a valid scope name"));
         }
     }
-    Ok(doc)
+    if let Some(w) = doc.viewers.as_ref().and_then(|v| v.workos.as_ref())
+        && (w.client_id.is_empty()
+            || !w
+                .client_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    {
+        return Err(format!(
+            "WorkOS client id {:?} is not a client id",
+            w.client_id
+        ));
+    }
+    Ok(())
 }
 
 /// A fresh Ed25519 key from the OS's randomness.
@@ -306,6 +580,13 @@ pub fn generate_key() -> Result<SigningKey, String> {
     let mut seed = [0u8; 32];
     getrandom::getrandom(&mut seed).map_err(|e| format!("randomness: {e}"))?;
     Ok(SigningKey::from_bytes(&seed))
+}
+
+/// The public key's fingerprint, as logs and `/v1/keys` show it
+/// (`quod_wire::key_fingerprint`). Enough to check by eye that a pinned
+/// key (`QUOD_SERVER_KEY`) is the one the server loaded.
+pub fn fingerprint(key: &ed25519_dalek::VerifyingKey) -> String {
+    quod_wire::key_fingerprint(key)
 }
 
 #[cfg(test)]
@@ -323,28 +604,55 @@ mod tests {
 
     #[test]
     fn refuses_what_it_cannot_honor() {
-        let key = "11".repeat(32);
-        let ok = Settings::from_env(env(&[("QUOD_DATA_DIR", "/d"), ("QUOD_SIGNING_KEY", &key)]));
-        assert!(ok.is_ok());
-        // No signing key outside dev mode: refused, never generated.
-        assert!(Settings::from_env(env(&[("QUOD_DATA_DIR", "/d")])).is_err());
+        let ok = Env::from_env(env(&[("QUOD_DATA_DIR", "/d")])).unwrap();
+        assert_eq!(ok.key_file, PathBuf::from("/d/signing.ed25519"));
+        assert_eq!(ok.teams, TeamsSource::DataDir);
+        assert!(!ok.persistent_attested);
+        // No data dir outside dev mode, or a relative one: refused.
+        assert!(Env::from_env(env(&[])).is_err());
+        assert!(Env::from_env(env(&[("QUOD_DATA_DIR", "data")])).is_err());
         // Postgres or an object store configured: refused (P4), never ignored.
-        for v in ["DATABASE_URL", "S3_ENDPOINT", "S3_BUCKET"] {
-            let e = Settings::from_env(env(&[
-                ("QUOD_DATA_DIR", "/d"),
-                ("QUOD_SIGNING_KEY", &key),
-                (v, "x"),
-            ]));
+        for v in [
+            "DATABASE_URL",
+            "S3_ENDPOINT",
+            "S3_BUCKET",
+            "S3_SECRET_ACCESS_KEY",
+        ] {
+            let e = Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), (v, "x")]));
             assert!(e.err().unwrap().contains(v));
         }
-        // PORT is honored.
-        let s = Settings::from_env(env(&[
+        // The attestation is 1 or nothing.
+        assert!(
+            Env::from_env(env(&[
+                ("QUOD_DATA_DIR", "/d"),
+                ("QUOD_DATA_DIR_PERSISTENT", "1")
+            ]))
+            .unwrap()
+            .persistent_attested
+        );
+        assert!(
+            Env::from_env(env(&[
+                ("QUOD_DATA_DIR", "/d"),
+                ("QUOD_DATA_DIR_PERSISTENT", "yes")
+            ]))
+            .is_err()
+        );
+        // PORT and the key file are honored; two teams sources are refused.
+        let s = Env::from_env(env(&[
             ("QUOD_DATA_DIR", "/d"),
-            ("QUOD_SIGNING_KEY", &key),
             ("PORT", "4321"),
+            ("QUOD_SIGNING_KEY_FILE", "/k/key"),
         ]))
         .unwrap();
-        assert_eq!(s.port, 4321);
+        assert_eq!((s.port, s.key_file), (4321, PathBuf::from("/k/key")));
+        assert!(
+            Env::from_env(env(&[
+                ("QUOD_DATA_DIR", "/d"),
+                ("QUOD_TEAMS_JSON", "{}"),
+                ("QUOD_SERVER_CONFIG", "/x.json"),
+            ]))
+            .is_err()
+        );
     }
 
     #[test]
@@ -363,5 +671,46 @@ mod tests {
         // One owner linked to two teams: refused.
         let j = r#"{"teams":[{"slug":"a","github_owner_ids":[1]},{"slug":"b","github_owner_ids":[2,1]}]}"#;
         assert!(parse_document(j).unwrap_err().contains("owner id 1"));
+        // One WorkOS organization linked to two teams: refused.
+        let j = r#"{"teams":[{"slug":"a","workos_org_id":"org_1"},{"slug":"b","workos_org_id":"org_1"}]}"#;
+        assert!(parse_document(j).unwrap_err().contains("org_1"));
+    }
+
+    #[test]
+    fn the_go_live_team_parses() {
+        let j = r#"{
+          "teams": [{"slug": "quodci", "name": "quodci", "workos_org_id": "org_01QUODCI",
+                     "github_installation_id": 177628965,
+                     "github_owner_ids": [104618549], "github_repository_ids": [1440517147],
+                     "repos": [{"full_name": "pango07/quod", "default_branch": "main"}]}],
+          "oidc": {"audiences": ["quodci"]},
+          "viewers": {"workos": {"client_id": "client_01ABC"}}
+        }"#;
+        let d = parse_document(j).unwrap();
+        let t = &d.teams[0];
+        assert!(!t.require_protected_ref && !t.requires_protected_ref("pango07/quod"));
+        assert_eq!(t.default_branch("pango07/quod"), "main");
+        assert_eq!(t.policy.proofs, quod_trust::DEFAULT_PROOFS);
+        let w = d.viewers.unwrap().workos.unwrap();
+        assert_eq!(
+            w.issuer(),
+            "https://api.workos.com/user_management/client_01ABC"
+        );
+        assert_eq!(w.jwks_url(), "https://api.workos.com/sso/jwks/client_01ABC");
+    }
+
+    #[test]
+    fn workos_client_id_from_the_environment() {
+        let e = Env::from_env(env(&[
+            ("QUOD_DATA_DIR", "/d"),
+            (
+                "QUOD_TEAMS_JSON",
+                r#"{"teams":[{"slug":"quodci","workos_org_id":"org_1"}]}"#,
+            ),
+            ("WORKOS_CLIENT_ID", "client_01ABC"),
+        ]))
+        .unwrap();
+        let d = e.document().unwrap();
+        assert_eq!(d.viewers.unwrap().workos.unwrap().client_id, "client_01ABC");
     }
 }

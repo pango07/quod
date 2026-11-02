@@ -1,9 +1,11 @@
-# quod-server, for Railway or any container host (docs/cloud-ledger.md).
+# quod-server, for Railway or any container host (docs/cloud-ledger.md,
+# "Go-live on Railway").
 #   docker build -f Dockerfile.server -t quod-server .
-#   docker run -e PORT=8080 -e QUOD_DATA_DIR=/data -e QUOD_SIGNING_KEY=... -v quod:/data -p 8080:8080 quod-server
-# Configuration is environment only; /healthz is the healthcheck. This
-# build stores in SQLite and QUOD_DATA_DIR (self-hosting: mount a volume
-# there); the Postgres and object-store backends are P4.
+#   docker run -e QUOD_DATA_DIR=/data -e QUOD_DATA_DIR_PERSISTENT=1 -v quod:/data -p 8080:8080 quod-server
+# Configuration is the environment (and teams.json on the volume); /healthz
+# is the healthcheck. It stores in SQLite and files under QUOD_DATA_DIR,
+# which must be a persistent volume: the server refuses to start otherwise.
+# No VOLUME here: the host mounts one (Railway: a service volume at /data).
 
 # The toolchain rust-toolchain.toml pins, so rustup installs nothing more.
 FROM rust:1.98.0-slim-bookworm AS build
@@ -16,11 +18,14 @@ RUN cargo build --release --locked -p quod-server \
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --home-dir /data --create-home quod
+    && useradd --system --uid 10001 --user-group --home-dir /data --no-create-home quod
 COPY --from=build /quod-server /usr/local/bin/quod-server
-USER quod
+COPY crates/quod-server/docker-entrypoint.sh /usr/local/bin/quod-entrypoint
+RUN chmod 0755 /usr/local/bin/quod-entrypoint
+# Starts as root only to hand the mounted volume to `quod`, then drops to it
+# (crates/quod-server/docker-entrypoint.sh); the server itself refuses root.
 ENV QUOD_BIND=0.0.0.0 PORT=8080 QUOD_DATA_DIR=/data RUST_LOG=quod=info
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s CMD ["quod-server", "healthcheck"]
-ENTRYPOINT ["quod-server"]
+ENTRYPOINT ["quod-entrypoint"]
 CMD ["serve"]

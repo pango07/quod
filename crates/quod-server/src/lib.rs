@@ -3,13 +3,16 @@
 //! here, inside the server's own transactions, with the same quod-trust
 //! code a local ledger runs, so two runners can never both "win".
 //!
-//! Storage in this build is SQLite plus a directory per team (`store`),
-//! for self-hosting and development. docs/cloud-ledger.md has the design,
-//! the stages, and the Postgres and object-store backends that come next.
+//! Storage in this build is SQLite plus a directory per team (`store`) on
+//! one persistent volume, served by one instance (`boot`: the data dir
+//! checks, the instance lock, the signing key). docs/cloud-ledger.md has
+//! the design, the go-live on Railway, and the Postgres and object-store
+//! backends that come next.
 
 pub mod api;
 pub mod auth;
 pub mod blobs;
+pub mod boot;
 pub mod config;
 pub mod dash;
 pub mod store;
@@ -51,7 +54,7 @@ pub type AppState = Arc<App>;
 impl App {
     pub fn new(settings: Settings) -> App {
         App {
-            auth: Auth::new(&settings.doc),
+            auth: Auth::new(&settings.doc, settings.workos_api_key.clone()),
             store: Store::new(&settings.data_dir),
             settings,
         }
@@ -186,7 +189,7 @@ async fn protocol(req: Request, next: Next) -> Response {
     // A browser's EventSource cannot set headers; the dashboard's server
     // side re-serves the stream, but a missing header on the stream itself
     // is not refused.
-    let exempt = path == "/v1/info" || path.ends_with("/events");
+    let exempt = path == "/v1/info" || path == "/v1/keys" || path.ends_with("/events");
     if path.starts_with("/v1/")
         && named != Some(PROTOCOL.as_bytes())
         && !(exempt && named.is_none())
@@ -204,8 +207,16 @@ async fn protocol(req: Request, next: Next) -> Response {
     resp
 }
 
-async fn healthz() -> &'static str {
-    "ok"
+/// Liveness and the metadata a client or an operator checks: the protocol,
+/// the build, and the public key receipts are signed with (never the
+/// private key).
+async fn healthz(State(app): State<AppState>) -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "protocol": PROTOCOL,
+        "version": env!("CARGO_PKG_VERSION"),
+        "keys": [quod_wire::PublicKey::of(&app.settings.signing_key.verifying_key())],
+    }))
 }
 
 async fn info(State(app): State<AppState>) -> axum::Json<quod_wire::Info> {
@@ -213,6 +224,16 @@ async fn info(State(app): State<AppState>) -> axum::Json<quod_wire::Info> {
         protocol: PROTOCOL.into(),
         version: env!("CARGO_PKG_VERSION").into(),
         signing_key: hex::encode(app.settings.signing_key.verifying_key().to_bytes()),
+    })
+}
+
+/// The public keys clients pin (`QUOD_SERVER_KEY`).
+async fn keys(State(app): State<AppState>) -> axum::Json<quod_wire::Keys> {
+    axum::Json(quod_wire::Keys {
+        protocol: PROTOCOL.into(),
+        keys: vec![quod_wire::PublicKey::of(
+            &app.settings.signing_key.verifying_key(),
+        )],
     })
 }
 
@@ -240,6 +261,7 @@ pub fn router(app: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/info", get(info))
+        .route("/v1/keys", get(keys))
         .merge(runner)
         .merge(blob)
         .merge(dash::router())
@@ -247,10 +269,10 @@ pub fn router(app: AppState) -> Router {
         .with_state(app)
 }
 
-/// Serves until ctrl-c or SIGTERM.
+/// Serves until ctrl-c or SIGTERM. The caller holds the instance lock
+/// (`boot::Boot`) for as long as this runs.
 pub async fn serve(settings: Settings) -> anyhow::Result<()> {
     let addr = format!("{}:{}", settings.bind, settings.port);
-    std::fs::create_dir_all(&settings.data_dir)?;
     let app = Arc::new(App::new(settings));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(target: "quod", %addr, "quod-server listening");

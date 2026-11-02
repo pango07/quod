@@ -42,13 +42,30 @@ pub fn document(team_proofs: u32) -> Document {
 }
 
 pub fn document_with(team_policy: serde_json::Value) -> Document {
+    document_json(team_policy, None)
+}
+
+/// The WorkOS client id the test documents configure, and the organizations
+/// of the two teams.
+pub const WORKOS_CLIENT: &str = "client_test";
+pub const ACME_ORG: &str = "org_acme";
+pub const BETA_ORG: &str = "org_beta";
+
+/// The test document; `workos_api` points the membership fallback at a
+/// local stand-in for WorkOS's API.
+pub fn document_json(team_policy: serde_json::Value, workos_api: Option<&str>) -> Document {
     let j = serde_json::json!({
         "teams": [
             {"slug": "acme", "name": "Acme", "github_owner_ids": [ACME_OWNER],
+             "workos_org_id": ACME_ORG,
+             "repos": [{"full_name": "acme/app", "default_branch": "trunk"}],
              "policy": team_policy},
-            {"slug": "beta", "github_owner_ids": [BETA_OWNER],
+            {"slug": "beta", "github_owner_ids": [BETA_OWNER], "workos_org_id": BETA_ORG,
              "policy": team_policy},
         ],
+        "viewers": {"workos": {"client_id": WORKOS_CLIENT,
+                               "jwks_file": fixture("test-oidc-jwks.json"),
+                               "api_url": workos_api}},
         "tokens": [
             {"blake3": h(ACME_RUNNER), "team": "acme", "kind": "runner", "repository": "acme/app"},
             {"blake3": h(ACME_FORK), "team": "acme", "kind": "runner", "repository": "acme/app", "trust": "fork-evil_app"},
@@ -82,6 +99,10 @@ impl Server {
     }
 
     pub fn start_with(doc: Document) -> Server {
+        Server::start_full(doc, None)
+    }
+
+    pub fn start_full(doc: Document, workos_api_key: Option<&str>) -> Server {
         let data = tempfile::tempdir().unwrap();
         let settings = Settings {
             bind: "127.0.0.1".into(),
@@ -92,6 +113,7 @@ impl Server {
             sse_hold: Duration::from_secs(3),
             max_blob: 64 << 20,
             max_json: 64 << 20,
+            workos_api_key: workos_api_key.map(String::from),
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)

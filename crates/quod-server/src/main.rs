@@ -2,11 +2,14 @@
 //!
 //! ```text
 //! quod-server                 serve, configured from the environment
-//! quod-server keygen          a new signing key seed (QUOD_SIGNING_KEY) and its public key
-//! quod-server pubkey          the public key of QUOD_SIGNING_KEY (runners' QUOD_SERVER_KEY)
+//! quod-server pubkey          the public key of the configured signing key (QUOD_SERVER_KEY)
 //! quod-server hash-token      read a token on stdin, print its BLAKE3 for the config
 //! quod-server healthcheck     exit 0 if this instance answers /healthz (container HEALTHCHECK)
 //! ```
+//!
+//! There is no command that prints a private key: the server generates its
+//! signing key on the volume at first boot (`boot`), and only the public
+//! key ever leaves it.
 
 use std::io::Read;
 
@@ -21,25 +24,45 @@ fn main() -> anyhow::Result<()> {
     let get = |k: &str| std::env::var(k).ok();
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => {
-            let settings = quod_server::config::Settings::from_env(get)
+            if quod_server::boot::euid() == Some(0)
+                && get("QUOD_ALLOW_ROOT").as_deref() != Some("1")
+            {
+                anyhow::bail!(
+                    "quod-server: refusing to serve as root (the image's entrypoint drops to the quod user; QUOD_ALLOW_ROOT=1 overrides)"
+                );
+            }
+            let env = quod_server::config::Env::from_env(get)
                 .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
-            tokio::runtime::Runtime::new()?.block_on(quod_server::serve(settings))
-        }
-        Some("keygen") => {
-            let k = quod_server::config::generate_key().map_err(anyhow::Error::msg)?;
-            println!("QUOD_SIGNING_KEY={}", hex::encode(k.to_bytes()));
-            println!(
-                "QUOD_SERVER_KEY={}",
-                hex::encode(k.verifying_key().to_bytes())
-            );
-            Ok(())
+            let boot =
+                quod_server::boot::boot(&env).map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let settings = boot.settings.clone();
+            let served = tokio::runtime::Runtime::new()?.block_on(quod_server::serve(settings));
+            // The instance lock is held until the server has stopped.
+            drop(boot);
+            served
         }
         Some("pubkey") => {
-            let k = quod_wire::signing_key_from_hex(
-                &get("QUOD_SIGNING_KEY")
-                    .ok_or_else(|| anyhow::anyhow!("QUOD_SIGNING_KEY is not set"))?,
-            )?;
-            println!("{}", hex::encode(k.verifying_key().to_bytes()));
+            // The public half of the key the server would use: from
+            // QUOD_SIGNING_KEY, else the key file (never created here).
+            let env = quod_server::config::Env::from_env(get)
+                .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let k = match &env.signing_key_hex {
+                Some(h) => quod_wire::signing_key_from_hex(h)?,
+                None => {
+                    if !env.key_file.is_file() {
+                        anyhow::bail!(
+                            "no signing key at {} yet: it is generated when the server first starts",
+                            env.key_file.display()
+                        );
+                    }
+                    quod_server::boot::load_or_generate(&env.key_file)
+                        .map_err(anyhow::Error::msg)?
+                        .0
+                }
+            };
+            let pk = k.verifying_key();
+            println!("QUOD_SERVER_KEY={}", hex::encode(pk.to_bytes()));
+            println!("fingerprint {}", quod_wire::key_fingerprint(&pk));
             Ok(())
         }
         Some("healthcheck") => {
@@ -57,9 +80,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => {
-            anyhow::bail!(
-                "unknown command {other:?}: serve, keygen, pubkey, hash-token, healthcheck"
-            )
+            anyhow::bail!("unknown command {other:?}: serve, pubkey, hash-token, healthcheck")
         }
     }
 }

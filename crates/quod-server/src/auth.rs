@@ -2,8 +2,10 @@
 //!
 //! Runners authenticate with a GitHub Actions OIDC token (audience
 //! `quodci` by default), verified against the issuer's JWKS, or, on a
-//! self-hosted deployment, a static token. Dashboard viewers use static
-//! viewer tokens here; WorkOS access tokens are P5.
+//! self-hosted deployment, a static token. Dashboard viewers use their
+//! WorkOS access token (verified against WorkOS's JWKS for the configured
+//! client id; the path's team is the team's WorkOS organization, and the
+//! viewer must be a member of it) or a static viewer token.
 //!
 //! Every principal belongs to exactly one team, and every handler reads
 //! only that team's directory, so no request can name another team's
@@ -27,7 +29,8 @@
 //! cannot reach it) states the scope it decided, as the hooks do locally.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::path::PathBuf;
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use axum::http::HeaderMap;
@@ -37,7 +40,7 @@ use quod_wire::{CiContext, ScopeHint};
 use serde::Deserialize;
 
 use crate::ApiError;
-use crate::config::{Document, OidcConfig, TeamConfig, TokenConfig, TokenKind};
+use crate::config::{Document, OidcConfig, TeamConfig, TokenConfig, TokenKind, WorkosConfig};
 
 /// The trusted scope's name.
 pub const TRUSTED: &str = "trusted";
@@ -65,6 +68,9 @@ pub struct Runner {
     /// What the OIDC claims say about the job (authoritative over the
     /// client's own context).
     pub claims: Option<CiContext>,
+    /// GitHub's `ref_protected` claim: whether the job's ref is protected.
+    /// `None` for a static token (unknown).
+    pub ref_protected: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,35 +116,33 @@ pub struct GithubClaims {
     pub actor: Option<String>,
 }
 
-/// The issuer's keys, cached; refetched when a token names a key id the
+/// An issuer's keys, cached; refetched when a token names a key id the
 /// cache does not have, at most once a minute.
 pub struct Jwks {
-    cfg: OidcConfig,
+    url: String,
+    file: Option<PathBuf>,
     cache: RwLock<Option<(JwkSet, Instant)>>,
 }
 
 impl Jwks {
-    pub fn new(cfg: OidcConfig) -> Jwks {
+    pub fn new(url: String, file: Option<PathBuf>) -> Jwks {
         Jwks {
-            cfg,
+            url,
+            file,
             cache: RwLock::new(None),
         }
     }
 
     fn load(&self) -> Result<JwkSet, String> {
-        if let Some(f) = &self.cfg.jwks_file {
+        if let Some(f) = &self.file {
             let j = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
             return serde_json::from_str(&j).map_err(|e| format!("JWKS: {e}"));
         }
-        let url = self
-            .cfg
-            .jwks_url
-            .clone()
-            .unwrap_or_else(|| format!("{}/.well-known/jwks", self.cfg.issuer));
+        let url = &self.url;
         ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(10))
             .build()
-            .get(&url)
+            .get(url)
             .call()
             .map_err(|e| format!("JWKS {url}: {e}"))?
             .into_json()
@@ -165,8 +169,15 @@ impl Jwks {
         }
     }
 
-    /// Verifies a token's signature, issuer, audience and lifetime.
-    pub fn verify(&self, token: &str) -> Result<GithubClaims, String> {
+    /// Verifies an RS256 token's signature, issuer, lifetime (60 s leeway)
+    /// and, when `audiences` is given, its audience.
+    pub fn verify<T: serde::de::DeserializeOwned>(
+        &self,
+        token: &str,
+        issuer: &str,
+        audiences: Option<&[String]>,
+        required: &[&str],
+    ) -> Result<T, String> {
         let header = jsonwebtoken::decode_header(token).map_err(|e| e.to_string())?;
         if header.alg != Algorithm::RS256 {
             return Err(format!(
@@ -177,25 +188,202 @@ impl Jwks {
         let kid = header.kid.ok_or("the token names no key id")?;
         let key = self.key(&kid)?;
         let mut v = Validation::new(Algorithm::RS256);
-        v.set_issuer(&[&self.cfg.issuer]);
-        v.set_audience(&self.cfg.audiences);
-        v.set_required_spec_claims(&["exp", "iat", "iss", "aud"]);
+        v.set_issuer(&[issuer]);
+        match audiences {
+            Some(a) => v.set_audience(a),
+            None => v.validate_aud = false,
+        }
+        v.set_required_spec_claims(required);
         v.leeway = 60;
-        jsonwebtoken::decode::<GithubClaims>(token, &key, &v)
+        jsonwebtoken::decode::<T>(token, &key, &v)
             .map(|d| d.claims)
             .map_err(|e| e.to_string())
     }
 }
 
-/// Authentication: the configured tokens and OIDC.
+/// GitHub Actions' OIDC tokens, for runners.
+pub struct GithubOidc {
+    cfg: OidcConfig,
+    jwks: Jwks,
+}
+
+impl GithubOidc {
+    pub fn new(cfg: OidcConfig) -> GithubOidc {
+        let url = cfg
+            .jwks_url
+            .clone()
+            .unwrap_or_else(|| format!("{}/.well-known/jwks", cfg.issuer));
+        GithubOidc {
+            jwks: Jwks::new(url, cfg.jwks_file.clone()),
+            cfg,
+        }
+    }
+
+    /// Verifies a token's signature, issuer, audience and lifetime.
+    pub fn verify(&self, token: &str) -> Result<GithubClaims, String> {
+        self.jwks.verify(
+            token,
+            &self.cfg.issuer,
+            Some(&self.cfg.audiences),
+            &["exp", "iat", "iss", "aud"],
+        )
+    }
+}
+
+/// The claims of a WorkOS AuthKit access token Quod reads.
+#[derive(Clone, Debug, Deserialize)]
+pub struct WorkosClaims {
+    /// The WorkOS user id.
+    pub sub: String,
+    /// The organization the session is for, if any.
+    #[serde(default)]
+    pub org_id: Option<String>,
+    /// The viewer's role slug in `org_id`.
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// WorkOS access tokens, for dashboard viewers; with `WORKOS_API_KEY`, the
+/// membership API for a viewer whose token names another organization.
+pub struct Workos {
+    cfg: WorkosConfig,
+    jwks: Jwks,
+    api_key: Option<String>,
+    /// (user, org) -> the active membership's role, or none; 60 s.
+    memberships: Mutex<HashMap<(String, String), Membership>>,
+}
+
+/// A membership answer from WorkOS (the role, or none) and when it came.
+type Membership = (Option<Role>, Instant);
+
+/// How long a membership answer from WorkOS is reused.
+const MEMBERSHIP_TTL: Duration = Duration::from_secs(60);
+
+fn role_of(role: Option<&str>, roles: &[String]) -> Role {
+    if role == Some("admin") || roles.iter().any(|r| r == "admin") {
+        Role::Admin
+    } else {
+        Role::Member
+    }
+}
+
+impl Workos {
+    pub fn new(cfg: WorkosConfig, api_key: Option<String>) -> Workos {
+        Workos {
+            jwks: Jwks::new(cfg.jwks_url(), cfg.jwks_file.clone()),
+            cfg,
+            api_key,
+            memberships: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Signature (RS256, the client's JWKS), issuer, `exp` and `iat` with
+    /// 60 s leeway, `sub`. No audience: WorkOS sets none for Quod, and the
+    /// JWKS is the client id's, so only this application's tokens verify.
+    pub fn verify(&self, token: &str) -> Result<WorkosClaims, String> {
+        let c: WorkosClaims = self.jwks.verify(
+            token,
+            &self.cfg.issuer(),
+            None,
+            &["exp", "iat", "iss", "sub"],
+        )?;
+        if c.sub.is_empty() {
+            return Err("the token names no user".into());
+        }
+        Ok(c)
+    }
+
+    /// The viewer's role in `org`, or `None` when not an active member.
+    /// The token's own organization answers for itself; any other asks
+    /// WorkOS (needs `WORKOS_API_KEY`; without it, not a member).
+    pub fn role_in(&self, c: &WorkosClaims, org: &str) -> Result<Option<Role>, ApiError> {
+        if c.org_id.as_deref() == Some(org) {
+            return Ok(Some(role_of(c.role.as_deref(), &c.roles)));
+        }
+        let Some(key) = &self.api_key else {
+            return Ok(None);
+        };
+        let k = (c.sub.clone(), org.to_string());
+        if let Some((r, at)) = self.memberships.lock().unwrap().get(&k)
+            && at.elapsed() < MEMBERSHIP_TTL
+        {
+            return Ok(r.clone());
+        }
+        let url = format!(
+            "{}/user_management/organization_memberships",
+            self.cfg.api_url()
+        );
+        let v: serde_json::Value = ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .get(&url)
+            .query("user_id", &c.sub)
+            .query("organization_id", org)
+            .query("statuses", "active")
+            .set("authorization", &format!("Bearer {key}"))
+            .call()
+            .map_err(|e| {
+                tracing::warn!(target: "quod", error = %e, "WorkOS membership lookup failed");
+                ApiError::new(
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "unavailable",
+                    "the membership check with WorkOS failed; try again",
+                )
+            })?
+            .into_json()
+            .map_err(ApiError::internal)?;
+        let found = v["data"].as_array().and_then(|ms| {
+            ms.iter().find(|m| {
+                m["organization_id"].as_str() == Some(org)
+                    && m["user_id"].as_str() == Some(c.sub.as_str())
+                    && m["status"].as_str().is_none_or(|s| s == "active")
+            })
+        });
+        let role = found.map(|m| {
+            let roles: Vec<String> = m["roles"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|r| r["slug"].as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            role_of(m["role"]["slug"].as_str(), &roles)
+        });
+        self.memberships
+            .lock()
+            .unwrap()
+            .insert(k, (role.clone(), Instant::now()));
+        Ok(role)
+    }
+}
+
+/// Authentication: the configured tokens, GitHub OIDC and WorkOS.
 pub struct Auth {
     teams: Vec<TeamConfig>,
     tokens: HashMap<[u8; 32], TokenConfig>,
-    jwks: Option<Jwks>,
+    github: Option<GithubOidc>,
+    workos: Option<Workos>,
+}
+
+/// The bearer token of a request.
+fn bearer(headers: &HeaderMap) -> Result<&str, ApiError> {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.strip_prefix("Bearer ")
+                .or_else(|| v.strip_prefix("bearer "))
+        })
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| ApiError::unauthorized("no bearer token"))
 }
 
 impl Auth {
-    pub fn new(doc: &Document) -> Auth {
+    pub fn new(doc: &Document, workos_api_key: Option<String>) -> Auth {
         Auth {
             teams: doc.teams.clone(),
             tokens: doc
@@ -206,7 +394,68 @@ impl Auth {
                     Some((b, t.clone()))
                 })
                 .collect(),
-            jwks: doc.oidc.clone().map(Jwks::new),
+            github: doc.oidc.clone().map(GithubOidc::new),
+            workos: doc
+                .viewers
+                .as_ref()
+                .and_then(|v| v.workos.clone())
+                .map(|w| Workos::new(w, workos_api_key)),
+        }
+    }
+
+    /// The dashboard viewer of a request for the team the path names (its
+    /// slug or its WorkOS organization id). A team that does not exist, or
+    /// is not the viewer's, is 404: existence does not leak. A bad or
+    /// expired credential is 401; a runner's is 403.
+    pub fn viewer(&self, headers: &HeaderMap, path_team: &str) -> Result<Viewer, ApiError> {
+        let token = bearer(headers)?;
+        let h = *blake3::hash(token.as_bytes()).as_bytes();
+        let team = || {
+            crate::valid_id(path_team)
+                .then(|| {
+                    self.teams.iter().find(|t| {
+                        t.slug == path_team || t.workos_org_id.as_deref() == Some(path_team)
+                    })
+                })
+                .flatten()
+        };
+        let not_found = || ApiError::not_found("no such team");
+        if let Some(t) = self.tokens.get(&h) {
+            return match t.kind {
+                TokenKind::Viewer => match team() {
+                    Some(team) if team.slug == t.team => Ok(Viewer {
+                        team: team.slug.clone(),
+                        role: if t.role.as_deref() == Some("admin") {
+                            Role::Admin
+                        } else {
+                            Role::Member
+                        },
+                    }),
+                    _ => Err(not_found()),
+                },
+                TokenKind::Runner => Err(ApiError::forbidden(
+                    "runner tokens cannot read the dashboard",
+                )),
+            };
+        }
+        if token.split('.').count() != 3 {
+            return Err(ApiError::unauthorized("unknown token"));
+        }
+        let workos = self.workos.as_ref().ok_or_else(|| {
+            ApiError::unauthorized("viewer auth with WorkOS is not configured on this server")
+        })?;
+        let claims = workos.verify(token).map_err(|e| {
+            tracing::info!(target: "quod", error = %e, "WorkOS access token refused");
+            ApiError::unauthorized("the access token does not verify")
+        })?;
+        let team = team().ok_or_else(not_found)?;
+        let org = team.workos_org_id.as_deref().ok_or_else(not_found)?;
+        match workos.role_in(&claims, org)? {
+            Some(role) => Ok(Viewer {
+                team: team.slug.clone(),
+                role,
+            }),
+            None => Err(not_found()),
         }
     }
 
@@ -218,24 +467,16 @@ impl Auth {
         &self.teams
     }
 
-    /// The caller, from `Authorization: Bearer`. Blocking (a JWKS fetch).
+    /// The caller of a runner endpoint, from `Authorization: Bearer`.
+    /// Blocking (a JWKS fetch).
     pub fn authenticate(&self, headers: &HeaderMap) -> Result<Principal, ApiError> {
-        let token = headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| {
-                v.strip_prefix("Bearer ")
-                    .or_else(|| v.strip_prefix("bearer "))
-            })
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| ApiError::unauthorized("no bearer token"))?;
+        let token = bearer(headers)?;
         // A configured static token wins, whatever it looks like; anything
         // else shaped like a JWT (two dots) is an OIDC token.
         let h = *blake3::hash(token.as_bytes()).as_bytes();
         if !self.tokens.contains_key(&h) && token.split('.').count() == 3 {
             let jwks = self
-                .jwks
+                .github
                 .as_ref()
                 .ok_or_else(|| ApiError::unauthorized("OIDC is not configured on this server"))?;
             let claims = jwks.verify(token).map_err(|e| {
@@ -272,6 +513,7 @@ impl Auth {
                     write: trust,
                     via: "token",
                     claims: None,
+                    ref_protected: None,
                 }))
             }
         })
@@ -295,6 +537,7 @@ impl Auth {
             writer: hint.writer && hint.trust == TRUSTED,
             via: "token",
             claims: None,
+            ref_protected: None,
         })
     }
 
@@ -330,6 +573,7 @@ impl Auth {
             write,
             writer,
             via: "oidc",
+            ref_protected: c.ref_protected.as_deref().map(|p| p == "true"),
             claims: Some(CiContext {
                 repository: Some(c.repository.clone()),
                 run_id: c.run_id.clone(),
@@ -354,7 +598,8 @@ pub fn oidc_scopes(team: &TeamConfig, c: &GithubClaims) -> (Vec<String>, String,
     );
     let writer = writer_event
         && team.writer_refs.contains(&c.git_ref)
-        && (!team.require_protected_ref || c.ref_protected.as_deref() == Some("true"))
+        && (!team.requires_protected_ref(&c.repository)
+            || c.ref_protected.as_deref() == Some("true"))
         && (team.writer_workflows.is_empty()
             || c.job_workflow_ref
                 .as_ref()
@@ -490,6 +735,24 @@ mod tests {
         assert!(oidc_scopes(&t, &c).2);
         t.writer_workflows = vec!["acme/app/.github/workflows/release.yml@refs/heads/main".into()];
         assert!(!oidc_scopes(&t, &c).2);
+    }
+
+    #[test]
+    fn a_protected_ref_is_off_by_default_and_per_repo() {
+        let mut t = team();
+        // Off by default (DECISIONS 2026-11-02): an unprotected main writes.
+        assert!(oidc_scopes(&t, &claims("push", "refs/heads/main")).2);
+        // On for one repository only.
+        t.repos = vec![crate::config::RepoConfig {
+            full_name: "acme/app".into(),
+            default_branch: None,
+            require_protected_ref: Some(true),
+        }];
+        assert!(!oidc_scopes(&t, &claims("push", "refs/heads/main")).2);
+        // Off for one repository while the team requires it.
+        t.require_protected_ref = true;
+        t.repos[0].require_protected_ref = Some(false);
+        assert!(oidc_scopes(&t, &claims("push", "refs/heads/main")).2);
     }
 
     #[test]
