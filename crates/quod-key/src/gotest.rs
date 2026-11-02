@@ -208,13 +208,12 @@ pub fn runs_go_test(script: &str) -> bool {
     let words = words(script);
     let after_go = |sub: &str| words.windows(2).any(|w| is_go(w[0]) && w[1] == sub);
     let artifacts = words.iter().any(|w| {
-        let flag = w.strip_prefix('-').unwrap_or(w);
-        *w == "-c"
-            || *w == "-o"
-            || w.starts_with("-o=")
-            || w.starts_with("-exec")
-            || flag == "-overlay"
-            || flag.starts_with("-overlay=")
+        // Go's flag package takes `-name` and `--name` alike.
+        let overlay = w
+            .strip_prefix("--")
+            .or_else(|| w.strip_prefix('-'))
+            .is_some_and(|f| f == "overlay" || f.starts_with("overlay="));
+        *w == "-c" || *w == "-o" || w.starts_with("-o=") || w.starts_with("-exec") || overlay
     });
     after_go("test") && !after_go("install") && !after_go("run") && !artifacts
 }
