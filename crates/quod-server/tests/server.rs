@@ -1591,3 +1591,41 @@ fn s15_a_remote_runner_never_leaves_a_pending_audit() {
     assert!(server_ledger.results_for_run(&rid).unwrap().is_empty());
     assert_eq!(server_ledger.trust(&key).unwrap().unwrap().audits, 3);
 }
+
+/// A step recorded only on a branch that is not a writer (its own ref's
+/// scope) shows that scope's trust, not "proving 0 of N": under proofs 1
+/// one recorded run is ready to replay on that branch, as its run's receipt
+/// says ("proof 1 of 1"). Once the default branch records the key, its
+/// trusted scope decides again.
+#[test]
+fn s16_a_step_recorded_only_on_a_branch_has_that_branchs_trust() {
+    let s = Server::start(1);
+    let t = tree(&files());
+    let mut b = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/exp/x")));
+    b.policy = policy(1, 0.0);
+    step(&b, CMD, &t, "ok\n");
+    let j = |path: &str| -> serde_json::Value {
+        let (c, body) = s.get(path, ACME_VIEWER);
+        assert_eq!(c, 200, "{path}: {body}");
+        serde_json::from_str(&body).unwrap()
+    };
+    let run = j("/v1/teams/acme/repos/app/runs/12");
+    let why = &run["jobs"][0]["steps"][0]["why"];
+    assert_eq!(why["kind"], "first-run", "{run}");
+    assert_eq!(why["proof"]["have"], 1, "{run}");
+    assert_eq!(why["proof"]["need"], 1, "{run}");
+    let steps = j("/v1/teams/acme/steps");
+    let st = &steps["steps"][0];
+    assert_eq!(st["trust"]["kind"], "replaying", "{steps}");
+    assert_eq!(st["trustRef"], "exp/x", "{steps}");
+    let key = st["key"].as_str().unwrap().to_string();
+    let page = j(&format!("/v1/teams/acme/repos/app/steps/{key}"));
+    assert_eq!(page["trust"]["kind"], "replaying", "{page}");
+    // The default branch records the same key: its trusted row decides.
+    let mut main = Runner::new(&s, Auth::Token(oidc("push", "refs/heads/main")));
+    main.policy = policy(1, 0.0);
+    step(&main, CMD, &t, "ok\n");
+    let steps = j("/v1/teams/acme/steps");
+    assert_eq!(steps["steps"][0]["trust"]["kind"], "replaying", "{steps}");
+    assert!(steps["steps"][0]["trustRef"].is_null(), "{steps}");
+}
