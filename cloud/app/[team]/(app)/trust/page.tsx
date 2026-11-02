@@ -25,8 +25,8 @@ export default async function TrustPage({ params, searchParams }: PageProps<"/[t
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <h1 className="h1">Trust</h1>
         <p className="muted" style={{ maxWidth: "70ch" }}>
-          A step replays only after the same inputs gave the same result twice. A few replays are re-run at random and compared. If one ever differs, the step is paused and
-          runs every time until it is consistent again.
+          A step can replay once it has run with the same inputs before. Its first replays are re-run and compared, and a few more at random after that. If one ever differs,
+          the step is paused and runs every time until it is consistent again.
         </p>
       </div>
       {paused.map((s) => (
