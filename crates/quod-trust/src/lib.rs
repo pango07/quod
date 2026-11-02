@@ -631,7 +631,244 @@ pub fn normalize(bytes: &[u8]) -> Vec<u8> {
             out.push(b'\n');
         }
     }
-    out
+    canonical_parallel_order(out)
+}
+
+/// Parallel test runners report results in completion order, which
+/// changes from run to run on identical inputs (the Moto benchmark's
+/// `pytest -n 4` diverged on every audit). In output that is unmistakably
+/// such a runner's, each run of consecutive per-result lines is put in a
+/// canonical order that keeps everything but the order: the multiset of
+/// results (and so every count), each line's position-bound fields, and
+/// every other line where it was. Never weaker than comparing the multiset
+/// of per-test results plus the summary: a test that passes in one run and
+/// fails in the other changes a line's status (and the summary).
+///
+/// - pytest-xdist (a `created: N/N workers`, `N workers [M items]` or, under
+///   `-q`, `bringing up nodes...` line):
+///   `-v` result lines `[gw2] [ 25%] PASSED tests/a.py::t` become
+///   `[gw*] [ 25%] ` + the sorted `STATUS nodeid` of the run (the worker
+///   is whichever was free; the percentages are the completion count, the
+///   same sequence every run); worker lines `[gw0] linux -- Python 3.12`
+///   are sorted within their run; the progress lines `....s.F.. [ 13%]`
+///   (no file name: xdist cannot say which file a result is from) keep
+///   their lengths and suffixes and get the run's status characters in
+///   sorted order (which test a character stands for is not printed, so
+///   only the counts were ever there to compare).
+/// - jest (a `Test Suites: ` summary line): runs of consecutive suite lines
+///   `PASS src/a.test.js` / `FAIL src/b.test.js` are sorted (workers finish
+///   suites in any order).
+///
+/// Output without the marker is untouched, so a sequential runner's order
+/// (which can be a result) is compared as printed.
+fn canonical_parallel_order(out: Vec<u8>) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(&out) else {
+        return out;
+    };
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    fn body(l: &str) -> &str {
+        l.strip_suffix('\n').unwrap_or(l).trim_end_matches('\r')
+    }
+    let xdist = lines.iter().any(|l| is_xdist_header(body(l)));
+    let jest = lines.iter().any(|l| body(l).starts_with("Test Suites: "));
+    if !xdist && !jest {
+        return out;
+    }
+    #[derive(PartialEq, Clone, Copy)]
+    enum Kind {
+        Other,
+        Result,
+        Worker,
+        Progress,
+        Suite,
+        Summary,
+    }
+    // pytest's short test summary (`-r`): one line per result or group of
+    // skips, in the order the reports arrived, which xdist scrambles.
+    let mut in_summary = vec![false; lines.len()];
+    let mut open = false;
+    for (n, l) in lines.iter().enumerate() {
+        let b = body(l);
+        if b.starts_with('=') {
+            open = b.contains(" short test summary info ");
+        } else {
+            in_summary[n] = open;
+        }
+    }
+    let kind = |n: usize| {
+        let b = body(lines[n]);
+        if xdist && in_summary[n] && is_summary_line(b) {
+            return Kind::Summary;
+        }
+        if xdist {
+            if xdist_result(b).is_some() || xdist_start(b) {
+                return Kind::Result;
+            }
+            if xdist_worker(b) {
+                return Kind::Worker;
+            }
+            if xdist_progress(b).is_some() {
+                return Kind::Progress;
+            }
+        }
+        if jest && (b.starts_with("PASS ") || b.starts_with("FAIL ")) {
+            return Kind::Suite;
+        }
+        Kind::Other
+    };
+    let mut res = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let k = kind(i);
+        let mut j = i + 1;
+        while k != Kind::Other && j < lines.len() && kind(j) == k {
+            j += 1;
+        }
+        let run = &lines[i..j];
+        // Each line keeps its own line ending.
+        let ends: Vec<&str> = run.iter().map(|l| &l[body(l).len()..]).collect();
+        match k {
+            Kind::Other => res.push_str(lines[i]),
+            Kind::Result => {
+                // `-v` without a terminal interleaves each test's start
+                // line (its node id) with the results: the starts first,
+                // sorted, then the results, sorted, with the percentage
+                // sequence as printed.
+                let mut starts: Vec<(&str, &str)> = Vec::new();
+                let mut results: Vec<(&str, &str)> = Vec::new();
+                for (l, e) in run.iter().zip(&ends) {
+                    match xdist_result(body(l)) {
+                        Some((_, r)) => results.push((r, e)),
+                        None => starts.push((body(l), e)),
+                    }
+                }
+                let pcts: Vec<&str> = run
+                    .iter()
+                    .filter_map(|l| xdist_result(body(l)).map(|r| r.0))
+                    .collect();
+                starts.sort_unstable();
+                results.sort_unstable();
+                for (s, e) in starts {
+                    res.push_str(s);
+                    res.push_str(e);
+                }
+                for ((r, e), pct) in results.into_iter().zip(pcts) {
+                    res.push_str(&format!("[gw*] {pct} {r}{e}"));
+                }
+            }
+            Kind::Worker | Kind::Suite | Kind::Summary => {
+                let mut b: Vec<&str> = run.iter().map(|l| body(l)).collect();
+                b.sort_unstable();
+                for (x, e) in b.iter().zip(&ends) {
+                    res.push_str(x);
+                    res.push_str(e);
+                }
+            }
+            Kind::Progress => {
+                let mut chars: Vec<char> = run
+                    .iter()
+                    .flat_map(|l| xdist_progress(body(l)).unwrap().0.chars())
+                    .collect();
+                chars.sort_unstable();
+                let mut it = chars.into_iter();
+                for (l, e) in run.iter().zip(&ends) {
+                    let (marks, suffix) = xdist_progress(body(l)).unwrap();
+                    res.extend(it.by_ref().take(marks.chars().count()));
+                    res.push_str(suffix);
+                    res.push_str(e);
+                }
+            }
+        }
+        i = j;
+    }
+    res.into_bytes()
+}
+
+/// A line of pytest's short test summary: `SKIPPED [2] tests/a.py:12:
+/// reason`, `FAILED tests/a.py::t - AssertionError`, `XFAIL ...`.
+fn is_summary_line(b: &str) -> bool {
+    [
+        "PASSED ", "FAILED ", "ERROR ", "SKIPPED ", "XFAIL ", "XPASS ",
+    ]
+    .iter()
+    .any(|p| b.starts_with(p))
+}
+
+/// `created: 4/4 workers`, `4 workers [530 items]`, `1 worker [1 item]`.
+fn is_xdist_header(b: &str) -> bool {
+    // What xdist prints instead under `-q`.
+    if b == "bringing up nodes..." {
+        return true;
+    }
+    if let Some(rest) = b.strip_prefix("created: ") {
+        return rest
+            .strip_suffix(" workers")
+            .or_else(|| rest.strip_suffix(" worker"))
+            .and_then(|n| n.split_once('/'))
+            .is_some_and(|(a, c)| is_digits(a) && is_digits(c));
+    }
+    let Some((n, rest)) = b.split_once(' ') else {
+        return false;
+    };
+    is_digits(n)
+        && (rest.starts_with("workers [") || rest.starts_with("worker ["))
+        && (rest.ends_with(" items]") || rest.ends_with(" item]"))
+}
+
+fn is_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `[gwN] ` at the start of `b`: the rest.
+fn after_worker(b: &str) -> Option<&str> {
+    let rest = b.strip_prefix("[gw")?;
+    let close = rest.find("] ")?;
+    is_digits(&rest[..close]).then(|| &rest[close + 2..])
+}
+
+/// An xdist `-v` result line, `[gw2] [ 25%] PASSED tests/a.py::t `: its
+/// percentage field (`[ 25%]`) and the rest (`PASSED tests/a.py::t `).
+fn xdist_result(b: &str) -> Option<(&str, &str)> {
+    let rest = after_worker(b)?;
+    let close = rest.find("%] ")?;
+    let pct = &rest[..close + 2];
+    let n = pct.strip_prefix('[')?.trim_start();
+    let n = n.strip_suffix("%]")?;
+    let status = &rest[close + 3..];
+    let ok = is_digits(n)
+        && [
+            "PASSED ", "FAILED ", "SKIPPED ", "ERROR ", "XFAIL ", "XPASS ",
+        ]
+        .iter()
+        .any(|s| status.starts_with(s));
+    ok.then_some((pct, status))
+}
+
+/// An xdist `-v` start line: a node id and a space, `tests/a.py::T::t[x] `.
+fn xdist_start(b: &str) -> bool {
+    b.ends_with(' ')
+        && !b.starts_with(['[', ' ', '='])
+        && b.split_once("::")
+            .is_some_and(|(file, _)| !file.contains(' ') && !file.is_empty())
+}
+
+/// A worker line that is not a result: `[gw0] linux -- Python 3.12.1 ...`,
+/// `[gw1] Python 3.12.1 (main) -- [GCC 13]`.
+fn xdist_worker(b: &str) -> bool {
+    after_worker(b).is_some_and(|r| !r.starts_with('['))
+}
+
+/// An xdist progress line, `....s.F..          [ 13%]`: its status
+/// characters and the rest (spaces and the percentage).
+fn xdist_progress(b: &str) -> Option<(&str, &str)> {
+    let n = b.bytes().take_while(|c| b".sFExX".contains(c)).count();
+    if n == 0 {
+        return None;
+    }
+    let suffix = &b[n..];
+    let pct = suffix.trim_start();
+    let inner = pct.strip_prefix('[')?.strip_suffix("%]")?.trim_start();
+    (suffix.starts_with(' ') && is_digits(inner)).then_some((&b[..n], suffix))
 }
 
 /// `s` with the digits after every `/tmp/go-build` replaced by `<n>`.
@@ -2659,6 +2896,140 @@ mod tests {
         assert_eq!(
             n("  12 passing (12ms)\n  1 pending\n"),
             "  12 passing (<dur>)\n  1 pending\n"
+        );
+    }
+
+    /// Parallel runners' completion order is not compared; which results
+    /// there were always is.
+    #[test]
+    fn parallel_runner_order_is_canonical_and_results_still_count() {
+        let n = |s: &str| String::from_utf8(normalize(s.as_bytes())).unwrap();
+        let head = "============================= test session starts ==============================\nplatform linux -- Python 3.12.16, pytest-8.4.2, pluggy-1.6.0\nrootdir: /workspace\nplugins: xdist-3.8.0\ncreated: 4/4 workers\n4 workers [12 items]\n\n";
+        // pytest -n 4 (Moto): the skips land on other lines run to run.
+        let a = format!(
+            "{head}..s.......s. [ 50%]\n..........s. [100%]\n\n======================== 9 passed, 3 skipped in 1.21s =========================\n"
+        );
+        let b = format!(
+            "{head}s.........s. [ 50%]\n.s.......... [100%]\n\n======================== 9 passed, 3 skipped in 1.40s =========================\n"
+        );
+        assert_eq!(n(&a), n(&b));
+        // A pass that became a failure is a different result.
+        let c = format!(
+            "{head}s.........s. [ 50%]\n.s......F... [100%]\n\n=================== 1 failed, 8 passed, 3 skipped in 1.40s ====================\n"
+        );
+        assert_ne!(n(&a), n(&c));
+        // -q: xdist's only mark is `bringing up nodes...`.
+        assert_eq!(
+            n("bringing up nodes...\n\n..s. [ 50%]\n.... [100%]\n"),
+            n("bringing up nodes...\n\n.... [ 50%]\n.s.. [100%]\n")
+        );
+        // Even with the summary line removed, the progress counts differ.
+        let strip = |s: &str| {
+            s.lines()
+                .filter(|l| !l.contains("passed"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_ne!(strip(&n(&a)), strip(&n(&c)));
+        // Without xdist's header the order is compared as printed (a
+        // sequential runner's order can be a result).
+        assert_ne!(
+            n("..s. [ 50%]\n.... [100%]\n"),
+            n(".s.. [ 50%]\n.... [100%]\n")
+        );
+        // pytest -n 4 -v: which test had which result counts, not which
+        // worker ran it or when.
+        let v = |lines: &[&str]| {
+            format!(
+                "{head}[gw1] linux -- Python 3.12.16 /venv/bin/python\n[gw0] linux -- Python 3.12.16 /venv/bin/python\n{}\n",
+                lines.join("\n")
+            )
+        };
+        let va = v(&[
+            "[gw0] [ 33%] PASSED tests/test_a.py::test_x ",
+            "[gw1] [ 66%] SKIPPED tests/test_b.py::test_y ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_z ",
+        ]);
+        let vb = v(&[
+            "[gw1] [ 33%] SKIPPED tests/test_b.py::test_y ",
+            "[gw1] [ 66%] PASSED tests/test_a.py::test_z ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_x ",
+        ]);
+        assert_eq!(n(&va), n(&vb));
+        assert!(n(&va).contains("[gw*] [ 33%] PASSED tests/test_a.py::test_x \n"));
+        // The same counts, but another test skipped: different.
+        let vc = v(&[
+            "[gw1] [ 33%] PASSED tests/test_b.py::test_y ",
+            "[gw1] [ 66%] SKIPPED tests/test_a.py::test_z ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_x ",
+        ]);
+        assert_ne!(n(&va), n(&vc));
+        // One test passing in one run and failing in the other.
+        let vd = v(&[
+            "[gw1] [ 33%] SKIPPED tests/test_b.py::test_y ",
+            "[gw1] [ 66%] FAILED tests/test_a.py::test_z ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_x ",
+        ]);
+        assert_ne!(n(&va), n(&vd));
+        // -v without a terminal: start lines interleaved (attrs, -n 4 -v).
+        let ia = v(&[
+            "tests/test_a.py::test_x ",
+            "tests/test_b.py::test_y ",
+            "[gw0] [ 50%] PASSED tests/test_a.py::test_x ",
+            "[gw1] [100%] PASSED tests/test_b.py::test_y ",
+        ]);
+        let ib = v(&[
+            "tests/test_b.py::test_y ",
+            "[gw1] [ 50%] PASSED tests/test_b.py::test_y ",
+            "tests/test_a.py::test_x ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_x ",
+        ]);
+        let ic = v(&[
+            "tests/test_b.py::test_y ",
+            "[gw1] [ 50%] FAILED tests/test_b.py::test_y ",
+            "tests/test_a.py::test_x ",
+            "[gw0] [100%] PASSED tests/test_a.py::test_x ",
+        ]);
+        assert_eq!(n(&ia), n(&ib));
+        assert_ne!(n(&ia), n(&ic));
+        // The short test summary arrives in report order (attrs, -n 4).
+        let s = |lines: &[&str]| {
+            format!(
+                "{head}... [100%]\n=========================== short test summary info ============================\n{}\n================= 1401 passed, 3 skipped in 8.68s ==================\n",
+                lines.join("\n")
+            )
+        };
+        let sa = s(&[
+            "SKIPPED [1] tests/test_pyright.py:35: Requires pyright.",
+            "SKIPPED [1] tests/test_pyright.py:89: Requires pyright.",
+            "XFAIL tests/test_setattr.py::TestSetAttr::test_slotted_confused",
+        ]);
+        let sb = s(&[
+            "SKIPPED [1] tests/test_pyright.py:89: Requires pyright.",
+            "SKIPPED [1] tests/test_pyright.py:35: Requires pyright.",
+            "XFAIL tests/test_setattr.py::TestSetAttr::test_slotted_confused",
+        ]);
+        let sc = s(&[
+            "SKIPPED [1] tests/test_pyright.py:89: Requires pyright.",
+            "FAILED tests/test_pyright.py::test_35 - assert 1",
+            "XFAIL tests/test_setattr.py::TestSetAttr::test_slotted_confused",
+        ]);
+        assert_eq!(n(&sa), n(&sb));
+        assert_ne!(n(&sa), n(&sc));
+        // Outside the summary section, such a line keeps its place.
+        assert_ne!(
+            n(&format!("{head}SKIPPED a\nSKIPPED b\n")),
+            n(&format!("{head}SKIPPED b\nSKIPPED a\n"))
+        );
+        // jest with workers: suites in completion order.
+        let ja = "PASS src/a.test.js\nPASS src/b.test.js\n\nTest Suites: 2 passed, 2 total\nTests:       5 passed, 5 total\n";
+        let jb = "PASS src/b.test.js\nPASS src/a.test.js\n\nTest Suites: 2 passed, 2 total\nTests:       5 passed, 5 total\n";
+        let jc = "FAIL src/b.test.js\nPASS src/a.test.js\n\nTest Suites: 2 passed, 2 total\nTests:       5 passed, 5 total\n";
+        assert_eq!(n(ja), n(jb));
+        assert_ne!(n(ja), n(jc));
+        assert_ne!(
+            n("PASS src/a.test.js\nPASS src/b.test.js\n"),
+            n("PASS src/b.test.js\nPASS src/a.test.js\n")
         );
     }
 
