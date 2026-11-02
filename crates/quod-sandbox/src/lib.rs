@@ -498,6 +498,21 @@ pub fn bwrap_args(spec: &RunSpec) -> Vec<String> {
                     Err(_) => {}
                 }
             }
+            // A step with network needs the host's resolver. /etc is bound
+            // whole, but where its resolv.conf leads (Ubuntu's
+            // ../run/systemd/resolve/stub-resolv.conf) is outside the system
+            // paths, so the link would dangle: that file is bound where the
+            // link leads in the sandbox (`sandbox_dest`), as for a rootfs.
+            if spec.egress {
+                let to = sandbox_dest(None, Path::new("/etc/resolv.conf"));
+                if to != Path::new("/etc/resolv.conf")
+                    && !SYSTEM_PATHS.iter().any(|s| to.starts_with(s))
+                    && let Ok(real) = std::fs::canonicalize("/etc/resolv.conf")
+                    && real.is_file()
+                {
+                    push(&["--ro-bind", &real.to_string_lossy(), &to.to_string_lossy()]);
+                }
+            }
         }
     }
     if let (Some(dir), true) = (&spec.identity, uid != 0) {
