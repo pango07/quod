@@ -327,6 +327,7 @@ pub fn network(
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     env.retain(|k, _| !c.is_secret(k));
     sealed(
@@ -435,6 +436,7 @@ fn sealed(
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     let mut key_env = env.clone();
     for k in &c.names {
@@ -564,6 +566,7 @@ pub fn runner(job: &Job, args: &ScriptStepArgs) -> anyhow::Result<Surface> {
         job.provenance(),
         job.known_secrets(),
         &job.set_by_steps,
+        &job.image_env(),
     );
     let env = finish_env(env, &mut taint);
     let mut cmd = vec![args.entry_point.clone()];

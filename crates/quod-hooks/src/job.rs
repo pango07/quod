@@ -292,6 +292,15 @@ impl Job {
         env
     }
 
+    /// The job image's own config env (empty in host-root mode): what the
+    /// image, not the workflow or the runner, defines.
+    pub fn image_env(&self) -> BTreeMap<String, String> {
+        self.rootfs
+            .as_ref()
+            .map(|r| r.env.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// The provenance read at the first step (empty before).
     pub fn provenance(&self) -> &crate::provenance::Provenance {
         static NONE: std::sync::OnceLock<crate::provenance::Provenance> =
@@ -333,6 +342,7 @@ impl Job {
             self.provenance(),
             self.known_secrets(),
             &self.set_by_steps,
+            &self.image_env(),
         );
         self.add_masks(&c.masks);
         let salt = secrets::salt(&self.state_dir)?;
