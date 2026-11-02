@@ -20,7 +20,7 @@ cd "$root"
 
 if [ "$(uname -s)" != Linux ]; then
   q=; [ $# -eq 0 ] || q=$(printf ' %q' "$@")
-  exec "$root/scripts/dev.sh" "flock /work/tmp/heavy.lock scripts/bench-real.sh$q"
+  exec "$root/scripts/dev.sh" "QUOD_COMMIT=$(git -C "$root" rev-parse HEAD) flock /work/tmp/heavy.lock scripts/bench-real.sh$q"
 fi
 
 repos=go,node,python n=20 cpus=

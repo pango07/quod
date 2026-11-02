@@ -30,6 +30,46 @@ def fmt_s(x):
     return f"{x:,.0f} s" if x >= 100 else f"{x:.1f} s"
 
 
+def recheck(rows):
+    """Compare every Quod test result with the plain run of its tree again,
+    from the logs, independently of what the driver recorded: the exit code
+    and the output, durations normalized (bench-lite's rules) and the plain
+    checkout's path read as /workspace. Rows whose logs are gone keep the
+    driver's verdict."""
+    import os
+    import re
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bench-lite"))
+    from driver import normalize
+
+    def text(log, ws=None):
+        try:
+            t = open(log + ".out", "rb").read().decode(errors="replace")
+        except OSError:
+            return None
+        if ws:
+            t = t.replace(ws, "/workspace")
+        return normalize(t)
+
+    plain = {}
+    for r in rows:
+        if r.get("series") == "plain" and r.get("step") == "step" and r.get("tree"):
+            ws = re.sub(r"/logs/.*$", "/plain/ws", r["log"])
+            t = text(r["log"], ws)
+            if t is not None:
+                plain[(r["repo"], r["tree"])] = (r["exit"], t)
+    n = 0
+    for r in rows:
+        if r.get("series") in ("history", "traffic") and r.get("step") == "step":
+            p = plain.get((r["repo"], r.get("tree")))
+            t = text(r["log"])
+            if p is None or t is None:
+                continue
+            r["matches_plain"] = p == (r["exit"], t)
+            r["wrong_replay"] = r["outcome"] == "replayed" and not r["matches_plain"]
+            n += 1
+    return n
+
+
 def summarize(rows):
     meta = next(r for r in rows if r.get("series") == "meta")
     out = {"meta": meta, "repos": {}}
@@ -110,7 +150,8 @@ def report(s, rows_path):
                  f"as its PR head, then its merge, plus re-runs) it replayed {t['replayed']} of "
                  f"{t['replayed'] + t['executed']} test steps.")
     L.append(f"- **Correctness: {tot_wrong} wrong replays.** Every Quod result, replayed or executed, was compared "
-             "with a plain run of the same source tree (exit code and output, durations aside).\n")
+             f"with a plain run of the same source tree (exit code and output, durations aside; "
+             f"{s.get('rechecked_from_logs', 0)} results re-compared from the logs when this report was made).\n")
     L.append("## Method\n")
     L.append(f"For each repository, the {m['n']} consecutive first-parent commits of its default branch ending at the "
              "pinned commit, all of them, oldest first (`git log --first-parent --reverse -n N PIN`). Nothing was "
@@ -185,7 +226,10 @@ def main():
     ap.add_argument("rows")
     ap.add_argument("--json")
     a = ap.parse_args()
-    s = summarize(load(a.rows))
+    rows = load(a.rows)
+    checked = recheck(rows)
+    s = summarize(rows)
+    s["rechecked_from_logs"] = checked
     if a.json:
         with open(a.json, "w") as f:
             json.dump(s, f, indent=1, default=str)

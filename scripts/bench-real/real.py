@@ -178,7 +178,9 @@ class Repo:
                 env["GOPROXY"] = "https://proxy.golang.org,direct"
             log = f"{self.dir}/logs/{i:02d}-plain-{c[:10]}-{s}" + ("" if timed else "-prefetch")
             rc, wall, text = self.b.run(["/bin/sh", "-e", "-c", self.cfg[s]], log, cwd=self.ws, env=env)
-            out[s] = (rc, normalize(text))
+            # A stack trace names the checkout's path; Quod's step sees it
+            # at /workspace.
+            out[s] = (rc, normalize(text.replace(self.ws, "/workspace")))
             if timed:
                 self.b.row(repo=self.name, series="plain", i=i, commit=c, tree=self.tree(c), why=why, step=s,
                            wall=wall, exit=rc, out_sha=_sha(out[s][1]), log=log)
@@ -298,8 +300,10 @@ class Bench:
             "go": [f"{GO}/go", "version"], "node": [f"{NODE}/node", "--version"],
             "python": [f"{PY}/python3", "--version"], "uv": [f"{UV}/uv", "--version"],
             "git": ["git", "--version"], "quod": [self.quod, "--version"]}.items()}
-        quod_commit = subprocess.run(["git", "-c", "safe.directory=*", "-C", ROOT, "rev-parse", "HEAD"],
-                                     capture_output=True, text=True).stdout.strip()
+        # From the host when the checkout is a worktree the container cannot resolve.
+        quod_commit = os.environ.get("QUOD_COMMIT") or subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", ROOT, "rev-parse", "HEAD"],
+            capture_output=True, text=True).stdout.strip()
         self.row(series="meta", n=self.n, rerun=RERUN, seed=SEED, repos={k: cfgs[k] for k in self.names},
                  versions=versions, quod_commit=quod_commit, **host_facts())
         for name in self.names:

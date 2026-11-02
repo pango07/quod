@@ -1,0 +1,471 @@
+{
+ "meta": {
+  "series": "meta",
+  "n": 20,
+  "rerun": 0.1,
+  "seed": 42,
+  "repos": {
+   "go": {
+    "url": "https://github.com/expr-lang/expr",
+    "license": "MIT",
+    "commit": "4b31df3a2e0eefec04c017a82a00e0f08541d3e4",
+    "toolchain": "go",
+    "setup": "go mod download",
+    "step": "go test ./..."
+   },
+   "node": {
+    "url": "https://github.com/tj/commander.js",
+    "license": "MIT",
+    "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+    "toolchain": "node",
+    "setup": "npm ci",
+    "step": "node --test"
+   },
+   "python": {
+    "url": "https://github.com/python-attrs/attrs",
+    "license": "MIT",
+    "commit": "9d9f94a043de7fc4012459853a4ed597a5577855",
+    "toolchain": "python",
+    "setup": "uv sync --frozen",
+    "step": "python -m pytest"
+   }
+  },
+  "versions": {
+   "go": "go version go1.27.3 linux/arm64",
+   "node": "v24.22.2",
+   "python": "Python 3.12.16",
+   "uv": "uv 0.13.6 (aarch64-unknown-linux-gnu)",
+   "git": "git version 2.39.5",
+   "quod": "quod 0.0.0"
+  },
+  "quod_commit": "",
+  "host": "6f0cbbd5f685",
+  "kernel": "7.0.14-linuxkit",
+  "arch": "aarch64",
+  "cpus": 4,
+  "cpus_total": 18,
+  "cpu_model": "",
+  "mem_mib": 7931,
+  "runner": null,
+  "github_run": null,
+  "t": 1793640368.7086854
+ },
+ "repos": {
+  "go": {
+   "commits": [
+    "9c830634f98b690a409e3e13d17df6c377c817cf",
+    "d3805b027f16501b4326bd4400040243d0879951",
+    "0785f19850ddb9dd21ed5df86073689066163835",
+    "2aaa9aa0612a0109098db39175a14563c44d8a62",
+    "f0176e7ad3ad7467c9b6a11af930a9512d50edc7",
+    "391930f25cf8a6208beb2eefe5b6f9b4a3e22a2d",
+    "75a31bc266b3def5e97c30f3f513e96f43341f28",
+    "552eb1baa42c6d65a9de22f65b2922fdc145541f",
+    "40bda0b3736f9fc5d96c02f970d0ef55748c3ed9",
+    "94ec86d333889229c4190a0d91fb9b031d02b116",
+    "3461fbb4c2feacd83414ff6e782835259eedb232",
+    "21f4f0575591d7097e576edd7983daf23c1e4afe",
+    "3abfc80cdbc5994930ac77d66ae4e9bac153e5c6",
+    "27acc2dd45bb2e91dcadadd947354f812fa5c776",
+    "851b241a301f7c74646e65e4009c69cf290993a8",
+    "b90e77c64fb9ba94587b4284da4bb2cf28aae9db",
+    "3a46b1970b37df26cd2d929ecfe8d12d7fc2ccf7",
+    "630bbf0d7b125e7a30f24da1c1389414db19154f",
+    "2010a1126f132431fcab47478928e4a0ea182443",
+    "4b31df3a2e0eefec04c017a82a00e0f08541d3e4"
+   ],
+   "subjects": [
+    "fix(fuzz): JSON number overflow errs in fromJSON (#915)",
+    "fix(builtin): bounds check to get() (#918)",
+    "fix(fuzz): skip reflect err for variadic calls (#921)",
+    "fix(checker): detect $env() calls at compile time (#923)",
+    "Update README.md: Added GlassFlow.dev in the list of companies using expr (#927)",
+    "chore(ci): add Go 1.26 to test matrix (#929)",
+    "fix(fuzz): skip json unsupported type errors (#928)",
+    "Disable check for missing predicate during parseing",
+    "Disable check for missing predicate during parseing",
+    "fix(patcher): ctx into nested custom funcs and Env (#883)",
+    "perf(vm): optimize loop iteration with scope pool (#908)",
+    "Fix impossible unsigned integer comparisons in Abs() function (#919)",
+    "fix: wrap LoadLocation error in date() builtin (#931)",
+    "fix: reject unexported struct fields at runtime (#935)",
+    "fix(vm): handle non-comparable groupBy keys (#940)",
+    "docs: add Kargo's usage of expr (#944)",
+    "fix(compiler): pop stale bool from stack in emitLoopBackwards (#954)",
+    "fix(vm): clear error when fetching field from string at runtime (#963)",
+    "feat: allow field access on concrete types behind interface values (#952)",
+    "Add Betterleaks to Expr usage examples (#979)"
+   ],
+   "pr_heads": [
+    "9c830634f98b690a409e3e13d17df6c377c817cf",
+    "d3805b027f16501b4326bd4400040243d0879951",
+    "0785f19850ddb9dd21ed5df86073689066163835",
+    "2aaa9aa0612a0109098db39175a14563c44d8a62",
+    "f0176e7ad3ad7467c9b6a11af930a9512d50edc7",
+    "391930f25cf8a6208beb2eefe5b6f9b4a3e22a2d",
+    "75a31bc266b3def5e97c30f3f513e96f43341f28",
+    "552eb1baa42c6d65a9de22f65b2922fdc145541f",
+    "40bda0b3736f9fc5d96c02f970d0ef55748c3ed9",
+    "94ec86d333889229c4190a0d91fb9b031d02b116",
+    "3461fbb4c2feacd83414ff6e782835259eedb232",
+    "21f4f0575591d7097e576edd7983daf23c1e4afe",
+    "3abfc80cdbc5994930ac77d66ae4e9bac153e5c6",
+    "27acc2dd45bb2e91dcadadd947354f812fa5c776",
+    "851b241a301f7c74646e65e4009c69cf290993a8",
+    "b90e77c64fb9ba94587b4284da4bb2cf28aae9db",
+    "3a46b1970b37df26cd2d929ecfe8d12d7fc2ccf7",
+    "630bbf0d7b125e7a30f24da1c1389414db19154f",
+    "2010a1126f132431fcab47478928e4a0ea182443",
+    "4b31df3a2e0eefec04c017a82a00e0f08541d3e4"
+   ],
+   "prefetch_s": 4.803940877000059,
+   "wall_s": 247.62223678099963,
+   "plain": {
+    "jobs": 20,
+    "total_s": 47.469276023998646,
+    "median_job_s": 2.9606539595006325,
+    "median_step_s": 2.9148915845003103,
+    "failed": 0
+   },
+   "history": {
+    "jobs": 20,
+    "total_s": 60.19292407000012,
+    "merge_total_s": 60.19292407000012,
+    "median_job_s": 3.2676504809996914,
+    "audit_s": 0.022880456997881993,
+    "outcomes": {
+     "merge": {
+      "ran": 16,
+      "diverged": 4
+     }
+    },
+    "replayed": 0,
+    "executed": 20,
+    "diverged": 4,
+    "wrong_replays": 0,
+    "mismatches": 0,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.3278529999993225,
+    "first_mismatch": {
+     "builtin": 6,
+     "test": 4,
+     "parser": 1,
+     "expr.go": 1,
+     "vm": 1,
+     "compiler": 1
+    },
+    "failed": 0
+   },
+   "traffic": {
+    "jobs": 45,
+    "total_s": 134.7803520610023,
+    "merge_total_s": 59.15963636200013,
+    "median_job_s": 3.0254055409986904,
+    "audit_s": 0.05227879399626545,
+    "outcomes": {
+     "pr": {
+      "ran": 19,
+      "diverged": 1
+     },
+     "merge": {
+      "diverged": 16,
+      "ran": 4
+     },
+     "rerun": {
+      "diverged": 5
+     }
+    },
+    "replayed": 0,
+    "executed": 45,
+    "diverged": 22,
+    "wrong_replays": 0,
+    "mismatches": 0,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.028155354499631358,
+    "first_mismatch": {
+     "builtin": 6,
+     "test": 4,
+     "parser": 1,
+     "expr.go": 1,
+     "vm": 1,
+     "compiler": 1
+    },
+    "failed": 0
+   }
+  },
+  "node": {
+   "commits": [
+    "2e96cd388764064fe271f7f452d0dff780355b42",
+    "63eed4aa05435575d515311bb5efaf6d88b6be84",
+    "3dd608610b4e064b4d5d1ae133c3b3d5b469a198",
+    "b3e6795dcffbf4d8df957b8d15908da2163d1d66",
+    "ca14529d071ec072ec9999475c81d74346f40a4c",
+    "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75",
+    "f4bd4700021c7f0258834c803f354f06241518be",
+    "26e3ba341af46e4ac5c5fded41485a97771858c4",
+    "3f00f5bc8240bcac963654530c590895fb585884",
+    "7c6fd250543b6c46bcceb8b065feefc8a42402e2",
+    "0ea3bb3e883eaa909f1056d0d13a06cc31ec2c3c",
+    "987f28966c71baecb0ef4a36780e727bcd575b31",
+    "373f660f6febb720b82635220eea72dd9b7e0cba",
+    "9098b4863ef7678b9d138ae0f04afd949287510c",
+    "d785d8b3b9448952ef023a8cd26a0a3923a90458",
+    "01ce5d0cd7e845d6ed749ab57616ec9c173cf91f",
+    "6df9b68b75ad8df1532ad3572e1d5a1c53bde6cd",
+    "74d5dfe9b7e199d98e2269ecf88dcf771c260983",
+    "a752ed909f179e3a5dcae31a890a89fb748473c4",
+    "ba6d13ddb4243e5913367734f8c159089ffe7834"
+   ],
+   "subjects": [
+    "List excess arguments in error message (#2384)",
+    "Make order not matter for adding combo positive/negative options (#2405)",
+    "Switch from Jest to Node.js built-in test runner (#2463)",
+    "Add describe wrappers so test output makes sense without filenames (#2472)",
+    "Modernise tsconfig targets, and add .cjs (#2481)",
+    "Merge from develop (#2482)",
+    "Switching to esm-only (#2464)",
+    "Merge from develop into release/15.x (with minor conflicts and test migrations)",
+    "Update changelog and version and engine for prerelease (#2484)",
+    "Use prerelease version so example can work before release (#2488)",
+    "Update dependecies and lint (#2489)",
+    "Use simple match in test (to avoid warning about expensive regex) (#2485)",
+    "Use node:util stripVTControlCharacters instead of own code (#2486)",
+    "Update dependencies (#2506)",
+    "Update dependencies (#2518)",
+    "Remove jest esm examples (#2517)",
+    "Update details for 15.0.0 release (#2519)",
+    "Drop EOL node 20 from test matrix, and add node 26  (#2520)",
+    "Pin GitHub actions with hash (#2521)",
+    "Fix release dates in changelog (#2523)"
+   ],
+   "pr_heads": [
+    "2e96cd388764064fe271f7f452d0dff780355b42",
+    "63eed4aa05435575d515311bb5efaf6d88b6be84",
+    "3dd608610b4e064b4d5d1ae133c3b3d5b469a198",
+    "b3e6795dcffbf4d8df957b8d15908da2163d1d66",
+    "ca14529d071ec072ec9999475c81d74346f40a4c",
+    "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75",
+    "f4bd4700021c7f0258834c803f354f06241518be",
+    "30e6b8c529996a68fbea09216bcea2cfb5304af2",
+    "3f00f5bc8240bcac963654530c590895fb585884",
+    "7c6fd250543b6c46bcceb8b065feefc8a42402e2",
+    "0ea3bb3e883eaa909f1056d0d13a06cc31ec2c3c",
+    "987f28966c71baecb0ef4a36780e727bcd575b31",
+    "373f660f6febb720b82635220eea72dd9b7e0cba",
+    "9098b4863ef7678b9d138ae0f04afd949287510c",
+    "d785d8b3b9448952ef023a8cd26a0a3923a90458",
+    "01ce5d0cd7e845d6ed749ab57616ec9c173cf91f",
+    "6df9b68b75ad8df1532ad3572e1d5a1c53bde6cd",
+    "74d5dfe9b7e199d98e2269ecf88dcf771c260983",
+    "a752ed909f179e3a5dcae31a890a89fb748473c4",
+    "ba6d13ddb4243e5913367734f8c159089ffe7834"
+   ],
+   "prefetch_s": 77.36039082599927,
+   "wall_s": 329.1133436479995,
+   "plain": {
+    "jobs": 20,
+    "total_s": 47.12955918800071,
+    "median_job_s": 2.312674626000444,
+    "median_step_s": 1.5255318340000485,
+    "failed": 2
+   },
+   "history": {
+    "jobs": 20,
+    "total_s": 64.8724319869998,
+    "merge_total_s": 64.8724319869998,
+    "median_job_s": 3.1472240015000352,
+    "audit_s": 0.025254792997657205,
+    "outcomes": {
+     "merge": {
+      "ran": 15,
+      "diverged": 5
+     }
+    },
+    "replayed": 0,
+    "executed": 20,
+    "diverged": 5,
+    "wrong_replays": 0,
+    "mismatches": 2,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.6031972494997717,
+    "first_mismatch": {
+     "node_modules": 6,
+     "lib": 3,
+     "tests": 2,
+     "docs": 1,
+     ".": 1,
+     "examples": 1
+    },
+    "failed": 2
+   },
+   "traffic": {
+    "jobs": 45,
+    "total_s": 136.09450677100176,
+    "merge_total_s": 57.58895694399871,
+    "median_job_s": 2.924301374998322,
+    "audit_s": 0.056377584996880614,
+    "outcomes": {
+     "pr": {
+      "ran": 15,
+      "diverged": 5
+     },
+     "merge": {
+      "diverged": 19,
+      "ran": 1
+     },
+     "rerun": {
+      "diverged": 5
+     }
+    },
+    "replayed": 0,
+    "executed": 45,
+    "diverged": 29,
+    "wrong_replays": 0,
+    "mismatches": 6,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.363490499999898,
+    "first_mismatch": {
+     "node_modules": 5,
+     "lib": 3,
+     ".": 3,
+     "tests": 2,
+     "docs": 1,
+     "examples": 1
+    },
+    "failed": 6
+   }
+  },
+  "python": {
+   "commits": [
+    "24cbcf1b543a7cbc67d74bc4a81602e81466c3fb",
+    "b6f6f76d77b48066812d8ebc87e68f5f891baff0",
+    "42f56c998ab1ec5883148913b29e89ec597692e5",
+    "51e8a602f3a5d9e1e0c3f8ccf014a3567a1f7c78",
+    "1ea13ff576c14907280d080c33fa5d25f968f30e",
+    "3bb6382a7ca4ebe681386e3c6b8106993a4d194f",
+    "c1dc5dcba16ed827aa6dcad896b41a3afedb4e32",
+    "30fd617c45854a5555550c9a0bf921bc3ee28786",
+    "dc1ca3892c0285f2a3980e1fd08d50728fd1eaec",
+    "764bf92a1c96abe4615b59f3e5a7b738b0340a94",
+    "8f767776326faaed11e6c2974798787f6e19b343",
+    "b0c79abeae3f3af1f6de5e900e36d6367bc944e2",
+    "bf47028ae4ec31975de7dfd389148756f15ee525",
+    "a602f78ff670f22be90fb8aea501a6cc30e10fdd",
+    "644b4e165bfbeee7e127de6fcbda08b64014316f",
+    "0a08cee06960e415f735dec4cf2fb91d669e2433",
+    "8f76a5262b3b426bfb6a1127f12d49430d168c8b",
+    "ee66e7274852438cc23d4240a1a9cd632fda8b52",
+    "c8bb9bfaa2843e7844b5bb13bed4370b51feec4f",
+    "9d9f94a043de7fc4012459853a4ed597a5577855"
+   ],
+   "subjects": [
+    "ci: don't rely on uv's Python downloads for lint",
+    "ci: build docs with default Python, too (#1609)",
+    "Only run codspeed against PRs",
+    "Amend AI policy",
+    "update sponsors",
+    "Document/test copy.replace",
+    "oops",
+    "Add warning",
+    "docs: fix docstring example indent",
+    "Fix comparison operators in API docs error messages (#1615)",
+    "build(deps): bump the github-actions group with 5 updates (#1617)",
+    "build(deps): bump the github-actions group with 4 updates (#1632)",
+    "update dev (#1635)",
+    "docs/fix: remove duplicated words in docs and source comment (#1625)",
+    "docs: correct two typos in the contribution guide (#1640)",
+    "Add benchmark for nested atomic fields",
+    "Improve astuple performance for nested atomic sequences (#1636)",
+    "Run codspeed also on main pushes",
+    "Set ``slots_default`` for better ty support (#1649)",
+    "build(deps): bump the github-actions group with 10 updates (#1653)"
+   ],
+   "pr_heads": [
+    "24cbcf1b543a7cbc67d74bc4a81602e81466c3fb",
+    "b6f6f76d77b48066812d8ebc87e68f5f891baff0",
+    "42f56c998ab1ec5883148913b29e89ec597692e5",
+    "51e8a602f3a5d9e1e0c3f8ccf014a3567a1f7c78",
+    "1ea13ff576c14907280d080c33fa5d25f968f30e",
+    "3bb6382a7ca4ebe681386e3c6b8106993a4d194f",
+    "c1dc5dcba16ed827aa6dcad896b41a3afedb4e32",
+    "30fd617c45854a5555550c9a0bf921bc3ee28786",
+    "dc1ca3892c0285f2a3980e1fd08d50728fd1eaec",
+    "764bf92a1c96abe4615b59f3e5a7b738b0340a94",
+    "8f767776326faaed11e6c2974798787f6e19b343",
+    "b0c79abeae3f3af1f6de5e900e36d6367bc944e2",
+    "bf47028ae4ec31975de7dfd389148756f15ee525",
+    "a602f78ff670f22be90fb8aea501a6cc30e10fdd",
+    "644b4e165bfbeee7e127de6fcbda08b64014316f",
+    "0a08cee06960e415f735dec4cf2fb91d669e2433",
+    "8f76a5262b3b426bfb6a1127f12d49430d168c8b",
+    "ee66e7274852438cc23d4240a1a9cd632fda8b52",
+    "c8bb9bfaa2843e7844b5bb13bed4370b51feec4f",
+    "9d9f94a043de7fc4012459853a4ed597a5577855"
+   ],
+   "prefetch_s": 60.7839181520003,
+   "wall_s": 522.3396745310001,
+   "plain": {
+    "jobs": 20,
+    "total_s": 101.47573771499901,
+    "median_job_s": 5.005744252000568,
+    "median_step_s": 4.409588939499827,
+    "failed": 0
+   },
+   "history": {
+    "jobs": 20,
+    "total_s": 109.91126217200144,
+    "merge_total_s": 109.91126217200144,
+    "median_job_s": 5.4755888980002965,
+    "audit_s": 0.027174996997928247,
+    "outcomes": {
+     "merge": {
+      "ran": 20
+     }
+    },
+    "replayed": 0,
+    "executed": 20,
+    "diverged": 0,
+    "wrong_replays": 0,
+    "mismatches": 0,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.3806065209996632,
+    "first_mismatch": {
+     ".quod": 18,
+     ".pre-commit-config.yaml": 1
+    },
+    "failed": 0
+   },
+   "traffic": {
+    "jobs": 45,
+    "total_s": 249.42929286700564,
+    "merge_total_s": 109.52785938100351,
+    "median_job_s": 5.393183459999818,
+    "audit_s": 0.05674866200206452,
+    "outcomes": {
+     "pr": {
+      "ran": 20
+     },
+     "merge": {
+      "ran": 20
+     },
+     "rerun": {
+      "ran": 5
+     }
+    },
+    "replayed": 0,
+    "executed": 45,
+    "diverged": 0,
+    "wrong_replays": 0,
+    "mismatches": 0,
+    "replay_median_s": null,
+    "miss_overhead_median_s": 0.33825939599955746,
+    "first_mismatch": {
+     ".quod": 43,
+     ".pre-commit-config.yaml": 1
+    },
+    "failed": 0
+   }
+  }
+ },
+ "rechecked_from_logs": 195
+}
