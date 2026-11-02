@@ -156,6 +156,13 @@ The types are `lib/api/types.ts`; the recorded bodies in
   branch or pull request runs have recorded it is that branch's own, and
   `trustRef` names the branch (server/trust-branch-scope; before it, such a
   step read "proving 0 of N" while its runs said "proof 1 of 1").
+  The plain Trust list (cloud/README.md, "Trust wording") reads the newest
+  12 runs for each step's last result and skip count, and groups keys with
+  the same job and command as versions of one step. Two server fields would
+  replace that: per step `last {at, outcome, seconds}` and all-time
+  `skips`/`checks`, and per key what changed from the previous key of the
+  same command (the step key documents can be diffed: env, toolchain, image,
+  Quod version). Until then the list says "step settings changed".
 - **Run** (`RunDetail`): commit, branch, actor, runner, took vs would have
   taken, counts, and `jobs[].steps[]`, each with `outcome` (replayed or ran),
   optionally `index` (GitHub's step number), and `why`, a tagged union:

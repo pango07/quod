@@ -38,8 +38,8 @@ export function TrustChip({ trust, dot = true }: { trust: TrustState; dot?: bool
   );
 }
 
-export function OutcomeChip({ outcome }: { outcome: "replayed" | "ran" | "running" | "queued" }) {
-  const label = { replayed: "Replayed", ran: "Ran", running: "Running", queued: "Queued" }[outcome];
+export function OutcomeChip({ outcome, plain }: { outcome: "replayed" | "ran" | "running" | "queued"; plain?: boolean }) {
+  const label = { replayed: plain ? "Skipped" : "Replayed", ran: "Ran", running: "Running", queued: "Queued" }[outcome];
   return (
     <span className={`chip ${outcome === "replayed" ? "blue" : outcome === "running" ? "running" : outcome === "queued" ? "queued" : ""}`}>
       {outcome === "running" ? <span className="dot blue pulse sm" aria-hidden="true" /> : null}

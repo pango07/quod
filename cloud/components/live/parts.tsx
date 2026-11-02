@@ -208,7 +208,7 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
  * deltas by event a moment later, so re-seeding on each refresh would count
  * the in-flight ones twice.
  */
-export function LiveTotals({ totals, days, from, reseed = false }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean }) {
+export function LiveTotals({ totals, days, from, reseed = false, plain }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean }) {
   const [t, setT] = useState(totals);
   const [d, setD] = useState(days);
   const [seen, setSeen] = useState({ totals, days });
@@ -237,13 +237,17 @@ export function LiveTotals({ totals, days, from, reseed = false }: { totals: Tea
     <>
       <section aria-label="Totals" className="stats">
         <Stat label="CI time saved" value={formatMinutes(t.savedMinutes)} note={`${formatCount(t.savedMinutes)} CI minutes you did not wait for`} />
-        <Stat label="Steps replayed" value={formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)} note={`${formatCount(t.stepsReplayed)} of ${formatCount(t.stepsTotal)} steps`} />
+        <Stat label={plain ? "Steps skipped" : "Steps replayed"} value={formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)} note={`${formatCount(t.stepsReplayed)} of ${formatCount(t.stepsTotal)} steps`} />
         <Stat label="Est. runner cost saved" value={formatUsd(t.costSavedUsd)} note={`at $${t.usdPerMinute} per Linux minute`} />
         <Stat
-          label="Wrong replays"
+          label={plain ? "Wrong skips" : "Wrong replays"}
           value={formatCount(t.wrongReplays)}
           note={
-            t.spotChecks === t.spotChecksIdentical
+            plain
+              ? t.spotChecks === t.spotChecksIdentical
+                ? `${formatCount(t.spotChecks)} re-checks, all the same output`
+                : `${formatCount(t.spotChecks)} re-checks, ${formatCount(t.spotChecks - t.spotChecksIdentical)} different`
+              : t.spotChecks === t.spotChecksIdentical
               ? `${formatCount(t.spotChecks)} spot checks, all identical`
               : `${formatCount(t.spotChecks)} spot checks, ${formatCount(t.spotChecks - t.spotChecksIdentical)} different`
           }
@@ -257,7 +261,7 @@ export function LiveTotals({ totals, days, from, reseed = false }: { totals: Tea
           <div className="legend" aria-hidden="true">
             <span>
               <span className="swatch" style={{ background: "var(--blue)" }} />
-              Replayed (saved)
+              {plain ? "Skipped (saved)" : "Replayed (saved)"}
             </span>
             <span>
               <span className="swatch" style={{ background: "var(--ran)" }} />

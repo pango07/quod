@@ -9,6 +9,7 @@ import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { formatDuration, shortSha } from "@/lib/format";
 import { one, parseRunNumber } from "@/lib/params";
+import { plainUi } from "@/lib/ui";
 
 export const metadata = { title: "Run" };
 
@@ -32,7 +33,14 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
   const running = steps.findIndex((s) => s.outcome === "running");
   const initial =
     Number.isInteger(fromUrl) && fromUrl >= 1 && fromUrl <= steps.length ? fromUrl - 1 : running >= 0 ? running : firstChanged >= 0 ? firstChanged : Math.max(0, firstReplay);
-  const spot = run.spotChecks === 0 ? "None" : run.spotChecks === run.spotChecksIdentical ? `${run.spotChecks}, identical` : `${run.spotChecks}, ${run.spotChecks - run.spotChecksIdentical} different`;
+  const plain = await plainUi(sp);
+  const spot = plain
+    ? run.spotChecks === 0
+      ? "None"
+      : run.spotChecks === run.spotChecksIdentical
+        ? `${run.spotChecks}, same output`
+        : `${run.spotChecks}, ${run.spotChecks - run.spotChecksIdentical} different`
+    : run.spotChecks === 0 ? "None" : run.spotChecks === run.spotChecksIdentical ? `${run.spotChecks}, identical` : `${run.spotChecks}, ${run.spotChecks - run.spotChecksIdentical} different`;
 
   return (
     <div className="page tight">
@@ -74,18 +82,18 @@ export default async function RunPage({ params, searchParams }: PageProps<"/[tea
           </span>
         </div>
         <div className="card stat">
-          <span className="label">Steps replayed</span>
+          <span className="label">{plain ? "Steps skipped" : "Steps replayed"}</span>
           <span className="value">
             {run.stepsReplayed} of {run.stepsTotal}
           </span>
         </div>
         <div className="card stat">
-          <span className="label">Spot checks</span>
+          <span className="label">{plain ? "Re-checks" : "Spot checks"}</span>
           <span className="value">{spot}</span>
         </div>
       </section>
 
-      <RunSteps team={team.slug} repo={repoSlug} run={run.number} jobs={run.jobs} initial={initial} asOf={asOf} />
+      <RunSteps team={team.slug} repo={repoSlug} run={run.number} jobs={run.jobs} initial={initial} asOf={asOf} plain={plain} />
     </div>
   );
 }

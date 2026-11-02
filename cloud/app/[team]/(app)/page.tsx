@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
+import { plainUi } from "@/lib/ui";
 
 export const metadata = { title: "Overview" };
 
@@ -60,6 +61,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   }
 
   const t = ov.totals;
+  const plain = await plainUi(sp);
   const paused = ov.trust.paused;
   // Repos known only from GitHub have no Quod numbers yet.
   const quod = ov.repos.some((r) => r.hasQuodData !== false);
@@ -84,10 +86,10 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       <LiveRefresh scope={{ kind: "team" }} />
 
       {quod ? (
-        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} />
+        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} />
       ) : (
         <section className="card" style={{ padding: 20 }}>
-          <h2 className="h2">Time saved and replays</h2>
+          <h2 className="h2">{plain ? "Time saved and skips" : "Time saved and replays"}</h2>
           <p className="muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.6 }}>
             Appears once Quod runs in one of these repositories. Until then, this page shows their CI from GitHub as it runs.
           </p>
@@ -119,11 +121,18 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
               </Link>
             </div>
             <dl style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 14, margin: 0 }}>
-              {[
-                ["Proven steps", ov.trust.proven],
-                ["Still proving", ov.trust.proving],
-                ["Spot checks passed", ov.trust.spotChecksPassed],
-              ].map(([k, v]) => (
+              {(plain
+                ? [
+                    ["Ready to skip or skipping", ov.trust.proven],
+                    ["Learning", ov.trust.proving],
+                    ["Re-checks with the same output", ov.trust.spotChecksPassed],
+                  ]
+                : [
+                    ["Proven steps", ov.trust.proven],
+                    ["Still proving", ov.trust.proving],
+                    ["Spot checks passed", ov.trust.spotChecksPassed],
+                  ]
+              ).map(([k, v]) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                   <dt className="muted">{k}</dt>
                   <dd className="mono" style={{ margin: 0 }}>
@@ -145,7 +154,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
               </Link>
             ) : (
               <p className="muted" style={{ fontSize: 13 }}>
-                No paused steps. Every spot check matched.
+                {plain ? "Nothing paused. Every re-check found the same output." : "No paused steps. Every spot check matched."}
               </p>
             )}
           </section>

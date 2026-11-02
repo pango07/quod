@@ -5,6 +5,7 @@ import { Dot } from "@/components/ui";
 import { setProofsNeeded, type ActionResult } from "@/lib/actions";
 import type { TrustEvent } from "@/lib/api/types";
 import { formatAgo, formatDuration, formatMinutes } from "@/lib/format";
+import { plainEvent } from "@/lib/trust-plain";
 
 const CHOICES = [2, 3, 5];
 
@@ -18,6 +19,7 @@ export function ProofsCard({
   need,
   canEdit,
   children,
+  plain,
 }: {
   team: string;
   repo: string;
@@ -27,6 +29,8 @@ export function ProofsCard({
   need: number;
   canEdit: boolean;
   children?: React.ReactNode;
+  /** The plain wording (lib/ui-version.ts). */
+  plain?: boolean;
 }) {
   const [optimistic, setOptimistic] = useOptimistic(need);
   const [pending, start] = useTransition();
@@ -43,7 +47,19 @@ export function ProofsCard({
   return (
     <section className="card" aria-label="Status" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
       <p style={{ fontSize: 15, lineHeight: 1.6 }}>
-        {paused ? (
+        {plain ? (
+          paused ? (
+            <>
+              A re-check ran this step on the same inputs and got different output, so Quod stopped skipping it. It runs every time until it gives the same result{" "}
+              <span style={{ fontWeight: 600 }}>{optimistic === 1 ? "once" : `${optimistic} times in a row`}</span>.
+            </>
+          ) : (
+            <>
+              Quod skips this step once the same inputs have given the same result <span style={{ fontWeight: 600 }}>{optimistic === 1 ? "once" : `${optimistic} times`}</span>.
+              Until then it runs every time, and Quod records what it reads.
+            </>
+          )
+        ) : paused ? (
           <>
             A spot check re-ran this step and got a different result from the same inputs. Quod stopped skipping it. It runs every time until it gives the same result{" "}
             <span style={{ fontWeight: 600 }}>{optimistic} times in a row</span>.
@@ -56,7 +72,7 @@ export function ProofsCard({
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--muted)" }}>
-          <span id="streak-label">{paused ? "Consistent runs since the pause" : "Identical runs so far"}</span>
+          <span id="streak-label">{plain ? (paused ? "Matching runs since the pause" : "Good runs so far") : paused ? "Consistent runs since the pause" : "Identical runs so far"}</span>
           <span className="mono" style={{ color: "var(--text)" }}>
             {streak} of {optimistic}
           </span>
@@ -67,7 +83,7 @@ export function ProofsCard({
       </div>
       <div className="row-between" style={{ paddingTop: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "var(--muted)", flexWrap: "wrap" }}>
-          <span id="proofs-label">Runs needed to trust it {paused ? "again" : ""}</span>
+          <span id="proofs-label">{plain ? `Good runs needed${paused ? " again" : ""}` : `Runs needed to trust it ${paused ? "again" : ""}`}</span>
           <div className="seg" role="group" aria-labelledby="proofs-label">
             {CHOICES.map((n) => (
               <button
@@ -120,7 +136,7 @@ function describe(e: TrustEvent): { what: string; detail: string; tone: "white" 
 const COLLAPSED = 4;
 
 /** Step.dc.html history card with "Show all / Show less". */
-export function History({ events, asOf }: { events: TrustEvent[]; asOf: string }) {
+export function History({ events, asOf, plain }: { events: TrustEvent[]; asOf: string; plain?: boolean }) {
   const [all, setAll] = useState(false);
   const shown = all ? events : events.slice(0, COLLAPSED);
   return (
@@ -137,7 +153,7 @@ export function History({ events, asOf }: { events: TrustEvent[]; asOf: string }
       </div>
       <ol id="history-list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {shown.map((e, i) => {
-          const d = describe(e);
+          const d = plain ? plainEvent(e) : describe(e);
           return (
             <li key={i} className="ev">
               <Dot tone={d.tone === "dim" ? "dim" : d.tone} size="lg" />

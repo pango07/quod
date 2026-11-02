@@ -9,6 +9,8 @@ import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { teamGitHub } from "@/lib/github/team-data";
 import { parseStepFilter } from "@/lib/params";
+import { plainUi } from "@/lib/ui";
+import { PlainTrust } from "@/components/trust-plain-pages";
 
 export const metadata = { title: "Trust" };
 
@@ -17,6 +19,7 @@ const ORDER = { paused: 0, proving: 1, watching: 2, replaying: 3 } as const;
 export default async function TrustPage({ params, searchParams }: PageProps<"/[team]/trust">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const { team } = await requireTeam(slug);
+  if (await plainUi(sp)) return <PlainTrust team={team} />;
   const [found, gh] = await Promise.all([section(api().listSteps(team.slug)), teamGitHub(team.orgId)]);
   const steps = (found.ok ? found.value : []).sort((a, b) => ORDER[a.trust.kind] - ORDER[b.trust.kind]);
   const paused = steps.filter((s) => s.trust.kind === "paused");
