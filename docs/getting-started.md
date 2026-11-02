@@ -39,9 +39,11 @@ becomes `quodci/setup@v1` when that repository is published.
 
 ## What `quod run` does
 
-- `quod run -- <command>` joins the words after `--` into one shell script
-  (`/bin/sh -e -c`). Quote anything with `&&`, pipes or `cd`:
-  `quod run -- 'cd web && npm test'`.
+- `quod run -- <command> <args...>` runs one command, its words passed as
+  they are (each is quoted, so `&&` or a pipe is an argument, not shell).
+  For a shell script use `quod run --step 'npm run build && npm test'`.
+  The step starts in the directory you call it from, so
+  `working-directory: web` with `quod run -- npm test` tests `web/`.
 - The step runs in a sandbox that sees your checkout and `/usr`, with a
   fixed environment for its toolchain. It cannot reach the network (install
   dependencies in an ordinary step before it, as `npm ci` above).
@@ -49,8 +51,8 @@ becomes `quodci/setup@v1` when that repository is published.
   repository's top level (`go.mod`, `package.json`, `pyproject.toml`, ...);
   name it when the project is in a subdirectory or there are several.
 - The step's exit code is the job's. If the server cannot be reached, the
-  step runs as usual and nothing is recorded; Quod never fails a job on its
-  own account (a Quod failure exits 2 with a `QUOD  ERROR` banner).
+  step runs as usual and nothing is recorded. If quod itself fails (not
+  the step), it exits 2 with a `QUOD  ERROR` banner.
 
 ## The setup action
 

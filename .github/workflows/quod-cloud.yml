@@ -41,9 +41,12 @@ jobs:
       - run: npm ci
         working-directory: cloud
       - name: npm test (through quod)
-        run: quod run --toolchain node -- 'cd cloud && npm test'
+        working-directory: cloud
+        # The repository's top level has no package.json, so the toolchain is named.
+        run: quod run --toolchain node -- npm test
       - name: npm run lint (through quod)
-        run: quod run --toolchain node -- 'cd cloud && npm run lint'
+        working-directory: cloud
+        run: quod run --toolchain node -- npm run lint
       - name: what quod did
         if: always()
         run: |
