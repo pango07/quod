@@ -36,7 +36,17 @@ pub struct Policy {
     /// listed here that anyone can push to reopens the poisoning a writer
     /// guards against (see `job::scope_of`).
     pub writer_refs: Vec<String>,
+    /// Where a job image may come from for its own config env to exempt a
+    /// variable from classification by name or shape
+    /// (`secrets::classify_with`): `registry/namespace` prefixes, matched
+    /// on path components (`docker.io/library`, the Docker Official
+    /// Images, by default). An image pinned by digest qualifies wherever it
+    /// is from. Either way only in a trusted scope (see `Job::image_env`).
+    pub trusted_registries: Vec<String>,
 }
+
+/// The default `trusted_registries`: the Docker Official Images.
+pub const DEFAULT_TRUSTED_REGISTRIES: &[&str] = &["docker.io/library"];
 
 /// `{"contains": "go test", "proofs": 2}`: steps whose script contains the
 /// substring need `proofs` identical executions before they replay.
@@ -76,6 +86,10 @@ impl Default for Policy {
             host_root: false,
             keep_jobs: false,
             writer_refs: Vec::new(),
+            trusted_registries: DEFAULT_TRUSTED_REGISTRIES
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }
@@ -94,6 +108,7 @@ struct PolicyDoc {
     rootfs: Option<String>,
     keep_jobs: Option<bool>,
     writer_refs: Option<Vec<String>>,
+    trusted_registries: Option<Vec<String>>,
 }
 
 impl Policy {
@@ -147,6 +162,16 @@ impl Policy {
                 );
             }
             p.writer_refs.push(r);
+        }
+        if let Some(t) = doc.trusted_registries {
+            for r in &t {
+                if r.is_empty() || r.contains("://") || r.ends_with('/') || r.contains('@') {
+                    anyhow::bail!(
+                        "policy trusted_registries: {r:?} is not a registry or registry/namespace (docker.io/library, ghcr.io/owner)"
+                    );
+                }
+            }
+            p.trusted_registries = t;
         }
         Ok(p)
     }
@@ -325,6 +350,9 @@ mod tests {
             p.writer_refs.is_empty(),
             "no writer refs but the default branch"
         );
+        assert_eq!(p.trusted_registries, ["docker.io/library"]);
+        let t = Policy::from_json(Some(r#"{"trusted_registries":["ghcr.io/acme"]}"#)).unwrap();
+        assert_eq!(t.trusted_registries, ["ghcr.io/acme"]);
         let w = Policy::from_json(Some(r#"{"writer_refs":["refs/heads/release"]}"#)).unwrap();
         assert_eq!(w.writer_refs, ["refs/heads/release"]);
         let d = Policy::from_json(None).unwrap();
@@ -354,6 +382,8 @@ mod tests {
             r#"{"rootfs":"vm"}"#,
             r#"{"unknown":1}"#,
             r#"{"writer_refs":["release"]}"#,
+            r#"{"trusted_registries":["https://ghcr.io"]}"#,
+            r#"{"trusted_registries":[""]}"#,
             r#"{"step_proofs":[{"contains":"","proofs":2}]}"#,
             r#"{"step_proofs":[{"contains":"x","proofs":0}]}"#,
             r#"{"step_proofs":[{"pattern":"x","proofs":2}]}"#,

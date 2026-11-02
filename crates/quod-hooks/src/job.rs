@@ -99,6 +99,11 @@ pub struct Job {
     /// build cache and persisted workspace (see `scope_of`).
     #[serde(default)]
     pub writer: bool,
+    /// The job image's own config env may exempt a variable from
+    /// classification by name or shape (`image_env_exempts`): decided with
+    /// the scope.
+    #[serde(default)]
+    pub image_env_trusted: bool,
     /// Not a writer: the first entry a step of this job wrote into the job's
     /// own layer over the warm build cache (`exec::GoCache::Layered`). From
     /// then on a step that reads the layer reads something no key covers,
@@ -239,6 +244,7 @@ impl Job {
             repository: String::new(),
             scope_name: String::new(),
             writer: false,
+            image_env_trusted: false,
             warm_layer_written: None,
             scope: None,
             root_layers: Vec::new(),
@@ -294,8 +300,14 @@ impl Job {
     }
 
     /// The job image's own config env (empty in host-root mode): what the
-    /// image, not the workflow or the runner, defines.
+    /// image, not the workflow or the runner, defines. Empty too unless the
+    /// job's scope and image are trusted (`image_env_exempts`): the env
+    /// exempts a variable from classification, and a pull request from a
+    /// fork, or one naming an image anyone can push, controls it.
     pub fn image_env(&self) -> BTreeMap<String, String> {
+        if !self.image_env_trusted {
+            return BTreeMap::new();
+        }
         self.rootfs
             .as_ref()
             .map(|r| r.env.iter().cloned().collect())
@@ -446,8 +458,12 @@ impl Job {
                 p
             }
             Err(e) if !carries_token => {
-                self.secrets.pending_env.push(env.clone());
-                self.save_secrets()?;
+                let keep =
+                    secrets::pending_entries(env, &self.container_env(), &self.secrets.pending_env);
+                if !keep.is_empty() {
+                    self.secrets.pending_env.push(keep);
+                    self.save_secrets()?;
+                }
                 let why = format!(
                     "the workflow is not read yet (it needs the job's token, which no step has carried so far: {e:#}); until a step does, steps run as GitHub runs them"
                 );
@@ -464,7 +480,9 @@ impl Job {
             eprintln!("quod: this job is opaque, nothing it runs is recorded: {why}");
         }
         self.provenance = Some(p);
-        // What the steps before saw, classified now.
+        // What the steps before saw, classified now, and gone from the
+        // sidecar in the same write (below): it is kept no longer than it
+        // takes to learn which of it are secrets.
         let pending = std::mem::take(&mut self.secrets.pending_env);
         if !pending.is_empty() {
             let container = self.container_env();
@@ -556,6 +574,7 @@ impl Job {
         cas: &Cas,
         event_name: Option<&str>,
         writer_refs: &[String],
+        trusted_registries: &[String],
     ) -> anyhow::Result<()> {
         if self.scope.is_some() {
             return Ok(());
@@ -580,6 +599,7 @@ impl Job {
             .join(&scope_name);
         std::fs::create_dir_all(&scope)?;
         self.repository = repository;
+        self.image_env_trusted = image_env_exempts(&scope_name, &self.image, trusted_registries);
         self.scope_name = scope_name;
         self.writer = writer;
         self.scope = Some(scope);
@@ -1247,6 +1267,33 @@ fn scope_of(event_name: Option<&str>, event: Option<&[u8]>, writer_refs: &[Strin
     }
 }
 
+/// May the job image's own config env exempt a variable from classification
+/// by name or shape (`secrets::classify_with`)? An image's env is whatever
+/// its builder wrote, so this trusts the builder: only for a job in a
+/// trusted scope (a push, dispatch or schedule of the repository, or a
+/// pull request from a branch of the repository itself; never a fork's or
+/// an unverified event), and only for an image pinned by digest (the
+/// workflow names exactly that config) or from one of the operator's
+/// `trusted_registries` (`registry/namespace` prefixes, matched on path
+/// components; the Docker Official Images by default). Anywhere else a
+/// secret-shaped variable is classified whatever the image says.
+pub fn image_env_exempts(scope_name: &str, image: &str, trusted_registries: &[String]) -> bool {
+    if scope_name != "trusted" {
+        return false;
+    }
+    let Ok(r) = crate::rootfs::ImageRef::parse(image) else {
+        return false;
+    };
+    if r.reference.starts_with("sha256:") {
+        return true;
+    }
+    let name = format!("{}/{}", r.registry, r.repository);
+    trusted_registries.iter().any(|t| {
+        name.strip_prefix(t.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
+}
+
 /// `--user UID[:GID]` (or `-u`) in docker create options. Other options are
 /// not honoured; they are logged so the omission is visible.
 fn user_option(create_options: Option<&str>) -> anyhow::Result<(Option<u32>, Option<u32>)> {
@@ -1353,6 +1400,7 @@ pub fn run_script_step(state_dir: &Path, input: &Input, policy: &Policy) -> anyh
             .get("GITHUB_EVENT_NAME")
             .map(String::as_str),
         &policy.writer_refs,
+        &policy.trusted_registries,
     )?;
     // Trust state (proofs, audits, quarantine) lives in the scope's own
     // ledger, opened below: a fork's steps never prove a trusted key.
@@ -2963,6 +3011,46 @@ mod tests {
         assert_eq!(tries, [n - 1, 2 * n - 1, 3 * n - 1]);
     }
 
+    /// N1 (Fable's review of 75ebbea): the image's env exempts a variable
+    /// from classification only in a trusted scope, for an image pinned by
+    /// digest or from a trusted registry. Before, any job's image did.
+    #[test]
+    fn the_image_env_exempts_only_trusted_images_in_trusted_scopes() {
+        let official = ["docker.io/library".to_string()];
+        let digest = "ghcr.io/anyone/img@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(image_env_exempts("trusted", "python:3.12-slim", &official));
+        assert!(image_env_exempts(
+            "trusted",
+            "docker.io/library/python",
+            &official
+        ));
+        assert!(image_env_exempts("trusted", digest, &official));
+        assert!(!image_env_exempts(
+            "trusted",
+            "ghcr.io/anyone/img:v1",
+            &official
+        ));
+        assert!(!image_env_exempts(
+            "trusted",
+            "anyone/python:3.12",
+            &official
+        ));
+        // A prefix matches whole components only.
+        let acme = ["ghcr.io/acme".to_string()];
+        assert!(image_env_exempts("trusted", "ghcr.io/acme/base:1", &acme));
+        assert!(!image_env_exempts(
+            "trusted",
+            "ghcr.io/acme-evil/base:1",
+            &acme
+        ));
+        assert!(!image_env_exempts("trusted", "python:3.12-slim", &[]));
+        // Never for a fork's pull request or an unverified event.
+        for scope in ["fork-evil_r", "fork-unknown", "unverified"] {
+            assert!(!image_env_exempts(scope, "python:3.12-slim", &official));
+            assert!(!image_env_exempts(scope, digest, &official));
+        }
+    }
+
     /// M3 (Fable's review of 75ebbea): the network memory holds only for
     /// the inputs its offline try read. A change to one of them (or a path
     /// it looked for that now exists) makes the next run try offline; a
@@ -3186,7 +3274,7 @@ mod tests {
             // (Job::create makes the runner's directories the event lives in.)
             let mut job = job_with_workflow_mount(tmp.path());
             std::fs::write(&event, payload).unwrap();
-            job.ensure_scope(&cas, Some(name), &[]).unwrap();
+            job.ensure_scope(&cas, Some(name), &[], &[]).unwrap();
             job.scope().to_path_buf()
         };
         let fork = scope_for(

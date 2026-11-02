@@ -523,7 +523,9 @@ pub fn classify<'a>(
 /// only, never one of the job's (`strong`): nothing cascades from it.
 /// `known` is the job's secrets so far (`JobSecrets::values`).
 ///
-/// `image` is the job image's own config env (`Rootfs::env`). A variable
+/// `image` is the job image's own config env (`Job::image_env`: empty
+/// unless the job's scope is trusted and its image pinned by digest or from
+/// a trusted registry, `job::image_env_exempts`). A variable
 /// whose value is exactly the image's is defined by the image, not by a
 /// workflow secret or the runner: the official python image's `GPG_KEY` is
 /// the public fingerprint its release was verified with. Its name and shape
@@ -695,11 +697,95 @@ pub fn command_line_holds(output: &[u8], masks: &[Vec<u8>]) -> bool {
 pub struct JobSecrets {
     pub container_env: BTreeMap<String, String>,
     pub values: BTreeSet<String>,
-    /// The whole environment of each step that ran before the workflow's
-    /// provenance could be read (`Job::ensure_provenance`): classified, and
-    /// dropped, once it is.
+    /// Of each step that ran before the workflow's provenance could be
+    /// read (`Job::ensure_provenance`), what of its environment could still
+    /// be classified a secret (`pending_entries`): classified, and dropped
+    /// from this file, in the same write, once the provenance is read.
     #[serde(default)]
     pub pending_env: Vec<BTreeMap<String, String>>,
+}
+
+/// Variables the runner sets to the run's public metadata, never to a
+/// secret: a workflow cannot set them (the runner's own value wins), and
+/// none of them holds a credential. Not kept for later classification
+/// (`pending_entries`). The tokens the runner hands out
+/// (ACTIONS_RUNTIME_TOKEN, ACTIONS_ID_TOKEN_REQUEST_TOKEN, GITHUB_TOKEN)
+/// are not here: they are kept.
+const RUNNER_METADATA: &[&str] = &[
+    "CI",
+    "GITHUB_ACTION",
+    "GITHUB_ACTION_PATH",
+    "GITHUB_ACTION_REF",
+    "GITHUB_ACTION_REPOSITORY",
+    "GITHUB_ACTIONS",
+    "GITHUB_ACTOR",
+    "GITHUB_ACTOR_ID",
+    "GITHUB_API_URL",
+    "GITHUB_BASE_REF",
+    "GITHUB_ENV",
+    "GITHUB_EVENT_NAME",
+    "GITHUB_EVENT_PATH",
+    "GITHUB_GRAPHQL_URL",
+    "GITHUB_HEAD_REF",
+    "GITHUB_JOB",
+    "GITHUB_OUTPUT",
+    "GITHUB_PATH",
+    "GITHUB_REF",
+    "GITHUB_REF_NAME",
+    "GITHUB_REF_PROTECTED",
+    "GITHUB_REF_TYPE",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_RETENTION_DAYS",
+    "GITHUB_RUN_ATTEMPT",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_SERVER_URL",
+    "GITHUB_SHA",
+    "GITHUB_STATE",
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_TRIGGERING_ACTOR",
+    "GITHUB_WORKFLOW",
+    "GITHUB_WORKFLOW_REF",
+    "GITHUB_WORKFLOW_SHA",
+    "GITHUB_WORKSPACE",
+    "RUNNER_ARCH",
+    "RUNNER_DEBUG",
+    "RUNNER_ENVIRONMENT",
+    "RUNNER_NAME",
+    "RUNNER_OS",
+    "RUNNER_TEMP",
+    "RUNNER_TOOL_CACHE",
+    "RUNNER_WORKSPACE",
+];
+
+/// What `JobSecrets::pending_env` keeps of the environment of a step that
+/// ran before the provenance could be read: only what classifying it later
+/// can still need. Left out: an empty value or Quod's own placeholder
+/// (never classified), a variable the job container's env sets to the same
+/// value (classified with that env anyway), the runner's public metadata
+/// (`RUNNER_METADATA`), and a variable an earlier pending step had with the
+/// same value (classified with that step's, and a secret found there is a
+/// known secret of the job by the time the next is classified). That leaves
+/// the workflow's and the earlier steps' variables, PATH and HOME, and the
+/// runner's tokens: names provenance may make secrets, values a known secret
+/// may be held by.
+pub fn pending_entries(
+    env: &BTreeMap<String, String>,
+    container_env: &BTreeMap<String, String>,
+    earlier: &[BTreeMap<String, String>],
+) -> BTreeMap<String, String> {
+    env.iter()
+        .filter(|(k, v)| {
+            !exempt(k, v)
+                && container_env.get(*k) != Some(*v)
+                && !RUNNER_METADATA.contains(&k.as_str())
+                && !earlier.iter().any(|e| e.get(*k) == Some(*v))
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
 }
 
 /// Where a job's `JobSecrets` live: `/dev/shm/quod-<state hash>/<job>.json`.
@@ -795,6 +881,42 @@ impl JobSecrets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B2 (Fable's review of 75ebbea): the sidecar keeps, of a step before
+    /// the provenance, only what could still be classified a secret; before
+    /// it kept the whole environment.
+    #[test]
+    fn pending_keeps_only_what_could_classify() {
+        let container = env(&[("APP_ENV", "production-0123")]);
+        let step = env(&[
+            ("GITHUB_SHA", "0123456789abcdef0123456789abcdef01234567"),
+            ("GITHUB_REPOSITORY", "o/r"),
+            ("RUNNER_TEMP", "/__w/_temp"),
+            ("CI", "true"),
+            ("APP_ENV", "production-0123"),
+            ("EMPTY", ""),
+            ("GITHUB_RUN_ID", crate::surface::WITHHELD),
+            ("PLAIN", "correct horse battery staple"),
+            ("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "eyJhbGciOiJSUzI1NiJ9.x.y"),
+            ("PATH", "/usr/bin:/bin"),
+        ]);
+        let kept = pending_entries(&step, &container, &[]);
+        assert_eq!(
+            kept.keys().collect::<Vec<_>>(),
+            ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "PATH", "PLAIN"]
+        );
+        // A second step before the provenance: only what is new.
+        let next = env(&[
+            ("PLAIN", "correct horse battery staple"),
+            ("PATH", "/opt/bin:/usr/bin:/bin"),
+            ("COPY", "correct horse battery staple"),
+        ]);
+        let kept2 = pending_entries(&next, &container, &[kept]);
+        assert_eq!(kept2.keys().collect::<Vec<_>>(), ["COPY", "PATH"]);
+        // The container env's value under another value is kept.
+        let other = env(&[("APP_ENV", "staging-0123456")]);
+        assert_eq!(pending_entries(&other, &container, &[]).len(), 1);
+    }
 
     #[test]
     fn salt_is_stable_and_salting_hides_the_value() {
