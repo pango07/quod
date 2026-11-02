@@ -2151,6 +2151,47 @@ mod tests {
     /// suspect, and marking suspects labels only the key's replays that were
     /// not labelled yet. The schema ends equal to the golden.
     #[test]
+    fn a_v6_ledger_migrates_through_v7_to_v8() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ledger.sqlite");
+        let key = Hash::of(b"k");
+        {
+            let db = Connection::open(&p).unwrap();
+            for m in &MIGRATIONS[..6] {
+                db.execute_batch(m).unwrap();
+            }
+            db.pragma_update(None, "user_version", 6).unwrap();
+            db.execute(
+                "INSERT INTO trust (step_key, state, eligible, replays, audits, divergences, updated_at) VALUES (?1, 'proven', 3, 2, 1, 0, 'x')",
+                [key.to_string()],
+            )
+            .unwrap();
+        }
+        let l = Ledger::open(&p).unwrap();
+        assert_eq!(l.schema_version().unwrap(), 8);
+        assert_eq!(
+            l.schema_sql().unwrap(),
+            include_str!("../../../fixtures/ledger_schema.sql"),
+            "a migrated v6 ledger has the golden schema"
+        );
+        // v6's rows are kept; v7's deferred audits and v8's network memory
+        // are both there and usable.
+        assert!(l.trust(&key).unwrap().is_some());
+        let pending: i64 =
+            l.db.query_row("SELECT count(*) FROM audits_pending", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(pending, 0);
+        l.mark_network(&key, "runner", "r", "[]", "d").unwrap();
+        assert_eq!(
+            l.network(&key).unwrap().unwrap().digest.as_deref(),
+            Some("d")
+        );
+        drop(l);
+        // Reopened: nothing migrates twice.
+        assert_eq!(Ledger::open(&p).unwrap().schema_version().unwrap(), 8);
+    }
+
+    #[test]
     fn a_v4_ledger_migrates_through_v5_to_v6_and_replays_can_be_marked_suspect() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("ledger.sqlite");

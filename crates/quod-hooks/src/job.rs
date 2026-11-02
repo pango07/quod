@@ -3098,7 +3098,10 @@ mod tests {
             digest: None,
             ..row
         };
-        assert!(!same_inputs(&unknown, &t1), "a row without inputs tries offline");
+        assert!(
+            !same_inputs(&unknown, &t1),
+            "a row without inputs tries offline"
+        );
     }
 
     #[test]
