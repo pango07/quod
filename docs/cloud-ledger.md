@@ -2,8 +2,10 @@
 
 One ledger and one result store for every runner of a team, so a fresh
 GitHub-hosted runner can replay a result recorded anywhere. This page is the
-design and the build record for branch `exp/cloud-ledger` (stages P0 to P2).
-DECISIONS.md has one line per choice; this page explains how they fit.
+design and the build record for branch `exp/cloud-ledger` (stages P0 to P2)
+and `exp/cloud-ledger-v2` (the same on trust v2 and ledger v6, and the
+go-live on Railway below). DECISIONS.md has one line per choice; this page
+explains how they fit.
 
 ## Status
 
@@ -11,10 +13,11 @@ DECISIONS.md has one line per choice; this page explains how they fit.
 |---|---|---|
 | P0 | Ledger and CAS behind traits; trust transition as a pure function | built |
 | P1 | quod-wire (quod.v1), quod-server (SQLite + filesystem), the client, dashboard reads | built |
-| P2 | Runner auth: GitHub OIDC, scopes, static tokens, team isolation | built (WorkOS for viewers is P5) |
+| P2 | Runner auth: GitHub OIDC, scopes, static tokens, team isolation; viewer auth: WorkOS access tokens, static viewer tokens | built |
+| Go-live | One instance on Railway: SQLite + files on a persistent volume, instance lock, signing key generated on the volume | built; not deployed (see "Go-live on Railway") |
 | P3 | Encryption: keyed content addressing per team, convergent AEAD | designed below |
-| P4 | Hosting: Postgres + S3-compatible store, Railway | designed below; nothing provisioned or deployed |
-| P5 | Dashboard on the HTTP adapter, WorkOS viewers, `quodci/setup` | designed below |
+| P4 | Hosting: Postgres + S3-compatible store | designed below; nothing provisioned or deployed |
+| P5 | Dashboard setup, team links from the GitHub App, `quodci/setup` | designed below |
 
 ## Open core: one protocol, three deployments
 
@@ -108,7 +111,19 @@ value). A server answers a request that does not name quod.v1 with 400
 | `HEAD /v1/blobs/{hash}` | | 200 present; 404 with `upload-offset` of a partial upload |
 | `GET /v1/blobs/{hash}` | | the bytes, streamed |
 | `GET /v1/info` | | protocol, version, the signing key |
-| `GET /healthz` | | `ok` |
+| `GET /v1/keys` | | the public key(s) receipts are signed with, each with its fingerprint (no auth, no protocol header needed) |
+| `GET /healthz` | | `{"status":"ok", protocol, version, keys}` |
+
+The trust transitions are trust v2's (docs/trust-v2.md): proofs 1, the
+shadow phase and its 1/k decay to the audit floor, determinism classes
+(`volatile` counts), and at a quarantine the key's earlier replays are
+marked suspect in the scope's ledger. `execution_transition` and
+`divergence_transition` return all of it, the shell writes it, and the
+server's ClaimReplay and CommitExecution call the same functions over the
+scope's ledger, so a server's verdicts are a laptop's (test S9 runs one
+scenario both ways and compares every verdict and trust row). The policy's
+`shadow` travels with every call; the server applies the stricter of the
+client's and the team's.
 
 ClaimReplay is atomic on the server: inside one `atomically` on the scope's
 ledger it runs `find_match`, `decide`, and on a replay `record_replay` and
@@ -220,10 +235,25 @@ endpoints answer 501 with the reason: `teams/resolve` (WorkOS), `rerun`
 (needs `actions: write`, which the App does not have), `PUT .../proofs`,
 `runners`, `connect`.
 
+For the dashboard contract's "Server changes needed" (cloud/docs/api.md)
+this build serves: WorkOS viewers and teams by WorkOS org id (1, 2);
+GitHub's job id (`QUOD_JOB_ID`, from `${{ job.check_run_id }}`), job name
+(`QUOD_JOB_NAME`) and 1-based step number (`QUOD_STEP_INDEX`) on step rows,
+`RunJob.id`/`name`, `RunStep.index` in `RunDetail` and `step.finished` (4);
+runs grouped by GitHub run id and attempt, with `runId`, `runAttempt` and a
+`githubUrl` naming both (5; the path still names the run number and picks
+the newest run with it); `stepKey` null for a step without one (6); the
+configured `defaultBranch` (per repository in the teams config, else the
+team's first writer ref) (8); writer trust (9: `trustedWrites` per repo
+with ref, `protected` true/false/null and `lastAt`, `writerTrustWarning`,
+and `requireProtectedRef` on `/health` and `/repos/:repo`; the commit
+answer carries the same warning as a `notice` the client prints once in
+the job log); one `days` point per UTC day of the range (11).
+
 Approximations, recorded: `StepWhy` `changed` is reported as `first-run`
 (the claim's closest mismatch is not yet stored with the step row); the
 divergence excerpt is the audit's detail text, not a line diff; repository
-language and default branch are not known (empty, `main`).
+language is not known (empty).
 
 ## P2: who may write what
 
@@ -281,9 +311,21 @@ already outside what a delegated token can protect (open question 11).
 
 ### Viewers
 
-Static viewer tokens (`admin` or `member`) in this build. WorkOS access
-tokens (JWKS-verified, membership read from WorkOS per request, as
-cloud/docs/api.md requires) are P5.
+On a dashboard path a bearer that is a configured static viewer token is
+one (`admin` or `member`); any other JWT is a WorkOS AuthKit access token,
+verified as cloud/docs/api.md asks: RS256 only, keys from
+`https://api.workos.com/sso/jwks/<client id>` (cached, refetched for an
+unknown `kid` at most once a minute), `iss` exactly the configured issuer
+(default `https://api.workos.com/user_management/<client id>`), `exp` and
+`iat` with 60 s leeway, `sub` present, no audience. The path's team is the
+team's slug or its `workos_org_id`. If the token's `org_id` is that org, the
+viewer is a member with the token's `role`; otherwise, with
+`WORKOS_API_KEY` set, the server asks WorkOS's membership API (active
+memberships only, cached 60 s per user and org); without it, or with no
+membership, 404. A bad or expired token is 401; a runner's token is 403.
+`PUT .../proofs` and `PUT .../connect` need `admin` (403 otherwise), then
+answer 501 as before. The client id is public; the API key is a secret and
+optional.
 
 ### Team isolation
 
@@ -301,32 +343,52 @@ viewer sees only its own team.
 $QUOD_DATA_DIR/teams/<team>/cas/                          blobs
 $QUOD_DATA_DIR/teams/<team>/uploads/                      resumable uploads
 $QUOD_DATA_DIR/teams/<team>/scopes/<repo>-<hash>/<scope>/ledger.sqlite
-$QUOD_DATA_DIR/teams/<team>/team.sqlite                   step rows, event outbox
+$QUOD_DATA_DIR/teams/<team>/team.sqlite                   step rows, event outbox, trusted writes
+$QUOD_DATA_DIR/signing.ed25519                            the receipt signing key (0600, generated at first boot)
+$QUOD_DATA_DIR/quod-server.lock                           the instance lock
+$QUOD_DATA_DIR/teams.json                                 the teams document, if not in the environment
 ```
 
-Scope ledgers are ordinary quod ledgers: a schema migration in quod-ledger
-migrates them the same way it migrates a laptop's.
+Scope ledgers are ordinary quod ledgers (v6 today): a schema migration in
+quod-ledger migrates them the same way it migrates a laptop's, and the
+server adds no tables to them. What only the server keeps lives in
+`team.sqlite`, versioned on its own (`PRAGMA user_version`, now 2: GitHub's
+job id and name on step rows, and `trusted_writes`); a newer version than
+the binary knows is refused, as quod-ledger refuses a newer ledger.
 
-Server configuration, all environment:
+Server configuration. Secrets are marked; everything else may be shown.
 
-| Variable | Meaning |
-|---|---|
-| `PORT`, `QUOD_BIND` | listen address (default `0.0.0.0:8080`) |
-| `QUOD_DATA_DIR` | the persistent directory above |
-| `QUOD_SIGNING_KEY` / `QUOD_SIGNING_KEY_FILE` | Ed25519 seed, 64 hex digits (`quod-server keygen`) |
-| `QUOD_SERVER_CONFIG_JSON` / `QUOD_SERVER_CONFIG` | teams, tokens, OIDC (below) |
-| `QUOD_MAX_BLOB_BYTES`, `QUOD_MAX_JSON_BYTES`, `QUOD_SSE_HOLD_SECS` | limits |
-| `QUOD_DEV=1` | development only: a data dir in the cwd and a per-process key |
-| `DATABASE_URL`, `S3_ENDPOINT`, `S3_BUCKET` | refused in this build (P4), never silently ignored |
+| Variable | Secret | Meaning |
+|---|---|---|
+| `PORT`, `QUOD_BIND` | no | listen address (default `0.0.0.0:8080`; Railway sets `PORT`) |
+| `QUOD_DATA_DIR` | no | the persistent directory above; absolute; required |
+| `QUOD_DATA_DIR_PERSISTENT` | no | `1`: the operator attests the data dir survives restarts and redeploys. Not needed on Railway when the service's volume is mounted at (or above) `QUOD_DATA_DIR` (`RAILWAY_VOLUME_MOUNT_PATH`, which Railway sets) |
+| `QUOD_SIGNING_KEY_FILE` | no (the path) | the key file, default `$QUOD_DATA_DIR/signing.ed25519` |
+| `QUOD_SIGNING_KEY` | **yes** | a seed in the environment instead of the file (self-hosting only; leave unset on Railway) |
+| `QUOD_TEAMS_JSON` | no, unless it holds static token hashes you want private | the teams document inline (`QUOD_SERVER_CONFIG_JSON` is the old name) |
+| `QUOD_SERVER_CONFIG` | no | a path to the teams document; else `$QUOD_DATA_DIR/teams.json` if present |
+| `WORKOS_CLIENT_ID` | no | turns on WorkOS viewer auth when the document has no `viewers.workos` |
+| `WORKOS_ISSUER` | no | the access tokens' issuer, if a custom auth domain is set |
+| `WORKOS_API_KEY` | **yes**, optional | the membership fallback for a viewer whose token names another organization |
+| `QUOD_LOCK_WAIT_SECS` | no | how long a second instance waits for the lock (default 30) |
+| `QUOD_MAX_BLOB_BYTES`, `QUOD_MAX_JSON_BYTES`, `QUOD_SSE_HOLD_SECS` | no | limits |
+| `QUOD_DEV=1` | no | development only: a relative data dir, no persistence check |
+| `QUOD_ALLOW_ROOT=1` | no | serve as root (the image never needs it) |
+| `DATABASE_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | | refused in this build (P4), never silently ignored |
 
 ```json
 {
-  "teams": [{"slug": "acme", "github_owner_ids": [123456],
+  "teams": [{"slug": "acme", "workos_org_id": "org_01H...",
+             "github_owner_ids": [123456], "github_repository_ids": [],
              "writer_refs": ["refs/heads/main"], "require_protected_ref": false,
-             "writer_workflows": [], "policy": {"proofs": 2, "audit": 0.05}}],
+             "writer_workflows": [],
+             "repos": [{"full_name": "acme/app", "default_branch": "main",
+                        "require_protected_ref": true}],
+             "policy": {"proofs": 1, "shadow": 2, "audit": 0.05}}],
   "tokens": [{"blake3": "<64 hex>", "team": "acme", "kind": "runner", "delegate": true},
              {"blake3": "<64 hex>", "team": "acme", "kind": "viewer", "role": "admin"}],
-  "oidc": {"audiences": ["quodci"]}
+  "oidc": {"audiences": ["quodci"]},
+  "viewers": {"workos": {"client_id": "client_01H..."}}
 }
 ```
 
@@ -405,8 +467,10 @@ filesystem backends stay for self-hosting and development.
   Railway's own bucket (below), Cloudflare R2, Hetzner Object Storage; Neon
   or Railway Postgres (both work: plain `DATABASE_URL`).
 
-### Railway
+### Railway (P4, later)
 
+What follows is P4's plan, once Postgres and the bucket back the server.
+Today's deployment is one instance on a volume ("Go-live on Railway").
 Planned on the existing project `quod-cloud`
 (40abff26-c411-4d62-b1dc-d2f7de6cd4a8, environment `production`), which
 already has a `Postgres` service and the bucket `quod-results`
@@ -428,8 +492,8 @@ deployed or connected to.
    | `S3_REGION` | `${{quod-results.REGION}}` |
    | `S3_ACCESS_KEY_ID` | `${{quod-results.ACCESS_KEY_ID}}` |
    | `S3_SECRET_ACCESS_KEY` | `${{quod-results.SECRET_ACCESS_KEY}}` |
-   | `QUOD_SIGNING_KEY` | sealed variable, from `quod-server keygen` run once offline |
-   | `QUOD_SERVER_CONFIG_JSON` | teams and OIDC (tokens are for self-hosting; Cloud runners use OIDC) |
+   | `QUOD_SIGNING_KEY_FILE` | the key generated at first boot (on a volume, or moved to a sealed variable by a later migration) |
+   | `QUOD_TEAMS_JSON` | teams, OIDC and viewers (tokens are for self-hosting; Cloud runners use OIDC) |
    | `RUST_LOG` | `quod=info` |
 
    The bucket's Credentials tab exposes `BUCKET`, `ACCESS_KEY_ID`,
@@ -441,13 +505,165 @@ deployed or connected to.
 4. Custom domain `api.quodci.com` (a CNAME to the Railway domain); TLS ends
    at Railway's edge.
 5. Runners: `QUOD_SERVER=https://api.quodci.com`,
-   `QUOD_SERVER_KEY=<the public key from keygen>`, and
+   `QUOD_SERVER_KEY=<the public key from GET /v1/keys>`, and
    `permissions: id-token: write` in the workflow (what `quodci/setup` will
    set up).
 
 Until P4's backends exist this build refuses `DATABASE_URL` and `S3_*`, so
 deploying it to Railway as configured above would fail at start, on purpose,
 rather than keep results on an ephemeral disk.
+
+## Go-live on Railway
+
+One instance of quod-server, SQLite and files on a Railway volume, at
+`api.quodci.com`. Nothing here has been deployed by this branch; these are
+the settings to make.
+
+### The service
+
+| Setting | Value |
+|---|---|
+| Project / environment | `quod-cloud` / `production` |
+| Service | `quod-server`, source: GitHub repo `pango07/quod`, branch to deploy, root directory `/` |
+| Config as code | `railway.json` at the repo root (Railway reads it): builder `DOCKERFILE`, `dockerfilePath` `Dockerfile.server`, `healthcheckPath` `/healthz`, restart `ON_FAILURE` (10 retries), `numReplicas` 1, watch paths limited to the Rust workspace |
+| Start command | none (the image's `ENTRYPOINT quod-entrypoint`, `CMD serve`) |
+| Volume | attach one to the service, mount path `/data` (size to taste; results and blobs grow with use) |
+| Replicas | exactly 1. The instance lock refuses a second one; a redeploy's new instance waits up to `QUOD_LOCK_WAIT_SECS` for the old one to stop, then exits non-zero and Railway retries |
+| Region | us-east, near GitHub's runners |
+| Networking | public domain: custom domain `api.quodci.com` (CNAME to the Railway domain Railway shows); TLS ends at Railway's edge. Target port: `PORT` (Railway sets it) |
+
+Variables:
+
+| Variable | Value | Secret |
+|---|---|---|
+| `QUOD_DATA_DIR` | `/data` (the image's default) | no |
+| `QUOD_TEAMS_JSON` | the document below | no |
+| `WORKOS_CLIENT_ID` | the dashboard's WorkOS client id (if not in the document) | no |
+| `WORKOS_API_KEY` | WorkOS API key, only for the membership fallback | **yes**, optional |
+| `RUST_LOG` | `quod=info` | no |
+
+Not set: `QUOD_SIGNING_KEY` (the key is generated on the volume),
+`QUOD_DATA_DIR_PERSISTENT` (Railway's `RAILWAY_VOLUME_MOUNT_PATH` proves the
+volume; set it only on a host that cannot), `DATABASE_URL` and `S3_*`
+(refused until P4; the project's Postgres and bucket must not be referenced
+by this service yet).
+
+The teams document for go-live: one team, the product owner's WorkOS
+organization "quodci", linked to GitHub App installation 177628965 for
+`pango07/quod` (owner id 104618549, repository id 1440517147, read from
+GitHub's API). Fill in the WorkOS organization id and client id:
+
+```json
+{
+  "teams": [{
+    "slug": "quodci", "name": "quodci",
+    "workos_org_id": "<the quodci organization's id, org_...>",
+    "github_installation_id": 177628965,
+    "github_owner_ids": [104618549],
+    "github_repository_ids": [1440517147],
+    "writer_refs": ["refs/heads/main"],
+    "repos": [{"full_name": "pango07/quod", "default_branch": "main"}]
+  }],
+  "oidc": {"audiences": ["quodci"]},
+  "viewers": {"workos": {"client_id": "<WORKOS_CLIENT_ID, client_...>"}}
+}
+```
+
+`require_protected_ref` stays off (DECISIONS 2026-11-02); writes from an
+unprotected or unknown ref are recorded and warned about.
+
+### What happens at start
+
+1. `DATABASE_URL`/`S3_*` set: refused.
+2. `QUOD_DATA_DIR` created if needed and probed for writing (create, write,
+   fsync, remove). Not writable: refused.
+3. Persistence: on Railway (`RAILWAY_PROJECT_ID`), the data dir must be
+   inside the service's volume (`RAILWAY_VOLUME_MOUNT_PATH`); with no volume
+   it is refused unless `QUOD_DATA_DIR_PERSISTENT=1` overrides (logged).
+   Elsewhere `QUOD_DATA_DIR_PERSISTENT=1` is required. A volume that is
+   ephemeral is the one failure mode the server cannot detect itself, so it
+   asks for the attestation rather than guess.
+4. The instance lock (`flock`-style exclusive lock on
+   `quod-server.lock`, released when the process ends however it ends).
+5. The signing key: read from `QUOD_SIGNING_KEY_FILE` (refused if group or
+   world can read it), or generated: 32 bytes from the OS's randomness,
+   written to a temporary file created 0600 in the same directory, fsynced,
+   hard-linked to its name (never replacing an existing key), the directory
+   fsynced. The log carries only the public key's fingerprint and whether
+   it was generated.
+6. The teams document, then listen.
+
+The image starts as root only long enough to give the volume (mounted
+root-owned by Railway) to the `quod` user (uid 10001), then drops to it with
+`setpriv --no-new-privs`; the server itself refuses to serve as root.
+
+### Pinning the server's key
+
+Every replay a client takes carries the server's Ed25519 signature over
+exactly what it served, and the client checks it before replaying. The key
+the client checks against:
+
+- **Pinned** (`QUOD_SERVER_KEY`, the 64-hex public key): the production
+  setting. A compromised endpoint, certificate or proxy still cannot make a
+  runner replay. Set it as an organization or repository Actions variable
+  (not a secret; it is public) from `GET https://api.quodci.com/v1/keys`,
+  and check its `fingerprint` against the server's boot log line
+  `signing key ready` before saving it.
+- **Not pinned**: the client takes the key from `GET /v1/info` over the same
+  TLS connection that authenticates `api.quodci.com`, once per process, and
+  prints a one-line notice in the job log with the fingerprint and the
+  `QUOD_SERVER_KEY=` value to pin. On ephemeral GitHub-hosted runners a
+  stored trust-on-first-use pin would be forgotten after every job, so it
+  is not offered; pinning by config is.
+
+Rotation: the key lives on the volume and survives redeploys. Losing the
+volume generates a new key; pinned runners then refuse every replay (and
+execute, recording nothing they cannot verify) until `QUOD_SERVER_KEY` is
+updated. Nothing ever serves or logs the private key; there is no command
+that prints it.
+
+### Clients (runners)
+
+In the workflow of `pango07/quod`:
+
+```yaml
+permissions:
+  id-token: write   # GitHub OIDC, audience quodci
+  contents: read
+env:
+  QUOD_SERVER: https://api.quodci.com
+  QUOD_SERVER_KEY: ${{ vars.QUOD_SERVER_KEY }}
+  QUOD_JOB_ID: ${{ job.check_run_id }}       # GitHub's job id, for the dashboard
+```
+
+`QUOD_JOB_NAME` (the job's display name) and `QUOD_STEP_INDEX` (GitHub's
+1-based step number) are optional and set per step by `quodci/setup` when it
+exists. The audience defaults to `quodci` (`QUOD_SERVER_AUDIENCE`).
+
+### The dashboard
+
+On Vercel (quod-cloud), Production:
+
+| Variable | Value | Secret |
+|---|---|---|
+| `QUOD_API` | `http` | no |
+| `QUOD_SERVER_URL` | `https://api.quodci.com` | no |
+| `QUOD_SERVER_VIEWER_AUTH` | `workos`: the dashboard sends the viewer's WorkOS access token and the org id as the team | no |
+| `QUOD_SERVER_TEAMS` | not needed with WorkOS viewer auth; unset it | (was **yes**) |
+
+The dashboard's `WORKOS_CLIENT_ID` must be the one the server is configured
+with, since the server verifies tokens against that client's JWKS. Static
+viewer tokens remain for self-hosting: configure them in the teams document
+as BLAKE3 hashes (`quod-server hash-token`) and hand the token to the
+dashboard's `QUOD_SERVER_TEAMS`.
+
+### Checks after deploy
+
+- `curl https://api.quodci.com/healthz`: `status` `ok` and the key.
+- `curl https://api.quodci.com/v1/keys`: the fingerprint matches the boot
+  log; save `public_key` as the `QUOD_SERVER_KEY` variable.
+- A push to `main` of `pango07/quod` with the env above: the job log shows no
+  "not used" line; the dashboard shows the run under the quodci team.
 
 ## P5: dashboard and setup (design)
 
