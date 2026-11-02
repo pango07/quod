@@ -7,6 +7,7 @@
 //! decided; that is `quod-trust`.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -717,15 +718,35 @@ impl Ledger {
                 }
             }
         }
-        // The older ones through the index.
+        // The older ones through the index. Manifests written before it
+        // (v5) are indexed first, all in one transaction: each one's nodes
+        // are hundreds of inserts, which outside a transaction are as many
+        // commits (and syncs).
+        let unindexed: Vec<Hash> = rows
+            .iter()
+            .skip(1)
+            .filter(|(_, root)| root.is_none())
+            .map(|(id, _)| parse_hash(id))
+            .collect::<Result<_, _>>()?;
+        let mut indexed: HashMap<Hash, Hash> = HashMap::new();
+        if !unindexed.is_empty() {
+            self.atomically(|l| -> Result<(), LedgerError> {
+                for mid in &unindexed {
+                    if let Some(root) = l.index_manifest(mid)? {
+                        indexed.insert(*mid, root);
+                    }
+                }
+                Ok(())
+            })?;
+        }
         let mut eval = index::Eval::new(&self.db, tree);
         let mut hit = None;
         for (id, root) in rows.iter().skip(1) {
             let mid = parse_hash(id)?;
             let root = match root {
                 Some(r) => parse_hash(r)?,
-                None => match self.index_manifest(&mid)? {
-                    Some(r) => r,
+                None => match indexed.get(&mid) {
+                    Some(r) => *r,
                     None => continue,
                 },
             };
@@ -753,7 +774,8 @@ impl Ledger {
     }
 
     /// Indexes a manifest written before the index (v5) and returns its
-    /// root; None if the manifest is gone.
+    /// root; None if the manifest is gone. The caller holds a transaction
+    /// (`find_match` indexes every candidate that needs it in one).
     fn index_manifest(&self, id: &Hash) -> Result<Option<Hash>, LedgerError> {
         let Some(m) = self.manifest(id)? else {
             return Ok(None);
@@ -1735,6 +1757,68 @@ mod tests {
 
         let none = l.find_match(&Hash::of(b"other key"), &t1).unwrap();
         assert!(none.hit.is_none() && none.closest.is_none() && none.candidates == 0);
+    }
+
+    /// Manifests written before the index (v5, `root` NULL) are indexed by
+    /// the first lookup that needs them, all of its candidates at once,
+    /// and then match as indexed ones do.
+    #[test]
+    fn a_lookup_indexes_manifests_written_before_the_index() {
+        let l = Ledger::open_in_memory().unwrap();
+        let key = Hash::of(b"key");
+        let ts = [tree("v1"), tree("v2"), tree("v3")];
+        let mut ids = Vec::new();
+        for (i, t) in ts.iter().enumerate() {
+            let run = format!("r{i}");
+            let id = l.put_manifest(&manifest(t, key), &run).unwrap();
+            l.put_result(&result(key, id, &run, 0)).unwrap();
+            ids.push(id);
+        }
+        // As a v4 ledger left them: no roots, no nodes.
+        l.db.execute_batch("UPDATE manifests SET root = NULL; DELETE FROM manifest_nodes;")
+            .unwrap();
+        let roots = |l: &Ledger| -> Vec<Option<String>> {
+            ids.iter()
+                .map(|id| {
+                    l.db.query_row(
+                        "SELECT root FROM manifests WHERE id = ?1",
+                        [id.to_string()],
+                        |r| r.get(0),
+                    )
+                    .unwrap()
+                })
+                .collect()
+        };
+        // The oldest matches: found through the index after indexing.
+        let hit = l.find_match(&key, &ts[0]).unwrap();
+        assert_eq!(hit.hit.unwrap().1.run_id, "r0");
+        let after = roots(&l);
+        // Every older candidate got its root (the newest is decoded whole,
+        // never through the index); each is its manifest's.
+        assert!(after[2].is_none(), "{after:?}");
+        for (i, root) in after.iter().enumerate().take(2) {
+            let m = l.manifest(&ids[i]).unwrap().unwrap();
+            assert_eq!(
+                root.as_deref(),
+                Some(index::put_nodes(&l.db, &m).unwrap().to_string().as_str()),
+                "{i}"
+            );
+        }
+        // Indexed now: the same answers, and a miss is still a miss.
+        assert_eq!(
+            l.find_match(&key, &ts[1]).unwrap().hit.unwrap().1.run_id,
+            "r1"
+        );
+        assert!(l.find_match(&key, &tree("v4")).unwrap().hit.is_none());
+        // A NULL root whose manifest is gone is skipped, not an error.
+        l.db.execute_batch("UPDATE manifests SET root = NULL;")
+            .unwrap();
+        l.db.execute("DELETE FROM manifests WHERE id = ?1", [ids[1].to_string()])
+            .unwrap();
+        assert_eq!(
+            l.find_match(&key, &ts[0]).unwrap().hit.unwrap().1.run_id,
+            "r0"
+        );
     }
 
     #[test]

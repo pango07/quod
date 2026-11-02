@@ -188,6 +188,7 @@ mod tests {
             f("a/b/c.go", "c"),
             f("a/d.go", "d"),
             f("x.go", "x"),
+            Entry::symlink("a/ln", "b/c.go"),
         ]);
         let cases = vec![
             manifest(vec![f("go.mod", "m"), f("a/b/c.go", "c")]),
@@ -200,9 +201,24 @@ mod tests {
             ]),
             manifest(vec![tree.get("a").unwrap().clone(), f("a/b/new.go", "n")]),
             manifest(vec![]),
+            // Symlinks (`l`): the same target, another, and a file that was
+            // a symlink.
+            manifest(vec![Entry::symlink("a/ln", "b/c.go"), f("go.mod", "m")]),
+            manifest(vec![Entry::symlink("a/ln", "d.go")]),
+            manifest(vec![Entry::symlink("x.go", "a/d.go")]),
+            manifest(vec![Entry::symlink("a/missing", "b")]),
+            // Deleted (`x`): never agrees, present or not.
+            manifest(vec![Entry::deleted("a/d.go")]),
+            manifest(vec![f("go.mod", "m"), Entry::deleted("a/b/gone.go")]),
         ];
+        let mut verdicts = (0, 0);
         for m in &cases {
             let root = put_nodes(&db, m).unwrap();
+            if matches(m, &tree).is_ok() {
+                verdicts.0 += 1;
+            } else {
+                verdicts.1 += 1;
+            }
             let mut ev = Eval::new(&db, &tree);
             assert_eq!(
                 ev.matches(&root).unwrap(),
@@ -210,6 +226,8 @@ mod tests {
                 "{m:?}"
             );
         }
+        // Both verdicts are exercised.
+        assert!(verdicts.0 >= 3 && verdicts.1 >= 6, "{verdicts:?}");
     }
 
     #[test]
