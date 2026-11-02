@@ -1,0 +1,8 @@
+# BuildKit reads this for Dockerfile.server only: the server image needs
+# the Cargo workspace, nothing else.
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+crates/quod-uring-probe/target
