@@ -353,6 +353,7 @@ fn execute_with_mounts(
         &mounts,
         // The runner owns the job's time limit.
         None,
+        crate::gotest::GoTests::default(),
         &mut phases,
     );
     for p in pinned {

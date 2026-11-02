@@ -14,6 +14,7 @@ use quod_trust::{Decision, Replayed, Step, Trust, Verdict};
 
 use crate::deps::{self, Deps};
 use crate::gitdir;
+use crate::gotest::{self, GoTestGuard, GoTests};
 use crate::rootfs::{self, Rootfs};
 use crate::seal;
 use crate::snapshot;
@@ -266,7 +267,15 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         None => detect_toolchain(&repo)?,
     };
     let warm = args.warm && !args.allow_net;
-    let spec = if warm {
+    // Go's test cache stays on, under Quod's guard, where the guard can
+    // reach every go test the step runs: on the host root (a rootfs's
+    // toolchain is not read here), for a script that runs go test.
+    let go_guard = (warm && pin.rootfs.is_none() && toolchain == Toolchain::Go)
+        .then(|| GoTestGuard::for_step(&step, &extra_env, toolchain.profile().env))
+        .flatten();
+    let spec = if go_guard.is_some() {
+        StepSpec::new_warm_guarded(toolchain, image.clone(), &step, &extra_env)?
+    } else if warm {
         StepSpec::new_warm(toolchain, image.clone(), &step, &extra_env)?
     } else {
         StepSpec::new(toolchain, image.clone(), &step, &extra_env)
@@ -429,6 +438,16 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         _ => None,
     };
     let timeout = (args.timeout > Duration::ZERO).then_some(args.timeout);
+    // An audit, or a re-proof after a divergence, checks what the tests do
+    // now: go test may store results but not serve any from its cache.
+    let go_tests = GoTests {
+        guard: go_guard.as_ref(),
+        expire: go_guard.is_some()
+            && matches!(
+                reason,
+                quod_trust::Reason::Audit { .. } | quod_trust::Reason::Quarantined { .. }
+            ),
+    };
     let outcome = execute(
         &cas,
         &tree,
@@ -439,6 +458,7 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
         pin.rootfs.as_ref(),
         &[],
         timeout,
+        go_tests,
         &mut phases,
     );
     let ex = match outcome {
@@ -541,6 +561,29 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
                 observer: Some(&ex.observer),
             },
             ..info.facts("killed", None, Some(ex.exit_code), ex.wall, None)
+        })?;
+        return Ok(exit_byte(ex.exit_code));
+    }
+    if let Some(p) = go_guard
+        .as_ref()
+        .and_then(|_| gotest::unguarded_toolchain(ex.manifest.entries.iter().map(|e| &e.p)))
+    {
+        // A second Go toolchain in the workspace ran go test with its own
+        // standard library, which the guard does not change: its result
+        // cache was the plain one. Shown, never memoized.
+        if !args.keep {
+            quod_cas::remove_any(&dir)?;
+        }
+        eprintln!(
+            "QUOD  EXECUTED  a Go toolchain in the workspace ({p}) ran outside the test-cache guard, not memoized"
+        );
+        eprintln!("  ran {}", fmt_duration(ex.wall));
+        ledger.record_run_facts(&RunFacts {
+            observed: Observed {
+                transport: Some(ex.transport),
+                observer: Some(&ex.observer),
+            },
+            ..info.facts("tainted", None, Some(ex.exit_code), ex.wall, None)
         })?;
         return Ok(exit_byte(ex.exit_code));
     }
@@ -705,7 +748,9 @@ pub(crate) struct Executed {
 /// only pinned trees whose digests are in `spec.image.mounts` belong there
 /// (`crate::step`). The sandbox kills the step after `timeout`, and as soon
 /// as the observer raises its abort flag (`unmount` then reports the
-/// failure as a Quod error).
+/// failure as a Quod error). `go_tests` puts the test-cache guard's files in
+/// the sandbox (a step whose key says so) and can expire go test's cached
+/// results for this execution only.
 #[allow(clippy::too_many_arguments)] // two call sites; the inputs of a run, each named
 pub(crate) fn execute(
     cas: &Cas,
@@ -717,8 +762,12 @@ pub(crate) fn execute(
     rootfs: Option<&Rootfs>,
     extra_mounts: &[Mount],
     timeout: Option<Duration>,
+    go_tests: GoTests,
     phases: &mut Phases,
 ) -> anyhow::Result<Executed> {
+    if spec.guards_tests() != go_tests.guard.is_some() {
+        bail!("internal error: the step key and the go test cache guard disagree");
+    }
     let t = Instant::now();
     let lower = dir.join("lower");
     std::fs::create_dir_all(&lower)?;
@@ -750,8 +799,25 @@ pub(crate) fn execute(
         std::fs::create_dir_all(warm).with_context(|| format!("create {}", warm.display()))?;
         mounts.push(Mount {
             src: warm.to_path_buf(),
-            dst: cache.into(),
+            dst: cache.clone().into(),
             writable: true,
+        });
+        if go_tests.expire {
+            let (src, _) = gotest::expired_tests(dir, warm)?;
+            mounts.push(Mount {
+                src,
+                dst: Path::new(&cache).join("testexpire.txt"),
+                writable: false,
+            });
+        }
+    }
+    if let Some(guard) = go_tests.guard {
+        let files = dir.join("go-test-guard");
+        guard.write(&files, &spec_key(spec)?)?;
+        mounts.push(Mount {
+            src: files,
+            dst: quod_key::gotest::SANDBOX_DIR.into(),
+            writable: false,
         });
     }
     // The warm cache bind and the sealed prefixes are disjoint subtrees of

@@ -120,6 +120,10 @@ pub struct Warm {
     /// The env variable naming the cache directory (inside the workspace).
     pub cache_env: &'static str,
     pub knobs: &'static [Knob],
+    /// `knobs` for a step whose test results the tool may cache under
+    /// Quod's guard (`crate::gotest`): the cache-disabling knob replaced by
+    /// the guard's. Empty for a profile without such a guard.
+    pub guarded_knobs: &'static [Knob],
     pub over_record: fn(&str) -> bool,
 }
 
@@ -333,8 +337,10 @@ pub fn go_source_file(name: &str) -> bool {
 ///
 /// Warm state is GOCACHE (content-addressed: action id = hash of source
 /// contents, tool ids, flags, dependency outputs). `-count=1` turns off the
-/// test-result cache, which decides "inputs unchanged" from size and mtime
-/// while the observer serves one constant mtime. `goindex=0` turns off the
+/// test-result cache, which rechecks only what package os logged, inside the
+/// package's module, by size and mtime; a step that runs `go test` on the
+/// host root keeps it on under Quod's guard instead (`guarded_knobs`,
+/// `crate::gotest`). `goindex=0` turns off the
 /// module index, which caches file lists of every module keyed by path on
 /// the assumption that the module cache never changes, so a warm run using
 /// it never reads those directories (7k inputs against 21k on cli/cli).
@@ -376,6 +382,14 @@ pub static GO: Profile = Profile {
                 sep: ' ',
                 item: "-count=1",
             },
+            Knob {
+                name: "GODEBUG",
+                sep: ',',
+                item: "goindex=0",
+            },
+        ],
+        guarded_knobs: &[
+            crate::gotest::OVERLAY_KNOB,
             Knob {
                 name: "GODEBUG",
                 sep: ',',

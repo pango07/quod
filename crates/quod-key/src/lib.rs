@@ -6,6 +6,7 @@
 //! (`profile`): Go, Node and Python each define the fixed list of variables
 //! a step sees, and the key names the toolchain.
 
+pub mod gotest;
 pub mod profile;
 
 use quod_cas::{CanonError, Hash, canonical_json};
@@ -435,6 +436,41 @@ impl StepSpec {
             merge_knob(&mut spec.env, k)?;
         }
         Ok(spec)
+    }
+
+    /// `new_warm` with the tool's test-result cache kept on under Quod's
+    /// guard (`Warm::guarded_knobs`, `gotest`). The caller decides it can:
+    /// the step runs on the host root, the script runs `go test`
+    /// (`gotest::runs_go_test`), the env allows it
+    /// (`gotest::env_allows_guard`), and the guard's files could be made.
+    pub fn new_warm_guarded(
+        toolchain: Toolchain,
+        image: Image,
+        script: &str,
+        extra_env: &[(String, String)],
+    ) -> Result<StepSpec, KeyError> {
+        let warm = toolchain
+            .profile()
+            .warm
+            .as_ref()
+            .filter(|w| !w.guarded_knobs.is_empty())
+            .ok_or(KeyError::NoWarm(toolchain))?;
+        let mut spec = StepSpec::new(toolchain, image, script, extra_env);
+        spec.warm = true;
+        for k in warm.guarded_knobs {
+            merge_knob(&mut spec.env, k)?;
+        }
+        Ok(spec)
+    }
+
+    /// Whether this step's tool caches test results under Quod's guard.
+    pub fn guards_tests(&self) -> bool {
+        let k = gotest::OVERLAY_KNOB;
+        self.warm
+            && self
+                .env
+                .iter()
+                .any(|(n, v)| n == k.name && v.split(k.sep).any(|s| s == k.item))
     }
 
     pub fn profile(&self) -> &'static Profile {

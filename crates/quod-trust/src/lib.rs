@@ -327,7 +327,9 @@ pub fn audit_due(eligible_before: u64, rate: f64) -> bool {
 // ----- comparing results -----
 
 /// Erases what two faithful executions of `go test` print differently:
-/// per-package durations (`ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`) and
+/// per-package durations (`ok  \tpkg\t0.412s`, `FAIL\tpkg\t1.2s`, or
+/// `(cached)` where go test served the result from its own cache, with any
+/// fields after it, such as coverage, kept) and
 /// per-test durations (`--- PASS: TestX (0.00s)`), and the number of the
 /// go command's temporary build dir in a `go env` `GOGCCFLAGS=` line
 /// (setup-go prints `go env` on every run). Nothing else: exit codes,
@@ -376,11 +378,16 @@ fn normalize_line(line: &[u8]) -> Vec<u8> {
     if let Some(rest) = s.strip_prefix("GOGCCFLAGS=") {
         return format!("GOGCCFLAGS={}", mask_go_build_dirs(rest)).into_bytes();
     }
-    if (s.starts_with("ok  \t") || s.starts_with("FAIL\t"))
-        && let Some((head, tail)) = s.rsplit_once('\t')
-        && is_duration(tail)
-    {
-        return format!("{head}\t<dur>").into_bytes();
+    // A package line: `ok  \tpkg\t0.412s`, or `(cached)` where go test
+    // served the result from its cache (a warm step under Quod's guard,
+    // quod_key::gotest), either one possibly followed by more fields
+    // (`\tcoverage: 81.2% of statements`).
+    if s.starts_with("ok  \t") || s.starts_with("FAIL\t") {
+        let mut fields: Vec<&str> = s.split('\t').collect();
+        if fields.len() >= 3 && (is_duration(fields[2]) || fields[2] == "(cached)") {
+            fields[2] = "<dur>";
+            return fields.join("\t").into_bytes();
+        }
     }
     let t = s.trim_start();
     if ["--- PASS: ", "--- FAIL: ", "--- SKIP: ", "--- BENCH: "]
@@ -437,8 +444,10 @@ pub fn fingerprint(r: &StepResult, cas: &Cas, ignore: &[String]) -> Result<Hash,
     let root = Hash::of(quod_cas::canonical_json(&r.root_outputs)?.as_bytes());
     let mut buf = Vec::with_capacity(256);
     // v2: command files hashed in, GOGCCFLAGS' build dir normalized. v3:
-    // the rename to Quod (the tag only; the rules are v2's).
-    buf.extend_from_slice(b"quod result fingerprint v3\0");
+    // the rename to Quod (the tag only; the rules are v2's). v4: a package
+    // line's `(cached)` reads as a duration, and its duration is erased
+    // when more fields follow it.
+    buf.extend_from_slice(b"quod result fingerprint v4\0");
     buf.extend_from_slice(&i64::from(r.exit_code).to_le_bytes());
     for h in [out, err, outputs, root] {
         buf.extend_from_slice(h.hex().as_bytes());
@@ -1487,12 +1496,18 @@ mod tests {
     #[test]
     fn normalizes_only_go_test_durations_and_build_dirs() {
         let text = b"ok  \tgithub.com/cli/cli/v2/api\t0.412s\nFAIL\tgithub.com/cli/cli/v2/pkg\t600.012s\n--- PASS: TestX (0.00s)\n    --- FAIL: TestX/sub (12.5s)\n--- SKIP: TestY (0.00s)\n?   \tpkg\t[no test files]\nok  \tpkg\t(cached)\npanic: test timed out after 10m0s\nexpected 2s got 3s\nok  \tpkg\t0.5s\tcoverage: 80.0%\n";
-        let want = b"ok  \tgithub.com/cli/cli/v2/api\t<dur>\nFAIL\tgithub.com/cli/cli/v2/pkg\t<dur>\n--- PASS: TestX (<dur>)\n    --- FAIL: TestX/sub (<dur>)\n--- SKIP: TestY (<dur>)\n?   \tpkg\t[no test files]\nok  \tpkg\t(cached)\npanic: test timed out after 10m0s\nexpected 2s got 3s\nok  \tpkg\t0.5s\tcoverage: 80.0%\n";
+        let want = b"ok  \tgithub.com/cli/cli/v2/api\t<dur>\nFAIL\tgithub.com/cli/cli/v2/pkg\t<dur>\n--- PASS: TestX (<dur>)\n    --- FAIL: TestX/sub (<dur>)\n--- SKIP: TestY (<dur>)\n?   \tpkg\t[no test files]\nok  \tpkg\t<dur>\npanic: test timed out after 10m0s\nexpected 2s got 3s\nok  \tpkg\t<dur>\tcoverage: 80.0%\n";
         assert_eq!(
             String::from_utf8_lossy(&normalize(text)),
             String::from_utf8_lossy(want)
         );
         assert_eq!(normalize(b"no newline at end"), b"no newline at end");
+        // A result go test served from its cache reads like one it ran;
+        // anything else in the third field stays.
+        assert_eq!(
+            normalize(b"ok  \tpkg\t(cached)\tcoverage: 1.0%\nok  \tpkg\t(stale)\nFAIL\tpkg [build failed]\n"),
+            b"ok  \tpkg\t<dur>\tcoverage: 1.0%\nok  \tpkg\t(stale)\nFAIL\tpkg [build failed]\n"
+        );
         // go env's GOGCCFLAGS: only the build dir's number goes.
         assert_eq!(
             normalize(b"GOGCCFLAGS='-fPIC -ffile-prefix-map=/tmp/go-build2595014798=/tmp/go-build -gno'\n"),

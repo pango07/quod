@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 mod bench;
 mod deps;
 mod gitdir;
+mod gotest;
 mod inspect;
 mod profile;
 mod rootfs;

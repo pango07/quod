@@ -1,0 +1,235 @@
+// Code added to package testing by Quod, through go's -overlay; not Go's.
+// Quod's test-cache guard, version 1 (crates/quod-key/src/gotest.rs).
+
+package testing
+
+import (
+	quodtestlog "internal/testlog"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"unsafe"
+)
+
+// quodGuard decides whether go test may cache this test binary's result
+// inside a Quod-observed step. go test caches a result keyed by the test
+// binary and by what package os logged (internal/testlog), and rechecks a
+// logged path only inside the package's module. So the guard logs from
+// testing's init on (the test files' package variables and TestMain run
+// before m.Run starts go's own log; it hands them over when that starts),
+// and calls the result uncacheable when the test may have depended on
+// anything go test will not recheck: a path in the workspace outside the
+// module, scratch space the test did not create, a process it started.
+// testing/internal/testdeps (also changed by Quod) writes the verdict into
+// the test log as a line go test cannot parse, so go test does not cache
+// that result. Installed only in a binary go test runs with a test log.
+type quodLog struct {
+	mu       sync.Mutex
+	ops      []string // held until go's log is attached
+	to       quodtestlog.Interface
+	pwd      string
+	modRoot  string
+	objdir   string
+	scratch  []string
+	existing map[string]bool
+	unsafe   string
+}
+
+const (
+	quodWorkspace = "QUOD_WORKSPACE"
+	quodEarlyMax  = 1 << 20
+)
+
+var quodGuard quodLog
+
+func init() {
+	logfile := ""
+	for _, a := range os.Args[1:] {
+		if f, ok := strings.CutPrefix(a, "-test.testlogfile="); ok {
+			logfile = f
+		}
+	}
+	if logfile == "" {
+		return
+	}
+	// Before the logger is set: nothing done here is logged.
+	quodGuard.start(logfile)
+	quodtestlog.SetLogger(&quodGuard)
+}
+
+func quodUnder(p, root string) bool {
+	return p == root || strings.HasPrefix(p, root+"/")
+}
+
+func (g *quodLog) start(logfile string) {
+	wd, err := os.Getwd()
+	if err != nil {
+		g.unsafe = "getwd failed"
+		return
+	}
+	g.pwd = wd
+	// go test runs the binary in the package directory (PWD) and resolves
+	// relative names there; a working directory moved earlier would make
+	// it resolve them elsewhere than the test did.
+	if pwd := os.Getenv("PWD"); pwd == "" || filepath.Clean(pwd) != wd {
+		g.unsafe = "the working directory is not the package's"
+	}
+	// The go command's directory for this binary (the binary, its log,
+	// profiles), made from the binary's own inputs.
+	if filepath.IsAbs(logfile) {
+		g.objdir = filepath.Dir(filepath.Clean(logfile))
+	}
+	if os.Getenv("GO111MODULE") != "off" {
+		for d := wd; ; {
+			// A module in the module cache is `path@version` (and may have
+			// no go.mod of its own).
+			if strings.Contains(filepath.Base(d), "@") {
+				g.modRoot = d
+				break
+			}
+			if fi, err := os.Stat(filepath.Join(d, "go.mod")); err == nil && fi.Mode().IsRegular() {
+				g.modRoot = d
+				break
+			}
+			p := filepath.Dir(d)
+			if p == d {
+				break
+			}
+			d = p
+		}
+	}
+	roots := []string{"/tmp", "/dev/shm", "/var/tmp"}
+	if t := os.Getenv("TMPDIR"); filepath.IsAbs(t) {
+		roots = append(roots, filepath.Clean(t))
+	}
+	g.existing = map[string]bool{}
+	for _, r := range roots {
+		if quodUnder(r, quodWorkspace) {
+			continue
+		}
+		g.scratch = append(g.scratch, r)
+		ents, _ := os.ReadDir(r)
+		for _, e := range ents {
+			g.existing[r+"/"+e.Name()] = true
+		}
+	}
+}
+
+// check classifies one logged access; g.mu is held.
+func (g *quodLog) check(op, name string) {
+	switch op {
+	case "getenv":
+		return
+	case "chdir":
+		// go test hashes a chdir'd directory wherever it is.
+		g.pwd = name
+		return
+	}
+	if g.unsafe != "" {
+		return
+	}
+	p := name
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(g.pwd, p)
+	} else {
+		p = filepath.Clean(p)
+	}
+	switch {
+	case g.modRoot != "" && quodUnder(p, g.modRoot):
+		return // go test rechecks it
+	case g.objdir != "" && quodUnder(p, g.objdir):
+		return
+	case op == "stat" && (quodUnder(g.modRoot, p) || quodUnder(g.objdir, p)):
+		// A directory above the module or the binary's own directory
+		// (filepath.EvalSymlinks lstats every component): it exists, and
+		// a stat says nothing of what is in it.
+		return
+	case quodUnder(p, quodWorkspace):
+		g.unsafe = "read " + p + ", outside the package's module"
+		return
+	}
+	for _, r := range g.scratch {
+		if p == r {
+			// os.RemoveAll opens the parent of what it removes (every
+			// t.TempDir's cleanup), which the log cannot tell from a listing.
+			return
+		}
+		if quodUnder(p, r) {
+			top := r + "/" + strings.SplitN(p[len(r)+1:], "/", 2)[0]
+			if g.existing[top] {
+				g.unsafe = "read " + p + ", which it did not create"
+			}
+			return
+		}
+	}
+	// Anywhere else is the host's, read-only and pinned by the step key.
+}
+
+func quodForward(to quodtestlog.Interface, op, name string) {
+	switch op {
+	case "getenv":
+		to.Getenv(name)
+	case "open":
+		to.Open(name)
+	case "stat":
+		to.Stat(name)
+	case "chdir":
+		to.Chdir(name)
+	}
+}
+
+func (g *quodLog) add(op, name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.check(op, name)
+	if g.to != nil {
+		quodForward(g.to, op, name)
+	} else if len(g.ops) < quodEarlyMax {
+		g.ops = append(g.ops, op, name)
+	} else if g.unsafe == "" {
+		g.unsafe = "logged too much before the tests started"
+	}
+}
+
+func (g *quodLog) Getenv(key string) { g.add("getenv", key) }
+func (g *quodLog) Open(name string)  { g.add("open", name) }
+func (g *quodLog) Stat(name string)  { g.add("stat", name) }
+func (g *quodLog) Chdir(name string) { g.add("chdir", name) }
+
+// QuodAttach hands everything logged so far, and from now on, to go's log.
+func (g *quodLog) QuodAttach(to quodtestlog.Interface) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i := 0; i+1 < len(g.ops); i += 2 {
+		quodForward(to, g.ops[i], g.ops[i+1])
+	}
+	g.ops = nil
+	g.to = to
+}
+
+// QuodVerdict says why this result must not be cached, or "".
+func (g *quodLog) QuodVerdict() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.unsafe == "" {
+		// A process the test started: what it read is in no log. Every
+		// child that ran and was waited for shows in RUSAGE_CHILDREN; one
+		// not waited for is still a child (a zombie, or running).
+		var ru syscall.Rusage
+		if err := syscall.Getrusage(syscall.RUSAGE_CHILDREN, &ru); err != nil {
+			g.unsafe = "getrusage failed"
+		} else if ru.Minflt != 0 || ru.Majflt != 0 || ru.Utime != (syscall.Timeval{}) || ru.Stime != (syscall.Timeval{}) {
+			g.unsafe = "started a process"
+		} else {
+			var info [128]byte
+			const pAll, wExited, wNohang, wNowait = 0, 4, 1, 0x1000000
+			_, _, e := syscall.Syscall6(syscall.SYS_WAITID, pAll, 0, uintptr(unsafe.Pointer(&info[0])), wExited|wNohang|wNowait, 0, 0)
+			if e != syscall.ECHILD {
+				g.unsafe = "started a process"
+			}
+		}
+	}
+	return strings.ReplaceAll(g.unsafe, "\n", " ")
+}
