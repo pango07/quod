@@ -1,0 +1,7 @@
+b3:bf76cefdb37d1 8436 keys: ['h', 'k', 'p']
+  {'h': 'b3:abae824', 'k': 'd', 'p': 'moto/networkfirewall'}
+  {'h': 'b3:e13853a', 'k': 'f', 'm': 420, 'p': 'moto/networkfirewall/__init__.py'}
+  {'h': 'b3:3d16f7c', 'k': 'f', 'm': 420, 'p': 'moto/networkfirewall/exceptions.py'}
+  {'h': 'b3:d210020', 'k': 'f', 'm': 420, 'p': 'moto/networkfirewall/models.py'}
+  {'h': 'b3:66832b2', 'k': 'f', 'm': 420, 'p': 'moto/networkfirewall/responses.py'}
+  {'h': 'b3:0543087', 'k': 'f', 'm': 420, 'p': 'moto/networkfirewall/urls.py'}
