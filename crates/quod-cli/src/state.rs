@@ -136,19 +136,84 @@ impl Drop for RunDir {
 
 /// Removes run directories no live process owns: one whose lock file can
 /// be locked (its run ended without removing it, or died), that is not
-/// marked kept and has nothing mounted under it. A run that crashed while
+/// marked kept. What such a run left mounted under it (a run killed with
+/// SIGKILL, or by a machine that went down mid-run: its observer's FUSE
+/// mount, the overlay over it, a rootfs overlay) is detached first, deepest
+/// first; the directory goes only once nothing is mounted under it any
+/// more. A live run holds its lock for as long as it has anything mounted,
+/// so no live run's mount is ever touched. A run that crashed while
 /// moving outputs into the store can leave a second name of a blob in its
 /// upper dir (`Cas::take_files` links, then unlinks); nothing may ever
-/// write through it, so it goes. Never fails a run: problems are warnings.
+/// write through it, so it goes. Then the private fusectl mounts
+/// (`quod_fs`'s ring teardown) of processes that are gone. Never fails a
+/// run: problems are warnings.
 fn sweep_runs(runs: &Path) {
-    sweep_runs_with(runs, &mount_points());
+    sweep_runs_with(runs, &mount_points(), mount_points, detach);
+    sweep_fusectl(&mount_points(), &std::env::temp_dir(), detach);
+}
+
+/// Lazily unmounts `p` (umount2 with MNT_DETACH).
+fn detach(p: &Path) -> std::io::Result<()> {
+    let c = std::ffi::CString::new(p.as_os_str().as_encoded_bytes())?;
+    // SAFETY: a valid NUL-terminated path that outlives the call.
+    #[allow(unsafe_code)] // umount2(2) has no safe std wrapper
+    let rc = unsafe { libc::umount2(c.as_ptr(), libc::MNT_DETACH) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Detaches the private fusectl mounts (`<tmp>/quod-fusectl-<pid>-<n>`)
+/// whose process no longer exists, and removes their directories. A pid
+/// that exists (ours, a live run's, or a reused one) is left alone.
+fn sweep_fusectl(mounts: &[PathBuf], tmp: &Path, unmount: impl Fn(&Path) -> std::io::Result<()>) {
+    let Ok(tmp) = tmp.canonicalize() else {
+        return;
+    };
+    for m in mounts {
+        let Some(name) = m
+            .strip_prefix(&tmp)
+            .ok()
+            .filter(|r| r.components().count() == 1)
+            .and_then(|r| r.to_str())
+        else {
+            continue;
+        };
+        let Some(pid) = name
+            .strip_prefix("quod-fusectl-")
+            .and_then(|r| r.split('-').next())
+            .and_then(|p| p.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if Path::new(&format!("/proc/{pid}")).exists() {
+            continue;
+        }
+        match unmount(m) {
+            Ok(()) => {
+                let _ = std::fs::remove_dir(m);
+                tracing::info!(target: "quod", mount = %m.display(), "stale fusectl mount detached");
+            }
+            Err(e) => {
+                tracing::warn!(target: "quod", mount = %m.display(), error = %e, "stale fusectl mount not detached");
+            }
+        }
+    }
 }
 
 /// `sweep_runs` against a given list of mount points (as /proc lists them:
-/// absolute, symlinks resolved). `runs` is resolved the same way first, so
-/// a state dir given relative or through a symlink still sees what is
-/// mounted under its run directories.
-fn sweep_runs_with(runs: &Path, mounts: &[PathBuf]) {
+/// absolute, symlinks resolved), re-read with `remount` after detaching
+/// with `unmount`. `runs` is resolved the same way first, so a state dir
+/// given relative or through a symlink still sees what is mounted under its
+/// run directories.
+fn sweep_runs_with(
+    runs: &Path,
+    mounts: &[PathBuf],
+    remount: impl Fn() -> Vec<PathBuf>,
+    unmount: impl Fn(&Path) -> std::io::Result<()>,
+) {
     let Ok(runs) = runs.canonicalize() else {
         return;
     };
@@ -172,9 +237,26 @@ fn sweep_runs_with(runs: &Path, mounts: &[PathBuf]) {
         if lock.try_lock().is_err() {
             continue; // a live run
         }
-        if mounts.iter().any(|m| m.starts_with(&dir)) {
-            tracing::warn!(target: "quod", dir = %dir.display(), "stale run directory still has mounts; left");
-            continue;
+        // Ours now (the lock is held until `lock` drops): what its dead
+        // run left mounted under it, deepest first; a path with mounts
+        // stacked on it is listed once per mount.
+        let mut under: Vec<&PathBuf> = mounts.iter().filter(|m| m.starts_with(&dir)).collect();
+        if !under.is_empty() {
+            under.sort_by_key(|m| std::cmp::Reverse(m.components().count()));
+            for m in under {
+                if let Err(e) = unmount(m) {
+                    tracing::warn!(target: "quod", mount = %m.display(), error = %e, "stale mount not detached");
+                }
+            }
+            let left = remount()
+                .into_iter()
+                .filter(|m| m.starts_with(&dir))
+                .count();
+            if left > 0 {
+                tracing::warn!(target: "quod", dir = %dir.display(), left, "stale run directory still has mounts; left");
+                continue;
+            }
+            tracing::info!(target: "quod", dir = %dir.display(), "stale run directory's mounts detached");
         }
         match quod_cas::remove_any(&dir) {
             Ok(()) => {
@@ -270,9 +352,10 @@ mod run_dir_tests {
         );
     }
 
-    /// A stale run directory with something mounted under it is left, also
-    /// when the state dir is reached through a symlink or a path with `..`
-    /// in it (mount points are absolute and resolved).
+    /// A stale run directory with something mounted under it is left while
+    /// the mount stays (its detach failed), also when the state dir is
+    /// reached through a symlink or a path with `..` in it (mount points
+    /// are absolute and resolved).
     #[test]
     fn a_mount_under_a_stale_run_dir_is_seen_through_a_symlink() {
         let tmp = tempfile::tempdir().unwrap();
@@ -289,12 +372,14 @@ mod run_dir_tests {
         std::fs::write(&lock, b"").unwrap();
         // What /proc/self/mountinfo would list: the resolved path.
         let mounted = real.canonicalize().unwrap().join("runs/dead/merged");
+        let stuck = || vec![mounted.clone()];
+        let refuse = |_: &Path| Err(std::io::Error::from_raw_os_error(libc::EBUSY));
         for runs in [
             link.join("runs"),
             link.join("runs/../runs"),
             real.join("runs"),
         ] {
-            sweep_runs_with(&runs, std::slice::from_ref(&mounted));
+            sweep_runs_with(&runs, std::slice::from_ref(&mounted), stuck, refuse);
             assert!(
                 real.join("runs/dead/merged").exists(),
                 "swept a dir with a mount under it ({})",
@@ -302,7 +387,74 @@ mod run_dir_tests {
             );
         }
         // Unmounted, it goes.
-        sweep_runs_with(&link.join("runs"), &[]);
+        sweep_runs_with(&link.join("runs"), &[], Vec::new, refuse);
         assert!(!real.join("runs/dead").exists());
+    }
+
+    /// What a killed run left mounted is detached, deepest first, and its
+    /// directory goes; a live run's mounts are never touched.
+    #[test]
+    fn a_dead_runs_mounts_are_detached_and_a_live_runs_are_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = State {
+            dir: tmp.path().to_path_buf(),
+        };
+        let live = state.claim_run_dir("live", false).unwrap();
+        std::fs::create_dir_all(live.path.join("merged")).unwrap();
+        let dead = state.claim_run_dir("dead", false).unwrap();
+        std::fs::create_dir_all(dead.path.join("lower")).unwrap();
+        std::fs::create_dir_all(dead.path.join("merged")).unwrap();
+        std::mem::forget(dead); // as if killed with SIGKILL
+        let runs = tmp.path().join("runs").canonicalize().unwrap();
+        let lock = runs.join("dead.lock");
+        std::fs::remove_file(&lock).unwrap();
+        std::fs::write(&lock, b"").unwrap();
+        // The overlay over the observer's mount, which is stacked twice.
+        let mounts = vec![
+            runs.join("dead/lower"),
+            runs.join("dead/merged"),
+            runs.join("dead/lower"),
+            runs.join("live/merged"),
+        ];
+        let detached = std::cell::RefCell::new(Vec::new());
+        sweep_runs_with(
+            &runs,
+            &mounts,
+            || vec![runs.join("live/merged")],
+            |p: &Path| {
+                detached.borrow_mut().push(p.to_path_buf());
+                Ok(())
+            },
+        );
+        let d = detached.into_inner();
+        assert_eq!(d.len(), 3, "{d:?}");
+        assert!(d.iter().all(|p| p.starts_with(runs.join("dead"))), "{d:?}");
+        assert!(!runs.join("dead").exists() && !lock.exists());
+        assert!(runs.join("live/merged").exists());
+        drop(live);
+    }
+
+    #[test]
+    fn fusectl_mounts_of_gone_processes_are_detached() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = tmp.path().canonicalize().unwrap();
+        let mine = t.join(format!("quod-fusectl-{}-0", std::process::id()));
+        // pid_max is at most 2^22: this pid does not exist.
+        let gone = t.join("quod-fusectl-4194999-3");
+        let other = t.join("something-else");
+        for d in [&mine, &gone, &other] {
+            std::fs::create_dir(d).unwrap();
+        }
+        let detached = std::cell::RefCell::new(Vec::new());
+        sweep_fusectl(
+            &[mine.clone(), gone.clone(), other.clone()],
+            &t,
+            |p: &Path| {
+                detached.borrow_mut().push(p.to_path_buf());
+                Ok(())
+            },
+        );
+        assert_eq!(detached.into_inner(), std::slice::from_ref(&gone));
+        assert!(!gone.exists() && mine.exists() && other.exists());
     }
 }

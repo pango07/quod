@@ -417,6 +417,11 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
     };
 
     let start = Instant::now();
+    if let Some(sig) = quod_sandbox::terminated() {
+        // Nothing mounted yet: stop here.
+        eprintln!("QUOD  TERMINATED  by signal {sig} before the step started; nothing recorded");
+        return Ok(128u8.saturating_add(sig as u8));
+    }
     let run_dir = state.claim_run_dir(&info.run_id, args.keep)?;
     let dir = run_dir.path.clone();
     let warm_dir = match (warm, &spec.profile().warm) {
@@ -453,6 +458,23 @@ pub fn run(state: &State, args: RunArgs) -> anyhow::Result<u8> {
             bail!(
                 "the observer failed while the step ran; the step was aborted and nothing was recorded"
             );
+        }
+        if let Killed::Terminated(sig) = killed {
+            // Stopped from outside: the step was killed, its mounts are
+            // gone with this run's directory, and nothing is learned about
+            // the key (as for any signal death).
+            eprintln!(
+                "QUOD  TERMINATED  by signal {sig} after {}; the step was stopped, nothing recorded",
+                fmt_duration(ex.wall)
+            );
+            ledger.record_run_facts(&RunFacts {
+                observed: Observed {
+                    transport: Some(ex.transport),
+                    observer: Some(&ex.observer),
+                },
+                ..info.facts("killed", None, None, ex.wall, None)
+            })?;
+            return Ok(128u8.saturating_add(sig as u8));
         }
         // Timed out: killed, reported, never memoized, and not a divergence
         // (load or a slow observer can do it as well as the step). If a
@@ -1045,6 +1067,14 @@ fn run_unobserved(
         ))?;
         tracing::info!(target: "quod", run_id = %info.run_id, memoized = false, egress = true, outcome = "timeout", exit_code = i32::from(EXIT_TIMEOUT), wall_ms = r.wall.as_millis() as u64, "run");
         return Ok(EXIT_TIMEOUT);
+    }
+    if let Some(Killed::Terminated(sig)) = r.killed {
+        eprintln!(
+            "QUOD  TERMINATED  by signal {sig}; the network step was stopped (whatever it fetched stays in {})",
+            deps.root.display()
+        );
+        ledger.record_run_facts(&info.facts("killed", None, None, r.wall, None))?;
+        return Ok(128u8.saturating_add(sig as u8));
     }
     eprintln!("QUOD  EXECUTED  network allowed, not memoized");
     eprintln!("  {}", image_line(&spec.image));
