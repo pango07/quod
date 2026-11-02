@@ -332,7 +332,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             narrowed.len(),
             narrowed.len() + affected.len(),
             tn.elapsed().as_millis(),
-            ans.as_ref().map_or("narrowing failed".into(), |v| v["why"].to_string())
+            ans.as_ref()
+                .map_or("narrowing failed".into(), |v| v["why"].to_string())
         );
     }
 
@@ -1169,8 +1170,14 @@ mod tests {
         assert_eq!(l.keys, vec!["f:a".to_string(), "f:b".to_string()]);
         assert_eq!(l.global, vec![1]);
         assert_eq!(l.files["x"].deps, vec![0, 1]);
-        assert_eq!(l.files["x"].cov.keys().copied().collect::<Vec<_>>(), vec![1]);
-        assert_eq!(l.files["x"].pinned.keys().copied().collect::<Vec<_>>(), vec![0]);
+        assert_eq!(
+            l.files["x"].cov.keys().copied().collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(
+            l.files["x"].pinned.keys().copied().collect::<Vec<_>>(),
+            vec![0]
+        );
         assert_eq!(l.states, vec!["1".to_string(), "3".to_string()]);
     }
 
