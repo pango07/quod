@@ -289,9 +289,55 @@ construction. The hazard is *unrecorded* reads, which only an A7b-style test
 (mutate what a subprocess reads, expect a re-run) can catch; v1's A7b sample
 (10 unread docs files) established nothing with the log lost. The two
 whole-step fidelity runs on the unchanged tree took 44.3 s and 17.3 s with
-0 logged outcomes and are unexplained. The v3 run on the box (queued behind
-another agent's history) repeats all of this with the log in place; its
-numbers go into `docs/bench/process-memo/prototype-v3.md`.
+0 logged outcomes (the first re-linked everything the mutation runs had
+invalidated, as v3's 34.5 s first fidelity run shows with the log present).
+
+**v3 on the 40 commits** (`docs/bench/process-memo/prototype-v3.md`, memo
+series only, fresh store, plain-warm from the 0b bench for the same
+commits; 1-minute load 5-7, the box otherwise idle):
+
+| Commits 2-40 | 0b plain-warm | Prototype v3 | 0b Quod miss |
+| --- | --- | --- | --- |
+| `go test ./...` total | 943 s | **1,980 s** (1,349 s without commit 32, below) | 1,804 s |
+| Quiet commit (34-36) | 12.5-12.8 s | **5.4-5.8 s** | 40.4-41.0 s |
+| Commit after a change, second proof (33, 40; 10, 16, 18, 22) | 10.6-16.7 s | 35.8-44.5 s | 40-42 s |
+| Heavy commit (7-9, 15, 17, 19, 31, 39) | 54-59 s | 67-76 s | 61-63 s |
+| Identical tree, everything proven (fidelity runs 2 and 3) | 10.1 s (0b replay series) | **6.1 s** | 1.3 s (whole-step replay) |
+
+v3 beat plain-warm on 14 of 39 commits, every one of them a quiet commit,
+by 4-7 s each; it lost on the other 25, by 20-30 s on the commit after any
+change (the proofs-2 rule: every link whose inputs changed on commit *k*
+re-runs on *k+1* as its second proof, 227 of 261 links at commit 33, and
+the twice-per-change effect of 1.3 adds the links one commit later) and by
+12-17 s on heavy commits (nothing to replay, plus `-count=1`, `goindex=0`,
+the shim's lookups and the hashing of inputs the hash cache has not seen).
+Commit 32 took 671 s and exited 1: `pkg/cmd/cache/list`'s huh-prompter test
+hung until go test killed it ("Test killed with quit: ran too long
+(11m0s)"), the same race `exp/split` and 0b recorded under load. go test
+sends the kill to the `-exec` program, so the shim died with the unit and
+recorded nothing: sound, and the step failed as it would have without the
+shim. Opaque units: exactly the 11 of the strace survey (10 by observed
+execs, 1 to 664 per run; `internal/prompter` by a symlinked `/usr/bin/echo`
+it stats). Where the 6.1 s all-replay floor goes: 4.8 s serial of lookups
+(each link's closure answered from the hash cache by inode identity, each
+replayed binary hashed once for its test unit's lookup, each test manifest's
+files re-hashed), 3.7 s serial copying 259 replayed
+binaries into `$WORK`, 4.9 s serial for the 11 opaque units (`prompter` 2.3
+s, `git` 0.7 s), and the Go command's own ~2 s; against plain-warm's 10.1 s
+on the same identical tree, where Go re-links and re-runs its 38 leak
+packages.
+
+Mutation tests at the unit level, v3 (`prototype-v3-mutate.json`): A7, 40
+proven test units with one recorded workspace input corrupted or a recorded
+absent path created, **40 of 40 ran (0 replayed, 0 false hits) and agreed
+with the plain run** in exit code and verdict (31 failed identically, 9
+passed identically); A7b, 10 unread files (`docs/*.md`, `README.md`)
+mutated, **10 of 10 replayed the unit and agreed with the plain run**. The
+A7 limitation stands: it cannot reach unrecorded reads, so it is evidence
+that the matcher rejects every recorded change, not that nothing is
+unrecorded; the exec observation and the `/tmp` rule are what address the
+unrecorded reads v1 had, and the strace survey is the independent check
+that no spawner escaped (none did).
 
 ## 2. Design
 
@@ -614,14 +660,18 @@ over 40 real commits lands at best at the total of a warm Go cache under
 the hit-once rule (~900-1,160 s against 943 s) and 10-17% above it under the
 shipped proofs-2 rule, because the commits where Go's cache wins big are
 exactly the commits where nothing is memoizable, and on `go build` and `go
-vet` there is nothing to memoize at all.** The prototype confirms the shape:
-with links and test units replaying at 46% and 56%, `go test ./...` over
-the history took 1,735 s against 1,048 s plain-warm, 17 s against 13 s on a
-quiet commit, and the time left is the cost of keying inputs that live
-outside the observed tree, materializing outputs, and the units that spawn
-subprocesses; it also showed that detecting those units needs a real exec
-observation (v1's heuristic memoized three of them) and that keeping every
-link output costs ~1 GB per commit.
+vet` there is nothing to memoize at all.** The prototype confirms the shape
+exactly: v3 replayed 46% of links and 56% of test units, beat a warm Go
+cache on the 14 quiet commits (5.4-5.8 s against 12.5-12.8 s) and on an
+identical tree (6.1 s against 10.1 s), and lost on the other 25, so that
+`go test ./...` over the history took 1,349 s against 943 s (1,980 s with
+one huh-prompter hang, the known race). What it loses on is the proofs-2
+rule after every change (a second full relink), the heavy commits where
+nothing is memoizable, and the floor of keying inputs outside the observed
+tree and materializing outputs. It also showed that detecting
+subprocess-spawning units needs a real exec observation (v1's heuristic
+memoized three of them; v3's seccomp user-notify matched strace exactly)
+and that keeping every link output costs ~1 GB per commit.
 
 What the measurement does say is worth building, in order:
 
