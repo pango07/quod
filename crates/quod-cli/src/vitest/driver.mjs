@@ -33,6 +33,22 @@ for (const f of real.readdirSync(dumpDir)) {
 }
 
 const codeDir = import.meta.dirname
+// node's compile cache (V8 code of every module node loads itself: vitest,
+// vite, the plugins, the environment, externalized dependencies) in the
+// state dir, so it travels with the ledger. The main process enables it
+// here, the workers through the environment they inherit. V8 checks the
+// source hash of every entry: a stale entry is recompiled, never used.
+// Opt-in (QUOD_VITEST_COMPILE_CACHE=1): measured same-job on ufo it cost
+// ~40 ms a run, since the critical path's copy of the state dir is thrown
+// away and each run pays the cache writes. Never in record runs: they
+// measure V8 coverage, which the cache must not be able to touch.
+if (plan.record === false && process.env.QUOD_VITEST_COMPILE_CACHE === '1' && typeof nodeModule.enableCompileCache === 'function') {
+  const cc = path.join(stateDir, 'compile-cache')
+  try {
+    const st = nodeModule.enableCompileCache(cc)
+    if (st?.directory) process.env.NODE_COMPILE_CACHE = st.directory
+  } catch {}
+}
 // The critical path (`record: false`) runs the files plain: no hooks, no
 // setup file, no coverage; the shadow run (`record: true`) records them.
 const record = plan.record !== false
@@ -87,6 +103,63 @@ const tInit = performance.now()
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
 
+// A large run (the plan says so) uses every CPU, not vitest's default of
+// one fewer: the main process idles while workers run. Only when neither
+// the config nor the arguments chose a number.
+if (plan.workers && !ctx.config.maxWorkers && ctx.projects.every((p) => !p.config.maxWorkers)) {
+  ctx.config.maxWorkers = plan.workers
+}
+
+// Render mode (a shadow run, after it recorded): replay every file and keep
+// what the reporters print and write, for a later critical path that
+// replays every file to emit without starting vitest. Only reporters whose
+// every effect is stdout, stderr, an outputFile, or GitHub's step summary;
+// the files they write go to the render dir, and where they belong is kept.
+let render = null
+if (plan.render) {
+  render = { ok: true, reason: '', outputs: [] }
+  const no = (why) => {
+    if (render.ok) Object.assign(render, { ok: false, reason: why })
+  }
+  const known = new Set(['DefaultReporter', 'VerboseReporter', 'DotReporter', 'TreeReporter', 'JsonReporter', 'JUnitReporter', 'TapReporter', 'TapFlatReporter', 'GithubActionsReporter'])
+  const fileOf = { JsonReporter: 'json', JUnitReporter: 'junit' }
+  const cwdSlash = cwd.endsWith('/') ? cwd : `${cwd}/`
+  for (const p of ctx.projects) {
+    if (p.config.root !== cwd && !p.config.root.startsWith(cwdSlash)) no(`project root ${p.config.root} is outside ${cwd}`)
+    if (p.config.dir && p.config.dir !== cwd && !p.config.dir.startsWith(cwdSlash)) no(`test dir ${p.config.dir} is outside ${cwd}`)
+  }
+  if (ctx.config.coverage?.enabled) no('coverage is on')
+  const of = ctx.config.outputFile
+  const outFiles = typeof of === 'string' ? { json: of, junit: of } : { ...(of ?? {}) }
+  let n = 0
+  for (const rep of ctx.reporters) {
+    const name = rep?.constructor?.name
+    if (!known.has(name)) {
+      no(`reporter ${name ?? typeof rep} is not one Quod can render`)
+      continue
+    }
+    if (rep.options?.outputFile) no(`reporter ${name} has its own outputFile`)
+    const kind = fileOf[name]
+    if (kind && outFiles[kind]) {
+      const file = `out-${n++}`
+      render.outputs.push({ file, to: path.resolve(ctx.config.root, outFiles[kind]), append: false, env: null })
+      outFiles[kind] = path.join(plan.render, file)
+    }
+    if (name === 'GithubActionsReporter' && rep.options?.jobSummary?.enabled && rep.options.jobSummary.outputPath) {
+      const file = `out-${n++}`
+      const to = rep.options.jobSummary.outputPath
+      render.outputs.push({ file, to, append: true, env: to === process.env.GITHUB_STEP_SUMMARY ? 'GITHUB_STEP_SUMMARY' : null })
+      rep.options.jobSummary.outputPath = path.join(plan.render, file)
+    }
+  }
+  if (typeof of === 'string') {
+    // one path for whichever single file reporter is in use
+    const used = Object.keys(fileOf).filter((k) => ctx.reporters.some((r) => r?.constructor?.name === k))
+    if (used.length > 1) no('one outputFile for two file reporters')
+    ctx.config.outputFile = used.length ? outFiles[fileOf[used[0]]] : of
+  } else if (of) ctx.config.outputFile = outFiles
+}
+
 // Projects Quod can record: isolated node workers. Others always run.
 const recorded = new Set()
 for (const p of ctx.projects) {
@@ -102,6 +175,7 @@ for (const p of ctx.projects) {
 }
 
 // Partition vitest's own list of test files.
+let allFiles = null
 const replayed = [] // { spec, id, result }
 const ran = new Map() // id -> spec
 const specsApi = ctx.specifications
@@ -121,6 +195,7 @@ specsApi.getRelevantTestSpecifications = async (f) => {
       ran.set(id, s)
     }
   }
+  allFiles = all.map((s) => s.taskId)
   log(`${all.length} test files: running ${run.length}, replaying ${replayed.length}${audits.size ? ` (auditing ${[...audits].filter((a) => ran.has(a)).length})` : ''}`)
   return run
 }
@@ -391,6 +466,8 @@ writeJson(outPath, {
   global: [...new Set(global)],
   ran: ranOut,
   replayed: replayed.map((x) => x.id),
+  allFiles,
+  render,
   auditMismatch,
   timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
   unmapped,

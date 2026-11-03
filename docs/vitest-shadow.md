@@ -150,13 +150,18 @@ during the job. `SHADOW_LAG=1` makes every critical path read the recording
 from two commits back, which simulates a shadow that has not finished.
 
 20 first-parent commits each, GitHub-hosted public runners (4 CPUs);
-binary bin-29742b8 (2026-11-03):
+headline binary bin-486f82b (2026-11-03). Plain's speed differs between
+runners, so compare within a row:
 
 | tier | project | plain total | critical path total | speedup (total / median) | shadow compute | wrong | mutations |
 |---|---|---:|---:|---:|---:|---:|---|
-| 1 | unjs/ufo (13 files, ~1.3 s) | 26.7 s | 19.2 s | 1.39x / 1.0x | 27.1 s | 0 | 4/4 |
-| 2 | vuejs/router (81 files, ~12 s) | 241.0 s | 47.9 s | 5.0x / 6.9x | 65.2 s | 0 | 4/4 |
-| 3 | vuejs/core (184 files, ~41 s) | 817.9 s | 326.9 s | 2.50x / 2.3x | 392.2 s | 0 | 4/4 |
+| 1 | unjs/ufo (13 files, ~1.5 s) | 31.6 s | 23.2 s | 1.36x / 1.0x | 32.3 s | 0 | 4/4 |
+| 2 | vuejs/router (81 files, ~9.3 s) | 185.3 s | 38.1 s | 4.9x / 6.9x | 49.4 s | 0 | 4/4 |
+| 3 | vuejs/core (184 files, ~41 s) | 820.0 s | 285.5 s | 2.87x / 4.6x | 352.7 s | 0 | 4/4 |
+
+Runs (pango07/ci-bench): ufo 41566245303, router 41566249277, core
+41566252339. Earlier binary bin-29742b8: ufo 1.39x, router 5.0x, core 2.50x
+(41561706644, 41561710020, 41561713091).
 
 - When every file must run (the first run, or a shared input changed), the
   critical path costs the same as plain: tier 1 ±0.1 s, tier 3 median
@@ -169,5 +174,73 @@ binary bin-29742b8 (2026-11-03):
   those files "recording changed behaviour" and quarantined them, and the
   run had 0 wrong replays. Without the net, the same binary replayed 2 files
   wrongly on 18 commits.
-- Runs: ufo 41561706644, router 41561710020, core 41561713091, lag-1
+- Runs: lag-1
   41560601953, safety net 41561416787 (pango07/ci-bench).
+
+## Future: a sound persistent transform cache (designed, not built)
+
+Measured same-job on router (ci-bench run 41568734381): vitest's own
+`experimental.fsModuleCache`, populated by the shadow and read by the
+critical path, cut the critical path 7.7% in total and 7% at the median
+(2.49 → 2.26 s on commits that run 1-14 files). It is not shipped because
+its key (module id and content, NODE_ENV, the environment's config, plugin
+*names*, config-file contents, the lockfile hash) does not cover everything
+a transform can depend on. A stale hit runs old code and nothing notices.
+The gaps:
+
+- **Other module files read during a transform.** An SFC's imported prop
+  types (`defineProps<Props>()` from `./types.ts`), a macro or codegen plugin
+  that reads sibling files, a plugin that inlines another file. Quod's
+  shared inputs deliberately exclude `f:` reads of files that are themselves
+  transformed modules (each test file's module graph accounts for those), so
+  a change to `types.ts` changes neither the cache key of the SFC nor a
+  shared input.
+- **Plugin behaviour.** Options and code beyond the plugin's name; covered
+  only indirectly, through the config-file contents and the lockfile.
+- **Resolution.** Import specifiers are rewritten to resolved ids. Vite's
+  JS resolver probes are main-process reads, which are shared inputs.
+  A native resolver's probes are invisible to the hooks.
+
+A sound version, keyed by Quod and never by vitest's key alone:
+
+1. **Per-transform read attribution (record runs).** Wrap every
+   environment's `transformRequest` in `AsyncLocalStorage.run({ file })`.
+   In the main-process fs hooks, a read inside that context of any path
+   other than the module's own file is a *foreign read* of that module. A
+   read of a transformed module's file outside any transform context
+   (buildStart, configResolved, a plugin's own cache warm-up) is a foreign
+   read of *every* module. The union of foreign-read files is F. Because
+   vite's and plugins' in-process caches mean a later transform may reuse a
+   read without repeating it, F is global, not per module.
+2. **Key.** The entry for module X in environment E is blake3 of:
+   - X's id and content;
+   - the current states of every shared (global) input;
+   - the contents of every file in F;
+   - E's name, the vite and vitest versions, and quod's driver hash.
+
+   The Rust side already hashes all of these during selection and passes
+   one `transformSig` to the driver, so a key costs nothing extra. Any
+   change to a shared input or to F changes every key: the cache starts a
+   new generation, never serves stale output.
+3. **Plugin allow-list.** Serve hits only when every plugin with a
+   `transform` or `load` hook in the environment is on a list whose
+   behaviour on a module depends only on that module's id, content and the
+   config: vite's core plugins, vitest's own, `@vitejs/plugin-vue` for
+   non-SFC modules (and for SFCs only with F covering their type imports),
+   `@vitejs/plugin-react`. Any other plugin disables the cache for that
+   environment. Also bail on `import.meta.glob`, as vitest does, and on any
+   module whose transform reached a native resolver or child process the
+   hooks cannot see.
+4. **Where.** Entries are written only by the shadow, from transforms it
+   ran fresh. The critical path reads them through a wrapped
+   `transformRequest`, returning the stored `{ code, map }` with the module
+   graph updated as vite would. Entries travel in the hand-off; size is
+   bounded by evicting entries not hit in the last N recordings.
+5. **Verification.** The shadow re-transforms every module it reaches (it
+   must anyway, to record). Where an entry exists under the same key it
+   compares bytes. A mismatch is a design bug: it disables the cache for
+   the repository, records why, and the bench fails loudly. It is not a
+   sampling rate.
+
+This is recording-side work (the recorder and the ledger), not run-phase
+work.

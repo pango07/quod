@@ -40,6 +40,19 @@ lag=${SHADOW_LAG:-0}
 audits=${SHADOW_AUDITS:-4}
 rm -rf "$out" "$state" "$snaps"; mkdir -p "$out/logs" "$snaps" "$state"
 : "${QUOD:?QUOD must point at the quod binary}"
+# Every flag this script passes must exist in the binary under test: an
+# older quod takes an unknown flag as a vitest argument and records nothing
+# without failing. Fail loudly instead.
+need_flags() { # binary, flags...
+  local bin=$1 help; shift
+  help=$("$bin" vitest --help 2>&1) || { echo "::error::$bin vitest --help failed"; exit 2; }
+  for f in "$@"; do
+    grep -q -- "$f" <<<"$help" || { echo "::error::$bin does not support quod vitest $f (this bench passes it); use a newer binary"; exit 2; }
+  done
+}
+need_flags "$QUOD" --dir --audits --summary --no-record --expect-report
+[ "${WHOLE_JOB:-0}" = 1 ] && need_flags "$QUOD" --plan
+[ -n "${QUOD_B:-}" ] && need_flags "$QUOD_B" --dir --summary --no-record
 cd "$proj"
 mapfile -t commits < <(git rev-list --first-parent -n $((n + 1)) "$sha" | tac)
 echo "window: ${#commits[@]} commits (first is the first run ever), ${commits[1]:0:9}..${commits[-1]:0:9}; lag $lag, shadow audits $audits"
@@ -62,9 +75,18 @@ critical() { # $1 = tag, $2 = ledger dir (a completed recording; a fresh copy, s
   local rc=$?; mv -f "$out/quod.json" "$out/crit.json"
   echo "$(( $(ms) - s )) $rc"
 }
+# Same-job A/B (QUOD_B=<another quod>, B_ENV="K=V ..." for its runs): B's
+# critical path on its own fresh copy of the same recording, in the same
+# job, plain/A/B in rotating order per commit; compared with plain as well.
+critical_b() { # $1 = tag, $2 = ledger dir
+  rm -f "$out/crit-b-summary.json" "$out/crit-b.json"; local s; s=$(ms)
+  env ${B_ENV:-} "$QUOD_B" vitest --no-record --dir "$2" --summary "$out/crit-b-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/crit-b-$1.log" 2>&1
+  local rc=$?; mv -f "$out/quod.json" "$out/crit-b.json"
+  echo "$(( $(ms) - s )) $rc"
+}
 shadow() { # $1 = tag
   rm -f "$out/shadow-summary.json" "$out/shadow.json"; local s; s=$(ms)
-  "$QUOD" vitest --dir "$state" --audits "$audits" --expect-report "$out/crit.json" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
+  env ${SHADOW_ENV:-} "$QUOD" vitest --dir "$state" --audits "$audits" --expect-report "$out/crit.json" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
   local rc=$?; mv -f "$out/quod.json" "$out/shadow.json"
   echo "$(( $(ms) - s )) $rc"
 }
@@ -106,7 +128,16 @@ for i in "${!commits[@]}"; do
     install_ms=$(( $(ms) - s ))
     lock=$nl
   fi
-  if (( i % 2 == 0 )); then
+  b_ms=0; b_rc=0; bcmp='{}'
+  if [ -n "${QUOD_B:-}" ]; then
+    bdir=/work/state/crit-ledger-b; rm -rf "$bdir"; cp -a "$cdir" "$bdir"
+    case $(( i % 3 )) in
+      0) read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r b_ms b_rc < <(critical_b "$i" "$bdir") ;;
+      1) read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r b_ms b_rc < <(critical_b "$i" "$bdir"); read -r p_ms p_rc < <(plain "$i") ;;
+      2) read -r b_ms b_rc < <(critical_b "$i" "$bdir"); read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir") ;;
+    esac
+    bcmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/crit-b.json" "$bdir/out.json" 2>&1 | tee "$out/logs/compare-b-$i.log" | tail -1)
+  elif (( i % 2 == 0 )); then
     read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir")
   else
     read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r p_ms p_rc < <(plain "$i")
@@ -137,11 +168,12 @@ for i in "${!commits[@]}"; do
   areas=$(echo "$files" | awk -F/ 'NF{ if ($1=="packages"||$1=="packages-private") print $1"/"$2; else if (NF>1) print $1"/"; else print $1 }' | sort | uniq -c | sort -rn | awk '{printf "%s%s(%s)", sep, $2, $1; sep=", "}')
   subject=$(git log -1 --format=%s "$c")
   SHLOG="$out/logs/shadow-$i.log" node -e '
-    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp] = process.argv.slice(1)
+    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp, b_ms, bcmp, bs] = process.argv.slice(1)
     const fs = require("fs")
     const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return {} } }
     const k = (t) => { try { return JSON.parse(t) } catch { return { error: t } } }
-    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp), pc = k(pcmp)
+    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp), pc = k(pcmp), bc = k(bcmp), bsum = j(bs)
+    const ab = +b_ms ? { crit_b_ms: +b_ms, b_wrong: bc.wrong ?? null, b_ran: bsum.ran, b_fast: !!bsum.fast } : {}
     const whole = verdict ? { plan_ms: +plan_ms, plan: verdict, whole_plain_ms: +install_ms + +p_ms,
       whole_quod_ms: +plan_ms + (verdict === "done" ? 0 : +install_ms + +q_ms),
       plan_wrong: verdict === "done" ? (pc.wrong ?? null) : [] } : {}
@@ -153,8 +185,8 @@ for i in "${!commits[@]}"; do
       shadow_ran: h.ran, shadow_replayed: h.replayed, audited: h.audited, audit_mismatches: h.audit_mismatches,
       unrecordable: h.unrecordable, record_ms: h.record_ms, shadow_driver: h.driver,
       files: a.files, wrong: a.wrong ?? null, flaky: a.flaky ?? null, compare_error: a.error,
-      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, shadow_broken: !h.ran && h.ran !== 0 || /left no record|nothing recorded/.test(require("fs").readFileSync(process.env.SHLOG, "utf8")), fast: !!s.fast, render: h.render ?? null, ...whole }))
-  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" | tee -a "$out/results.jsonl"
+      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, shadow_broken: !h.ran && h.ran !== 0 || /left no record|nothing recorded/.test(require("fs").readFileSync(process.env.SHLOG, "utf8")), fast: !!s.fast, render: h.render ?? null, ...whole, ...ab }))
+  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" "$b_ms" "$bcmp" "$out/crit-b-summary.json" | tee -a "$out/results.jsonl"
 
   # Mutation check (not timed): a throw in a function some recorded test
   # executed must make the critical path run that test and report the same
@@ -188,7 +220,7 @@ node "$here/report-shadow.mjs" "$out/results.jsonl" "${args[*]}" "$(git remote g
 cat "$out/report.md"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
 # Loud: a wrong replay on the critical path (or a mutation it missed) fails the job.
-if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
+if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.b_wrong!==undefined&&(r.b_wrong===null||r.b_wrong.length))||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
   echo "0 wrong replays"
   node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse).filter(r=>r.shadow_broken);if(l.length)console.log("::warning::the shadow recorded nothing on commits "+l.map(r=>r.i).join(", "))' "$out/results.jsonl"
 else
