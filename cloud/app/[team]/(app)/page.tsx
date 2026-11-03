@@ -9,13 +9,15 @@ import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
-import { hasTestActivity, skippedShare, spotChecksWithinWeek, testsByRepo } from "@/lib/test-runs";
+import { hasTestActivity, lastUtcDays, skippedShare, spotChecksWithinWeek, testMinutesPerDay, testsByRepo } from "@/lib/test-runs";
 import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { plainUi } from "@/lib/ui";
 
 export const metadata = { title: "Overview" };
+
+const RANGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 } as const;
 
 export default async function OverviewPage({ params, searchParams }: PageProps<"/[team]">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
@@ -38,6 +40,11 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const spotWeek = testRuns.ok && testRuns.value?.length ? spotChecksWithinWeek(testRuns.value, Date.parse(ov.asOf)) : null;
   // A team with test data sees test numbers; the step-level tiles stay only for teams with step data and no test data.
   const hasTests = !!(testStats || repoTests || filesLine);
+  // The per-day chart: from test check runs when the team has any (the runs already read); step-level only otherwise.
+  const testDays =
+    testRuns.ok && testRuns.value?.some((r) => r.kind === "critical")
+      ? testMinutesPerDay(testRuns.value, ov.days.length ? ov.days.map((d) => d.day) : lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf)))
+      : null;
   const testsCard = testStats ? (
     <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} />
   ) : filesLine ? (
@@ -115,8 +122,17 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       <LiveRefresh scope={{ kind: "team" }} />
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
 
-      {quod ? (
-        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} tiles={!hasTests} />
+      {quod || testDays ? (
+        <LiveTotals
+          key={range}
+          totals={t}
+          days={testDays ?? ov.days}
+          daysFrom={testDays ? "tests" : "steps"}
+          from={RANGE_FROM[range]}
+          reseed={!activity.simulated}
+          plain={plain}
+          tiles={!hasTests}
+        />
       ) : hasTests ? null : (
         <section className="card" style={{ padding: 20 }}>
           <h2 className="h2">{plain ? "Time saved and skips" : "Time saved and replays"}</h2>

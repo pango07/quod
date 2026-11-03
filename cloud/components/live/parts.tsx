@@ -208,12 +208,33 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
  * deltas by event a moment later, so re-seeding on each refresh would count
  * the in-flight ones twice.
  */
-/** `tiles: false` leaves out the step-level tiles (a team with test data sees test numbers instead); the per-day chart stays. */
-export function LiveTotals({ totals, days, from, reseed = false, plain, tiles = true }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean; tiles?: boolean }) {
+/**
+ * `tiles: false` leaves out the step-level tiles (a team with test data sees test numbers instead).
+ * `daysFrom: "tests"`: the per-day chart is fed from test check runs (testMinutesPerDay), so step-level
+ * deltas never touch it and each refresh (a test.run) replaces it.
+ */
+export function LiveTotals({
+  totals,
+  days,
+  from,
+  reseed = false,
+  plain,
+  tiles = true,
+  daysFrom = "steps",
+}: {
+  totals: TeamTotals;
+  days: DayMinutes[];
+  from: string;
+  reseed?: boolean;
+  plain?: boolean;
+  tiles?: boolean;
+  daysFrom?: "steps" | "tests";
+}) {
+  const tests = daysFrom === "tests";
   const [t, setT] = useState(totals);
   const [d, setD] = useState(days);
   const [seen, setSeen] = useState({ totals, days });
-  if (reseed && (seen.totals !== totals || seen.days !== days)) {
+  if ((reseed || tests) && (seen.totals !== totals || seen.days !== days)) {
     // Adjusting state while rendering when props change (react.dev, "storing information from previous renders").
     setSeen({ totals, days });
     setT(totals);
@@ -231,7 +252,7 @@ export function LiveTotals({ totals, days, from, reseed = false, plain, tiles = 
       spotChecks: c.spotChecks + x.spotChecks,
       spotChecksIdentical: c.spotChecksIdentical + x.spotChecksIdentical,
     }));
-    setD((c) => applyToDays(c, e.day, x));
+    if (!tests) setD((c) => applyToDays(c, e.day, x));
   });
 
   return (
@@ -259,12 +280,12 @@ export function LiveTotals({ totals, days, from, reseed = false, plain, tiles = 
       <section className="card" aria-labelledby="minutes-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="row-between">
           <h2 id="minutes-h" className="h2">
-            CI minutes per day
+            {tests ? "Test check time per day" : "CI minutes per day"}
           </h2>
           <div className="legend" aria-hidden="true">
             <span>
               <span className="swatch" style={{ background: "var(--blue)" }} />
-              {plain ? "Skipped (saved)" : "Replayed (saved)"}
+              {tests ? "≈ saved" : plain ? "Skipped (saved)" : "Replayed (saved)"}
             </span>
             <span>
               <span className="swatch" style={{ background: "var(--ran)" }} />
@@ -272,7 +293,11 @@ export function LiveTotals({ totals, days, from, reseed = false, plain, tiles = 
             </span>
           </div>
         </div>
-        <MinutesChart days={d.map((x) => ({ ...x, replayedMinutes: Math.round(x.replayedMinutes), ranMinutes: Math.round(x.ranMinutes) }))} from={from} />
+        {tests ? (
+          <MinutesChart days={d} from={from} source="tests" />
+        ) : (
+          <MinutesChart days={d.map((x) => ({ ...x, replayedMinutes: Math.round(x.replayedMinutes), ranMinutes: Math.round(x.ranMinutes) }))} from={from} />
+        )}
       </section>
     </>
   );

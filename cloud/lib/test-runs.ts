@@ -3,7 +3,7 @@
 // language, as on the Trust pages: a skipped file is "skipped (unchanged)",
 // never "replayed". Pure; shared with tests.
 
-import type { TestRunDetail, TestRunSummary, TestStats } from "@/lib/api/types";
+import type { DayMinutes, TestRunDetail, TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatCount } from "@/lib/format";
 
 /**
@@ -224,4 +224,36 @@ export function testsByRepo(runs: TestRunSummary[], now: number): Record<string,
 /** "1,234 of 1,450 files, last 20 checks", or "No checks yet". */
 export function repoSkippedNote(s: SkippedShare): string {
   return s.checks > 0 ? `${formatCount(s.replayed)} of ${formatCount(s.total)} files, last ${plural(s.checks, "check")}` : "No checks yet";
+}
+
+/** The last `n` UTC days up to and including `now`'s, oldest first: "2026-10-27" ... "2026-11-02". */
+export function lastUtcDays(n: number, now: number): string[] {
+  const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+  return Array.from({ length: n }, (_, i) => new Date(today - (n - 1 - i) * 86_400_000).toISOString().slice(0, 10));
+}
+
+/** A check run's own running time: its wall time, or (not reported) the ran files' recorded time, estPlainMs − savedMs. */
+export function ranMs(r: Pick<TestRunSummary, "timing">): number {
+  const { wallMs, estPlainMs, savedMs } = r.timing;
+  if (wallMs !== null) return Math.max(0, wallMs);
+  if (estPlainMs !== null) return Math.max(0, estPlainMs - (savedMs ?? 0));
+  return 0;
+}
+
+/**
+ * The Overview's "CI minutes per day" from test runs: per UTC day of `days`,
+ * check runs only (background recordings never count), saved = sum of
+ * timing.savedMs (an estimate, shown "≈ saved"), ran = ranMs. Minutes are not
+ * rounded here: test runs are seconds, and the chart formats them.
+ */
+export function testMinutesPerDay(runs: Pick<TestRunSummary, "kind" | "at" | "timing">[], days: string[]): DayMinutes[] {
+  const by = new Map(days.map((d) => [d, { day: d, replayedMinutes: 0, ranMinutes: 0 }]));
+  for (const r of runs) {
+    if (r.kind !== "critical") continue;
+    const d = by.get(new Date(r.at).toISOString().slice(0, 10));
+    if (!d) continue;
+    d.replayedMinutes += (r.timing.savedMs ?? 0) / 60_000;
+    d.ranMinutes += ranMs(r) / 60_000;
+  }
+  return days.map((d) => by.get(d)!);
 }
