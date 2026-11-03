@@ -15,7 +15,7 @@
 // What it cannot see it says: no record (or an `unobservable` reason) and
 // the file always runs.
 import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, writeJson } from './record.mjs'
-import { executedFunctions, unmapped } from './coverage.mjs'
+import { executedFunctions, unmapped, unmappedSample } from './coverage.mjs'
 import nodeModule from 'node:module'
 import inspector from 'node:inspector'
 
@@ -109,6 +109,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         cov,
         usedToString,
         unmapped,
+        unmappedSample: Object.entries(unmappedSample).slice(0, 1),
         ms: { setup: setupMs, dump: performance.now() - t1, cov: covMs },
       })
     } catch (e) {
