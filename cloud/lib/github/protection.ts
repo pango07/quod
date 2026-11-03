@@ -1,6 +1,6 @@
 import type { BranchProtection } from "@/lib/api/types";
 import type { Db, Queryable } from "@/lib/db/types";
-import type { ProtectionRead } from "./api";
+import { PLAN_REASON, type ProtectionRead } from "./api";
 import type { TeamId } from "./team";
 
 // Default-branch protection of a team's linked repos, for the writer-trust
@@ -45,8 +45,26 @@ interface CacheRow {
   repo_id: number;
   state: BranchProtection["state"];
   default_branch: string | null;
+  reason: string | null;
   checked_at: unknown;
+  /** Never read, and either no row yet (a read starts now) or claimed within the last PENDING_S. */
+  pending: boolean;
   due: boolean;
+}
+
+/** How long a first read may show "checking protection" before it says "unknown" (the read itself times out at 5 s). */
+export const PENDING_S = 10;
+
+/** The cached row as the pages show it. */
+export function cachedProtection(r: Pick<CacheRow, "repo_id" | "state" | "default_branch" | "reason" | "checked_at" | "pending">): BranchProtection {
+  const state = r.repo_id === null ? "unknown" : r.state;
+  return {
+    state,
+    branch: r.default_branch ?? null,
+    checkedAt: iso(r.checked_at),
+    ...(state === "unknown" && r.reason === PLAN_REASON ? { detail: "plan" as const } : {}),
+    ...(r.pending && !iso(r.checked_at) ? { pending: true } : {}),
+  };
 }
 
 /**
@@ -60,18 +78,19 @@ export async function readCached(db: Queryable, teamId: TeamId, repoIds: number[
   if (!(await protectionTableExists(db))) return { byRepo: null, due: [] };
   if (!repoIds.length) return { byRepo, due: [] };
   const rows = await db.query<CacheRow & { id: number }>(
-    `SELECT r.id, p.repo_id, p.state, p.default_branch, p.checked_at,
+    `SELECT r.id, p.repo_id, p.state, p.default_branch, p.reason, p.checked_at,
+            (p.checked_at IS NULL AND (p.repo_id IS NULL OR p.claimed_at >= $3::timestamptz - make_interval(secs => $5))) AS pending,
             (p.repo_id IS NULL OR p.stale OR p.checked_at IS NULL OR p.checked_at < $3::timestamptz - make_interval(secs => $4)) AS due
      FROM repos r
      JOIN installations i ON i.id = r.installation_id AND i.team_id = $1 AND i.deleted_at IS NULL AND i.suspended_at IS NULL
      LEFT JOIN repo_protection p ON p.repo_id = r.id
      WHERE r.removed_at IS NULL AND r.id = ANY($2::bigint[])`,
-    [teamId, repoIds, now.toISOString(), REFRESH_AFTER_S],
+    [teamId, repoIds, now.toISOString(), REFRESH_AFTER_S, PENDING_S],
   );
   const due: number[] = [];
   for (const r of rows) {
     const id = Number(r.id);
-    byRepo.set(id, { state: r.repo_id === null ? "unknown" : r.state, branch: r.default_branch ?? null, checkedAt: iso(r.checked_at) });
+    byRepo.set(id, cachedProtection(r));
     if (r.due) due.push(id);
   }
   return { byRepo, due };
@@ -117,8 +136,12 @@ export async function recordRead(q: Queryable, repoId: number, read: ProtectionR
     return;
   }
   if (read.kind === "error") {
-    // A GitHub hiccup: keep what was known; the claim lapses after 2 minutes, and the next view reads it again.
-    await q.query(`UPDATE repo_protection SET reason = $2, updated_at = now() WHERE repo_id = $1`, [repoId, `error-${read.status}`]);
+    // A GitHub hiccup or the 5 s timeout: keep what was known, and a repo never read becomes "unknown" (not
+    // "checking" forever). Marked stale, so the next view reads it again once the claim lapses (2 minutes).
+    await q.query(
+      `UPDATE repo_protection SET reason = $2, checked_at = COALESCE(checked_at, $3::timestamptz), stale = true, updated_at = now() WHERE repo_id = $1`,
+      [repoId, read.reason === "timeout" ? "timeout" : `error-${read.status}`, now.toISOString()],
+    );
     return;
   }
   if (read.kind === "gone") {

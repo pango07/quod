@@ -9,7 +9,7 @@ import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
-import { hasTestActivity } from "@/lib/test-runs";
+import { hasTestActivity, testsByRepo } from "@/lib/test-runs";
 import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
@@ -21,12 +21,15 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity, tests, suites] = await Promise.all([
+  const [ov, activity, tests, suites, testRuns] = await Promise.all([
     api().getOverview(team.slug, range),
     api().getActivity(team.slug),
     section(api().getTestStats(team.slug)),
     section(api().listTestSuites(team.slug)),
+    // The Repositories card's test numbers (7 days per repo); null (404/501) or down: the step columns as before.
+    section(api().listTestRuns(team.slug, { limit: 200 })),
   ]);
+  const repoTests = testRuns.ok && testRuns.value?.length ? testsByRepo(testRuns.value, Date.parse(ov.asOf)) : undefined;
   // Test runs: null from a server without them (404/501) or one that is down; then the card is simply not there.
   const testStats = tests.ok && hasTestActivity(tests.value) ? tests.value : null;
   const filesLine = suites.ok ? testFilesLine(suites.value) : null;
@@ -131,7 +134,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
               View all
             </Link>
           </div>
-          <RepoTable team={team.slug} repos={ov.repos} asOf={ov.asOf} />
+          <RepoTable team={team.slug} repos={ov.repos} asOf={ov.asOf} tests={repoTests} />
         </section>
 
         {quod ? (

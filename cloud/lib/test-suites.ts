@@ -3,10 +3,10 @@
 // Same vocabulary as the plain trust pages: learning, ready to skip,
 // skipping, always runs, paused. Pure; shared with tests.
 
-import type { TestFile, TestFileState, TestSuite } from "@/lib/api/types";
+import type { TestFile, TestFileState, TestRunSummary, TestStats, TestSuite } from "@/lib/api/types";
 import type { Tone } from "@/lib/trust";
 import { formatCount } from "@/lib/format";
-import { formatSavedMs } from "@/lib/test-runs";
+import { formatSavedMs, testRunHref } from "@/lib/test-runs";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
@@ -18,7 +18,7 @@ export interface FileStateLabel {
 }
 
 export const FILE_LEGEND: { state: TestFileState; label: string; help: string }[] = [
-  { state: "learning", label: "Learning", help: "Not recorded yet. It runs every time until a run on the default branch records it." },
+  { state: "learning", label: "Learning", help: "Not recorded yet. It runs every time until a run on a writer branch records it." },
   { state: "ready", label: "Ready to skip", help: "Recorded. The next time nothing it depends on has changed, Quod reuses the recorded result instead of running it." },
   { state: "skipping", label: "Skipping", help: "Quod skips it when nothing it depends on changed and reuses the recorded result. A few skipped files are re-run in the background to check." },
   { state: "always", label: "Always runs", help: "Quod runs it every time, for the reason shown." },
@@ -63,9 +63,12 @@ export function suiteHeading(s: Pick<TestSuite, "repository" | "suite">): string
   return `${repo} · ${dir === "" || dir === "." || dir === "./" ? "repo root" : dir}`;
 }
 
+/** A suite without a recording. Any writer branch records (not only the default branch), so it names none. */
+export const NO_RECORDING = "No recording yet: the first run on a writer branch records these files.";
+
 /** Which recording a suite reads: "Reads the recording of main at 1d7e5b2, 2 h ago." */
 export function suiteLedgerText(l: TestSuite["ledger"], ago: (iso: string) => string): string {
-  if (!l) return "No recording yet. Once a run on the default branch records these files, unchanged ones can be skipped.";
+  if (!l) return NO_RECORDING;
   const sha = l.sha ? l.sha.slice(0, 7) : null;
   const at = ago(l.at);
   if (l.branch && sha) return `Reads the recording of ${l.branch} at ${sha}, ${at}.`;
@@ -115,20 +118,12 @@ export function testFilesLine(suites: TestSuite[] | null): string | null {
   return `${plural(t.files, "test file")}${counts ? `: ${counts}` : ""}`;
 }
 
-const ATTENTION: TestFileState[] = ["paused", "always", "learning"];
-
-/** Files to show first (paused, always runs, learning) and the rest (skipping, ready), each in the server's order. */
-export function splitFiles(files: TestFile[]): { attention: TestFile[]; rest: TestFile[] } {
-  const attention = files.filter((f) => ATTENTION.includes(f.state));
-  const rest = files.filter((f) => !ATTENTION.includes(f.state));
-  return { attention, rest };
-}
 
 /** Which sections the Trust page shows, top to bottom. */
 export interface TrustSections {
   /** Test files per suite (test-first). */
   suites: boolean;
-  /** No suites to show, but test runs exist (a server without /test-suites, or nothing recorded on the default branch yet): the latest runs. */
+  /** No suites to show, but test runs exist (a server without /test-suites, or nothing recorded yet): the latest runs. */
   testRuns: boolean;
   /** Step-level trust, below the tests; left out when there are no steps. */
   steps: boolean;
@@ -142,4 +137,240 @@ export function trustSections(p: { suites: TestSuite[] | null; testRuns: number;
   const testRuns = !suites && p.testRuns > 0;
   const steps = p.steps > 0;
   return { suites, testRuns, steps, empty: !suites && !testRuns && !steps };
+}
+
+// ---------------------------------------------------------------- The compact Trust page
+// A summary strip, the files that need a look, then one collapsed row per
+// suite. Built on the server from /test-suites, /test-runs and /test-stats;
+// the client only filters and expands (components/test-suites.tsx).
+
+/** States that need a look: paused (a spot-check differed) and always runs. */
+export const NEEDS_LOOK: readonly TestFileState[] = ["paused", "always"];
+export const needsLook = (f: Pick<TestFile, "state">) => NEEDS_LOOK.includes(f.state);
+
+/** The stacked bars' order, left to right: learning, ready, skipping, always, paused. */
+export const BAR_ORDER = ["learning", "ready", "skipping", "always", "paused"] as const satisfies readonly TestFileState[];
+
+/** An expanded suite lists at most this many files until "Show all". */
+export const MAX_FILES = 8;
+
+/** "% skipped" is the median over this many of the newest critical runs. */
+export const MEDIAN_OF = 20;
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Needs a look first (paused, then always runs), then most time saved, then by path. */
+export function sortFiles(files: TestFile[]): TestFile[] {
+  const rank = (f: TestFile) => (f.state === "paused" ? 0 : f.state === "always" ? 1 : 2);
+  return [...files].sort((a, b) => rank(a) - rank(b) || (b.savedMs ?? 0) - (a.savedMs ?? 0) || a.file.localeCompare(b.file));
+}
+
+/** The first `max` files (all when showAll), and how many are left out. */
+export function visibleFiles<T>(files: T[], showAll: boolean, max = MAX_FILES): { shown: T[]; hidden: number } {
+  if (showAll || files.length <= max) return { shown: files, hidden: 0 };
+  return { shown: files.slice(0, max), hidden: files.length - max };
+}
+
+export type StateFilter = "all" | "look" | "skipping" | "ready" | "learning";
+
+export const FILTERS: { key: StateFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "look", label: "Needs a look" },
+  { key: "skipping", label: "Skipping" },
+  { key: "ready", label: "Ready" },
+  { key: "learning", label: "Learning" },
+];
+
+/** Does a file pass the state filter and the search (case-insensitive, on its path)? */
+export function matchesFilter(f: Pick<TestFile, "file" | "state">, filter: StateFilter, query = ""): boolean {
+  const q = query.trim().toLowerCase();
+  if (q && !f.file.toLowerCase().includes(q)) return false;
+  if (filter === "all") return true;
+  if (filter === "look") return needsLook(f);
+  return f.state === filter;
+}
+
+/** The count on each filter pill: the listed files that match the search, per filter. */
+export function filterCounts(files: Pick<TestFile, "file" | "state">[], query = ""): Record<StateFilter, number> {
+  const out: Record<StateFilter, number> = { all: 0, look: 0, skipping: 0, ready: 0, learning: 0 };
+  for (const f of files) for (const { key } of FILTERS) if (matchesFilter(f, key, query)) out[key]++;
+  return out;
+}
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/** The median share (0-100) of test files skipped over the newest `n` critical runs (runs come newest first); null when there are none. */
+export function medianSkippedPct(runs: Pick<TestRunSummary, "kind" | "files">[], n = MEDIAN_OF): number | null {
+  const pcts = runs
+    .filter((r) => r.kind === "critical" && r.files.total > 0)
+    .slice(0, n)
+    .map((r) => (r.files.replayed / r.files.total) * 100);
+  return median(pcts);
+}
+
+/** "93%", or "n/a" when there are no runs. */
+export const pctText = (p: number | null) => (p === null ? "n/a" : `${Math.round(p)}%`);
+
+function normSuite(s: string): string {
+  const t = s.trim().replace(/^\.\/+/, "").replace(/\/+$/, "");
+  return t === "" || t === "." ? "." : t;
+}
+
+/** A suite's runs: the same repository (case-insensitive) and the same vitest project dir. */
+export function runsOfSuite<T extends Pick<TestRunSummary, "repository" | "suite">>(runs: T[], s: Pick<TestSuite, "repository" | "suite">): T[] {
+  const repo = s.repository.toLowerCase();
+  const dir = normSuite(s.suite);
+  return runs.filter((r) => r.repository.toLowerCase() === repo && normSuite(r.suite) === dir);
+}
+
+/** Time saved by critical runs in the 7 days before now. */
+export function savedWithinWeek(runs: Pick<TestRunSummary, "kind" | "at" | "timing">[], now: number): { savedMs: number; runs: number } {
+  const week = runs.filter((r) => {
+    const at = Date.parse(r.at);
+    return r.kind === "critical" && at <= now && now - at <= WEEK_MS;
+  });
+  return { savedMs: week.reduce((a, r) => a + (r.timing.savedMs ?? 0), 0), runs: week.length };
+}
+
+export type FileCounts = Pick<TestSuite["totals"], "learning" | "ready" | "skipping" | "always" | "paused">;
+
+export interface BarSegment {
+  state: TestFileState;
+  n: number;
+  label: string;
+}
+
+const BAR_WORDS: Record<TestFileState, string> = { learning: "learning", ready: "ready", skipping: "skipping", always: "always run", paused: "paused" };
+
+/** The non-empty segments of a stacked state bar, in BAR_ORDER. */
+export function barSegments(t: FileCounts): BarSegment[] {
+  return BAR_ORDER.filter((k) => t[k] > 0).map((k) => ({ state: k, n: t[k], label: BAR_WORDS[k] }));
+}
+
+/** "184 files · 170 skipping · 3 need a look" (zero counts left out). */
+export function suiteRowSummary(t: TestSuite["totals"]): string {
+  const look = t.paused + t.always;
+  const parts = [plural(t.files, "file")];
+  if (t.skipping > 0) parts.push(`${formatCount(t.skipping)} skipping`);
+  if (look > 0) parts.push(`${formatCount(look)} need${look === 1 ? "s" : ""} a look`);
+  return parts.join(" · ");
+}
+
+/** Why a file needs a look, in plain words. */
+export function lookReason(f: Pick<TestFile, "state" | "reason">): string {
+  if (f.state === "paused") return "A spot-check got a different result. It runs every time until it matches again.";
+  const r = f.reason?.trim();
+  return r ? `Runs every time: ${r}.` : "Quod runs it every time.";
+}
+
+export interface LookItem {
+  file: string;
+  state: TestFileState;
+  suite: string;
+  reason: string;
+  href: string;
+  linkText: string;
+}
+
+export interface SuiteRow {
+  key: string;
+  heading: string;
+  ledger: string;
+  /** Has a recording to read (ledger not null). */
+  recorded: boolean;
+  /** The repository's test runs. */
+  href: string;
+  totals: TestSuite["totals"];
+  bar: BarSegment[];
+  summary: string;
+  skippedPct: number | null;
+  lastRunAt: string | null;
+  savedWeekMs: number;
+  /** Listed files, sorted (sortFiles). */
+  files: TestFile[];
+  /** Files the server counts but does not list. */
+  unlisted: number;
+}
+
+export interface TrustSummary {
+  wrongResults: number;
+  spotChecksPassed: number;
+  savedWeekMs: number;
+  weekRuns: number;
+  skippedPct: number | null;
+  totals: FileCounts & { files: number };
+  bar: BarSegment[];
+}
+
+export interface TrustModel {
+  summary: TrustSummary;
+  look: LookItem[];
+  suites: SuiteRow[];
+}
+
+/**
+ * Everything the compact Trust page shows, from the three endpoints. Runs
+ * come newest first (up to 200); stats may be null (an older server): the
+ * week and the spot-checks are then added up from the runs.
+ */
+export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRunSummary[]; stats: TestStats | null; now: number; ago: (iso: string) => string }): TrustModel {
+  const { team, suites, runs, stats, now } = p;
+  const totals = { files: 0, learning: 0, ready: 0, skipping: 0, always: 0, paused: 0 };
+  for (const s of suites) for (const k of ["files", ...BAR_ORDER] as const) totals[k] += s.totals[k];
+  const week = savedWithinWeek(runs, now);
+  const critical = runs.filter((r) => r.kind === "critical");
+  const checked = critical.reduce((a, r) => a + (r.audits?.checked ?? 0), 0);
+  const wrong = critical.reduce((a, r) => a + (r.audits?.mismatched ?? 0), 0);
+  const summary: TrustSummary = {
+    wrongResults: stats ? stats.wrongResults : wrong,
+    spotChecksPassed: stats ? stats.audits.passed : checked - wrong,
+    savedWeekMs: stats ? stats.week.savedMs : week.savedMs,
+    weekRuns: stats ? stats.week.runs : week.runs,
+    skippedPct: medianSkippedPct(runs),
+    totals,
+    bar: barSegments(totals),
+  };
+  const look: LookItem[] = [];
+  const rows: SuiteRow[] = suites.map((s) => {
+    const own = runsOfSuite(runs, s);
+    const heading = suiteHeading(s);
+    const testsHref = `/${team}/${s.repoSlug}/tests`;
+    const files = sortFiles(s.files);
+    for (const f of files.filter(needsLook)) {
+      // Paused: the run whose spot-check differed, when it is still among the runs; otherwise the suite's latest run.
+      const differed = f.state === "paused" ? own.find((r) => (r.audits?.mismatched ?? 0) > 0) : undefined;
+      const run = differed ?? own.find((r) => r.kind === "critical") ?? own[0];
+      look.push({
+        file: f.file,
+        state: f.state,
+        suite: heading,
+        reason: lookReason(f),
+        href: run ? testRunHref(team, run) : testsHref,
+        linkText: differed ? "See what differed" : run ? "Latest run" : "Test runs",
+      });
+    }
+    return {
+      key: `${s.repository}:${s.suite}`,
+      heading,
+      ledger: suiteLedgerText(s.ledger, p.ago),
+      recorded: !!s.ledger,
+      href: testsHref,
+      totals: s.totals,
+      bar: barSegments(s.totals),
+      summary: suiteRowSummary(s.totals),
+      skippedPct: medianSkippedPct(own),
+      lastRunAt: own[0]?.at ?? null,
+      savedWeekMs: savedWithinWeek(own, now).savedMs,
+      files,
+      unlisted: Math.max(0, s.totals.files - s.files.length),
+    };
+  });
+  // Paused before always runs, across suites (stable within each).
+  look.sort((a, b) => (a.state === "paused" ? 0 : 1) - (b.state === "paused" ? 0 : 1));
+  return { summary, look, suites: rows };
 }

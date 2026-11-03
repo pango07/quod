@@ -198,7 +198,7 @@ export function ProtectionNote({ children }: { children: React.ReactNode }) {
   return (
     <details ref={ref} id="protected-branch" className="plain-note" style={{ scrollMarginTop: 80 }}>
       <summary>
-        <span className="muted">Only runs on your default branch record results that other jobs can skip with.</span> <span className="link-like">Learn more</span>
+        <span className="muted">Only runs on a writer branch save the recordings that other runs reuse.</span> <span className="link-like">Learn more</span>
       </summary>
       <div style={{ paddingTop: 12 }}>{children}</div>
     </details>

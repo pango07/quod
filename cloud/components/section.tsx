@@ -54,13 +54,29 @@ export function ProtectionBadge({ p }: { p: BranchProtection | undefined }) {
       ? `${branch} is protected on GitHub.`
       : p.state === "unprotected"
         ? `${branch} is not protected: anyone who can push to it can record results every CI job will reuse.`
-        : "Quod could not read this branch's protection (the GitHub App needs Administration: read).";
+        : p.detail === "plan"
+          ? "GitHub offers branch protection for this private repository only on a paid plan, so Quod can't check it."
+          : protectionLabel(p) === "checking protection"
+            ? "Quod is reading this branch's protection from GitHub."
+            : "Quod could not read this branch's protection (the GitHub App needs Administration: read, or GitHub did not answer).";
   return (
     <span className={`chip ${tone}`} title={title}>
       <Dot tone={p.state === "protected" ? "green" : p.state === "unprotected" ? "amber" : "dim"} size="sm" />
-      {p.state === "unknown" ? (p.checkedAt ? STATE_LABEL.unknown : "checking protection") : `${branch} ${STATE_LABEL[p.state]}`}
+      {protectionLabel(p)}
     </span>
   );
+}
+
+/**
+ * The badge's words. "checking protection" only while a first read is under
+ * way (`pending`, a few seconds at most): never a spinner that stays up.
+ */
+export function protectionLabel(p: BranchProtection): string {
+  const branch = p.branch ?? "Default branch";
+  if (p.state !== "unknown") return `${branch} ${STATE_LABEL[p.state]}`;
+  if (p.detail === "plan") return "Protection: can't check on this plan";
+  if (p.pending && !p.checkedAt) return "checking protection";
+  return "Protection: unknown";
 }
 
 /**

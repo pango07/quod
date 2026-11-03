@@ -231,15 +231,23 @@ The types are `lib/api/types.ts`; the recorded bodies in
   `lastResult` is vitest's state at the last recording (`pass` | `skip` |
   `fail` | null); `skipped` counts recorded runs that reused its result,
   `ran` the times it ran and was recorded; `savedMs = skipped * durationMs`.
-  The Trust page (plain wording, the default) is test-first: one card per
-  suite ("repo · package", totals, the recording it reads), the files that
-  need a look (paused, always runs, learning) listed and the rest folded
-  under a count; step-level trust follows only when there are steps
+  The Trust page (plain wording, the default) is test-first and compact
+  (`trustModel` in `lib/test-suites.ts`): a summary strip (wrong results and
+  spot-checks from `/test-stats`, time saved over 7 days, % of test files
+  skipped as the median of the last 20 critical runs from `/test-runs`
+  (`limit=200`), one stacked state bar), "Needs a look" (paused and always
+  runs only), then one collapsed row per suite ("repo · package", mini bar,
+  counts, % skipped, last run, saved over 7 days) that opens to at most 8
+  files (needs a look first, then most time saved) with "Show all". A sticky
+  toolbar filters files by path and state. A suite with `ledger: null` says
+  the first run on a writer branch records it. The four reads run in
+  parallel; step run details are read only when there are steps.
+  Step-level trust follows only when there are steps
   (`?ui=classic` keeps the old step page). No suites but test runs: the
   latest runs. Nothing at all: one empty state pointing at
   `pango07/quod-action`. 404/501 is `null` (treated as no suites); down is
-  "unavailable". The Overview adds a line from the totals ("280 test files:
-  258 skipping, 17 ready, ..."). Trust refreshes on `test.run`.
+  "unavailable". The Overview adds a line from the totals ("296 test files:
+  265 skipping, 17 ready, ..."). Trust refreshes on `test.run`.
 - **Connect** (`ConnectSetup`): the setup action name, runner labels,
   install command, a self-hosted server example, the first repo (or null)
   and the saved choice.
