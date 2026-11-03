@@ -15,7 +15,6 @@
 import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
 import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
-import { instrument } from './instrument.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
@@ -39,8 +38,10 @@ const codeDir = import.meta.dirname
 // state dir, so it travels with the ledger. The main process enables it
 // here, the workers through the environment they inherit. V8 checks the
 // source hash of every entry: a stale entry is recompiled, never used.
+// Not in record runs: they measure V8 coverage, which the cache must not
+// be able to touch.
 const off = (process.env.QUOD_VITEST_DISABLE ?? '').split(',')
-if (!off.includes('compile-cache') && typeof nodeModule.enableCompileCache === 'function') {
+if (plan.record === false && !off.includes('compile-cache') && typeof nodeModule.enableCompileCache === 'function') {
   const cc = path.join(stateDir, 'compile-cache')
   try {
     const st = nodeModule.enableCompileCache(cc)
@@ -98,57 +99,8 @@ process.env.NODE_ENV ??= 'test'
 const setupPath = path.join(codeDir, 'setup.mjs')
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
-// From here on a package.json the main process reads is vite's resolver's
-// (field-level, `pj:`); one read while the config loaded stays whole.
-r.pjOk = true
-process.env.QUOD_VITEST_ROOT = ctx.config.root
 
-// Record runs instrument the workspace's source as vite hands it to the
-// workers (instrument.mjs): every environment's transformRequest result,
-// in place (the module graph keeps that object, and vitest inlines its
-// map). Keys name the environment: two environments transform a file
-// differently, so their function indexes differ.
-const tables = new Map()
-let instrumentMs = 0
-if (record && !(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('cov')) {
-  let parseAst = null
-  try {
-    const vreq = nodeModule.createRequire(vitestPkgJson)
-    const vpj = vreq.resolve('vite/package.json')
-    const vp = JSON.parse(real.readFileSync(vpj, 'utf8'))
-    let ent = vp.exports?.['.']
-    while (ent && typeof ent === 'object') ent = ent.import ?? ent.default
-    parseAst = (await import(pathToFileURL(path.join(path.dirname(vpj), ent ?? vp.module ?? vp.main)).href)).parseAst
-  } catch (e) {
-    log(`no vite parser (${e.message}): no function-level data`)
-  }
-  const rootSlash = ctx.config.root.endsWith('/') ? ctx.config.root : `${ctx.config.root}/`
-  if (typeof parseAst === 'function') {
-    for (const p of ctx.projects) {
-      for (const [envName, env] of Object.entries(p.vite?.environments ?? {})) {
-        if (typeof env?.transformRequest !== 'function') continue
-        const orig = env.transformRequest.bind(env)
-        env.transformRequest = async (url, ...rest) => {
-          const res = await orig(url, ...rest)
-          if (res && !res.__quod) {
-            const ti = performance.now()
-            let file = null
-            try {
-              file = (await env.moduleGraph.getModuleByUrl(url))?.file ?? null
-            } catch {}
-            if (file && file.startsWith(rootSlash) && !file.includes('/node_modules/')) {
-              const key = `${p.name}|${envName}|${file}`
-              const t = instrument(res, key, parseAst)
-              if (t) tables.set(key, { file, t })
-            } else res.__quod = true
-            instrumentMs += performance.now() - ti
-          }
-          return res
-        }
-      }
-    }
-  }
-}
+process.env.QUOD_VITEST_ROOT = ctx.config.root
 
 // A large run (the plan says so) uses every CPU, not vitest's default of
 // one fewer: the main process idles while workers run. Only when neither
@@ -323,6 +275,23 @@ r.on = false
 // Results and records of the files that ran.
 const ranOut = []
 const auditMismatch = []
+// The critical path's vitest JSON report (`--expect-report`): per file, its
+// tests' names and states, in testStates' form.
+let expected = null
+if (plan.expectReport) {
+  try {
+    expected = new Map()
+    for (const t of JSON.parse(real.readFileSync(plan.expectReport, 'utf8')).testResults) {
+      const tests = t.assertionResults.map(
+        (x) => `${[...x.ancestorTitles, x.title].join(' > ')}=${x.status === 'passed' || x.status === 'failed' ? x.status : 'other'}`,
+      )
+      expected.set(t.name, JSON.stringify(tests.sort()))
+    }
+  } catch (e) {
+    expected = new Map() // unreadable: nothing verifies, so nothing that ran records
+    log(`expect report ${plan.expectReport} unreadable (${e.message}): nothing that ran is recorded`)
+  }
+}
 const moduleKeys = (mods) => {
   const w = createRecorder({ stateDir, codeDir, mode: 'worker' })
   for (const m of mods) w.add('f', m)
@@ -360,34 +329,42 @@ for (const m of endModules) {
     const root = ctx.config.root + '/'
     const ws = d.writes.filter((w) => w.startsWith(root) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
+    // A watched path is read whole (recursively, content included) at the
+    // end of the file; under a directory the file itself created (its own
+    // output, e.g. a temp dir) it is not an input at all.
+    const made = d.writes.filter((w) => !w.startsWith(root))
+    for (const w of d.watches ?? []) {
+      if (made.some((m) => w === m || w.startsWith(m))) continue
+      d.keys.push(`rc:${w}`)
+    }
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.
-    if (d.hits) {
-      const all = new Map()
-      const bad = new Set()
-      const add = (key, idx) => {
-        const e = tables.get(key)
-        if (!e) return
-        let s = all.get(e.file)
-        if (!s) all.set(e.file, (s = new Map()))
-        for (const i of idx) {
-          const r = e.t[i]
-          if (!r) bad.add(e.file)
-          else s.set(r.join(','), r)
-        }
-      }
-      for (const [key, idx] of Object.entries(d.hits)) add(key, idx)
-      for (const t of Object.values(d.tests ?? {})) for (const [key, idx] of Object.entries(t)) add(key, idx)
+    if (d.cov) {
       cov = {}
-      for (const [f, s] of all) {
-        if (bad.has(f) || f === file.filepath || d.keys.includes(`f:${f}`) || d.keys.includes(`e:${f}`)) continue
-        cov[f] = [...s.values()]
+      for (const [f, fns] of Object.entries(d.cov)) {
+        if (f !== file.filepath && !d.keys.includes(`f:${f}`) && !d.keys.includes(`e:${f}`)) cov[f] = fns
       }
     }
   }
   const resultRel = `results/${id}.json`
   if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), strip(file))
+  // The shadow's safety net: a file records only if it ran here as it did on
+  // the critical path of the same commit (uninstrumented); else recording
+  // changed its behaviour, and it is quarantined.
+  // A file the report does not have (or an unreadable report) cannot be
+  // verified: it is not recorded (and runs next time), but not quarantined.
+  if (record && expected && !auditMismatch.includes(id)) {
+    const want = expected.get(file.filepath)
+    const got = JSON.stringify(testStates(file).map(([n, s]) => `${n}=${s === 'pass' ? 'passed' : s === 'fail' ? 'failed' : 'other'}`).sort())
+    if (want === undefined) {
+      keys = null
+      log(`${file.filepath} is not in the critical path's report: not recorded`)
+    } else if (want !== got) {
+      auditMismatch.push(id)
+      log(`recording changed behaviour: ${file.filepath} ran differently than on the critical path; quarantined`)
+    }
+  }
   if (audits.has(id) && plan.replay?.[id]) {
     try {
       const rec = JSON.parse(real.readFileSync(path.join(stateDir, plan.replay[id]), 'utf8'))
@@ -465,7 +442,7 @@ writeJson(outPath, {
   allFiles,
   render,
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov, instrument: instrumentMs, instrumented: tables.size },
+  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
 })
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)

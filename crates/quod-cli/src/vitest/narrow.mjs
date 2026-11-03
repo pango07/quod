@@ -185,6 +185,30 @@ function untouched(fns, ranges) {
   return true
 }
 
+// Informational: how many of a running file's tests a per-test rule would
+// have skipped (each test's own functions and the file's shared ones clear
+// of every change). Not used: tests of one file share module state.
+const wouldSkip = { tests: 0, of: 0 }
+function perTest(t, cache) {
+  if (!t.tests) return
+  let per
+  try {
+    per = JSON.parse(fs.readFileSync(t.tests, 'utf8'))
+  } catch {
+    return
+  }
+  const ids = Object.keys(per.tests ?? {})
+  wouldSkip.of += ids.length
+  const fnsOf = (c) => cache.get(`${c.file}\0${c.old}`)?.fns
+  for (const c of t.checks) {
+    const fns = fnsOf(c)
+    if (!fns || !untouched(fns, per.file?.[c.file] ?? [])) return
+  }
+  for (const id of ids) {
+    if (t.checks.every((c) => untouched(fnsOf(c), per.tests[id][c.file] ?? []))) wouldSkip.tests++
+  }
+}
+
 function narrow(req) {
   const ts = loadTs(req.root)
   const why = {}
@@ -218,6 +242,7 @@ function narrow(req) {
       if (!untouched(r.fns, c.ranges)) {
         note('changes a function it executed')
         ok = false
+        perTest(t, cache)
         break
       }
     }
@@ -226,7 +251,7 @@ function narrow(req) {
       note('changes only functions it never ran')
     }
   }
-  return { skip, why }
+  return { skip, why, perTest: wouldSkip }
 }
 
 if (process.argv[2] === 'mutate') {
