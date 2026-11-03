@@ -68,9 +68,6 @@ const STEP_VOLATILE: &[&str] = &[
     "INVOCATION_ID",
     "OLDPWD",
     "_",
-    // systemd's, for the runner service: another value on every VM.
-    "SYSTEMD_EXEC_PID",
-    "JOURNAL_STREAM",
 ];
 
 #[derive(clap::Args)]
