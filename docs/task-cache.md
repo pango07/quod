@@ -26,9 +26,15 @@ or `yarn@2+`, means Yarn Berry.
 - every `package.json` outside `node_modules` and dot-directories;
 - `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `pnpm-workspace.yaml`, `.pnpmfile.cjs`
   and `bunfig.toml`;
+- for npm, the user and global config files too;
 - node's exact version, and npm's version (for npm);
 - the platform and architecture;
-- `ImageOS` and `ImageVersion`;
+- `ImageOS`;
+- `ImageVersion`, only when a dependency's install script may compile
+  against the image. Install scripts that just fetch a prebuilt binary,
+  like esbuild, workerd and unrs-resolver, can't. Otherwise every weekly
+  image rollout, which runs the old and new image side by side for days,
+  would split the cache. The first bench run lost half its hits to one.
 - `NODE_ENV`;
 - every `npm_config_*` variable.
 
@@ -53,9 +59,19 @@ or `yarn@2+`, means Yarn Berry.
     equals the one taken right after the restore. So another cache step
     restoring over it, or anything else writing into it, makes npm run.
 
-  Otherwise npm runs as always. A successful `npm ci` at the root is noted,
-  and the post step saves the tree, but only when nothing outside the key can
-  have gone into it:
+  Otherwise npm runs as always. A successful `npm ci` at the root is noted
+  with a full print of the tree (every path, size, mtime and mode). Each
+  `npm ci` clears the previous one's note, so a later failed install saves
+  nothing. The post step saves the tree only when all of these hold:
+
+  - the print is unchanged, so nothing wrote into `node_modules` after the
+    install (`npm install --no-save`, a generator, a patch);
+  - the job runs the repository's own code: push, same-repository
+    `pull_request`, `merge_group`, `workflow_dispatch` or `schedule`. A
+    `pull_request_target` or `workflow_run` job saves into the base
+    branch's cache scope while it may run someone else's code, so it
+    restores but never saves;
+  - nothing outside the key can have gone into the tree:
 
   - none of the project's own `package.json` files has an install lifecycle
     script (`preinstall`, `install`, `postinstall`, `prepare`, ...). Those
@@ -165,10 +181,25 @@ turbo never caches a failed task. The floor bench's `typeerror` case checks
 this: a shared type change breaks two pages that did not change, and the
 typecheck must still fail with the same errors.
 
-**Not done.** There is no garbage collection of old artifacts yet; they are
-in the bucket like test-replay ledgers. Artifact signing
-(`TURBO_REMOTE_CACHE_SIGNATURE_KEY`) isn't needed, since the server scopes
-who wrote what.
+**Bodies.** No handler buffers a body before the session checks out:
+
+- **Uploads** stream to disk with `QUOD_MAX_BLOB_BYTES`.
+- **The query** reads at most 64 KiB and answers 100 hashes.
+- **Events and status** read nothing.
+
+**Caveats.**
+
+- **The environment** is stated when the action runs. A second setup-node
+  later in the job, with another node, would replay across node versions.
+  The Quod line belongs after the job's last setup-node.
+- **Nx PUTs.** A read-only session (`pull_request_target`) gets 403 on
+  PUT, which Nx's spec defines for read-only tokens.
+- **Concurrent uploads.** Two concurrent uploads of one key both reach the
+  bucket, and only the first is referenced.
+- **No garbage collection** of old artifacts yet. They are in the bucket
+  like test-replay ledgers.
+- **No artifact signing.** `TURBO_REMOTE_CACHE_SIGNATURE_KEY` isn't needed,
+  since the server scopes who wrote what.
 
 ## 3. Plain `tsc` (no task runner): design, not built
 

@@ -462,22 +462,27 @@ pub async fn turbo_put(
 pub async fn turbo_query(
     State(app): State<AppState>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // The session first: nothing of the body is read for a caller without one.
+    let (a, h) = (app.clone(), headers.clone());
+    let s = blocking(move || session_of(&a, &h)).await?;
+    let body = axum::body::to_bytes(body, MAX_QUERY_BYTES)
+        .await
+        .map_err(|_| ApiError::bad_request("the query is too large"))?;
     // Whatever content type it came with (turbo's clients differ).
-    let req: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|_| ApiError::bad_request("the body is not JSON"))?;
+    let req: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|_| ApiError::bad_request("the body is not JSON"))?;
     let hashes: Vec<String> = req["hashes"]
         .as_array()
         .map(|a| {
             a.iter()
                 .filter_map(|h| h.as_str().map(String::from))
-                .take(1000)
+                .take(MAX_QUERY_HASHES)
                 .collect()
         })
         .unwrap_or_default();
     blocking(move || {
-        let s = session_of(&app, &headers)?;
         let mut out = serde_json::Map::new();
         for h in hashes {
             let v = if crate::valid_id(&h) {
@@ -494,6 +499,11 @@ pub async fn turbo_query(
     })
     .await
 }
+
+/// The largest `POST /v8/artifacts` body, and how many hashes of it are
+/// answered.
+const MAX_QUERY_BYTES: usize = 64 << 10;
+const MAX_QUERY_HASHES: usize = 100;
 
 /// `POST /v8/artifacts/events`: turbo's hit and miss events; not kept.
 pub async fn turbo_events(
@@ -529,19 +539,28 @@ pub async fn nx_put(
     }
 }
 
+/// No handler here buffers a body it has not authenticated: the uploads
+/// stream to disk after the session is checked, with the server's own cap
+/// (`QUOD_MAX_BLOB_BYTES`); the query reads at most `MAX_QUERY_BYTES` after
+/// it; events and status read none.
 pub fn router() -> axum::Router<AppState> {
-    use axum::routing::{get, post};
+    use axum::extract::DefaultBodyLimit;
+    use axum::handler::Handler;
+    use axum::routing::{get, post, put};
     axum::Router::new()
         .route("/v8/artifacts/status", get(turbo_status))
         .route("/v8/artifacts/events", post(turbo_events))
         .route("/v8/artifacts", post(turbo_query))
         .route(
             "/v8/artifacts/{hash}",
-            get(turbo_get).head(turbo_head).put(turbo_put),
+            get(turbo_get)
+                .head(turbo_head)
+                .merge(put(turbo_put.layer(DefaultBodyLimit::disable()))),
         )
-        .route("/nx/v1/cache/{hash}", get(nx_get).put(nx_put))
-        // Uploads stream to disk with the server's own cap (QUOD_MAX_BLOB_BYTES).
-        .layer(axum::extract::DefaultBodyLimit::disable())
+        .route(
+            "/nx/v1/cache/{hash}",
+            get(nx_get).merge(put(nx_put.layer(DefaultBodyLimit::disable()))),
+        )
 }
 
 #[cfg(test)]
