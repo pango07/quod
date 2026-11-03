@@ -679,22 +679,9 @@ pub fn oidc_scopes(team: &TeamConfig, c: &GithubClaims) -> (Vec<String>, String,
 /// The scope of a ref: `ref-<readable part>-<hash>`, a valid id that two
 /// refs never share.
 pub fn ref_scope(r: &str) -> String {
-    let readable: String = r
-        .trim_start_matches("refs/")
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .take(60)
-        .collect();
-    format!(
-        "ref-{readable}-{}",
-        &blake3::hash(r.as_bytes()).to_hex()[..12]
-    )
+    // One definition, which the vitest client also uses to check that a
+    // signed ledger is for its own ref.
+    quod_wire::testreplay::ref_scope(r)
 }
 
 /// `owner/name`, each part a GitHub-shaped name.

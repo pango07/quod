@@ -318,15 +318,23 @@ fn find(
     ancestors: &[String],
 ) -> anyhow::Result<Option<(Row, &'static str)>> {
     let own = scopes.first().cloned().unwrap_or_default();
+    let last = scopes.last().cloned().unwrap_or_default();
     let in_scopes = |s: &str| scopes.iter().any(|x| x == s);
     let by_sha = format!(
-        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 ORDER BY id DESC LIMIT 20"
+        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND (scope = $5 OR scope = $6) ORDER BY id DESC LIMIT 20"
     );
     for sha in ancestors.iter().filter(|s| valid_sha(s)) {
         let rows: Vec<Row> = db
             .query(
                 &by_sha,
-                &[t(team), t(repo), t(suite), t(sha.as_str())],
+                &[
+                    t(team),
+                    t(repo),
+                    t(suite),
+                    t(sha.as_str()),
+                    t(own.as_str()),
+                    t(last.as_str()),
+                ],
                 COL_TYS,
             )?
             .iter()
@@ -384,6 +392,8 @@ pub async fn lookup(
                     repository: runner.repository.clone(),
                     scope: r.scope.clone(),
                     suite: req.suite.clone(),
+                    repository_id: runner.repository_id,
+                    requester_scope: runner.write.clone(),
                     ledger_id: r.id,
                     sha: r.sha.clone(),
                     files: files_hash(&files).map_err(ApiError::internal)?,
@@ -418,6 +428,15 @@ pub async fn save(
     Json(req): Json<SaveRequest>,
 ) -> Result<Json<SaveResponse>, ApiError> {
     blocking(move || {
+        // A delegated token states its own scope; the vitest client runs
+        // inside the job, so that would let any job holding it write
+        // `trusted`. Static runner tokens have a fixed scope (writer-only
+        // tokens: see docs/test-replay-cloud.md).
+        if matches!(principal, Principal::Delegated { .. }) {
+            return Err(ApiError::forbidden(
+                "a delegated runner token cannot save test ledgers; use the job's OIDC token",
+            ));
+        }
         let runner = App::runner_of(&principal, req.scope.as_ref())?;
         check_suite(&req.suite)?;
         if !may_save(&runner) {
@@ -518,36 +537,77 @@ pub async fn pack(
     if req.hashes.len() > MAX_PACK {
         return Err(ApiError::bad_request("too many hashes"));
     }
+    let mut hashes = req.hashes;
+    {
+        let mut seen = std::collections::HashSet::new();
+        hashes.retain(|h| seen.insert(*h));
+    }
+    // A few packs at a time per instance; each holds at most 8 blobs of at
+    // most PACK_BLOB bytes in memory, and sends at most MAX_LEDGER_BYTES.
+    let permit = PACKS.clone().try_acquire_owned().map_err(|_| {
+        ApiError::new(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "busy",
+            "too many downloads at once; try again",
+        )
+    })?;
+    let sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let blobs = {
         let a = app.clone();
         let t = team.clone();
         Arc::new(blocking(move || Ok(a.store.cas(&t)?)).await?)
     };
-    let stream = futures_util::stream::iter(req.hashes)
+    let stream = futures_util::stream::iter(hashes)
         .map(move |h| {
             let blobs = blobs.clone();
+            let sent = sent.clone();
             async move {
-                let got = tokio::task::spawn_blocking(move || blobs.read_blob(&h))
-                    .await
-                    .map_err(std::io::Error::other)?;
+                let got = tokio::task::spawn_blocking(move || {
+                    // Too large for a pack, or past the pack's total: "-"
+                    // (the client then runs every test file).
+                    match blobs.size(&h)? {
+                        Some(n) if n <= PACK_BLOB => {}
+                        _ => return Ok(None),
+                    }
+                    let b = blobs.read_blob(&h)?;
+                    let total = sent
+                        .fetch_add(b.len() as u64, std::sync::atomic::Ordering::Relaxed)
+                        + b.len() as u64;
+                    Ok::<_, quod_cas::CasError>((total <= MAX_LEDGER_BYTES).then_some(b))
+                })
+                .await
+                .map_err(std::io::Error::other)?;
                 let out = match got {
-                    Ok(b) => {
+                    Ok(Some(b)) => {
                         let mut o = format!("{} {}\n", h.hex(), b.len()).into_bytes();
                         o.extend_from_slice(&b);
                         o
                     }
-                    Err(_) => format!("{} -\n", h.hex()).into_bytes(),
+                    Ok(None) | Err(_) => format!("{} -\n", h.hex()).into_bytes(),
                 };
                 Ok::<_, std::io::Error>(axum::body::Bytes::from(out))
             }
         })
-        .buffered(16);
+        .buffered(8);
+    // The permit lives as long as the body streams.
+    let stream = stream.map(move |x| {
+        let _held = &permit;
+        x
+    });
     Ok((
         [("content-type", "application/octet-stream")],
         Body::from_stream(stream),
     )
         .into_response())
 }
+
+/// Packs streaming at once per instance.
+static PACKS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(16)));
+/// The largest blob a pack carries.
+const PACK_BLOB: u64 = 64 << 20;
+/// The most a report's stored detail may be, in bytes.
+const MAX_DETAIL: usize = 1 << 20;
 
 /// A report's text, capped.
 fn capped(s: &str, n: usize) -> String {
@@ -570,6 +630,13 @@ pub async fn report(
     blocking(move || {
         let runner = App::runner_of(&principal, req.scope.as_ref())?;
         check_suite(&req.suite)?;
+        // Reports are numbers people trust (spot-checks, wrong results):
+        // only jobs whose ledgers count may send them.
+        if !may_save(&runner) {
+            return Err(ApiError::forbidden(
+                "this job runs on input someone else controls; it does not report test runs",
+            ));
+        }
         let r = &req.report;
         if !matches!(r.kind.as_str(), "critical" | "shadow") || r.tool != "vitest" {
             return Err(ApiError::bad_request(
@@ -588,7 +655,7 @@ pub async fn report(
         }
         let repo = repo_key(&runner)?;
         let c = ci(&runner, &req.ci);
-        let ran_files: Vec<RanFile> = r
+        let mut ran_files: Vec<RanFile> = r
             .ran_files
             .iter()
             .map(|f| RanFile {
@@ -616,7 +683,16 @@ pub async fn report(
             scope: l.scope.as_deref().map(|s| capped(s, 200)),
             matched: l.matched.as_deref().map(|s| capped(s, 40)),
         });
-        let detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger });
+        let mut detail =
+            json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger });
+        while detail.to_string().len() > MAX_DETAIL && !ran_files.is_empty() {
+            let keep = ran_files.len() / 2;
+            ran_files.truncate(keep);
+            detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "ranFilesTruncated": true });
+        }
+        if detail.to_string().len() > MAX_DETAIL {
+            return Err(ApiError::bad_request("the report is too large"));
+        }
         let cap = |s: &Option<String>| ot(s.as_deref().map(crate::api::cap));
         let d = db(&app, &runner.team)?;
         let id = d.insert(
@@ -781,8 +857,14 @@ fn shadow_of(d: &Db, team: &str, r: &RunRow) -> anyhow::Result<Option<RunRow>> {
     let Some(sha) = &r.sha else { return Ok(None) };
     Ok(runs_where(
         d,
-        "team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND kind = 'shadow' ORDER BY id DESC LIMIT 1",
-        &[t(team), t(r.repo_key.as_str()), t(r.suite.as_str()), t(sha.as_str())],
+        "team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND scope = $5 AND kind = 'shadow' ORDER BY id DESC LIMIT 1",
+        &[
+            t(team),
+            t(r.repo_key.as_str()),
+            t(r.suite.as_str()),
+            t(sha.as_str()),
+            t(r.scope.as_str()),
+        ],
     )?
     .into_iter()
     .next())

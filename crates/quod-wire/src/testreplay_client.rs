@@ -35,25 +35,11 @@ pub struct TestReplayClient {
     key: OnceLock<VerifyingKey>,
 }
 
-/// A nonce no earlier lookup had.
-fn nonce() -> String {
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+/// A nonce: 16 bytes from the OS's randomness.
+fn nonce() -> Result<String, CallError> {
     let mut r = [0u8; 16];
-    // getrandom is not a dependency here; the time, the process and the
-    // machine make it unique, which is all a nonce needs.
-    let host = std::fs::read_to_string("/etc/machine-id").unwrap_or_default();
-    let h = Hash::of(
-        format!(
-            "quod test-ledger nonce\0{t}\0{}\0{host}",
-            std::process::id()
-        )
-        .as_bytes(),
-    );
-    r.copy_from_slice(&h.as_bytes()[..16]);
-    hex::encode(r)
+    getrandom::getrandom(&mut r).map_err(|e| CallError(format!("randomness: {e}")))?;
+    Ok(hex::encode(r))
 }
 
 impl TestReplayClient {
@@ -149,9 +135,14 @@ impl TestReplayClient {
         Ok(k)
     }
 
-    /// The ledger to start from, verified, or none.
-    pub fn lookup(&self, suite: &str, ancestors: &[String]) -> Result<LookupResponse, CallError> {
-        let nonce = nonce();
+    /// The ledger to start from, verified for this job (`me`), or none.
+    pub fn lookup(
+        &self,
+        suite: &str,
+        ancestors: &[String],
+        me: &Requester,
+    ) -> Result<LookupResponse, CallError> {
+        let nonce = nonce()?;
         let resp: LookupResponse = self.post(
             "/v1/test-ledgers/lookup",
             &LookupRequest {
@@ -163,7 +154,7 @@ impl TestReplayClient {
             },
         )?;
         if let Some(f) = &resp.ledger {
-            verify_ledger(&self.server_key()?, f, suite, &nonce)
+            verify_ledger(&self.server_key()?, f, suite, &nonce, me)
                 .map_err(|e| CallError(format!("the ledger is not trusted: {e}")))?;
             check_files(&f.files).map_err(|e| CallError(format!("the ledger's files: {e}")))?;
         }
@@ -215,7 +206,12 @@ impl TestReplayClient {
                 }
                 let first = dest.join(&targets[0].path);
                 std::fs::create_dir_all(first.parent().unwrap_or(dest))?;
-                let mut out = std::fs::File::create(&first)?;
+                // create_new: never through a link, never over a file
+                // already written (two paths one file system folds together).
+                let mut out = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&first)?;
                 let mut hasher = blake3::Hasher::new();
                 let mut left = size;
                 let mut buf = vec![0u8; 1 << 16];
@@ -235,7 +231,11 @@ impl TestReplayClient {
                 for t in &targets[1..] {
                     let p = dest.join(&t.path);
                     std::fs::create_dir_all(p.parent().unwrap_or(dest))?;
-                    std::fs::copy(&first, &p)?;
+                    let mut o = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&p)?;
+                    std::io::copy(&mut std::fs::File::open(&first)?, &mut o)?;
                 }
             }
         }

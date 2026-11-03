@@ -13,7 +13,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use quod_wire::client::ServerConfig;
-use quod_wire::testreplay::{LedgerUsed, TOP_DIRS, TOP_FILES, TestReport};
+use quod_wire::testreplay::{LedgerUsed, Requester, TOP_DIRS, TOP_FILES, TestReport, valid_sha};
 use quod_wire::testreplay_client::TestReplayClient;
 
 pub struct Cloud {
@@ -128,24 +128,60 @@ fn remove(p: &Path) {
     let _ = std::fs::remove_file(p);
 }
 
-/// The ledger entries of `dir`.
+/// The ledger entries of `dir`, `ledger.json` last: a swap that is cut
+/// short leaves no `ledger.json`, so no ledger at all.
 fn entries(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
-    TOP_FILES.iter().chain(TOP_DIRS).map(move |e| dir.join(e))
+    TOP_DIRS.iter().chain(TOP_FILES).map(move |e| dir.join(e))
+}
+
+/// Removes the local ledger (`ledger.json` first); an error if any of it
+/// is still there.
+fn clear(dir: &Path) -> std::io::Result<()> {
+    let all: Vec<PathBuf> = entries(dir).collect();
+    for e in all.iter().rev() {
+        remove(e);
+        if std::fs::symlink_metadata(e).is_ok() {
+            return Err(std::io::Error::other(format!(
+                "{} could not be removed",
+                e.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// This job as GitHub describes it: a lookup answer must be for it.
+fn requester() -> Requester {
+    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    Requester {
+        repository: get("GITHUB_REPOSITORY"),
+        repository_id: get("GITHUB_REPOSITORY_ID").and_then(|v| v.parse().ok()),
+        git_ref: get("GITHUB_REF"),
+    }
 }
 
 impl Cloud {
-    /// Fetches the nearest ledger into `dir`, replacing the local one. When
-    /// the server has none, or anything fails, the local one stays as it
-    /// is (none on a fresh runner: every test file runs).
+    /// Fetches the nearest ledger into `dir`. With --cloud the only ledger
+    /// used is one Quod Cloud signed for this job: whatever was in `dir`
+    /// before (a cache, files committed to the repository, an earlier job's
+    /// on a persistent runner) is removed first, so when the server has
+    /// none, or anything fails, there is no ledger and every test file
+    /// runs.
     pub fn restore(&self, root: &Path, dir: &Path) -> LedgerUsed {
         let t = Instant::now();
         let none = LedgerUsed::default();
+        if let Err(e) = clear(dir) {
+            eprintln!(
+                "quod vitest: the local ledger could not be removed ({e}); Quod Cloud is not used"
+            );
+            return none;
+        }
         let anc = ancestors(root);
-        let resp = match self.client.lookup(&self.suite, &anc) {
+        let resp = match self.client.lookup(&self.suite, &anc, &requester()) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!(
-                    "quod vitest: Quod Cloud lookup failed ({}); using the local ledger, if any",
+                    "quod vitest: Quod Cloud lookup failed ({}); no ledger: every test file runs",
                     e.0
                 );
                 return none;
@@ -153,7 +189,7 @@ impl Cloud {
         };
         let Some(found) = resp.ledger else {
             eprintln!(
-                "quod vitest: Quod Cloud has no ledger for {} yet ({} ms); using the local ledger, if any",
+                "quod vitest: Quod Cloud has no ledger for {} yet ({} ms); every test file runs",
                 self.suite,
                 t.elapsed().as_millis()
             );
@@ -162,9 +198,7 @@ impl Cloud {
         let staging = dir.join(format!(".cloud-restore-{}", std::process::id()));
         remove(&staging);
         if let Err(e) = std::fs::create_dir_all(&staging) {
-            eprintln!(
-                "quod vitest: Quod Cloud restore failed ({e}); using the local ledger, if any"
-            );
+            eprintln!("quod vitest: Quod Cloud restore failed ({e}); every test file runs");
             return none;
         }
         let fetched = self.client.fetch(&found.files, &staging);
@@ -173,19 +207,17 @@ impl Cloud {
             Err(e) => {
                 remove(&staging);
                 eprintln!(
-                    "quod vitest: Quod Cloud restore failed ({}); using the local ledger, if any",
+                    "quod vitest: Quod Cloud restore failed ({}); every test file runs",
                     e.0
                 );
                 return none;
             }
         };
-        // Swap: the old ledger's entries out, the fetched ones in. A
-        // ledger must never be half one and half another (results are
-        // named by test id, not content), so a failure here leaves none.
+        // Move the fetched entries in, `ledger.json` last. A ledger must
+        // never be half one and half another (results are named by test
+        // id, not content); `dir` holds none now, and a failure leaves
+        // none.
         let swapped = (|| -> std::io::Result<()> {
-            for e in entries(dir) {
-                remove(&e);
-            }
             for (from, to) in entries(&staging).zip(entries(dir)) {
                 if from.exists() {
                     std::fs::rename(&from, &to)?;
@@ -195,9 +227,7 @@ impl Cloud {
         })();
         remove(&staging);
         if let Err(e) = swapped {
-            for e in entries(dir) {
-                remove(&e);
-            }
+            let _ = clear(dir);
             eprintln!(
                 "quod vitest: Quod Cloud restore failed ({e}); no ledger: every test file runs"
             );
@@ -208,7 +238,8 @@ impl Cloud {
             found
                 .sha
                 .as_deref()
-                .map_or("an unknown commit", |s| &s[..s.len().min(12)]),
+                .filter(|s| valid_sha(s))
+                .map_or("an unknown commit", |s| &s[..12]),
             found.git_ref.as_deref().unwrap_or(&found.scope),
             match found.matched.as_str() {
                 "ancestor" => "nearest recorded commit",

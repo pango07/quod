@@ -49,8 +49,31 @@ fn oidc(event: &str, git_ref: &str, sha: &str) -> String {
     jsonwebtoken::encode(&header, &claims, &key).unwrap()
 }
 
-fn client_with(s: &Server, auth: Auth, key: Option<&str>) -> TestReplayClient {
-    TestReplayClient::new(ServerConfig {
+/// A client and the job it runs in, as the job's own variables say.
+struct J {
+    c: TestReplayClient,
+    me: Requester,
+}
+
+impl std::ops::Deref for J {
+    type Target = TestReplayClient;
+    fn deref(&self) -> &TestReplayClient {
+        &self.c
+    }
+}
+
+impl J {
+    fn lookup(
+        &self,
+        suite: &str,
+        ancestors: &[String],
+    ) -> Result<LookupResponse, quod_wire::client::CallError> {
+        self.c.lookup(suite, ancestors, &self.me)
+    }
+}
+
+fn client_with(s: &Server, auth: Auth, key: Option<&str>) -> J {
+    let c = TestReplayClient::new(ServerConfig {
         url: s.url.clone(),
         auth,
         server_key: key.map(|k| quod_wire::verifying_key_from_hex(k).unwrap()),
@@ -61,15 +84,29 @@ fn client_with(s: &Server, auth: Auth, key: Option<&str>) -> TestReplayClient {
             job: Some("test".into()),
             ..Default::default()
         }),
-    })
+    });
+    J {
+        c,
+        me: Requester::default(),
+    }
 }
 
-fn client(s: &Server, auth: Auth) -> TestReplayClient {
+fn client(s: &Server, auth: Auth) -> J {
     client_with(s, auth, Some(&s.public_key()))
 }
 
-fn job(s: &Server, event: &str, git_ref: &str, sha: &str) -> TestReplayClient {
-    client(s, Auth::Token(oidc(event, git_ref, sha)))
+fn me(git_ref: &str) -> Requester {
+    Requester {
+        repository: Some("acme/app".into()),
+        repository_id: Some(7),
+        git_ref: Some(git_ref.into()),
+    }
+}
+
+fn job(s: &Server, event: &str, git_ref: &str, sha: &str) -> J {
+    let mut j = client(s, Auth::Token(oidc(event, git_ref, sha)));
+    j.me = me(git_ref);
+    j
 }
 
 /// A ledger directory with `files` (path under it, content).
@@ -95,7 +132,7 @@ fn sample(tag: &str) -> tempfile::TempDir {
 }
 
 /// Looks up and fetches into a fresh directory: (the answer, the dir).
-fn fetch(c: &TestReplayClient, ancestors: &[&str]) -> (Option<FoundLedger>, tempfile::TempDir) {
+fn fetch(c: &J, ancestors: &[&str]) -> (Option<FoundLedger>, tempfile::TempDir) {
     let anc: Vec<String> = ancestors.iter().map(|s| s.to_string()).collect();
     let r = c.lookup(".", &anc).unwrap();
     let d = tempfile::tempdir().unwrap();
@@ -173,6 +210,21 @@ fn t3_someone_elses_input_reads_the_default_branch_and_never_saves() {
     assert_eq!(f.unwrap().scope, "trusted");
     assert_eq!(read(&d, "ledger.json"), "{\"v\":\"main\"}");
     assert!(prt.lookup(".", &[]).unwrap().write_scope.is_none());
+    // Nor report (reports are numbers people trust).
+    let rep = TestReport {
+        tool: "vitest".into(),
+        kind: "shadow".into(),
+        ..Default::default()
+    };
+    assert!(prt.report(".", &rep).unwrap_err().0.contains("403"));
+    // A delegated token cannot save (it states its own scope).
+    let del = client(&s, Auth::Token(ACME_DELEGATE.into()));
+    assert!(
+        del.save(".", sample("evil").path())
+            .unwrap_err()
+            .0
+            .contains("403")
+    );
     // A fork scope's token.
     let fork = client(&s, Auth::Token(ACME_FORK.into()));
     assert!(
@@ -239,6 +291,24 @@ fn t6_an_answer_signed_by_another_key_is_refused() {
     );
     let e = c.lookup(".", &[]).unwrap_err();
     assert!(e.0.contains("not trusted"), "{}", e.0);
+}
+
+#[test]
+fn t6b_an_answer_for_another_job_is_refused() {
+    // A proxy relays a main job's lookup (its nonce) under a feature
+    // branch's token: the answer is the branch's ledger, signed for the
+    // branch's job, and main's client refuses it.
+    let s = Server::start(1);
+    let feat = job(&s, "push", "refs/heads/feature", SHA_B);
+    feat.save(".", sample("poison").path()).unwrap();
+    let mut relayed = job(&s, "push", "refs/heads/feature", SHA_B);
+    relayed.me = me("refs/heads/main");
+    let e = relayed.lookup(".", &[SHA_B.into()]).unwrap_err();
+    assert!(e.0.contains("not trusted"), "{}", e.0);
+    // Another repository's job.
+    let mut other = job(&s, "push", "refs/heads/feature", SHA_B);
+    other.me.repository = Some("acme/other".into());
+    assert!(other.lookup(".", &[]).is_err());
 }
 
 #[test]

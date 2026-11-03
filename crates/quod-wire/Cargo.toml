@@ -12,7 +12,7 @@ workspace = true
 [features]
 default = []
 # The blocking HTTP client: RemoteLedger, a StepLedger over quod-server.
-client = ["dep:ureq", "dep:tempfile"]
+client = ["dep:ureq", "dep:tempfile", "dep:getrandom"]
 
 [dependencies]
 quod-cas.workspace = true
@@ -28,6 +28,7 @@ thiserror.workspace = true
 tracing.workspace = true
 ureq = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

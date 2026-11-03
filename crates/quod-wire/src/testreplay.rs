@@ -33,7 +33,7 @@ pub const MAX_ANCESTORS: usize = 500;
 /// The most hashes one pack request may name.
 pub const MAX_PACK: usize = MAX_FILES;
 /// The most files a report may list (ran, audited).
-pub const MAX_REPORT_FILES: usize = 20_000;
+pub const MAX_REPORT_FILES: usize = 5_000;
 
 /// The ledger directory's entries that travel: everything else in it
 /// (`code/`, `dump/`, `plan.json`, `out.json`, temporary files, the opt-in
@@ -58,13 +58,17 @@ pub fn valid_path(p: &str) -> bool {
     if p.is_empty() || p.len() > 1024 || p.starts_with('/') {
         return false;
     }
-    if p.chars().any(|c| c.is_control() || c == '\\') {
+    // No control characters, backslashes or colons (Windows separators
+    // and alternate data streams).
+    if p.chars().any(|c| c.is_control() || c == '\\' || c == ':') {
         return false;
     }
     let parts: Vec<&str> = p.split('/').collect();
+    // No empty, `.` or `..` component, and none ending in a dot or a space
+    // (which Windows drops, making two names one).
     if parts
         .iter()
-        .any(|c| c.is_empty() || *c == "." || *c == "..")
+        .any(|c| c.is_empty() || *c == "." || *c == ".." || c.ends_with('.') || c.ends_with(' '))
     {
         return false;
     }
@@ -107,12 +111,15 @@ pub fn check_files(files: &[LedgerFile]) -> Result<(), String> {
         return Err(format!("more than {MAX_FILES} files"));
     }
     let mut seen = std::collections::BTreeSet::new();
+    // Paths that differ only in case land on one file on a case-folding
+    // file system (macOS, Windows): refused too.
+    let mut folded = std::collections::BTreeSet::new();
     let mut total: u64 = 0;
     for f in files {
         if !valid_path(&f.path) {
             return Err(format!("invalid path {:?}", f.path));
         }
-        if !seen.insert(f.path.as_str()) {
+        if !seen.insert(f.path.as_str()) || !folded.insert(f.path.to_lowercase()) {
             return Err(format!("duplicate path {:?}", f.path));
         }
         total = total.saturating_add(f.size);
@@ -182,6 +189,12 @@ pub struct LedgerStatement {
     pub repository: String,
     pub scope: String,
     pub suite: String,
+    /// GitHub's id of the repository the lookup was for (OIDC callers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<u64>,
+    /// The scope the job that asked writes (`trusted` for a writer, its
+    /// ref's scope otherwise): who the answer is for.
+    pub requester_scope: String,
     pub ledger_id: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha: Option<String>,
@@ -216,14 +229,50 @@ pub fn sign_ledger(
     })
 }
 
+/// Who a lookup is for, as the job itself knows it (GitHub's variables):
+/// a signed answer must be for this repository and for a scope this job
+/// may read.
+#[derive(Clone, Debug, Default)]
+pub struct Requester {
+    /// `owner/name` (`GITHUB_REPOSITORY`).
+    pub repository: Option<String>,
+    /// `GITHUB_REPOSITORY_ID`.
+    pub repository_id: Option<u64>,
+    /// `GITHUB_REF`.
+    pub git_ref: Option<String>,
+}
+
+/// The scope of a ref: `ref-<readable part>-<hash>`, a valid id that two
+/// refs never share (the server's `auth::ref_scope`).
+pub fn ref_scope(r: &str) -> String {
+    let readable: String = r
+        .trim_start_matches("refs/")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(60)
+        .collect();
+    let h = Hash::of(r.as_bytes()).hex();
+    format!("ref-{readable}-{}", &h[..12])
+}
+
 /// Checks a lookup answer: signed by `trusted`, for this protocol, this
-/// suite, exactly this ledger id and file list, and the lookup that
-/// carried `nonce`.
+/// suite, exactly this ledger id and file list, the lookup that carried
+/// `nonce`, and this job: its repository, and a ledger of the default
+/// branch (`trusted`) or of this job's own ref. A proxy that relays the
+/// nonce to the server under another job's token (another repository, or a
+/// branch with a ledger of its own) gets an answer this check refuses.
 pub fn verify_ledger(
     trusted: &VerifyingKey,
     found: &FoundLedger,
     suite: &str,
     nonce: &str,
+    me: &Requester,
 ) -> Result<(), WireError> {
     let bad = |m: &str| Err(WireError::Receipt(m.to_string()));
     let r = &found.receipt;
@@ -258,6 +307,29 @@ pub fn verify_ledger(
     }
     if s.nonce != nonce {
         return bad("signed for another lookup (a stale or replayed answer)");
+    }
+    if let Some(r) = &me.repository
+        && s.repository != *r
+    {
+        return bad("signed for another repository");
+    }
+    if let (Some(a), Some(b)) = (me.repository_id, s.repository_id)
+        && a != b
+    {
+        return bad("signed for another repository id");
+    }
+    // The ledger's scope: the default branch's, or this job's own ref's.
+    let own = me.git_ref.as_deref().map(ref_scope);
+    if s.scope != "trusted" && Some(&s.scope) != own.as_ref() {
+        return bad("a ledger of another branch");
+    }
+    // Who it was signed for: this job (a writer's `trusted`, else its
+    // ref's scope; jobs on someone else's input read as `unverified`).
+    if s.requester_scope != "trusted"
+        && s.requester_scope != "unverified"
+        && Some(&s.requester_scope) != own.as_ref()
+    {
+        return bad("signed for another job's lookup");
     }
     Ok(())
 }
@@ -408,6 +480,8 @@ mod tests {
             repository: "o/r".into(),
             scope: "trusted".into(),
             suite: ".".into(),
+            repository_id: Some(5),
+            requester_scope: "trusted".into(),
             ledger_id: 7,
             sha: Some("a".repeat(40)),
             files: files_hash(&files).unwrap(),
@@ -426,45 +500,91 @@ mod tests {
         }
     }
 
+    fn me() -> Requester {
+        Requester {
+            repository: Some("o/r".into()),
+            repository_id: Some(5),
+            git_ref: Some("refs/heads/main".into()),
+        }
+    }
+
+    #[test]
+    fn an_answer_for_another_job_is_refused() {
+        let k = SigningKey::from_bytes(&[7; 32]);
+        let f = found(&k, "n1");
+        let vk = k.verifying_key();
+        // Another repository, by name or id.
+        let mut r = me();
+        r.repository = Some("o/other".into());
+        assert!(verify_ledger(&vk, &f, ".", "n1", &r).is_err());
+        let mut r = me();
+        r.repository_id = Some(6);
+        assert!(verify_ledger(&vk, &f, ".", "n1", &r).is_err());
+        // A ledger of another branch, signed for that branch's job.
+        let mut st = f.receipt.statement.clone();
+        st.scope = ref_scope("refs/heads/evil");
+        st.requester_scope = ref_scope("refs/heads/evil");
+        let mut g = f.clone();
+        g.scope = st.scope.clone();
+        g.receipt = sign_ledger(&k, st).unwrap();
+        assert!(verify_ledger(&vk, &g, ".", "n1", &me()).is_err());
+        // The default branch's ledger signed for another branch's job.
+        let mut st = f.receipt.statement.clone();
+        st.requester_scope = ref_scope("refs/heads/evil");
+        let mut g = f.clone();
+        g.receipt = sign_ledger(&k, st).unwrap();
+        assert!(verify_ledger(&vk, &g, ".", "n1", &me()).is_err());
+        // This job's own branch ledger is fine.
+        let mut st = f.receipt.statement.clone();
+        st.scope = ref_scope("refs/heads/feat");
+        st.requester_scope = ref_scope("refs/heads/feat");
+        let mut g = f.clone();
+        g.scope = st.scope.clone();
+        g.receipt = sign_ledger(&k, st).unwrap();
+        let mut r = me();
+        r.git_ref = Some("refs/heads/feat".into());
+        verify_ledger(&vk, &g, ".", "n1", &r).unwrap();
+    }
+
     #[test]
     fn a_ledger_answer_verifies_only_for_what_it_signed() {
         let k = SigningKey::from_bytes(&[7; 32]);
         let other = SigningKey::from_bytes(&[8; 32]);
         let f = found(&k, "n1");
-        verify_ledger(&k.verifying_key(), &f, ".", "n1").unwrap();
+        verify_ledger(&k.verifying_key(), &f, ".", "n1", &me()).unwrap();
         // Another key, nonce, suite.
-        assert!(verify_ledger(&other.verifying_key(), &f, ".", "n1").is_err());
-        assert!(verify_ledger(&k.verifying_key(), &f, ".", "n2").is_err());
-        assert!(verify_ledger(&k.verifying_key(), &f, "pkg", "n1").is_err());
+        assert!(verify_ledger(&other.verifying_key(), &f, ".", "n1", &me()).is_err());
+        assert!(verify_ledger(&k.verifying_key(), &f, ".", "n2", &me()).is_err());
+        assert!(verify_ledger(&k.verifying_key(), &f, "pkg", "n1", &me()).is_err());
         // A file swapped, added or dropped.
         let mut g = f.clone();
         g.files[1].hash = Hash::of(b"evil");
-        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).is_err());
         let mut g = f.clone();
         g.files.push(LedgerFile {
             path: "results/b.json".into(),
             hash: Hash::of(b"b"),
             size: 1,
         });
-        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).is_err());
         let mut g = f.clone();
         g.files.pop();
-        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).is_err());
         // Another ledger id or scope.
         let mut g = f.clone();
         g.id = 8;
-        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).is_err());
         let mut g = f.clone();
         g.scope = "ref-x".into();
-        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).is_err());
         // The order of the list does not matter.
         let mut g = f.clone();
         g.files.reverse();
-        verify_ledger(&k.verifying_key(), &g, ".", "n1").unwrap();
+        verify_ledger(&k.verifying_key(), &g, ".", "n1", &me()).unwrap();
         // A forged key field with the real signature.
         let mut g = f.clone();
         g.receipt.key = hex::encode(other.verifying_key().to_bytes());
-        assert!(verify_ledger(&other.verifying_key(), &g, ".", "n1").is_err());
+        assert!(verify_ledger(&other.verifying_key(), &g, ".", "n1", &me()).is_err());
     }
 
     #[test]
@@ -503,6 +623,9 @@ mod tests {
             "results\\..\\x",
             "results/a\nb",
             "ledger.json/x",
+            "results/a:b",
+            "results/a.",
+            "results/a ",
         ] {
             assert!(!valid_path(bad), "{bad:?}");
         }
@@ -522,6 +645,7 @@ mod tests {
         assert!(check_files(&[f("results/a.json")]).is_err());
         assert!(check_files(&[f("ledger.json"), f("ledger.json")]).is_err());
         assert!(check_files(&[f("ledger.json"), f("../x")]).is_err());
+        assert!(check_files(&[f("ledger.json"), f("results/A"), f("results/a")]).is_err());
         let mut big = f("ledger.json");
         big.size = MAX_LEDGER_BYTES + 1;
         assert!(check_files(&[big]).is_err());
