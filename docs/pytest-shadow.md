@@ -199,4 +199,59 @@ to be order-dependent; a changed or new file is not yet known.
 
 ## Measured
 
-(filled in below)
+pango07/ci-bench `bench-pytest.yml` (`scripts/pytest/shadow.sh`): 20
+consecutive first-parent commits ending at each project's HEAD on
+2026-11-03, nothing picked; per commit plain `python -m pytest` (warm venv,
+uv, Python 3.12), then the critical path, then that commit's shadow; every
+critical run's JUnit XML compared with plain's test by test; a mutation
+check (a raise in a function a recorded test executed) on commits 4, 9, 14,
+19; a monotonic clock. Neither project uses xdist in CI. Coverage flags are
+not used on either side.
+
+| tier | project | plain total | critical path total | speedup total / median | files run / replayed (narrowed) | shadow compute | guard trips | wrong | mutations |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 1 | Textualize/rich (63 files, ~5 s; `TERM=unknown` as its CI) | 102.4 s | 79.5 s | 1.29x / 1.18x | 582 / 678 (5) | 245.6 s | 0 | 0 | 4/4 |
+| 2 | joke2k/faker (62 files, ~26 s) | 533.2 s | 286.0 s | 1.86x / 2.06x | 351 / 881 (707) | 630.7 s | 2 | 0 | 4/4 |
+
+Release binary bin-be9d27a: rich run 41601468959, faker run 41601473053.
+The branch head (1711c7e: equal-value rebinding, path patterns in the
+pre-scan, the fast path skips narrowing, no per-test wrapper when nothing
+replays) could not be built (pango07/quod Actions blocked by billing); the
+same plugin through the bench's `bin=dev` stand-in: rich 1.27x / 1.13x,
+0 wrong, 4/4 (41606745587); faker 2.04x / 2.10x, 0 wrong, 1 guard trip,
+mutations 3/3 compared plus one that broke faker's pytest plugin at load,
+where both sides exited 3 identically (41606750047).
+
+- Commits that touch only docs replay everything (faker ~10x, rich runs
+  the ~10 files that always run: unrecordable, failing on this runner, or
+  leaking state into later ones: ~2.2x). A faker release bump (`VERSION`
+  only) replays 55 of 62 files.
+- Full runs (the fast path, or a shared input changed): +0.8% to +8%
+  over plain on rich (mean +3%), within ±1% on faker. The cost is fixed
+  (the plugin's start-up and the selection, 100-250 ms), so it shows on a
+  5 s suite.
+- The mutation check found one wrong replay during development (faker: a
+  file using a provider another file had cached); fixed by recording inputs
+  from the alone run too. Since then 0 wrong in every run.
+- rich's `tests/test_live.py` is order-dependent (alone != in session):
+  whenever it runs, every file before it runs too (the 1.0-1.2x commits).
+
+## What blocks a bigger number
+
+1. Shared modules in the session closure: faker's pytest plugin imports
+   faker at start-up and lists every provider directory; a new locale
+   re-runs everything. rich's core (console, text, segment, style) is
+   executed by nearly every file, so core changes run most files and take
+   the fast path.
+2. Files that can never replay: rich writes into the workspace in two
+   files, fails 2 files under this runner's terminal, and has an
+   order-dependent file that drags its prefix in.
+3. Leaky files forced to run (direction 2): files that leave state other
+   files can observe (rich's global console, faker's `Generator._global_seed`
+   via `Faker.seed()`).
+4. Guard trips cost a second full run (faker `time.tzset` in test_ssn.py is
+   order-dependent: whether it changes `time.timezone` depends on what ran
+   before).
+5. Fixed overhead of ~100-250 ms per run (the Python plugin's start-up and
+   the selection); moving the selection to Rust (as `quod vitest` does)
+   would cut most of it.
