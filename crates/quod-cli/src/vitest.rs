@@ -229,6 +229,11 @@ struct Rec {
     deps: Vec<u32>,
     #[serde(default)]
     quarantined: bool,
+    /// While quarantined: the recordings in a row since the last mismatch
+    /// whose results matched (the critical path's, an audit's). At
+    /// `reprove()` the file is ready to replay again.
+    #[serde(default)]
+    good: u32,
     #[serde(default)]
     runs: u32,
     #[serde(default)]
@@ -804,7 +809,26 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let (mut recorded, mut failed) = (0usize, 0usize);
     for r in &out.ran {
         let old = ledger.files.remove(&r.id);
-        let quarantined = old.as_ref().is_some_and(|o| o.quarantined) || mismatched.contains(&r.id);
+        // Quarantine is re-proved, not permanent: a quarantined file runs
+        // every time, and once `reprove()` recordings in a row matched (a
+        // one-off difference: a timeout under load), it may replay again.
+        // A mismatch starts the count over.
+        let was = old.as_ref().is_some_and(|o| o.quarantined);
+        let bad = mismatched.contains(&r.id);
+        let good = match (bad, was) {
+            (true, _) => 0,
+            (false, true) => old.as_ref().map_or(0, |o| o.good) + 1,
+            (false, false) => 0,
+        };
+        let quarantined = bad || (was && good < reprove());
+        let good = if quarantined { good } else { 0 };
+        if was && !quarantined {
+            eprintln!(
+                "quod vitest: {} matched {good_runs} recordings in a row: ready to replay again",
+                r.file,
+                good_runs = reprove()
+            );
+        }
         for u in &r.unobservable {
             *unobservable.entry(u.clone()).or_default() += 1;
         }
@@ -854,6 +878,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 result: r.result.clone(),
                 deps,
                 quarantined,
+                good,
                 runs: old.as_ref().map_or(0, |o| o.runs) + 1,
                 replays: old.as_ref().map_or(0, |o| o.replays),
                 cov,
@@ -1814,6 +1839,17 @@ fn state(
     }
 }
 
+/// Recordings in a row that must match before a quarantined file may
+/// replay again (QUOD_VITEST_REPROVE, default 3: the team's "good runs
+/// needed again").
+fn reprove() -> u32 {
+    std::env::var("QUOD_VITEST_REPROVE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(3)
+}
+
 /// Credentials quod itself may hold (Quod Cloud's: GitHub's OIDC request
 /// token, a server token; the runner's own). vitest, the tests and so the
 /// recorded results never see them.
@@ -2534,6 +2570,7 @@ mod tests {
                 result: "results/x.json".into(),
                 deps: vec![0, 2],
                 quarantined: false,
+                good: 0,
                 runs: 1,
                 replays: 0,
                 cov: BTreeMap::from([(2, vec![[1, 0, 3, 0]])]),
