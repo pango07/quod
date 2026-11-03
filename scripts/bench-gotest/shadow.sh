@@ -129,7 +129,7 @@ for i in "${!commits[@]}"; do
     console.log(JSON.stringify({ i: +i, first: i === "0", commit: c, subject, touched: +touched, areas,
       plain_ms: +p_ms, plain_exit: +p_rc, crit_ms: +q_ms, crit_exit: +q_rc, ledger_from: +from,
       shadow_ms: +sh_ms, shadow_exit: +sh_rc, ledger_bytes: +bytes,
-      packages: s.packages, ran: s.ran, replayed: s.replayed, reasons: s.reasons, select_ms: s.select_ms, go_ms: s.go_ms,
+      packages: s.packages, ran: s.ran, replayed: s.replayed, narrowed: s.narrowed, fast_world: s.fast_world, reasons: s.reasons, select_ms: s.select_ms, go_ms: s.go_ms,
       crit_go_cached: s.go_cached, plain_cached: a.plain_cached, plain_tested: a.plain_tested,
       shadow_ran: h.ran, audited: h.audited, recorded: h.recorded, unrecordable: h.unrecordable,
       behaviour_changed: h.behaviour_changed, audit_mismatches: h.audit_mismatches, record_ms: h.record_ms,

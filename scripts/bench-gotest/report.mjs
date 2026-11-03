@@ -37,6 +37,7 @@ out.push('|---|---:|---:|---:|')
 out.push(`| **median per commit** | ${s(median(rows.map((r) => r.plain_ms)))} s | ${s(median(rows.map((r) => r.crit_ms)))} s | **${median(rows.map((r) => x(r.plain_ms, r.crit_ms))).toFixed(2)}x** (median of per-commit speedups) |`)
 out.push(`| **total, ${rows.length} commits** | ${s(tp)} s | ${s(tc)} s | **${x(tp, tc).toFixed(2)}x** |`)
 out.push(`| **wrong replays** | | **${wrong}** | ${flaky} flaky (a package both ran and disagreed); ${outDiff} replayed packages with a normalized-output difference |`)
+out.push(`| Quod's selection (critical path) | | median ${median(rows.map((r) => r.select_ms || 0))} ms | go list reused on ${rows.filter((r) => r.fast_world).length} of ${rows.length} commits; ${sum(rows.map((r) => r.narrowed))} packages replayed by function-level narrowing |`)
 out.push(`| packages | go's own test cache hit ${pc} of ${pt} passing packages (${pt ? Math.round((100 * pc) / pt) : 0}%) | ${ran} run, ${rep} replayed | |`)
 out.push(`| shadow compute (separate job) | | ${s(ts)} s total | median ${s(median(rows.map((r) => r.shadow_ms)))} s; ${aud} audits, ${mism} mismatches, ${changed} recordings that changed behaviour (quarantined) |`)
 out.push('')
@@ -63,7 +64,7 @@ for (const r of [first, ...rows].filter(Boolean)) {
   for (const w of Object.values(r.reasons || {})) { const k = w.replace(/^f:.*|^[sdl]:.*/, 'an input').replace(/ changed$/, '').slice(0, 40); why[k] = (why[k] || 0) + 1 }
   const whys = Object.entries(why).map(([k, n]) => `${k} (${n})`).join(', ')
   out.push(
-    `| ${r.i}${r.first ? ' (first)' : ''} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched}: ${(r.areas || '-').slice(0, 40)} | ${s(r.plain_ms)} s (${r.plain_cached ?? '?'}/${r.plain_tested ?? '?'}) | **${s(r.crit_ms)} s** | ${x(r.plain_ms, r.crit_ms).toFixed(2)}x | ${r.ran ?? '?'} / ${r.replayed ?? '?'} | ${whys || '-'} | ${s(r.shadow_ms)} s | ${r.recorded ?? '?'} / ${r.audited ?? 0} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
+    `| ${r.i}${r.first ? ' (first)' : ''} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched}: ${(r.areas || '-').slice(0, 40)} | ${s(r.plain_ms)} s (${r.plain_cached ?? '?'}/${r.plain_tested ?? '?'}) | **${s(r.crit_ms)} s** | ${x(r.plain_ms, r.crit_ms).toFixed(2)}x | ${r.ran ?? "?"} / ${r.replayed ?? "?"}${r.narrowed ? ` (${r.narrowed} narrowed)` : ""}${r.fast_world === false ? " (go list)" : ""} | ${whys || '-'} | ${s(r.shadow_ms)} s | ${r.recorded ?? '?'} / ${r.audited ?? 0} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
   )
 }
 console.log(out.join('\n'))
