@@ -530,6 +530,38 @@ pub enum TeamBlobs {
 }
 
 impl TeamBlobs {
+    /// The blob's bytes in one request, or `None` when it is larger than
+    /// `cap` (known from the bucket's answer or the file's size, before
+    /// reading it) or a store without a length read past `cap`. Missing is
+    /// an error, as for `read_blob`.
+    pub fn read_capped(&self, h: &Hash, cap: u64) -> Result<Option<Vec<u8>>, CasError> {
+        use std::io::Read;
+        let mut r: Box<dyn Read + Send> = match self {
+            TeamBlobs::Local(c) => {
+                let len = std::fs::metadata(c.blob_path(h))
+                    .map_err(|_| CasError::Missing(*h))?
+                    .len();
+                if len > cap {
+                    return Ok(None);
+                }
+                c.open_blob_reader(h)?
+            }
+            TeamBlobs::S3(s) => {
+                let (r, len) = s.open(h)?;
+                if len.is_some_and(|n| n > cap) {
+                    return Ok(None);
+                }
+                Box::new(r)
+            }
+        };
+        let mut buf = Vec::new();
+        (&mut r)
+            .take(cap + 1)
+            .read_to_end(&mut buf)
+            .map_err(|e| CasError::Store(e.to_string()))?;
+        Ok((buf.len() as u64 <= cap).then_some(buf))
+    }
+
     /// The blob's size, or None when the team has no such blob.
     pub fn size(&self, h: &Hash) -> Result<Option<u64>, CasError> {
         match self {

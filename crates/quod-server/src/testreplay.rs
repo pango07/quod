@@ -544,7 +544,7 @@ pub async fn pack(
         let mut seen = std::collections::HashSet::new();
         hashes.retain(|h| seen.insert(*h));
     }
-    // A few packs at a time per instance; each holds at most 8 blobs of at
+    // A few packs at a time per instance; each holds at most 32 blobs of at
     // most PACK_BLOB bytes in memory, and sends at most MAX_LEDGER_BYTES.
     let permit = PACKS.clone().try_acquire_owned().map_err(|_| {
         ApiError::new(
@@ -567,11 +567,11 @@ pub async fn pack(
                 let got = tokio::task::spawn_blocking(move || {
                     // Too large for a pack, or past the pack's total: "-"
                     // (the client then runs every test file).
-                    match blobs.size(&h)? {
-                        Some(n) if n <= PACK_BLOB => {}
-                        _ => return Ok(None),
-                    }
-                    let b = blobs.read_blob(&h)?;
+                    // One request per blob: the bucket's answer says the
+                    // length before the bytes are read.
+                    let Some(b) = blobs.read_capped(&h, PACK_BLOB)? else {
+                        return Ok(None);
+                    };
                     let total = sent
                         .fetch_add(b.len() as u64, std::sync::atomic::Ordering::Relaxed)
                         + b.len() as u64;
@@ -590,7 +590,7 @@ pub async fn pack(
                 Ok::<_, std::io::Error>(axum::body::Bytes::from(out))
             }
         })
-        .buffered(8);
+        .buffered(32);
     // The permit lives as long as the body streams.
     let stream = stream.map(move |x| {
         let _held = &permit;
@@ -605,9 +605,9 @@ pub async fn pack(
 
 /// Packs streaming at once per instance.
 static PACKS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
-    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(16)));
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(4)));
 /// The largest blob a pack carries.
-const PACK_BLOB: u64 = 64 << 20;
+const PACK_BLOB: u64 = 16 << 20;
 /// The most a report's stored detail may be, in bytes.
 const MAX_DETAIL: usize = 1 << 20;
 
