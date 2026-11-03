@@ -61,3 +61,15 @@ def test_narrowing_refuses_docstring_signature_and_module_level():
     assert q.changed_functions(OLD, OLD + "\nZ = 1\n") is None
     # a statement dedented out of the body
     assert q.changed_functions(OLD, OLD.replace("    return 2\n", "    return 2\nprint(1)\n")) is None
+
+
+def test_same_value_and_collect_patterns():
+    assert q._same_value(-3600, -3600)
+    assert q._same_value(("UTC", "UTC"), ("UTC", "UTC"))
+    assert not q._same_value(1, 2)
+    assert not q._same_value([1], [1])  # mutable: identity only
+    assert not q._same_value(q._MISSING, 1)
+    q.WS = "/w"
+    assert q._collects("test_a.py", "tests/test_a.py", "test_*.py")
+    assert q._collects("test_documentor.py", "tests/test_documentor.py", "tests/*.py")
+    assert not q._collects("x.py", "src/x.py", "tests/*.py")

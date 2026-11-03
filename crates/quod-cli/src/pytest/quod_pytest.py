@@ -33,6 +33,8 @@ import types
 LEDGER_VERSION = 1
 SETTLE_NS = 2_000_000_000
 _ME = os.path.abspath(__file__)
+T_LOAD = time.monotonic()
+T_MAIN = T_PYTEST = T_DONE = T_LOAD
 with open(_ME, "rb") as _f:
     PLUGIN_HASH = hashlib.blake2b(_f.read(), digest_size=16).hexdigest()
 del _f
@@ -1157,7 +1159,7 @@ def _module_fp(name, m):
                             tags[k + "." + ck] = _tag(cv, 1)
                 continue
             tags[k] = _tag(v, 2)
-        return (ids, tags, True)
+        return (ids, tags, True, dict(d))
     # Everything else: rebinding only (C-speed).
     ids = dict(zip(d, map(id, d.values())))
     for k in _SKIP_ATTRS:
@@ -1168,7 +1170,7 @@ def _module_fp(name, m):
     elif name == "builtins":
         ids.pop("_", None)
         ids.pop("__import__", None)
-    return (ids, None, False)
+    return (ids, None, False, dict(d))
 
 
 def _globals_fp():
@@ -1262,17 +1264,41 @@ def _value_at(name, key):
     return v
 
 
+def _collects(name, relpath, pattern):
+    """pytest's python_files match (fnmatch_ex): the base name, or for a
+    pattern with a separator the path."""
+    if "/" not in pattern:
+        return fnmatch.fnmatch(name, pattern)
+    return fnmatch.fnmatch(absp(relpath), "*/" + pattern)
+
+
+_MISSING = object()
+
+
+def _same_value(a, b):
+    """Equal immutable scalars (or tuples of them): a rebinding that changes
+    nothing anyone can observe."""
+    if a is _MISSING or b is _MISSING or type(a) is not type(b):
+        return False
+    t = type(a)
+    if t in _IMMUTABLE_SCALARS:
+        return a == b
+    if t is tuple and set(map(type, a)) <= _IMMUTABLE_SCALARS and set(map(type, b)) <= _IMMUTABLE_SCALARS:
+        return a == b
+    return False
+
+
 def fp_delta(before, extra, after):
     """What changed from `before` (and modules first loaded since, as they
     were at load: `extra`) to `after`, as {key: tag}."""
     d = {}
     none_id = id(None)
     bm = before["mods"]
-    for name, (ids, tags, ws) in after["mods"].items():
+    for name, (ids, tags, ws, vals) in after["mods"].items():
         b = bm.get(name) or extra.get(name)
         if b is None:
             continue  # a module first loaded in the window, never seen at load
-        bids, btags, _ = b
+        bids, btags, _, bvals = b
         if ids == bids and tags == btags:
             continue
         prefix = ("w:" if ws else "t:") + name + ":"
@@ -1280,6 +1306,8 @@ def fp_delta(before, extra, after):
             bi = bids.get(k)
             if bi == i:
                 continue
+            if _same_value(bvals.get(k, _MISSING), vals.get(k, _MISSING)):
+                continue  # rebound to an equal immutable value (time.tzset, a re-assignment)
             if not ws and (bi is None or bi == none_id):
                 continue  # a third-party module's new attribute or lazy init
             if ws and tags is not None and k in tags:
@@ -1892,6 +1920,9 @@ class Quod:
             self.guard_on = True
             if self.mode == "critical":
                 self._install_load_hook()
+        elif self.mode in ("critical", "plain") and getattr(self, "wrap", None) is not None:
+            # Nothing replays: no per-test wrapper either.
+            self.config.pluginmanager.unregister(self.wrap)
 
     def _install_load_hook(self):
         import importlib._bootstrap as bootstrap
@@ -1951,7 +1982,7 @@ class Quod:
                 r = n if d == "." else d + "/" + n
                 if r in known:
                     continue
-                if any(fnmatch.fnmatch(n, p) for p in pats) and os.path.isfile(absp(r)):
+                if any(_collects(n, r, p) for p in pats) and os.path.isfile(absp(r)):
                     new.append(r)
         for r in sorted(new, key=_sortkey):
             k = _sortkey(r)
@@ -1967,6 +1998,18 @@ class Quod:
         for r in new:
             self.reasons[r] = "new"
         replay = {}
+        # Files that must run whatever narrowing says: when they are already
+        # most of the suite, the fast path follows; skip the narrowing.
+        must = len(run)
+        for f in order:
+            if f in run:
+                continue
+            r = files[f]
+            if r.get("quarantined") or r.get("unrecordable") or r.get("status") != "passed" or r.get("certified") is not True:
+                must += 1
+            elif any(st.state(k) != v for k, v in r["keys"].items() if not k.startswith("m:")):
+                must += 1
+        skip_narrow = must * 2 > len(order) and not OPTS.get("no_fast")
         for f in order:
             if f in run:
                 continue
@@ -1987,7 +2030,7 @@ class Quod:
                     hard = [k for k in changed if not k.startswith("m:")]
                     if hard:
                         why = "changed: %s" % ", ".join(hard[:3])
-                    elif OPTS.get("no_narrow") or not self._narrow(r, changed, sess_exec):
+                    elif OPTS.get("no_narrow") or skip_narrow or not self._narrow(r, changed, sess_exec):
                         why = "changed: %s" % ", ".join(changed[:3])
                     else:
                         self.narrowed.append(f)
@@ -2492,7 +2535,8 @@ def _register(plugin):
         def pytest_runtest_protocol(self, item, nextitem):
             yield from plugin._run_wrapper(item, nextitem)
 
-    return Wrap()
+    plugin.wrap = Wrap()
+    return plugin.wrap
 
 
 # ---------------------------------------------------------------------------
@@ -2818,7 +2862,7 @@ def certify(plugin, todo, files, summary):
             os.unlink(out)
         except OSError:
             pass
-        subprocess.run([sys.executable, _ME, op] + list(plugin.args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=START["cwd"])
+        subprocess.run([sys.executable, _launcher(), op] + list(plugin.args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=START["cwd"])
         try:
             with open(out) as fh:
                 return json.load(fh)
@@ -2879,7 +2923,8 @@ def certify(plugin, todo, files, summary):
 
 
 def main():
-    global OPTS, REC, WS
+    global OPTS, REC, WS, T_MAIN
+    T_MAIN = time.monotonic()
     with open(sys.argv[1]) as f:
         OPTS = json.load(f)
     args = sys.argv[2:]
@@ -2889,6 +2934,8 @@ def main():
     START["env"] = dict(os.environ)
     # As `python -m pytest`: the working directory first on sys.path.
     sys.path[0] = os.getcwd()
+    here = os.path.dirname(_ME)
+    sys.path[1:] = [p for p in sys.path[1:] if os.path.abspath(p or ".") != here]
     START["sys_path"] = [p for p in sys.path]
     START["meta"] = ",".join(type(x).__qualname__ for x in sys.meta_path)
     mode = OPTS["mode"]
@@ -2902,7 +2949,10 @@ def main():
         REC.patch_rewrite()
     sys.argv = [os.path.join(os.path.dirname(pytest.__file__), "__main__.py")] + args
     plugin = Quod(mode, args)
+    global T_PYTEST, T_DONE
+    T_PYTEST = time.monotonic()
     rc = int(pytest.main(list(args), plugins=[plugin, _register(plugin)]))
+    T_DONE = time.monotonic()
     run_ms = int((time.monotonic() - t0) * 1000)
     summary = {
         "mode": mode,
@@ -2933,7 +2983,7 @@ def main():
             json.dump(opts, fh)
         sys.stdout.flush()
         sys.stderr.flush()
-        rc = subprocess.run([sys.executable, _ME, op] + list(args), cwd=START["cwd"]).returncode
+        rc = subprocess.run([sys.executable, _launcher(), op] + list(args), cwd=START["cwd"]).returncode
         try:
             with open(op + ".out") as fh:
                 full = json.load(fh)
@@ -2967,6 +3017,9 @@ def main():
             summary["deps"] = alone_deps(plugin, OPTS["file"])
         except Exception as e:
             summary["deps"] = {"error": repr(e)}
+    summary["pre_ms"] = int((T_MAIN - T_LOAD) * 1000)
+    summary["setup_ms"] = int((T_PYTEST - T_MAIN) * 1000)
+    summary["post_ms"] = int((time.monotonic() - T_DONE) * 1000)
     if OPTS.get("summary"):
         write_json(OPTS["summary"], summary)
     if mode in ("critical", "shadow"):
@@ -2985,6 +3038,13 @@ def main():
     sys.stdout.flush()
     sys.stderr.flush()
     return rc
+
+
+def _launcher():
+    """run.py next to this module (it imports the module, so its bytecode is
+    cached), or this file run as a script."""
+    r = os.path.join(os.path.dirname(_ME), "run.py")
+    return r if os.path.exists(r) else _ME
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 const PLUGIN: &str = include_str!("pytest/quod_pytest.py");
+const RUN: &str = include_str!("pytest/run.py");
 
 /// Variables the GitHub runner sets per step (file-command paths), like
 /// `quod_key::unkeyed`'s per-run ones: a test file that reads one is not
@@ -95,10 +96,14 @@ pub fn cli(a: PytestArgs) -> Result<u8> {
     let plugin_dir = dir.join("plugin");
     fs::create_dir_all(&plugin_dir)
         .with_context(|| format!("creating {}", plugin_dir.display()))?;
-    let plugin = plugin_dir.join("quod_pytest.py");
-    if fs::read_to_string(&plugin).ok().as_deref() != Some(PLUGIN) {
-        fs::write(&plugin, PLUGIN)?;
+    // run.py imports the plugin as a module, so Python caches its bytecode.
+    for (name, body) in [("quod_pytest.py", PLUGIN), ("run.py", RUN)] {
+        let p = plugin_dir.join(name);
+        if fs::read_to_string(&p).ok().as_deref() != Some(body) {
+            fs::write(&p, body)?;
+        }
     }
+    let plugin = plugin_dir.join("run.py");
     let volatile: Vec<String> = std::env::vars_os()
         .filter_map(|(k, _)| k.into_string().ok())
         .filter(|k| {

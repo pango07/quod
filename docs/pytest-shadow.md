@@ -37,9 +37,19 @@ Benchmark: pango07/ci-bench `bench-pytest.yml`, `scripts/pytest/`.
   matching only); otherwise "recording changed behaviour": quarantined. A
   file the report lacks is not recorded.
 - **Certification**: every newly recorded file then runs alone, in a fresh
-  process (in parallel), with the same arguments. Its outcomes must equal
-  its outcomes in the session; then it is *certified order-independent*.
-  Only certified files replay.
+  process (in parallel), with the same arguments and with recording. Its
+  outcomes must equal its outcomes in the session; then it is *certified
+  order-independent*. Only certified files replay. A file whose results
+  differ alone is order-dependent: it runs, and so does every file before
+  it. A file that cannot be certified (unrecordable alone) just runs.
+- **A file's inputs are the union of what it used in the session and what
+  it used alone.** In the session a file can use objects another file
+  created and cached (faker: a provider instance cached by an earlier
+  file); it never imports that module, so the session's attribution misses
+  it. The bench's mutation check found exactly this (a broken provider
+  replayed as passing). Alone, in a fresh process, nothing is cached: the
+  file loads everything it needs itself. Also, every workspace module whose
+  code a file executed (sys.monitoring) is its input, imported or not.
 - Audits: an audited file whose results differ from its record is
   quarantined.
 - Writes the ledger (`ledger.json`, `results/<id>.json`, `blobs/<hash>`)
@@ -109,6 +119,21 @@ runs. No narrowing for a path the file's recorded results quote
 (warnings, captured logs: line numbers shift), nor for a path it read as
 data (`f:`).
 
+**Version bumps** (the `pj:` rule's Python counterpart). A change that is
+only a module-level version constant (`VERSION`, `__version__`, `version`,
+`__VERSION__`, `VERSION_STRING` assigned a string literal; the ASTs are
+otherwise equal) replays for a file when its own source, every workspace
+file whose code it executed and the defining module outside the
+definition do not name the constant, and its recorded results quote neither
+value. faker's `VERSION = "40.44.0"` is read by `faker/cli.py`: the files
+that executed the CLI run, the others replay. Residual: third-party code
+reading the project's version by introspection. Tests:
+`crates/quod-cli/src/pytest/test_quod_pytest.py` (run before every bench).
+
+**The fast path.** When more than half of the test files must run, the
+critical path replays nothing: one plain session, no guard, no snapshots
+(the selection, 20-200 ms, is the only cost).
+
 ## Cross-file state: the rule
 
 pytest gives no isolation: a file can change state another file sees
@@ -157,6 +182,15 @@ through something the fingerprint does not see:
 B was certified (alone == in session) when recorded, so such a leak needs a
 change in the file that leaks. The bench compares every replay with a full
 plain run; it would expose any instance.
+
+Not fingerprinted on purpose: the global `random` state (every test that
+draws a number would be a leaker) and the decimal context's flags. A file
+that runs and draws unseeded random numbers sees a different random state
+than in a full run (fewer files ran before it); seen once in the bench, on a
+faker mutation check: `test_providers_formats.py` (it ran on both sides)
+failed in plain and passed on the critical path because a random format
+choice did not reach the mutated function. That file is nondeterministic by
+order under plain pytest too; it is counted as flaky, not wrong.
 
 Also residual: a file that runs is run without the replayed files before it
 (like a developer's subset run). If it depends on state they leave that the
