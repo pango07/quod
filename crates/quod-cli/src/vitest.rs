@@ -494,7 +494,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
-        "workers": if affected.len() > 4 * workers { serde_json::json!(workers) } else { serde_json::Value::Null },
+        "workers": if affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
         "report": a.report.as_ref().map(std::path::absolute).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
@@ -1659,6 +1659,19 @@ fn state(
         }
         _ => (format!("unknown kind {kind}"), None),
     }
+}
+
+/// May a large run take every CPU (vitest's default leaves one)? Not when a
+/// task runner (turbo, nx, lerna) may be running other packages' suites at
+/// the same time: on a monorepo's CI that oversubscribed the runner and a
+/// test with a 5 s timeout timed out (class-management, turbo with five
+/// vitest suites at once). Not when QUOD_VITEST_ALL_CPUS=0 either.
+fn alone() -> bool {
+    let set = |k: &str| std::env::var_os(k).is_some();
+    std::env::var("QUOD_VITEST_ALL_CPUS").map_or(true, |v| v != "0")
+        && !["TURBO_HASH", "NX_TASK_HASH", "NX_TASK_TARGET_PROJECT", "LERNA_PACKAGE_NAME"]
+            .iter()
+            .any(|k| set(k))
 }
 
 /// An installed package's entry in the npm lockfile of the workspace it is
