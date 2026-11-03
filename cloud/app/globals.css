@@ -380,7 +380,7 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
 .tr-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden }
 .tr-strip > div { background: var(--card); padding: 14px 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0 }
 .tr-strip .label { font-size: 12px; color: var(--faint) }
-.tr-strip .value { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2 }
+.tr-strip .value { font-family: var(--sans); white-space: nowrap; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2 }
 .tr-strip .note { font-size: 12px; color: var(--faint) }
 .statebar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; min-width: 0 }
 .statebar.sm { height: 6px; border-radius: 3px }
@@ -407,7 +407,7 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
 .suite-grid { grid-template-columns: minmax(0, 1.8fr) minmax(0, 2fr) 72px 96px 88px 16px }
 .file-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 1.3fr) minmax(0, 1fr) 64px 72px }
 .suite-head { padding: 8px 20px; font-size: 12px; color: var(--faint); border-top: 1px solid var(--rule) }
-.suite-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; padding: 12px 20px; border-top: 1px solid var(--rule); font-size: 13px }
+.suite-row { appearance: none; background: none; border: 0; margin: 0; color: inherit; font: inherit; text-align: left; box-sizing: border-box; cursor: pointer; width: 100%; padding: 12px 20px; border-top: 1px solid var(--rule); font-size: 13px }
 .suite-row:hover { background: var(--hover) }
 .suite-row:focus-visible { outline: 2px solid var(--text); outline-offset: -2px }
 .suite-row .caret { color: var(--faint); transition: transform .15s; font-size: 16px; line-height: 1 }
@@ -415,7 +415,7 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
 .suite-files { background: var(--well); border-top: 1px solid var(--rule); padding: 8px 20px 14px 36px; display: flex; flex-direction: column }
 .suite-files .file-grid { padding: 6px 0; border-top: 1px solid var(--rule); font-size: 13px }
 .suite-files .file-grid.head { border-top: 0; font-size: 12px; color: var(--faint) }
-.num { font-variant-numeric: tabular-nums }
+.tnum { font-variant-numeric: tabular-nums; white-space: nowrap }
 .tr-foot { font-size: 12px; color: var(--faint) }
 .tr-foot summary { list-style: none; cursor: pointer }
 .tr-foot summary::-webkit-details-marker { display: none }

@@ -47,7 +47,7 @@ function Summary({ s }: { s: TrustModel["summary"] }) {
     <section aria-label="Summary" className="tr-strip">
       <div>
         <span className="label">Wrong results</span>
-        <span className="value num">{formatCount(s.wrongResults)}</span>
+        <span className="value tnum">{formatCount(s.wrongResults)}</span>
         <span className="note">
           {formatCount(s.spotChecksPassed)} spot-check{s.spotChecksPassed === 1 ? "" : "s"} passed
         </span>
@@ -56,14 +56,14 @@ function Summary({ s }: { s: TrustModel["summary"] }) {
         <span className="label" title={SAVED_EXPLAINED}>
           Time saved, 7 days
         </span>
-        <span className="value num">{formatSavedMs(s.savedWeekMs)}</span>
+        <span className="value tnum">{formatSavedMs(s.savedWeekMs)}</span>
         <span className="note">
           across {formatCount(s.weekRuns)} run{s.weekRuns === 1 ? "" : "s"}
         </span>
       </div>
       <div>
         <span className="label">Test files skipped</span>
-        <span className="value num">{pctText(s.skippedPct)}</span>
+        <span className="value tnum">{pctText(s.skippedPct)}</span>
         <span className="note">median of the last {MEDIAN_OF} runs</span>
       </div>
       <div style={{ gap: 8 }}>
@@ -139,11 +139,11 @@ function FileLine({ f }: { f: TestFile }) {
         <span className="label-sm">Last result </span>
         <span style={f.lastResult === "fail" ? { color: "var(--red)" } : undefined}>{lastResultText(f.lastResult)}</span>
       </span>
-      <span className="num">
+      <span className="tnum">
         <span className="label-sm">Skipped </span>
         {f.skipped > 0 ? `${formatCount(f.skipped)}×` : "0"}
       </span>
-      <span className="num" title={SAVED_EXPLAINED}>
+      <span className="tnum" title={SAVED_EXPLAINED}>
         <span className="label-sm">Saved </span>
         {f.savedMs ? formatSavedMs(f.savedMs) : "0 s"}
       </span>
@@ -174,7 +174,7 @@ function Suite({ s, asOf, files, active, open, onToggle, showAll, onShowAll }: {
             {active ? ` · ${formatCount(files.length)} match` : ""}
           </span>
         </span>
-        <span className="num" style={{ fontSize: 14 }}>
+        <span className="tnum" style={{ fontSize: 14 }}>
           <span className="label-sm">Skipped </span>
           {pctText(s.skippedPct)}
         </span>
@@ -182,7 +182,7 @@ function Suite({ s, asOf, files, active, open, onToggle, showAll, onShowAll }: {
           <span className="label-sm">Last run </span>
           {s.lastRunAt ? formatAgo(s.lastRunAt, asOf) : "No runs yet"}
         </span>
-        <span className="num" style={{ fontSize: 14 }} title={SAVED_EXPLAINED}>
+        <span className="tnum" style={{ fontSize: 14 }} title={SAVED_EXPLAINED}>
           <span className="label-sm">Saved, 7 days </span>
           {formatSavedMs(s.savedWeekMs)}
         </span>
