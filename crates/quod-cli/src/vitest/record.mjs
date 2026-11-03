@@ -129,35 +129,35 @@ export function resolverCaller(stack = new Error().stack) {
   return false
 }
 
-// Is an environment read the tools' own? The first frame outside Quod, node
-// and the small helpers vitest reads the environment through (std-env,
-// tinyexec, tinyrainbow, obug and debug listing DEBUG_* options, the colour
-// helpers: a helper called by user code has that code's frame next) must be
-// in vite, vitest or rolldown. A helper's own module evaluation (obug lists
-// DEBUG_* options when it loads) has no caller frame: the helper's. Returns
-// the deciding frame too, for the log. A deep stack: node's own frames (a
-// spawn's argument handling) can come between the trap and the call.
+// Is an environment read the tools' own? Every frame outside Quod and node
+// must be in vite, vitest, rolldown or the small helpers they read the
+// environment through (std-env, tinyexec, tinyrainbow, obug and debug
+// listing DEBUG_* options, the colour helpers), and there must be one. Any
+// other frame (the config, a plugin, a test, a library) makes it theirs.
+// The whole stack, however deep. Returns the deciding frame, for the log.
 const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
 function toolCaller() {
   const limit = Error.stackTraceLimit
-  Error.stackTraceLimit = 64
+  Error.stackTraceLimit = Infinity
   let stack
   try {
     stack = new Error().stack ?? ''
   } finally {
     Error.stackTraceLimit = limit
   }
-  let helper = null
+  // Every frame counts, not only the first: a test reading
+  // `import.meta.env.X` goes through vitest's own getter, with the test's
+  // frame below it.
+  let tool = null
   for (const l of stack.split('\n').slice(1)) {
     if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
-    if (HELPERS.some((h) => l.includes(h))) {
-      helper ??= l.trim()
+    if (HELPERS.some((h) => l.includes(h)) || RESOLVERS.some((x) => l.includes(x))) {
+      tool ??= l.trim()
       continue
     }
-    if (l.includes('/node_modules/.vite-temp/')) return { tool: false, frame: l.trim() }
-    return { tool: RESOLVERS.some((x) => l.includes(x)), frame: l.trim() }
+    return { tool: false, frame: l.trim() }
   }
-  return helper ? { tool: true, frame: helper } : { tool: false, frame: '?' }
+  return tool ? { tool: true, frame: tool } : { tool: false, frame: '?' }
 }
 
 function callerFrame(stack = new Error().stack) {
