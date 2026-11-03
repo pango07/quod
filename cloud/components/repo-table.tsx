@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { RepoSummary } from "@/lib/api/types";
 import { formatAgo, formatMinutes, formatPercent } from "@/lib/format";
-import { formatSavedMs, repoSkippedNote, type RepoTests, SAVED_EXPLAINED, testRunHref } from "@/lib/test-runs";
+import { formatSaved, repoSkippedNote, type RepoTests, SAVED_EXPLAINED, testRunHref } from "@/lib/test-runs";
 import { ProtectionBadge } from "@/components/section";
 import { Dot, Icon } from "@/components/ui";
 
@@ -92,7 +92,7 @@ export function RepoTable({ team, repos, asOf, savedLabel = "Saved", tests }: { 
                   <span className="label-sm" style={{ fontFamily: "var(--sans)" }}>
                     Saved{" "}
                   </span>
-                  {formatSavedMs(t.savedMs)}
+                  {formatSaved(t.savedMs)}
                   <span className="faint" style={{ fontSize: 12, display: "block", fontFamily: "var(--sans)" }}>
                     last 7 days
                   </span>

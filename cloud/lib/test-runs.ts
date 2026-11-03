@@ -6,16 +6,30 @@
 import type { TestRunDetail, TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatCount } from "@/lib/format";
 
-/** A time given in milliseconds: "0 s", "0.4 s", "79 s", "12 min", "3.4 h". */
+/**
+ * A time given in milliseconds: "0 s" (none at all), "<0.1 s", "0.4 s", "79 s", "12 min", "3.4 h".
+ * Under a second always has one decimal: a real time is never rounded to "0 s".
+ */
 export function formatSavedMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return "n/a";
   const s = ms / 1000;
+  if (s > 0 && s < 0.05) return "<0.1 s";
   if (s > 0 && s < 9.95) return `${s.toFixed(1).replace(/\.0$/, "")} s`;
   if (s < 90) return `${Math.round(s)} s`;
   const min = s / 60;
   if (min < 90) return `${Math.round(min)} min`;
   const h = min / 60;
   return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`;
+}
+
+/**
+ * Time saved, which is an estimate (the skipped files' recorded times):
+ * "≈ 5.7 s". Exactly nothing is "0 s"; unknown is "n/a". Shown next to
+ * SAVED_EXPLAINED (a tooltip or caption) wherever it appears.
+ */
+export function formatSaved(ms: number | null | undefined): string {
+  const t = formatSavedMs(ms);
+  return t === "n/a" || t === "0 s" ? t : `≈ ${t}`;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
@@ -29,7 +43,7 @@ export function suiteLabel(r: Pick<TestRunSummary, "suite" | "repository">): str
 /** "vitest · packages/backend · 184 test files: 171 skipped (unchanged), 13 ran, saved 79 s" */
 export function testRunHeadline(r: Pick<TestRunSummary, "tool" | "suite" | "repository" | "files" | "timing">): string {
   const { total, replayed, ran } = r.files;
-  const saved = r.timing.savedMs === null ? "" : `, saved ${formatSavedMs(r.timing.savedMs)}`;
+  const saved = r.timing.savedMs === null ? "" : `, saved ${formatSaved(r.timing.savedMs)}`;
   return `${r.tool} · ${suiteLabel(r)} · ${plural(total, "test file")}: ${formatCount(replayed)} skipped (unchanged), ${formatCount(ran)} ran${saved}`;
 }
 
@@ -62,6 +76,32 @@ export function spotCheckSentence(r: Pick<TestRunDetail, "audits" | "auditFiles"
   if (bad === 0) return `${head}: ${checked === 1 ? "it matched" : "all matched"}.`;
   if (checked === 1) return `${head}: it gave a different result.`;
   return `${head}: ${formatCount(bad)} did not match.`;
+}
+
+/**
+ * Does a run's page show a spot-check section? Not when there is nothing to
+ * say: no spot-checks, and either nothing was skipped (nothing to check), or
+ * the background recording already reported (or this is it) without any.
+ * A check that skipped files and is still waiting for its recording keeps
+ * the section ("None yet ...").
+ */
+export function showSpotChecks(r: Pick<TestRunDetail, "audits" | "auditFiles" | "files" | "kind" | "shadow">): boolean {
+  if (spotCheckSentence(r) !== null) return true;
+  if (r.files.replayed === 0) return false;
+  return r.kind === "critical" && !r.shadow;
+}
+
+/** Spot-checks over the 7 days before now, from the background recordings (shadow runs), so a check and its shadow count once. */
+export function spotChecksWithinWeek(runs: Pick<TestRunSummary, "kind" | "at" | "audits">[], now: number): { checked: number; mismatched: number } {
+  let checked = 0;
+  let mismatched = 0;
+  for (const r of runs) {
+    const at = Date.parse(r.at);
+    if (r.kind !== "shadow" || !(at <= now && now - at <= WEEK_MS)) continue;
+    checked += r.audits?.checked ?? 0;
+    mismatched += r.audits?.mismatched ?? 0;
+  }
+  return { checked, mismatched };
 }
 
 /** Which earlier recording a run reused, in one sentence. */

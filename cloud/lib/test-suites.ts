@@ -6,7 +6,7 @@
 import type { TestFile, TestFileState, TestRunSummary, TestStats, TestSuite } from "@/lib/api/types";
 import type { Tone } from "@/lib/trust";
 import { formatCount } from "@/lib/format";
-import { formatSavedMs, testRunHref } from "@/lib/test-runs";
+import { formatSaved, spotChecksWithinWeek, testRunHref } from "@/lib/test-runs";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
@@ -95,7 +95,7 @@ export function stateCounts(t: Pick<TestSuite["totals"], "learning" | "ready" | 
 /** A suite's totals in one line: "184 test files: 170 skipping, 10 ready, 1 learning, 2 always run, 1 paused. Saved 3.4 h." */
 export function suiteTotalsText(t: TestSuite["totals"]): string {
   const counts = stateCounts(t);
-  const saved = t.savedMs > 0 ? ` Saved ${formatSavedMs(t.savedMs)}.` : "";
+  const saved = t.savedMs > 0 ? ` Saved ${formatSaved(t.savedMs)}.` : "";
   return `${plural(t.files, "test file")}${counts ? `: ${counts}` : ""}.${saved}`;
 }
 
@@ -237,35 +237,62 @@ export function savedWithinWeek(runs: Pick<TestRunSummary, "kind" | "at" | "timi
   return { savedMs: week.reduce((a, r) => a + (r.timing.savedMs ?? 0), 0), runs: week.length };
 }
 
-export type FileCounts = Pick<TestSuite["totals"], "learning" | "ready" | "skipping" | "always" | "paused">;
+export type FileCounts = Pick<TestSuite["totals"], "learning" | "ready" | "skipping" | "always" | "paused" | "recordDiffers">;
+
+/** A bar segment: a file state, or "recordDiffers" (files whose recording behaved differently from the check; quarantined). */
+export type BarKey = TestFileState | "recordDiffers";
 
 export interface BarSegment {
-  state: TestFileState;
+  state: BarKey;
   n: number;
   label: string;
 }
 
-const BAR_WORDS: Record<TestFileState, string> = { learning: "learning", ready: "ready", skipping: "skipping", always: "always run", paused: "paused" };
+const BAR_WORDS: Record<BarKey, string> = { learning: "learning", ready: "ready", skipping: "skipping", always: "always run", recordDiffers: "recording differed", paused: "paused" };
 
-/** The non-empty segments of a stacked state bar, in BAR_ORDER. */
-export function barSegments(t: FileCounts): BarSegment[] {
-  return BAR_ORDER.filter((k) => t[k] > 0).map((k) => ({ state: k, n: t[k], label: BAR_WORDS[k] }));
+/**
+ * "Recording differed" files (`totals.recordDiffers`, from newer servers;
+ * absent is 0). Whether the server also counts them under "always" is read
+ * from the totals: when the states already add up to `files`, they are part
+ * of "always" (and come out of it here); otherwise they are counted apart.
+ */
+export function recordDiffers(t: FileCounts & { files: number }): { n: number; inAlways: boolean } {
+  const n = Math.max(0, t.recordDiffers ?? 0);
+  if (n === 0) return { n: 0, inAlways: false };
+  const states = t.learning + t.ready + t.skipping + t.always + t.paused;
+  const inAlways = states + n > t.files;
+  return { n: inAlways ? Math.min(n, t.always) : n, inAlways };
 }
 
-/** "184 files · 170 skipping · 3 need a look" (zero counts left out). */
+/** The non-empty segments of a stacked state bar: learning, ready, skipping, always, recording differed, paused. */
+export function barSegments(t: FileCounts & { files: number }): BarSegment[] {
+  const rd = recordDiffers(t);
+  const n: Record<BarKey, number> = { learning: t.learning, ready: t.ready, skipping: t.skipping, always: t.always - (rd.inAlways ? rd.n : 0), recordDiffers: rd.n, paused: t.paused };
+  const order: BarKey[] = ["learning", "ready", "skipping", "always", "recordDiffers", "paused"];
+  return order.filter((k) => n[k] > 0).map((k) => ({ state: k, n: n[k], label: BAR_WORDS[k] }));
+}
+
+/** Files that need a look: paused, always runs and recording differed (each counted once). */
+export function needLookCount(t: FileCounts & { files: number }): number {
+  const rd = recordDiffers(t);
+  return t.paused + t.always + (rd.inAlways ? 0 : rd.n);
+}
+
+/** "184 files · 170 skipping · 3 need a look (1 recording differed)" (zero counts left out). */
 export function suiteRowSummary(t: TestSuite["totals"]): string {
-  const look = t.paused + t.always;
+  const look = needLookCount(t);
+  const rd = recordDiffers(t).n;
   const parts = [plural(t.files, "file")];
   if (t.skipping > 0) parts.push(`${formatCount(t.skipping)} skipping`);
-  if (look > 0) parts.push(`${formatCount(look)} need${look === 1 ? "s" : ""} a look`);
+  if (look > 0) parts.push(`${formatCount(look)} need${look === 1 ? "s" : ""} a look${rd > 0 ? ` (${formatCount(rd)} recording differed)` : ""}`);
   return parts.join(" · ");
 }
 
-/** Why a file needs a look, in plain words. */
+/** Why a file needs a look, in plain words. An always-runs reason (which may be the recording's own, "uses the network") is shown as it is. */
 export function lookReason(f: Pick<TestFile, "state" | "reason">): string {
   if (f.state === "paused") return "A spot-check got a different result. It runs every time until it matches again.";
   const r = f.reason?.trim();
-  return r ? `Runs every time: ${r}.` : "Quod runs it every time.";
+  return r || "Quod runs it every time.";
 }
 
 export interface LookItem {
@@ -300,6 +327,8 @@ export interface SuiteRow {
 export interface TrustSummary {
   wrongResults: number;
   spotChecksPassed: number;
+  /** "week": spot-checks of the last 7 days (from the runs); "all": the stats' all-time count. */
+  spotChecksWindow: "week" | "all";
   savedWeekMs: number;
   weekRuns: number;
   skippedPct: number | null;
@@ -320,15 +349,21 @@ export interface TrustModel {
  */
 export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRunSummary[]; stats: TestStats | null; now: number; ago: (iso: string) => string }): TrustModel {
   const { team, suites, runs, stats, now } = p;
-  const totals = { files: 0, learning: 0, ready: 0, skipping: 0, always: 0, paused: 0 };
-  for (const s of suites) for (const k of ["files", ...BAR_ORDER] as const) totals[k] += s.totals[k];
+  const totals = { files: 0, learning: 0, ready: 0, skipping: 0, always: 0, paused: 0, recordDiffers: 0 };
+  for (const s of suites) {
+    for (const k of ["files", ...BAR_ORDER] as const) totals[k] += s.totals[k];
+    totals.recordDiffers += s.totals.recordDiffers ?? 0;
+  }
   const week = savedWithinWeek(runs, now);
   const critical = runs.filter((r) => r.kind === "critical");
-  const checked = critical.reduce((a, r) => a + (r.audits?.checked ?? 0), 0);
   const wrong = critical.reduce((a, r) => a + (r.audits?.mismatched ?? 0), 0);
+  // Spot-checks of the last 7 days, from the background recordings among the runs (already fetched); the stats' count is all time.
+  const spot = spotChecksWithinWeek(runs, now);
+  const spotFromRuns = runs.length > 0 || !stats;
   const summary: TrustSummary = {
     wrongResults: stats ? stats.wrongResults : wrong,
-    spotChecksPassed: stats ? stats.audits.passed : checked - wrong,
+    spotChecksPassed: spotFromRuns ? spot.checked - spot.mismatched : stats.audits.passed,
+    spotChecksWindow: spotFromRuns ? "week" : "all",
     savedWeekMs: stats ? stats.week.savedMs : week.savedMs,
     weekRuns: stats ? stats.week.runs : week.runs,
     skippedPct: medianSkippedPct(runs),

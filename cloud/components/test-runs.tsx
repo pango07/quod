@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Chip, Dot } from "@/components/ui";
 import type { TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatAgo, formatCount, shortSha } from "@/lib/format";
-import { exitLabel, formatSavedMs, kindLabel, KIND_EXPLAINED, SAVED_EXPLAINED, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
+import { exitLabel, formatSaved, kindLabel, KIND_EXPLAINED, SAVED_EXPLAINED, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
 
 /** One line per run: headline numbers, branch and commit, when. */
 export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; runs: TestRunSummary[]; asOf: string; showRepo?: boolean }) {
@@ -55,7 +55,7 @@ export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; ru
               <span className="label-sm" style={{ fontFamily: "var(--sans)" }}>
                 Saved{" "}
               </span>
-              {r.timing.savedMs === null ? "n/a" : formatSavedMs(r.timing.savedMs)}
+              {formatSaved(r.timing.savedMs)}
             </span>
             <span style={{ fontSize: 13, color: "var(--muted)" }}>
               <span className="label-sm">When </span>
@@ -81,24 +81,41 @@ export function TestFilesLine({ team, line }: { team: string; line: string }) {
 }
 
 /** The Overview's test card: time saved today and this week, skips, wrong results, spot-checks, and the latest runs. */
-export function TestStatsCard({ team, stats, filesLine }: { team: string; stats: TestStats; filesLine?: string | null }) {
+export function TestStatsCard({
+  team,
+  stats,
+  filesLine,
+  spotChecksWeek,
+}: {
+  team: string;
+  stats: TestStats;
+  filesLine?: string | null;
+  /** Spot-checks over the last 7 days (from /test-runs); without it, the stats' all-time count, labelled so. */
+  spotChecksWeek?: { checked: number; mismatched: number } | null;
+}) {
   const skipped = weekSkipped(stats);
   const wrong = stats.wrongResults;
   const recent = stats.recent.slice(0, 5);
   const rows: [string, string, string?][] = [
-    ["Time saved today", formatSavedMs(stats.today.savedMs), SAVED_EXPLAINED],
-    ["Time saved this week", formatSavedMs(stats.week.savedMs), SAVED_EXPLAINED],
+    ["Time saved today", formatSaved(stats.today.savedMs), SAVED_EXPLAINED],
+    ["Time saved this week", formatSaved(stats.week.savedMs), SAVED_EXPLAINED],
     [
       "Test files skipped this week",
       skipped ? `${skipped} (${formatCount(stats.week.filesSkipped)} of ${formatCount(stats.week.filesTotal)})` : "None yet",
       "Skipped because nothing they depend on changed since a recorded run; their earlier result was reused.",
     ],
     ["Wrong results", formatCount(wrong), "Spot-checks that found a skipped file would have given a different result if it had run. This should be 0."],
-    [
-      "Spot-checks passed",
-      stats.audits.checked ? `${formatCount(stats.audits.passed)} of ${formatCount(stats.audits.checked)}` : "None yet",
-      "A few skipped files are re-run in the background and their results compared.",
-    ],
+    spotChecksWeek
+      ? [
+          "Spot-checks passed, last 7 days",
+          spotChecksWeek.checked ? `${formatCount(spotChecksWeek.checked - spotChecksWeek.mismatched)} of ${formatCount(spotChecksWeek.checked)}` : "None this week",
+          "A few skipped files are re-run in the background and their results compared.",
+        ]
+      : [
+          "Spot-checks passed, all time",
+          stats.audits.checked ? `${formatCount(stats.audits.passed)} of ${formatCount(stats.audits.checked)}` : "None yet",
+          "A few skipped files are re-run in the background and their results compared.",
+        ],
   ];
   return (
     <section className="card" aria-labelledby="tests-h" style={{ overflow: "hidden" }}>
