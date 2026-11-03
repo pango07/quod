@@ -1120,6 +1120,7 @@ fn code_hash() -> String {
         RECORD,
         COVERAGE,
         NARROW,
+        PRELOAD,
         env!("CARGO_PKG_VERSION"),
     ] {
         h.update(s.as_bytes());
