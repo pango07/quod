@@ -284,6 +284,7 @@ if (covOn) {
     return res
   }
   wrapProvider(ctx.coverageProvider)
+  if (ctx.coverageProvider) covFingerprint()
   const report = ctx.reportCoverage.bind(ctx)
   ctx.reportCoverage = async (...a) => {
     const was = r.on
