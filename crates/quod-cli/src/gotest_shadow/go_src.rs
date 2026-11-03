@@ -508,7 +508,11 @@ mod tests {
         assert_eq!(h.imports, vec!["fmt", "os", "strings"]);
         let body = A.replace("return nil", "return nil // changed");
         assert_eq!(header(body.as_bytes()).unwrap(), h);
-        let imp = header(A.replace("import \"strings\"", "import \"bytes\"").as_bytes()).unwrap();
+        let imp = header(
+            A.replace("import \"strings\"", "import \"bytes\"")
+                .as_bytes(),
+        )
+        .unwrap();
         assert_eq!(imp.fixed, h.fixed);
         assert_eq!(imp.imports, vec!["bytes", "fmt", "os"]);
         let tag = A.replace("linux", "darwin");

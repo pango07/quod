@@ -1793,7 +1793,9 @@ fn reuse(c: &Cached, t: &Tree) -> Option<World> {
             changed.push((p, h0.as_ref()?));
         }
     }
-    let now = par_map(&changed, |(p, _)| fs::read(p).ok().and_then(|b| go_src::header(&b)));
+    let now = par_map(&changed, |(p, _)| {
+        fs::read(p).ok().and_then(|b| go_src::header(&b))
+    });
     // The builds each file is compiled into, by their Deps' import paths.
     let mut owners: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, p) in c.pkgs.iter().enumerate() {
@@ -1813,7 +1815,11 @@ fn reuse(c: &Cached, t: &Tree) -> Option<World> {
         if h.fixed != h0.fixed {
             return None;
         }
-        let added: Vec<&String> = h.imports.iter().filter(|i| !h0.imports.contains(i)).collect();
+        let added: Vec<&String> = h
+            .imports
+            .iter()
+            .filter(|i| !h0.imports.contains(i))
+            .collect();
         if added.is_empty() {
             continue;
         }
