@@ -54,13 +54,21 @@ function decodeMappings(mappings) {
   return lines
 }
 
-const MAP_RE = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,([A-Za-z0-9+/=]+)\s*$/
+// The last inline map comment: vitest's module cache appends its own
+// metadata after it, so it is not always the code's last line.
+const MAP_RE = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,([A-Za-z0-9+/=]+)/g
+function lastMap(code) {
+  let m = null
+  MAP_RE.lastIndex = 0
+  for (let x; (x = MAP_RE.exec(code)); ) m = x
+  return m
+}
 
 // The module's inline map, and which of its sources is the file itself (a
 // map may list more: a plugin's helper, a virtual module); positions that
 // map to another source count as unmapped.
 function inlineMap(code, file) {
-  const m = MAP_RE.exec(code)
+  const m = lastMap(code)
   if (!m) {
     unmappedSample[file] ??= code.slice(-200)
     return { why: 'no inline map' }
