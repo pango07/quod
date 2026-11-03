@@ -327,6 +327,14 @@ export function patchEnv(r) {
       }
       return Reflect.ownKeys(t)
     },
+    // Writes go to process.env itself. Without this trap an assignment
+    // through the proxy becomes a defineProperty with a partial descriptor,
+    // which process.env refuses ("only accepts a configurable, writable, and
+    // enumerable data descriptor"): vi.stubEnv threw in every recorded file
+    // (class-management's backend; the shadow quarantined them).
+    set(t, k, v) {
+      return Reflect.set(t, k, v)
+    },
   })
   try {
     process.env = proxy
