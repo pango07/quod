@@ -84,6 +84,12 @@ pub struct VitestArgs {
     /// inputs changed always runs).
     #[arg(long)]
     no_narrow: bool,
+    /// The critical path: select, run what must run plain (no recording, no
+    /// coverage, no audits) and replay the rest; the ledger is not touched.
+    /// A shadow run of the same commit without this flag records the files
+    /// that ran (and audits), off the job's critical path.
+    #[arg(long)]
+    no_record: bool,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -340,6 +346,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     // Audits on the workers the files to run leave idle.
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
     let n_audit = match a.audits.as_str() {
+        _ if a.no_record => 0,
         "auto" if affected.is_empty() => 0,
         "auto" => workers.saturating_sub(affected.len()),
         n => n.parse().context("--audits: auto or a number")?,
@@ -377,6 +384,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "stateDir": dir,
         "replay": replay,
         "audit": audit,
+        "record": !a.no_record,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
@@ -432,6 +440,36 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     if out.interrupted {
         eprintln!("quod vitest: the run was interrupted; nothing recorded");
+        return Ok(code);
+    }
+    if a.no_record {
+        eprintln!(
+            "quod vitest: ran {} files plain, replayed {} ({} function-level); quod {} ms (select); not recorded (the shadow run records)",
+            out.ran.len(),
+            out.replayed.len(),
+            narrowed.len(),
+            t_select.as_millis()
+        );
+        if let Some(p) = &a.summary {
+            let s = serde_json::json!({
+                "recorded_files": ledger.files.len(),
+                "ran": out.ran.len(),
+                "replayed": out.replayed.len(),
+                "audited": 0,
+                "audit_mismatches": [],
+                "shared_inputs_changed": !global_ok,
+                "shared_changed_keys": shared_changed.iter().take(20).collect::<Vec<_>>(),
+                "narrowed": narrowed.len(),
+                "narrow": narrow_note,
+                "inputs_hashed": live.len(),
+                "select_ms": t_select.as_secs_f64() * 1e3,
+                "vitest_ms": (t_run - t_select).as_secs_f64() * 1e3,
+                "record_ms": 0.0,
+                "driver": out.timings,
+                "exit": code,
+            });
+            fs::write(p, serde_json::to_vec(&s)?)?;
+        }
         return Ok(code);
     }
 

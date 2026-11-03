@@ -33,9 +33,13 @@ for (const f of real.readdirSync(dumpDir)) {
 }
 
 const codeDir = import.meta.dirname
+// The critical path (`record: false`) runs the files plain: no hooks, no
+// setup file, no coverage; the shadow run (`record: true`) records them.
+const record = plan.record !== false
 const r = createRecorder({ stateDir, codeDir, mode: 'main' })
+r.on = record
 // QUOD_VITEST_DISABLE=main: measuring the main process recorder's cost only.
-if (!(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('main')) {
+if (record && !(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('main')) {
   patchFs(r)
   patchEnv(r)
   patchLoader(r)
@@ -88,7 +92,7 @@ for (const p of ctx.projects) {
   const c = p.config
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
   if (ok) {
-    c.setupFiles = [setupPath, ...c.setupFiles]
+    if (record) c.setupFiles = [setupPath, ...c.setupFiles]
     recorded.add(p.name)
   } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
 }
@@ -101,7 +105,7 @@ const origRelevant = specsApi.getRelevantTestSpecifications.bind(specsApi)
 specsApi.getRelevantTestSpecifications = async (f) => {
   r.on = false // the glob's directory walk is vitest's choice of files, decided here exactly
   const all = await origRelevant(f)
-  r.on = true
+  r.on = record
   const run = []
   for (const s of all) {
     const id = s.taskId
@@ -243,7 +247,7 @@ for (const m of endModules) {
     }
   }
   const resultRel = `results/${id}.json`
-  if (state === 'pass' || state === 'skip') real.writeFileSync(path.join(stateDir, resultRel), strip(file))
+  if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), strip(file))
   if (audits.has(id) && plan.replay?.[id]) {
     try {
       const rec = JSON.parse(real.readFileSync(path.join(stateDir, plan.replay[id]), 'utf8'))
@@ -275,7 +279,7 @@ for (const p of ctx.projects) {
 // vitest and its dependencies run in every worker before Quod's setup file
 // can watch: the packages, transitively.
 const pkgs = new Set()
-const stack = [real.realpathSync(vitestDir)]
+const stack = record ? [real.realpathSync(vitestDir)] : []
 for (const p of ctx.projects) {
   const env = p.config.environment
   if (env && env !== 'node') {
