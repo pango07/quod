@@ -17,6 +17,28 @@ is sent anywhere and actions/cache works as before.
 | `--absorb` | after: save the ledger |
 | `--cloud-only restore` / `save` | only that, exit 0 whatever happens (drop-in for actions/cache restore and save steps) |
 
+A completed restore leaves `.quod-cloud-restore.json` in the ledger directory
+naming the job (`GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_JOB`) and the
+suite; a later `--cloud` run in the same job uses that ledger instead of
+fetching it again. So the restore can run in the background during the
+install, off the critical path:
+
+```sh
+quod vitest --dir .quod/vitest --cloud --cloud-only restore > restore.log 2>&1 &
+pid=$!
+npm ci
+wait $pid; cat restore.log
+```
+
+A marker from any other job (a cache, a committed file, a persistent
+runner) does not match and is removed with the rest of the local ledger.
+
+Keep values that change per run or per commit out of the test steps'
+environment: vite reads all of it, so such a variable is an input of every
+test file. The runner's own per-run and per-step variables (`GITHUB_SHA`,
+`GITHUB_RUN_ID`, `GITHUB_OUTPUT`, `GITHUB_ARTIFACTS`, `JOURNAL_STREAM`, ...)
+are not inputs.
+
 Auth is the job's GitHub OIDC token (`permissions: id-token: write`,
 audience `quodci`) or `QUOD_SERVER_TOKEN`. `QUOD_SERVER_KEY` pins the key
 lookups are signed with. `--suite` (or `QUOD_VITEST_SUITE`) names the vitest
@@ -39,6 +61,15 @@ file runs); a save or report that fails is a log line.
 
 Files go up through the existing `POST /v1/blobs/missing` and `PUT
 /v1/blobs/{hash}`: content-addressed, so a save uploads only what changed.
+
+On save the server also stores the whole ledger as one bundle object (pack
+format, each blob once, ledgers up to 64 MiB) and the lookup names it
+(`bundle`, unsigned). A restore is then one `GET /v1/blobs/{hash}`; the client
+checks the bundle's hash as it streams and every file in it against the
+signed list, and falls back to the pack on any failure. Measured on
+vuejs/router (257 files, 3.7 MB, GitHub-hosted runner to Railway us-east):
+per-file reads 5.8-8.6 s, the pack with one bucket request per blob 3.4 s,
+the bundle 1.6 s.
 
 ## Trust
 
@@ -105,6 +136,24 @@ workflow and repository come from the OIDC claims. The shadow reports the
 same plus its spot-checks (`audit_files`); a critical run shows the
 spot-checks of the shadow of its own commit, suite and scope. "Wrong results"
 on the Overview is the number of spot-checks whose fresh result differed.
+
+## Deployment (api.quodci.com)
+
+Railway service `quod-server` builds branch `cloud/test-replay` (the one
+product branch). Backend Postgres + the `quod-results` bucket
+(`QUOD_BACKEND=postgres`, `DATABASE_URL` and `S3_*` as references to the
+Postgres and bucket services). The volume keeps only the signing key
+(`QUOD_SIGNING_KEY_FILE=/data/signing.ed25519`, fingerprint
+`ed25519:11142c7cc0d0dd7f`) and upload staging (`QUOD_DATA_DIR=/data/cloud`);
+the pre-cut-over SQLite data under `/data/teams` is never read (kept as an
+archive). Healthcheck timeout 1800 s; a warm-up listener answers `/healthz`
+(`starting`, with progress) while boot runs, and 503 elsewhere.
+
+Rollback: to SQLite on this build, `QUOD_BACKEND=sqlite`, `QUOD_DATA_DIR=/data`
+and remove `QUOD_SIGNING_KEY_FILE` (the old data, as of the cut-over); to the
+previous build, also remove `DATABASE_URL` and `S3_*` and redeploy deployment
+`6d718894` (exp/cloud-ledger-v3). Results recorded on Postgres since are not
+on the volume; runners re-execute those steps (nothing wrong replays).
 
 ## Open
 
