@@ -308,7 +308,9 @@ fn row(v: &[V]) -> Row {
 
 /// The ledger a lookup answers with: the newest of the first ancestor
 /// commit any read scope has (the job's own scope first), else the newest
-/// of the job's own scope, else the newest of `trusted`.
+/// of the job's own scope, else the newest of `trusted`. Two queries
+/// whatever the number of ancestors: the readable rows' heads (newest
+/// first, no file lists), then the chosen row.
 fn find(
     db: &Db,
     team: &str,
@@ -319,50 +321,50 @@ fn find(
 ) -> anyhow::Result<Option<(Row, &'static str)>> {
     let own = scopes.first().cloned().unwrap_or_default();
     let last = scopes.last().cloned().unwrap_or_default();
-    let in_scopes = |s: &str| scopes.iter().any(|x| x == s);
-    let by_sha = format!(
-        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND (scope = $5 OR scope = $6) ORDER BY id DESC LIMIT 20"
-    );
+    // (id, scope, sha), newest first.
+    let heads: Vec<(i64, String, Option<String>)> = db
+        .query(
+            "SELECT id, scope, sha FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND (scope = $4 OR scope = $5) ORDER BY id DESC LIMIT 5000",
+            &[
+                t(team),
+                t(repo),
+                t(suite),
+                t(own.as_str()),
+                t(last.as_str()),
+            ],
+            &[Ty::I, Ty::T, Ty::T],
+        )?
+        .into_iter()
+        .map(|v| (v[0].i().unwrap_or_default(), v[1].t().unwrap_or_default(), v[2].t()))
+        .collect();
+    let mut pick: Option<(i64, &'static str)> = None;
     for sha in ancestors.iter().filter(|s| valid_sha(s)) {
-        let rows: Vec<Row> = db
-            .query(
-                &by_sha,
-                &[
-                    t(team),
-                    t(repo),
-                    t(suite),
-                    t(sha.as_str()),
-                    t(own.as_str()),
-                    t(last.as_str()),
-                ],
-                COL_TYS,
-            )?
+        let at: Vec<&(i64, String, Option<String>)> = heads
             .iter()
-            .map(|v| row(v))
+            .filter(|h| h.2.as_deref() == Some(sha.as_str()))
             .collect();
-        let pick = rows
-            .iter()
-            .position(|r| r.scope == own)
-            .or_else(|| rows.iter().position(|r| in_scopes(&r.scope)));
-        if let Some(k) = pick {
-            return Ok(rows.into_iter().nth(k).map(|r| (r, "ancestor")));
+        if let Some(h) = at.iter().find(|h| h.1 == own).or_else(|| at.first()) {
+            pick = Some((h.0, "ancestor"));
+            break;
         }
     }
-    let by_scope = format!(
-        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND scope = $4 ORDER BY id DESC LIMIT 1"
-    );
-    for s in scopes {
-        let rows = db.query(
-            &by_scope,
-            &[t(team), t(repo), t(suite), t(s.as_str())],
-            COL_TYS,
-        )?;
-        if let Some(v) = rows.first() {
-            let how = if s == TRUSTED { "default" } else { "branch" };
-            return Ok(Some((row(v), how)));
+    if pick.is_none() {
+        for s in scopes {
+            if let Some(h) = heads.iter().find(|h| h.1 == *s) {
+                pick = Some((h.0, if s == TRUSTED { "default" } else { "branch" }));
+                break;
+            }
         }
     }
-    Ok(None)
+    let Some((id, how)) = pick else {
+        return Ok(None);
+    };
+    let rows = db.query(
+        &format!("SELECT {COLS} FROM test_ledgers WHERE team = $1 AND id = $2"),
+        &[t(team), i(id)],
+        COL_TYS,
+    )?;
+    Ok(rows.first().map(|v| (row(v), how)))
 }
 
 pub async fn lookup(
