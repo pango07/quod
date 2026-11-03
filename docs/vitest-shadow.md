@@ -150,13 +150,18 @@ during the job. `SHADOW_LAG=1` makes every critical path read the recording
 from two commits back, which simulates a shadow that has not finished.
 
 20 first-parent commits each, GitHub-hosted public runners (4 CPUs);
-binary bin-29742b8 (2026-11-03):
+headline binary bin-486f82b (2026-11-03). Plain's speed differs between
+runners, so compare within a row:
 
 | tier | project | plain total | critical path total | speedup (total / median) | shadow compute | wrong | mutations |
 |---|---|---:|---:|---:|---:|---:|---|
-| 1 | unjs/ufo (13 files, ~1.3 s) | 26.7 s | 19.2 s | 1.39x / 1.0x | 27.1 s | 0 | 4/4 |
-| 2 | vuejs/router (81 files, ~12 s) | 241.0 s | 47.9 s | 5.0x / 6.9x | 65.2 s | 0 | 4/4 |
-| 3 | vuejs/core (184 files, ~41 s) | 817.9 s | 326.9 s | 2.50x / 2.3x | 392.2 s | 0 | 4/4 |
+| 1 | unjs/ufo (13 files, ~1.5 s) | 31.6 s | 23.2 s | 1.36x / 1.0x | 32.3 s | 0 | 4/4 |
+| 2 | vuejs/router (81 files, ~9.3 s) | 185.3 s | 38.1 s | 4.9x / 6.9x | 49.4 s | 0 | 4/4 |
+| 3 | vuejs/core (184 files, ~41 s) | 820.0 s | 285.5 s | 2.87x / 4.6x | 352.7 s | 0 | 4/4 |
+
+Runs (pango07/ci-bench): ufo 41566245303, router 41566249277, core
+41566252339. Earlier binary bin-29742b8: ufo 1.39x, router 5.0x, core 2.50x
+(41561706644, 41561710020, 41561713091).
 
 - When every file must run (the first run, or a shared input changed), the
   critical path costs the same as plain: tier 1 ±0.1 s, tier 3 median
@@ -169,5 +174,5 @@ binary bin-29742b8 (2026-11-03):
   those files "recording changed behaviour" and quarantined them, and the
   run had 0 wrong replays. Without the net, the same binary replayed 2 files
   wrongly on 18 commits.
-- Runs: ufo 41561706644, router 41561710020, core 41561713091, lag-1
+- Runs: lag-1
   41560601953, safety net 41561416787 (pango07/ci-bench).
