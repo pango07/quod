@@ -393,7 +393,10 @@ for (const m of endModules) {
   // changed its behaviour, and it is quarantined.
   // A file the report does not have (or an unreadable report) cannot be
   // verified: it is not recorded (and runs next time), but not quarantined.
-  if (record && expected && !auditMismatch.includes(id)) {
+  // An audit is verified against its own record instead (below): the
+  // critical path replayed it, so the report has it only as a replay, or
+  // not at all after a rendered full replay.
+  if (record && expected && !auditMismatch.includes(id) && !audits.has(id)) {
     const want = expected.get(file.filepath)
     const got = JSON.stringify(testStates(file).map(([n, s]) => `${n}=${s === 'pass' ? 'passed' : s === 'fail' ? 'failed' : 'other'}`).sort())
     if (want === undefined) {
