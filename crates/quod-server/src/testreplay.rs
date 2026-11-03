@@ -838,6 +838,10 @@ pub async fn report(
     .await
 }
 
+/// One stats row to write: (file, skipped, saved_ms, reason, reason_kind,
+/// whether it sets the reason).
+type StatRow = (String, i64, f64, Option<String>, Option<String>, bool);
+
 /// Updates `test_file_stats` from a report: every file a check replayed
 /// counts one skip and its recorded time; a record run sets each file's
 /// reason it always runs (unrecordable, or its recording differed from the
@@ -853,7 +857,7 @@ fn file_stats(
 ) -> anyhow::Result<()> {
     let now = now_rfc3339();
     // (file, skipped, saved_ms, reason, reason_kind, set_reason)
-    let mut rows: Vec<(String, i64, f64, Option<String>, Option<String>, bool)> = vec![];
+    let mut rows: Vec<StatRow> = vec![];
     if r.kind == "critical" {
         for f in &r.replayed_files {
             rows.push((
@@ -894,8 +898,7 @@ fn file_stats(
         }
     }
     for set_reason in [false, true] {
-        let mine: Vec<&(String, i64, f64, Option<String>, Option<String>, bool)> =
-            rows.iter().filter(|x| x.5 == set_reason).collect();
+        let mine: Vec<&StatRow> = rows.iter().filter(|x| x.5 == set_reason).collect();
         for chunk in mine.chunks(400) {
             let mut params = vec![t(team), t(repo), t(suite), t(now.as_str())];
             let mut values = vec![];
