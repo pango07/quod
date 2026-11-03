@@ -402,7 +402,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
-        "expectReport": a.expect_report.as_ref().map(|p| std::path::absolute(p)).transpose()?,
+        "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
