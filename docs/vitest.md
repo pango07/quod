@@ -71,7 +71,20 @@ worker's own view:
   file (`f:`). Test: `tests/vitest_recorder.rs`.
 - **fs.watch** keys the watched path's whole recursive content at the end
   of the file (`rc:`), except under a directory the file itself created
-  (its own output).
+  (its own output, below).
+- **A directory the file made outside the workspace is its own output.**
+  When the file's worker creates a directory outside the workspace (the
+  repository: the nearest `.git` up from the project root), by `mkdtemp`,
+  `mkdir` or a recursive `mkdir` (the first directory it actually made),
+  sync, promise or callback, the reads, listings, existence checks and
+  watches under it from then on are not keys: nothing under it existed
+  before it was made, so they can only see what this run put there (a
+  `mkdtemp` path is new every run and keyed it ran every time). A check
+  made before the directory existed, or after the file removed or moved
+  it, stays keyed; a directory that already existed (a recursive `mkdir`
+  that made nothing) or that another process made is not the file's; and
+  a directory made inside the workspace is not exempt (a write there still
+  makes the file unrecordable). Test: `tests/vitest_recorder.rs`.
 - **vitest's arguments** are keyed, but not the output-only ones
   (`--reporter`, `--outputFile`, `--silent`, `--color`, ...); replays render
   through whatever reporters a run asks for.

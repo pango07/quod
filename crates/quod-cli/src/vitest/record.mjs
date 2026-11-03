@@ -35,8 +35,12 @@ export const VERSION = 'quod-vitest-1'
 
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null }) {
   const keys = new Set()
+  // A made directory's other spelling (its real path, and back), when they differ.
+  const alias = new Map()
+  // A path under a made directory is this process's own output, not an input.
+  const under = (p) => r.made.some((m) => p === m || p.startsWith(`${m}/`))
   const r = {
     mode, // 'main' | 'worker'
     keys,
@@ -47,11 +51,41 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
     envKept: new Map(),
     unobservable: new Set(),
+    // Directories this process created (mkdir, recursive mkdir, mkdtemp)
+    // outside the workspace, while recording: what is under one is the
+    // file's own output, not an input. Nothing under it existed before it
+    // was made, so a read there cannot depend on anything but this run.
+    // Without a workspace root (wsRoot, with a trailing slash) none count.
+    made: [],
     on: true,
+    created(p) {
+      if (!r.on || !wsRoot || p == null) return
+      p = norm(p)
+      if (p == null || p === '/' || `${p}/`.startsWith(wsRoot) || under(p)) return
+      r.made.push(p)
+      // and the same directory by its real path (macOS: /var is /private/var)
+      try {
+        const rp = real.realpathSync(p)
+        if (rp !== p && !`${rp}/`.startsWith(wsRoot)) {
+          r.made.push(rp)
+          alias.set(p, rp)
+          alias.set(rp, p)
+        }
+      } catch {}
+    },
+    // Removed or moved away: what appears there later is not its own.
+    gone(p) {
+      p = norm(p)
+      if (p == null) return
+      const out = new Set(r.made.filter((m) => m === p || m.startsWith(`${p}/`)))
+      for (const m of [...out]) if (alias.has(m)) out.add(alias.get(m))
+      r.made = r.made.filter((m) => !out.has(m))
+    },
     add(kind, p) {
       if (!r.on || p == null) return
       p = norm(p)
       if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
+      if (r.made.length && under(p)) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {
@@ -180,14 +214,41 @@ function norm(p) {
   }
 }
 
-function wrap(obj, name, before) {
+// `after(args, value)` runs once the call succeeded, before the caller sees
+// its value: on the sync return, the promise's value, or the callback's.
+function wrap(obj, name, before, after) {
   const f = obj?.[name]
   if (typeof f !== 'function' || f.__quod) return
   const w = function (...args) {
+    const last = args.length - 1
+    const cb = after && typeof args[last] === 'function' ? args[last] : null
+    if (cb) {
+      args[last] = function (err, v) {
+        if (!err) {
+          try {
+            after(args, v)
+          } catch {}
+        }
+        return cb.apply(this, arguments)
+      }
+    }
     try {
       before(args)
     } catch {}
-    return new.target ? Reflect.construct(f, args, new.target) : f.apply(this, args)
+    const res = new.target ? Reflect.construct(f, args, new.target) : f.apply(this, args)
+    if (!after || cb) return res
+    if (res && typeof res.then === 'function') {
+      return res.then((v) => {
+        try {
+          after(args, v)
+        } catch {}
+        return v
+      })
+    }
+    try {
+      after(args, res)
+    } catch {}
+    return res
   }
   try {
     Object.defineProperties(w, Object.getOwnPropertyDescriptors(f))
@@ -212,11 +273,11 @@ function isRead(flags) {
 
 export function patchFs(r) {
   const P = fs.promises
-  const both = (names, fn) => {
+  const both = (names, fn, after) => {
     for (const n of names) {
-      wrap(fs, n, fn)
-      wrap(fs, `${n}Sync`, fn)
-      wrap(P, n, fn)
+      wrap(fs, n, fn, after)
+      wrap(fs, `${n}Sync`, fn, after)
+      wrap(P, n, fn, after)
     }
   }
   const file = (a) => r.add('f', a[0])
@@ -246,18 +307,33 @@ export function patchFs(r) {
   const w0 = (a) => r.write(a[0])
   both(
     [
-      'writeFile', 'appendFile', 'mkdir', 'rm', 'rmdir', 'unlink', 'truncate',
-      'utimes', 'lutimes', 'chmod', 'lchmod', 'chown', 'lchown', 'mkdtemp',
+      'writeFile', 'appendFile', 'unlink', 'truncate',
+      'utimes', 'lutimes', 'chmod', 'lchmod', 'chown', 'lchown',
     ],
     w0,
   )
   wrap(fs, 'createWriteStream', w0)
+  // A directory the file creates is its own (see `made`): a plain mkdir
+  // made its path, a recursive one returns the first it made (none if all
+  // existed), mkdtemp returns the one it made.
+  both(['mkdir'], w0, (a, v) => {
+    const o = a[1]
+    r.created(o && typeof o === 'object' && o.recursive ? v : a[0])
+  })
+  const temp = (a, v) => r.created(typeof v === 'string' ? v : v?.path)
+  both(['mkdtemp'], w0, temp)
+  wrap(fs, 'mkdtempDisposableSync', w0, temp)
+  wrap(P, 'mkdtempDisposable', w0, temp)
+  // Once removed or moved away (after the call: its own lstat of the
+  // directory is still the file's), the directory is no longer its own.
+  const gone = (a) => r.gone(a[0])
+  both(['rm', 'rmdir'], w0, gone)
   const move = (a) => {
     r.add('f', a[0])
     r.write(a[0])
     r.write(a[1])
   }
-  both(['rename'], move)
+  both(['rename'], move, gone)
   const copy = (a) => {
     r.add('f', a[0])
     r.add('r', a[0])
@@ -269,7 +345,7 @@ export function patchFs(r) {
   // of the file (or not at all, under a directory the file created).
   const watch = (a) => {
     const p = norm(a[0])
-    if (p && r.on) r.watches.add(p)
+    if (p && r.on && !(r.made.length && under(p))) r.watches.add(p)
   }
   wrap(fs, 'watch', watch)
   wrap(fs, 'watchFile', watch)

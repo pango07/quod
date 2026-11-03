@@ -114,6 +114,8 @@ for (let d = ctx.config.root; ; d = path.dirname(d)) {
   if (path.dirname(d) === d) break
 }
 wsRoot += '/'
+// For the workers: a directory a test file creates outside it is its own.
+process.env.QUOD_VITEST_WS = wsRoot
 
 // A large run (the plan says so) uses every CPU, not vitest's default of
 // one fewer: the main process idles while workers run. Only when neither
@@ -345,19 +347,15 @@ for (const m of endModules) {
   if (d) {
     const ks = new Set(d.keys)
     for (const k of moduleKeys(d.modules)) ks.add(k)
+    // A watched path is read whole (recursively, content included) at the
+    // end of the file. Under a directory the file itself created outside
+    // the workspace (its own output, e.g. a temp dir) it is not an input
+    // at all: the worker never lists those (record.mjs `made`).
+    for (const w of d.watches ?? []) ks.add(`rc:${w}`)
     keys = [...ks]
     unobservable = d.unobservable
-    const root = ctx.config.root + '/'
     const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
-    // A watched path is read whole (recursively, content included) at the
-    // end of the file; under a directory the file itself created (its own
-    // output, e.g. a temp dir) it is not an input at all.
-    const made = d.writes.filter((w) => !w.startsWith(root))
-    for (const w of d.watches ?? []) {
-      if (made.some((m) => w === m || w.startsWith(m))) continue
-      d.keys.push(`rc:${w}`)
-    }
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.

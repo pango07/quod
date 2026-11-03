@@ -194,3 +194,103 @@ console.log(JSON.stringify([process.env.QUOD_T, process.env.QUOD_U ?? null]))
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v, serde_json::json!(["b", null]));
 }
+
+#[test]
+fn reads_under_a_directory_the_file_made_outside_the_workspace_are_not_keyed() {
+    // A test that makes a temp directory (mkdtemp under the OS temp dir,
+    // a random path every run) and reads inside it reads its own output:
+    // keying those reads made the file run every time (vuejs/router's
+    // RoutesFolderWatcher.spec.ts). A path that existed before, a check
+    // made before the directory existed or after it was removed, and
+    // anything under a directory made inside the workspace stay keyed.
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let base = t.path().canonicalize().unwrap();
+    let ws = base.join("ws");
+    write(&ws.join("src/a.txt"), "a");
+    write(&base.join("pre/x.txt"), "x");
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchFs }} from {record:?}
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker', wsRoot: {ws:?} + '/' }})
+patchFs(r)
+const made = []
+// sync mkdtemp, a recursive mkdir and files inside it
+const a = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-own-'))
+made.push(a)
+fs.mkdirSync(path.join(a, 'test-0/src/pages'), {{ recursive: true }})
+fs.writeFileSync(path.join(a, 'test-0/src/pages/index.vue'), 'x')
+fs.readdirSync(path.join(a, 'test-0/src/pages'))
+fs.readFileSync(path.join(a, 'test-0/src/pages/index.vue'))
+fs.statSync(path.join(a, 'test-0/src'))
+fs.existsSync(path.join(a, 'nope'))
+fs.readdirSync(a, {{ recursive: true }})
+fs.watch(a).close()
+// promise and callback mkdtemp
+const b = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quod-own-'))
+made.push(b)
+await fs.promises.readdir(b)
+// its teardown removing it (rm reads the directory) is its own too
+fs.rmSync(b, {{ recursive: true }})
+const c = await new Promise((res, rej) => fs.mkdtemp(path.join(os.tmpdir(), 'quod-own-'), (e, d) => (e ? rej(e) : res(d))))
+made.push(c)
+fs.readdirSync(c)
+// a fixed path: checked before it existed (kept), made, listed (not
+// kept), removed, checked again (kept)
+const fixed = path.join(os.tmpdir(), `quod-fixed-${{process.pid}}-${{Date.now()}}`)
+fs.existsSync(fixed)
+fs.mkdirSync(fixed)
+made.push(fixed)
+fs.readdirSync(fixed)
+fs.rmSync(fixed, {{ recursive: true }})
+fs.existsSync(path.join(fixed, 'after'))
+// a path that existed before, outside the workspace; a directory made
+// inside the workspace
+fs.readFileSync({pre:?})
+fs.mkdirSync({wsdir:?})
+fs.readdirSync({wsdir:?})
+const out = {{ keys: [...r.keys].sort(), watches: [...r.watches], made }}
+for (const d of [a, c]) fs.rmSync(d, {{ recursive: true }})
+console.log(JSON.stringify(out))
+"#,
+        record = record.display().to_string(),
+        ws = ws.display().to_string(),
+        pre = base.join("pre/x.txt").display().to_string(),
+        wsdir = ws.join("src/made").display().to_string(),
+    );
+    let s = base.join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node").arg(&s).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let keys: Vec<String> = serde_json::from_value(v["keys"].clone()).unwrap();
+    let made: Vec<String> = serde_json::from_value(v["made"].clone()).unwrap();
+    for m in &made[..3] {
+        assert!(
+            !keys.iter().any(|k| k.contains(m.as_str())),
+            "{m} is the file's own output: {keys:?}"
+        );
+    }
+    assert_eq!(v["watches"], serde_json::json!([]));
+    let fixed = &made[3];
+    let kept: Vec<&String> = keys.iter().filter(|k| k.contains("quod-fixed-")).collect();
+    assert_eq!(
+        kept,
+        vec![&format!("e:{fixed}"), &format!("e:{fixed}/after")],
+        "before it was made and after it was removed it is not the file's"
+    );
+    let b = base.display().to_string();
+    assert!(keys.contains(&format!("f:{b}/pre/x.txt")), "{keys:?}");
+    assert!(keys.contains(&format!("d:{b}/ws/src/made")), "{keys:?}");
+}

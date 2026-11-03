@@ -35,7 +35,10 @@ const post = (s, method, params) =>
 if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   const t0 = performance.now()
   const file = ws.current?.file ?? ws.current
-  const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker' })
+  // The workspace root (the driver's): a directory the file creates
+  // outside it is the file's own output (record.mjs `made`).
+  const wsRoot = process.env.QUOD_VITEST_WS || null
+  const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker', wsRoot })
   globalThis.__quod_vitest__ = r
   if (!off.has('fs')) patchFs(r)
   if (!off.has('env')) patchEnv(r)
