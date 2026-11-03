@@ -172,6 +172,12 @@ the recorded ones; a mismatch quarantines the file (it always runs). The
 audited file's reported result is the fresh one, so an audit never makes
 the job wrong and costs no wall time.
 
+The shadow's own check (`--expect-report`, the critical path's `--report`
+of the same commit) is per project and file: a file several projects run
+(convex-helpers runs zodVersion.test.ts in eight zod-version projects) is
+compared with the same project's run. A report without projects (an older
+quod's) verifies only a file it lists once; any other file is not recorded.
+
 The benchmark verifies independently: every commit also runs plain vitest
 and the two JSON reports are compared per file and per test; a difference
 in a file Quod replayed is a wrong replay and fails the job.
