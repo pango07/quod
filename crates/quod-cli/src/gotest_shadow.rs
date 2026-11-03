@@ -2435,6 +2435,26 @@ mod tests {
     }
 
     #[test]
+    fn test_files_count_only_in_the_test_build() {
+        let mut p = Pkg {
+            go_files: s(&["a.go"]),
+            test_go_files: s(&["a_test.go"]),
+            x_test_go_files: s(&["x_test.go"]),
+            ..Pkg::default()
+        };
+        let kinds = |p: &Pkg| -> Vec<&str> {
+            p.lists()
+                .into_iter()
+                .filter(|(_, l)| !l.is_empty())
+                .map(|(k, _)| k)
+                .collect()
+        };
+        assert_eq!(kinds(&p), vec!["go"]);
+        p.for_test = "m/a".into();
+        assert_eq!(kinds(&p), vec!["go", "test", "xtest"]);
+    }
+
+    #[test]
     fn sockaddrs() {
         assert_eq!(
             sockaddr(
