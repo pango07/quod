@@ -161,14 +161,17 @@ if (plan.render) {
 }
 
 // Projects Quod can record: isolated node workers. Others always run.
+// QUOD_VITEST_DISABLE=setup (no setup file: nothing recorded) or preload
+// (no toString wrapper): measuring the recorder's cost only.
+const offs = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(','))
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
   if (ok) {
-    if (record) {
+    if (record && !offs.has('setup')) {
       c.setupFiles = [setupPath, ...c.setupFiles]
-      c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
+      if (!offs.has('preload')) c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
     }
     recorded.add(p.name)
   } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
@@ -303,7 +306,14 @@ const moduleKeys = (mods) => {
 }
 const transformed = new Set()
 const dumps = new Map()
-const workerMs = { setup: 0, dump: 0, cov: 0 }
+const workerMs = { setup: 0, dump: 0, cov: 0, map: 0, keys: 0, ticks: 0 }
+const tPost = {}
+let tp = performance.now()
+const lap = (k) => {
+  const n = performance.now()
+  tPost[k] = (tPost[k] ?? 0) + n - tp
+  tp = n
+}
 const unmapped = {}
 let unmappedSample = null
 for (const id of ran.keys()) {
@@ -317,6 +327,7 @@ for (const id of ran.keys()) {
   for (const [k, n] of Object.entries(d?.unmapped ?? {})) unmapped[k] = (unmapped[k] ?? 0) + n
   if (d?.unmappedSample?.length && !unmappedSample) unmappedSample = d.unmappedSample[0]
 }
+lap('dumps')
 const interrupted = ctx.isCancelling || crashed
 for (const m of endModules) {
   const id = m.task.id
@@ -405,6 +416,7 @@ for (const m of endModules) {
   }
   ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)) })
 }
+lap('files')
 
 // The main process's reads: inputs of every file, except the source the
 // workers asked it to transform (each file's own module graph has those).
@@ -458,6 +470,7 @@ while (stack.length) {
   }
 }
 for (const d of pkgs) global.push(`p:${d}`)
+lap('global')
 
 writeJson(outPath, {
   facts,
@@ -469,7 +482,19 @@ writeJson(outPath, {
   allFiles,
   render,
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
+  timings: {
+    init: tInit - t0,
+    run: tRun - tInit,
+    record: performance.now() - tRun,
+    ...Object.fromEntries(Object.entries(tPost).map(([k, v]) => [`post_${k}`, v])),
+    workerSetupSum: workerMs.setup,
+    workerDumpSum: workerMs.dump,
+    workerCovSum: workerMs.cov,
+    workerMapSum: workerMs.map,
+    workerKeysSum: workerMs.keys,
+    workerTicks: workerMs.ticks,
+    files: ran.size,
+  },
   unmapped,
 })
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)

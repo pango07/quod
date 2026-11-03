@@ -341,11 +341,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let fast_ok = !a.no_fast && std::env::var("QUOD_VITEST_NO_FAST").map_or(true, |v| v != "1");
     // The paths as this run starts (a record keeps them: the next critical
     // path compares its own before emitting a rendered full replay).
+    let tw = Instant::now();
     let tree_before = if a.no_record {
         None
     } else {
         Some(walk(&root, &dir))
     };
+    let walk_ms = tw.elapsed().as_secs_f64() * 1e3;
 
     // Every recorded input, hashed once.
     let live = ledger.live();
@@ -677,6 +679,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
 
     // Ingest: the files that ran replace their records.
+    let mut phase = Instant::now();
+    let mut phases: BTreeMap<&str, f64> = BTreeMap::new();
+    let mut lap = |name: &'static str, phases: &mut BTreeMap<&str, f64>| {
+        phases.insert(name, phase.elapsed().as_secs_f64() * 1e3);
+        phase = Instant::now();
+    };
+    phases.insert("walk", walk_ms);
     let mut intern: HashMap<String, u32> = ledger
         .keys
         .iter()
@@ -757,7 +766,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
         recorded += 1;
         if need > 1 {
-            witness_todo.push((r.id.clone(), old.as_ref().map(|o| o.w.clone()), mismatched.contains(&r.id)));
+            witness_todo.push((
+                r.id.clone(),
+                old.as_ref().map(|o| o.w.clone()),
+                mismatched.contains(&r.id),
+            ));
         }
         ledger.files.insert(
             r.id.clone(),
@@ -777,7 +790,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     tests: r
                         .tests
                         .as_ref()
-                        .map(|t| blake3::hash(format!("{}\n{t}", r.state).as_bytes()).to_hex().to_string())
+                        .map(|t| {
+                            blake3::hash(format!("{}\n{t}", r.state).as_bytes())
+                                .to_hex()
+                                .to_string()
+                        })
                         .unwrap_or_default(),
                     ..Witness::default()
                 },
@@ -806,7 +823,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .unwrap_or_default();
     ledger.render = None;
     let mut render_note = serde_json::Value::Null;
-    if fast_ok && everything_recorded(&ledger) {
+    lap("ingest", &mut phases);
+    let no_render = std::env::var("QUOD_VITEST_DISABLE")
+        .is_ok_and(|v| v.split(',').any(|p| p == "render"));
+    if fast_ok && !no_render && everything_recorded(&ledger) {
         let tr = Instant::now();
         match render(&a, &root, &dir, &code_dir, &ledger) {
             Ok(r) => {
@@ -821,6 +841,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
 
+    lap("render", &mut phases);
     // States: the selection's for keys it hashed, new keys now.
     let live = ledger.live();
     let missing: Vec<u32> = live
@@ -837,12 +858,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ledger.states[*k as usize] = s.clone();
         ledger.idents[*k as usize] = *id;
     }
+    lap("states", &mut phases);
     let (mut promoted, mut disagreed, mut witnessed_again) = (0usize, 0usize, 0usize);
     for (id, old, mismatch) in witness_todo {
         let key = {
             let r = &ledger.files[&id];
             let mut h = blake3::Hasher::new();
-            for x in ledger.args.iter().chain(ledger.facts.iter().flat_map(|(k, v)| [k, v])) {
+            for x in ledger
+                .args
+                .iter()
+                .chain(ledger.facts.iter().flat_map(|(k, v)| [k, v]))
+            {
                 h.update(x.as_bytes());
                 h.update(b"\0");
             }
@@ -866,7 +892,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             r.w.n = 1;
             r.quarantined = true;
             disagreed += 1;
-            eprintln!("quod vitest: second witness DISAGREES: {} (quarantined until it re-proves)", r.file);
+            eprintln!(
+                "quod vitest: second witness DISAGREES: {} (quarantined until it re-proves)",
+                r.file
+            );
         } else if agrees {
             let was = old.n >= bar(need, &old);
             r.w.n = old.n + 1;
@@ -882,10 +911,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             r.w.n = 1;
         }
     }
+    lap("witness", &mut phases);
     ledger.compact();
     let tmp = dir.join("ledger.json.tmp");
     fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
     fs::rename(&tmp, &ledger_path)?;
+    lap("write", &mut phases);
     let t_done = t0.elapsed();
 
     let quod_ms = (t_select + (t_done - t_run)).as_millis();
@@ -938,6 +969,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "record_ms": (t_done - t_run).as_secs_f64() * 1e3,
             "driver": out.timings,
             "render": render_note,
+            "phases": phases,
             "witnesses_needed": need,
             "provisional": provisional,
             "promoted": promoted,
@@ -1244,13 +1276,11 @@ fn everything_recorded(l: &Ledger) -> bool {
     !l.all_files.is_empty()
         && l.all_files.len() == l.files.len()
         && l.all_files.iter().all(|id| {
-            l.files
-                .get(id)
-                .is_some_and(|r| {
-                    !r.quarantined
-                        && (r.state == "pass" || r.state == "skip")
-                        && witnessed(witnesses_needed(), r)
-                })
+            l.files.get(id).is_some_and(|r| {
+                !r.quarantined
+                    && (r.state == "pass" || r.state == "skip")
+                    && witnessed(witnesses_needed(), r)
+            })
         })
 }
 
