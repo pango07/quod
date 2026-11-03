@@ -57,15 +57,24 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         const rest = p.slice(nm + 14)
         const seg = rest.split('/')
         const name = seg[0].startsWith('@') ? `${seg[0]}/${seg[1] ?? ''}` : seg[0]
-        if (name && !name.startsWith('.')) {
-          keys.add(`p:${p.slice(0, nm + 14)}${name}`)
-          return
-        }
         // A dot entry of node_modules is the package manager's or a tool's
         // (.bin shims, .modules.yaml, .pnpm/lock.yaml, workspace state,
         // caches), not a package: what is installed counts through the
         // packages a run loads (p:), so a reinstall alone changes nothing.
-        return
+        if (!name || name.startsWith('.')) return
+        const pkg = `${p.slice(0, nm + 14)}${name}`
+        // A workspace package linked into node_modules (npm, pnpm and yarn
+        // workspaces) is source, not an installed package: its package.json
+        // says nothing about its other files. A read through the link is
+        // keyed at the real path, as a read there would be, plus the link.
+        const ws = workspaceLink(pkg)
+        if (!ws) {
+          keys.add(`p:${pkg}`)
+          return
+        }
+        keys.add(`e:${pkg}`)
+        p = ws + p.slice(pkg.length)
+        if (p.includes('/node_modules/')) return r.add(kind, p)
       }
       if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
         if (resolverCaller()) kind = 'pj'
@@ -83,6 +92,23 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     },
   }
   return r
+}
+
+// The real path of a package root under node_modules that is a link to a
+// directory outside every node_modules (a workspace package), else null.
+// An installed package (a plain directory, or pnpm's link into its store,
+// which is under node_modules/.pnpm) is null: its package.json names it.
+const links = new Map()
+export function workspaceLink(pkg) {
+  let ws = links.get(pkg)
+  if (ws !== undefined) return ws
+  ws = null
+  try {
+    const target = real.realpathSync(pkg)
+    if (target !== pkg && !`${target}/`.includes('/node_modules/')) ws = target
+  } catch {}
+  links.set(pkg, ws)
+  return ws
 }
 
 // Is a package.json read vite's or vitest's own (module resolution, which

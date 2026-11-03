@@ -248,12 +248,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     // The driver and the setup file go where node loads them natively and
-    // vite leaves them alone: the project's node_modules.
-    let code = if root.join("node_modules").is_dir() {
-        root.join("node_modules/.quod-vitest")
-    } else {
-        dir.join("code")
-    };
+    // vite leaves them alone: the project's node_modules, or in a workspace
+    // whose packages have none of their own (npm hoists), the nearest one up.
+    let repo = root.ancestors().find(|d| d.join(".git").exists());
+    let code = root
+        .ancestors()
+        .take_while(|d| repo.is_none_or(|r| d.starts_with(r)))
+        .take(if repo.is_some() { usize::MAX } else { 1 })
+        .map(|d| d.join("node_modules"))
+        .find(|d| d.is_dir())
+        .map_or_else(|| dir.join("code"), |d| d.join(".quod-vitest"));
     fs::create_dir_all(&code)?;
     for (name, body) in [
         ("driver.mjs", DRIVER),
@@ -265,7 +269,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     ] {
         let p = code.join(name);
         if fs::read_to_string(&p).ok().as_deref() != Some(body) {
-            fs::write(&p, body)?;
+            // Atomically: the packages of a workspace may run at once and
+            // share this directory.
+            let tmp = code.join(format!("{name}.{}.tmp", std::process::id()));
+            fs::write(&tmp, body)?;
+            fs::rename(&tmp, &p)?;
         }
     }
     let code_dir = code.clone();
@@ -1580,6 +1588,11 @@ fn state(
         "rc" => (content_tree(&path()), None),
         "f" | "pj" | "p" => {
             let mut path = path();
+            // npm's layout names no version in a package's path: what the
+            // lockfile says was installed there (version, source, integrity)
+            // joins its package.json, so a git or tarball dependency that
+            // moved without a version bump counts too.
+            let lock = if kind == "p" { npm_locked(&path) } else { None };
             if kind == "p" {
                 path.push("package.json");
             }
@@ -1596,6 +1609,7 @@ fn state(
             if let Some((cid, cs)) = cached
                 && cid == id
                 && !cs.is_empty()
+                && cs.split_once('+').map(|x| x.1) == lock.as_deref()
             {
                 return (cs.to_string(), Some(id));
             }
@@ -1606,6 +1620,10 @@ fn state(
                 pj_hash(&bytes)
             } else {
                 blake3::hash(&bytes).to_hex().to_string()
+            };
+            let h = match &lock {
+                Some(l) => format!("{h}+{l}"),
+                None => h,
             };
             // Workspace source is kept by content, for function-level
             // narrowing to diff a record's version against the current one.
@@ -1625,6 +1643,56 @@ fn state(
         }
         _ => (format!("unknown kind {kind}"), None),
     }
+}
+
+/// An installed package's entry in the npm lockfile of the workspace it is
+/// in (the nearest package-lock.json or npm-shrinkwrap.json up from it, by
+/// its path from there): a digest of its version, `resolved` and
+/// `integrity`, or `unlisted`. None when no npm lockfile is found (pnpm and
+/// yarn name versions in the path or need none).
+fn npm_locked(pkg: &Path) -> Option<String> {
+    type Locks = std::sync::Mutex<HashMap<PathBuf, Option<std::sync::Arc<serde_json::Value>>>>;
+    static LOCKS: std::sync::OnceLock<Locks> = std::sync::OnceLock::new();
+    let mut found = None;
+    for d in pkg.ancestors().skip(1) {
+        if let Some(f) = ["npm-shrinkwrap.json", "package-lock.json"]
+            .iter()
+            .map(|n| d.join(n))
+            .find(|f| f.is_file())
+        {
+            found = Some((d, f));
+            break;
+        }
+        if d.join(".git").exists() {
+            break;
+        }
+    }
+    let (base, file) = found?;
+    let rel = pkg.strip_prefix(base).ok()?.to_str()?.to_string();
+    let lock = {
+        let mut m = LOCKS.get_or_init(Default::default).lock().ok()?;
+        m.entry(file.clone())
+            .or_insert_with(|| {
+                fs::read(&file)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .map(std::sync::Arc::new)
+            })
+            .clone()
+    };
+    let Some(lock) = lock else {
+        return Some("unreadable".into());
+    };
+    let e = &lock["packages"][rel.as_str()];
+    if e.is_null() {
+        return Some("unlisted".into());
+    }
+    let mut h = blake3::Hasher::new();
+    for f in ["version", "resolved", "integrity"] {
+        h.update(e[f].as_str().unwrap_or("").as_bytes());
+        h.update(b"\0");
+    }
+    Some(h.finalize().to_hex()[..16].to_string())
 }
 
 fn is_source(p: &str) -> bool {
@@ -2131,6 +2199,61 @@ mod tests {
         ));
         assert!(!installed("f:src/index.ts"));
         assert!(!installed("envall"));
+    }
+
+    #[test]
+    fn an_npm_package_counts_its_lockfile_entry() {
+        // npm hoists: node_modules/<name> names no version, and a git or
+        // tarball dependency can change without its package.json changing.
+        // The lockfile's entry (by the path from the workspace root, nested
+        // ones included) joins the state; same package.json, other source:
+        // another state. (A fresh root each time: lockfiles are parsed once
+        // per process.)
+        let lock = |resolved: &str| {
+            format!(
+                r#"{{"packages":{{"node_modules/g":{{"version":"1.0.0","resolved":"{resolved}"}},
+"packages/a/node_modules/g":{{"version":"2.0.0"}}}}}}"#
+            )
+        };
+        let st = |resolved: &str, key: &str| {
+            let t = tempfile::tempdir().unwrap();
+            let r = t.path();
+            fs::create_dir(r.join(".git")).unwrap();
+            fs::write(r.join("package-lock.json"), lock(resolved)).unwrap();
+            let pj = r#"{"name":"g","version":"1.0.0"}"#;
+            for d in ["node_modules/g", "packages/a/node_modules/g"] {
+                fs::create_dir_all(r.join(d)).unwrap();
+                fs::write(r.join(d).join("package.json"), pj).unwrap();
+            }
+            fs::create_dir_all(r.join("packages/a/node_modules/h")).unwrap();
+            fs::write(r.join("packages/a/node_modules/h/package.json"), pj).unwrap();
+            let pkg_root = r.join("packages/a");
+            let key = if key.starts_with("p:/") {
+                key.replace("p:/", &format!("p:{}/", r.display()))
+            } else {
+                key.to_string()
+            };
+            state(&pkg_root, &key, None, 0, &std::sync::OnceLock::new(), None).0
+        };
+        let a = st("git+ssh://x/g.git#aaaa", "p:/node_modules/g");
+        let b = st("git+ssh://x/g.git#bbbb", "p:/node_modules/g");
+        assert!(a.contains('+'), "{a}");
+        assert_ne!(a, b);
+        assert_eq!(a.split('+').next(), b.split('+').next());
+        // nested, relative to the package that runs vitest
+        let n1 = st("x", "p:node_modules/g");
+        let n2 = st("y", "p:node_modules/g");
+        assert_eq!(n1, n2);
+        assert!(n1.contains('+'));
+        assert!(st("x", "p:node_modules/h").ends_with("+unlisted"));
+        // no npm lockfile (pnpm): the package.json alone, as before
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir(t.path().join(".git")).unwrap();
+        fs::create_dir_all(t.path().join("node_modules/g")).unwrap();
+        fs::write(t.path().join("node_modules/g/package.json"), "{}").unwrap();
+        let none = std::sync::OnceLock::new();
+        let s = state(t.path(), "p:node_modules/g", None, 0, &none, None).0;
+        assert_eq!(s, blake3::hash(b"{}").to_hex().to_string());
     }
 
     #[test]

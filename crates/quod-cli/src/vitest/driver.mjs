@@ -102,6 +102,18 @@ const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
+// The repository the project is in (the nearest .git up from its root): in
+// a monorepo whose packages each run vitest (npm or yarn workspaces), a
+// write to a sibling package is a write to the workspace too.
+let wsRoot = ctx.config.root
+for (let d = ctx.config.root; ; d = path.dirname(d)) {
+  if (real.existsSync(path.join(d, '.git'))) {
+    wsRoot = d
+    break
+  }
+  if (path.dirname(d) === d) break
+}
+wsRoot += '/'
 
 // A large run (the plan says so) uses every CPU, not vitest's default of
 // one fewer: the main process idles while workers run. Only when neither
@@ -336,7 +348,7 @@ for (const m of endModules) {
     keys = [...ks]
     unobservable = d.unobservable
     const root = ctx.config.root + '/'
-    const ws = d.writes.filter((w) => w.startsWith(root) && !w.includes('/node_modules/'))
+    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
     // A watched path is read whole (recursively, content included) at the
     // end of the file; under a directory the file itself created (its own
