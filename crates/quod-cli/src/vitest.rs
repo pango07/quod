@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 const DRIVER: &str = include_str!("vitest/driver.mjs");
 const SETUP: &str = include_str!("vitest/setup.mjs");
 const RECORD: &str = include_str!("vitest/record.mjs");
-const COVERAGE: &str = include_str!("vitest/coverage.mjs");
+const INSTRUMENT: &str = include_str!("vitest/instrument.mjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
@@ -193,7 +193,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("driver.mjs", DRIVER),
         ("setup.mjs", SETUP),
         ("record.mjs", RECORD),
-        ("coverage.mjs", COVERAGE),
+        ("instrument.mjs", INSTRUMENT),
         ("narrow.mjs", NARROW),
     ] {
         let p = code.join(name);
@@ -229,7 +229,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     let global_ok = !full
         && !ledger.files.is_empty()
-        && ledger.args == a.args
+        && ledger.args == keyed_args(&a.args)
         && ledger.global.iter().all(|k| !changed.contains(k));
     let mut replay: BTreeMap<String, String> = BTreeMap::new();
     let mut affected: Vec<String> = Vec::new();
@@ -565,7 +565,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
     ledger.facts = out.facts;
-    ledger.args = a.args.clone();
+    ledger.args = keyed_args(&a.args);
 
     // States: the selection's for keys it hashed, new keys now.
     let live = ledger.live();
@@ -1014,27 +1014,81 @@ fn listing(p: &Path, recursive: bool) -> String {
         .to_string()
 }
 
-/// A workspace package.json as the tools read it: the dependency version
-/// values blanked (what is installed is keyed by the `p:` keys of the
-/// packages loaded; a test that reads package.json itself keys it by `f:`).
+/// The package.json fields module resolution and the tools read.
+const PJ_FIELDS: &[&str] = &[
+    "name",
+    "type",
+    "exports",
+    "imports",
+    "main",
+    "module",
+    "browser",
+    "jsnext:main",
+    "jsnext",
+    "workspaces",
+    "packageManager",
+    "engines",
+    "vite",
+    "vitest",
+];
+
+/// A workspace package.json as vite's resolver and the tools read it after
+/// the config loaded (`pj:` keys): the resolution fields, and the
+/// dependency lists' names (their versions are what is installed, keyed by
+/// the `p:` keys of the packages loaded). A release's `version` bump or a
+/// script change counts for nobody. What reads package.json itself keeps
+/// it whole (`f:`): a test's read or import, and the config (read while it
+/// loads, or bundled into it).
 fn pj_hash(bytes: &[u8]) -> String {
-    let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+    let Ok(serde_json::Value::Object(v)) = serde_json::from_slice::<serde_json::Value>(bytes)
+    else {
         return blake3::hash(bytes).to_hex().to_string();
     };
-    for field in [
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-        "optionalDependencies",
-    ] {
-        if let Some(serde_json::Value::Object(m)) = v.get_mut(field) {
-            for val in m.values_mut() {
-                *val = serde_json::Value::String(String::new());
-            }
+    let mut kept = serde_json::Map::new();
+    for (k, val) in v {
+        if PJ_FIELDS.contains(&k.as_str()) {
+            kept.insert(k, val);
+        } else if k.ends_with("ependencies")
+            && let serde_json::Value::Object(m) = val
+        {
+            let names: Vec<String> = m.keys().cloned().collect();
+            kept.insert(k, serde_json::json!(names));
         }
     }
-    let canon = serde_json::to_vec(&v).unwrap_or_default();
+    let canon = serde_json::to_vec(&kept).unwrap_or_default();
     format!("pj:{}", blake3::hash(&canon).to_hex())
+}
+
+/// vitest's arguments that change only what is printed or written, not a
+/// test's result: not part of what a record is keyed on (replays render
+/// in whatever reporters this run asks for).
+fn keyed_args(args: &[String]) -> Vec<String> {
+    const VALUED: &[&str] = &["--reporter", "--outputFile"];
+    const FLAGS: &[&str] = &[
+        "--silent",
+        "--color",
+        "--no-color",
+        "--hideSkippedTests",
+        "--logHeapUsage",
+        "--printConsoleTrace",
+        "--no-printConsoleTrace",
+    ];
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        let name = a.split_once('=').map_or(a.as_str(), |x| x.0);
+        let base = name.split_once('.').map_or(name, |x| x.0);
+        if VALUED.contains(&base) {
+            if !a.contains('=') && args.get(i + 1).is_some_and(|n| !n.starts_with('-')) {
+                i += 1;
+            }
+        } else if !FLAGS.contains(&base) {
+            out.push(a.clone());
+        }
+        i += 1;
+    }
+    out
 }
 
 /// Every environment variable but the per-run and per-step ones.
@@ -1130,7 +1184,29 @@ mod tests {
     }
 
     #[test]
+    fn output_only_arguments_are_not_keyed() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            keyed_args(&v(&[
+                "run",
+                "--project",
+                "unit",
+                "--reporter",
+                "json",
+                "--outputFile.json=a.json",
+                "--silent",
+                "-t",
+                "x"
+            ])),
+            v(&["run", "--project", "unit", "-t", "x"])
+        );
+    }
+
+    #[test]
     fn package_json_versions_do_not_count_but_the_rest_does() {
+        let v1 = pj_hash(br#"{"name":"x","version":"1.0.0","scripts":{"a":"b"}}"#);
+        let v2 = pj_hash(br#"{"name":"x","version":"1.0.1","scripts":{"a":"c"}}"#);
+        assert_eq!(v1, v2, "a release bump or a script counts for nobody");
         let a = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.1.0"}}"#);
         let b = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0"}}"#);
         let c = pj_hash(br#"{"name":"x","type":"commonjs","devDependencies":{"eslint":"^9.2.0"}}"#);
