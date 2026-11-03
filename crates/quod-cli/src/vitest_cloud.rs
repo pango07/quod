@@ -19,6 +19,13 @@ use quod_wire::testreplay_client::TestReplayClient;
 pub struct Cloud {
     pub client: TestReplayClient,
     pub suite: String,
+    /// QUOD_VITEST_CLOUD_FALLBACK=1: when Quod Cloud gives this job no
+    /// ledger (unreachable, a failed download, none recorded), use the
+    /// local one (e.g. an actions/cache copy) instead of none. Off by
+    /// default: a local ledger is not signed for this job, so only a
+    /// workflow that trusts its cache, as it did before Quod Cloud, turns
+    /// this on.
+    pub fallback_local: bool,
 }
 
 /// The cloud config, if `--cloud` was given: the URL from the flag, else
@@ -65,6 +72,7 @@ pub fn from_args(url: Option<&str>, suite: Option<&str>, root: &Path) -> Option<
     Some(Cloud {
         client: TestReplayClient::new(cfg),
         suite,
+        fallback_local: std::env::var("QUOD_VITEST_CLOUD_FALLBACK").is_ok_and(|v| v == "1"),
     })
 }
 
@@ -229,7 +237,14 @@ impl Cloud {
     fn restore_fresh(&self, root: &Path, dir: &Path) -> (LedgerUsed, bool) {
         let t = Instant::now();
         let none = (LedgerUsed::default(), false);
-        if let Err(e) = clear(dir) {
+        // With the fallback the local ledger stays until a fetched one has
+        // verified (the swap below replaces it); without it, it goes now.
+        let local = self.fallback_local && dir.join("ledger.json").is_file();
+        if local {
+            eprintln!(
+                "quod vitest: QUOD_VITEST_CLOUD_FALLBACK=1: the local ledger is used if Quod Cloud gives none"
+            );
+        } else if let Err(e) = clear(dir) {
             eprintln!(
                 "quod vitest: the local ledger could not be removed ({e}); Quod Cloud is not used"
             );
@@ -363,6 +378,64 @@ impl Cloud {
                 "quod vitest: the run report was not sent to Quod Cloud ({})",
                 e.0
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quod_wire::client::Auth;
+
+    /// A server that answers every request 502 (a deploy in progress).
+    fn bad_gateway() -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let a = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for mut s in l.incoming().flatten() {
+                let mut b = [0u8; 8192];
+                let _ = std::io::Read::read(&mut s, &mut b);
+                let _ = std::io::Write::write_all(
+                    &mut s,
+                    b"HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
+            }
+        });
+        format!("http://{a}")
+    }
+
+    fn cloud(url: &str, fallback_local: bool) -> Cloud {
+        Cloud {
+            client: TestReplayClient::new(ServerConfig {
+                url: url.into(),
+                auth: Auth::Token("t".into()),
+                server_key: None,
+                timeout: std::time::Duration::from_secs(5),
+                scope: None,
+                ci: None,
+            })
+            .without_retries(),
+            suite: ".".into(),
+            fallback_local,
+        }
+    }
+
+    #[test]
+    fn a_502_keeps_the_local_ledger_only_with_the_fallback() {
+        let url = bad_gateway();
+        for fallback in [true, false] {
+            let t = tempfile::tempdir().unwrap();
+            std::fs::write(t.path().join("ledger.json"), "{}").unwrap();
+            std::fs::create_dir_all(t.path().join("results")).unwrap();
+            std::fs::write(t.path().join("results/a.json"), "a").unwrap();
+            let used = cloud(&url, fallback).restore(t.path(), t.path());
+            assert!(!used.found, "{fallback}");
+            // With the fallback the local ledger is used whole; without
+            // it, no ledger (every file runs).
+            assert_eq!(t.path().join("ledger.json").is_file(), fallback);
+            assert_eq!(t.path().join("results/a.json").is_file(), fallback);
+            // A failed lookup leaves no marker: the next --cloud run tries again.
+            assert!(!t.path().join(MARKER).exists());
         }
     }
 }
