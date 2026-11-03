@@ -38,6 +38,15 @@ out.push('|---|---:|---:|---:|')
 out.push(`| **median per commit** | ${s(median(rows.map((r) => r.plain_ms)))} s | ${s(median(rows.map((r) => r.crit_ms)))} s | **${median(rows.map((r) => x(r.plain_ms, r.crit_ms))).toFixed(1)}x** (median of per-commit speedups) |`)
 out.push(`| **total, ${rows.length} commits** | ${s(tp)} s | ${s(tc)} s | **${x(tp, tc).toFixed(1)}x** |`)
 out.push(`| **wrong replays** | | **${wrong}** | ${flaky} flaky (a file both ran and disagreed) |`)
+const wj = rows.filter((r) => r.whole_plain_ms != null)
+if (wj.length) {
+  const wp = sum(wj.map((r) => r.whole_plain_ms))
+  const wq = sum(wj.map((r) => r.whole_quod_ms))
+  const done = wj.filter((r) => r.plan === 'done').length
+  const pw = wj.reduce((a, r) => a + (r.plan_wrong ? r.plan_wrong.length : r.plan === 'done' ? 1 : 0), 0)
+  out.push(`| **whole job, median** (install + tests; Quod: \`--plan\` first, install only when a file must run) | ${s(median(wj.map((r) => r.whole_plain_ms)))} s | ${s(median(wj.map((r) => r.whole_quod_ms)))} s | **${median(wj.map((r) => x(r.whole_plain_ms, r.whole_quod_ms))).toFixed(1)}x** |`)
+  out.push(`| **whole job, total** | ${s(wp)} s | ${s(wq)} s | **${x(wp, wq).toFixed(1)}x**; ${done} of ${wj.length} commits skipped the install (plan: every file replays), ${pw} wrong |`)
+}
 out.push(`| shadow compute (separate job, not on the critical path) | | ${s(ts)} s total | median ${s(median(rows.map((r) => r.shadow_ms)))} s per commit; ${aud} audits, ${mism} mismatches (quarantined) |`)
 out.push('')
 if (first) {
@@ -54,7 +63,7 @@ for (const r of [first, ...rows].filter(Boolean)) {
   const why = r.shared_changed && r.replayed === 0 && r.ledger_from >= 0 ? ' (shared inputs)' : ''
   const from = r.ledger_from < 0 ? 'none' : `#${r.ledger_from}`
   out.push(
-    `| ${r.i}${r.first ? ' (first run)' : ''} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched} files: ${r.areas || '-'} | ${s(r.plain_ms)} s | **${s(r.crit_ms)} s** | ${x(r.plain_ms, r.crit_ms).toFixed(1)}x | ${r.ran ?? '?'} / ${r.replayed ?? '?'}${r.narrowed ? ` (${r.narrowed})` : ''}${why} | ${from} | ${s(r.shadow_ms)} s | ${r.shadow_ran ?? '?'} / ${r.audited ?? 0}${r.audit_mismatches?.length ? ` (${r.audit_mismatches.length} mismatch)` : ''} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
+    `| ${r.i}${r.first ? ' (first run)' : ''} | ${link} ${subj.replace(/\|/g, '\\|')} | ${r.touched} files: ${r.areas || '-'} | ${s(r.plain_ms)} s | **${s(r.crit_ms)} s** | ${x(r.plain_ms, r.crit_ms).toFixed(1)}x | ${r.ran ?? '?'} / ${r.replayed ?? '?'}${r.narrowed ? ` (${r.narrowed})` : ''}${why}${r.fast ? ' (rendered)' : ''}${r.plan === 'done' ? ' (no install)' : ''} | ${from} | ${s(r.shadow_ms)} s | ${r.shadow_ran ?? '?'} / ${r.audited ?? 0}${r.audit_mismatches?.length ? ` (${r.audit_mismatches.length} mismatch)` : ''} | ${r.wrong ? r.wrong.length : 'not compared'} |`,
   )
 }
 out.push('')

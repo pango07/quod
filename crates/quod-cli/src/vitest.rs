@@ -275,7 +275,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let fast_ok = !a.no_fast && std::env::var("QUOD_VITEST_NO_FAST").map_or(true, |v| v != "1");
     // The paths as this run starts (a record keeps them: the next critical
     // path compares its own before emitting a rendered full replay).
-    let tree_before = if a.no_record { None } else { Some(walk(&root, &dir)) };
+    let tree_before = if a.no_record {
+        None
+    } else {
+        Some(walk(&root, &dir))
+    };
 
     // Every recorded input, hashed once.
     let live = ledger.live();
@@ -514,7 +518,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 }
                 return Ok(code);
             }
-            Err(why) => eprintln!("quod vitest: every file replays, but no rendered replay to emit ({why}); starting vitest"),
+            Err(why) => eprintln!(
+                "quod vitest: every file replays, but no rendered replay to emit ({why}); starting vitest"
+            ),
         }
     }
 
@@ -687,7 +693,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             }
             Err(why) => {
                 eprintln!("quod vitest: no rendered full replay ({why})");
-                render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3, "why": why });
+                render_note =
+                    serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3, "why": why });
             }
         }
     }
@@ -937,7 +944,9 @@ fn plan(
     };
     let w = walk(root, dir);
     match install_key(root, &w, &node) {
-        None => return verdict("install inputs unknown (a pnpm lockfile and pnpm are needed)".into()),
+        None => {
+            return verdict("install inputs unknown (a pnpm lockfile and pnpm are needed)".into());
+        }
         Some(k) if k != ledger.install => return verdict("install inputs changed".into()),
         Some(_) => {}
     }
@@ -948,13 +957,27 @@ fn plan(
         .filter(|k| !installed(&ledger.keys[*k as usize]))
         .collect();
     let cur = states(root, ledger, &check, None);
-    let now: HashMap<u32, String> = check.iter().copied().zip(cur.into_iter().map(|s| s.0)).collect();
-    let state_now = |k: u32| -> &str { now.get(&k).map_or(ledger.states[k as usize].as_str(), |s| s.as_str()) };
+    let now: HashMap<u32, String> = check
+        .iter()
+        .copied()
+        .zip(cur.into_iter().map(|s| s.0))
+        .collect();
+    let state_now = |k: u32| -> &str {
+        now.get(&k)
+            .map_or(ledger.states[k as usize].as_str(), |s| s.as_str())
+    };
     if ledger.args != keyed_args(&a.args) {
         return verdict("other vitest arguments".into());
     }
-    if let Some(k) = ledger.global.iter().find(|k| state_now(**k) != ledger.states[**k as usize]) {
-        return verdict(format!("shared input changed: {}", ledger.keys[*k as usize]));
+    if let Some(k) = ledger
+        .global
+        .iter()
+        .find(|k| state_now(**k) != ledger.states[**k as usize])
+    {
+        return verdict(format!(
+            "shared input changed: {}",
+            ledger.keys[*k as usize]
+        ));
     }
     for (id, rec) in &ledger.files {
         if rec.quarantined || !(rec.state == "pass" || rec.state == "skip") {
@@ -965,7 +988,10 @@ fn plan(
             state_now(**d) != seen.as_str()
         });
         if let Some(d) = moved {
-            return verdict(format!("{} changed ({})", ledger.keys[*d as usize], rec.file));
+            return verdict(format!(
+                "{} changed ({})",
+                ledger.keys[*d as usize], rec.file
+            ));
         }
     }
     match emit_render(root, dir, ledger, &a.args, &node, &w.hash) {
@@ -1014,7 +1040,13 @@ fn render_sig(l: &Ledger) -> String {
     let mut h = blake3::Hasher::new();
     for (id, r) in &l.files {
         let runs = r.runs.to_string();
-        for x in [id.as_str(), r.project.as_str(), r.result.as_str(), r.state.as_str(), runs.as_str()] {
+        for x in [
+            id.as_str(),
+            r.project.as_str(),
+            r.result.as_str(),
+            r.state.as_str(),
+            runs.as_str(),
+        ] {
             h.update(x.as_bytes());
             h.update(b"\0");
         }
@@ -1030,7 +1062,14 @@ fn render_sig(l: &Ledger) -> String {
 /// This quod's driver code and version.
 fn code_hash() -> String {
     let mut h = blake3::Hasher::new();
-    for s in [DRIVER, SETUP, RECORD, INSTRUMENT, NARROW, env!("CARGO_PKG_VERSION")] {
+    for s in [
+        DRIVER,
+        SETUP,
+        RECORD,
+        INSTRUMENT,
+        NARROW,
+        env!("CARGO_PKG_VERSION"),
+    ] {
         h.update(s.as_bytes());
         h.update(b"\0");
     }
@@ -1133,13 +1172,18 @@ fn walk(root: &Path, dir: &Path) -> Walk {
                 if e.path().is_dir() {
                     ok = false;
                 }
-                let target = fs::read_link(e.path()).map_or(String::new(), |t| t.display().to_string());
+                let target =
+                    fs::read_link(e.path()).map_or(String::new(), |t| t.display().to_string());
                 names.push(format!("{}\0l\0{target}", r.display()));
             } else {
                 if name.to_str().is_some_and(|n| INSTALL_FILES.contains(&n)) {
                     install.push(r.clone());
                 }
-                names.push(format!("{}\0{}", r.display(), if t.is_file() { 'f' } else { 'o' }));
+                names.push(format!(
+                    "{}\0{}",
+                    r.display(),
+                    if t.is_file() { 'f' } else { 'o' }
+                ));
             }
         }
     }
@@ -1147,7 +1191,9 @@ fn walk(root: &Path, dir: &Path) -> Walk {
     install.sort();
     Walk {
         hash: if ok {
-            blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+            blake3::hash(names.join("\n").as_bytes())
+                .to_hex()
+                .to_string()
         } else {
             String::new()
         },
@@ -1176,7 +1222,9 @@ fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
     }
     if let Some(home) = std::env::var_os("HOME") {
         h.update(b"~/.npmrc\0");
-        h.update(blake3::hash(&fs::read(Path::new(&home).join(".npmrc")).unwrap_or_default()).as_bytes());
+        h.update(
+            blake3::hash(&fs::read(Path::new(&home).join(".npmrc")).unwrap_or_default()).as_bytes(),
+        );
     }
     let mut vars: Vec<(String, String)> = std::env::vars()
         .filter(|(k, _)| {
@@ -1210,7 +1258,8 @@ fn render(
         "render": rd, "expect": ledger.facts,
     });
     let (pp, op) = (rd.join("plan.json"), rd.join("out.json"));
-    fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
     let status = Command::new(&a.node)
         .arg(code_dir.join("driver.mjs"))
@@ -1229,7 +1278,10 @@ fn render(
         .ok_or("the render left no record")?;
     let r = out.render.unwrap_or_default();
     if r["ok"] != true {
-        return Err(format!("render: {}", r["reason"].as_str().unwrap_or("not supported")));
+        return Err(format!(
+            "render: {}",
+            r["reason"].as_str().unwrap_or("not supported")
+        ));
     }
     if out.interrupted || !out.ran.is_empty() || out.replayed.len() != ledger.files.len() {
         return Err(format!(
@@ -1862,9 +1914,13 @@ mod tests {
 
     #[test]
     fn installed_keys_are_under_the_workspace_node_modules() {
-        assert!(installed("p:node_modules/.pnpm/vitest@4.1.10/node_modules/vitest"));
+        assert!(installed(
+            "p:node_modules/.pnpm/vitest@4.1.10/node_modules/vitest"
+        ));
         assert!(installed("e:packages/a/node_modules/b"));
-        assert!(!installed("f:/usr/local/node/lib/node_modules/npm/index.js"));
+        assert!(!installed(
+            "f:/usr/local/node/lib/node_modules/npm/index.js"
+        ));
         assert!(!installed("f:src/index.ts"));
         assert!(!installed("envall"));
     }

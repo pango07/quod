@@ -86,19 +86,36 @@ for i in "${!commits[@]}"; do
   git checkout -q --force "$c"
   nl=$(sha1sum pnpm-lock.yaml 2>/dev/null | cut -c1-40)
   install_ms=0
+  read -r cdir from < <(ledger_for "$i")
+  plan_ms=0; verdict=; pcmp='{}'
+  if [ "${WHOLE_JOB:-0}" = 1 ]; then
+    # The whole job: a fresh checkout has no node_modules. Quod's plan runs
+    # before the install (the pnpm store is warm, as a CI cache restores it).
+    find . -name node_modules -type d -prune -exec rm -rf {} +
+    s=$(ms)
+    "$QUOD" vitest --plan "$out/plan.txt" --dir "$cdir" --summary "$out/plan-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/plan-$i.log" 2>&1
+    plan_ms=$(( $(ms) - s ))
+    verdict=$(cat "$out/plan.txt" 2>/dev/null)
+    [ "$verdict" = done ] && mv -f "$out/quod.json" "$out/plan.json"
+    rm -f "$out/quod.json"
+    lock=
+  fi
   if [ "$nl" != "$lock" ]; then
     s=$(ms)
     PUPPETEER_SKIP_DOWNLOAD=true pnpm install --frozen-lockfile --prefer-offline >"$out/logs/install-$i.log" 2>&1 || echo "install failed at $c"
     install_ms=$(( $(ms) - s ))
     lock=$nl
   fi
-  read -r cdir from < <(ledger_for "$i")
   if (( i % 2 == 0 )); then
     read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir")
   else
     read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r p_ms p_rc < <(plain "$i")
   fi
   cmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/crit.json" "$cdir/out.json" 2>&1 | tee "$out/logs/compare-$i.log" | tail -1)
+  if [ "$verdict" = done ]; then
+    echo '{"ran":[]}' > "$out/plan-out.json"
+    pcmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/plan.json" "$out/plan-out.json" 2>&1 | tee "$out/logs/compare-plan-$i.log" | tail -1)
+  fi
   # The shadow job of this commit (after the critical path: it never delays it).
   read -r sh_ms sh_rc < <(shadow "$i")
   obs_ms=0
@@ -120,11 +137,14 @@ for i in "${!commits[@]}"; do
   areas=$(echo "$files" | awk -F/ 'NF{ if ($1=="packages"||$1=="packages-private") print $1"/"$2; else if (NF>1) print $1"/"; else print $1 }' | sort | uniq -c | sort -rn | awk '{printf "%s%s(%s)", sep, $2, $1; sep=", "}')
   subject=$(git log -1 --format=%s "$c")
   node -e '
-    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss] = process.argv.slice(1)
+    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp] = process.argv.slice(1)
     const fs = require("fs")
     const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return {} } }
     const k = (t) => { try { return JSON.parse(t) } catch { return { error: t } } }
-    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp)
+    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp), pc = k(pcmp)
+    const whole = verdict ? { plan_ms: +plan_ms, plan: verdict, whole_plain_ms: +install_ms + +p_ms,
+      whole_quod_ms: +plan_ms + (verdict === "done" ? 0 : +install_ms + +q_ms),
+      plan_wrong: verdict === "done" ? (pc.wrong ?? null) : [] } : {}
     console.log(JSON.stringify({ i: +i, first: i === "0", commit: c, subject, touched: +touched, areas,
       plain_ms: +p_ms, plain_exit: +p_rc, crit_ms: +q_ms, crit_exit: +q_rc, ledger_from: +from,
       shadow_ms: +sh_ms, shadow_exit: +sh_rc, observe_ms: +obs_ms, install_ms: +install_ms, ledger_bytes: +bytes,
@@ -133,8 +153,8 @@ for i in "${!commits[@]}"; do
       shadow_ran: h.ran, shadow_replayed: h.replayed, audited: h.audited, audit_mismatches: h.audit_mismatches,
       unrecordable: h.unrecordable, record_ms: h.record_ms, shadow_driver: h.driver,
       files: a.files, wrong: a.wrong ?? null, flaky: a.flaky ?? null, compare_error: a.error,
-      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null }))
-  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" | tee -a "$out/results.jsonl"
+      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, fast: !!s.fast, render: h.render ?? null, ...whole }))
+  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" | tee -a "$out/results.jsonl"
 
   # Mutation check (not timed): a throw in a function some recorded test
   # executed must make the critical path run that test and report the same
@@ -168,7 +188,7 @@ node "$here/report-shadow.mjs" "$out/results.jsonl" "${args[*]}" "$(git remote g
 cat "$out/report.md"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
 # Loud: a wrong replay on the critical path (or a mutation it missed) fails the job.
-if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length)?1:0)' "$out/results.jsonl"; then
+if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
   echo "0 wrong replays"
 else
   echo "::error::WRONG REPLAYS (or an uncompared commit): see report.md"; exit 1
