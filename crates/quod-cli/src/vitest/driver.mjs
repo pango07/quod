@@ -147,7 +147,10 @@ const covFingerprint = () => {
     try {
       ver ??= JSON.parse(real.readFileSync(req.resolve(`@vitest/coverage-${p.name}/package.json`), 'utf8')).version
     } catch {}
-    const text = JSON.stringify({ v: 1, provider: p?.name ?? null, ver, vitest: vitestPkg.version, root: ctx.config.root, opts: ctx.config.coverage }, (k, v) =>
+    // processingConcurrency is the machine's CPU count: how fast the report
+    // is made, not what it says.
+    const { processingConcurrency, ...opts } = ctx.config.coverage ?? {}
+    const text = JSON.stringify({ v: 1, provider: p?.name ?? null, ver, vitest: vitestPkg.version, root: ctx.config.root, opts }, (k, v) =>
       typeof v === 'function' ? `fn:${v.toString()}` : v instanceof RegExp ? `re:${v}` : v,
     )
     covFp = p && ver ? crypto.createHash('sha256').update(text).digest('hex') : ''
@@ -354,6 +357,10 @@ specsApi.getRelevantTestSpecifications = async (f) => {
         ok = false
         covMissing++
       }
+    } else if (ok && real.existsSync(covPaths(id)[1])) {
+      // recorded under coverage (instrumented), replayed without: it runs
+      ok = false
+      covMissing++
     }
     if (ok) {
       replayed.push({ spec: s, id, result: res })
@@ -367,7 +374,7 @@ specsApi.getRelevantTestSpecifications = async (f) => {
       }
     }
   }
-  if (covMissing) log(`coverage: ${covMissing} files have no recorded coverage of this configuration: they run`)
+  if (covMissing) log(`coverage: ${covMissing} files were recorded under another coverage configuration (or none): they run`)
   allFiles = all.map((s) => s.taskId)
   log(`${all.length} test files: running ${run.length}, replaying ${replayed.length}${audits.size ? ` (auditing ${[...audits].filter((a) => ran.has(a)).length})` : ''}`)
   return run
