@@ -66,30 +66,46 @@ run phase's gains are visible.
    typescript, so a file that would need it means `run`. If everything
    replays it emits the render, writes `done` and the job skips install;
    anything else writes `run` (install, then `--no-record` as before).
-3. **node compile cache** (kept, small): `module.enableCompileCache` in the
-   state dir (travels with the ledger, ~2.5 MB on router), main process and
-   workers (NODE_COMPILE_CACHE). V8 checks each entry's source hash. Plain
-   vitest with it: 1 file 730 → 670 ms, 10 files ~-40 ms.
-4. **Every CPU for large runs** (kept for > 4×CPUs files): maxWorkers =
+3. **node compile cache** (dropped to opt-in, `QUOD_VITEST_COMPILE_CACHE=1`):
+   plain vitest with a warm cache: 1 file 730 → 670 ms. But the critical
+   path runs on a copy of the state dir that is thrown away, and record runs
+   must not use it (V8 coverage), so every critical run paid the cache
+   writes: same-job on ufo it cost ~40 ms a run.
+4. **Every CPU for large runs** (kept, > 4×CPUs files to run): maxWorkers =
    CPUs instead of vitest's CPUs-1 when neither config nor arguments set
-   it. Full router run 9.4 → 8.4 s; 10 files 2.1 → 2.2 s (worse), hence the
-   threshold.
+   it. Same-job on router's two big commits (55, 60 files): 8.25 vs 8.89 s,
+   8.38 vs 9.08 s (-7%). 10 files got slower in the breakdown (2.1 → 2.2 s),
+   hence the threshold.
 5. **Transform cache** (measured, not shipped): vitest's own
-   `experimental.fsModuleCache`, warm: 1 file 1.22 → 1.03 s, 10 files 3.3 →
-   3.0 s. Not shipped: a transform of X can depend on files other than X
-   that vitest's key (id, content, config, plugin names, lockfile) does not
-   cover, and that Quod's global inputs exclude because they are modules
-   (e.g. an SFC's imported prop types, a macro plugin); a stale hit would
-   run old code, and sampling in the shadow cannot make that never-wrong.
-   A sound version needs per-transform read attribution in the recorder
-   (AsyncLocalStorage around transformRequest, every read of another module
-   file joining the key) and a plugin allow-list.
+   `experimental.fsModuleCache` in the state dir (`QUOD_VITEST_FSCACHE=1`,
+   populated by the shadow). Same-job on router, 20 commits: total -7.7%,
+   median per commit -7% (2.49 → 2.26 s on the 16 commits running 1-14
+   files), 0 wrong in that window. Not shipped: its key (id, content,
+   config, plugin names, lockfile) does not cover every input of a
+   transform (another module file read during it, e.g. an SFC's imported
+   prop types or a macro plugin, which Quod's shared inputs exclude because
+   they are modules); a stale hit runs old code, and sampling in the shadow
+   cannot make that never-wrong. A sound version needs per-transform read
+   attribution in the recorder (AsyncLocalStorage around transformRequest,
+   every read of another module file joining the key) and a plugin
+   allow-list; that is recording-side work (agent A's area).
 6. **Scheduling** (no change): vitest's sequencer already runs
    longest-first from its results cache, which the bench keeps; maxWorkers
    8 on 4 CPUs is slower (3.7 vs 3.3 s), 2 slower too.
 7. **Overlap / pre-spawn** (not pursued): selection is 3-17 ms, nothing to
    overlap with vitest's start; vitest exposes no worker pre-spawn.
 
-## Numbers
+## Numbers (same-job A/B: A = this branch, B = exp/vitest-shadow 4630f05)
 
-See the tables in the branch's final report (filled from the ci-bench runs).
+Run in one job per tier, plain/A/B in rotating order per commit, both
+compared with plain per file and per test (0 wrong everywhere; 0 recorded
+runs differing from plain; mutation checks 0 wrong).
+
+| tier | plain total | A total (B total) | A/B | whole job plain → Quod (`--plan`) |
+|---|---:|---:|---:|---|
+| ufo, 20 commits (run 41568727172) | 23.6 s | 15.4 s (17.0 s) | B/A 1.10 | 48.3 → 37.0 s (1.31x), 3 installs skipped |
+| router, 20 commits (run 41568730885) | 224.9 s | 48.2 s (50.3 s) | B/A 1.04 | 237.6 → 60.6 s (3.92x), 1 install skipped |
+| core (see the branch report) | | | | |
+
+Rendered full replay, per commit where every file replays: ufo 220-270 ms
+→ 0-10 ms; router 410 → 20-40 ms; core (7 of 20 commits) 40 s plain → 20 ms.
