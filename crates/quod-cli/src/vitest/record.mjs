@@ -44,6 +44,8 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     watches: new Set(),
     // package.json files kept whole in the main process, and who read them
     pjWhole: new Map(),
+    // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
+    envKept: new Map(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -127,16 +129,29 @@ export function resolverCaller(stack = new Error().stack) {
   return false
 }
 
-// resolverCaller with a deep enough stack: node's own frames (a spawn's
-// argument handling) can come between the trap and the tool's call.
+// Is an environment read the tools' own? The first frame outside Quod, node
+// and the small helpers vitest reads the environment through (std-env,
+// tinyexec, tinyrainbow: a helper called by user code has that code's
+// frame next) must be in vite, vitest or rolldown. Returns the deciding
+// frame too, for the log. A deep stack: node's own frames (a spawn's
+// argument handling) can come between the trap and the call.
+const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/']
 function toolCaller() {
   const limit = Error.stackTraceLimit
   Error.stackTraceLimit = 64
+  let stack
   try {
-    return resolverCaller(new Error().stack)
+    stack = new Error().stack ?? ''
   } finally {
     Error.stackTraceLimit = limit
   }
+  for (const l of stack.split('\n').slice(1)) {
+    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (HELPERS.some((h) => l.includes(h))) continue
+    if (l.includes('/node_modules/.vite-temp/')) return { tool: false, frame: l.trim() }
+    return { tool: RESOLVERS.some((x) => l.includes(x)), frame: l.trim() }
+  }
+  return { tool: false, frame: '?' }
 }
 
 function callerFrame(stack = new Error().stack) {
@@ -273,7 +288,11 @@ export function patchEnv(r) {
   const target = process.env
   const rec = (k) => {
     if (typeof k !== 'string') return
-    if (ciVarying(k) && toolCaller()) return
+    if (ciVarying(k)) {
+      const c = toolCaller()
+      if (c.tool) return
+      if (!r.envKept.has(k)) r.envKept.set(k, c.frame)
+    }
     r.keys.add(`env:${k}`)
   }
   const proxy = new Proxy(target, {
@@ -290,7 +309,11 @@ export function patchEnv(r) {
       return Reflect.getOwnPropertyDescriptor(t, k)
     },
     ownKeys(t) {
-      if (r.on) r.keys.add(toolCaller() ? 'envtool:' : 'envall:')
+      if (r.on) {
+        const c = toolCaller()
+        r.keys.add(c.tool ? 'envtool:' : 'envall:')
+        if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
+      }
       return Reflect.ownKeys(t)
     },
   })
