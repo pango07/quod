@@ -9,6 +9,10 @@
 #
 #   gh workflow run bench-vitest.yml --ref exp/vitest-fast
 #   gh workflow run bench-vitest.yml --ref exp/vitest-fast -f mode=profile
+#   gh workflow run bench-vitest.yml --ref exp/vitest-shadow -f mode=shadow
+#     (shadow recording: the critical path `quod vitest --no-record` against
+#     plain, the recording shadow job's compute as its own column; or push a
+#     commit whose message says [shadow], or [shadow-lag1] for the fallback)
 #
 # The project lives in /work (a runner's home is 0750; the observer's
 # sandbox cannot reach it) and runs on the pinned node at /usr/local/node,
@@ -19,11 +23,11 @@ on:
   # A push to the branch runs it when the commit message says [bench] or
   # [profile] (a dispatch needs the workflow on the default branch).
   push:
-    branches: ['exp/vitest-fast']
+    branches: ['exp/vitest-fast', 'exp/vitest-shadow']
   workflow_dispatch:
     inputs:
       mode:
-        description: "bench (the N-commit benchmark) or profile (the recorder's cost, full runs at the pinned commit)"
+        description: "bench (the N-commit benchmark), shadow (recording off the critical path) or profile (the recorder's cost, full runs at the pinned commit)"
         required: false
         default: bench
       repo:
@@ -42,12 +46,17 @@ on:
         description: The project's unit test command's vitest arguments
         required: false
         default: run --project unit*
+      lag:
+        description: "shadow mode: how many of the newest shadows have not finished when the next critical path starts"
+        required: false
+        default: '0'
 
 permissions:
   contents: read
 
 env:
-  MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[profile]') && 'profile') || 'bench' }}
+  MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[profile]') && 'profile') || (contains(github.event.head_commit.message, '[shadow') && 'shadow') || 'bench' }}
+  SHADOW_LAG: ${{ inputs.lag || (contains(github.event.head_commit.message, '[shadow-lag1]') && '1') || '0' }}
   REPO: ${{ inputs.repo || 'vuejs/core' }}
   SHA: ${{ inputs.sha || '68f25a4a1957710de71731702bd42e05535f494b' }}
   COMMITS: ${{ inputs.commits || '20' }}
@@ -56,7 +65,7 @@ env:
 
 jobs:
   bench:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[profile]') || contains(github.event.head_commit.message, '[bench]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[profile]') || contains(github.event.head_commit.message, '[bench]') || contains(github.event.head_commit.message, '[shadow')
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -92,6 +101,11 @@ jobs:
         env:
           QUOD: ${{ runner.temp }}/quod
         run: bash scripts/bench-vitest/bench.sh "$PROJ" "$SHA" "$COMMITS" $VITEST_ARGS
+      - name: shadow
+        if: env.MODE == 'shadow'
+        env:
+          QUOD: ${{ runner.temp }}/quod
+        run: bash scripts/bench-vitest/shadow.sh "$PROJ" "$SHA" "$COMMITS" $VITEST_ARGS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

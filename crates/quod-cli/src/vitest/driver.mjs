@@ -204,6 +204,23 @@ r.on = false
 // Results and records of the files that ran.
 const ranOut = []
 const auditMismatch = []
+// The critical path's vitest JSON report (`--expect-report`): per file, its
+// tests' names and states, in testStates' form.
+let expected = null
+if (plan.expectReport) {
+  try {
+    expected = new Map()
+    for (const t of JSON.parse(real.readFileSync(plan.expectReport, 'utf8')).testResults) {
+      const tests = t.assertionResults.map(
+        (x) => `${[...x.ancestorTitles, x.title].join(' > ')}=${x.status === 'passed' || x.status === 'failed' ? x.status : 'other'}`,
+      )
+      expected.set(t.name, JSON.stringify(tests.sort()))
+    }
+  } catch (e) {
+    expected = new Map() // unreadable: nothing verifies, so nothing that ran records
+    log(`expect report ${plan.expectReport} unreadable (${e.message}): nothing that ran is recorded`)
+  }
+}
 const moduleKeys = (mods) => {
   const w = createRecorder({ stateDir, codeDir, mode: 'worker' })
   for (const m of mods) w.add('f', m)
@@ -282,6 +299,22 @@ for (const m of endModules) {
   }
   const resultRel = `results/${id}.json`
   if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), strip(file))
+  // The shadow's safety net: a file records only if it ran here as it did on
+  // the critical path of the same commit (uninstrumented); else recording
+  // changed its behaviour, and it is quarantined.
+  // A file the report does not have (or an unreadable report) cannot be
+  // verified: it is not recorded (and runs next time), but not quarantined.
+  if (record && expected && !auditMismatch.includes(id)) {
+    const want = expected.get(file.filepath)
+    const got = JSON.stringify(testStates(file).map(([n, s]) => `${n}=${s === 'pass' ? 'passed' : s === 'fail' ? 'failed' : 'other'}`).sort())
+    if (want === undefined) {
+      keys = null
+      log(`${file.filepath} is not in the critical path's report: not recorded`)
+    } else if (want !== got) {
+      auditMismatch.push(id)
+      log(`recording changed behaviour: ${file.filepath} ran differently than on the critical path; quarantined`)
+    }
+  }
   if (audits.has(id) && plan.replay?.[id]) {
     try {
       const rec = JSON.parse(real.readFileSync(path.join(stateDir, plan.replay[id]), 'utf8'))
