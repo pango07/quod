@@ -183,11 +183,20 @@ export function workspaceLink(pkg) {
 // must be in one of their packages. Any other reader (the config, a plugin
 // that injects `version`, a test) keeps the whole file.
 const SELF = fileURLToPath(import.meta.url)
+// Frames that say nothing of who reads: Quod's own, node's, and those with
+// no file (a builtin: `Array.map (<anonymous>)`, `async Promise.allSettled
+// (index 0)`). Not a CommonJS module's top level, which V8 names
+// `Object.<anonymous> (/path/file.js:1:2)`: skipping that hid the module
+// reading (a library copying the environment showed as
+// `async Promise.allSettled`) and could take its read for the tools'.
+function skipFrame(l) {
+  return l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || !l.includes('/')
+}
 const RESOLVERS = ['/node_modules/vite/', '/node_modules/vitest/', '/node_modules/@vitest/', '/node_modules/rolldown/', '/node_modules/@rolldown/']
 export function resolverCaller(stack = new Error().stack) {
   const lines = (stack ?? '').split('\n').slice(1)
   for (const l of lines) {
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (skipFrame(l)) continue
     if (l.includes('/node_modules/.vite-temp/')) return false
     return RESOLVERS.some((x) => l.includes(x))
   }
@@ -217,7 +226,7 @@ function toolCaller() {
   let spawn = false
   for (const l of stack.split('\n').slice(1)) {
     if (l.includes('(node:child_process:') || l.includes('(node:internal/child_process:')) spawn = true
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (skipFrame(l)) continue
     // node copying the environment for a child a known program spawned
     // (CHILDREN): the child's input, not this process's.
     if (spawn && !tool && CHILDREN.some((c) => l.includes(c))) return { tool: true, child: true, frame: l.trim() }
@@ -244,7 +253,7 @@ const CHILD_ENV = /^(GOGC|GOMAXPROCS|GODEBUG|GOMEMLIMIT|GOTRACEBACK|GORACE|ESBUI
 
 function callerFrame(stack = new Error().stack) {
   for (const l of (stack ?? '').split('\n').slice(1)) {
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (skipFrame(l)) continue
     return l.trim()
   }
   return '?'
