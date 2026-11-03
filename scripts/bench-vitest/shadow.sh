@@ -57,13 +57,13 @@ plain() { # $1 = tag
 }
 critical() { # $1 = tag, $2 = ledger dir (a completed recording; a fresh copy, so nothing leaks back)
   # The same vitest arguments as the shadow (the ledger keys them): one output path, renamed after.
-  local s; s=$(ms)
+  rm -f "$out/crit-summary.json" "$out/crit.json"; local s; s=$(ms)
   "$QUOD" vitest --no-record --dir "$2" --summary "$out/crit-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/crit-$1.log" 2>&1
   local rc=$?; mv -f "$out/quod.json" "$out/crit.json"
   echo "$(( $(ms) - s )) $rc"
 }
 shadow() { # $1 = tag
-  local s; s=$(ms)
+  rm -f "$out/shadow-summary.json" "$out/shadow.json"; local s; s=$(ms)
   "$QUOD" vitest --dir "$state" --audits "$audits" --expect-report "$out/crit.json" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
   local rc=$?; mv -f "$out/quod.json" "$out/shadow.json"
   echo "$(( $(ms) - s )) $rc"
@@ -136,7 +136,7 @@ for i in "${!commits[@]}"; do
   touched=$(echo "$files" | grep -c . || true)
   areas=$(echo "$files" | awk -F/ 'NF{ if ($1=="packages"||$1=="packages-private") print $1"/"$2; else if (NF>1) print $1"/"; else print $1 }' | sort | uniq -c | sort -rn | awk '{printf "%s%s(%s)", sep, $2, $1; sep=", "}')
   subject=$(git log -1 --format=%s "$c")
-  node -e '
+  SHLOG="$out/logs/shadow-$i.log" node -e '
     const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp] = process.argv.slice(1)
     const fs = require("fs")
     const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return {} } }
@@ -153,7 +153,7 @@ for i in "${!commits[@]}"; do
       shadow_ran: h.ran, shadow_replayed: h.replayed, audited: h.audited, audit_mismatches: h.audit_mismatches,
       unrecordable: h.unrecordable, record_ms: h.record_ms, shadow_driver: h.driver,
       files: a.files, wrong: a.wrong ?? null, flaky: a.flaky ?? null, compare_error: a.error,
-      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, fast: !!s.fast, render: h.render ?? null, ...whole }))
+      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, shadow_broken: !h.ran && h.ran !== 0 || /left no record|nothing recorded/.test(require("fs").readFileSync(process.env.SHLOG, "utf8")), fast: !!s.fast, render: h.render ?? null, ...whole }))
   ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" | tee -a "$out/results.jsonl"
 
   # Mutation check (not timed): a throw in a function some recorded test
@@ -190,6 +190,7 @@ cat "$out/report.md"
 # Loud: a wrong replay on the critical path (or a mutation it missed) fails the job.
 if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
   echo "0 wrong replays"
+  node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse).filter(r=>r.shadow_broken);if(l.length)console.log("::warning::the shadow recorded nothing on commits "+l.map(r=>r.i).join(", "))' "$out/results.jsonl"
 else
   echo "::error::WRONG REPLAYS (or an uncompared commit): see report.md"; exit 1
 fi
