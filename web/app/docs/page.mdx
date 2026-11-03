@@ -11,7 +11,7 @@ Quod makes CI faster by not re-running tests whose inputs haven't changed. When 
 
 Most commits touch a few files, yet CI runs every test on every push. Quod watches what each test file actually reads while it runs: source modules, fixtures, config, packages, environment variables. On the next run it checks those inputs. A test file runs again only if something it read has changed. The rest are **replayed**: your test command prints the same summary, writes the same JSON and JUnit reports, and exits with the same code a full run would give.
 
-You keep your workflow. Quod hooks into the `vitest run` your job already starts, whether that's through `npm test`, `npx`, `pnpm`, or `turbo`.
+You keep your workflow. Quod is one line after `actions/setup-node`, and it hooks into the `vitest run` your job already starts, whether that's through `npm test`, `npx`, `pnpm`, or `turbo`. The same line restores your dependencies before your install step and, if you use turbo or Nx without a remote cache of your own, points their remote cache at Quod Cloud.
 
 <Note>
   Quod works with **vitest** today. pytest and Go are experimental. See [Supported setups](/docs/supported-setups).
@@ -23,11 +23,32 @@ A replayed result is only useful if it's the result you would have got. Quod is 
 
 - **Inputs are observed, not guessed.** Each test file's dependencies come from what it actually read during a real run, not from a config file or an import scan. If Quod can't follow something a file does, such as starting a child process, using the network, or writing into the repository, that file always runs.
 - **Failures never replay.** Only a file that passed (or was skipped) can be replayed.
-- **Recording can't change a result.** A file is recorded only if its tests did exactly what they did in your un-instrumented test job.
-- **Audits run replays for real.** The shadow job re-runs a random sample of replayable files and compares them with the recording, test by test. A mismatch stops that file replaying.
+- **Two runs must agree.** A file is recorded in your test job as it runs, but its record replays only after a second, independent run of the same inputs gives the same result for every test. A run that disagrees quarantines the file.
+- **Recording never turns a green job red.** If a file fails only while being recorded, Quod runs it again without recording, and that run's result is the job's.
+- **Audits run replays for real.** When workers would otherwise sit idle, a random sample of replayable files runs instead of replaying, and is compared with the recording, test by test. A mismatch stops that file replaying.
 - **Only trusted branches write.** Pull requests read results recorded on your writer branches, such as `main`, but they can't write them. See [Trust and audits](/docs/trust).
 
 ## Headline numbers
+
+### Whole CI, end to end
+
+These runs go through the GitHub Action, with its one line added to each project's own workflow, against the same workflow without Quod. Each figure is Quod's CI as a fraction of plain CI, so lower is better. The test results were compared, and none was wrong.
+
+<Stats>
+  <Stat value="0.40×" label="vuejs/router: CI time, 25 commits" />
+  <Stat value="0.70×" label="vuejs/router: CI cost, 25 commits" />
+  <Stat value="0.76×" label="vuejs/core: CI time, 20 commits" />
+  <Stat value="0.82×" label="vuejs/core: CI cost, 20 commits" />
+</Stats>
+
+| Project | Commits | CI time vs plain | CI cost vs plain | Wrong replays |
+| --- | ---: | ---: | ---: | ---: |
+| vuejs/router | 25 | 0.40× | 0.70× | 0 |
+| vuejs/core | 20 | 0.76× | 0.82× | 0 |
+
+On a monorepo shaped like a turbo, Next.js and Convex app, with the workflow unchanged apart from the Quod line, four kinds of commit (a source change, a docs-only change, a lockfile change and a type error) took **529 s** in total without Quod and **about 300 s** with it. A docs-only commit went from 139 s to 16 s, and a source change from 135 s to 82 s.
+
+### The test step
 
 These are benchmark results from GitHub-hosted runners: 20 consecutive commits per project. Every commit also ran plain vitest, and the two reports were compared per test.
 
@@ -47,14 +68,14 @@ These are benchmark results from GitHub-hosted runners: 20 consecutive commits p
 When every file has to run, as on the first run or after a vite upgrade, the test step cost between 2.7% less and 0.5% more than plain vitest. The gain is largest on big suites where a typical commit reaches a small part of the code. Small suites that already finish in a second or two gain little.
 
 <Tip>
-  Quod speeds up the test step. If your job also spends a minute installing dependencies or type-checking, see [Make it even faster](/docs/faster) for speed-ups you can add yourself.
+  Quod restores dependencies and, with turbo or Nx, caches tasks for you. See [Make it even faster](/docs/faster) for what it does automatically, and for more you can add yourself.
 </Tip>
 
 ## Next steps
 
 <Cards>
-  <Card href="/docs/quickstart" title="Quickstart">Add Quod to a GitHub Actions workflow in three small edits.</Card>
-  <Card href="/docs/how-it-works" title="How it works">Recording, replay, and the ledger that connects them.</Card>
+  <Card href="/docs/quickstart" title="Quickstart">Add Quod to a GitHub Actions workflow with one line and one permission.</Card>
+  <Card href="/docs/how-it-works" title="How it works">Recording, the second witness, and replay.</Card>
   <Card href="/docs/trust" title="Trust and audits">Who can write results, and how replays are checked.</Card>
   <Card href="/docs/faster" title="Make it even faster">Optional changes that speed up the rest of your job.</Card>
 </Cards>

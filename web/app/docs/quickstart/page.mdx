@@ -1,6 +1,6 @@
 export const metadata = {
   title: "Quickstart",
-  description: "Add Quod to a GitHub Actions workflow: one permission, one action line and one recording job.",
+  description: "Add Quod to a GitHub Actions workflow: one permission and one action line.",
 };
 
 # Quickstart
@@ -32,42 +32,25 @@ jobs:
 
 ### Add the action after setup-node
 
-Add one line right after `actions/setup-node`. From then on, every one-shot `vitest run` in the job goes through Quod, however it is started.
+Add one line right after `actions/setup-node`. From then on, every one-shot `vitest run` in the job goes through Quod, however it's started. Your dependencies are restored before your install step, and turbo's or Nx's remote cache points at Quod Cloud if you haven't set up one of your own.
 
 ```yaml title=".github/workflows/ci.yml" {5}
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
       - run: npm ci
       - run: npm test
 ```
 
 <Tip>
-  Pin the action to the release commit, as shown. `@v1` also works if your policy allows tags.
+  Pin the full commit SHA with `# v2` as a comment, as shown. GitHub recommends this for third-party actions, and Dependabot and Renovate keep such pins up to date. `@v2` also works if your policy allows tags.
 </Tip>
-
-### Add the recording job
-
-The **shadow** job runs after your test job, from the same commit. It runs your test command again with recording on and saves the ledger. It's never your check: every step tolerates failure.
-
-```yaml title=".github/workflows/ci.yml"
-  quod-shadow:
-    needs: test
-    permissions:
-      contents: read
-      id-token: write
-    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
-    with:
-      test: npm test
-```
-
-Set `needs:` to your test job's id and `test:` to the command your test job runs. The shadow's other inputs are listed in the [reference](/docs/reference/action#shadow-workflow-inputs).
 
 ### Push
 
-Commit the workflow and push. The first run records, and the runs after that replay.
+Commit the workflow and push. That's all: there's no second job. The test job records as it runs, and each record replays once a second run agrees with it.
 
 </Steps>
 
@@ -77,7 +60,7 @@ Here is a complete workflow for each package manager. The highlighted lines are 
 
 <Tabs items={["npm", "pnpm", "yarn", "bun"]} group="pm">
 
-```yaml title=".github/workflows/ci.yml" {10-12,19,23-30}
+```yaml title=".github/workflows/ci.yml" {10-12,18}
 name: CI
 on:
   push:
@@ -95,22 +78,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
       - run: npm ci
       - run: npm test
-
-  quod-shadow:
-    needs: test
-    permissions:
-      contents: read
-      id-token: write
-    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
-    with:
-      test: npm test
 ```
 
-```yaml title=".github/workflows/ci.yml" {10-12,20,24-33}
+```yaml title=".github/workflows/ci.yml" {10-12,19}
 name: CI
 on:
   push:
@@ -129,24 +102,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-
-  quod-shadow:
-    needs: test
-    permissions:
-      contents: read
-      id-token: write
-    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
-    with:
-      cache: ''
-      install: corepack enable && pnpm install --frozen-lockfile
-      test: pnpm test
 ```
 
-```yaml title=".github/workflows/ci.yml" {10-12,19,23-32}
+```yaml title=".github/workflows/ci.yml" {10-12,18}
 name: CI
 on:
   push:
@@ -164,24 +125,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: yarn
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
       - run: yarn install --frozen-lockfile
       - run: yarn test
-
-  quod-shadow:
-    needs: test
-    permissions:
-      contents: read
-      id-token: write
-    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
-    with:
-      cache: yarn
-      install: yarn install --frozen-lockfile
-      test: yarn test
 ```
 
-```yaml title=".github/workflows/ci.yml" {10-12,19,23-32}
+```yaml title=".github/workflows/ci.yml" {10-12,19}
 name: CI
 on:
   push:
@@ -200,26 +149,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
       - run: bun install --frozen-lockfile
       - run: bun run test
-
-  quod-shadow:
-    needs: test
-    permissions:
-      contents: read
-      id-token: write
-    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
-    with:
-      cache: ''
-      install: npm install -g bun && bun install --frozen-lockfile
-      test: bun run test
 ```
 
 </Tabs>
 
 <Note>
-  The shadow workflow sets up Node with `actions/setup-node` and nothing else. That's why the pnpm and bun examples install their package manager in `install:`, and turn off setup-node's cache with `cache: ''`. For pnpm, `corepack` uses the version in your `package.json`'s `packageManager` field.
+  You don't need setup-node's `cache:` option. Quod restores `node_modules` for npm, and the package store for pnpm, yarn and bun. If you keep `cache:`, or another step restores your dependencies, Quod leaves what it restored alone. For pnpm and bun, put their setup step before the Quod line, as shown, so Quod can find the store.
 </Note>
 
 <Warning>
@@ -230,27 +168,33 @@ jobs:
 
 ### The first run
 
-There's no recording yet, so every test file runs at plain vitest speed. The action's log says so:
+There's no recording yet, so every test file runs at about plain vitest speed, and is recorded as it runs. The action's log says so:
 
 ```txt
-Quod: no recording yet; every test file runs (and the shadow records them)
+Quod: no recording yet; every test file runs and records
 ```
 
-When your test job finishes, `quod-shadow` starts. It runs the same command with recording on, and records each test file whose tests did exactly what they did in your test job.
+### The second run
+
+Each record from the first run is **provisional**: it replays only once a second, independent run of the same inputs gives the same per-test results. So the second run runs those files again, as their second witness:
+
+```txt
+quod vitest: second witness: 280 provisional records run again (2 witnesses needed)
+```
 
 ### Every run after that
 
-The test job reads the newest recording, preferring your branch, then the pull request's base, then the default branch. Before vitest starts, Quod prints what it decided:
+The test job reads the newest recording: the nearest recorded ancestor commit in Quod Cloud, else your branch, the pull request's base, then the default branch. Before vitest starts, Quod prints what it decided:
 
 ```txt
 quod vitest: 280 recorded files: 274 replay, 6 to run; 3120 inputs hashed, 9 changed; selected in 140 ms
 quod vitest:   runs: src/router.spec.ts <- f:src/router.ts
 ```
 
-The `runs:` lines name, for up to 12 files, the first changed input that made each one run. vitest's own summary, reports and exit code look like a full run's, with the replayed files included.
+The `runs:` lines name, for up to 12 files, the first changed input that made each one run. vitest's own summary, reports and exit code look like a full run's, with the replayed files included. A file that ran because it changed is recorded again, and replays after the next run agrees with it.
 
 <Note>
-  The numbers in that log are an example. The exact wording may change between releases.
+  The numbers in these logs are examples. The exact wording may change between releases.
 </Note>
 
 ## Turn it off
@@ -262,13 +206,17 @@ env:
   QUOD_DISABLE: 1
 ```
 
-To remove Quod completely, delete the action line and the `quod-shadow` job.
+To remove Quod completely, delete the action line. To turn off just one part, such as recording, the dependency cache or the turbo/Nx cache, see [the action's inputs](/docs/reference/action#turning-parts-off).
+
+<Note>
+  **Coming from v1?** Delete the `quod-shadow` job, and update the action line to v2. The first run or two after upgrading run every file while records collect their second witness. See [Troubleshooting](/docs/troubleshooting#every-file-ran-right-after-upgrading).
+</Note>
 
 ## Next steps
 
 <Cards>
-  <Card href="/docs/how-it-works" title="How it works">What the test job and the shadow job each do.</Card>
+  <Card href="/docs/how-it-works" title="How it works">Inline recording and the second witness.</Card>
   <Card href="/docs/supported-setups" title="Supported setups">Monorepos, turbo, Convex and what always runs.</Card>
-  <Card href="/docs/faster" title="Make it even faster">Cache installs and typechecks around Quod.</Card>
+  <Card href="/docs/faster" title="Make it even faster">What Quod caches for you, and what else you can do.</Card>
   <Card href="/docs/troubleshooting" title="Troubleshooting">Why did every file run?</Card>
 </Cards>

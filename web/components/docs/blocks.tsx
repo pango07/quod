@@ -64,19 +64,19 @@ export function Stat({ value, label }: { value: string; label: ReactNode }) {
   );
 }
 
-/** The two jobs and the ledger between them. Stacks vertically on phones. */
+/** Your test job reads the ledger and, as it runs, records into it. Stacks vertically on phones. */
 export function FlowDiagram() {
   return (
-    <figure className="d-flow" aria-label="How a check job, Quod Cloud and the shadow job fit together">
+    <figure className="d-flow" aria-label="How your test job reads the ledger in Quod Cloud and records into it">
       <div className="d-flow-row">
         <div className="d-flow-box">
           <span className="d-flow-k">Your test job</span>
           <b>check</b>
           <ol>
             <li>Read the newest ledger</li>
-            <li>Unchanged files: replay</li>
-            <li>The rest: run as plain vitest</li>
-            <li>Upload per-test results</li>
+            <li>Unchanged, witnessed files: replay</li>
+            <li>The rest: run</li>
+            <li>The job passes if plain vitest would</li>
           </ol>
         </div>
         <div className="d-flow-arrow" aria-hidden="true">
@@ -91,21 +91,21 @@ export function FlowDiagram() {
             <li>Writer branches write trusted entries</li>
           </ol>
         </div>
-        <div className="d-flow-arrow back" aria-hidden="true">
+        <div className="d-flow-arrow" aria-hidden="true">
           <span>saves</span>
         </div>
         <div className="d-flow-box">
-          <span className="d-flow-k">After your test job</span>
-          <b>shadow</b>
+          <span className="d-flow-k">In the same job</span>
+          <b>record</b>
           <ol>
-            <li>Same command, with recording</li>
-            <li>Keep only files whose results match</li>
-            <li>Audit a few replays</li>
-            <li>Save the ledger</li>
+            <li>Files that ran: recorded</li>
+            <li>A second run agrees: replays from then on</li>
+            <li>A run disagrees: quarantined</li>
+            <li>Failed while recording: run again plain</li>
           </ol>
         </div>
       </div>
-      <figcaption>The test job never writes. The shadow job records, and it is never your check.</figcaption>
+      <figcaption>One job replays and records. A record replays only once a second run agrees with it, and recording never turns a green job red.</figcaption>
     </figure>
   );
 }

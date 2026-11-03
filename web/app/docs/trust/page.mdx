@@ -23,7 +23,8 @@ What this means in practice:
 
 - **A pull request can't write trusted results.** Whatever a PR's code does, it can only affect its own ref's recordings, and no other branch reads those.
 - **Trusted entries are append-only.** Nothing a non-writer sends can change or replace one.
-- **Forks never record.** GitHub gives a fork's pull request no OIDC token. On top of that, the shadow workflow skips recording when the pull request comes from a fork.
+- **Forks never record.** GitHub gives a fork's pull request no OIDC token. On top of that, the action only reads the ledger in a fork's pull request: it records nothing and saves nothing.
+- **The same rules cover the turbo/Nx remote cache.** Quod Cloud's task cache uses these scopes too, so a pull request's task results are never what `main` reads.
 
 <Warning>
   Anyone who can push to a writer branch can record results that every job will reuse. Protect your writer branches with branch protection, as you would for a release.
@@ -33,12 +34,14 @@ What this means in practice:
 
 Audits check replays by running them for real.
 
-In the shadow job, a random sample of replayable files runs for real instead of replaying. With the GitHub Action that's 4 files per run. Quod compares each test's result with the recorded one:
+Audits check recordings that already replay. Before any record replays, it also needs its [second witness](/docs/how-it-works#the-second-witness): a second, independent run that gave the same result for every test.
+
+In your test job, when the files that must run leave some of vitest's workers idle, a random sample of replayable files runs on those workers instead of replaying. That's the default, `--audits auto`, so audits don't add wall time. (With the older shadow job, the shadow audits 4 files per run.) Quod compares each test's result with the recorded one:
 
 - **The results match:** the recording keeps its standing.
 - **The results differ:** the file is **quarantined**. It always runs until it matches the required number of recordings in a row (3 by default; see [`QUOD_VITEST_REPROVE`](/docs/reference/environment-variables#quod_vitest_reprove)).
 
-Audits run in the shadow job, so they never add time to your check. When you run `quod vitest` yourself, the default `--audits auto` uses only the workers that the files to run leave idle. An audited file reports its fresh result, so an audit can't make a run wrong.
+An audited file reports its fresh result, so an audit can't make a run wrong.
 
 <Note>
   Replays allowed by [function-level narrowing](/docs/how-it-works#function-level-narrowing) are audited first.

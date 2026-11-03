@@ -1,6 +1,6 @@
 export const metadata = {
   title: "Troubleshooting and FAQ",
-  description: "Why every file ran, how to force a full run, how to turn Quod off, and other common questions.",
+  description: "Why every file ran, including right after upgrading, how to force a full run, how to turn Quod or its recording off, and other common questions.",
 };
 
 # Troubleshooting and FAQ
@@ -11,13 +11,26 @@ Most questions are answered by the `quod vitest:` lines in your test job's log. 
 
 Look for these in the test step's log, in this order:
 
+### Every file ran right after upgrading
+
+The first run or two after you upgrade the action run every file. That's expected, and it settles by itself:
+
+1. **The first run** uses a newer Quod release, and recordings are tied to the release that made them, so every file runs and is recorded.
+2. **The second run** is the second witness for those records. Each record is provisional until a second run agrees with it, so the files run again. The log says so:
+
+```txt
+quod vitest: second witness: 280 provisional records run again (2 witnesses needed)
+```
+
+From the third run on, unchanged files replay. The same thing happens, file by file, after any change: a file that changed runs on that commit, and once more on the next run to collect its second witness.
+
 ### There was no recording yet
 
 ```txt
-Quod: no recording yet; every test file runs (and the shadow records them)
+Quod: no recording yet; every test file runs and records
 ```
 
-The first run on a repository always runs everything. So does a branch whose base has never been recorded. Check that the `quod-shadow` job ran and finished after a push to a writer branch. If its log says *the CI run left no test reports*, the test job didn't reach vitest through Quod.
+The first run on a repository always runs everything. So does a branch whose base has never been recorded. Records are saved from writer branches, such as pushes to `main`. A pull request records only for its own branch. If you've set `record: false`, check that the `quod-shadow` job ran and finished after a push to a writer branch.
 
 ### A shared input changed
 
@@ -25,7 +38,7 @@ The first run on a repository always runs everything. So does a branch whose bas
 quod vitest:   shared input changed: f:vitest.config.ts
 ```
 
-Some inputs belong to every test file: your vitest config and anything it imports, `tsconfig`, plugins, setup files, the packages vite and vitest load (for example a vite, vitest or jsdom upgrade), and directory globs that vite runs. When one changes, every file runs once, and the shadow records them again.
+Some inputs belong to every test file: your vitest config and anything it imports, `tsconfig`, plugins, setup files, the packages vite and vitest load (for example a vite, vitest or jsdom upgrade), and directory globs that vite runs. When one changes, every file runs and is recorded again, and then runs once more on the next run for its second witness.
 
 <Tip>
   If a generated file shows up here on every push, such as a build stamp or a file that embeds a timestamp, make its output deterministic, or keep it out of what the config imports.
@@ -63,11 +76,20 @@ quod vitest:   3 files always run: …
 
 A file always runs if it starts a child process, uses the network, writes into the repository, or reads a per-run CI value like `GITHUB_SHA`. The [Make it even faster](/docs/faster#dont-read-per-run-values-in-tests) page shows how to fix each one. On the Trust page in Quod Cloud, these files show as **Always runs**, with the reason.
 
-A file can also run because it's **paused**: an audit found a different result, or recording changed its behaviour. It replays again after 3 matching recordings in a row.
+A file can also run because it's **paused**: an audit found a different result, or a second run disagreed with its record. It replays again once enough runs in a row agree with it (see [`QUOD_VITEST_REPROVE`](/docs/reference/environment-variables#quod_vitest_reprove)).
+
+A file that fails only while being recorded also keeps running. Quod runs it again without recording, so the job stays green, but it isn't recorded. The log shows:
+
+```txt
+quod vitest: 1 files failed while recording; running them again without recording
+quod vitest: without recording, the run passes
+```
+
+That usually points at a test that depends on timing. Recording slows a test down a little, which can push a tight timeout over the edge.
 
 ## How do I force a full run?
 
-Set `QUOD_VITEST_FULL=1`. Every file runs, and the shadow records them all again.
+Set `QUOD_VITEST_FULL=1`. Every file runs, and is recorded again.
 
 ```yaml title=".github/workflows/ci.yml"
 env:
@@ -80,29 +102,37 @@ env:
 
 ## How do I turn it off?
 
-Set `QUOD_DISABLE: 1` in the workflow's or the job's `env`. vitest runs plain, and nothing else changes. To remove Quod, delete the action line and the `quod-shadow` job.
+Set `QUOD_DISABLE: 1` in the workflow's or the job's `env`. vitest runs plain, your install runs as always, and nothing else changes. To remove Quod, delete the action line.
+
+### Turn off inline recording
+
+To keep recording out of your test job, set `record: false`. The test job then only reads the ledger and replays, as in v1, and records nothing. Use this if you keep the older shadow job as your recorder:
+
+```yaml title=".github/workflows/ci.yml"
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
+        with:
+          record: false
+```
+
+Without a shadow job, nothing records, so nothing new replays. You can also turn off just the dependency cache (`dependencies: false`) or the turbo/Nx remote cache (`task-cache: false`). See [the action's inputs](/docs/reference/action#turning-parts-off).
 
 ## FAQ
 
 ### Can Quod change my test results?
 
-No. Replayed files report their recorded results through vitest's own reporters. Files that run, run as plain vitest without instrumentation in your test job. A recording is kept only if the file's results matched your test job exactly. Failures are never replayed.
+No. Replayed files report their recorded results through vitest's own reporters. A record replays only after two independent runs gave the same result for every test, and failures are never replayed. If recording makes a file fail, Quod runs it again without recording, and that plain run decides the job's result. So Quod never turns a green job red.
 
 ### What about flaky tests?
 
-A failure always runs again. A flaky file that passed can be replayed as passing while its inputs are unchanged. When an audit runs it and gets a different result, the file is paused and runs every time until it's consistent again.
+A failure always runs again. A flaky file has to pass twice in a row, on the same inputs, before it's replayed, and if the two runs disagree it's paused. A file that passed twice can still be replayed as passing while its inputs are unchanged. When an audit runs it and gets a different result, the file is paused and runs every time until it's consistent again.
 
 ### What if Quod Cloud is down?
 
-If the server doesn't answer, the action falls back to the copy of the ledger in the GitHub Actions cache. If there's no usable ledger at all, files simply run. Quod never fails your job by itself.
+If the server doesn't answer, or gives the job no ledger, Quod uses the copy of the ledger in the GitHub Actions cache. The action sets [`QUOD_VITEST_CLOUD_FALLBACK`](/docs/reference/environment-variables#quod_vitest_cloud_fallback) for this. If there's no usable ledger at all, files simply run. The turbo/Nx remote cache is off for that job, so tasks run as always. Quod never fails your job by itself.
 
 ### Does Quod add runner minutes?
 
-The shadow job is an extra job. It installs dependencies and runs, with recording on, the files your test job ran. It runs after your check and doesn't block it, but it does use runner time.
-
-<Soon>
-  **Second-witness mode** will record in your test job and remove the shadow job. **Automatic dependency caching** will make the shadow's install cheaper.
-</Soon>
+No second job: Quod records in your test job, as it runs. Recording adds some overhead to the files that run, and a file that changed runs once more on the next run for its second witness. Across our end-to-end benchmarks, CI cost through the action was 0.70× to 0.82× of plain CI. See the [headline numbers](/docs#headline-numbers).
 
 ### Can a pull request poison the results main uses?
 
