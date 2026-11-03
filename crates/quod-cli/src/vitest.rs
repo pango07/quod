@@ -50,14 +50,22 @@ const LEDGER_VERSION: u32 = 2;
 /// (git's racy-index rule, as `quod_cas`'s import stat cache).
 const SETTLE_NS: i128 = 2_000_000_000;
 
-/// Variables the GitHub runner sets per step (file-command paths); not keyed
-/// by `envall:`, like `quod_key::unkeyed`'s per-run ones.
+/// Variables the GitHub runner sets per step (file-command paths, the
+/// step's artifact bookkeeping, systemd's process metadata); not keyed by
+/// `envall:`, like `quod_key::unkeyed`'s per-run ones. Without them a
+/// critical path and its shadow in different steps never agree on the
+/// environment (vite reads all of it), so every file would run.
 const STEP_VOLATILE: &[&str] = &[
     "GITHUB_OUTPUT",
     "GITHUB_ENV",
     "GITHUB_PATH",
     "GITHUB_STATE",
     "GITHUB_STEP_SUMMARY",
+    "GITHUB_ARTIFACTS",
+    "GITHUB_ARTIFACTS_LIST",
+    "SYSTEMD_EXEC_PID",
+    "JOURNAL_STREAM",
+    "INVOCATION_ID",
     "OLDPWD",
     "_",
 ];
