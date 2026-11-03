@@ -8,7 +8,7 @@ export const metadata = {
 `quod vitest` runs a vitest suite. It replays every test file whose recorded inputs are unchanged, and runs the rest. The output, reports and exit code are what a full `vitest run` gives.
 
 <Note>
-  With the GitHub Action, you never call this yourself. The action runs `quod vitest --no-record` in your test job, and `quod vitest` with recording in the shadow job. This page is for reading logs and for advanced setups.
+  With the GitHub Action, you never call this yourself. The action runs `quod vitest` in your test job, which replays and records as it runs, or `quod vitest --no-record` with `record: false`. This page is for reading logs and for advanced setups.
 </Note>
 
 ## Usage
@@ -59,7 +59,7 @@ quod vitest --plan .quod-plan -- run
 
 ### `--no-record`
 
-The critical path. Quod selects the files to run, runs them as plain vitest (with no recording, coverage or audits) and replays the rest. The ledger isn't touched. A separate run of the same commit without this flag records the files that ran.
+Read only. Quod selects the files to run, runs them as plain vitest (with no recording, coverage or audits) and replays the rest. The ledger isn't touched. The action uses this with `record: false`, and a separate run of the same commit without this flag, such as the older shadow job, records the files that ran.
 
 ### `--expect-report REPORT`
 

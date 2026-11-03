@@ -1,13 +1,52 @@
 export const metadata = {
   title: "Make it even faster",
-  description: "Optional changes to your own repository that speed up the rest of your CI job: install caching, turbo typecheck caching, and test layout.",
+  description: "What Quod speeds up for you (tests, dependencies, the turbo and Nx remote cache) and optional changes that speed up the rest of your CI job.",
 };
 
 # Make it even faster
 
-Quod speeds up your tests without any change to your pipeline. Once tests take seconds, installing dependencies and type-checking are usually what's left. This page lists optional changes you can make to your own repository, each with a copy-paste snippet, why it helps, and what to expect.
+Quod speeds up more than your tests. The same action line restores your dependencies and gives turbo and Nx a remote cache, with no other change to your workflow. This page covers what's automatic, then lists optional changes you can make to your own repository, each with a snippet, why it helps, and what to expect.
 
-On our first customer, a turbo monorepo, Quod plus the first two changes below took a docs-only push's check job from a **327 s** median to **50 s**:
+## What Quod does for you
+
+### Dependencies
+
+Before your install step runs, Quod restores what your install puts down, keyed on everything the install reads: the lockfile, every `package.json`, the package manager's config (`.npmrc`, `.yarnrc.yml`, `pnpm-workspace.yaml` and so on), Node's exact version, npm's version, the OS, the architecture and the runner image.
+
+| Package manager | What Quod keeps | Your install step |
+| --- | --- | --- |
+| npm | `node_modules`, at the root and in every workspace | `npm ci` finds the tree in place and returns at once |
+| pnpm, yarn, bun | the package store or cache | runs as always, and checks the store itself |
+
+A few rules keep it correct:
+
+- **Exact matches only for `node_modules`.** A tree from a different lockfile is never patched over. For the stores, a near match is fine, because the install verifies what it uses.
+- **Nothing outside the key.** Quod doesn't save `node_modules` if one of your own `package.json` files has an install script (`postinstall`, `prepare` and so on), or if a dependency's install script might write outside its own folder. Then `npm ci` simply runs every time.
+- **Saved only from your own code.** Pushes, same-repository pull requests, merge queues, dispatches and schedules save. `pull_request_target` and `workflow_run` jobs only restore.
+- **Your own cache wins.** If another step already restored `node_modules` or the store, such as setup-node's `cache:` option, Quod leaves it alone.
+
+Turn it off with `dependencies: false`.
+
+### turbo and Nx remote cache
+
+If your repository has a `turbo.json` or an `nx.json`, the job has `id-token: write`, and you haven't configured a remote cache of your own, Quod points turbo's and Nx's remote cache at Quod Cloud for the job. A task another job of your repository already ran, with the same hash, replays instead of running.
+
+- **turbo** gets `TURBO_API`, `TURBO_TOKEN` and `TURBO_TEAM`. Quod leaves turbo alone if any of `TURBO_API`, `TURBO_TOKEN`, `TURBO_TEAM` or `TURBO_TEAMID` is already set.
+- **Nx** (20.8 or later) gets `NX_SELF_HOSTED_REMOTE_CACHE_SERVER` and its access token. Quod leaves Nx alone if `NX_SELF_HOSTED_REMOTE_CACHE_SERVER`, `NX_CLOUD_ACCESS_TOKEN` or `NX_NO_CLOUD` is set.
+- **The same trust rules as the ledger.** Writer branches write the trusted entries. A pull request writes only its own branch's entries, so it can never put a task result in front of `main`. Fork pull requests get no OIDC token, so no cache. See [Trust and audits](/docs/trust#who-can-write).
+- **Entries are keyed on the runner too:** the OS, architecture, Node version and runner image, so a Node 22 job never replays a Node 24 job's task.
+
+Turn it off with `task-cache: false`.
+
+<Warning>
+  Put the Quod line after the job's **last** `actions/setup-node`. The Node version for the remote cache is taken when the action runs, so a second setup-node later in the job, with another Node, could replay a task across Node versions.
+</Warning>
+
+## Optional extras
+
+The rest of this page is for setups the automatic parts don't cover: you've set `dependencies: false` or `task-cache: false`, your job has no `id-token: write`, or you want more out of turbo and your tests.
+
+On our first customer, a turbo monorepo, Quod plus the first two changes below took a docs-only push's check job from a **327 s** median to **50 s**. That was before Quod cached dependencies and turbo tasks itself:
 
 | Step | Time |
 | --- | ---: |
@@ -17,23 +56,25 @@ On our first customer, a turbo monorepo, Quod plus the first two changes below t
 | Unit tests (Quod: backend replayed 103 of 105 files) | 6 s |
 | Other checks | 3 s |
 
-<Soon>
-  We're building **automatic dependency caching** and a **turbo remote cache through Quod Cloud** into Quod itself, so you won't need the first two changes on this page. Until then, add them yourself.
-</Soon>
-
 ## Cache node_modules with a correct key
+
+<Note>
+  Quod does this for you. Use this snippet only if you've set `dependencies: false`, for example to keep your own cache step. Don't use both: the snippet restores `node_modules` after Quod's step, over what Quod restored.
+</Note>
 
 **Why:** `npm ci` deletes `node_modules` and installs everything again, even when nothing changed. Restoring the folder from the cache skips that.
 
 **Effect:** on the customer's repository, a cache hit restored `node_modules` in 18 s instead of an 87 s `npm ci`. A miss costs about 11 s extra to save.
 
-```yaml title=".github/workflows/ci.yml" {2,7-26}
+```yaml title=".github/workflows/ci.yml" {2,7-28}
       - uses: actions/setup-node@v4
         id: node
         with:
           node-version: 24
           cache: npm
-      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
+        with:
+          dependencies: false
       - name: node_modules from the cache
         id: modules
         uses: actions/cache/restore@v4
@@ -67,14 +108,16 @@ What makes the key correct:
 </Tip>
 
 <Note>
-  This snippet is for npm. With pnpm, setup-node's `cache: pnpm` already caches the package store, so `pnpm install` is mostly linking.
+  This snippet is for npm. With pnpm, Quod's dependency cache (or setup-node's `cache: pnpm`) keeps the package store, so `pnpm install` is mostly linking.
 </Note>
 
 ## Cache typecheck with turbo
 
-**Why:** `tsc` re-checks every package on every push. turbo can replay a package's typecheck when none of its inputs changed, but its inputs have to include everything the check depends on.
+**Why:** `tsc` re-checks every package on every push. turbo can replay a package's typecheck when none of its inputs changed, but its inputs have to include everything the check depends on. With Quod's remote cache, a typecheck any earlier job ran replays, so getting the inputs right matters even more.
 
 **Effect:** on the customer's repository, typecheck took 82 s with nothing cached and 62 ms with all 6 packages cached. A type change in a package nothing depends on re-checked only that package.
+
+The `turbo.json` below is what makes the cache correct. The `ci.yml` step is only needed when Quod's remote cache is off (`task-cache: false`, or no `id-token: write`): it keeps turbo's local cache between jobs in the Actions cache.
 
 <Tabs items={["turbo.json", "ci.yml"]}>
 
@@ -115,7 +158,7 @@ Each part matters:
 - **`test` is never cached by turbo.** Quod decides per test file, with its own checks. turbo caching the whole test task would replay it on turbo's coarser hash.
 
 <Warning>
-  Don't cache `test` with turbo while using Quod. turbo would replay the whole task from its hash, and none of Quod's per-file checks or audits would run.
+  Don't cache `test` with turbo while using Quod. turbo would replay the whole task from its hash, and none of Quod's per-file checks or audits would run. With the remote cache, that replay would also reach across jobs.
 </Warning>
 
 ## Typecheck packages in parallel

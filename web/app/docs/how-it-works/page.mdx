@@ -9,22 +9,37 @@ Quod records what each test file reads while it runs, and stores those inputs wi
 
 <FlowDiagram />
 
-## Two jobs
+## One job, two witnesses
 
-Quod splits the work between two jobs, so the job you wait on stays as fast as possible.
+Quod records in the job you already have. There's no second job.
 
-| | Your test job (`check`) | The shadow job (`shadow`) |
+| | A file that runs | A file that replays |
 | --- | --- | --- |
-| When | Your normal CI job | After your test job, in the same workflow |
-| Runs | Only the files that must run, as plain vitest, with no recording | The same command, with recording on |
-| Ledger | Reads it | Writes it, on branches allowed to write |
-| Is your check | Yes | No. It tolerates every failure. |
+| When | It's new, its inputs changed, or its record is still provisional | Its inputs are unchanged, and two runs agreed on its results |
+| What happens | It runs in your vitest invocation, and is recorded as it runs | Its recorded results go through vitest's reporters |
+| Ledger | Its record is saved after the job | Unchanged |
 
-The test job uploads each test's result as an artifact. The shadow job records a file only if its tests did **exactly** what they did in the test job. So if recording changed how a file behaves, that file isn't recorded: it's quarantined, and it always runs.
+### The second witness
 
-<Soon>
-  **Second-witness mode** records in your test job and trusts a recording once a second, independent run agrees with it, with no shadow job. It's being benchmarked, and it isn't available yet.
-</Soon>
+A new record is **provisional**. It replays only after a second, independent run of the same file produces the same key (every input in the same state, the same vitest arguments and tool versions, the shared inputs unchanged in between) **and** the same per-test results. Until then the file runs again, and a run that agrees is its second witness.
+
+A run that disagrees, with a different result for any test, **quarantines** the file. It runs every time until it proves itself again, and each recent disagreement adds one more agreeing run to the bar (up to five).
+
+This is what replaced the shadow job. A single recording could be wrong in a way one run can't see, for example a test that depends on timing. Two runs that agree, test by test, are the evidence a replay needs. The cost is that a file that changed runs twice: on the commit that changed it, and once more on the next run.
+
+### Never turns a green job red
+
+Recording instruments your tests. It hooks file access and collects V8 coverage, and that can slow a timing-sensitive test into a failure. Quod makes sure that never fails your job:
+
+- When a file fails while recording, Quod runs the failed files **again, without recording**, in a second vitest run. Every other file keeps the result it just had.
+- That plain run's result is the job's: its exit code, its reporters' output and its reports.
+- A file that failed is never recorded, whether or not it passed the second time.
+
+So if your tests pass without Quod, the job passes with it. A test that genuinely fails still fails, because it fails in the plain run too.
+
+<Note>
+  To keep recording out of your test job, for example while you keep the older shadow job, set [`record: false`](/docs/reference/action#inputs). The test job then only reads the ledger.
+</Note>
 
 ## Recording
 
@@ -65,6 +80,8 @@ It also holds the shared inputs, vitest's arguments, and the versions of Node, v
 
 With `id-token: write`, the ledger lives in **Quod Cloud**. Every answer from the server is signed, and the action pins the server's public key. A job reads the nearest recording among its commit's ancestors, then the newest on its branch, then the default branch's. Without the permission, or if the server doesn't answer, the GitHub Actions cache carries the ledger instead.
 
+The action also keeps a copy in the Actions cache when Quod Cloud is on. If Quod Cloud gives a job no ledger (the server can't be reached, a download fails, or nothing is recorded yet), Quod uses that copy, or the job's own earlier recording, instead of starting from nothing. The action turns this on for you with [`QUOD_VITEST_CLOUD_FALLBACK`](/docs/reference/environment-variables#quod_vitest_cloud_fallback).
+
 ## Replay
 
 Before vitest starts, Quod checks every recorded input against the checkout. It hashes file contents with BLAKE3 and skips files whose size and timestamps haven't changed. A test file **replays** when all of the following hold:
@@ -73,6 +90,7 @@ Before vitest starts, Quod checks every recorded input against the checkout. It 
 - the shared inputs, vitest's arguments and the tool versions are unchanged
 - its last result was a pass or a skip
 - it isn't quarantined
+- its record has its second witness
 
 Everything else runs, normally, in the same vitest invocation. The replayed files' recorded results go through vitest's own reporters, so the default output, JSON and JUnit reports and the exit code are what a full run gives. New and deleted test files are handled exactly, because vitest itself finds the files and Quod splits its list.
 

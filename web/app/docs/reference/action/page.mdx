@@ -1,19 +1,19 @@
 export const metadata = {
   title: "GitHub Action",
-  description: "Inputs of pango07/quod-action and its shadow workflow, what each mode does, and what stays plain vitest.",
+  description: "Inputs of pango07/quod-action, what it does in your job, how to turn each part off, and the older shadow workflow.",
 };
 
 # GitHub Action
 
-[`pango07/quod-action`](https://github.com/pango07/quod-action) installs Quod in a job and routes every one-shot `vitest run` through it. Its reusable workflow, `shadow.yml`, is the recording job.
+[`pango07/quod-action`](https://github.com/pango07/quod-action) installs Quod in a job. It restores your dependencies before your install step, points turbo's and Nx's remote cache at Quod Cloud, and routes every one-shot `vitest run` through Quod, which replays unchanged test files and records the rest as they run.
 
 ## Usage
 
 ```yaml title=".github/workflows/ci.yml"
-- uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+- uses: pango07/quod-action@991753ca6f46d81b184604673dfd247e66a9476e # v2
 ```
 
-Put it right after `actions/setup-node`. It needs `node` on `PATH`.
+Put it right after `actions/setup-node`, and give the job `id-token: write`. It needs `node` on `PATH`. Pin the full commit SHA, with `# v2` as a comment; `@v2` also works if your policy allows tags. The [v2 release](https://github.com/pango07/quod-action/releases/tag/v2) lists what changed from v1.
 
 ## Inputs
 
@@ -21,24 +21,49 @@ All inputs are optional.
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `mode` | `check` | `check`: your test job. It replays what the last recording proves unchanged, runs the rest, and only reads the ledger. `shadow`: the recording job, as used inside `shadow.yml`. |
-| `version` | the release the action pins | The Quod release to install. |
+| `mode` | `check` | `check`: your test job. It replays what the ledger proves unchanged, then runs and records the rest. `shadow`: the older separate recording job, as used inside `shadow.yml`. It still works, and isn't needed any more. |
+| `record` | `true` | In `check` mode, record in this job. `false` only reads the ledger, as v1 did, for a setup that keeps the shadow job. |
+| `version` | `bin-c6f6ed3` | The Quod release to install. |
 | `sha256` | the pinned checksum | SHA-256 of that release's archive. Required when you set `version` to a release the action doesn't know. |
 | `cloud` | `true` | Keep the ledger in Quod Cloud when the job has `id-token: write`. `false` keeps it in the Actions cache. |
+| `dependencies` | `true` | Restore and save what your install puts down: `node_modules` for npm, so `npm ci` finds it in place, and the store for pnpm, yarn and bun. `false` leaves your install alone. See [Make it even faster](/docs/faster#dependencies). |
+| `task-cache` | `true` | Point turbo's and Nx's remote cache at Quod Cloud, when the job has `id-token: write` and you have no remote cache of your own. `false` leaves them alone. See [Make it even faster](/docs/faster#turbo-and-nx-remote-cache). |
 | `server` | `https://api.quodci.com` | The Quod Cloud server. |
 | `server-key` | Quod Cloud's key | The server's Ed25519 public key. Every answer from the server is signed with it. |
 | `job-id` | `${{ job.check_run_id }}` | This job's check run, for Quod Cloud's reports. |
 | `token` | `${{ github.token }}` | Reads a triggering run's report artifact, for a `workflow_run` shadow. |
 
+## Turning parts off
+
+| To turn off | Set |
+| --- | --- |
+| Quod entirely | `QUOD_DISABLE: 1` in the job's or workflow's `env`, or remove the line |
+| Recording in the test job | `with: { record: false }` |
+| The dependency cache | `with: { dependencies: false }` |
+| The turbo/Nx remote cache | `with: { task-cache: false }` |
+| Quod Cloud for the ledger | `with: { cloud: false }` |
+
 ## Outputs
 
 The action has no step outputs. It reports through:
 
-- the **log**: whether a recording was found, and Quod's selection lines
-- a **workflow artifact** per run, with each test's result, named `quod-vitest-reports-*`, which the shadow job reads
+- the **log**: whether dependencies were restored, whether the task cache is on, whether a recording was found, and Quod's selection lines
 - **Quod Cloud**, which receives each run's report when Cloud is on
+- with `record: false`, a **workflow artifact** per run with each test's result, named `quod-vitest-reports-*`, which the shadow job reads
 
-## Shadow workflow inputs
+## What the action does
+
+1. **Dependencies.** Restores `node_modules` (npm) or the package store (pnpm, yarn, bun) for this exact install, unless another step already restored it.
+2. **Task cache.** With `turbo.json` or `nx.json`, `id-token: write` and no remote cache of your own, trades the job's OIDC token for a task-cache session and sets turbo's and Nx's remote cache variables to Quod Cloud.
+3. **Ledger.** Installs Quod and restores the newest recording from the Actions cache: your branch, then the pull request's base, then the default branch. With Quod Cloud, it starts fetching the ledger from the server in the background while your install runs.
+4. **The shim.** Puts a `node` shim first on `PATH`, which loads a small hook into each Node process. The hook answers `npm ci` when the restored tree is already its result, and runs every one-shot `vitest run` as `quod vitest` with the same arguments. Witnessed, unchanged files replay. The rest run and are recorded, and files that fail only while recording run again plain.
+5. **After the job.** Saves what your install produced, if this job installed it, and the ledger to the Actions cache. Quod itself has already saved the ledger to Quod Cloud.
+
+A fork's pull request only reads: it never records, and never saves dependencies.
+
+## The shadow workflow
+
+v1 recorded in a separate job, the reusable workflow `shadow.yml`. You don't need it with v2, and you can delete it. It still works, for setups that keep it as their only recorder: give the test job's action `record: false`, so the test job only reads the ledger and uploads its reports for the shadow.
 
 ```yaml title=".github/workflows/ci.yml"
 quod-shadow:
@@ -46,10 +71,12 @@ quod-shadow:
   permissions:
     contents: read
     id-token: write
-  uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+  uses: pango07/quod-action/.github/workflows/shadow.yml@991753ca6f46d81b184604673dfd247e66a9476e # v2
   with:
     test: npm test
 ```
+
+### Shadow workflow inputs
 
 | Input | Default | Description |
 | --- | --- | --- |
@@ -60,32 +87,14 @@ quod-shadow:
 | `fetch-depth` | `0` | `actions/checkout`'s `fetch-depth`. Match your test job's. |
 | `working-directory` | `.` | Where `install` and `test` run. |
 
-The shadow job inherits the calling job's permissions, so grant `contents: read` and `id-token: write` on the `quod-shadow` job itself. No `actions:` permission is needed. It runs with `continue-on-error`, times out after 30 minutes, and skips pull requests from forks.
-
-## What each mode does
-
-### `check`
-
-1. Installs Quod and restores the newest recording. It tries your branch, then the pull request's base, then the default branch.
-2. With Quod Cloud, starts fetching the ledger in the background while your install runs.
-3. Puts a `node` shim first on `PATH`, which loads a small hook into each Node process.
-4. Runs every one-shot `vitest run` as `quod vitest --no-record` with the same arguments. Unchanged files replay, and the rest run as plain vitest, without instrumentation.
-5. Uploads each run's per-test results in a post step.
-
-### `shadow`
-
-1. Downloads the test job's reports, and installs the same Quod release the test job used.
-2. Runs your command with recording on. A file is recorded only if its tests did exactly what they did in your test job.
-3. Audits up to 4 replayable files and saves the ledger.
-
-Its exit code is for diagnostics only.
+The shadow job inherits the calling job's permissions, so grant `contents: read` and `id-token: write` on the `quod-shadow` job itself. It runs with `continue-on-error`, times out after 30 minutes, and skips pull requests from forks. It records a file only if its tests did exactly what they did in your test job, and audits up to 4 replayable files.
 
 ## When Quod steps aside
 
-Quod never fails your job by itself. In each of these cases, tests run as plain vitest:
+Quod never fails your job by itself. Each part (dependencies, task cache, tests) fails open on its own: if it can't set up, that part of the job runs as it would without Quod. In each of these cases, tests run as plain vitest:
 
-- `QUOD_DISABLE=1` is set
-- the runner isn't Linux x64
+- `QUOD_DISABLE=1` is set (the dependency cache and task cache are off too)
+- the runner isn't Linux x64 (the dependency cache and task cache still run on macOS)
 - Quod couldn't be installed, or anything else in the setup failed (the log shows *Quod is off for this job* and the reason)
 - vitest runs in watch mode, or with `--coverage`, `-u`, `--ui`, `--browser`, `--shard`, `--changed` or other interactive flags (see [Supported setups](/docs/supported-setups#vitest))
 
