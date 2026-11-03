@@ -403,7 +403,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)) })
 }
 
 // The main process's reads: inputs of every file, except the source the

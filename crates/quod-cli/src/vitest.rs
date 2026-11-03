@@ -21,6 +21,15 @@
 //! result is compared with the recorded one; a mismatch quarantines the
 //! file (it always runs from then on). So audits cost no wall time.
 //!
+//! Second witness (`QUOD_VITEST_WITNESSES=2`, experimental): a record is
+//! provisional until a second, independent run of the file produces the same
+//! key (the same states of all its inputs, the same vitest arguments and
+//! facts, shared inputs unchanged in between) with the same per-test
+//! results; only then does it replay. A disagreement quarantines the file:
+//! it runs until it re-proves (one more agreeing witness per recent
+//! disagreement, as the trust ledger's proofs). With it the job that runs
+//! the tests records inline and no shadow job is needed.
+//!
 //! See docs/vitest.md for the design and the measurements.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -203,6 +212,46 @@ struct Rec {
     /// (function-level narrowing): the state the record saw.
     #[serde(default)]
     pinned: BTreeMap<u32, String>,
+    /// The second-witness policy's state of this record.
+    #[serde(default)]
+    w: Witness,
+}
+
+/// Second witness: who has vouched for a record.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct Witness {
+    /// Independent runs that produced this key with these results, in a row.
+    #[serde(default)]
+    n: u32,
+    /// The key: every input's state (and the arguments and facts) when recorded.
+    #[serde(default)]
+    key: String,
+    /// The per-test results (names and states).
+    #[serde(default)]
+    tests: String,
+    /// Disagreements seen (each one raises the bar to re-prove, up to 5).
+    #[serde(default)]
+    disagreements: u32,
+}
+
+/// Witnesses a record needs before it replays: 1 (the default) trusts a
+/// record at once; `QUOD_VITEST_WITNESSES=2` is the second-witness policy.
+fn witnesses_needed() -> u32 {
+    std::env::var("QUOD_VITEST_WITNESSES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// The witnesses a record needs (more after disagreements).
+fn bar(need: u32, w: &Witness) -> u32 {
+    need + w.disagreements.min(5)
+}
+
+/// May this record replay under the witness policy?
+fn witnessed(need: u32, r: &Rec) -> bool {
+    need <= 1 || r.w.n >= bar(need, &r.w)
 }
 
 #[derive(Deserialize)]
@@ -236,6 +285,9 @@ struct Ran {
     cov: Option<BTreeMap<String, Vec<[u32; 4]>>>,
     #[serde(default, rename = "covWhy")]
     cov_why: Option<String>,
+    /// Per-test names and states (the second witness compares these).
+    #[serde(default)]
+    tests: Option<String>,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -316,8 +368,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     // modules, with the states their records saw: narrowing candidates.
     let mut maybe: Vec<(String, Vec<(u32, String)>)> = Vec::new();
     let mut why_run: Vec<String> = Vec::new();
+    let need = witnesses_needed();
+    let mut provisional = 0usize;
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
+            affected.push(id.clone());
+            continue;
+        }
+        if !witnessed(need, rec) {
+            // One witness so far: it runs again, and agreeing makes it two.
+            provisional += 1;
             affected.push(id.clone());
             continue;
         }
@@ -490,6 +550,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     for k in shared_changed.iter().take(8) {
         eprintln!("quod vitest:   shared input changed: {k}");
     }
+    if need > 1 {
+        eprintln!(
+            "quod vitest: second witness: {provisional} provisional records run again ({need} witnesses needed)"
+        );
+    }
     eprintln!(
         "quod vitest: {} recorded files: {} replay, {} to run{}{}; {} inputs hashed, {} changed; selected in {} ms",
         ledger.files.len(),
@@ -603,6 +668,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 "vitest_ms": (t_run - t_select).as_secs_f64() * 1e3,
                 "record_ms": 0.0,
                 "driver": out.timings,
+                "provisional": provisional,
                 "exit": code,
             });
             fs::write(p, serde_json::to_vec(&s)?)?;
@@ -636,9 +702,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     global.sort_unstable();
     global.dedup();
     ledger.global = global;
+    // Under the witness policy the previous record of a file that runs is
+    // what this run's result is witnessed against.
+    let mut prev: HashMap<String, Rec> = HashMap::new();
     for id in &affected {
-        ledger.files.remove(id);
+        if let Some(r) = ledger.files.remove(id)
+            && need > 1
+        {
+            prev.insert(id.clone(), r);
+        }
     }
+    let mut witness_todo: Vec<(String, Option<Witness>, bool)> = Vec::new();
     let mismatched: HashSet<&String> = out.audit_mismatch.iter().collect();
     let mut unobservable: BTreeMap<String, usize> = BTreeMap::new();
     let mut no_fn_level: BTreeMap<String, usize> = BTreeMap::new();
@@ -649,7 +723,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     let (mut recorded, mut failed) = (0usize, 0usize);
     for r in &out.ran {
-        let old = ledger.files.remove(&r.id);
+        let old = ledger.files.remove(&r.id).or_else(|| prev.remove(&r.id));
         let quarantined = old.as_ref().is_some_and(|o| o.quarantined) || mismatched.contains(&r.id);
         for u in &r.unobservable {
             *unobservable.entry(u.clone()).or_default() += 1;
@@ -682,6 +756,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             }
         }
         recorded += 1;
+        if need > 1 {
+            witness_todo.push((r.id.clone(), old.as_ref().map(|o| o.w.clone()), mismatched.contains(&r.id)));
+        }
         ledger.files.insert(
             r.id.clone(),
             Rec {
@@ -696,6 +773,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 replays: old.as_ref().map_or(0, |o| o.replays),
                 cov,
                 pinned: BTreeMap::new(),
+                w: Witness {
+                    tests: r
+                        .tests
+                        .as_ref()
+                        .map(|t| blake3::hash(format!("{}\n{t}", r.state).as_bytes()).to_hex().to_string())
+                        .unwrap_or_default(),
+                    ..Witness::default()
+                },
             },
         );
     }
@@ -752,6 +837,51 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ledger.states[*k as usize] = s.clone();
         ledger.idents[*k as usize] = *id;
     }
+    let (mut promoted, mut disagreed, mut witnessed_again) = (0usize, 0usize, 0usize);
+    for (id, old, mismatch) in witness_todo {
+        let key = {
+            let r = &ledger.files[&id];
+            let mut h = blake3::Hasher::new();
+            for x in ledger.args.iter().chain(ledger.facts.iter().flat_map(|(k, v)| [k, v])) {
+                h.update(x.as_bytes());
+                h.update(b"\0");
+            }
+            for d in &r.deps {
+                h.update(ledger.keys[*d as usize].as_bytes());
+                h.update(b"\0");
+                h.update(ledger.states[*d as usize].as_bytes());
+                h.update(b"\0");
+            }
+            h.finalize().to_hex().to_string()
+        };
+        let r = ledger.files.get_mut(&id).expect("recorded above");
+        r.w.key = key;
+        let old = old.unwrap_or_default();
+        r.w.disagreements = old.disagreements;
+        let same_key = global_ok && !old.key.is_empty() && old.key == r.w.key;
+        let agrees = same_key && !old.tests.is_empty() && old.tests == r.w.tests;
+        if mismatch || (same_key && !agrees) {
+            // A second run of the same key disagreed (or an audit did).
+            r.w.disagreements += 1;
+            r.w.n = 1;
+            r.quarantined = true;
+            disagreed += 1;
+            eprintln!("quod vitest: second witness DISAGREES: {} (quarantined until it re-proves)", r.file);
+        } else if agrees {
+            let was = old.n >= bar(need, &old);
+            r.w.n = old.n + 1;
+            witnessed_again += 1;
+            if r.w.n >= bar(need, &r.w) {
+                r.quarantined = false;
+                if !was {
+                    promoted += 1;
+                }
+            }
+        } else {
+            // A new key: its first witness.
+            r.w.n = 1;
+        }
+    }
     ledger.compact();
     let tmp = dir.join("ledger.json.tmp");
     fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
@@ -759,6 +889,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let t_done = t0.elapsed();
 
     let quod_ms = (t_select + (t_done - t_run)).as_millis();
+    if need > 1 {
+        eprintln!(
+            "quod vitest: second witness: {promoted} records now trusted, {witnessed_again} witnessed again, {disagreed} disagreed"
+        );
+    }
     eprintln!(
         "quod vitest: ran {} files ({} recorded, {} failed, {} unrecordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
         out.ran.len(),
@@ -803,6 +938,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "record_ms": (t_done - t_run).as_secs_f64() * 1e3,
             "driver": out.timings,
             "render": render_note,
+            "witnesses_needed": need,
+            "provisional": provisional,
+            "promoted": promoted,
+            "witnessed_again": witnessed_again,
+            "witness_disagreed": disagreed,
             "exit": code,
         });
         fs::write(p, serde_json::to_vec(&s)?)?;
@@ -1031,9 +1171,13 @@ fn plan(
             ledger.keys[*k as usize]
         ));
     }
+    let need = witnesses_needed();
     for (id, rec) in &ledger.files {
         if rec.quarantined || !(rec.state == "pass" || rec.state == "skip") {
             return verdict(format!("{id} must run"));
+        }
+        if !witnessed(need, rec) {
+            return verdict(format!("{id} has one witness"));
         }
         let moved = rec.deps.iter().find(|d| {
             let seen = rec.pinned.get(d).unwrap_or(&ledger.states[**d as usize]);
@@ -1102,7 +1246,11 @@ fn everything_recorded(l: &Ledger) -> bool {
         && l.all_files.iter().all(|id| {
             l.files
                 .get(id)
-                .is_some_and(|r| !r.quarantined && (r.state == "pass" || r.state == "skip"))
+                .is_some_and(|r| {
+                    !r.quarantined
+                        && (r.state == "pass" || r.state == "skip")
+                        && witnessed(witnesses_needed(), r)
+                })
         })
 }
 
@@ -2092,6 +2240,7 @@ mod tests {
                 replays: 0,
                 cov: BTreeMap::from([(2, vec![[1, 0, 3, 0]])]),
                 pinned: BTreeMap::from([(0, "old".to_string())]),
+                w: Witness::default(),
             },
         );
         l.compact();
