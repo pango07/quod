@@ -8,7 +8,7 @@ import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { formatAgo, formatCount, shortSha } from "@/lib/format";
 import { isSlug } from "@/lib/params";
-import { exitLabel, formatSavedMs, kindLabel, KIND_EXPLAINED, ledgerSentence, SAVED_EXPLAINED, spotCheckSentence, testRunHeadline, testRunHref } from "@/lib/test-runs";
+import { exitLabel, formatSaved, formatSavedMs, kindLabel, KIND_EXPLAINED, ledgerSentence, SAVED_EXPLAINED, showSpotChecks, spotCheckSentence, testRunHeadline, testRunHref } from "@/lib/test-runs";
 
 export const metadata = { title: "Test run" };
 
@@ -80,7 +80,8 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
         </div>
         <div className="card stat" title={SAVED_EXPLAINED}>
           <span className="label">Saved (test-file time)</span>
-          <span className="value">{ms(run.timing.savedMs)}</span>
+          <span className="value">{formatSaved(run.timing.savedMs)}</span>
+          <span className="note">An estimate: the skipped files&apos; recorded times.</span>
         </div>
         <div className="card stat">
           <span className="label">Took</span>
@@ -136,6 +137,7 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
         )}
       </section>
 
+      {showSpotChecks(run) ? (
       <section className="card" aria-labelledby="spot-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
         <h2 id="spot-h" className="h2">
           Spot-checks
@@ -168,6 +170,7 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
           </p>
         ) : null}
       </section>
+      ) : null}
 
       <section className="card" aria-labelledby="ledger-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 8 }}>
         <h2 id="ledger-h" className="h2">

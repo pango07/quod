@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui";
 import type { TestFile, TestFileState } from "@/lib/api/types";
 import { formatAgo, formatCount } from "@/lib/format";
-import { formatSavedMs, SAVED_EXPLAINED } from "@/lib/test-runs";
+import { formatSaved, SAVED_EXPLAINED } from "@/lib/test-runs";
 import {
   type BarSegment,
   FILE_LEGEND,
@@ -49,14 +49,14 @@ function Summary({ s }: { s: TrustModel["summary"] }) {
         <span className="label">Wrong results</span>
         <span className="value tnum">{formatCount(s.wrongResults)}</span>
         <span className="note">
-          {formatCount(s.spotChecksPassed)} spot-check{s.spotChecksPassed === 1 ? "" : "s"} passed
+          {formatCount(s.spotChecksPassed)} spot-check{s.spotChecksPassed === 1 ? "" : "s"} passed, {s.spotChecksWindow === "week" ? "last 7 days" : "all time"}
         </span>
       </div>
       <div>
         <span className="label" title={SAVED_EXPLAINED}>
           Time saved, 7 days
         </span>
-        <span className="value tnum">{formatSavedMs(s.savedWeekMs)}</span>
+        <span className="value tnum">{formatSaved(s.savedWeekMs)}</span>
         <span className="note">
           across {formatCount(s.weekRuns)} run{s.weekRuns === 1 ? "" : "s"}
         </span>
@@ -133,7 +133,7 @@ function FileLine({ f }: { f: TestFile }) {
       </span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }} title={f.reason ? `${help} (${f.reason})` : help}>
         <span className={`sw st-${f.state}`} aria-hidden="true" />
-        <span className="ellipsis">{stateWord(f.state)}</span>
+        <span className="ellipsis">{f.state === "always" && f.reason ? `${stateWord(f.state)}: ${f.reason}` : stateWord(f.state)}</span>
       </span>
       <span className="muted">
         <span className="label-sm">Last result </span>
@@ -145,7 +145,7 @@ function FileLine({ f }: { f: TestFile }) {
       </span>
       <span className="tnum" title={SAVED_EXPLAINED}>
         <span className="label-sm">Saved </span>
-        {f.savedMs ? formatSavedMs(f.savedMs) : "0 s"}
+        {formatSaved(f.savedMs ?? 0)}
       </span>
     </div>
   );
@@ -184,7 +184,7 @@ function Suite({ s, asOf, files, active, open, onToggle, showAll, onShowAll }: {
         </span>
         <span className="tnum" style={{ fontSize: 14 }} title={SAVED_EXPLAINED}>
           <span className="label-sm">Saved, 7 days </span>
-          {formatSavedMs(s.savedWeekMs)}
+          {formatSaved(s.savedWeekMs)}
         </span>
         <span className="caret" aria-hidden="true">
           ›

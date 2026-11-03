@@ -455,7 +455,8 @@ export interface TestSuite {
   suite: string;
   /** The recording it reads (the default branch's newest); null: none yet. */
   ledger: { at: string; sha: string | null; branch: string | null; scope: string } | null;
-  totals: { files: number; learning: number; ready: number; skipping: number; always: number; paused: number; savedMs: number };
+  /** recordDiffers (newer servers): files whose recorded run behaved differently from the check (quarantined); absent is 0. */
+  totals: { files: number; learning: number; ready: number; skipping: number; always: number; paused: number; savedMs: number; recordDiffers?: number };
   /** Sorted: paused, always, learning, skipping, ready; then by path. */
   files: TestFile[];
 }

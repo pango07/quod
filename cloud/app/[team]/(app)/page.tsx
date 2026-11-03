@@ -9,7 +9,7 @@ import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
-import { hasTestActivity, testsByRepo } from "@/lib/test-runs";
+import { hasTestActivity, spotChecksWithinWeek, testsByRepo } from "@/lib/test-runs";
 import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
@@ -34,8 +34,12 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const testStats = tests.ok && hasTestActivity(tests.value) ? tests.value : null;
   const filesLine = suites.ok ? testFilesLine(suites.value) : null;
   // Shown whenever there are test runs, whatever the step-level data says (a team may run only `quod vitest`).
+  // Spot-checks over the same 7 days as the rest, from the runs already read; without them, the stats' all-time count.
+  const spotWeek = testRuns.ok && testRuns.value?.length ? spotChecksWithinWeek(testRuns.value, Date.parse(ov.asOf)) : null;
+  // A team with test data sees test numbers; the step-level tiles stay only for teams with step data and no test data.
+  const hasTests = !!(testStats || repoTests || filesLine);
   const testsCard = testStats ? (
-    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} />
+    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} />
   ) : filesLine ? (
     <section className="card" style={{ padding: 20 }}>
       <TestFilesLine team={team.slug} line={filesLine} />
@@ -112,8 +116,8 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
 
       {quod ? (
-        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} />
-      ) : (
+        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} tiles={!hasTests} />
+      ) : hasTests ? null : (
         <section className="card" style={{ padding: 20 }}>
           <h2 className="h2">{plain ? "Time saved and skips" : "Time saved and replays"}</h2>
           <p className="muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.6 }}>

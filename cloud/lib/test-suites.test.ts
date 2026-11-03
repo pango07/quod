@@ -73,7 +73,7 @@ describe("suites", () => {
   it("totals: zeros left out, in a fixed order", () => {
     expect(stateCounts({ skipping: 152, ready: 9, learning: 0, always: 3, paused: 0 })).toBe("152 skipping, 9 ready, 3 always run");
     expect(suiteTotalsText({ files: 1, skipping: 0, ready: 0, learning: 1, always: 0, paused: 0, savedMs: 0 })).toBe("1 test file: 1 learning.");
-    expect(suiteTotalsText({ files: 10, skipping: 10, ready: 0, learning: 0, always: 0, paused: 0, savedMs: 90_000 })).toBe("10 test files: 10 skipping. Saved 2 min.");
+    expect(suiteTotalsText({ files: 10, skipping: 10, ready: 0, learning: 0, always: 0, paused: 0, savedMs: 90_000 })).toBe("10 test files: 10 skipping. Saved ≈ 2 min.");
   });
 
   it("row summary: files, skipping, need a look", () => {
@@ -194,8 +194,8 @@ describe("compact Trust: the model", () => {
 
   it("summary, needs a look and suite rows from the sample", () => {
     const m = trustModel({ team: "quodci", suites: sampleTestSuites(NOW), runs, stats: null, now: NOW, ago });
-    expect(m.summary.totals).toEqual({ files: 296, learning: 10, ready: 17, skipping: 265, always: 3, paused: 1 });
-    expect(m.summary.bar.map((b) => b.state)).toEqual(["learning", "ready", "skipping", "always", "paused"]);
+    expect(m.summary.totals).toEqual({ files: 296, learning: 10, ready: 17, skipping: 265, always: 3, paused: 1, recordDiffers: 1 });
+    expect(m.summary.bar.map((b) => b.state)).toEqual(["learning", "ready", "skipping", "always", "recordDiffers", "paused"]);
     expect(m.summary.wrongResults).toBe(0);
     expect(m.summary.skippedPct).toBeGreaterThan(80);
     expect(m.summary.savedWeekMs).toBeGreaterThan(0);

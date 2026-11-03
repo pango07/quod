@@ -328,6 +328,8 @@ function suiteOf(suite: string, ledger: TestSuite["ledger"], special: FileSeed[]
       skipping: count("skipping"),
       always: count("always"),
       paused: count("paused"),
+      // Always-runs files quarantined because their recording behaved differently from the check (newer servers send this).
+      recordDiffers: files.filter((f) => f.state === "always" && f.reason === "recording changed its behaviour").length,
       savedMs: files.reduce((a, f) => a + (f.savedMs ?? 0), 0),
     },
     files,
@@ -355,7 +357,7 @@ export function sampleTestSuites(now = Date.now()): TestSuite[] {
     suiteOf(
       "packages/web",
       ledger,
-      [{ file: "src/components/date-picker.test.tsx", state: "always", reason: "recording changed its behaviour", lastResult: "pass", skipped: 0, ran: 3, durationMs: 1340 }],
+      [{ file: "src/components/date-picker.test.tsx", state: "always", reason: "uses the network", lastResult: "pass", skipped: 0, ran: 3, durationMs: 1340 }],
       WEB_DIRS,
       88,
       7,

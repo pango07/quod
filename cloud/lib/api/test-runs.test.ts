@@ -85,7 +85,7 @@ describe("test runs in the sample data", () => {
 
   it("has the headline run", async () => {
     const run = await api.getTestRun("quodci", "tr_4182c");
-    expect(run && testRunHeadline(run)).toBe("vitest · packages/backend · 184 test files: 171 skipped (unchanged), 13 ran, saved 79 s");
+    expect(run && testRunHeadline(run)).toBe("vitest · packages/backend · 184 test files: 171 skipped (unchanged), 13 ran, saved ≈ 79 s");
     expect(await api.getTestRun("quodci", "nope")).toBeNull();
   });
 

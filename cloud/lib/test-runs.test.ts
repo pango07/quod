@@ -29,7 +29,7 @@ const run = (over: Partial<TestRunSummary> = {}): TestRunSummary => ({
 
 describe("test run wording", () => {
   it("the headline", () => {
-    expect(testRunHeadline(run())).toBe("vitest · packages/backend · 184 test files: 171 skipped (unchanged), 13 ran, saved 79 s");
+    expect(testRunHeadline(run())).toBe("vitest · packages/backend · 184 test files: 171 skipped (unchanged), 13 ran, saved ≈ 79 s");
     // The repo root shows the repository; no "saved" when it was not reported; one file is singular.
     expect(testRunHeadline(run({ suite: ".", files: { total: 1, ran: 1, replayed: 0, narrowed: 0 }, timing: { wallMs: null, selectMs: null, estPlainMs: null, savedMs: null } }))).toBe(
       "vitest · quodci/web · 1 test file: 0 skipped (unchanged), 1 ran",

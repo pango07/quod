@@ -208,7 +208,8 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
  * deltas by event a moment later, so re-seeding on each refresh would count
  * the in-flight ones twice.
  */
-export function LiveTotals({ totals, days, from, reseed = false, plain }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean }) {
+/** `tiles: false` leaves out the step-level tiles (a team with test data sees test numbers instead); the per-day chart stays. */
+export function LiveTotals({ totals, days, from, reseed = false, plain, tiles = true }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean; tiles?: boolean }) {
   const [t, setT] = useState(totals);
   const [d, setD] = useState(days);
   const [seen, setSeen] = useState({ totals, days });
@@ -235,6 +236,7 @@ export function LiveTotals({ totals, days, from, reseed = false, plain }: { tota
 
   return (
     <>
+      {tiles ? (
       <section aria-label="Totals" className="stats">
         <Stat label="CI time saved" value={formatMinutes(t.savedMinutes)} note={`${formatCount(t.savedMinutes)} CI minutes you did not wait for`} />
         <Stat label={plain ? "Steps skipped" : "Steps replayed"} value={formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)} note={`${formatCount(t.stepsReplayed)} of ${formatCount(t.stepsTotal)} steps`} />
@@ -253,6 +255,7 @@ export function LiveTotals({ totals, days, from, reseed = false, plain }: { tota
           }
         />
       </section>
+      ) : null}
       <section className="card" aria-labelledby="minutes-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="row-between">
           <h2 id="minutes-h" className="h2">
