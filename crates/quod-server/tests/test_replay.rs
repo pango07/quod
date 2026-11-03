@@ -457,6 +457,13 @@ fn t8_run_reports_reach_the_dashboard() {
     assert_eq!(d["auditFiles"].as_array().unwrap().len(), 2);
     assert_eq!(d["shadow"]["kind"], "shadow");
     assert_eq!(d["ledger"]["sha"], SHA_B);
+    // Trust: the suite, with no recording yet, has its ran file learning.
+    let su = j("/v1/teams/acme/test-suites");
+    assert_eq!(su["suites"][0]["suite"], "packages/backend");
+    assert!(su["suites"][0]["ledger"].is_null());
+    assert_eq!(su["suites"][0]["files"][0]["file"], "src/a.test.ts");
+    assert_eq!(su["suites"][0]["files"][0]["state"], "learning");
+    assert_eq!(su["suites"][0]["totals"]["learning"], 1);
     let st = j("/v1/teams/acme/test-stats");
     assert_eq!(st["wrongResults"], 0);
     assert_eq!(st["audits"]["passed"], 2);

@@ -26,7 +26,7 @@
 //! versioned migrations, so a rollback to a build without this module
 //! finds a schema it knows.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use axum::Extension;
@@ -1179,6 +1179,196 @@ pub async fn stats(
             "audits": {"checked": checked, "passed": checked - mismatched},
             "recent": recent,
         })))
+    })
+    .await
+}
+
+// ----- test files per suite (the Trust page) -----
+
+/// One suite's test files and their states, from its newest recording (the
+/// default branch's when there is one) and the reports: a file the
+/// recording replays is `ready` (never skipped yet) or `skipping`; one a
+/// spot-check found different is `paused`; one quarantined otherwise, or
+/// that ran but could not be recorded, `always`; one the reports name that
+/// no recording has yet, `learning`.
+fn suite_files(
+    app: &App,
+    team: &str,
+    d: &Db,
+    repo_key: &str,
+    suite: &str,
+) -> anyhow::Result<(Value, Vec<Value>)> {
+    let rows = d.query(
+        &format!(
+            "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 ORDER BY (scope = 'trusted') DESC, id DESC LIMIT 1"
+        ),
+        &[t(team), t(repo_key), t(suite)],
+        COL_TYS,
+    )?;
+    let ledger_row = rows.first().map(|v| row(v));
+    // The recording's per-file records.
+    let mut recs: Vec<(String, Value)> = vec![];
+    if let Some(r) = &ledger_row {
+        let files: Vec<LedgerFile> = serde_json::from_str(&r.files)?;
+        if let Some(lf) = files.iter().find(|f| f.path == "ledger.json") {
+            let blobs = app.store.cas(team)?;
+            if let Some(b) = blobs.read_capped(&lf.hash, MAX_BUNDLE)? {
+                let l: Value = serde_json::from_slice(&b)?;
+                if let Some(m) = l["files"].as_object() {
+                    for rec in m.values() {
+                        if let Some(f) = rec["file"].as_str() {
+                            recs.push((f.to_string(), rec.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Spot-checks that differed, and the newest runs' files that ran.
+    let mut differed: BTreeSet<String> = BTreeSet::new();
+    for r in runs_where(
+        d,
+        "team = $1 AND repo_key = $2 AND suite = $3 AND kind = 'shadow' AND audit_mismatches > 0",
+        &[t(team), t(repo_key), t(suite)],
+    )? {
+        let det: Value = serde_json::from_str(&r.detail).unwrap_or(Value::Null);
+        for a in det["auditFiles"].as_array().into_iter().flatten() {
+            if a["ok"] == false
+                && let Some(f) = a["file"].as_str()
+            {
+                differed.insert(f.to_string());
+            }
+        }
+    }
+    let mut ran_why: BTreeMap<String, String> = BTreeMap::new();
+    for r in runs_where(
+        d,
+        "team = $1 AND repo_key = $2 AND suite = $3 ORDER BY id DESC LIMIT 2",
+        &[t(team), t(repo_key), t(suite)],
+    )? {
+        let det: Value = serde_json::from_str(&r.detail).unwrap_or(Value::Null);
+        for f in det["ranFiles"].as_array().into_iter().flatten() {
+            if let (Some(file), Some(why)) = (f["file"].as_str(), f["why"].as_str()) {
+                ran_why
+                    .entry(file.to_string())
+                    .or_insert_with(|| why.to_string());
+            }
+        }
+    }
+    let recorded: BTreeSet<&str> = recs.iter().map(|(f, _)| f.as_str()).collect();
+    let mut out: Vec<Value> = vec![];
+    for (file, rec) in &recs {
+        let skipped = rec["replays"].as_u64().unwrap_or(0);
+        let ran = rec["runs"].as_u64().unwrap_or(0);
+        let dur = rec["duration"].as_f64();
+        let last = rec["state"].as_str().map(str::to_string);
+        let (state, reason) = if rec["quarantined"].as_bool() == Some(true) {
+            if differed.contains(file) {
+                (
+                    "paused",
+                    Some("a spot-check found its result differed".to_string()),
+                )
+            } else {
+                (
+                    "always",
+                    Some("recording changed its behaviour".to_string()),
+                )
+            }
+        } else if !matches!(last.as_deref(), Some("pass" | "skip")) {
+            (
+                "always",
+                Some(format!(
+                    "its last result was {}",
+                    last.as_deref().unwrap_or("unknown")
+                )),
+            )
+        } else if skipped > 0 {
+            ("skipping", None)
+        } else {
+            ("ready", None)
+        };
+        out.push(json!({
+            "file": file, "project": rec["project"].as_str().unwrap_or(""),
+            "state": state, "reason": reason, "lastResult": last,
+            "skipped": skipped, "ran": ran, "durationMs": dur,
+            "savedMs": dur.map(|d| d * skipped as f64),
+        }));
+    }
+    for (file, why) in &ran_why {
+        if recorded.contains(file.as_str()) {
+            continue;
+        }
+        let learning = ledger_row.is_none()
+            || why.starts_with("first run")
+            || why.starts_with("new test file");
+        out.push(json!({
+            "file": file, "project": "",
+            "state": if learning { "learning" } else { "always" },
+            "reason": if learning { "not recorded yet".to_string() } else {
+                "not recorded: it failed, or did something the recorder cannot follow (a child process, the network, a worker)".to_string()
+            },
+            "lastResult": Value::Null, "skipped": 0, "ran": 0, "durationMs": Value::Null, "savedMs": Value::Null,
+        }));
+    }
+    let rank = |s: &str| match s {
+        "paused" => 0,
+        "always" => 1,
+        "learning" => 2,
+        "skipping" => 3,
+        _ => 4,
+    };
+    out.sort_by(|a, b| {
+        (rank(a["state"].as_str().unwrap_or("")), a["file"].as_str())
+            .cmp(&(rank(b["state"].as_str().unwrap_or("")), b["file"].as_str()))
+    });
+    let ledger = match &ledger_row {
+        Some(r) => {
+            json!({"at": r.at, "sha": r.sha, "branch": branch(r.git_ref.as_deref()), "scope": r.scope})
+        }
+        None => Value::Null,
+    };
+    Ok((ledger, out))
+}
+
+pub async fn suites(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(team): UrlPath<String>,
+) -> Result<Json<Value>, ApiError> {
+    blocking(move || {
+        let v = crate::dash::viewer(&app, &headers, &team)?;
+        let d = db(&app, &v.team)?;
+        let repos = all_repos(&app, &v.team, &d)?;
+        let mut keys: BTreeMap<(String, String), String> = BTreeMap::new();
+        for sql in [
+            "SELECT repo_key, suite, repository FROM test_runs WHERE team = $1 ORDER BY id",
+            "SELECT repo_key, suite, repository FROM test_ledgers WHERE team = $1 ORDER BY id",
+        ] {
+            for r in d.query(sql, &[t(v.team.as_str())], &[Ty::T, Ty::T, Ty::T])? {
+                if let (Some(k), Some(s), Some(name)) = (r[0].t(), r[1].t(), r[2].t()) {
+                    keys.insert((k, s), name);
+                }
+            }
+        }
+        let mut out = vec![];
+        for ((repo_key, suite), repository) in keys {
+            let (ledger, files) = suite_files(&app, &v.team, &d, &repo_key, &suite)?;
+            let count = |s: &str| files.iter().filter(|f| f["state"] == s).count();
+            let saved: f64 = files.iter().filter_map(|f| f["savedMs"].as_f64()).sum();
+            out.push(json!({
+                "repoSlug": crate::dash::slug(&repository, &repos),
+                "repository": repository,
+                "suite": suite,
+                "ledger": ledger,
+                "totals": {
+                    "files": files.len(), "learning": count("learning"), "ready": count("ready"),
+                    "skipping": count("skipping"), "always": count("always"), "paused": count("paused"),
+                    "savedMs": saved,
+                },
+                "files": files,
+            }));
+        }
+        Ok(Json(json!({ "suites": out })))
     })
     .await
 }

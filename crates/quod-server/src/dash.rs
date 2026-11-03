@@ -80,6 +80,10 @@ pub fn router() -> Router<AppState> {
             get(crate::testreplay::get_run),
         )
         .route("/v1/teams/{team}/test-stats", get(crate::testreplay::stats))
+        .route(
+            "/v1/teams/{team}/test-suites",
+            get(crate::testreplay::suites),
+        )
 }
 
 /// The viewer, for the team the path names (its slug or WorkOS org id):
