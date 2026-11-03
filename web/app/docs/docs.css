@@ -114,6 +114,9 @@ h2:hover .d-anchor, h3:hover .d-anchor, .d-anchor:focus { opacity: 1 }
 .d-article a:hover { text-decoration-color: var(--d-fg) }
 .d-article strong { color: var(--d-fg); font-weight: 600 }
 .d-article ul, .d-article ol { padding-left: 22px }
+.d-article ul { list-style: disc }
+.d-article ol { list-style: decimal }
+.d-article ul ul { list-style: circle }
 .d-article li + li { margin-top: 6px }
 .d-article li > ul, .d-article li > ol { margin-top: 6px }
 .d-article li::marker { color: var(--d-mute) }
@@ -149,7 +152,7 @@ html[data-theme="dark"]:has(.docs) .d-pre code span { color: var(--shiki-dark) }
 
 /* Tabs */
 .d-tabs { margin-top: 18px; border: 1px solid var(--d-line); border-radius: 10px; overflow: hidden; background: var(--d-code-bg) }
-.d-tablist { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--d-line); overflow-x: auto }
+.d-tablist { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--d-line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none }
 .d-tablist button { font: 500 13px var(--sans); color: var(--d-mute); background: none; border: 0; padding: 10px 10px 9px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap }
 .d-tablist button:hover { color: var(--d-fg) }
 .d-tablist button[aria-selected="true"] { color: var(--d-fg); border-bottom-color: var(--d-fg) }
@@ -204,7 +207,6 @@ html[data-theme="dark"]:has(.docs) .d-pre code span { color: var(--shiki-dark) }
 .d-flow-arrow { position: relative; display: grid; place-items: center }
 .d-flow-arrow::before { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; border-top: 1.5px solid var(--d-mute) }
 .d-flow-arrow::after { content: ""; position: absolute; left: 6px; top: calc(50% - 4px); border: 4.5px solid transparent; border-right: 6px solid var(--d-mute); border-left: 0 }
-.d-flow-arrow.back::after { left: 6px }
 .d-flow-arrow span { position: relative; font: 11px var(--mono); color: var(--d-mute); background: var(--d-bg); padding: 0 3px; transform: translateY(-14px) }
 .d-flow figcaption { margin-top: 10px; font-size: 13px; color: var(--d-mute) }
 @media (max-width: 720px) {
