@@ -686,7 +686,24 @@ impl Ledger {
     pub fn open(path: &Path) -> Result<Ledger, LedgerError> {
         let db = Connection::open(path)?;
         db.busy_timeout(BUSY_TIMEOUT)?;
-        db.pragma_update(None, "journal_mode", "WAL")?;
+        // SQLite answers a journal-mode switch that races another
+        // connection's (two first opens of a new ledger) with SQLITE_BUSY at
+        // once, without the busy handler: retry it within the same timeout.
+        let start = std::time::Instant::now();
+        loop {
+            match db.pragma_update(None, "journal_mode", "WAL") {
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if e.code == rusqlite::ErrorCode::DatabaseBusy
+                        && start.elapsed() < BUSY_TIMEOUT =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                r => {
+                    r?;
+                    break;
+                }
+            }
+        }
         db.pragma_update(None, "synchronous", "NORMAL")?;
         let mut l = Ledger::wrap(db);
         l.migrate()?;
