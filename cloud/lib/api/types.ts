@@ -348,6 +348,77 @@ export interface SearchIndex {
   steps: { repoSlug: string; key: string; command: string; trust: TrustState["kind"] }[];
 }
 
+// ---------------------------------------------------------------- Test runs (test-level replay)
+// One vitest run's report: which test files ran and which were skipped
+// because nothing they depend on changed (their recorded result was reused).
+// Unlike the rest of the CloudApi, durations here are milliseconds, as
+// quod-server sends them (docs/api.md, "Test runs").
+
+export interface TestRunSummary {
+  /** quod-server's id for this report: /[team]/[repo]/tests/[id]. */
+  id: string;
+  at: string;
+  repoSlug: string;
+  /** owner/name */
+  repository: string;
+  /** The vitest project dir, e.g. "packages/backend", or "." for the repo root. */
+  suite: string;
+  /** critical: the developer's check. shadow: the background recording job. */
+  kind: "critical" | "shadow";
+  tool: "vitest";
+  workflow: string | null;
+  job: string | null;
+  runId: number | null;
+  runAttempt: number | null;
+  runNumber: number | null;
+  /** The GitHub Actions run. */
+  githubUrl: string | null;
+  branch: string | null;
+  sha: string | null;
+  event: string | null;
+  /** replayed: skipped because unchanged (results reused). narrowed: of the replayed, those whose source changed but not the functions the file runs. */
+  files: { total: number; ran: number; replayed: number; narrowed: number };
+  /**
+   * estPlainMs: the recorded per-file durations of every file, summed (test-file time, not wall time).
+   * savedMs: the recorded durations of the skipped files, summed (across workers).
+   */
+  timing: { wallMs: number | null; selectMs: number | null; estPlainMs: number | null; savedMs: number | null };
+  /** vitest's exit code. */
+  exit: number | null;
+  /** The earlier recording this run reused; null: not reported. */
+  ledger: { found: boolean; sha: string | null; branch: string | null; scope: string | null } | null;
+  /** Spot-checks: the shadow job re-runs a few skipped files and compares. Merged into a critical run from its commit's shadow when available. */
+  audits: { checked: number; mismatched: number } | null;
+}
+
+export interface RanFile {
+  file: string;
+  project: string;
+  /** Plain text from the client: "changed: src/a.ts", "first run", "new test file". */
+  why: string;
+  durationMs: number | null;
+  state: string;
+}
+
+export interface TestRunDetail extends TestRunSummary {
+  ranFiles: RanFile[];
+  /** Spot-check results (may be empty). */
+  auditFiles: { file: string; ok: boolean }[];
+  /** The shadow job's report for the same commit and suite, if any. */
+  shadow: TestRunSummary | null;
+}
+
+export interface TestStats {
+  asOf: string;
+  today: { savedMs: number; runs: number };
+  week: { savedMs: number; runs: number; filesTotal: number; filesSkipped: number; skippedPct: number | null };
+  /** Spot-checks that found a skipped file whose fresh result differed. Should be 0. */
+  wrongResults: number;
+  audits: { checked: number; passed: number };
+  /** Up to 10, newest first. */
+  recent: TestRunSummary[];
+}
+
 // ---------------------------------------------------------------- Live: what is running, and the event stream
 
 /**
@@ -436,7 +507,9 @@ export type LiveEvent =
   | (EventBase & { type: "step.started"; repoSlug: string; run: number; jobId: string; index: number; name: string; stepKey: string | null })
   | (EventBase & { type: "step.finished"; repoSlug: string; run: number; jobId: string; index: number; stepKey: string | null; step: RunStep })
   | (EventBase & { type: "trust.changed"; repoSlug: string; key: string; trust: TrustState; event: TrustEvent })
-  | (EventBase & { type: "stats.updated"; repoSlug: string; day: string; delta: StatsDelta });
+  | (EventBase & { type: "stats.updated"; repoSlug: string; day: string; delta: StatsDelta })
+  /** A test run's report arrived (a critical run, or the shadow of one). */
+  | (EventBase & { type: "test.run"; repoSlug: string; run: TestRunSummary });
 
 export type LiveEventType = LiveEvent["type"];
 
@@ -468,6 +541,16 @@ export interface CloudApi {
   saveConnectChoice(team: string, choice: { store: Store; host: Host }): Promise<void>;
 
   getSearchIndex(team: string): Promise<SearchIndex>;
+
+  /**
+   * Test runs, newest first (optionally one repo's). null: this Quod server
+   * does not serve test runs (an older one answers 404 or 501), so the UI hides them.
+   */
+  listTestRuns(team: string, opts?: { repo?: string; limit?: number }): Promise<TestRunSummary[] | null>;
+  /** One test run; null when unknown, or when the server does not serve test runs. */
+  getTestRun(team: string, id: string): Promise<TestRunDetail | null>;
+  /** The Overview's test numbers; null when the server does not serve them (nothing is shown). */
+  getTestStats(team: string): Promise<TestStats | null>;
 
   /** Jobs queued or running now (optionally one repo's). */
   getActivity(team: string, opts?: { repo?: string }): Promise<Activity>;

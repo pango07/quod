@@ -31,7 +31,7 @@ import { inScope } from "@/lib/live/scope";
 import { isSlug } from "@/lib/params";
 import { TEAM_PAGES } from "@/lib/routes";
 import { NoQuodCloudApi } from "./none";
-import { buildRepoMap, IDENTITY, mapEvent, mapOverview, mapRepoDetail, mapRepoSummary, mapRunSummary, mapSearchIndex, mapStep, scopeToQuod, type RepoMap } from "./repo-map";
+import { buildRepoMap, IDENTITY, mapEvent, mapOverview, mapRepoDetail, mapRepoSummary, mapRunSummary, mapSearchIndex, mapStep, mapTestRun, mapTestRunDetail, mapTestStats, scopeToQuod, type RepoMap } from "./repo-map";
 import { ApiNotAvailableError, ApiUnavailableError } from "./types";
 import type { Activity, BranchProtection, CloudApi, GitHubLink, LiveEvent, LiveJob, LiveScope, Overview, QuodStatus, RepoDetail, RepoSummary, SearchIndex } from "./types";
 
@@ -603,6 +603,45 @@ export class CompositeCloudApi implements CloudApi {
       unstable_rethrow(e);
       if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
       return this.none.getTeamHealth();
+    }
+  }
+
+  // ---------------------------------------------------------------- Test runs (quod-server only; null when it does not serve them)
+
+  async listTestRuns(team: string, opts: { repo?: string; limit?: number } = {}) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.listTestRuns(team, opts);
+    const map = await this.repoMap(team, c);
+    CompositeCloudApi.skipIfFailed(map);
+    const quodRepo = opts.repo ? map.quodSlug(opts.repo) : undefined;
+    if (quodRepo === null) return [];
+    const runs = await this.inner.listTestRuns(team, { ...opts, ...(quodRepo ? { repo: quodRepo } : {}) });
+    return runs ? runs.map((r) => mapTestRun(map, r)) : null;
+  }
+
+  async getTestRun(team: string, id: string) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.getTestRun(team, id);
+    const map = await this.repoMap(team, c);
+    CompositeCloudApi.skipIfFailed(map);
+    const r = await this.inner.getTestRun(team, id);
+    return r ? mapTestRunDetail(map, r) : null;
+  }
+
+  /** The Overview's card: hidden (null) rather than an error when quod-server is down. */
+  async getTestStats(team: string) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.getTestStats(team);
+    try {
+      const map = await this.repoMap(team, c);
+      CompositeCloudApi.skipIfFailed(map);
+      const s = await this.inner.getTestStats(team);
+      return s ? mapTestStats(map, s) : null;
+    } catch (e) {
+      unstable_rethrow(e);
+      if (!(e instanceof ApiUnavailableError || e instanceof ApiNotAvailableError)) throw e;
+      this.quodError("quod test stats unavailable", e);
+      return null;
     }
   }
 

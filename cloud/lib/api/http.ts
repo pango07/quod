@@ -43,6 +43,9 @@ import type {
   Store,
   Team,
   TeamHealth,
+  TestRunDetail,
+  TestRunSummary,
+  TestStats,
 } from "./types";
 
 export const PROTOCOL = "quod.v1";
@@ -155,7 +158,49 @@ const runDetail = (v: unknown, w: string): RunDetail => {
   return o as unknown as RunDetail;
 };
 
+const testRunSummary = (v: unknown, w: string): TestRunSummary => {
+  const o = has(v, w, {
+    id: "string",
+    at: "string",
+    repoSlug: "string",
+    repository: "string",
+    suite: "string",
+    kind: "string",
+    tool: "string",
+    files: "object",
+    timing: "object",
+    githubUrl: "string|null",
+    branch: "string|null",
+    sha: "string|null",
+    exit: "number|null",
+    ledger: "object|null",
+    audits: "object|null",
+  });
+  has(o.files, `${w}.files`, { total: "number", ran: "number", replayed: "number", narrowed: "number" });
+  has(o.timing, `${w}.timing`, { wallMs: "number|null", selectMs: "number|null", estPlainMs: "number|null", savedMs: "number|null" });
+  if (o.ledger) has(o.ledger, `${w}.ledger`, { found: "boolean", sha: "string|null", branch: "string|null" });
+  if (o.audits) has(o.audits, `${w}.audits`, { checked: "number", mismatched: "number" });
+  return o as unknown as TestRunSummary;
+};
+
 const shapes = {
+  testRuns: (v: unknown) => list(has(v, "test-runs", { runs: "array" }).runs, "test-runs.runs", testRunSummary),
+  testRun: (v: unknown): TestRunDetail => {
+    const o = testRunSummary(v, "test-run") as unknown as Record<string, unknown>;
+    has(o, "test-run", { ranFiles: "array", auditFiles: "array", shadow: "object|null" });
+    list(o.ranFiles, "test-run.ranFiles", (f, fw) => has(f, fw, { file: "string", why: "string", durationMs: "number|null" }));
+    list(o.auditFiles, "test-run.auditFiles", (f, fw) => has(f, fw, { file: "string", ok: "boolean" }));
+    if (o.shadow) testRunSummary(o.shadow, "test-run.shadow");
+    return o as unknown as TestRunDetail;
+  },
+  testStats: (v: unknown): TestStats => {
+    const o = has(v, "test-stats", { asOf: "string", today: "object", week: "object", wrongResults: "number", audits: "object", recent: "array" });
+    has(o.today, "test-stats.today", { savedMs: "number", runs: "number" });
+    has(o.week, "test-stats.week", { savedMs: "number", runs: "number", filesTotal: "number", filesSkipped: "number", skippedPct: "number|null" });
+    has(o.audits, "test-stats.audits", { checked: "number", passed: "number" });
+    list(o.recent, "test-stats.recent", testRunSummary);
+    return o as unknown as TestStats;
+  },
   health: (v: unknown) => has(v, "health", { wrongReplays: "number", spotChecks: "number", pausedSteps: "number", repos: "number" }) as unknown as TeamHealth,
   overview: (v: unknown) => {
     const o = has(v, "overview", { asOf: "string", totals: "object", days: "array", repos: "array", trust: "object", runners: "array" });
@@ -211,7 +256,7 @@ export function fillDays(days: Overview["days"], range: Range, asOf: string): Ov
   return out;
 }
 
-const LIVE_TYPES = new Set(["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated"]);
+const LIVE_TYPES = new Set(["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated", "test.run"]);
 
 /** One stream message as a LiveEvent, or null when it is not one (unknown type, bad JSON, missing fields). */
 export function parseLiveEvent(type: string | undefined, data: string, sseId: string | undefined): LiveEvent | null {
@@ -231,6 +276,14 @@ export function parseLiveEvent(type: string | undefined, data: string, sseId: st
   if (type === "trust.changed" && (typeof e.repoSlug !== "string" || typeof e.key !== "string" || !e.trust)) return null;
   if (type.startsWith("job.") && (!e.job || typeof e.job !== "object")) return null;
   if (type.startsWith("run.") && (!e.run || typeof e.run !== "object")) return null;
+  if (type === "test.run") {
+    try {
+      testRunSummary(e.run, "test.run.run");
+    } catch {
+      return null;
+    }
+    if (typeof e.repoSlug !== "string") e.repoSlug = (e.run as TestRunSummary).repoSlug;
+  }
   return e as unknown as LiveEvent;
 }
 
@@ -467,6 +520,45 @@ export class HttpCloudApi implements CloudApi {
     if (!s) return this.off.getSearchIndex();
     const v = await this.read(s.c, "GET", `${s.t}/search-index`, shapes.searchIndex);
     return v === NOT_FOUND ? this.off.getSearchIndex() : v;
+  }
+
+  /**
+   * A read of the test-run endpoints, which servers before test-level replay
+   * do not have: 404 and 501 are null ("not served"), so the UI hides the
+   * test sections instead of failing. Other failures are thrown as usual.
+   */
+  private async optional<T>(c: ServerCredentials, path: string, shape: (v: unknown) => T): Promise<T | null> {
+    try {
+      const v = await this.read(c, "GET", path, shape);
+      return v === NOT_FOUND ? null : v;
+    } catch (e) {
+      if (e instanceof ApiNotAvailableError) return null;
+      throw e;
+    }
+  }
+
+  // GET /v1/teams/:team/test-runs?repo=&limit= -> { runs: TestRunSummary[] } newest first. limit: default 50, at most 200.
+  async listTestRuns(team: string, opts: { repo?: string; limit?: number } = {}): Promise<TestRunSummary[] | null> {
+    const s = await this.team(team);
+    if (!s) return null;
+    const q = new URLSearchParams();
+    if (opts.repo) q.set("repo", id(opts.repo));
+    if (opts.limit) q.set("limit", String(Math.min(Math.max(Math.trunc(opts.limit), 1), 200)));
+    return this.optional(s.c, `${s.t}/test-runs${q.size ? `?${q}` : ""}`, shapes.testRuns);
+  }
+
+  // GET /v1/teams/:team/test-runs/:id -> TestRunDetail | 404
+  async getTestRun(team: string, runId: string): Promise<TestRunDetail | null> {
+    const s = await this.team(team);
+    if (!s) return null;
+    return this.optional(s.c, `${s.t}/test-runs/${id(runId)}`, shapes.testRun);
+  }
+
+  // GET /v1/teams/:team/test-stats -> TestStats
+  async getTestStats(team: string): Promise<TestStats | null> {
+    const s = await this.team(team);
+    if (!s) return null;
+    return this.optional(s.c, `${s.t}/test-stats`, shapes.testStats);
   }
 
   // GET /v1/teams/:team/activity -> Activity. quod-server has no jobs (GitHub's come from the composite); its `cursor` is the stream position.

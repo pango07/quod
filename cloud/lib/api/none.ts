@@ -5,7 +5,7 @@
 
 import { CONNECT, EMPTY_TOTALS } from "./fixture-data";
 import { resolveTeamsLocally } from "./teams";
-import { ApiNotAvailableError, type Activity, type CloudApi, type ConnectSetup, type LiveEvent, type Overview, type Range } from "./types";
+import { ApiNotAvailableError, type Activity, type CloudApi, type ConnectSetup, type LiveEvent, type Overview, type Range, type TestRunDetail, type TestRunSummary, type TestStats } from "./types";
 
 const now = () => new Date().toISOString();
 
@@ -80,6 +80,19 @@ export class NoQuodCloudApi implements CloudApi {
 
   async getActivity(): Promise<Activity> {
     return { asOf: now(), jobs: [], cursor: null, simulated: false, quod: { state: "off" } };
+  }
+
+  /** No server, no test runs: the test sections are hidden. */
+  async listTestRuns(): Promise<TestRunSummary[] | null> {
+    return null;
+  }
+
+  async getTestRun(): Promise<TestRunDetail | null> {
+    return null;
+  }
+
+  async getTestStats(): Promise<TestStats | null> {
+    return null;
   }
 
   /** Nothing ever happens: hold the stream open quietly (the composite merges GitHub's events next to it). */

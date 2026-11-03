@@ -9,7 +9,7 @@
 // every repo slug going to quod-server and coming back through this.
 
 import { TEAM_PAGES } from "@/lib/routes";
-import type { LiveEvent, LiveScope, Overview, RepoDetail, RepoSummary, RunDetail, RunSummary, SearchIndex, StepSummary, StepTrust } from "./types";
+import type { LiveEvent, LiveScope, Overview, RepoDetail, RepoSummary, RunDetail, RunSummary, SearchIndex, StepSummary, StepTrust, TestRunDetail, TestRunSummary, TestStats } from "./types";
 
 export interface RepoMap {
   /** Dashboard slug -> quod-server's slug (unknown slugs pass through). */
@@ -80,6 +80,17 @@ export const mapRepoSummary = (m: RepoMap, r: RepoSummary): RepoSummary => (m.id
 export const mapRunSummary = <R extends RunSummary | RunDetail>(m: RepoMap, r: R): R => (m.identity ? r : { ...r, repoSlug: m.toDash(r.repoSlug) });
 export const mapStep = <S extends StepSummary | StepTrust>(m: RepoMap, s: S): S => (m.identity ? s : { ...s, repoSlug: m.toDash(s.repoSlug) });
 
+export const mapTestRun = <T extends TestRunSummary>(m: RepoMap, r: T): T => (m.identity ? r : { ...r, repoSlug: m.toDash(r.repoSlug) });
+
+export function mapTestRunDetail(m: RepoMap, d: TestRunDetail): TestRunDetail {
+  if (m.identity) return d;
+  return { ...mapTestRun(m, d), shadow: d.shadow ? mapTestRun(m, d.shadow) : null };
+}
+
+export function mapTestStats(m: RepoMap, s: TestStats): TestStats {
+  return m.identity ? s : { ...s, recent: s.recent.map((r) => mapTestRun(m, r)) };
+}
+
 export function mapOverview(m: RepoMap, o: Overview): Overview {
   if (m.identity) return o;
   return { ...o, repos: o.repos.map((r) => mapRepoSummary(m, r)), trust: { ...o.trust, paused: o.trust.paused.map((p) => ({ ...p, repoSlug: m.toDash(p.repoSlug) })) } };
@@ -109,6 +120,8 @@ export function mapEvent(m: RepoMap, e: LiveEvent): LiveEvent {
     case "run.started":
     case "run.finished":
       return { ...e, run: mapRunSummary(m, e.run) };
+    case "test.run":
+      return { ...e, repoSlug: m.toDash(e.repoSlug), run: mapTestRun(m, e.run) };
     default:
       return { ...e, repoSlug: m.toDash(e.repoSlug) };
   }

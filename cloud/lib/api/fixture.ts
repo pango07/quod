@@ -42,8 +42,12 @@ import type {
   Store,
   Team,
   TeamHealth,
+  TestRunDetail,
+  TestRunSummary,
+  TestStats,
   TrustState,
 } from "./types";
+import { sampleTestRuns, sampleTestStats, summaryOnly } from "./fixture-tests";
 
 type RepoSeed = (typeof REPOS)[number];
 type StepSeed = RepoSeed["steps"][number];
@@ -325,6 +329,27 @@ export class FixtureCloudApi implements CloudApi {
     await this.tick();
     const orgId = await this.orgOf(team);
     if (orgId) this.choices.set(orgId, choice);
+  }
+
+  /** The sample team's vitest runs; every other team has none (null: the test sections stay hidden, as on a server without them). */
+  async listTestRuns(team: string, opts: { repo?: string; limit?: number } = {}): Promise<TestRunSummary[] | null> {
+    await this.tick();
+    if (!(await this.isSample(team))) return null;
+    const runs = sampleTestRuns()
+      .filter((r) => !opts.repo || r.repoSlug === opts.repo)
+      .map(summaryOnly);
+    return runs.slice(0, Math.min(Math.max(Math.trunc(opts.limit ?? 50), 1), 200));
+  }
+
+  async getTestRun(team: string, id: string): Promise<TestRunDetail | null> {
+    await this.tick();
+    if (!(await this.isSample(team))) return null;
+    return sampleTestRuns().find((r) => r.id === id) ?? null;
+  }
+
+  async getTestStats(team: string): Promise<TestStats | null> {
+    await this.tick();
+    return (await this.isSample(team)) ? sampleTestStats() : null;
   }
 
   async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {
