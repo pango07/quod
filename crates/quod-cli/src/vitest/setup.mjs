@@ -105,6 +105,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         keys: [...r.keys],
         writes: [...r.writes],
         watches: [...r.watches],
+        envKept: [...r.envKept],
         unobservable: [...r.unobservable],
         cov,
         usedToString,

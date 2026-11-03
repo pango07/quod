@@ -500,6 +500,22 @@ writeJson(outPath, {
 })
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)
 for (const [k, frame] of r.envKept) log(`${k === '*' ? 'the whole environment' : k} keyed for every file (read by ${frame})`)
+// The same for the workers: who in a test file's worker read CI-provider
+// variables (a test, a library it loads, the environment), by reader.
+{
+  const byFrame = new Map()
+  for (const d of dumps.values()) {
+    for (const [k, frame] of d?.envKept ?? []) {
+      const e = byFrame.get(frame) ?? { files: 0, names: new Set() }
+      e.names.add(k)
+      byFrame.set(frame, e)
+    }
+    for (const frame of new Set((d?.envKept ?? []).map((x) => x[1]))) byFrame.get(frame).files++
+  }
+  for (const [frame, e] of [...byFrame].sort((a, b) => b[1].files - a[1].files).slice(0, 5)) {
+    log(`${e.files} files read CI variables (${[...e.names].slice(0, 4).join(', ')}${e.names.size > 4 ? ', ...' : ''}) through ${frame}`)
+  }
+}
 if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)
 if (unmappedSample) log(`e.g. ${unmappedSample[0]} ends with: ${JSON.stringify(unmappedSample[1])}`)
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
