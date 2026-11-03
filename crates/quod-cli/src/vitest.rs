@@ -156,6 +156,10 @@ struct Render {
     code: String,
     exit: u8,
     outputs: Vec<RenderOut>,
+    /// The render directory as the reporters saw it (their messages name
+    /// the files they wrote there: rewritten to where they go).
+    #[serde(default)]
+    dir: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1016,6 +1020,21 @@ fn plan(
     }
 }
 
+fn replace_bytes(hay: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(hay.len());
+    let mut i = 0;
+    while i < hay.len() {
+        if !from.is_empty() && hay[i..].starts_with(from) {
+            out.extend_from_slice(to);
+            i += from.len();
+        } else {
+            out.push(hay[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
 /// A key the install determines: a path under the workspace's node_modules.
 fn installed(key: &str) -> bool {
     let Some((_, p)) = key.split_once(':') else {
@@ -1147,17 +1166,16 @@ fn walk(root: &Path, dir: &Path) -> Walk {
     let mut ok = true;
     let mut stack = vec![PathBuf::new()];
     while let Some(rel) = stack.pop() {
-        let abs = root.join(&rel);
-        if abs == dir {
-            continue;
-        }
-        let Ok(rd) = fs::read_dir(&abs) else {
+        let Ok(rd) = fs::read_dir(root.join(&rel)) else {
             ok = false;
             break;
         };
         for e in rd.flatten() {
             let name = e.file_name();
             let r = rel.join(&name);
+            if e.path() == dir {
+                continue;
+            }
             let Ok(t) = e.file_type() else {
                 ok = false;
                 continue;
@@ -1318,6 +1336,7 @@ fn render(
         code: code_hash(),
         exit: status.code().map_or(1, |c| c.clamp(0, 255) as u8),
         outputs,
+        dir: rd.display().to_string(),
     })
 }
 
@@ -1356,7 +1375,7 @@ fn emit_render(
     }
     let rd = dir.join("render");
     let read = |n: &str| fs::read(rd.join(n)).map_err(|e| format!("{n}: {e}"));
-    let (stdout, stderr) = (read("stdout")?, read("stderr")?);
+    let (mut stdout, mut stderr) = (read("stdout")?, read("stderr")?);
     let mut outs = Vec::new();
     for o in &r.outputs {
         let to = match &o.env {
@@ -1366,6 +1385,13 @@ fn emit_render(
             },
             None => root.join(&o.to),
         };
+        // "JSON report written to <render dir>/out-0": the path it goes to
+        if !r.dir.is_empty() {
+            let from = format!("{}/{}", r.dir, o.file);
+            let to = to.display().to_string();
+            stdout = replace_bytes(&stdout, from.as_bytes(), to.as_bytes());
+            stderr = replace_bytes(&stderr, from.as_bytes(), to.as_bytes());
+        }
         outs.push((to, o.append, read(&o.file)?));
     }
     use std::io::Write;
@@ -1913,6 +1939,15 @@ mod tests {
     }
 
     #[test]
+    fn replace_bytes_rewrites_every_occurrence() {
+        assert_eq!(
+            replace_bytes(b"a /r/out-0 b /r/out-0", b"/r/out-0", b"/x.json"),
+            b"a /x.json b /x.json".to_vec()
+        );
+        assert_eq!(replace_bytes(b"none", b"/r", b"/x"), b"none".to_vec());
+    }
+
+    #[test]
     fn installed_keys_are_under_the_workspace_node_modules() {
         assert!(installed(
             "p:node_modules/.pnpm/vitest@4.1.10/node_modules/vitest"
@@ -1935,11 +1970,12 @@ mod tests {
         fs::write(d.join("src/a.ts"), "1").unwrap();
         let ledger_dir = d.join(".quod");
         let a = walk(&d, &ledger_dir);
+        assert_ne!(a.hash, "");
         assert_eq!(a.install, vec![PathBuf::from("package.json")]);
         // contents and node_modules do not count; a new path does
         fs::write(d.join("src/a.ts"), "2").unwrap();
         fs::write(d.join("node_modules/x/y"), "").unwrap();
-        fs::create_dir_all(&ledger_dir).unwrap();
+        fs::create_dir_all(ledger_dir.join("render")).unwrap();
         assert_eq!(walk(&d, &ledger_dir).hash, a.hash);
         fs::write(d.join("src/b.spec.ts"), "").unwrap();
         assert_ne!(walk(&d, &ledger_dir).hash, a.hash);

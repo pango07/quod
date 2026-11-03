@@ -9,7 +9,7 @@ const first = all.find((r) => r.first && !r.mutation)
 const rows = all.filter((r) => !r.first && !r.mutation)
 const muts = all.filter((r) => r.mutation)
 const s = (ms) => (ms / 1000).toFixed(1)
-const x = (a, b) => (b > 0 ? a / b : 0)
+const x = (a, b) => a / Math.max(b, 10) // the clock's resolution is 10 ms
 const median = (v) => {
   const a = [...v].sort((p, q) => p - q)
   const m = a.length >> 1
