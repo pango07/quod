@@ -53,15 +53,16 @@ plain() { # $1 = tag
   echo "$(( $(ms) - s )) $rc"
 }
 critical() { # $1 = tag, $2 = ledger dir (a completed recording; a fresh copy, so nothing leaks back)
+  # The same vitest arguments as the shadow (the ledger keys them): one output path, renamed after.
   local s; s=$(ms)
-  "$QUOD" vitest --no-record --dir "$2" --summary "$out/crit-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/crit.json" >"$out/logs/crit-$1.log" 2>&1
-  local rc=$?
+  "$QUOD" vitest --no-record --dir "$2" --summary "$out/crit-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/crit-$1.log" 2>&1
+  local rc=$?; mv -f "$out/quod.json" "$out/crit.json"
   echo "$(( $(ms) - s )) $rc"
 }
 shadow() { # $1 = tag
   local s; s=$(ms)
-  "$QUOD" vitest --dir "$state" --audits "$audits" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/shadow.json" >"$out/logs/shadow-$1.log" 2>&1
-  local rc=$?
+  "$QUOD" vitest --dir "$state" --audits "$audits" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
+  local rc=$?; mv -f "$out/quod.json" "$out/shadow.json"
   echo "$(( $(ms) - s )) $rc"
 }
 # The ledger the critical path of commit $1 may read: the most recent shadow
