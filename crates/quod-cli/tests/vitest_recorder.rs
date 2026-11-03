@@ -63,3 +63,40 @@ console.log(JSON.stringify({{ resolver: pjOnly(resolver), plugin: pjOnly([...r.k
     assert_eq!(v["resolver"], serde_json::json!([format!("pj:{pj}")]));
     assert_eq!(v["plugin"], serde_json::json!([format!("f:{pj}")]));
 }
+
+#[test]
+fn the_preloaded_tostring_sees_a_reference_cached_before_setup() {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let preload = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/preload.cjs");
+    // A library caches the method at load (before Quod's setup file), the
+    // setup file resets the flag, a test then formats a function's source.
+    let script = r#"
+const fnToString = Function.prototype.toString
+const state = globalThis.__quod_toString
+state.used = false
+const name = fnToString.call(() => false)
+const native = Function.prototype.toString.call(Function.prototype.toString)
+console.log(JSON.stringify({ used: state.used, name, native }))
+"#;
+    let s = t.path().join("t.cjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node")
+        .arg("--require")
+        .arg(&preload)
+        .arg(&s)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["used"], true);
+    assert_eq!(v["name"], "() => false");
+    assert_eq!(v["native"], "function toString() { [native code] }");
+}

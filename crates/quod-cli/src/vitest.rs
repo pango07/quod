@@ -38,6 +38,7 @@ const DRIVER: &str = include_str!("vitest/driver.mjs");
 const SETUP: &str = include_str!("vitest/setup.mjs");
 const RECORD: &str = include_str!("vitest/record.mjs");
 const COVERAGE: &str = include_str!("vitest/coverage.mjs");
+const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
@@ -233,6 +234,8 @@ struct Ran {
     result: String,
     #[serde(default)]
     cov: Option<BTreeMap<String, Vec<[u32; 4]>>>,
+    #[serde(default, rename = "covWhy")]
+    cov_why: Option<String>,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -257,6 +260,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("setup.mjs", SETUP),
         ("record.mjs", RECORD),
         ("coverage.mjs", COVERAGE),
+        ("preload.cjs", PRELOAD),
         ("narrow.mjs", NARROW),
     ] {
         let p = code.join(name);
@@ -632,6 +636,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     let mismatched: HashSet<&String> = out.audit_mismatch.iter().collect();
     let mut unobservable: BTreeMap<String, usize> = BTreeMap::new();
+    let mut no_fn_level: BTreeMap<String, usize> = BTreeMap::new();
+    for r in &out.ran {
+        if let Some(w) = &r.cov_why {
+            *no_fn_level.entry(w.clone()).or_default() += 1;
+        }
+    }
     let (mut recorded, mut failed) = (0usize, 0usize);
     for r in &out.ran {
         let old = ledger.files.remove(&r.id);
@@ -764,6 +774,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     for (u, n) in &unobservable {
         eprintln!("quod vitest:   {n} files always run: {u}");
     }
+    for (u, n) in &no_fn_level {
+        eprintln!("quod vitest:   {n} files without function-level data: {u}");
+    }
     if let Some(p) = &a.summary {
         let s = serde_json::json!({
             "recorded_files": ledger.files.len(),
@@ -773,6 +786,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "audit_mismatches": out.audit_mismatch,
             "failed": failed,
             "unrecordable": unobservable,
+            "no_function_level": no_fn_level,
             "shared_inputs_changed": !global_ok,
             "narrowed": narrowed.len(),
             "narrow": narrow_note,
@@ -1742,10 +1756,9 @@ const PJ_FIELDS: &[&str] = &[
     "vitest",
 ];
 
-/// A workspace package.json as vite's resolver and the tools read it after
-/// the config loaded (`pj:` keys): the resolution fields, and the
-/// dependency lists' names (their versions are what is installed, keyed by
-/// the `p:` keys of the packages loaded). A release's `version` bump or a
+/// A workspace package.json as vite's and vitest's own resolvers read it
+/// (`pj:` keys): the resolution fields. The dependency lists are not keyed:
+/// what is installed is, by the `p:` keys of the packages a run loads. A release's `version` bump or a
 /// script change counts for nobody. What reads package.json itself keeps
 /// it whole (`f:`): a test's read or import, and the config (read while it
 /// loads, or bundled into it).
@@ -1758,11 +1771,6 @@ fn pj_hash(bytes: &[u8]) -> String {
     for (k, val) in v {
         if PJ_FIELDS.contains(&k.as_str()) {
             kept.insert(k, val);
-        } else if k.ends_with("ependencies")
-            && let serde_json::Value::Object(m) = val
-        {
-            let names: Vec<String> = m.keys().cloned().collect();
-            kept.insert(k, serde_json::json!(names));
         }
     }
     let canon = serde_json::to_vec(&kept).unwrap_or_default();
@@ -1974,7 +1982,7 @@ mod tests {
         );
         assert_eq!(a, b);
         assert_ne!(b, c);
-        assert_ne!(b, d, "a dependency added or removed counts");
+        assert_eq!(b, d, "dependencies count through the packages loaded");
     }
 
     #[test]

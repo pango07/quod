@@ -173,7 +173,10 @@ for (const p of ctx.projects) {
   const c = p.config
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
   if (ok) {
-    if (record) c.setupFiles = [setupPath, ...c.setupFiles]
+    if (record) {
+      c.setupFiles = [setupPath, ...c.setupFiles]
+      c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
+    }
     recorded.add(p.name)
   } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
 }
@@ -308,6 +311,7 @@ const moduleKeys = (mods) => {
 const transformed = new Set()
 const dumps = new Map()
 const workerMs = { setup: 0, dump: 0, cov: 0 }
+const unmapped = {}
 for (const id of ran.keys()) {
   let d = null
   try {
@@ -316,6 +320,7 @@ for (const id of ran.keys()) {
   dumps.set(id, d)
   if (d) for (const m of d.modules) transformed.add(path.resolve(m))
   if (d?.ms) for (const k of Object.keys(workerMs)) workerMs[k] += d.ms[k] ?? 0
+  for (const [k, n] of Object.entries(d?.unmapped ?? {})) unmapped[k] = (unmapped[k] ?? 0) + n
 }
 const interrupted = ctx.isCancelling || crashed
 for (const m of endModules) {
@@ -329,6 +334,7 @@ for (const m of endModules) {
   let keys = null
   let unobservable = []
   let cov = null
+  let covWhy = d ? null : 'no record'
   if (d) {
     const ks = new Set(d.keys)
     for (const k of moduleKeys(d.modules)) ks.add(k)
@@ -348,10 +354,28 @@ for (const m of endModules) {
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.
+    if (!d.cov) covWhy = d.usedToString ? 'reads function source (toString)' : 'no coverage'
     if (d.cov) {
       cov = {}
       for (const [f, fns] of Object.entries(d.cov)) {
         if (f !== file.filepath && !d.keys.includes(`f:${f}`) && !d.keys.includes(`e:${f}`)) cov[f] = fns
+      }
+      // Belt and braces: a result (test names, messages, logs) that quotes
+      // the source of a file it reached gets no narrowing for any file.
+      const text = JSON.stringify(file)
+      const snippets = [...text.matchAll(/[^"\\]{0,24}(?:=>|function\b)[^"\\]{0,24}/g)].slice(0, 50).map((m) => m[0].trim()).filter((x) => x.length >= 8)
+      if (snippets.length) {
+        for (const f of Object.keys(cov)) {
+          let src = ''
+          try {
+            src = real.readFileSync(f, 'utf8')
+          } catch {}
+          if (snippets.some((x) => src.includes(x))) {
+            cov = null
+            covWhy = 'its results quote reached source'
+            break
+          }
+        }
       }
     }
   }
@@ -384,7 +408,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
 }
 
 // The main process's reads: inputs of every file, except the source the
@@ -451,6 +475,8 @@ writeJson(outPath, {
   render,
   auditMismatch,
   timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
+  unmapped,
 })
+if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)

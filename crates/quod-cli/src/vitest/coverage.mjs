@@ -93,6 +93,10 @@ function original(map, starts, offset) {
   return [best[2], best[3]]
 }
 
+// Why files got no entry (for diagnostics): reason -> count.
+export const unmapped = {}
+const miss = (why) => (unmapped[why] = (unmapped[why] ?? 0) + 1)
+
 export function executedFunctions(scripts, em, root) {
   const byId = new Map()
   for (const node of em?.idToModuleMap?.values() ?? []) {
@@ -104,18 +108,30 @@ export function executedFunctions(scripts, em, root) {
     const url = s.url.startsWith('file://') ? s.url.slice(7) : s.url
     if (!url.startsWith(prefixRoot) || url.includes('/node_modules/')) continue
     const node = byId.get(s.url) ?? byId.get(url)
-    if (!node) continue
+    if (!node) {
+      miss('script not in the module graph')
+      continue
+    }
     const file = (node.file || '').split('?')[0]
     if (!file.startsWith(prefixRoot) || file.includes('/node_modules/')) continue
     const code = node.meta.code
     const top = s.functions.find((f) => f.ranges[0]?.startOffset === 0)
-    if (!top) continue
+    if (!top) {
+      miss('no top-level function')
+      continue
+    }
     const prefix = top.ranges[0].endOffset - code.length - 3
     // the wrapper: `'use strict';async (...)=>{{`
     const wrapper = s.functions.find((f) => f.ranges[0]?.startOffset === 13)
-    if (prefix <= 13 || !wrapper || wrapper.ranges[0].endOffset !== top.ranges[0].endOffset) continue
+    if (prefix <= 13 || !wrapper || wrapper.ranges[0].endOffset !== top.ranges[0].endOffset) {
+      miss('script is not the module runner wrapper around its code')
+      continue
+    }
     const map = inlineMap(code)
-    if (!map) continue
+    if (!map) {
+      miss('no single-source inline map')
+      continue
+    }
     const starts = lineStarts(code)
     const fns = []
     let ok = true
@@ -131,6 +147,7 @@ export function executedFunctions(scripts, em, root) {
       fns.push([a[0], a[1], b[0], b[1]])
     }
     if (ok) out[file] = fns
+    else miss('an executed function maps nowhere')
   }
   return out
 }
