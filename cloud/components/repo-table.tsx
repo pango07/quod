@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { RepoSummary } from "@/lib/api/types";
 import { formatAgo, formatMinutes, formatPercent } from "@/lib/format";
-import { formatSaved, repoSkippedNote, type RepoTests, SAVED_EXPLAINED, testRunHref } from "@/lib/test-runs";
+import { formatSaved, repoSkippedNote, type RepoTests, SAVED_EXPLAINED, shareText, shareTitle, testRunHref } from "@/lib/test-runs";
 import { ProtectionBadge } from "@/components/section";
 import { Dot, Icon } from "@/components/ui";
 
@@ -58,7 +58,7 @@ export function RepoTable({ team, repos, asOf, savedLabel = "Saved", tests }: { 
       {repos.map((r) => {
         const t = testsOf(tests, r);
         const last = t?.last ? lastTestRunText(t.last, asOf) : lastRunText(r, asOf);
-        const share = t && t.total > 0 ? t.skipped / t.total : 0;
+        const share = t?.skipped.pct != null ? t.skipped.pct / 100 : 0;
         return (
           <div key={r.slug} className="trow cols-repos linked">
             <span className="cell-main">
@@ -74,18 +74,18 @@ export function RepoTable({ team, repos, asOf, savedLabel = "Saved", tests }: { 
             </span>
             {t ? (
               <>
-                <span>
+                <span title={shareTitle(t.skipped)}>
                   <span className="label-sm">Test files skipped </span>
                   <span className="meter">
                     <span className="meter-track">
                       <span className="meter-fill" style={{ width: formatPercent(share) }} />
                     </span>
                     <span className="mono" style={{ fontSize: 12, width: 36, textAlign: "right" }}>
-                      {t.total > 0 ? formatPercent(share) : "n/a"}
+                      {shareText(t.skipped)}
                     </span>
                   </span>
                   <span className="faint" style={{ fontSize: 12, display: "block", marginTop: 4 }}>
-                    Test files: {repoSkippedNote(t)}
+                    Test files: {repoSkippedNote(t.skipped)}
                   </span>
                 </span>
                 <span className="mono" style={{ fontSize: 13 }} title={SAVED_EXPLAINED}>

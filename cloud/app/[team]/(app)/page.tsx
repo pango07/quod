@@ -9,7 +9,7 @@ import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
-import { hasTestActivity, spotChecksWithinWeek, testsByRepo } from "@/lib/test-runs";
+import { hasTestActivity, skippedShare, spotChecksWithinWeek, testsByRepo } from "@/lib/test-runs";
 import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
@@ -39,7 +39,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   // A team with test data sees test numbers; the step-level tiles stay only for teams with step data and no test data.
   const hasTests = !!(testStats || repoTests || filesLine);
   const testsCard = testStats ? (
-    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} />
+    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} />
   ) : filesLine ? (
     <section className="card" style={{ padding: 20 }}>
       <TestFilesLine team={team.slug} line={filesLine} />

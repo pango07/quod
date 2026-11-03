@@ -56,17 +56,18 @@ const runs = [
 describe("test runs per repository", () => {
   const by = testsByRepo(runs, NOW);
 
-  it("adds up critical runs of the last 7 days, by full name", () => {
-    expect(by["pango07/class-management"]).toMatchObject({ skipped: 83, total: 85, savedMs: 180_000, runs: 3 });
+  it("skipped: the repo's last 20 checks, files added up (shadows never count); saved: its checks of the last 7 days", () => {
+    // Checks: 5/5, 72/73, 6/7 and an 8-day-old 0/85; the shadow's 0/85 is left out.
+    expect(by["pango07/class-management"]).toMatchObject({ skipped: { replayed: 83, total: 170, checks: 4 }, savedMs: 180_000, runs: 3 });
     expect(by["pango07/class-management"].last?.id).toBe("tr_m");
-    expect(by["pango07/ci-bench"]).toMatchObject({ skipped: 40, total: 50, runs: 1 });
-    expect(repoSkippedNote(by["pango07/class-management"])).toBe("83 of 85, last 7 days");
-    expect(repoSkippedNote({ skipped: 0, total: 0 })).toBe("No runs in the last 7 days");
+    expect(by["pango07/ci-bench"]).toMatchObject({ skipped: { replayed: 40, total: 50, checks: 1 }, runs: 1 });
+    expect(repoSkippedNote(by["pango07/class-management"].skipped)).toBe("83 of 170 files, last 4 checks");
+    expect(repoSkippedNote({ replayed: 0, total: 0, checks: 0, pct: null })).toBe("No checks yet");
   });
 
-  it("only old runs: a last run, no 7-day numbers", () => {
+  it("only old runs: a last run and the share, no 7-day time", () => {
     const old = testsByRepo([run({ at: ago(24 * 9) })], NOW)["pango07/class-management"];
-    expect(old).toMatchObject({ skipped: 0, total: 0, runs: 0 });
+    expect(old).toMatchObject({ skipped: { replayed: 5, total: 5, checks: 1 }, savedMs: 0, runs: 0 });
     expect(old.last).not.toBeNull();
   });
 });
@@ -82,12 +83,13 @@ describe("the Repositories card", () => {
   const t = text(html);
 
   it("repos with test runs show test files skipped, time saved and the last run (matched by full name, any case)", () => {
-    expect(t).toContain("98%");
-    expect(t).toContain("Test files: 83 of 85, last 7 days");
+    expect(t).toContain("49%");
+    expect(t).toContain("Test files: 83 of 170 files, last 4 checks");
+    expect(html).toContain('title="83 of 170 files across 4 checks"');
     expect(t).toContain("3 min");
     expect(t).toContain("Tests failed · 1h ago");
     expect(html).toContain('href="/acme/class-management/tests/tr_m"');
-    expect(t).toContain("Test files: 40 of 50, last 7 days");
+    expect(t).toContain("Test files: 40 of 50 files, last 1 check");
   });
 
   it("step-only repos keep the step columns; repos with neither say so; no nested links", () => {

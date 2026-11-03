@@ -15,6 +15,7 @@
 // side, and no cookie is sent with it.
 
 import type { ServerCredentials } from "./http";
+import { ApiUnavailableError } from "./types";
 
 export interface StaticTeam {
   team: string;
@@ -61,6 +62,10 @@ export async function credentialsFor(
   const fixed = deps.teams.get(orgId);
   if (fixed) return { team: fixed.team, token: fixed.token, kind: "static" };
   if (!deps.viewerAuth || !TEAM.test(orgId)) return null;
-  const token = await deps.accessToken();
-  return token ? { team: orgId, token, kind: "viewer" } : null;
+  // Viewer auth is on for this team: a missing token is the session's problem (an expired or
+  // not-yet-refreshed WorkOS session, as on a phone resuming a tab), not "this team has no Quod
+  // data". "Unavailable" shows an error with a retry; null would show the empty state.
+  const token = await deps.accessToken().catch(() => undefined);
+  if (!token) throw new ApiUnavailableError("The viewer's session token is not available; reload to sign in again.");
+  return { team: orgId, token, kind: "viewer" };
 }

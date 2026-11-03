@@ -20,6 +20,22 @@ export async function section<T>(p: Promise<T>): Promise<Section<T>> {
   }
 }
 
+/**
+ * Like `section`, but any other failure (a bug in a shape, a TypeError from a
+ * dropped connection, a missing session) is "unavailable" too: for sections
+ * whose failure must never read as "no data". Navigation still rethrows.
+ */
+export async function sectionOrUnavailable<T>(p: Promise<T>): Promise<Section<T>> {
+  try {
+    return { ok: true, value: await p };
+  } catch (e) {
+    unstable_rethrow(e);
+    if (e instanceof ApiNotAvailableError) return { ok: false, kind: "not-available", message: e.detail };
+    if (e instanceof ApiUnavailableError) return { ok: false, kind: "unavailable", message: e.message };
+    return { ok: false, kind: "unavailable", message: e instanceof Error ? e.message : "failed" };
+  }
+}
+
 /** For server actions: quod-server's refusals as the action's message. */
 export function actionFailure(e: unknown): { ok: false; message: string } | null {
   if (e instanceof ApiNotAvailableError) return { ok: false, message: "Not available yet: quod-server does not support this yet." };

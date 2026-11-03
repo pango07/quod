@@ -6,24 +6,25 @@ import { LiveRefresh } from "@/components/live/parts";
 import { ProtectedBranchHelp } from "@/components/protected-branch-help";
 import { SectionUnavailable } from "@/components/section";
 import { TestRunsTable } from "@/components/test-runs";
-import { TrustCompact, TrustStart } from "@/components/test-suites";
+import { TestsLoadError, TrustCompact, TrustStart } from "@/components/test-suites";
 import { ProtectionNote, TrustList } from "@/components/trust-plain";
 import { Dot } from "@/components/ui";
 import { api } from "@/lib/api";
-import { section } from "@/lib/api/section";
+import { section, sectionOrUnavailable } from "@/lib/api/section";
 import type { StepSummary, Team } from "@/lib/api/types";
 import { RECENT_RUNS, recentRunDetails } from "@/lib/recent-runs";
 import { formatAgo } from "@/lib/format";
-import { trustModel, trustSections } from "@/lib/test-suites";
+import { testsView, trustModel } from "@/lib/test-suites";
 import { groupSteps, recentByKey } from "@/lib/trust-plain";
 
 /** /[team]/trust, plain: test files first (test-level replay), then steps when there are any. */
 export async function PlainTrust({ team }: { team: Team }) {
-  // In parallel: suites, up to 200 test runs (the medians and the 7 days), the stats, and the steps.
-  // The step list's recent run details are read only when there are steps.
+  // In parallel: suites, up to 200 test runs (the last 20 checks and the 7 days), the stats, and the steps.
+  // The step list's recent run details are read only when there are steps. Any failure of the two
+  // test reads is "unavailable" (an error with Retry), never "no data": see testsView.
   const [suitesS, testRunsS, statsS, [found, runs]] = await Promise.all([
-    section(api().listTestSuites(team.slug)),
-    section(api().listTestRuns(team.slug, { limit: 200 })),
+    sectionOrUnavailable(api().listTestSuites(team.slug)),
+    sectionOrUnavailable(api().listTestRuns(team.slug, { limit: 200 })),
     section(api().getTestStats(team.slug)),
     section(api().listSteps(team.slug)).then(async (s) => [s, s.ok && s.value.length ? await recentRunDetails(team.slug) : []] as const),
   ]);
@@ -31,12 +32,11 @@ export async function PlainTrust({ team }: { team: Team }) {
   const testRuns = testRunsS.ok ? (testRunsS.value ?? []) : [];
   const stats = statsS.ok ? statsS.value : null;
   const groups = groupSteps(found.ok ? found.value : [], recentByKey(runs));
-  const show = trustSections({ suites, testRuns: testRuns.length, steps: groups.length });
+  const view = testsView(suitesS, testRunsS);
+  const show = { suites: view.kind === "suites", testRuns: view.kind === "runs", steps: groups.length > 0 };
   const paused = groups.filter((g) => g.current.state.kind === "paused");
   const asOf = new Date().toISOString();
   const now = Date.parse(asOf);
-  // One "unavailable" card when quod-server is down, not one per source.
-  const down = !suitesS.ok ? suitesS : !testRunsS.ok ? testRunsS : !found.ok ? found : null;
   const tests = show.suites || show.testRuns;
   const model = show.suites ? trustModel({ team: team.slug, suites, runs: testRuns, stats, now, ago: (iso) => formatAgo(iso, asOf) }) : null;
   return (
@@ -48,7 +48,12 @@ export async function PlainTrust({ team }: { team: Team }) {
         </p>
       </div>
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
-      {down ? <SectionUnavailable s={down} what={down === found ? "Steps" : "Test files"} /> : null}
+      {view.kind === "error" ? <TestsLoadError detail={view.message} /> : null}
+      {/* An older server without the test endpoints, and nothing else to show: say so rather than look empty. */}
+      {view.kind === "not-available" && !show.steps && found.ok ? (
+        <SectionUnavailable s={{ ok: false, kind: "not-available", message: "" }} what="Test files" />
+      ) : null}
+      {!found.ok ? <SectionUnavailable s={found} what="Steps" /> : null}
       {model ? <TrustCompact model={model} asOf={asOf} /> : null}
       {show.testRuns ? (
         <section className="card" aria-labelledby="trust-tests-h" style={{ overflow: "hidden" }}>
@@ -65,7 +70,8 @@ export async function PlainTrust({ team }: { team: Team }) {
           <TestRunsTable team={team.slug} runs={testRuns.slice(0, 10)} asOf={asOf} showRepo />
         </section>
       ) : null}
-      {show.empty && !down ? <TrustStart /> : null}
+      {/* Only when both test reads answered 200 with nothing, and there are no steps. */}
+      {view.kind === "empty" && !show.steps && found.ok ? <TrustStart /> : null}
       {show.steps && tests ? (
         <h2 className="h2" style={{ marginTop: 8 }}>
           Steps

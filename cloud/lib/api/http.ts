@@ -346,8 +346,11 @@ export class HttpCloudApi implements CloudApi {
   /**
    * One call. Returns the parsed body (null for 204), or NOT_FOUND for a 404.
    * GETs are retried on a network error, a timeout, 429, 502, 503 and 504.
+   * `strict404`: a 404 is NOT_FOUND only with a quod.v1 error body
+   * (`{error, message}`); a bare one (a proxy in front of a server that is
+   * down or redeploying) is "unavailable", never "no data".
    */
-  private async call(c: ServerCredentials, method: Method, path: string, body?: unknown): Promise<unknown> {
+  private async call(c: ServerCredentials, method: Method, path: string, body?: unknown, opts: { strict404?: boolean } = {}): Promise<unknown> {
     const what = `${method} ${path.split("?")[0]}`;
     const attempts = method === "GET" ? this.retries + 1 : 1;
     let last: Error = new ApiUnavailableError(`quod-server: ${what} failed`);
@@ -379,7 +382,11 @@ export class HttpCloudApi implements CloudApi {
           throw new ApiUnavailableError(`quod-server sent a body that is not JSON (${what})`, res.status);
         }
       }
-      if (res.status === 404) return NOT_FOUND;
+      if (res.status === 404) {
+        if (!opts.strict404) return NOT_FOUND;
+        if ((await this.errorFrom(res)).code) return NOT_FOUND;
+        throw new ApiUnavailableError(`quod-server's ${what} answered 404 without a quod.v1 error (a proxy, or a server starting up)`, 404);
+      }
       if (res.status === 401 || res.status === 403) throw this.refused(c, res.status, what);
       const err = await this.errorFrom(res);
       if (res.status === 501) throw new ApiNotAvailableError("Not available yet", err.message);
@@ -390,8 +397,8 @@ export class HttpCloudApi implements CloudApi {
   }
 
   /** A call whose body goes through a shape check; a mismatch is "unavailable". */
-  private async read<T>(c: ServerCredentials, method: Method, path: string, shape: (v: unknown) => T, body?: unknown): Promise<T | typeof NOT_FOUND> {
-    const v = await this.call(c, method, path, body);
+  private async read<T>(c: ServerCredentials, method: Method, path: string, shape: (v: unknown) => T, body?: unknown, opts: { strict404?: boolean } = {}): Promise<T | typeof NOT_FOUND> {
+    const v = await this.call(c, method, path, body, opts);
     if (v === NOT_FOUND) return NOT_FOUND;
     try {
       return shape(v);
@@ -540,7 +547,8 @@ export class HttpCloudApi implements CloudApi {
    */
   private async optional<T>(c: ServerCredentials, path: string, shape: (v: unknown) => T): Promise<T | null> {
     try {
-      const v = await this.read(c, "GET", path, shape);
+      // These endpoints are optional (older servers 404 them), so a bare 404 from a proxy must not read as "no data".
+      const v = await this.read(c, "GET", path, shape, undefined, { strict404: true });
       return v === NOT_FOUND ? null : v;
     } catch (e) {
       if (e instanceof ApiNotAvailableError) return null;
