@@ -169,6 +169,12 @@ export function executedFunctions(scripts, em, root) {
       const a = original(map, starts, r.startOffset - prefix)
       const b = original(map, starts, r.endOffset - 1 - prefix)
       if (!a || !b || b[0] < a[0]) {
+        // vite's SSR transform adds an export getter per export
+        // (`get(){ return x }`): generated code, mapped nowhere, that only
+        // reads a binding (whose own code is keyed where it is).
+        const text = code.slice(r.startOffset - prefix, r.endOffset - prefix)
+        if (/^get\s*\(\)\s*\{\s*(?:try\s*\{\s*)?return\s+[\w$.]+;?\s*(?:\}\s*catch\s*\{\s*\})?\s*\}$/.test(text)) continue
+        unmappedSample[`${file} (function)`] ??= text.slice(0, 120)
         ok = false
         break
       }
