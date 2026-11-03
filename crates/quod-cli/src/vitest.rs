@@ -1031,22 +1031,6 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     ledger.render = None;
     let mut render_note = serde_json::Value::Null;
     lap("ingest", &mut phases);
-    if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
-        let tr = Instant::now();
-        match render(&a, &root, &dir, sb, &ledger) {
-            Ok(r) => {
-                render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3 });
-                ledger.render = Some(r);
-            }
-            Err(why) => {
-                eprintln!("quod vitest: no rendered full replay ({why})");
-                render_note =
-                    serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3, "why": why });
-            }
-        }
-    }
-
-    lap("render", &mut phases);
     // States: the selection's for keys it hashed, new keys now.
     let live = ledger.live();
     let missing: Vec<u32> = live
@@ -1117,6 +1101,23 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
     lap("witness", &mut phases);
+    // After the witnesses: a run that makes every record trusted renders.
+    if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
+        let tr = Instant::now();
+        match render(&a, &root, &dir, sb, &ledger) {
+            Ok(r) => {
+                render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3 });
+                ledger.render = Some(r);
+            }
+            Err(why) => {
+                eprintln!("quod vitest: no rendered full replay ({why})");
+                render_note =
+                    serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3, "why": why });
+            }
+        }
+    }
+
+    lap("render", &mut phases);
     ledger.compact();
     let tmp = dir.join("ledger.json.tmp");
     fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
