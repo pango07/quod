@@ -1,0 +1,208 @@
+export const metadata = {
+  title: "Make it even faster",
+  description: "Optional changes to your own repository that speed up the rest of your CI job: install caching, turbo typecheck caching, and test layout.",
+};
+
+# Make it even faster
+
+Quod speeds up your tests without any change to your pipeline. Once tests take seconds, installing dependencies and type-checking are usually what's left. This page lists optional changes you can make to your own repository, each with a copy-paste snippet, why it helps, and what to expect.
+
+On our first customer, a turbo monorepo, Quod plus the first two changes below took a docs-only push's check job from a **327 s** median to **50 s**:
+
+| Step | Time |
+| --- | ---: |
+| Setup | 15 s |
+| `node_modules` from the cache | 18 s |
+| Typecheck (6 of 6 packages cached) | 1 s |
+| Unit tests (Quod: backend replayed 103 of 105 files) | 6 s |
+| Other checks | 3 s |
+
+<Soon>
+  We're building **automatic dependency caching** and a **turbo remote cache through Quod Cloud** into Quod itself, so you won't need the first two changes on this page. Until then, add them yourself.
+</Soon>
+
+## Cache node_modules with a correct key
+
+**Why:** `npm ci` deletes `node_modules` and installs everything again, even when nothing changed. Restoring the folder from the cache skips that.
+
+**Effect:** on the customer's repository, a cache hit restored `node_modules` in 18 s instead of an 87 s `npm ci`. A miss costs about 11 s extra to save.
+
+```yaml title=".github/workflows/ci.yml" {2,7-26}
+      - uses: actions/setup-node@v4
+        id: node
+        with:
+          node-version: 24
+          cache: npm
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - name: node_modules from the cache
+        id: modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json', '**/package.json', '.npmrc') }}
+      - name: Install
+        if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - if: steps.modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: ${{ steps.modules.outputs.cache-primary-key }}
+```
+
+What makes the key correct:
+
+- **Everything that decides the install is in it:** the lockfile, every `package.json`, `.npmrc`, Node's exact version (from setup-node's output), and the OS and architecture. Change any of them and you get a fresh `npm ci`.
+- **Only exact hits count.** There are no `restore-keys`. A `node_modules` from a different lockfile is a different install, and it shouldn't be patched over.
+- **Save right after installing.** Tools write into `node_modules` while they run, Quod included (`node_modules/.quod-vitest`). Saving before anything else runs keeps the cache exactly what `npm ci` produced.
+
+<Tip>
+  List every workspace's `node_modules` in `path`. npm hoists most packages to the root, but it keeps conflicting versions in the workspace's own folder.
+</Tip>
+
+<Note>
+  This snippet is for npm. With pnpm, setup-node's `cache: pnpm` already caches the package store, so `pnpm install` is mostly linking.
+</Note>
+
+## Cache typecheck with turbo
+
+**Why:** `tsc` re-checks every package on every push. turbo can replay a package's typecheck when none of its inputs changed, but its inputs have to include everything the check depends on.
+
+**Effect:** on the customer's repository, typecheck took 82 s with nothing cached and 62 ms with all 6 packages cached. A type change in a package nothing depends on re-checked only that package.
+
+<Tabs items={["turbo.json", "ci.yml"]}>
+
+```json title="turbo.json"
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "typecheck": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/package-lock.json"]
+    },
+    "test": {
+      "cache": false
+    }
+  }
+}
+```
+
+```yaml title=".github/workflows/ci.yml"
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-typecheck-${{ github.sha }}
+          restore-keys: turbo-typecheck-
+      - name: Typecheck
+        run: npx turbo run typecheck
+```
+
+</Tabs>
+
+Each part matters:
+
+- **The `transit` task.** If a package has no `typecheck` script, `^typecheck` alone doesn't put its files into its dependents' hash. A change to a shared `ui` package could then replay a stale typecheck of the app that uses it. Making `typecheck` depend on `transit`, and `transit` on `^transit`, puts every workspace dependency's files into the hash. This is turbo's documented pattern for "transit nodes".
+- **The lockfile as an input.** `tsc` picks up every hoisted `@types/*` package, including ones another workspace brings in. A lockfile change can change types without touching a single source file.
+- **`test` is never cached by turbo.** Quod decides per test file, with its own checks. turbo caching the whole test task would replay it on turbo's coarser hash.
+
+<Warning>
+  Don't cache `test` with turbo while using Quod. turbo would replay the whole task from its hash, and none of Quod's per-file checks or audits would run.
+</Warning>
+
+## Typecheck packages in parallel
+
+**Why:** with `"dependsOn": ["^typecheck"]`, each package waits for its dependencies' typecheck to finish, so the job's typecheck takes as long as the longest chain. `tsc` reads its dependencies' source when it checks a package anyway. Depending on `transit` instead keeps the dependencies' files in the hash without the ordering, so turbo can run every package's typecheck at once.
+
+**Effect:** typecheck wall time drops from the sum of the longest dependency chain towards the slowest single package. We haven't measured this one separately yet.
+
+```diff title="turbo.json"
+   "typecheck": {
+-    "dependsOn": ["^typecheck"]
++    "dependsOn": ["transit"]
+   }
+```
+
+<Warning>
+  This only works when packages type-check against each other's **source**. If a package checks against a dependency's **build output** (`.d.ts` files in `dist/`), keep the dependency on `^build`.
+</Warning>
+
+## Keep test imports narrow
+
+**Why:** a test file's inputs are the modules it actually imports, directly or indirectly. A test that imports a barrel file (an `index.ts` that re-exports a whole package) or a helper that globs a directory loads far more than it uses. It then re-runs when any of that changes.
+
+**Effect:** each change re-runs only the tests that reach it. This matters most in large packages.
+
+```ts title="src/cart/cart.test.ts"
+// Before: the barrel loads every module in src/
+import { addItem } from "../index";
+
+// After: only what this test uses
+import { addItem } from "./cart";
+```
+
+Two patterns to watch for:
+
+- **Barrel files.** [Function-level narrowing](/docs/how-it-works#function-level-narrowing) lets a test still replay when a change is inside a function it never ran. But a change at the top level of any module it loads, such as a new export, an import or a constant, re-runs it.
+- **Directory globs** (`import.meta.glob`, `fs.readdirSync` over a folder of fixtures). Quod records the directory listing. Today, a glob that vite runs in vitest's main process counts as an input of every test file, so adding a file under it re-runs everything. Keep globs out of shared test helpers, and point each test at the fixtures it needs.
+
+<Tip>
+  To see which input made a file run, read the `runs:` lines in your test job's log. They name each file and the first changed input. A `shared input changed:` line means every file ran because of a change to a shared input. See [Troubleshooting](/docs/troubleshooting#why-did-every-file-run).
+</Tip>
+
+## Don't read per-run values in tests
+
+**Why:** a test file that reads a value that's different on every run, such as `GITHUB_SHA`, `GITHUB_RUN_ID` or `GITHUB_REF`, can't be replayed: its result might depend on that value. Quod marks it unrecordable, and it always runs.
+
+**Effect:** the file becomes replayable.
+
+```ts title="src/version.ts"
+// Before: every test that imports this module reads GITHUB_SHA
+export const version = process.env.GITHUB_SHA ?? "dev";
+
+// After: read it where it's used, and pass it in
+export function versionFrom(env: NodeJS.ProcessEnv) {
+  return env.GITHUB_SHA ?? "dev";
+}
+```
+
+Only reads by your code count. vite and vitest read CI variables too, and those reads are ignored.
+
+The same rule applies to the other things that keep a file running:
+
+- **Mock the network.** A test that opens a socket or calls `fetch` always runs. Mocking `fetch` (or using an in-process fake server) makes it recordable.
+- **Don't start processes.** A test that spawns a child process always runs.
+- **Write to a temp directory, not the repository.** A write inside the repository makes the file unrecordable. A directory the test creates outside it, with `mkdtemp` for example, is fine.
+
+## Split slow test files
+
+**Why:** Quod replays or runs whole test files. Tests in one file share module state, so skipping some while running others can't be proven safe. A large file that covers many modules re-runs in full whenever any of them changes.
+
+**Effect:** a change re-runs only the part of the suite that covers it. Since vitest runs files in parallel, smaller files also finish sooner when they all do run.
+
+```txt
+src/api/api.test.ts            # 1 file, 400 tests, every change runs it all
+
+src/api/users.test.ts          # split by the module each one covers
+src/api/orders.test.ts
+src/api/billing.test.ts
+```
+
+<Tip>
+  Split along the lines of what the tests import, not just by size. Two files that import the same modules re-run together anyway.
+</Tip>
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/troubleshooting" title="Troubleshooting">Find out why a file ran.</Card>
+  <Card href="/docs/cloud" title="Quod Cloud">Track time saved and the files that always run.</Card>
+</Cards>

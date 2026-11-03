@@ -1,0 +1,86 @@
+export const metadata = {
+  title: "Supported setups",
+  description: "Test runners, versions, package managers, monorepos, turbo and Convex: what Quod supports today.",
+};
+
+# Supported setups
+
+Quod supports vitest on GitHub Actions today. pytest and Go are in early testing.
+
+## At a glance
+
+| | Status |
+| --- | --- |
+| vitest 4.x | Supported |
+| pytest | <Badge>Experimental</Badge> |
+| Go (`go test`) | <Badge>Experimental</Badge> |
+| Other test runners | Not yet |
+| GitHub Actions, Linux x64 runners | Supported |
+| Other CI providers, macOS, Windows, ARM runners | Not yet. Tests run as plain vitest. |
+
+## vitest
+
+- **vitest 4.x.** Projects on vitest 3 aren't recordable, so they run as plain vitest.
+- **Node 22.15+ or 23.5+**, which have `module.registerHooks`.
+- **Isolated projects**, vitest's default. Each test file needs its own worker. Projects with `isolate: false`, or that use the vm, browser or typecheck pools, always run.
+- **One-shot runs.** Quod handles `vitest run`, or plain `vitest` when `CI` is set. These stay plain vitest:
+
+  `--watch`, `--coverage`, `-u` / `--update`, `--ui`, `--browser`, `--shard`, `--changed`, `--merge-reports`, `--standalone`, `--inspect`, `--typecheck`, and the `watch`, `dev`, `related`, `bench`, `typecheck`, `list` and `init` commands.
+
+<Tip>
+  If your CI collects coverage on every push, Quod leaves that run alone. To get the speed-up, run coverage in a separate scheduled or main-only job, and keep `vitest run` without `--coverage` on pull requests.
+</Tip>
+
+## Package managers
+
+Quod keys installed packages by what's on disk, not by the lockfile as a whole:
+
+- **pnpm.** A package's store path names its version and patches.
+- **npm.** A package's entry in `package-lock.json` (version, resolved URL and integrity) is part of its state, so a git or tarball dependency that moves without a version bump still counts.
+- **Workspace packages.** A package linked in from elsewhere in the repository is keyed by its real source files, so a change behind the link is seen.
+
+npm and pnpm are verified. yarn and bun follow the same rules but haven't been benchmarked yet.
+
+## Monorepos and turbo
+
+Quod was first deployed on a turbo monorepo on npm workspaces, where each package runs vitest from its own directory.
+
+- **Every package is its own suite.** Quod keeps one ledger per directory that runs vitest, named by its path from the repository root.
+- **turbo, npm, pnpm and npx all work.** The action puts a small `node` shim first on `PATH`, so Quod sees vitest however it's started. GitHub doesn't let an action set `NODE_OPTIONS`, and turbo filters most variables, but every runner keeps `PATH`.
+- **turbo's strict environment mode.** turbo drops the GitHub OIDC variables from its tasks, so the action hands them to Quod through a private file instead.
+- **CPU sharing.** Under a task runner (turbo, nx or lerna), several suites can run at once, so Quod doesn't give a large run every CPU.
+- **CI variables only count when your code reads them.** vite, vitest and their helpers read `GITHUB_*`, `RUNNER_*` and `ACTIONS_*` variables and turbo's `TURBO_HASH`, but those reads don't count as inputs. So a recording made on a push still replays on a pull request.
+
+<Note>
+  turbo caches task outputs, and Quod replays test results. Keep `"cache": false` on your `test` task in `turbo.json`, so turbo always starts vitest and Quod decides per test file. See [Make it even faster](/docs/faster#cache-typecheck-with-turbo) for using turbo's cache on typecheck.
+</Note>
+
+## Convex
+
+Quod works with Convex backends tested with `convex-test` and the `edge-runtime` environment. Some libraries copy the whole environment when they load, including the edge runtime and `@convex-dev/r2`. Quod hides the per-run CI variables from that copy, so those test files can still be recorded.
+
+On our first customer, a Next.js and Convex monorepo, 103 of 105 backend test files replayed on a change that didn't touch them.
+
+<Tip>
+  Convex's generated files (`convex/_generated`) are imported by almost every backend test. When they change, every test that imports them runs. Regenerate and commit them only when your schema or functions actually change.
+</Tip>
+
+## pytest and Go <Badge>Experimental</Badge>
+
+The same file-level approach is in early testing for pytest and Go. Both work in benchmarks with zero wrong results, but neither is in the GitHub Action yet.
+
+| Runner | Benchmark | Speedup |
+| --- | --- | ---: |
+| pytest | faker | 1.86× |
+| pytest | rich | 1.29× |
+| Go | afero | 1.36× |
+| Go | expr | 1.13× |
+
+Go's own test cache already skips unchanged packages, which limits what Quod adds there.
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/quickstart" title="Quickstart">Add Quod to your workflow.</Card>
+  <Card href="/docs/faster" title="Make it even faster">Install and typecheck speed-ups for monorepos.</Card>
+</Cards>

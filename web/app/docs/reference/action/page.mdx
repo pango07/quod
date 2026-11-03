@@ -1,0 +1,97 @@
+export const metadata = {
+  title: "GitHub Action",
+  description: "Inputs of pango07/quod-action and its shadow workflow, what each mode does, and what stays plain vitest.",
+};
+
+# GitHub Action
+
+[`pango07/quod-action`](https://github.com/pango07/quod-action) installs Quod in a job and routes every one-shot `vitest run` through it. Its reusable workflow, `shadow.yml`, is the recording job.
+
+## Usage
+
+```yaml title=".github/workflows/ci.yml"
+- uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+```
+
+Put it right after `actions/setup-node`. It needs `node` on `PATH`.
+
+## Inputs
+
+All inputs are optional.
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `mode` | `check` | `check`: your test job. It replays what the last recording proves unchanged, runs the rest, and only reads the ledger. `shadow`: the recording job, as used inside `shadow.yml`. |
+| `version` | the release the action pins | The Quod release to install. |
+| `sha256` | the pinned checksum | SHA-256 of that release's archive. Required when you set `version` to a release the action doesn't know. |
+| `cloud` | `true` | Keep the ledger in Quod Cloud when the job has `id-token: write`. `false` keeps it in the Actions cache. |
+| `server` | `https://api.quodci.com` | The Quod Cloud server. |
+| `server-key` | Quod Cloud's key | The server's Ed25519 public key. Every answer from the server is signed with it. |
+| `job-id` | `${{ job.check_run_id }}` | This job's check run, for Quod Cloud's reports. |
+| `token` | `${{ github.token }}` | Reads a triggering run's report artifact, for a `workflow_run` shadow. |
+
+## Outputs
+
+The action has no step outputs. It reports through:
+
+- the **log**: whether a recording was found, and Quod's selection lines
+- a **workflow artifact** per run, with each test's result, named `quod-vitest-reports-*`, which the shadow job reads
+- **Quod Cloud**, which receives each run's report when Cloud is on
+
+## Shadow workflow inputs
+
+```yaml title=".github/workflows/ci.yml"
+quod-shadow:
+  needs: test
+  permissions:
+    contents: read
+    id-token: write
+  uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+  with:
+    test: npm test
+```
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `test` | required | Your test command, as your test job runs it. |
+| `install` | `npm ci` | Your install command. |
+| `node-version` | `24` | Passed to `actions/setup-node`. |
+| `cache` | `npm` | setup-node's `cache`: `npm`, `pnpm`, `yarn`, or empty for none. |
+| `fetch-depth` | `0` | `actions/checkout`'s `fetch-depth`. Match your test job's. |
+| `working-directory` | `.` | Where `install` and `test` run. |
+
+The shadow job inherits the calling job's permissions, so grant `contents: read` and `id-token: write` on the `quod-shadow` job itself. No `actions:` permission is needed. It runs with `continue-on-error`, times out after 30 minutes, and skips pull requests from forks.
+
+## What each mode does
+
+### `check`
+
+1. Installs Quod and restores the newest recording. It tries your branch, then the pull request's base, then the default branch.
+2. With Quod Cloud, starts fetching the ledger in the background while your install runs.
+3. Puts a `node` shim first on `PATH`, which loads a small hook into each Node process.
+4. Runs every one-shot `vitest run` as `quod vitest --no-record` with the same arguments. Unchanged files replay, and the rest run as plain vitest, without instrumentation.
+5. Uploads each run's per-test results in a post step.
+
+### `shadow`
+
+1. Downloads the test job's reports, and installs the same Quod release the test job used.
+2. Runs your command with recording on. A file is recorded only if its tests did exactly what they did in your test job.
+3. Audits up to 4 replayable files and saves the ledger.
+
+Its exit code is for diagnostics only.
+
+## When Quod steps aside
+
+Quod never fails your job by itself. In each of these cases, tests run as plain vitest:
+
+- `QUOD_DISABLE=1` is set
+- the runner isn't Linux x64
+- Quod couldn't be installed, or anything else in the setup failed (the log shows *Quod is off for this job* and the reason)
+- vitest runs in watch mode, or with `--coverage`, `-u`, `--ui`, `--browser`, `--shard`, `--changed` or other interactive flags (see [Supported setups](/docs/supported-setups#vitest))
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/reference/environment-variables" title="Environment variables">Turn Quod off or tune it.</Card>
+  <Card href="/docs/reference/cli" title="quod vitest CLI">The command the action runs.</Card>
+</Cards>

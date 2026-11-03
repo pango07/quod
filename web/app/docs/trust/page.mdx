@@ -1,0 +1,64 @@
+export const metadata = {
+  title: "Trust and audits",
+  description: "Which jobs can write recorded results, why pull requests can't, and how audits re-check replays.",
+};
+
+# Trust and audits
+
+A recorded result can make a test file report "pass" without running. So who can write recordings matters as much as how they're made. Quod treats the ledger as something to protect.
+
+## Who can write
+
+Quod Cloud identifies each job by its GitHub OIDC token, which states the repository, the event and the ref. It sorts jobs into three kinds:
+
+| Job | Reads | Writes |
+| --- | --- | --- |
+| A **writer** job: a push, manual dispatch or schedule on a writer branch | The trusted recordings | The trusted recordings |
+| Another job of your repository: another branch, a same-repository pull request, a merge queue | Its own ref's recordings first, then the trusted ones | Only its own ref's recordings |
+| A job on someone else's input: a fork's pull request, `pull_request_target`, `workflow_run` | The trusted recordings | Nothing |
+
+The **writer branches** are set for each Quod team. Usually that's your default branch, plus any integration branch you merge into first. For example, a team that lands work on `dev` before `main` makes both of them writers.
+
+What this means in practice:
+
+- **A pull request can't write trusted results.** Whatever a PR's code does, it can only affect its own ref's recordings, and no other branch reads those.
+- **Trusted entries are append-only.** Nothing a non-writer sends can change or replace one.
+- **Forks never record.** GitHub gives a fork's pull request no OIDC token. On top of that, the shadow workflow skips recording when the pull request comes from a fork.
+
+<Warning>
+  Anyone who can push to a writer branch can record results that every job will reuse. Protect your writer branches with branch protection, as you would for a release.
+</Warning>
+
+## Audits
+
+Audits check replays by running them for real.
+
+In the shadow job, a random sample of replayable files runs for real instead of replaying. With the GitHub Action that's 4 files per run. Quod compares each test's result with the recorded one:
+
+- **The results match:** the recording keeps its standing.
+- **The results differ:** the file is **quarantined**. It always runs until it matches the required number of recordings in a row (3 by default; see [`QUOD_VITEST_REPROVE`](/docs/reference/environment-variables#quod_vitest_reprove)).
+
+Audits run in the shadow job, so they never add time to your check. When you run `quod vitest` yourself, the default `--audits auto` uses only the workers that the files to run leave idle. An audited file reports its fresh result, so an audit can't make a run wrong.
+
+<Note>
+  Replays allowed by [function-level narrowing](/docs/how-it-works#function-level-narrowing) are audited first.
+</Note>
+
+## How we test "never wrong"
+
+Every benchmark run also runs plain vitest on the same commit and compares the two JSON reports, file by file and test by test. A difference in a file Quod replayed counts as a wrong replay and fails the benchmark. Across the published benchmark runs, the count of wrong replays is zero.
+
+## Limits we know about
+
+We'd rather tell you these up front:
+
+1. A file that is read in a worker before Quod's hooks load, and isn't a module or part of vitest's own packages, may go unseen.
+2. A package patched in place, with no change to its version or lockfile entry, isn't detected.
+3. A test that depends on a side effect left by a different test file, such as a shared temp file outside the repository, isn't modelled as an input. Audits are what catch this.
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/cloud" title="Quod Cloud">See audits, wrong results and file states on the Trust page.</Card>
+  <Card href="/docs/reference/environment-variables" title="Environment variables">Tune quarantine and fallbacks.</Card>
+</Cards>

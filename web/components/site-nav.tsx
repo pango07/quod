@@ -12,6 +12,7 @@ export function SiteNav() {
           <Link href="/#how">How it works</Link>
           <Link href="/#hood">Under the hood</Link>
           <Link href="/#faq">FAQ</Link>
+          <Link href="/docs">Docs</Link>
           <Link className="btn small" href="/#join">
             Join the waitlist
           </Link>

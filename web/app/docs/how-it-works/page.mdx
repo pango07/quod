@@ -1,0 +1,93 @@
+export const metadata = {
+  title: "How it works",
+  description: "How Quod records what each test file reads, stores it in a ledger, and replays results whose inputs did not change.",
+};
+
+# How it works
+
+Quod records what each test file reads while it runs, and stores those inputs with the file's result in a **ledger**. On later runs, a file whose inputs are unchanged is replayed from the ledger, and the rest run.
+
+<FlowDiagram />
+
+## Two jobs
+
+Quod splits the work between two jobs, so the job you wait on stays as fast as possible.
+
+| | Your test job (`check`) | The shadow job (`shadow`) |
+| --- | --- | --- |
+| When | Your normal CI job | After your test job, in the same workflow |
+| Runs | Only the files that must run, as plain vitest, with no recording | The same command, with recording on |
+| Ledger | Reads it | Writes it, on branches allowed to write |
+| Is your check | Yes | No. It tolerates every failure. |
+
+The test job uploads each test's result as an artifact. The shadow job records a file only if its tests did **exactly** what they did in the test job. So if recording changed how a file behaves, that file isn't recorded: it's quarantined, and it always runs.
+
+<Soon>
+  **Second-witness mode** records in your test job and trusts a recording once a second, independent run agrees with it, with no shadow job. It's being benchmarked, and it isn't available yet.
+</Soon>
+
+## Recording
+
+vitest runs each test file in its own worker (with `isolate: true`, the default), so everything a worker does belongs to exactly one test file. Quod's recorder runs in each worker and in vitest's main process, and it notes:
+
+- **Modules.** Every module the file imported, directly or indirectly, including setup files.
+- **File system access.** Every read, `stat`, existence check, link lookup and directory listing.
+- **Environment variables.** Every variable the file reads.
+- **Packages.** A file under `node_modules` is keyed by its package rather than the lockfile. A lockfile change that bumps eslint re-runs nothing. One that bumps vite or jsdom re-runs everything that loads them.
+- **Shared inputs.** Everything vitest's main process reads, such as your vitest config, `tsconfig`, plugins, and the tools' own packages, is an input of **every** file.
+- **vitest's arguments.** Output-only flags like `--reporter`, `--outputFile` and `--silent` don't count.
+
+### What always runs
+
+Some things can't be followed reliably. A test file that does any of these is **unrecordable**, so it always runs:
+
+- starts a child process
+- uses the network (`net`, `http`, `fetch`, DNS and so on), or starts a worker thread
+- writes into the repository
+- reads a per-run CI value, such as the commit SHA or the run ID
+- runs in a project that isn't isolated, or that uses the browser, vm or typecheck pool
+
+Its result is still correct. Quod just doesn't skip it.
+
+<Tip>
+  A directory a test creates **outside** the repository, for example with `mkdtemp`, is treated as that test's own output. Reading from your own temp directory doesn't make a file unrecordable or keep it running.
+</Tip>
+
+## The ledger
+
+The ledger holds, for each test file:
+
+- its inputs and the state each one had when it was recorded
+- its result
+- how long it took
+
+It also holds the shared inputs, vitest's arguments, and the versions of Node, vitest and Quod that made it.
+
+With `id-token: write`, the ledger lives in **Quod Cloud**. Every answer from the server is signed, and the action pins the server's public key. A job reads the nearest recording among its commit's ancestors, then the newest on its branch, then the default branch's. Without the permission, or if the server doesn't answer, the GitHub Actions cache carries the ledger instead.
+
+## Replay
+
+Before vitest starts, Quod checks every recorded input against the checkout. It hashes file contents with BLAKE3 and skips files whose size and timestamps haven't changed. A test file **replays** when all of the following hold:
+
+- none of its inputs changed
+- the shared inputs, vitest's arguments and the tool versions are unchanged
+- its last result was a pass or a skip
+- it isn't quarantined
+
+Everything else runs, normally, in the same vitest invocation. The replayed files' recorded results go through vitest's own reporters, so the default output, JSON and JUnit reports and the exit code are what a full run gives. New and deleted test files are handled exactly, because vitest itself finds the files and Quod splits its list.
+
+When nothing needs to run, Quod can print the recorded full replay without starting vitest at all.
+
+### Function-level narrowing
+
+A test file whose only changed inputs are source files it imported may still replay. While recording, Quod notes which functions the file actually executed, using V8's precise coverage. If every changed line lies inside the body of a function this test never executed, the change can't affect it, so it replays. A change at the top level, to imports or exports, to a signature, or to a function the test ran, makes the file run.
+
+A replay narrowed this way is audited first. Turn narrowing off with [`--no-narrow`](/docs/reference/cli#--no-narrow).
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/trust" title="Trust and audits">Who can write the ledger, and how replays are re-checked.</Card>
+  <Card href="/docs/supported-setups" title="Supported setups">Versions, monorepos and task runners.</Card>
+  <Card href="/docs/troubleshooting" title="Troubleshooting">Read Quod's log to see why a file ran.</Card>
+</Cards>

@@ -1,0 +1,115 @@
+export const metadata = {
+  title: "Troubleshooting and FAQ",
+  description: "Why every file ran, how to force a full run, how to turn Quod off, and other common questions.",
+};
+
+# Troubleshooting and FAQ
+
+Most questions are answered by the `quod vitest:` lines in your test job's log. Start there.
+
+## Why did every file run?
+
+Look for these in the test step's log, in this order:
+
+### There was no recording yet
+
+```txt
+Quod: no recording yet; every test file runs (and the shadow records them)
+```
+
+The first run on a repository always runs everything. So does a branch whose base has never been recorded. Check that the `quod-shadow` job ran and finished after a push to a writer branch. If its log says *the CI run left no test reports*, the test job didn't reach vitest through Quod.
+
+### A shared input changed
+
+```txt
+quod vitest:   shared input changed: f:vitest.config.ts
+```
+
+Some inputs belong to every test file: your vitest config and anything it imports, `tsconfig`, plugins, setup files, the packages vite and vitest load (for example a vite, vitest or jsdom upgrade), and directory globs that vite runs. When one changes, every file runs once, and the shadow records them again.
+
+<Tip>
+  If a generated file shows up here on every push, such as a build stamp or a file that embeds a timestamp, make its output deterministic, or keep it out of what the config imports.
+</Tip>
+
+### A tool version changed
+
+A recording is tied to the Node, vitest and Quod versions that made it. A new Node patch release, a vitest upgrade or a new Quod release means one full run.
+
+<Tip>
+  `node-version: 24` follows the latest Node 24 release. Pin an exact version, such as `node-version: 24.11.0`, if you'd rather choose when that full run happens.
+</Tip>
+
+### The vitest arguments changed
+
+vitest's arguments are part of the key, because a filter or option changes what a file's result means. A job that runs `vitest run --project unit` and one that runs `vitest run` keep separate recordings. Output-only flags like `--reporter` don't count.
+
+### Quod stepped aside
+
+If there are no `quod vitest:` lines at all, Quod didn't run, and vitest ran plain. That happens when:
+
+- `QUOD_DISABLE=1` is set
+- the runner isn't Linux x64
+- the action couldn't set up (the log says *Quod is off for this job* and why)
+- vitest ran in watch mode or with `--coverage`, `--shard`, `--changed`, `-u` or another flag Quod leaves alone ([full list](/docs/supported-setups#vitest))
+- the action line comes **before** `actions/setup-node` (it needs `node` on `PATH`)
+
+## Why does this one file always run?
+
+The log lists files that can't be recorded:
+
+```txt
+quod vitest:   3 files always run: …
+```
+
+A file always runs if it starts a child process, uses the network, writes into the repository, or reads a per-run CI value like `GITHUB_SHA`. The [Make it even faster](/docs/faster#dont-read-per-run-values-in-tests) page shows how to fix each one. On the Trust page in Quod Cloud, these files show as **Always runs**, with the reason.
+
+A file can also run because it's **paused**: an audit found a different result, or recording changed its behaviour. It replays again after 3 matching recordings in a row.
+
+## How do I force a full run?
+
+Set `QUOD_VITEST_FULL=1`. Every file runs, and the shadow records them all again.
+
+```yaml title=".github/workflows/ci.yml"
+env:
+  QUOD_VITEST_FULL: 1
+```
+
+<Tip>
+  To force a full run on demand, add a `workflow_dispatch` trigger whose input sets this variable.
+</Tip>
+
+## How do I turn it off?
+
+Set `QUOD_DISABLE: 1` in the workflow's or the job's `env`. vitest runs plain, and nothing else changes. To remove Quod, delete the action line and the `quod-shadow` job.
+
+## FAQ
+
+### Can Quod change my test results?
+
+No. Replayed files report their recorded results through vitest's own reporters. Files that run, run as plain vitest without instrumentation in your test job. A recording is kept only if the file's results matched your test job exactly. Failures are never replayed.
+
+### What about flaky tests?
+
+A failure always runs again. A flaky file that passed can be replayed as passing while its inputs are unchanged. When an audit runs it and gets a different result, the file is paused and runs every time until it's consistent again.
+
+### What if Quod Cloud is down?
+
+If the server doesn't answer, the action falls back to the copy of the ledger in the GitHub Actions cache. If there's no usable ledger at all, files simply run. Quod never fails your job by itself.
+
+### Does Quod add runner minutes?
+
+The shadow job is an extra job. It installs dependencies and runs, with recording on, the files your test job ran. It runs after your check and doesn't block it, but it does use runner time.
+
+<Soon>
+  **Second-witness mode** will record in your test job and remove the shadow job. **Automatic dependency caching** will make the shadow's install cheaper.
+</Soon>
+
+### Can a pull request poison the results main uses?
+
+No. A pull request's job can only write recordings for its own ref, and no other branch reads those. Pull requests from forks never record. See [Trust and audits](/docs/trust).
+
+### What does Quod Cloud store?
+
+For each suite: the ledger (each test file's input keys, such as paths, content hashes and package versions, and its per-test results), the recorded vitest output used for replays, and copies of the source files your tests reached. Function-level narrowing compares a file's recorded version with the current one, which is why those copies are kept.
+
+Quod keeps GitHub's OIDC request token and server tokens away from vitest, so tests never see them, and it refuses to upload a ledger that contains one.
