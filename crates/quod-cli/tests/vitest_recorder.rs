@@ -21,7 +21,10 @@ fn a_plugin_reading_package_json_keeps_it_whole() {
     }
     let t = tempfile::tempdir().unwrap();
     let root = t.path();
-    write(&root.join("package.json"), r#"{"name":"x","version":"1.0.0"}"#);
+    write(
+        &root.join("package.json"),
+        r#"{"name":"x","version":"1.0.0"}"#,
+    );
     let reader = "const fs = require('node:fs');\nmodule.exports = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));\n";
     write(&root.join("node_modules/vite/dist/resolve.cjs"), reader);
     write(&root.join("node_modules/vite-plugin-version/index.cjs"), reader);
@@ -47,7 +50,11 @@ console.log(JSON.stringify({{ resolver: pjOnly(resolver), plugin: pjOnly([...r.k
     let s = root.join("t.mjs");
     fs::write(&s, script).unwrap();
     let out = Command::new("node").arg(&s).output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let pj = root.join("package.json").display().to_string();
     assert_eq!(v["resolver"], serde_json::json!([format!("pj:{pj}")]));

@@ -1,12 +1,13 @@
 // Compare two vitest JSON reports per file: the file's status and every
 // test's state. With quod's out.json, a difference in a file Quod replayed
-// is a WRONG REPLAY; one in a file both ran is a flaky test.
+// is a WRONG REPLAY; one in a file Quod ran (and recorded) means the
+// recording changed the test's behaviour: also a failure, reported apart.
 //
 //   node compare.mjs plain.json quod.json [quod-out.json]
 //
 // Prints the differences, then one JSON line:
-//   {files, differences, wrong: [file...], flaky: [file...]}
-// Exits 1 when there is a wrong replay (or, without out.json, any difference).
+//   {files, differences, wrong: [file...], recording: [file...]}
+// Exits 1 on any difference.
 import fs from 'node:fs'
 
 const [a, b, outPath] = process.argv.slice(2)
@@ -44,5 +45,5 @@ for (const [f, x] of A) {
   }
 }
 for (const f of B.keys()) if (!A.has(f)) note(f, [`EXTRA in quod: ${f}`])
-console.log(JSON.stringify({ files: A.size, differences: wrong.length + flaky.length, wrong, flaky }))
-process.exit(wrong.length ? 1 : 0)
+console.log(JSON.stringify({ files: A.size, differences: wrong.length + flaky.length, wrong, recording: flaky, flaky }))
+process.exit(wrong.length || flaky.length ? 1 : 0)

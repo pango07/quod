@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 const DRIVER: &str = include_str!("vitest/driver.mjs");
 const SETUP: &str = include_str!("vitest/setup.mjs");
 const RECORD: &str = include_str!("vitest/record.mjs");
-const INSTRUMENT: &str = include_str!("vitest/instrument.mjs");
+const COVERAGE: &str = include_str!("vitest/coverage.mjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
@@ -193,7 +193,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("driver.mjs", DRIVER),
         ("setup.mjs", SETUP),
         ("record.mjs", RECORD),
-        ("instrument.mjs", INSTRUMENT),
+        ("coverage.mjs", COVERAGE),
         ("narrow.mjs", NARROW),
     ] {
         let p = code.join(name);

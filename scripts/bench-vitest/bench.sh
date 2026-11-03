@@ -77,7 +77,7 @@ for i in "${!commits[@]}"; do
       shared_changed: s.shared_inputs_changed, unrecordable: s.unrecordable,
       select_ms: s.select_ms, record_ms: s.record_ms, vitest_ms: s.vitest_ms, driver: s.driver,
       narrowed: s.narrowed, narrow: s.narrow, shared_changed_keys: s.shared_changed_keys,
-      files: k.files, wrong: k.wrong ?? null, flaky: k.flaky ?? null, compare_error: k.error }))
+      files: k.files, wrong: k.wrong ?? null, recording: k.recording ?? null, compare_error: k.error }))
   ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$install_ms" "$cmp" "$out/summary.json" | tee -a "$out/results.jsonl"
 
   # Mutation check (not timed): on some commits, a throw put into a
@@ -99,7 +99,7 @@ for i in "${!commits[@]}"; do
         let k = {}; try { k = JSON.parse(cmp) } catch { k = { error: cmp } }
         let failedFiles = 0; try { failedFiles = JSON.parse(fs.readFileSync(plainPath, "utf8")).testResults.filter(t => t.status === "failed").length } catch {}
         console.log(JSON.stringify({ mutation: true, i: +i, target, what, quod_exit: +rc, ran: s.ran, replayed: s.replayed, narrowed: s.narrowed,
-          plain_failed_files: failedFiles, wrong: k.wrong ?? null, flaky: k.flaky ?? null }))
+          plain_failed_files: failedFiles, wrong: k.wrong ?? null, recording: k.recording ?? null }))
       ' "$i" "$target" "$what" "$mq_rc" "$mcmp" "$out/summary.json" "$out/plain.json" | tee -a "$out/results.jsonl"
       git checkout -q --force "$c"
       quod "r$i" >/dev/null
@@ -109,9 +109,10 @@ done
 node "$here/report.mjs" "$out/results.jsonl" "${args[*]}" "$(git remote get-url origin)" > "$out/report.md"
 cat "$out/report.md"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
-# Loud: a wrong replay fails the job.
-if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>!r.warmup&&(r.wrong===null||r.wrong.length))?1:0)' "$out/results.jsonl"; then
-  echo "0 wrong replays"
+# Loud: a wrong replay, or a recorded run that differs from plain (the
+# recording changed behaviour), fails the job; the warm-up counts too.
+if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||r.recording===null||r.recording?.length)?1:0)' "$out/results.jsonl"; then
+  echo "0 wrong replays, 0 recording differences"
 else
-  echo "::error::WRONG REPLAYS (or an uncompared commit): see report.md"; exit 1
+  echo "::error::WRONG REPLAYS or RECORDING CHANGED BEHAVIOUR (or an uncompared commit): see report.md"; exit 1
 fi

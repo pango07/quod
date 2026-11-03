@@ -15,7 +15,6 @@
 import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
 import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
-import { instrument } from './instrument.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
@@ -87,53 +86,6 @@ const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
-
-// Record runs instrument the workspace's source as vite hands it to the
-// workers (instrument.mjs): every environment's transformRequest result,
-// in place (the module graph keeps that object, and vitest inlines its
-// map). Keys name the environment: two environments transform a file
-// differently, so their function indexes differ.
-const tables = new Map()
-let instrumentMs = 0
-if (record && !(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('cov')) {
-  let parseAst = null
-  try {
-    const vreq = nodeModule.createRequire(vitestPkgJson)
-    const vpj = vreq.resolve('vite/package.json')
-    const vp = JSON.parse(real.readFileSync(vpj, 'utf8'))
-    let ent = vp.exports?.['.']
-    while (ent && typeof ent === 'object') ent = ent.import ?? ent.default
-    parseAst = (await import(pathToFileURL(path.join(path.dirname(vpj), ent ?? vp.module ?? vp.main)).href)).parseAst
-  } catch (e) {
-    log(`no vite parser (${e.message}): no function-level data`)
-  }
-  const rootSlash = ctx.config.root.endsWith('/') ? ctx.config.root : `${ctx.config.root}/`
-  if (typeof parseAst === 'function') {
-    for (const p of ctx.projects) {
-      for (const [envName, env] of Object.entries(p.vite?.environments ?? {})) {
-        if (typeof env?.transformRequest !== 'function') continue
-        const orig = env.transformRequest.bind(env)
-        env.transformRequest = async (url, ...rest) => {
-          const res = await orig(url, ...rest)
-          if (res && !res.__quod) {
-            const ti = performance.now()
-            let file = null
-            try {
-              file = (await env.moduleGraph.getModuleByUrl(url))?.file ?? null
-            } catch {}
-            if (file && file.startsWith(rootSlash) && !file.includes('/node_modules/')) {
-              const key = `${p.name}|${envName}|${file}`
-              const t = instrument(res, key, parseAst)
-              if (t) tables.set(key, { file, t })
-            } else res.__quod = true
-            instrumentMs += performance.now() - ti
-          }
-          return res
-        }
-      }
-    }
-  }
-}
 
 // Projects Quod can record: isolated node workers. Others always run.
 const recorded = new Set()
@@ -297,51 +249,10 @@ for (const m of endModules) {
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.
-    if (d.hits) {
-      const all = new Map()
-      const bad = new Set()
-      const add = (key, idx) => {
-        const e = tables.get(key)
-        if (!e) return
-        let s = all.get(e.file)
-        if (!s) all.set(e.file, (s = new Map()))
-        for (const i of idx) {
-          const r = e.t[i]
-          if (!r) bad.add(e.file)
-          else s.set(r.join(','), r)
-        }
-      }
-      for (const [key, idx] of Object.entries(d.hits)) add(key, idx)
-      const fileLevel = new Map(all)
-      for (const [f, s] of fileLevel) fileLevel.set(f, new Map(s))
-      for (const t of Object.values(d.tests ?? {})) for (const [key, idx] of Object.entries(t)) add(key, idx)
+    if (d.cov) {
       cov = {}
-      for (const [f, s] of all) {
-        if (bad.has(f) || f === file.filepath || d.keys.includes(`f:${f}`) || d.keys.includes(`e:${f}`)) continue
-        cov[f] = [...s.values()]
-      }
-      // Per test (recorded, not used for selection: tests of one file share
-      // module state, so skipping one is not provably sound): what each
-      // test executed, and what ran outside every test.
-      if (d.tests) {
-        const ranges = (m) => {
-          const o = {}
-          for (const [key, idx] of Object.entries(m)) {
-            const e = tables.get(key)
-            if (e && cov[e.file]) o[e.file] = idx.map((i) => e.t[i]).filter(Boolean)
-          }
-          return o
-        }
-        const per = { order: [], file: {}, tests: {} }
-        for (const [f, s] of fileLevel) if (cov[f]) per.file[f] = [...s.values()]
-        for (const [tid, m] of Object.entries(d.tests)) {
-          per.order.push(tid)
-          per.tests[tid] = ranges(m)
-        }
-        try {
-          real.mkdirSync(path.join(stateDir, 'tests'), { recursive: true })
-          writeJson(path.join(stateDir, 'tests', `${id}.json`), per)
-        } catch {}
+      for (const [f, fns] of Object.entries(d.cov)) {
+        if (f !== file.filepath && !d.keys.includes(`f:${f}`) && !d.keys.includes(`e:${f}`)) cov[f] = fns
       }
     }
   }
@@ -422,7 +333,7 @@ writeJson(outPath, {
   ran: ranOut,
   replayed: replayed.map((x) => x.id),
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov, instrument: instrumentMs, instrumented: tables.size },
+  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
 })
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)
