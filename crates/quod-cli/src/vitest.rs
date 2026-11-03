@@ -1889,7 +1889,8 @@ fn report_from_ledger(dir: &Path, ledger: &Ledger) -> serde_json::Value {
             for c in file["tasks"].as_array().into_iter().flatten() {
                 walk(c, &mut Vec::new(), &mut tests);
             }
-            results.push(serde_json::json!({ "name": file["filepath"], "assertionResults": tests }));
+            results
+                .push(serde_json::json!({ "name": file["filepath"], "assertionResults": tests }));
         }
     }
     serde_json::json!({ "testResults": results })
