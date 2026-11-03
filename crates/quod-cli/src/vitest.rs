@@ -40,6 +40,7 @@ const RECORD: &str = include_str!("vitest/record.mjs");
 const COVERAGE: &str = include_str!("vitest/coverage.mjs");
 const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
+const GLOBMAP: &str = include_str!("vitest/globmap.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
 /// another version is dropped (every file runs once). v2: function-level
@@ -262,6 +263,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("coverage.mjs", COVERAGE),
         ("preload.cjs", PRELOAD),
         ("narrow.mjs", NARROW),
+        ("globmap.mjs", GLOBMAP),
     ] {
         let p = code.join(name);
         if fs::read_to_string(&p).ok().as_deref() != Some(body) {
@@ -1578,6 +1580,15 @@ fn state(
         "d" => (listing(&path(), false), None),
         "r" => (listing(&path(), true), None),
         "rc" => (content_tree(&path()), None),
+        // what a test read of an import.meta.glob map (globmap.mjs)
+        k if k.starts_with("dp.") => match unhex(&k[3..]) {
+            Some(pre) => (prefixed(&path(), &pre), None),
+            None => (format!("bad key {k} {}", wall_ns()), None),
+        },
+        k if k.starts_with("rn.") => match unhex(&k[3..]) {
+            Some(needle) => (named_tree(&path(), &needle), None),
+            None => (format!("bad key {k} {}", wall_ns()), None),
+        },
         "f" | "pj" | "p" => {
             let mut path = path();
             if kind == "p" {
@@ -1719,6 +1730,88 @@ fn content_tree(p: &Path) -> String {
         h.update(b"\n");
     }
     h.finalize().to_hex().to_string()
+}
+
+fn unhex(s: &str) -> Option<String> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    let b: Option<Vec<u8>> = (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect();
+    String::from_utf8(b?).ok()
+}
+
+fn kind_of(p: &Path, t: Option<fs::FileType>) -> String {
+    match t {
+        Some(t) if t.is_dir() => "d".into(),
+        Some(t) if t.is_file() => "f".into(),
+        Some(t) if t.is_symlink() => {
+            let to = match fs::metadata(p) {
+                Ok(m) if m.is_dir() => "d",
+                Ok(m) if m.is_file() => "f",
+                Ok(_) => "o",
+                Err(_) => "x",
+            };
+            format!("{}>{to}", exists(p))
+        }
+        _ => "o".into(),
+    }
+}
+
+/// `dp.<hex prefix>:<dir>`: the names (and types) in a directory that start
+/// with a prefix: the files a glob map's lookup by path without extension
+/// can find (convex-test's `<path>.<ext>`).
+fn prefixed(p: &Path, prefix: &str) -> String {
+    let Ok(rd) = fs::read_dir(p) else {
+        return exists(p);
+    };
+    let mut names: Vec<String> = rd
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            n.starts_with(prefix)
+                .then(|| format!("{n}\0{}", kind_of(&p.join(&n), e.file_type().ok())))
+        })
+        .collect();
+    names.sort_unstable();
+    blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+}
+
+/// `rn.<hex needle>:<dir>`: every path under a directory whose path in it
+/// contains the needle, with its type, following links into directories: a
+/// glob map's keys that contain it (convex-test's "_generated" root).
+fn named_tree(p: &Path, needle: &str) -> String {
+    if !p.is_dir() {
+        return exists(p);
+    }
+    let mut names = Vec::new();
+    let mut seen: HashSet<PathBuf> = fs::canonicalize(p).into_iter().collect();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(p.join(&rel)) else {
+            names.push(format!("{}\0unreadable", rel.display()));
+            continue;
+        };
+        for e in rd.flatten() {
+            let r = rel.join(e.file_name());
+            let full = p.join(&r);
+            let kind = kind_of(&full, e.file_type().ok());
+            let s = r.display().to_string();
+            if s.contains(needle) {
+                names.push(format!("{s}\0{kind}"));
+            }
+            let into = kind == "d"
+                || (kind.ends_with(">d")
+                    && fs::canonicalize(&full).is_ok_and(|c| seen.insert(c)));
+            if into {
+                stack.push(r);
+            }
+        }
+    }
+    names.sort_unstable();
+    blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
 }
 
 /// A directory's names and types (recursively: every path under it).
@@ -2051,6 +2144,33 @@ mod tests {
         assert_ne!(st("d:d"), dl);
         assert_eq!(st("e:l"), el, "existence does not see content");
         assert_ne!(st("r:."), st("d:."), "recursive listing sees d/x");
+    }
+
+    #[test]
+    fn glob_map_keys_see_only_their_names() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        fs::create_dir_all(root.join("c/_generated")).unwrap();
+        fs::create_dir_all(root.join("c/lib")).unwrap();
+        fs::write(root.join("c/_generated/api.d.ts"), "").unwrap();
+        fs::write(root.join("c/notes.ts"), "").unwrap();
+        let env = std::sync::OnceLock::new();
+        let st = |k: &str| state(root, k, None, wall_ns(), &env, None).0;
+        let hx = |s: &str| s.bytes().map(|b| format!("{b:02x}")).collect::<String>();
+        let (dp, rn) = (format!("dp.{}:c", hx("notes.")), format!("rn.{}:c", hx("_generated")));
+        let (a, b) = (st(&dp), st(&rn));
+        fs::write(root.join("c/notesx.ts"), "").unwrap();
+        fs::write(root.join("c/lib/closures.ts"), "").unwrap();
+        fs::write(root.join("c/notes.ts"), "changed").unwrap();
+        assert_eq!(st(&dp), a, "other names, and content, are not seen");
+        assert_eq!(st(&rn), b);
+        fs::write(root.join("c/notes.js"), "").unwrap();
+        assert_ne!(st(&dp), a, "a second candidate for notes");
+        fs::create_dir(root.join("c/A")).unwrap();
+        fs::write(root.join("c/A/x_generated.ts"), "").unwrap();
+        assert_ne!(st(&rn), b, "a new path with the needle");
+        assert_eq!(st(&format!("dp.{}:missing", hx("x."))), "absent");
+        assert!(st("dp.zz:c").starts_with("bad key"));
     }
 
     #[test]

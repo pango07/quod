@@ -15,6 +15,7 @@
 import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
 import { createRecorder, globbing, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
+import { globKeys, instrumentGlobs } from './globmap.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
@@ -169,8 +170,15 @@ if (plan.render) {
 // plugin, and only listings: it lists afresh on every transform, so no other
 // module's transform can reuse what it saw; anything else read there (a
 // resolution, a stat) stays shared.
+// In a recorded project the glob's output is instrumented as well
+// (globmap.mjs): a test is keyed by what it read of a lazy map, not by the
+// whole listing.
 const globPlugins = new Set()
-function wrapGlob(pl) {
+const globIds = new Map() // id -> module
+const globMods = new Map() // module -> { narrowable, ids } per transform
+let globNext = 100
+const nextGlobId = () => (globNext <= 999 ? globNext++ : null)
+function wrapGlob(pl, instrument) {
   if (!pl || globPlugins.has(pl) || !/(^|:)import-glob$/.test(pl.name ?? '')) return
   const h = pl.transform
   const fn = typeof h === 'function' ? h : h?.handler
@@ -179,21 +187,35 @@ function wrapGlob(pl) {
   const w = function (code, id, ...rest) {
     const m = typeof id === 'string' ? id.split('?')[0] : ''
     if (!m.startsWith('/')) return fn.call(this, code, id, ...rest)
-    return globbing.run(path.resolve(m), () => fn.call(this, code, id, ...rest))
+    const mod = path.resolve(m)
+    const res = globbing.run(mod, () => fn.call(this, code, id, ...rest))
+    if (!instrument || typeof code !== 'string') return res
+    return Promise.resolve(res).then((out) => {
+      const text = typeof out === 'string' ? out : out?.code
+      if (typeof text !== 'string') return out
+      const g = instrumentGlobs(text, (code.match(/\bimport\.meta\.glob\b/g) ?? []).length, nextGlobId)
+      for (const i of g.ids) globIds.set(i, mod)
+      if (!globMods.has(mod)) globMods.set(mod, [])
+      globMods.get(mod).push({ narrowable: g.narrowable, ids: g.ids })
+      if (!g.ids.length) return out
+      return typeof out === 'string' ? g.code : { ...out, code: g.code }
+    })
   }
   pl.transform = typeof h === 'function' ? w : { ...h, handler: w }
 }
+const okProject = (c) => !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
 if (record) {
   for (const p of ctx.projects) {
-    for (const pl of p.vite?.config?.plugins ?? []) wrapGlob(pl)
-    for (const env of Object.values(p.vite?.environments ?? {})) for (const pl of env?.plugins ?? []) wrapGlob(pl)
+    const inst = okProject(p.config)
+    for (const pl of p.vite?.config?.plugins ?? []) wrapGlob(pl, inst)
+    for (const env of Object.values(p.vite?.environments ?? {})) for (const pl of env?.plugins ?? []) wrapGlob(pl, inst)
   }
 }
 
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
-  const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
+  const ok = okProject(c)
   if (ok) {
     if (record) {
       c.setupFiles = [setupPath, ...c.setupFiles]
@@ -332,6 +354,25 @@ const moduleKeys = (mods) => {
 }
 const transformed = new Set()
 const globUsed = new Set() // modules whose glob listings some recorded file's graph took
+const globStat = { whole: 0, narrowed: 0, convexTest: 0 } // (file, module) pairs
+const lstat = (p) => {
+  try {
+    return fs.lstatSync(p)
+  } catch {
+    return null
+  }
+}
+// What file `d` consumed of module `mod`'s globs (globmap.mjs), or null for
+// the whole listing `g`: the module's every transform here was instrumented
+// and narrowable, and the worker observed it.
+function globConsumed(mod, g, d) {
+  const ts = globMods.get(mod)
+  if (!ts?.length || !ts.every((t) => t.narrowable) || !Array.isArray(d.globs)) return null
+  const mine = d.globs.filter((o) => globIds.get(o.id) === mod)
+  const keys = globKeys(mod, g, mine, lstat)
+  if (keys && mine.some((o) => o.ct)) globStat.convexTest++
+  return keys
+}
 const dumps = new Map()
 const workerMs = { setup: 0, dump: 0, cov: 0 }
 const unmapped = {}
@@ -367,7 +408,9 @@ for (const m of endModules) {
       const g = r.byModule.get(path.resolve(m))
       if (!g) continue
       globUsed.add(path.resolve(m))
-      for (const k of g) ks.add(k)
+      const narrow = globConsumed(path.resolve(m), g, d)
+      globStat[narrow ? 'narrowed' : 'whole']++
+      for (const k of narrow ?? g) ks.add(k)
     }
     keys = [...ks]
     unobservable = d.unobservable
@@ -511,6 +554,7 @@ writeJson(outPath, {
   timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
   unmapped,
 })
+if (globStat.narrowed + globStat.whole) log(`import.meta.glob listings by what each file read of the map: ${globStat.narrowed} narrowed (${globStat.convexTest} through convex-test's moduleCache), ${globStat.whole} whole`)
 if (r.byModule.size) log(`import.meta.glob listings keyed per module (not shared): ${[...r.byModule].map(([m, g]) => `${path.relative(cwd, m)} (${g.size}${globUsed.has(m) ? '' : ', shared: no recorded file loads it'})`).join(', ')}`)
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)
 if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)

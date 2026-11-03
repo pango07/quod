@@ -16,6 +16,7 @@
 // the file always runs.
 import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, writeJson } from './record.mjs'
 import { executedFunctions, unmapped, unmappedSample } from './coverage.mjs'
+import { observeGlobs } from './globmap.mjs'
 import nodeModule from 'node:module'
 import inspector from 'node:inspector'
 
@@ -41,6 +42,8 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   if (!off.has('env')) patchEnv(r)
   if (!off.has('loader')) patchLoader(r)
   if (!off.has('escapes')) patchEscapes(r)
+  // what this file reads of import.meta.glob maps (before any module of it loads)
+  const globs = observeGlobs()
   if ([...off].some((p) => p !== 'cov')) r.unobs(`recorder disabled: ${[...off]}`)
   // Function-level narrowing needs the functions this file executed; a test
   // that reads functions' source (Function.prototype.toString) depends on
@@ -106,6 +109,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         writes: [...r.writes],
         watches: [...r.watches],
         unobservable: [...r.unobservable],
+        globs: globs?.dump(),
         cov,
         usedToString,
         unmapped,
