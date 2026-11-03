@@ -50,7 +50,12 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   // more than what it ran, so it gets none.
   let session = null
   let usedToString = false
-  if (!off.has('cov') && root) {
+  // vitest's own coverage is on: V8's coverage mode is the isolate's, so
+  // starting Quod's (binary, function granularity) would change what the
+  // v8 provider sees. No function-level data then (the file runs whenever
+  // any source it loaded changes: its recorded coverage is of that source).
+  const covOn = !!ws.config?.coverage?.enabled
+  if (!off.has('cov') && root && !covOn) {
     try {
       session = new inspector.Session()
       session.connect()
@@ -111,6 +116,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         envKept: [...r.envKept],
         unobservable: [...r.unobservable],
         cov,
+        covOn,
         usedToString,
         unmapped,
         unmappedSample: Object.entries(unmappedSample).slice(0, 1),
