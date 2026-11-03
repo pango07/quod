@@ -738,11 +738,14 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
         if a.contains("/node_modules/.vite/") || a.contains("/node_modules/.vitest/") {
             continue;
         }
-        // An installed package counts when a file of it was read: a lookup
-        // that found nothing, or a symlink followed on the way, under
-        // node_modules loads nothing (resolution walks past every
-        // package's links; keying those made any reinstall a full run).
+        // Under node_modules, an installed package counts (whole) when a
+        // file of it was read. A lookup that found nothing, or a link the
+        // run followed, is keyed by existence only (`e:`: absent, or the
+        // link's target): an optional package that appears later, or a
+        // link that moves, re-runs; content churn of packages it never
+        // read does not (keying those whole made any reinstall a full run).
         if a.contains("/node_modules/") && k != "f" {
+            add.insert(relativize(root, &format!("e:{a}")), k);
             continue;
         }
         let key = if let Some(i) = a.rfind("/node_modules/") {
@@ -1289,8 +1292,8 @@ mod tests {
             &m,
             r#"manifest b3:x
 {"entries":[{"p":"package.json","k":"f"},{"p":"other.json","k":"f"},
-{"p":"node_modules/.pnpm/eslint@9/node_modules/eslint/x.js","k":"a"},
-{"p":"node_modules/eslint","k":"l"},
+{"p":"node_modules/optional-pkg","k":"a"},
+{"p":"node_modules/linked","k":"l"},
 {"p":"node_modules/.pnpm/vite@8/node_modules/vite/index.js","k":"f"}]}"#,
         )
         .unwrap();
@@ -1306,11 +1309,24 @@ mod tests {
             keys,
             [
                 "pj:package.json",
+                "e:node_modules/linked",
+                "e:node_modules/optional-pkg",
                 "f:other.json",
                 "p:node_modules/.pnpm/vite@8/node_modules/vite"
             ],
-            "a lookup or a link under node_modules loads nothing"
+            "absent and linked paths by existence, read packages whole, eslint (never seen) not at all"
         );
+        // The optional package appears: its key changes, so its readers run.
+        let i = l
+            .keys
+            .iter()
+            .position(|k| k == "e:node_modules/optional-pkg")
+            .unwrap();
+        assert_eq!(l.states[i], "absent");
+        fs::create_dir_all(root.join("node_modules/optional-pkg")).unwrap();
+        let env = std::sync::OnceLock::new();
+        let now = state(root, &l.keys[i], None, wall_ns(), &env, None).0;
+        assert_ne!(now, l.states[i]);
     }
 
     #[test]
@@ -1348,7 +1364,10 @@ mod tests {
     fn package_json_versions_do_not_count_but_the_rest_does() {
         let v1 = pj_hash(br#"{"name":"x","version":"1.0.0","packageManager":"pnpm@10.1.0"}"#);
         let v2 = pj_hash(br#"{"name":"x","version":"1.0.1","packageManager":"pnpm@10.2.0"}"#);
-        assert_eq!(v1, v2, "a release bump or a packageManager bump counts for nobody");
+        assert_eq!(
+            v1, v2,
+            "a release bump or a packageManager bump counts for nobody"
+        );
         let a = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.1.0"}}"#);
         let b = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0"}}"#);
         let c = pj_hash(br#"{"name":"x","type":"commonjs","devDependencies":{"eslint":"^9.2.0"}}"#);
