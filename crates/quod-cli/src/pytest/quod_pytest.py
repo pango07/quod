@@ -621,6 +621,9 @@ class Recorder:
         if self.loading and p.endswith(".py"):
             w.reads["m:" + p] = None
             return
+        if p.endswith(".py") and _caller().startswith("_pytest.assertion"):
+            w.reads["m:" + p] = None
+            return
         if _display_read():
             return
         base = os.path.basename(p)
@@ -635,7 +638,7 @@ class Recorder:
         w = self.cur
         if key not in w.reads:
             w.reads[key] = None
-            if w is self.S and len(self.why) < 400:
+            if (w is self.S or w.kind == "l" or key.startswith("f:")) and len(self.why) < 3000:
                 self.why[key] = mod if mod is not None else _caller()
 
     def _on_write(self, p):
@@ -1479,6 +1482,61 @@ def changed_functions(old_src, new_src):
     return out or None
 
 
+_VERSION_NAMES = ("__version__", "VERSION", "version", "__VERSION__", "VERSION_STRING")
+
+
+def version_only(old_src, new_src):
+    """The names of module-level version constants (`VERSION = "1.2"`) when
+    they are the only difference between the two sources, else None."""
+    try:
+        trees = [ast.parse(old_src), ast.parse(new_src)]
+        compile(new_src, "<quod>", "exec")
+    except Exception:
+        return None
+    vals = []
+    for t in trees:
+        v = {}
+        for node in t.body:
+            if (
+                isinstance(node, (ast.Assign, ast.AnnAssign))
+                and isinstance(getattr(node, "value", None), ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if len(targets) == 1 and isinstance(targets[0], ast.Name) and targets[0].id in _VERSION_NAMES:
+                    v[targets[0].id] = node.value.value
+                    node.value = ast.Constant(value="<version>")
+        vals.append(v)
+    if ast.dump(trees[0]) != ast.dump(trees[1]):
+        return None
+    names = {n for n in set(vals[0]) | set(vals[1]) if vals[0].get(n) != vals[1].get(n)}
+    if not names:
+        return None
+    return names, {vals[0].get(n) for n in names} | {vals[1].get(n) for n in names}
+
+
+def mentions(path, names, skip_defs=False):
+    """Does this file's source name any of `names` (as a word)? Unknown:
+    yes. With skip_defs, the module-level definitions themselves do not
+    count."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return True
+    return mentions_text(text, names, skip_defs)
+
+
+def mentions_text(text, names, skip_defs=False):
+    for n in names:
+        if skip_defs:
+            # `NAME = "..."` / `NAME: str = "..."` at column 0: the definition.
+            text = re.sub(r"(?m)^" + re.escape(n) + r"\s*(:[^=\n]*)?=[^\n]*$", "", text)
+        if re.search(r"(?<!\w)" + re.escape(n) + r"(?!\w)", text):
+            return True
+    return False
+
+
 def narrowable(old_src, new_src, executed):
     """True when every change from old_src to new_src lies strictly inside the
     body of a function never executed (executed: {(firstline, name)} of the
@@ -1972,6 +2030,15 @@ class Quod:
                             collect.discard(f)
                             self.reasons[f] = "before %s, which is order-dependent" % a
                             changed = True
+        # The fast path: when most files must run anyway, replaying the rest
+        # saves less than the guard costs. Run everything, plainly (no guard,
+        # no snapshots): never slower than plain pytest by more than the
+        # selection.
+        if replay and len(run) * 2 > len(order) and not OPTS.get("no_fast"):
+            self.reasons["*"] = "fast path: %d of %d files must run" % (len(run), len(order))
+            run |= set(replay)
+            replay = {}
+            collect = set()
         self.run_files = run
         self.replay = replay
         self.collect_only = collect
@@ -2029,11 +2096,47 @@ class Quod:
                     ch = None
                 memo[(p, old)] = ch
             if ch is None:
-                return False
+                # A release bump: only a version constant changed. Replays
+                # for a file that cannot name it: its own source, every
+                # workspace file whose code it executed and the defining
+                # module (outside the definition) do not mention the name,
+                # and its recorded results do not quote either value.
+                vo = memo.get(("v", p, old), False)
+                if vo is False:
+                    try:
+                        with open(os.path.join(OPTS["dir"], "blobs", old), "rb") as f:
+                            old_src = f.read().decode("utf-8")
+                        with open(absp(p), "rb") as f:
+                            new_src = f.read().decode("utf-8")
+                        vo = version_only(old_src, new_src)
+                    except (OSError, UnicodeDecodeError):
+                        vo = None
+                    memo[("v", p, old)] = vo
+                if vo is None:
+                    return False
+                names, values = vo
+                if mentions(absp(p), names, skip_defs=True):
+                    return False
+                paths = set(exe) | set(sess_exec) | {self._file_of_rec(r)}
+                paths.discard(p)
+                for q in paths:
+                    if q is None or mentions(absp(q), names):
+                        return False
+                res = load_results(r["id"])
+                text = json.dumps(res) if res is not None else None
+                if text is None or any(v and v in text for v in values):
+                    return False
+                continue
             executed = set(tuple(x) for x in exe.get(p, ())) | set(tuple(x) for x in sess_exec.get(p, ()))
             if ch & executed:
                 return False
         return True
+
+    def _file_of_rec(self, r):
+        for f, x in self.L["files"].items():
+            if x is r:
+                return f
+        return None
 
     def _pick_audits(self):
         n = int(OPTS.get("audits", 0) or 0)
@@ -2234,7 +2337,7 @@ class Quod:
         first = self.cur_run != r
         if first:
             self.cur_run = r
-            if self.guard_on:
+            if self.guard_on and self._run_guard(r):
                 GUARD.start(self.session, reuse=True)
             if REC is not None:
                 self.thread_mark = set(threading.enumerate())
@@ -2254,7 +2357,7 @@ class Quod:
                     left = [t for t in threading.enumerate() if t not in self.thread_mark and t.is_alive()]
                     if left:
                         REC.file(r).taint("a thread it started outlived it (%s)" % left[0].name)
-                if self.guard_on:
+                if self.guard_on and self._run_guard(r):
                     d = GUARD.end(self.session)
                     self.rleak[r] = d
                     if self.mode == "critical":
@@ -2317,6 +2420,15 @@ class Quod:
         if REC is not None:
             REC.on = False
         return outcome
+
+    def _run_guard(self, r):
+        """Fingerprint around this file's tests? Always in the shadow (it
+        records the leak); on the critical path only while a replayed file
+        comes later (once none does, none will for later files either)."""
+        if self.mode != "critical":
+            return True
+        here = self._pos(r)
+        return any(self._pos(f) > here for f in self.replay)
 
     def _check_leak(self, r, d):
         """The critical path's guard: a file that ran here changed state a
@@ -2724,11 +2836,12 @@ def certify(plugin, todo, files, summary):
         alone = (out or {}).get("tests")
         deps = (out or {}).get("deps") or {}
         ok = alone is not None and {k: norm_text(v) for k, v in alone.items()} == session
+        unknown = alone is None
         if ok and (not deps or "error" in deps):
-            ok = False
+            ok, unknown = False, True
             summary["not_recorded"][f] = "the alone run recorded nothing: %s" % deps.get("error")
         if ok and deps.get("unrecordable"):
-            ok = False
+            ok, unknown = False, True
             rec["unrecordable"] = "alone: " + deps["unrecordable"]
         if ok:
             # Inputs: the union of what the file used in the session and alone.
@@ -2750,7 +2863,10 @@ def certify(plugin, todo, files, summary):
                 cur |= set(tuple(x) for x in fns)
                 rec["exec"][pth] = sorted(cur)
             rec["modules"] = sorted(set(rec.get("modules") or ()) | set(deps["modules"]))
-        rec["certified"] = bool(ok)
+        # False only for a file whose results alone differ from the session's
+        # (order-dependent: it runs with every file before it); None when
+        # unknown (it runs, alone).
+        rec["certified"] = True if ok else (None if unknown else False)
         if ok:
             summary["certified"] += 1
         else:
