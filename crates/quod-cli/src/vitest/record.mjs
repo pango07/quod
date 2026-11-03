@@ -41,6 +41,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     mode, // 'main' | 'worker'
     keys,
     writes: new Set(),
+    watches: new Set(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -64,7 +65,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         // packages a run loads (p:), so a reinstall alone changes nothing.
         return
       }
-      if (kind === 'f' && r.mode === 'main' && r.pjOk && p.endsWith('/package.json')) kind = 'pj'
+      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json') && (r.pjOk || toolCaller())) kind = 'pj'
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -77,6 +78,18 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     },
   }
   return r
+}
+
+// Is a package.json read (while the config loads) the tools' own, not the
+// config's code? The first frame outside Quod and node: a tool's when it is
+// in node_modules (but not vite's bundled config, under .vite-temp).
+function toolCaller() {
+  const lines = (new Error().stack ?? '').split('\n').slice(1)
+  for (const l of lines) {
+    if (l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    return l.includes('/node_modules/') && !l.includes('/node_modules/.vite-temp/')
+  }
+  return false
 }
 
 function norm(p) {
@@ -175,8 +188,16 @@ export function patchFs(r) {
     r.write(a[1])
   }
   both(['copyFile', 'cp', 'link', 'symlink'], copy)
-  wrap(fs, 'watch', () => r.unobs('fs.watch'))
-  wrap(fs, 'watchFile', () => r.unobs('fs.watchFile'))
+  // A watch sees whatever lands under its path, for as long as it lives:
+  // the driver keys it as the path's whole recursive content at the end
+  // of the file (or not at all, under a directory the file created).
+  const watch = (a) => {
+    const p = norm(a[0])
+    if (p && r.on) r.watches.add(p)
+  }
+  wrap(fs, 'watch', watch)
+  wrap(fs, 'watchFile', watch)
+  wrap(P, 'watch', watch)
   try {
     nodeModule.syncBuiltinESMExports()
   } catch {}

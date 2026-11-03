@@ -288,6 +288,14 @@ for (const m of endModules) {
     const root = ctx.config.root + '/'
     const ws = d.writes.filter((w) => w.startsWith(root) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
+    // A watched path is read whole (recursively, content included) at the
+    // end of the file; under a directory the file itself created (its own
+    // output, e.g. a temp dir) it is not an input at all.
+    const made = d.writes.filter((w) => !w.startsWith(root))
+    for (const w of d.watches ?? []) {
+      if (made.some((m) => w === m || w.startsWith(m))) continue
+      d.keys.push(`rc:${w}`)
+    }
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.

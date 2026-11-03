@@ -236,6 +236,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     // Files whose only changed inputs are source files they reached as
     // modules, with the states their records saw: narrowing candidates.
     let mut maybe: Vec<(String, Vec<(u32, String)>)> = Vec::new();
+    let mut why_run: Vec<String> = Vec::new();
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
             affected.push(id.clone());
@@ -268,8 +269,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if narrowable {
             maybe.push((id.clone(), moved));
         } else {
+            // Why it runs: the first changed input that rules out narrowing.
+            let first = moved.iter().find(|(d, _)| !rec.cov.contains_key(d));
+            if let Some((d, _)) = first {
+                why_run.push(format!("{} <- {}", rec.file, ledger.keys[*d as usize]));
+            }
             affected.push(id.clone());
         }
+    }
+    for w in why_run.iter().take(12) {
+        eprintln!("quod vitest:   runs: {w}");
     }
     let mut narrowed: HashMap<String, Vec<(u32, String)>> = HashMap::new();
     let mut narrow_note = serde_json::Value::Null;
@@ -884,6 +893,7 @@ fn state(
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
         "r" => (listing(&path(), true), None),
+        "rc" => (content_tree(&path()), None),
         "f" | "pj" | "p" => {
             let mut path = path();
             if kind == "p" {
@@ -978,6 +988,53 @@ fn exists(p: &Path) -> String {
         Ok(m) if m.is_file() => "file".into(),
         Ok(_) => "other".into(),
     }
+}
+
+/// Everything under a path: names, types, link targets and file contents
+/// (a watched path; `fs.watch` sees any of it change).
+fn content_tree(p: &Path) -> String {
+    let Ok(m) = fs::symlink_metadata(p) else {
+        return "absent".into();
+    };
+    if !m.is_dir() {
+        return match fs::read(p) {
+            Ok(b) => blake3::hash(&b).to_hex().to_string(),
+            Err(_) => exists(p),
+        };
+    }
+    let mut h = blake3::Hasher::new();
+    let mut stack = vec![PathBuf::new()];
+    let mut entries = Vec::new();
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(p.join(&rel)) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let r = rel.join(e.file_name());
+            match e.file_type() {
+                Ok(t) if t.is_dir() => {
+                    entries.push((r.clone(), "d".to_string()));
+                    stack.push(r);
+                }
+                Ok(t) if t.is_symlink() => entries.push((r.clone(), exists(&p.join(&r)))),
+                Ok(t) if t.is_file() => {
+                    let c = fs::read(p.join(&r)).map_or("unreadable".into(), |b| {
+                        blake3::hash(&b).to_hex().to_string()
+                    });
+                    entries.push((r, c));
+                }
+                _ => entries.push((r, "other".into())),
+            }
+        }
+    }
+    entries.sort();
+    for (r, c) in entries {
+        h.update(r.display().to_string().as_bytes());
+        h.update(b"\0");
+        h.update(c.as_bytes());
+        h.update(b"\n");
+    }
+    h.finalize().to_hex().to_string()
 }
 
 /// A directory's names and types (recursively: every path under it).
@@ -1184,6 +1241,55 @@ mod tests {
         assert_eq!(relativize(root, "f:/tmp/x"), "f:/tmp/x");
         assert_eq!(relativize(root, "env:HOME"), "env:HOME");
         assert_eq!(relativize(root, "envall:"), "envall:");
+    }
+
+    #[test]
+    fn absorb_counts_a_resolver_package_json_as_covered() {
+        // The tools read package.json field-level (`pj:`); the observer
+        // sees the same file read: not a new whole-file shared input.
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let dir = root.join(".quod/vitest");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(root.join("package.json"), r#"{"name":"x","version":"1"}"#).unwrap();
+        fs::write(root.join("other.json"), "{}").unwrap();
+        let l = Ledger {
+            version: LEDGER_VERSION,
+            keys: vec!["pj:package.json".into()],
+            states: vec![String::new()],
+            idents: vec![None],
+            global: vec![0],
+            ..Ledger::default()
+        };
+        fs::write(dir.join("ledger.json"), serde_json::to_vec(&l).unwrap()).unwrap();
+        let m = dir.join("m.json");
+        fs::write(
+            &m,
+            r#"manifest b3:x
+{"entries":[{"p":"package.json","k":"f"},{"p":"other.json","k":"f"}]}"#,
+        )
+        .unwrap();
+        absorb(root, &dir, &dir.join("code"), &m).unwrap();
+        let l: Ledger =
+            serde_json::from_slice(&fs::read(dir.join("ledger.json")).unwrap()).unwrap();
+        let keys: Vec<&str> = l
+            .global
+            .iter()
+            .map(|k| l.keys[*k as usize].as_str())
+            .collect();
+        assert_eq!(keys, ["pj:package.json", "f:other.json"]);
+    }
+
+    #[test]
+    fn a_watched_tree_is_keyed_by_content() {
+        let t = tempfile::tempdir().unwrap();
+        let d = t.path().join("w");
+        fs::create_dir_all(d.join("sub")).unwrap();
+        fs::write(d.join("sub/a"), "1").unwrap();
+        let before = content_tree(&d);
+        fs::write(d.join("sub/a"), "2").unwrap();
+        assert_ne!(content_tree(&d), before);
+        assert_eq!(content_tree(&t.path().join("none")), "absent");
     }
 
     #[test]

@@ -124,6 +124,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         modules,
         keys: [...r.keys],
         writes: [...r.writes],
+        watches: [...r.watches],
         unobservable: [...r.unobservable],
         hits,
         tests: hits && !concurrent ? tests : null,
