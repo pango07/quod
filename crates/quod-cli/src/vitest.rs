@@ -1667,11 +1667,14 @@ fn state(
 /// test with a 5 s timeout timed out (class-management, turbo with five
 /// vitest suites at once). Not when QUOD_VITEST_ALL_CPUS=0 either.
 fn alone() -> bool {
-    let set = |k: &str| std::env::var_os(k).is_some();
+    const RUNNERS: [&str; 4] = [
+        "TURBO_HASH",
+        "NX_TASK_HASH",
+        "NX_TASK_TARGET_PROJECT",
+        "LERNA_PACKAGE_NAME",
+    ];
     std::env::var("QUOD_VITEST_ALL_CPUS").map_or(true, |v| v != "0")
-        && !["TURBO_HASH", "NX_TASK_HASH", "NX_TASK_TARGET_PROJECT", "LERNA_PACKAGE_NAME"]
-            .iter()
-            .any(|k| set(k))
+        && RUNNERS.iter().all(|k| std::env::var_os(k).is_none())
 }
 
 /// An installed package's entry in the npm lockfile of the workspace it is
