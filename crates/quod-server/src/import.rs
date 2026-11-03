@@ -262,7 +262,7 @@ fn import_blobs(cas_dir: &Path, blobs: &S3Blobs) -> anyhow::Result<(u64, u64, Ve
                     drop(g);
                     crate::warmup::BLOBS_DONE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    if d % 1000 == 0 {
+                    if d.is_multiple_of(1000) {
                         tracing::info!(target: "quod", done = d, of = total, "blobs imported");
                     }
                 }
