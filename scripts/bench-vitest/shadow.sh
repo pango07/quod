@@ -126,7 +126,7 @@ for i in "${!commits[@]}"; do
       plain_ms: +p_ms, plain_exit: +p_rc, crit_ms: +q_ms, crit_exit: +q_rc, ledger_from: +from,
       shadow_ms: +sh_ms, shadow_exit: +sh_rc, observe_ms: +obs_ms, install_ms: +install_ms, ledger_bytes: +bytes,
       ran: s.ran, replayed: s.replayed, narrowed: s.narrowed, shared_changed: s.shared_inputs_changed,
-      shared_changed_keys: s.shared_changed_keys, select_ms: s.select_ms, driver: s.driver,
+      shared_changed_keys: s.shared_changed_keys, select_ms: s.select_ms, vitest_ms: s.vitest_ms, driver: s.driver,
       shadow_ran: h.ran, shadow_replayed: h.replayed, audited: h.audited, audit_mismatches: h.audit_mismatches,
       unrecordable: h.unrecordable, record_ms: h.record_ms, shadow_driver: h.driver,
       files: a.files, wrong: a.wrong ?? null, flaky: a.flaky ?? null, compare_error: a.error,
@@ -138,7 +138,9 @@ for i in "${!commits[@]}"; do
   # failures as plain vitest. The critical path never records, so restoring
   # the tree is all the clean-up there is.
   if [[ " ${MUTATE:-4 9 14 19} " == *" $i "* ]]; then
-    target=$(node "$here/mutate-pick.mjs" "$snaps/$i/ledger.json" "$i" 2>/dev/null)
+    cp "$snaps/$i/ledger.json" "$out/logs/ledger-$i.json"
+    target=$(node "$here/mutate-pick.mjs" "$snaps/$i/ledger.json" "$i" 2>"$out/logs/mutate-pick-$i.log")
+    [ -n "$target" ] || echo "mutation check at $i: no target ($(tail -1 "$out/logs/mutate-pick-$i.log"))"
     if [ -n "$target" ]; then
       mfile=${target% *}; mline=${target##* }
       what=$(node "$proj/node_modules/.quod-vitest/narrow.mjs" mutate "$mfile" "$mline" 2>&1)
