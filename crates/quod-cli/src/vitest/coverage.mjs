@@ -13,6 +13,8 @@
 // Result: { "<abs file>": [[startLine, startCol, endLine, endCol], ...] },
 // 0-based, the end being the function's last character.
 
+import path from 'node:path'
+
 const B64 = new Map([...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'].map((c, i) => [c, i]))
 
 function decodeMappings(mappings) {
@@ -54,16 +56,29 @@ function decodeMappings(mappings) {
 
 const MAP_RE = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,([A-Za-z0-9+/=]+)\s*$/
 
-function inlineMap(code) {
+// The module's inline map, and which of its sources is the file itself (a
+// map may list more: a plugin's helper, a virtual module); positions that
+// map to another source count as unmapped.
+function inlineMap(code, file) {
   const m = MAP_RE.exec(code)
-  if (!m) return null
+  if (!m) return { why: 'no inline map' }
   try {
     const map = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'))
-    if (!Array.isArray(map.sources) || map.sources.length !== 1) return null
+    if (!Array.isArray(map.sources) || !map.sources.length) return { why: 'a map without sources' }
+    let src = 0
+    if (map.sources.length > 1) {
+      const dir = path.dirname(file)
+      const root = map.sourceRoot ?? ''
+      const hits = map.sources
+        .map((x, i) => [i, x == null ? '' : x.startsWith('file://') ? x.slice(7) : x])
+        .filter(([, x]) => path.resolve(dir, root, x) === file || x === file)
+      if (hits.length !== 1) return { why: 'a map with several sources, none (or several) the file' }
+      src = hits[0][0]
+    }
     const decoded = decodeMappings(map.mappings ?? '')
-    return decoded ? { lines: decoded } : null
+    return decoded ? { lines: decoded, src } : { why: 'unreadable mappings' }
   } catch {
-    return null
+    return { why: 'unreadable map' }
   }
 }
 
@@ -89,7 +104,7 @@ function original(map, starts, offset) {
     if (s[0] <= col) best = s
     else break
   }
-  if (!best || best.length < 4 || best[1] !== 0) return null
+  if (!best || best.length < 4 || best[1] !== map.src) return null
   return [best[2], best[3]]
 }
 
@@ -127,9 +142,9 @@ export function executedFunctions(scripts, em, root) {
       miss('script is not the module runner wrapper around its code')
       continue
     }
-    const map = inlineMap(code)
-    if (!map) {
-      miss('no single-source inline map')
+    const map = inlineMap(code, file)
+    if (!map.lines) {
+      miss(map.why)
       continue
     }
     const starts = lineStarts(code)
