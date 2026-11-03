@@ -2320,7 +2320,9 @@ fn top_fields(b: &[u8]) -> Option<Vec<(String, &[u8])>> {
                 None
             }
             _ => {
-                while i < b.len() && !matches!(b[i], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r') {
+                while i < b.len()
+                    && !matches!(b[i], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r')
+                {
                     i += 1;
                 }
                 Some(i)
@@ -2676,19 +2678,46 @@ mod tests {
             pj_fields(&p, fields)
         };
         let deps = r#"["dependencies"]"#;
-        let a = st(r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"}}"#, deps);
+        let a = st(
+            r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"}}"#,
+            deps,
+        );
         // another version, other whitespace outside the field: the same
         assert_eq!(
             a,
-            st("{ \"name\": \"x\", \"version\": \"2\",\n \"dependencies\":{\"a\":\"1\",\"b\":\"2\"} }", deps)
+            st(
+                "{ \"name\": \"x\", \"version\": \"2\",\n \"dependencies\":{\"a\":\"1\",\"b\":\"2\"} }",
+                deps
+            )
         );
         // a field read changes, its order changes, a name is added: not
-        assert_ne!(a, st(r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"3"}}"#, deps));
-        assert_ne!(a, st(r#"{"name":"x","version":"1","dependencies":{"b":"2","a":"1"}}"#, deps));
-        assert_ne!(a, st(r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"},"c":1}"#, deps));
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"3"}}"#,
+                deps
+            )
+        );
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"b":"2","a":"1"}}"#,
+                deps
+            )
+        );
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"},"c":1}"#,
+                deps
+            )
+        );
         // not an object: the bytes
         assert_ne!(a, st("[1]", deps));
-        assert_eq!(st("{ broken", deps), blake3::hash(b"{ broken").to_hex().to_string());
+        assert_eq!(
+            st("{ broken", deps),
+            blake3::hash(b"{ broken").to_hex().to_string()
+        );
         fs::remove_file(&p).unwrap();
         assert_eq!(pj_fields(&p, deps), "absent");
         assert_eq!(
