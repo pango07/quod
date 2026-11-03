@@ -170,17 +170,71 @@ the module runner's `evaluatedModules` and the worker's `onCleanup`); vitest
 3.1 projects were not recordable (ufo's older commits). Node with
 `module.registerHooks` (22.15+, 23.5+).
 
+## npm workspaces and the CI environment (exp/vitest-npm)
+
+These rules came from the first customer, a turbo monorepo on npm workspaces
+(pango07/class-management). There, each package runs vitest from its own
+directory, and node_modules is hoisted to the repository root.
+
+- **Workspace links.** A path under node_modules whose package root is a
+  link to a directory outside every node_modules is a workspace package. A
+  read through the link is keyed at the real path, plus the link (`e:`).
+  Before, such a read was keyed as `p:`, which hashes only that package's
+  package.json, so a change to the source behind the link went unseen. This
+  was true for pnpm workspaces too.
+- **npm's layout.** `node_modules/<name>` names no version. An npm package's
+  `p:` state adds its entry in the workspace's package-lock.json (version,
+  resolved, integrity), so a git or tarball dependency that moves without a
+  version bump counts.
+  - The driver goes in the nearest node_modules up to the repository, and is
+    written atomically, because the packages run at once.
+  - A write anywhere in the repository (a sibling package) makes a file
+    unrecordable.
+- **CI-provider variables.** `GITHUB_*`, `RUNNER_*`, `ACTIONS_*` and turbo's
+  `TURBO_HASH` count only where code other than the tools reads them.
+  - Tool code is vite, vitest, rolldown and the helpers they read the
+    environment through: std-env, obug, debug, tinyexec and the colour
+    helpers. A read counts as the tools' only when every frame on the stack
+    outside Quod and node is in one of those. A test reading
+    `import.meta.env.X` goes through vitest's getter, and its own frame keeps
+    the read keyed.
+  - The tools' copy of the whole environment to the workers (`envtool:`) is
+    keyed on what node and the tools behave on: `NODE_*`, `VITE*`, `CI`,
+    `TEST`, `TZ`, `LANG`, `LC_*`, `DEBUG*`, colour and terminal variables,
+    `PATH`, `HOME` and `TMPDIR`. Without this, the runner image's own
+    variables (`ImageVersion`, tool paths) made every VM a full run.
+  - So a push's recording replays on a pull request. Test:
+    `a_branch_variable_counts_only_for_the_test_that_reads_it`.
+  - `SYSTEMD_EXEC_PID` and `JOURNAL_STREAM` (the runner service's) are not
+    inputs.
+- **`--report FILE`** writes each test's state in the shape of vitest's JSON
+  report, whatever the run's reporters are. The critical path can then hand
+  the shadow its `--expect-report` without adding a reporter to the user's
+  run.
+  - A shadow's audit is verified against its own record. Before, an audited
+    file that matched was dropped from the ledger, because the report has it
+    only as a replay.
+- **Every CPU for large runs** is off under a task runner (`TURBO_HASH`,
+  `NX_TASK_*`, `LERNA_PACKAGE_NAME`) and with `QUOD_VITEST_ALL_CPUS=0`.
+  turbo's five concurrent suites oversubscribed the runner, and a test with
+  a 5 s timeout timed out.
+
+The customer-facing setup is pango07/quod-action. Its README is the "Add
+Quod to your CI" page.
+
 ## Residual risks
 
 1. Inputs read before Quod's setup file runs in a worker that are neither
    modules of the graph nor in vitest's or the environment's package
    closure (the environment's own native reads). The observer backstop
    covers these when it ran.
-2. pnpm's store paths name versions; a non-pnpm layout that patches a
-   package in place without changing its package.json is not seen.
+2. pnpm's store paths name versions, and npm's lockfile entry is part of a
+   package's state. A package patched in place without changing either is
+   not seen.
 3. Environment reads in a worker before Quod's setup file (vitest's own)
-   are not per-file; the main process's enumeration keys all of the
-   environment (but per-run CI variables) for every file anyway.
+   are not per-file. The main process's copy of the environment keys what
+   node and the tools behave on for every file. A variable outside that set
+   which changes a pool's behaviour before the setup file is not seen.
 4. A test that depends on another test file's side effects (a shared temp
    file outside the workspace): isolation makes in-memory sharing
    impossible; files are caught by audits.

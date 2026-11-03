@@ -60,6 +60,9 @@ const STEP_VOLATILE: &[&str] = &[
     "GITHUB_STEP_SUMMARY",
     "OLDPWD",
     "_",
+    // systemd's, for the runner service: another value on every VM.
+    "SYSTEMD_EXEC_PID",
+    "JOURNAL_STREAM",
 ];
 
 #[derive(clap::Args)]
@@ -109,6 +112,14 @@ pub struct VitestArgs {
     /// is quarantined (it always runs).
     #[arg(long, value_name = "REPORT")]
     expect_report: Option<PathBuf>,
+    /// Write every test's name and state, per file, to FILE in the form of
+    /// vitest's JSON report (`testResults[].assertionResults[]`), whatever
+    /// reporters the run uses: the critical path's report for a shadow's
+    /// `--expect-report`, without adding a reporter to the user's run. A
+    /// rendered full replay writes it with no files (the shadow then runs
+    /// none either).
+    #[arg(long, value_name = "FILE")]
+    report: Option<PathBuf>,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -271,12 +282,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     // The driver and the setup file go where node loads them natively and
-    // vite leaves them alone: the project's node_modules.
-    let code = if root.join("node_modules").is_dir() {
-        root.join("node_modules/.quod-vitest")
-    } else {
-        dir.join("code")
-    };
+    // vite leaves them alone: the project's node_modules, or in a workspace
+    // whose packages have none of their own (npm hoists), the nearest one up.
+    let repo = root.ancestors().find(|d| d.join(".git").exists());
+    let code = root
+        .ancestors()
+        .take_while(|d| repo.is_none_or(|r| d.starts_with(r)))
+        .take(if repo.is_some() { usize::MAX } else { 1 })
+        .map(|d| d.join("node_modules"))
+        .find(|d| d.is_dir())
+        .map_or_else(|| dir.join("code"), |d| d.join(".quod-vitest"));
     fs::create_dir_all(&code)?;
     for (name, body) in [
         ("driver.mjs", DRIVER),
@@ -288,7 +303,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     ] {
         let p = code.join(name);
         if fs::read_to_string(&p).ok().as_deref() != Some(body) {
-            fs::write(&p, body)?;
+            // Atomically: the packages of a workspace may run at once and
+            // share this directory.
+            let tmp = code.join(format!("{name}.{}.tmp", std::process::id()));
+            fs::write(&tmp, body)?;
+            fs::rename(&tmp, &p)?;
         }
     }
     let code_dir = code.clone();
@@ -579,8 +598,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
-        "workers": if affected.len() > 4 * workers { serde_json::json!(workers) } else { serde_json::Value::Null },
+        "workers": if affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
+        "report": a.report.as_ref().map(std::path::absolute).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
@@ -631,6 +651,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     "quod vitest: every file replays; emitted the recorded full replay (no vitest start) in {} ms",
                     t.as_millis()
                 );
+                if let Some(r) = &a.report {
+                    fs::write(r, br#"{"testResults":[]}"#)?;
+                }
                 let ids: Vec<&String> = ledger.files.keys().collect();
                 let n_ids = ids.len();
                 fs::write(
@@ -1713,13 +1736,19 @@ fn state(
             }),
             None,
         ),
-        "envall" => (envall.get_or_init(env_all).clone(), None),
+        "envall" => (envall.get_or_init(|| env_all(false)).clone(), None),
+        "envtool" => (env_all(true), None),
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
         "r" => (listing(&path(), true), None),
         "rc" => (content_tree(&path()), None),
         "f" | "pj" | "p" => {
             let mut path = path();
+            // npm's layout names no version in a package's path: what the
+            // lockfile says was installed there (version, source, integrity)
+            // joins its package.json, so a git or tarball dependency that
+            // moved without a version bump counts too.
+            let lock = if kind == "p" { npm_locked(&path) } else { None };
             if kind == "p" {
                 path.push("package.json");
             }
@@ -1736,6 +1765,7 @@ fn state(
             if let Some((cid, cs)) = cached
                 && cid == id
                 && !cs.is_empty()
+                && cs.split_once('+').map(|x| x.1) == lock.as_deref()
             {
                 return (cs.to_string(), Some(id));
             }
@@ -1746,6 +1776,10 @@ fn state(
                 pj_hash(&bytes)
             } else {
                 blake3::hash(&bytes).to_hex().to_string()
+            };
+            let h = match &lock {
+                Some(l) => format!("{h}+{l}"),
+                None => h,
             };
             // Workspace source is kept by content, for function-level
             // narrowing to diff a record's version against the current one.
@@ -1765,6 +1799,69 @@ fn state(
         }
         _ => (format!("unknown kind {kind}"), None),
     }
+}
+
+/// May a large run take every CPU (vitest's default leaves one)? Not when a
+/// task runner (turbo, nx, lerna) may be running other packages' suites at
+/// the same time: on a monorepo's CI that oversubscribed the runner and a
+/// test with a 5 s timeout timed out (class-management, turbo with five
+/// vitest suites at once). Not when QUOD_VITEST_ALL_CPUS=0 either.
+fn alone() -> bool {
+    let set = |k: &str| std::env::var_os(k).is_some();
+    std::env::var("QUOD_VITEST_ALL_CPUS").map_or(true, |v| v != "0")
+        && !["TURBO_HASH", "NX_TASK_HASH", "NX_TASK_TARGET_PROJECT", "LERNA_PACKAGE_NAME"]
+            .iter()
+            .any(|k| set(k))
+}
+
+/// An installed package's entry in the npm lockfile of the workspace it is
+/// in (the nearest package-lock.json or npm-shrinkwrap.json up from it, by
+/// its path from there): a digest of its version, `resolved` and
+/// `integrity`, or `unlisted`. None when no npm lockfile is found (pnpm and
+/// yarn name versions in the path or need none).
+fn npm_locked(pkg: &Path) -> Option<String> {
+    type Locks = std::sync::Mutex<HashMap<PathBuf, Option<std::sync::Arc<serde_json::Value>>>>;
+    static LOCKS: std::sync::OnceLock<Locks> = std::sync::OnceLock::new();
+    let mut found = None;
+    for d in pkg.ancestors().skip(1) {
+        if let Some(f) = ["npm-shrinkwrap.json", "package-lock.json"]
+            .iter()
+            .map(|n| d.join(n))
+            .find(|f| f.is_file())
+        {
+            found = Some((d, f));
+            break;
+        }
+        if d.join(".git").exists() {
+            break;
+        }
+    }
+    let (base, file) = found?;
+    let rel = pkg.strip_prefix(base).ok()?.to_str()?.to_string();
+    let lock = {
+        let mut m = LOCKS.get_or_init(Default::default).lock().ok()?;
+        m.entry(file.clone())
+            .or_insert_with(|| {
+                fs::read(&file)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+                    .map(std::sync::Arc::new)
+            })
+            .clone()
+    };
+    let Some(lock) = lock else {
+        return Some("unreadable".into());
+    };
+    let e = &lock["packages"][rel.as_str()];
+    if e.is_null() {
+        return Some("unlisted".into());
+    }
+    let mut h = blake3::Hasher::new();
+    for f in ["version", "resolved", "integrity"] {
+        h.update(e[f].as_str().unwrap_or("").as_bytes());
+        h.update(b"\0");
+    }
+    Some(h.finalize().to_hex()[..16].to_string())
 }
 
 fn is_source(p: &str) -> bool {
@@ -1969,8 +2066,9 @@ fn keyed_args(args: &[String]) -> Vec<String> {
     out
 }
 
-/// Every environment variable but the per-run and per-step ones.
-fn env_all() -> String {
+/// Every environment variable but the per-run and per-step ones; for the
+/// tools' own enumeration (`envtool:`), those of them `tool_env` names.
+fn env_all(tools: bool) -> String {
     let mut vars: Vec<(String, String)> = std::env::vars_os()
         .map(|(k, v)| {
             (
@@ -1978,7 +2076,7 @@ fn env_all() -> String {
                 v.to_string_lossy().into_owned(),
             )
         })
-        .filter(|(k, _)| !volatile_env(k))
+        .filter(|(k, _)| !volatile_env(k) && (!tools || tool_env(k)))
         .collect();
     vars.sort();
     let mut h = blake3::Hasher::new();
@@ -1989,6 +2087,31 @@ fn env_all() -> String {
         h.update(b"\0");
     }
     h.finalize().to_hex().to_string()
+}
+
+/// The variables node, vite and vitest change their own behaviour on, the
+/// part of the environment the tools' copy to the workers (`envtool:`) is
+/// keyed on. The rest of a runner's environment (the CI provider's, the
+/// image's tool paths and versions: another value on another VM) counts only
+/// where some code other than the tools reads it: then it is an `env:` key.
+fn tool_env(name: &str) -> bool {
+    ["NODE_", "VITE", "LC_", "DEBUG", "UV_"]
+        .iter()
+        .any(|p| name.starts_with(p))
+        || [
+            "CI",
+            "TEST",
+            "TZ",
+            "LANG",
+            "LANGUAGE",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+            "TMPDIR",
+            "HOME",
+            "PATH",
+        ]
+        .contains(&name)
 }
 
 /// A per-run or per-step CI variable, or Quod's own.
@@ -2389,6 +2512,61 @@ mod tests {
         ));
         assert!(!installed("f:src/index.ts"));
         assert!(!installed("envall"));
+    }
+
+    #[test]
+    fn an_npm_package_counts_its_lockfile_entry() {
+        // npm hoists: node_modules/<name> names no version, and a git or
+        // tarball dependency can change without its package.json changing.
+        // The lockfile's entry (by the path from the workspace root, nested
+        // ones included) joins the state; same package.json, other source:
+        // another state. (A fresh root each time: lockfiles are parsed once
+        // per process.)
+        let lock = |resolved: &str| {
+            format!(
+                r#"{{"packages":{{"node_modules/g":{{"version":"1.0.0","resolved":"{resolved}"}},
+"packages/a/node_modules/g":{{"version":"2.0.0"}}}}}}"#
+            )
+        };
+        let st = |resolved: &str, key: &str| {
+            let t = tempfile::tempdir().unwrap();
+            let r = t.path();
+            fs::create_dir(r.join(".git")).unwrap();
+            fs::write(r.join("package-lock.json"), lock(resolved)).unwrap();
+            let pj = r#"{"name":"g","version":"1.0.0"}"#;
+            for d in ["node_modules/g", "packages/a/node_modules/g"] {
+                fs::create_dir_all(r.join(d)).unwrap();
+                fs::write(r.join(d).join("package.json"), pj).unwrap();
+            }
+            fs::create_dir_all(r.join("packages/a/node_modules/h")).unwrap();
+            fs::write(r.join("packages/a/node_modules/h/package.json"), pj).unwrap();
+            let pkg_root = r.join("packages/a");
+            let key = if key.starts_with("p:/") {
+                key.replace("p:/", &format!("p:{}/", r.display()))
+            } else {
+                key.to_string()
+            };
+            state(&pkg_root, &key, None, 0, &std::sync::OnceLock::new(), None).0
+        };
+        let a = st("git+ssh://x/g.git#aaaa", "p:/node_modules/g");
+        let b = st("git+ssh://x/g.git#bbbb", "p:/node_modules/g");
+        assert!(a.contains('+'), "{a}");
+        assert_ne!(a, b);
+        assert_eq!(a.split('+').next(), b.split('+').next());
+        // nested, relative to the package that runs vitest
+        let n1 = st("x", "p:node_modules/g");
+        let n2 = st("y", "p:node_modules/g");
+        assert_eq!(n1, n2);
+        assert!(n1.contains('+'));
+        assert!(st("x", "p:node_modules/h").ends_with("+unlisted"));
+        // no npm lockfile (pnpm): the package.json alone, as before
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir(t.path().join(".git")).unwrap();
+        fs::create_dir_all(t.path().join("node_modules/g")).unwrap();
+        fs::write(t.path().join("node_modules/g/package.json"), "{}").unwrap();
+        let none = std::sync::OnceLock::new();
+        let s = state(t.path(), "p:node_modules/g", None, 0, &none, None).0;
+        assert_eq!(s, blake3::hash(b"{}").to_hex().to_string());
     }
 
     #[test]
