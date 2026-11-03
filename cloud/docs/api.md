@@ -260,8 +260,14 @@ dashboard (`contract.test.ts`). "Dashboard" means fixed on this side;
 
 ## Server changes needed
 
-For quod-server (not done here; the Rust branch is unchanged). In order of
-what blocks what.
+For quod-server. In order of what blocks what. Served on
+`exp/cloud-ledger-v2` (docs/cloud-ledger.md, "The dashboard's read API"):
+1 and 2 (WorkOS viewers, teams by `workos_org_id`; the membership fallback
+needs `WORKOS_API_KEY`), 4, 5 (`runId`, `runAttempt`; paths still name the
+run number), 6, 8's `defaultBranch` (from the teams config), 9 (as
+`trustedWrites`, an array per repo, plus `writerTrustWarning`), 11. Not yet:
+3, 7, 8's `language` and `runner`. The recorded answers in
+`lib/api/contract/quod-server/` predate these fields; record them again.
 
 1. **Viewer auth with WorkOS access tokens** (P5 in docs/cloud-ledger.md).
    A bearer that is a JWT and not a configured static token, on a dashboard
@@ -377,8 +383,10 @@ When quod-server is deployed:
    Contents: read, which the App does not have); a change these events do
    not report (an organization ruleset, when the App cannot receive the
    organization's events) shows within 6 hours.
-4. quod-server (Railway), for WorkOS viewer auth later: `WORKOS_CLIENT_ID`
-   (not secret), `WORKOS_API_KEY` (**secret**), the issuer.
+4. quod-server (Railway): docs/cloud-ledger.md, "Go-live on Railway". For
+   WorkOS viewer auth: `WORKOS_CLIENT_ID` (not secret), optionally
+   `WORKOS_API_KEY` (**secret**, the membership fallback) and
+   `WORKOS_ISSUER`; then set `QUOD_SERVER_VIEWER_AUTH=workos` here.
 
 To try it locally against the recorded answers, without a server:
 

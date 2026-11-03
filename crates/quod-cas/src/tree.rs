@@ -202,6 +202,16 @@ impl Tree {
         Tree { entries }
     }
 
+    /// A tree from its entries exactly as given, every directory's listing
+    /// included (another tree's `iter`): what crosses the wire. Nothing is
+    /// recomputed, so a caller that passes an inconsistent set gets a tree
+    /// that says what it passed; `matches` only reads entries by path.
+    pub fn from_entries(entries: impl IntoIterator<Item = Entry>) -> Tree {
+        Tree {
+            entries: entries.into_iter().map(|e| (e.p.clone(), e)).collect(),
+        }
+    }
+
     pub fn get(&self, path: &str) -> Option<&Entry> {
         self.entries.get(path)
     }

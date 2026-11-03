@@ -21,6 +21,27 @@ quod-ledger = { path = "crates/quod-ledger" }
 quod-replay = { path = "crates/quod-replay" }
 quod-trust = { path = "crates/quod-trust" }
 quod-hooks = { path = "crates/quod-hooks" }
+quod-wire = { path = "crates/quod-wire" }
+quod-server = { path = "crates/quod-server" }
+
+# quod.v1 (quod-wire, quod-server). Pinned at majors whose APIs the code is
+# written against; see DECISIONS.md (exp/cloud-ledger).
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "query", "tokio"] }
+ed25519-dalek = "2.2"
+getrandom = "0.2"
+hex = "0.4"
+jsonwebtoken = "9.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "sync", "signal", "fs", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio-util = { version = "0.7", default-features = false, features = ["io"] }
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+# quod-server's own accept loop: hyper's header-read timeout needs a timer,
+# which axum::serve does not set (DECISIONS, exp/cloud-ledger-v2 review).
+hyper = { version = "1", default-features = false, features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", default-features = false, features = ["server", "server-auto", "tokio", "service", "http1", "http2"] }
+tower-service = "0.3"
+# statvfs for the volume's free-space floor, without unsafe code.
+rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 
 anyhow = "1"
 blake3 = "1.8"

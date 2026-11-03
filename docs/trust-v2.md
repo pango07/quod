@@ -223,6 +223,9 @@ Three places were considered.
   everything a remote executor needs (the tree digest, the request), so
   this is a transport question, not a model question. It needs the store
   shared or shipped, and a shared ledger (exp/cloud-ledger-v2). Not now.
+  With a shared ledger (exp/cloud-ledger-v3), a runner that talks to a
+  Quod server audits every audit inline: the server never defers
+  (docs/cloud-ledger.md, "Deferred audits and remote runners").
 
 **Chosen: a detached worker on the same machine, at idle priority, started
 by the run that served the deferred replay, and runnable by hand or by a
