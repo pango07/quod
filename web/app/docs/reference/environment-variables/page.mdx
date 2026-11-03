@@ -1,0 +1,68 @@
+export const metadata = {
+  title: "Environment variables",
+  description: "Environment variables that turn Quod off, force full runs, and tune quarantine, CPU use and Quod Cloud.",
+};
+
+# Environment variables
+
+Set these in your workflow's or job's `env`. Only variables listed here are supported. Quod reads others internally, and those may change without notice.
+
+```yaml title=".github/workflows/ci.yml"
+jobs:
+  test:
+    env:
+      QUOD_VITEST_FULL: 1
+```
+
+<Tip>
+  turbo's strict environment mode drops variables it doesn't know before a task starts. If you run tests through turbo, add the `QUOD_VITEST_*` variables you set to `globalPassThroughEnv` in `turbo.json`. `QUOD_DISABLE` doesn't need this, because the action itself reads it.
+</Tip>
+
+## Turning Quod on and off
+
+### `QUOD_DISABLE`
+
+`QUOD_DISABLE=1` turns Quod off for the job. The action installs nothing, and every `vitest run` is plain vitest. Leave the action line in place and set this to switch Quod off temporarily.
+
+### `QUOD_VITEST_FULL`
+
+`QUOD_VITEST_FULL=1` runs every test file, with nothing replayed. It's the same as [`--full`](/docs/reference/cli#--full). In the shadow job, every file is also recorded again.
+
+## Trust
+
+### `QUOD_VITEST_REPROVE`
+
+How many recordings in a row must match before a quarantined file may replay again. The default is `3`, and the value must be a positive integer.
+
+A file is quarantined when an audit finds a different result, or when recording changed its behaviour.
+
+### `QUOD_VITEST_CLOUD_FALLBACK` <Badge>Coming soon</Badge>
+
+`QUOD_VITEST_CLOUD_FALLBACK=1`: when Quod Cloud gives a job no ledger (the server is unreachable, a download fails, or nothing is recorded yet), use the local copy from the Actions cache instead of starting with no ledger.
+
+It's off by default, because a local ledger isn't signed for this job. Turn it on only if you already trusted your Actions cache before using Quod Cloud. It ships in the next Quod release.
+
+## Performance
+
+### `QUOD_VITEST_ALL_CPUS`
+
+When many files must run, Quod lets vitest use every CPU (vitest's default leaves one free). It doesn't do this under a task runner (turbo, nx or lerna), where several suites may run at once. Set `QUOD_VITEST_ALL_CPUS=0` to never use every CPU.
+
+### `QUOD_VITEST_NO_FAST`
+
+When every file replays, Quod prints the recorded full run without starting vitest at all. `QUOD_VITEST_NO_FAST=1` always starts vitest instead. It's the same as [`--no-fast`](/docs/reference/cli#--no-fast).
+
+## Quod Cloud
+
+You don't need these with the GitHub Action, which sets them from its inputs. They're for running [`quod vitest --cloud`](/docs/reference/cli#--cloud) yourself.
+
+| Variable | Description |
+| --- | --- |
+| `QUOD_SERVER` | The server URL, when `--cloud` is given without one. |
+| `QUOD_SERVER_KEY` | Pins the Ed25519 public key the server's answers are signed with. |
+| `QUOD_SERVER_TOKEN` | A server token, when the job has no GitHub OIDC token. |
+| `QUOD_VITEST_SUITE` | The suite's name in Quod Cloud. It's the same as [`--suite`](/docs/reference/cli#--suite-name). |
+
+<Note>
+  Quod keeps credentials such as `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and `QUOD_SERVER_TOKEN` away from vitest. Your tests and recorded results never see them, and Quod refuses to upload a ledger that contains one.
+</Note>

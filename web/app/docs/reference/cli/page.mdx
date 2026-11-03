@@ -1,0 +1,128 @@
+export const metadata = {
+  title: "quod vitest CLI",
+  description: "Reference for the quod vitest command: selection, recording, audits, reports and Quod Cloud options.",
+};
+
+# quod vitest
+
+`quod vitest` runs a vitest suite. It replays every test file whose recorded inputs are unchanged, and runs the rest. The output, reports and exit code are what a full `vitest run` gives.
+
+<Note>
+  With the GitHub Action, you never call this yourself. The action runs `quod vitest --no-record` in your test job, and `quod vitest` with recording in the shadow job. This page is for reading logs and for advanced setups.
+</Note>
+
+## Usage
+
+```bash title="terminal"
+quod vitest [options] -- [vitest arguments]
+```
+
+Everything after `--` goes to vitest. vitest's arguments are part of the key, except output-only ones like `--reporter`, `--outputFile`, `--silent` and `--color`.
+
+```bash title="terminal"
+quod vitest -- run --project unit
+```
+
+Runs the `unit` project, replaying unchanged files and recording the ones that ran.
+
+## Selection
+
+### `--full`
+
+Runs and records every test file. Nothing is replayed. Also `QUOD_VITEST_FULL=1`.
+
+```bash title="terminal"
+quod vitest --full -- run
+```
+
+### `--no-narrow`
+
+Turns off function-level narrowing. A test file whose inputs changed always runs, even if the change is in a function it never executed.
+
+### `--no-fast`
+
+When every file replays, Quod normally prints the recorded full run without starting vitest. `--no-fast` always starts vitest. Also `QUOD_VITEST_NO_FAST=1`.
+
+### `--plan FILE`
+
+Decides, before you install dependencies, whether any test file must run. It looks only at the checkout: the lockfile, `package.json` files, Node, pnpm, and the source. If nothing must run and the last recording has a full replay, it prints that replay (summary, reports and exit code) and writes `done` to `FILE`, and the job can skip the install. Otherwise it writes `run`. When in doubt, the answer is `run`.
+
+```bash title="terminal"
+quod vitest --plan .quod-plan -- run
+```
+
+<Note>
+  `--plan` supports pnpm projects only, for now.
+</Note>
+
+## Recording
+
+### `--no-record`
+
+The critical path. Quod selects the files to run, runs them as plain vitest (with no recording, coverage or audits) and replays the rest. The ledger isn't touched. A separate run of the same commit without this flag records the files that ran.
+
+### `--expect-report REPORT`
+
+For recording runs: the vitest JSON report from the critical path of the same commit. A file that ran here is recorded only if its results match the report's. Otherwise it's quarantined.
+
+### `--report FILE`
+
+Writes every test's name and state, per file, to `FILE`, in the shape of vitest's JSON report, whatever reporters the run uses. This is how the critical path hands its results to the shadow job without adding a reporter to your run.
+
+### `--audits auto|N`
+
+How many replayable files to run for real and compare per run. The default, `auto`, uses the workers that the files to run leave idle, and none when nothing runs. A number audits that many. A mismatch quarantines the file.
+
+## Output
+
+### `--summary FILE`
+
+Writes the run's numbers as JSON: files run and replayed, and timings.
+
+### `--dir DIR`
+
+Where the ledger, recorded results and driver live. The default is `.quod/vitest` under the current directory.
+
+### `--node PATH`
+
+The Node binary to run vitest with. The default is `node`.
+
+## Quod Cloud
+
+### `--cloud`
+
+`--cloud [URL]` keeps the ledger in Quod Cloud. Before the run, Quod fetches the nearest recorded ledger: from the job's commit's ancestors, else the newest on its branch, else the default branch's. After a recording run, it saves the ledger. After every run, it sends the run's report.
+
+The URL defaults to `QUOD_SERVER`. Quod authenticates with GitHub OIDC (`permissions: id-token: write`) or `QUOD_SERVER_TOKEN`. Without this flag, nothing is sent anywhere.
+
+### `--cloud-only restore|save`
+
+With `--cloud`: only fetch the ledger into `--dir` (`restore`), or only save it (`save`), and exit 0 whatever happens. Use it in a workflow that keeps its own restore and save steps.
+
+### `--cloud-no-save`
+
+With `--cloud`: don't save the ledger after this run.
+
+### `--suite NAME`
+
+With `--cloud`: the suite's name in Quod Cloud. The default is the current directory relative to the repository root (`.` at the root). Also `QUOD_VITEST_SUITE`.
+
+## Reading the log
+
+Quod writes its decisions to stderr, prefixed with `quod vitest:`.
+
+| Line | Meaning |
+| --- | --- |
+| `N recorded files: A replay, B to run; …` | The selection, before vitest starts. |
+| `runs: FILE <- KEY` | Why a file runs: the first of its inputs that changed. Shown for up to 12 files. |
+| `shared input changed: KEY` | An input of every file changed, so every recorded file runs. |
+| `N files always run: …` | Files that can't be recorded, with the reason. |
+| `every file replays; emitted the recorded full replay` | Nothing ran. vitest wasn't started. |
+| `ran N files plain, replayed M` | The critical path's result. |
+| `N matched 3 recordings in a row: ready to replay again` | A quarantined file is trusted again. |
+
+Keys start with their kind: `f:` is a file's content, and `p:` is an installed package.
+
+<Tip>
+  When every file ran and you expected replays, search the log for `shared input changed`. See [Why did every file run?](/docs/troubleshooting#why-did-every-file-run)
+</Tip>

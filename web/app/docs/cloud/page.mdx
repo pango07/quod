@@ -1,0 +1,87 @@
+export const metadata = {
+  title: "Quod Cloud",
+  description: "Connect a repository to Quod Cloud and read the Overview and Trust pages: time saved, files skipped, spot-checks and file states.",
+};
+
+# Quod Cloud
+
+Quod Cloud at [app.quodci.com](https://app.quodci.com) keeps your ledger and shows what Quod did: how much time it saved, which test files it skipped, and whether every spot-check agreed.
+
+## Connect a repository
+
+<Steps>
+
+### Create your team
+
+Sign up at [app.quodci.com](https://app.quodci.com/sign-up) with your name, email and a password, and confirm the code sent to your email. Quod is in early access, so your team may need an invitation first.
+
+### Connect GitHub
+
+Open **Connect a repository** and choose **Connect GitHub**. You need to be an admin of your Quod team. GitHub asks which repositories the Quod GitHub App can see. Back in Quod, check the details and choose **Connect to** your team.
+
+If your GitHub organization requires an owner's approval, you'll see **Request sent** until an owner approves.
+
+<Note>
+  The Quod GitHub App reads workflow runs and jobs only.
+</Note>
+
+### Add Quod to your workflow
+
+Follow the [Quickstart](/docs/quickstart). The `id-token: write` permission is how Quod Cloud recognises your jobs, so no secret or token needs to go into your repository.
+
+</Steps>
+
+Your repositories show up under **Repositories** as soon as GitHub reports them.
+
+## Overview
+
+The **Overview** page has a card for test files skipped when unchanged:
+
+| Number | What it means |
+| --- | --- |
+| **Time saved today / this week** | How long the skipped test files took when they were last recorded, added up across all workers. It's an estimate, so it's shown as "≈". |
+| **Test files skipped, last 20 checks** | Skipped files divided by all test files, over your 20 most recent test-job runs. Shadow recordings don't count. |
+| **Wrong results** | Spot-checks that found a skipped file would have given a different result. This should be 0. |
+| **Spot-checks passed, last 7 days** | Spot-checks (audits) that matched, out of all spot-checks. |
+
+Below the card, a file line such as *280 test files: 258 skipping, 17 ready, 3 always run* links to the Trust page. The **Test check time per day** chart shows, for each day (UTC), how long test jobs ran (**Ran**) and the time Quod saved (**≈ saved**).
+
+## Repository: Tests
+
+Each repository's **Tests** tab lists its test runs. Each run shows:
+
+- **Your check** or **Background recording**: the test job or the shadow job
+- **Skipped (unchanged)**: files replayed, out of the total
+- **Ran** and **Saved**
+
+## Trust
+
+The **Trust** page shows how each test file is doing.
+
+The summary shows **Wrong results**, **Time saved, 7 days**, **Skipped** (the share of test files skipped over the last 20 checks), and a bar of file states:
+
+| State | Meaning |
+| --- | --- |
+| **Learning** | Not recorded yet. It runs every time until a run on a writer branch records it. |
+| **Ready to skip** | Recorded. It'll be replayed while its inputs are unchanged. |
+| **Skipping** | Being replayed, with a count of how many times. |
+| **Always runs** | Can't be replayed, with the reason (for example, it uses the network). See [What always runs](/docs/how-it-works#what-always-runs). |
+| **Paused** | A spot-check differed. It runs every time until it's consistent again. |
+| **Recording differed** | The shadow job saw this file behave differently from your test job, so it wasn't recorded. |
+
+Filter by **Needs a look**, **Skipping**, **Ready** or **Learning**, or search by file name. Expand a suite to see each file's state, last result, skip count and time saved, and which recording it reads, such as *Reads the recording of main at 1d7e5b2*.
+
+<Tip>
+  **Needs a look** collects paused files and files whose recording differed. Those usually point at a test that depends on timing, ordering or shared state.
+</Tip>
+
+<Warning>
+  If the Trust page warns that a writer branch isn't protected, anyone who can push to it can record results every job will reuse. Turn on branch protection for it. See [Trust and audits](/docs/trust#who-can-write).
+</Warning>
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/trust" title="Trust and audits">How spot-checks and writer branches work.</Card>
+  <Card href="/docs/troubleshooting" title="Troubleshooting">When files you expected to skip ran anyway.</Card>
+</Cards>

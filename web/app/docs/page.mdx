@@ -1,0 +1,60 @@
+export const metadata = {
+  title: "Introduction",
+  description: "Quod makes CI faster and cheaper by replaying test results whose inputs did not change, and it is never wrong.",
+};
+
+# Introduction
+
+Quod makes CI faster by not re-running tests whose inputs haven't changed. When a test file and everything it depends on are the same as the last time it passed, Quod reports that result again instead of running it.
+
+## What Quod does
+
+Most commits touch a few files, yet CI runs every test on every push. Quod watches what each test file actually reads while it runs: source modules, fixtures, config, packages, environment variables. On the next run it checks those inputs. A test file runs again only if something it read has changed. The rest are **replayed**: your test command prints the same summary, writes the same JSON and JUnit reports, and exits with the same code a full run would give.
+
+You keep your workflow. Quod hooks into the `vitest run` your job already starts, whether that's through `npm test`, `npx`, `pnpm`, or `turbo`.
+
+<Note>
+  Quod works with **vitest** today. pytest and Go are experimental. See [Supported setups](/docs/supported-setups).
+</Note>
+
+## How it stays correct
+
+A replayed result is only useful if it's the result you would have got. Quod is built so that it never reports a result the tests wouldn't have produced:
+
+- **Inputs are observed, not guessed.** Each test file's dependencies come from what it actually read during a real run, not from a config file or an import scan. If Quod can't follow something a file does, such as starting a child process, using the network, or writing into the repository, that file always runs.
+- **Failures never replay.** Only a file that passed (or was skipped) can be replayed.
+- **Recording can't change a result.** A file is recorded only if its tests did exactly what they did in your un-instrumented test job.
+- **Audits run replays for real.** Quod re-runs a random sample of replayable files on idle workers and compares them test by test. A mismatch stops that file replaying.
+- **Only trusted branches write.** Pull requests read results recorded on your protected branches, but they can't write them. See [Trust and audits](/docs/trust).
+
+## Headline numbers
+
+These are benchmark results from GitHub-hosted runners: 20 consecutive commits per project. Every commit also ran plain vitest, and the two reports were compared per test.
+
+<Stats>
+  <Stat value="16.1×" label="vuejs/core: median test time 42.6 s → 4.1 s" />
+  <Stat value="6.0×" label="vuejs/router: median test time 9.1 s → 1.5 s" />
+  <Stat value="3.6×" label="vuejs/core: median whole job, install included, 42.4 s → 11.6 s" />
+  <Stat value="0" label="wrong results across every run" />
+</Stats>
+
+| Project | Plain median | Quod median | Median speedup | 20 commits, total | Wrong |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| vuejs/core | 42.6 s | 4.1 s | 16.1× | 851 s → 223 s (3.8×) | 0 |
+| vuejs/router | 9.1 s | 1.5 s | 6.0× | 183 s → 39 s (4.7×) | 0 |
+| unjs/ufo | 1.4 s | 1.0 s | 1.4× | 31 s → 18 s (1.8×) | 0 |
+
+When every file has to run, as on the first run or after a vite upgrade, the test step cost between 2.7% less and 0.5% more than plain vitest. The gain is largest on big suites where a typical commit reaches a small part of the code. Small suites that already finish in a second or two gain little.
+
+<Tip>
+  Quod speeds up the test step. If your job also spends a minute installing dependencies or type-checking, see [Make it even faster](/docs/faster) for speed-ups you can add yourself.
+</Tip>
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/quickstart" title="Quickstart">Add Quod to a GitHub Actions workflow in three small edits.</Card>
+  <Card href="/docs/how-it-works" title="How it works">Recording, replay, and the ledger that connects them.</Card>
+  <Card href="/docs/trust" title="Trust and audits">Who can write results, and how replays are checked.</Card>
+  <Card href="/docs/faster" title="Make it even faster">Optional changes that speed up the rest of your job.</Card>
+</Cards>

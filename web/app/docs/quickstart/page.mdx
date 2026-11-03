@@ -1,0 +1,274 @@
+export const metadata = {
+  title: "Quickstart",
+  description: "Add Quod to a GitHub Actions workflow: one permission, one action line and one recording job.",
+};
+
+# Quickstart
+
+Add Quod to an existing GitHub Actions workflow. Your install and test commands stay exactly as they are.
+
+## Prerequisites
+
+- A test suite on **vitest 4.x**
+- **Node 22.15 or later** (Quod uses `module.registerHooks`)
+- A **Linux x64** runner, such as `ubuntu-latest`
+- Your repository in a Quod team, with the Quod GitHub App installed on it. Quod is in early access: [join the waitlist](/#join) to get a team.
+
+## Add Quod to your workflow
+
+<Steps>
+
+### Give the test job an OIDC token
+
+Quod Cloud keeps the ledger of recorded results, and it identifies your job by its GitHub OIDC token. Add `id-token: write` to the job that runs your tests:
+
+```yaml title=".github/workflows/ci.yml"
+jobs:
+  test:
+    permissions:
+      contents: read
+      id-token: write
+```
+
+### Add the action after setup-node
+
+Add one line right after `actions/setup-node`. From then on, every one-shot `vitest run` in the job goes through Quod, however it is started.
+
+```yaml title=".github/workflows/ci.yml" {5}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - run: npm ci
+      - run: npm test
+```
+
+<Tip>
+  Pin the action to the release commit, as shown. `@v1` also works if your policy allows tags.
+</Tip>
+
+### Add the recording job
+
+The **shadow** job runs after your test job, from the same commit. It runs your test command again with recording on and saves the ledger. It's never your check: every step tolerates failure.
+
+```yaml title=".github/workflows/ci.yml"
+  quod-shadow:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+    with:
+      test: npm test
+```
+
+Set `needs:` to your test job's id and `test:` to the command your test job runs. The shadow's other inputs are listed in the [reference](/docs/reference/action#shadow-workflow-inputs).
+
+### Push
+
+Commit the workflow and push. The first run records, and the runs after that replay.
+
+</Steps>
+
+## The full workflow
+
+Here is a complete workflow for each package manager. The highlighted lines are the ones Quod adds.
+
+<Tabs items={["npm", "pnpm", "yarn", "bun"]} group="pm">
+
+```yaml title=".github/workflows/ci.yml" {10-12,19,23-30}
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - run: npm ci
+      - run: npm test
+
+  quod-shadow:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+    with:
+      test: npm test
+```
+
+```yaml title=".github/workflows/ci.yml" {10-12,20,24-33}
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  quod-shadow:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+    with:
+      cache: ''
+      install: corepack enable && pnpm install --frozen-lockfile
+      test: pnpm test
+```
+
+```yaml title=".github/workflows/ci.yml" {10-12,19,23-32}
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: yarn
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - run: yarn install --frozen-lockfile
+      - run: yarn test
+
+  quod-shadow:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+    with:
+      cache: yarn
+      install: yarn install --frozen-lockfile
+      test: yarn test
+```
+
+```yaml title=".github/workflows/ci.yml" {10-12,19,23-32}
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pango07/quod-action@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+  quod-shadow:
+    needs: test
+    permissions:
+      contents: read
+      id-token: write
+    uses: pango07/quod-action/.github/workflows/shadow.yml@0d639e9a85fde5f27f06d44811332a6f0fb6fe1e # v1
+    with:
+      cache: ''
+      install: npm install -g bun && bun install --frozen-lockfile
+      test: bun run test
+```
+
+</Tabs>
+
+<Note>
+  The shadow workflow sets up Node with `actions/setup-node` and nothing else. That's why the pnpm and bun examples install their package manager in `install:`, and turn off setup-node's cache with `cache: ''`. For pnpm, `corepack` uses the version in your `package.json`'s `packageManager` field.
+</Note>
+
+<Warning>
+  Quod hooks vitest whenever vitest runs under Node. The npm setup runs at our first customer, a turbo monorepo, and our benchmarks run on pnpm projects (vuejs/core and vuejs/router). The yarn and bun setups follow the same rules, but they haven't been benchmarked yet. `bun test` is Bun's own test runner, not vitest, so Quod doesn't touch it.
+</Warning>
+
+## What you'll see
+
+### The first run
+
+There's no recording yet, so every test file runs at plain vitest speed. The action's log says so:
+
+```txt
+Quod: no recording yet; every test file runs (and the shadow records them)
+```
+
+When your test job finishes, `quod-shadow` starts. It runs the same command with recording on, and records each test file whose tests did exactly what they did in your test job.
+
+### Every run after that
+
+The test job reads the newest recording, preferring your branch, then the pull request's base, then the default branch. Before vitest starts, Quod prints what it decided:
+
+```txt
+quod vitest: 280 recorded files: 274 replay, 6 to run; 3120 inputs hashed, 9 changed; selected in 140 ms
+quod vitest:   runs: src/router.spec.ts <- f:src/router.ts
+```
+
+The `runs:` lines name, for up to 12 files, the first changed input that made each one run. vitest's own summary, reports and exit code look like a full run's, with the replayed files included.
+
+<Note>
+  The numbers in that log are an example. The exact wording may change between releases.
+</Note>
+
+## Turn it off
+
+Set `QUOD_DISABLE: 1` in the job's or workflow's `env` to get plain vitest. The action line can stay where it is.
+
+```yaml title=".github/workflows/ci.yml"
+env:
+  QUOD_DISABLE: 1
+```
+
+To remove Quod completely, delete the action line and the `quod-shadow` job.
+
+## Next steps
+
+<Cards>
+  <Card href="/docs/how-it-works" title="How it works">What the test job and the shadow job each do.</Card>
+  <Card href="/docs/supported-setups" title="Supported setups">Monorepos, turbo, Convex and what always runs.</Card>
+  <Card href="/docs/faster" title="Make it even faster">Cache installs and typechecks around Quod.</Card>
+  <Card href="/docs/troubleshooting" title="Troubleshooting">Why did every file run?</Card>
+</Cards>
