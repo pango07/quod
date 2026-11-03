@@ -5,7 +5,7 @@
 
 import { CONNECT, EMPTY_TOTALS } from "./fixture-data";
 import { resolveTeamsLocally } from "./teams";
-import { ApiNotAvailableError, type Activity, type CloudApi, type ConnectSetup, type LiveEvent, type Overview, type Range, type TestRunDetail, type TestRunSummary, type TestStats } from "./types";
+import { ApiNotAvailableError, type Activity, type CloudApi, type ConnectSetup, type LiveEvent, type Overview, type Range, type TestRunDetail, type TestRunSummary, type TestStats, type TestSuite } from "./types";
 
 const now = () => new Date().toISOString();
 
@@ -92,6 +92,10 @@ export class NoQuodCloudApi implements CloudApi {
   }
 
   async getTestStats(): Promise<TestStats | null> {
+    return null;
+  }
+
+  async listTestSuites(): Promise<TestSuite[] | null> {
     return null;
   }
 

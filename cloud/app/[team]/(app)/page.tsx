@@ -4,12 +4,13 @@ import { GitHubStatusCard } from "@/components/github-status";
 import { QuodNote } from "@/components/section";
 import { RangeToggle } from "@/components/range-toggle";
 import { RepoTable } from "@/components/repo-table";
-import { TestStatsCard } from "@/components/test-runs";
+import { TestFilesLine, TestStatsCard } from "@/components/test-runs";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { hasTestActivity } from "@/lib/test-runs";
+import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { plainUi } from "@/lib/ui";
@@ -20,9 +21,23 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity, tests] = await Promise.all([api().getOverview(team.slug, range), api().getActivity(team.slug), section(api().getTestStats(team.slug))]);
+  const [ov, activity, tests, suites] = await Promise.all([
+    api().getOverview(team.slug, range),
+    api().getActivity(team.slug),
+    section(api().getTestStats(team.slug)),
+    section(api().listTestSuites(team.slug)),
+  ]);
   // Test runs: null from a server without them (404/501) or one that is down; then the card is simply not there.
   const testStats = tests.ok && hasTestActivity(tests.value) ? tests.value : null;
+  const filesLine = suites.ok ? testFilesLine(suites.value) : null;
+  // Shown whenever there are test runs, whatever the step-level data says (a team may run only `quod vitest`).
+  const testsCard = testStats ? (
+    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} />
+  ) : filesLine ? (
+    <section className="card" style={{ padding: 20 }}>
+      <TestFilesLine team={team.slug} line={filesLine} />
+    </section>
+  ) : null;
   const base = `/${team.slug}`;
 
   const github = activity.github;
@@ -34,7 +49,9 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
         {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
         {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
-        {github?.state === "linked" ? (
+        {testsCard ? <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} /> : null}
+        {testsCard}
+        {testsCard ? null : github?.state === "linked" ? (
           <section className="card">
             <EmptyState
               title="No repositories yet"
@@ -102,7 +119,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         </section>
       )}
 
-      {testStats ? <TestStatsCard team={team.slug} stats={testStats} /> : null}
+      {testsCard}
 
       <div className="split">
         <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>

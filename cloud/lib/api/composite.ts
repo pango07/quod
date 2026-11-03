@@ -31,7 +31,7 @@ import { inScope } from "@/lib/live/scope";
 import { isSlug } from "@/lib/params";
 import { TEAM_PAGES } from "@/lib/routes";
 import { NoQuodCloudApi } from "./none";
-import { buildRepoMap, IDENTITY, mapEvent, mapOverview, mapRepoDetail, mapRepoSummary, mapRunSummary, mapSearchIndex, mapStep, mapTestRun, mapTestRunDetail, mapTestStats, scopeToQuod, type RepoMap } from "./repo-map";
+import { buildRepoMap, IDENTITY, mapEvent, mapOverview, mapRepoDetail, mapRepoSummary, mapRunSummary, mapSearchIndex, mapStep, mapTestRun, mapTestRunDetail, mapTestStats, mapTestSuite, scopeToQuod, type RepoMap } from "./repo-map";
 import { ApiNotAvailableError, ApiUnavailableError } from "./types";
 import type { Activity, BranchProtection, CloudApi, GitHubLink, LiveEvent, LiveJob, LiveScope, Overview, QuodStatus, RepoDetail, RepoSummary, SearchIndex } from "./types";
 
@@ -614,9 +614,29 @@ export class CompositeCloudApi implements CloudApi {
     const map = await this.repoMap(team, c);
     CompositeCloudApi.skipIfFailed(map);
     const quodRepo = opts.repo ? map.quodSlug(opts.repo) : undefined;
-    if (quodRepo === null) return [];
+    if (quodRepo === null) {
+      // A GitHub repo that quod-server's repo list does not have: it may still
+      // have test runs (a repo that only runs `quod vitest`). Match them by full
+      // name, never by the bare slug (another owner's repo may share it).
+      const g = await this.github(c);
+      const gh = g.teamId !== null ? g.repos.find((r) => lower(r.slug) === lower(opts.repo!)) : undefined;
+      if (!gh) return [];
+      const all = await this.inner.listTestRuns(team, { limit: 200 });
+      if (!all) return null;
+      const limit = Math.min(Math.max(Math.trunc(opts.limit ?? 50), 1), 200);
+      return all.filter((r) => lower(r.repository) === lower(gh.fullName)).slice(0, limit).map((r) => mapTestRun(map, r));
+    }
     const runs = await this.inner.listTestRuns(team, { ...opts, ...(quodRepo ? { repo: quodRepo } : {}) });
     return runs ? runs.map((r) => mapTestRun(map, r)) : null;
+  }
+
+  async listTestSuites(team: string) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.listTestSuites(team);
+    const map = await this.repoMap(team, c);
+    CompositeCloudApi.skipIfFailed(map);
+    const suites = await this.inner.listTestSuites(team);
+    return suites ? suites.map((s) => mapTestSuite(map, s)) : null;
   }
 
   async getTestRun(team: string, id: string) {

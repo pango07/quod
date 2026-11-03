@@ -137,6 +137,7 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 | `GET /v1/teams/:team/test-runs` | `?repo=&limit=` (default 50, at most 200) | `{ runs: TestRunSummary[] }` newest first | in progress | repo Tests tab; hidden on 404/501 |
 | `GET /v1/teams/:team/test-runs/:id` | | `TestRunDetail` \| 404 | in progress | test run page |
 | `GET /v1/teams/:team/test-stats` | | `TestStats` | in progress | Overview's test card; hidden on 404/501 |
+| `GET /v1/teams/:team/test-suites` | | `{ suites: TestSuite[] }` | in progress | Trust (test files per suite), Overview's "test files" line; hidden on 404/501 |
 | `GET /v1/teams/:team/activity` | `?repo=` (ignored) | `Activity` (`jobs: []`, `cursor`) | yes | "Now running" with GitHub's jobs |
 | `GET /v1/teams/:team/events` | `?scope=`, `Last-Event-ID` | `text/event-stream` | yes | everything live |
 
@@ -211,6 +212,34 @@ The types are `lib/api/types.ts`; the recorded bodies in
   Pages: `/[team]/[repo]/tests` (the repo's Tests tab) and
   `/[team]/[repo]/tests/[id]` (one run; a wrong repo in the URL redirects to
   the run's own). The Overview links its recent runs there.
+  Test runs and suites carry the repo's full name (`repository`), and the
+  composite maps them to the dashboard slug by that first, so a repo that
+  quod-server's repo list does not have (one that only runs `quod vitest`)
+  still lands on its GitHub slug. Its Tests tab asks for the team's runs
+  (`limit=200`) and keeps those of that full name, never asking by bare
+  slug (another owner's repo of that name would answer).
+- **Test suites** (`TestSuite`, `TestFile` in `lib/api/types.ts`; `GET
+  /test-suites`). Per repository and vitest project dir: `repoSlug`,
+  `repository` (`owner/name`), `suite` (`.` for the root), `ledger {at, sha,
+  branch, scope}` (the recording it reads: the default branch's newest; null
+  when there is none yet), `totals {files, learning, ready, skipping, always,
+  paused, savedMs}` and `files [{file, project, state, reason, lastResult,
+  skipped, ran, durationMs, savedMs}]`, sorted paused, always, learning,
+  skipping, ready, then by path. `state` is `learning` | `ready` |
+  `skipping` | `always` | `paused`; `reason` is plain words for always,
+  paused and learning ("it failed last time", "not recorded yet");
+  `lastResult` is vitest's state at the last recording (`pass` | `skip` |
+  `fail` | null); `skipped` counts recorded runs that reused its result,
+  `ran` the times it ran and was recorded; `savedMs = skipped * durationMs`.
+  The Trust page (plain wording, the default) is test-first: one card per
+  suite ("repo · package", totals, the recording it reads), the files that
+  need a look (paused, always runs, learning) listed and the rest folded
+  under a count; step-level trust follows only when there are steps
+  (`?ui=classic` keeps the old step page). No suites but test runs: the
+  latest runs. Nothing at all: one empty state pointing at
+  `pango07/quod-action`. 404/501 is `null` (treated as no suites); down is
+  "unavailable". The Overview adds a line from the totals ("280 test files:
+  258 skipping, 17 ready, ..."). Trust refreshes on `test.run`.
 - **Connect** (`ConnectSetup`): the setup action name, runner labels,
   install command, a self-hosted server example, the first repo (or null)
   and the saved choice.
@@ -256,7 +285,7 @@ as an event.
 | `stats.updated` | repo, day, a `StatsDelta` | quod-server, as steps finish | not yet |
 | `test.run` | `repoSlug`, `run` (a `TestRunSummary`) | quod-server, when a test run's report (critical or shadow) arrives | in progress |
 
-On `test.run` the Overview and the repo's Tests tab refresh (debounced 4 s),
+On `test.run` the Overview, Trust and the repo's Tests tab refresh (debounced 4 s),
 and a test run's page refreshes when the event is its own run or the shadow
 of its commit and suite (`concernsTestRun` in `lib/test-runs.ts`). A
 `test.run` whose `run` is not a `TestRunSummary` is skipped.

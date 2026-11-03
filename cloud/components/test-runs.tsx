@@ -68,8 +68,20 @@ export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; ru
   );
 }
 
+/** "280 test files: 258 skipping, 17 ready, 3 always run" with a link to Trust, where each file's state is listed. */
+export function TestFilesLine({ team, line }: { team: string; line: string }) {
+  return (
+    <p style={{ fontSize: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+      <span>{line}</span>
+      <Link href={`/${team}/trust`} className="link-muted" style={{ fontSize: 13 }}>
+        See each file
+      </Link>
+    </p>
+  );
+}
+
 /** The Overview's test card: time saved today and this week, skips, wrong results, spot-checks, and the latest runs. */
-export function TestStatsCard({ team, stats }: { team: string; stats: TestStats }) {
+export function TestStatsCard({ team, stats, filesLine }: { team: string; stats: TestStats; filesLine?: string | null }) {
   const skipped = weekSkipped(stats);
   const wrong = stats.wrongResults;
   const recent = stats.recent.slice(0, 5);
@@ -101,6 +113,11 @@ export function TestStatsCard({ team, stats }: { team: string; stats: TestStats 
           </p>
         </div>
       </div>
+      {filesLine ? (
+        <div style={{ padding: "0 20px 12px" }}>
+          <TestFilesLine team={team} line={filesLine} />
+        </div>
+      ) : null}
       <dl className="stats sm" style={{ padding: "0 20px 16px", margin: 0 }}>
         {rows.map(([k, v, why]) => (
           <div key={k} className="card stat" title={why}>

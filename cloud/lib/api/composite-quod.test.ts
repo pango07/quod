@@ -4,6 +4,7 @@ import type { Db } from "@/lib/db/types";
 import { readCached } from "@/lib/github/protection";
 import { linkInstallation } from "@/lib/github/store";
 import { CompositeCloudApi } from "./composite";
+import { sampleTestRuns, sampleTestSuites, summaryOnly } from "./fixture-tests";
 import { answer } from "./contract/server";
 import { quodMarks } from "./github-merge";
 import { HttpCloudApi } from "./http";
@@ -165,6 +166,26 @@ describe("composite: review fixes", () => {
     expect(await cloud.listSteps("acme", { repo: "web" })).toEqual([]);
     expect(await cloud.getRun("acme", "web", 3)).toBeNull();
     expect(server.seen.filter((s) => s.includes("web"))).toEqual([]);
+  });
+
+  it("test runs of a GitHub repo quod-server's repo list does not have (only `quod vitest`) show on its Tests tab and the Overview, matched by full name", async () => {
+    // quod-server lists acme/app only; acme/web has test runs, and other/web (another owner) too.
+    const inner = http(recorded().f);
+    const run = (id: string, repository: string, repoSlug: string) => ({ ...summaryOnly(sampleTestRuns()[0]), id, repository, repoSlug });
+    const asked: (string | undefined)[] = [];
+    inner.listTestRuns = async (_t, opts = {}) => (asked.push(opts.repo), [run("a", "acme/web", "web"), run("b", "other/web", "web"), run("c", "acme/app", "app"), run("d", "acme/web", "acme-web")]);
+    inner.listTestSuites = async () => [{ ...sampleTestSuites()[0], repoSlug: "acme-web", repository: "acme/web" }];
+    const cloud = composite(inner);
+    const tab = await cloud.listTestRuns("acme", { repo: "web" });
+    expect(tab?.map((r) => [r.id, r.repoSlug])).toEqual([
+      ["a", "web"],
+      ["d", "web"],
+    ]);
+    // Never asked quod-server for the bare name "web" (other/web would answer).
+    expect(asked).toEqual([undefined]);
+    const all = await cloud.listTestRuns("acme");
+    expect(Object.fromEntries((all ?? []).filter((r) => r.id !== "b").map((r) => [r.id, r.repoSlug]))).toEqual({ a: "web", c: "App", d: "web" });
+    expect((await cloud.listTestSuites("acme"))?.[0].repoSlug).toBe("web");
   });
 
   it("a refused Quod stream holds quiet instead of ending the team's stream", async () => {

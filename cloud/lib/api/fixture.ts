@@ -45,9 +45,10 @@ import type {
   TestRunDetail,
   TestRunSummary,
   TestStats,
+  TestSuite,
   TrustState,
 } from "./types";
-import { sampleTestRuns, sampleTestStats, summaryOnly } from "./fixture-tests";
+import { sampleTestRuns, sampleTestStats, sampleTestSuites, summaryOnly } from "./fixture-tests";
 
 type RepoSeed = (typeof REPOS)[number];
 type StepSeed = RepoSeed["steps"][number];
@@ -350,6 +351,12 @@ export class FixtureCloudApi implements CloudApi {
   async getTestStats(team: string): Promise<TestStats | null> {
     await this.tick();
     return (await this.isSample(team)) ? sampleTestStats() : null;
+  }
+
+  /** The sample team's test files; every other team has none. */
+  async listTestSuites(team: string): Promise<TestSuite[] | null> {
+    await this.tick();
+    return (await this.isSample(team)) ? sampleTestSuites() : null;
   }
 
   async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {

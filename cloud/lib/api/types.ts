@@ -419,6 +419,43 @@ export interface TestStats {
   recent: TestRunSummary[];
 }
 
+/**
+ * A test suite's files and what Quod does with each (GET /test-suites): one
+ * vitest project dir of one repository, read from the newest recording of
+ * the default branch. Durations in milliseconds, like test runs.
+ */
+export type TestFileState = "learning" | "ready" | "skipping" | "always" | "paused";
+
+export interface TestFile {
+  file: string;
+  project: string;
+  state: TestFileState;
+  /** Plain words for "always", "paused" and "learning": "recording changed its behaviour", "it failed last time", "not recorded yet". */
+  reason: string | null;
+  /** vitest's state at the last recording: "pass" | "skip" | "fail", or null. */
+  lastResult: string | null;
+  /** Recorded runs that reused its result instead of running it. */
+  skipped: number;
+  /** Times it ran and was recorded. */
+  ran: number;
+  durationMs: number | null;
+  /** skipped * durationMs */
+  savedMs: number | null;
+}
+
+export interface TestSuite {
+  repoSlug: string;
+  /** owner/name */
+  repository: string;
+  /** The vitest project dir, e.g. "packages/backend", or "." for the repo root. */
+  suite: string;
+  /** The recording it reads (the default branch's newest); null: none yet. */
+  ledger: { at: string; sha: string | null; branch: string | null; scope: string } | null;
+  totals: { files: number; learning: number; ready: number; skipping: number; always: number; paused: number; savedMs: number };
+  /** Sorted: paused, always, learning, skipping, ready; then by path. */
+  files: TestFile[];
+}
+
 // ---------------------------------------------------------------- Live: what is running, and the event stream
 
 /**
@@ -551,6 +588,8 @@ export interface CloudApi {
   getTestRun(team: string, id: string): Promise<TestRunDetail | null>;
   /** The Overview's test numbers; null when the server does not serve them (nothing is shown). */
   getTestStats(team: string): Promise<TestStats | null>;
+  /** Test files per suite and what Quod does with each (Trust); null when the server does not serve them (404/501). */
+  listTestSuites(team: string): Promise<TestSuite[] | null>;
 
   /** Jobs queued or running now (optionally one repo's). */
   getActivity(team: string, opts?: { repo?: string }): Promise<Activity>;

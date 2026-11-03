@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { FixtureCloudApi } from "./fixture";
 import { HttpCloudApi, parseLiveEvent, type ServerCredentials } from "./http";
-import { mapEvent, buildRepoMap } from "./repo-map";
+import { mapEvent, buildRepoMap, mapTestRun, mapTestSuite } from "./repo-map";
 import { ApiUnavailableError, type LiveEvent } from "./types";
-import { sampleTestRuns, summaryOnly } from "./fixture-tests";
+import { sampleTestRuns, sampleTestSuites, summaryOnly } from "./fixture-tests";
 import { testRunHeadline } from "@/lib/test-runs";
 
 // Test runs (test-level replay) through the adapters: an older quod-server
@@ -98,5 +98,53 @@ describe("test runs in the sample data", () => {
     const real = new FixtureCloudApi(undefined, 0, async () => "org_real");
     expect(await real.getTestStats("quodci")).toBeNull();
     expect(await real.listTestRuns("quodci")).toBeNull();
+    expect(await real.listTestSuites("quodci")).toBeNull();
+  });
+
+  it("has test suites for Trust", async () => {
+    const suites = await api.listTestSuites("quodci");
+    expect(suites?.map((s) => [s.repoSlug, s.suite, s.totals.files])).toEqual([
+      ["web", "packages/backend", 184],
+      ["web", "packages/web", 96],
+    ]);
+  });
+});
+
+describe("test suites (Trust) over HTTP", () => {
+  const suite = sampleTestSuites(Date.parse("2026-11-02T12:00:00Z"))[0];
+
+  it("reads GET /test-suites", async () => {
+    const { api, seen } = server(() => json({ suites: [suite] }));
+    const got = await api.listTestSuites("acme");
+    expect(seen).toEqual(["/v1/teams/acme/test-suites"]);
+    expect(got?.[0].files).toHaveLength(184);
+    expect(got?.[0].totals.paused).toBe(1);
+  });
+
+  it("an older server (404) or one without it (501) gives null, not an error", async () => {
+    expect(await server(() => json({ error: "not_found", message: "no such route" }, 404)).api.listTestSuites("acme")).toBeNull();
+    expect(await server(() => json({ error: "not_implemented", message: "later" }, 501)).api.listTestSuites("acme")).toBeNull();
+  });
+
+  it("down, or a body that is not suites: 'unavailable' (the page's section card)", async () => {
+    await expect(server(() => json({ error: "internal", message: "boom" }, 500)).api.listTestSuites("acme")).rejects.toBeInstanceOf(ApiUnavailableError);
+    await expect(server(() => json({ suites: [{ repoSlug: "web" }] })).api.listTestSuites("acme")).rejects.toBeInstanceOf(ApiUnavailableError);
+  });
+});
+
+describe("test runs and suites of a repo quod-server's repo list does not have", () => {
+  // A GitHub repo that only runs `quod vitest` (pango07/ci-bench): quod-server
+  // knows it from its test runs only, maybe under another slug.
+  const map = buildRepoMap([{ slug: "app", fullName: "acme/app" }], [
+    { slug: "App", fullName: "acme/App" },
+    { slug: "ci-bench", fullName: "pango07/ci-bench" },
+  ]);
+
+  it("lands on the GitHub slug by full name", () => {
+    const run = { ...summaryOnly(critical), repoSlug: "pango07-ci-bench", repository: "pango07/ci-bench" };
+    expect(mapTestRun(map, run).repoSlug).toBe("ci-bench");
+    expect(mapTestSuite(map, { ...sampleTestSuites()[0], repoSlug: "pango07-ci-bench", repository: "pango07/ci-bench" }).repoSlug).toBe("ci-bench");
+    // Quod's own repos still map as before.
+    expect(mapTestRun(map, { ...summaryOnly(critical), repoSlug: "app", repository: "acme/app" }).repoSlug).toBe("App");
   });
 });
