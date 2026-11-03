@@ -294,3 +294,192 @@ console.log(JSON.stringify(out))
     assert!(keys.contains(&format!("f:{b}/pre/x.txt")), "{keys:?}");
     assert!(keys.contains(&format!("d:{b}/ws/src/made")), "{keys:?}");
 }
+
+/// Runs `body` (an ES module's code, after `r` is a main-process recorder
+/// with fs and env patched) in `root`; prints what it prints.
+fn main_recorder(root: &Path, body: &str) -> Option<serde_json::Value> {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return None;
+    }
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchEnv, patchFs, settledKeys }} from {record:?}
+import {{ createRequire }} from 'node:module'
+const req = createRequire(import.meta.url)
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'main' }})
+patchFs(r)
+patchEnv(r)
+{body}
+"#,
+        record = record.display().to_string(),
+    );
+    let s = root.join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node")
+        .arg(&s)
+        .current_dir(root)
+        .env("GITHUB_HEAD_REF", "feature/x")
+        .env("GITHUB_EVENT_NAME", "pull_request")
+        .env("npm_package_version", "1.2.3")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Some(serde_json::from_slice(&out.stdout).unwrap())
+}
+
+#[test]
+fn the_environment_esbuild_copies_for_its_service_is_not_every_files_input() {
+    // esbuild's JS API spawns its Go service with node's copy of the whole
+    // environment (node lists and reads every variable). That copy keys
+    // what the child behaves on (envtool:, Go's and esbuild's settings),
+    // not the branch, the event or the package version. Any other program's
+    // child keeps the whole environment keyed.
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    let spawner = "const cp = require('node:child_process');\nmodule.exports = () => cp.spawnSync(process.execPath, ['-e', '0']);\n";
+    write(&root.join("node_modules/esbuild/lib/main.js"), spawner);
+    write(&root.join("node_modules/some-plugin/index.js"), spawner);
+    let Some(v) = main_recorder(
+        root,
+        r#"
+const env = (ks) => [...ks].filter((k) => k.startsWith('env'))
+req('./node_modules/esbuild/lib/main.js')()
+const esbuild = env(r.keys)
+r.keys.clear()
+req('./node_modules/some-plugin/index.js')()
+console.log(JSON.stringify({ esbuild, plugin: env(r.keys), child: r.envChild.size }))
+"#,
+    ) else {
+        return;
+    };
+    let has = |side: &str, k: &str| v[side].as_array().unwrap().iter().any(|x| x == k);
+    assert!(has("esbuild", "envtool:"), "{v}");
+    assert!(has("esbuild", "env:GOMAXPROCS"), "{v}");
+    for k in [
+        "envall:",
+        "env:GITHUB_HEAD_REF",
+        "env:GITHUB_EVENT_NAME",
+        "env:npm_package_version",
+    ] {
+        assert!(!has("esbuild", k), "{k} keyed by esbuild's copy: {v}");
+        assert!(
+            has("plugin", k),
+            "{k} not keyed by another child's copy: {v}"
+        );
+    }
+    assert_eq!(v["child"], 1, "{v}");
+}
+
+#[test]
+fn a_package_json_parsed_straight_is_keyed_by_the_fields_read() {
+    // convex-helpers' config: JSON.parse(readFileSync('package.json')) and
+    // the dependency names. Keyed by its names and the fields read (pjf:),
+    // so a version bump changes nothing; read into a variable first (the
+    // text could be used again), it stays whole (f:).
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(
+        &root.join("package.json"),
+        r#"{"name":"x","version":"1.0.0","dependencies":{"zod-4.1":"npm:zod@4.1"}}"#,
+    );
+    write(
+        &root.join("cfg/straight.mjs"),
+        "import { readFileSync } from 'node:fs'\n\
+         const pkg = JSON.parse(\n  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),\n)\n\
+         export const names = Object.keys({ ...pkg.dependencies })\n\
+         export const clone = structuredClone({ deps: pkg.dependencies })\n",
+    );
+    write(
+        &root.join("cfg/variable.mjs"),
+        "import { readFileSync } from 'node:fs'\n\
+         const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf8')\n\
+         export const pkg = JSON.parse(raw)\n",
+    );
+    let Some(v) = main_recorder(
+        root,
+        r#"
+const pj = (ks) => [...ks].filter((k) => k.includes('package.json')).map((k) => k.replace(process.cwd() + '/', ''))
+const m = await import('./cfg/straight.mjs')
+const straight = pj(settledKeys(r))
+r.keys.clear(); r.pjReads.clear(); r.pjParsed.clear(); r.pjUse.clear()
+await import('./cfg/variable.mjs')
+console.log(JSON.stringify({ straight, variable: pj(settledKeys(r)), names: m.names }))
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        v["straight"],
+        serde_json::json!(["pjf:package.json\u{0}[\"dependencies\"]"]),
+        "{v}"
+    );
+    assert_eq!(v["variable"], serde_json::json!(["f:package.json"]), "{v}");
+    assert_eq!(v["names"], serde_json::json!(["zod-4.1"]), "{v}");
+}
+
+#[test]
+fn tsconfcks_walk_is_keyed_by_directories_and_json_files() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(
+        &root.join("node_modules/tsconfck/dist/index.js"),
+        "const fs = require('node:fs');\nmodule.exports = (d) => new Promise((res) => fs.readdir(d, { withFileTypes: true }, () => res()));\n",
+    );
+    write(
+        &root.join("plain.js"),
+        "const fs = require('node:fs');\nmodule.exports = (d) => fs.readdirSync(d);\n",
+    );
+    let Some(v) = main_recorder(
+        root,
+        r#"
+await req('./node_modules/tsconfck/dist/index.js')(process.cwd() + '/node_modules')
+req('./plain.js')(process.cwd() + '/node_modules')
+console.log(JSON.stringify([...r.keys].filter((k) => /^dj?:/.test(k)).map((k) => k.replace(process.cwd() + '/', ''))))
+"#,
+    ) else {
+        return;
+    };
+    assert_eq!(
+        v,
+        serde_json::json!(["dj:node_modules", "d:node_modules"]),
+        "{v}"
+    );
+}
+
+#[test]
+fn a_commonjs_modules_top_level_read_is_the_modules() {
+    // V8 names a CommonJS module's top level `Object.<anonymous> (file)`.
+    // Taken for a frame without a file, a library's read at load, required
+    // from vitest, counted as vitest's own and was not keyed at all.
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(
+        &root.join("node_modules/some-lib/index.js"),
+        "module.exports = { copy: { ...process.env }, foo: process.env.QUOD_T_FOO };\n",
+    );
+    write(
+        &root.join("node_modules/vitest/dist/load.js"),
+        "module.exports = (req, done) => setImmediate(() => {\n  req('some-lib');\n  done();\n});\n",
+    );
+    let Some(v) = main_recorder(
+        root,
+        r#"
+// required from vitest's own callback: no other frame on the stack
+const load = req('./node_modules/vitest/dist/load.js')
+await new Promise((done) => load(createRequire(process.cwd() + '/node_modules/vitest/dist/load.js'), done))
+console.log(JSON.stringify([...r.keys].filter((k) => k.startsWith('env'))))
+"#,
+    ) else {
+        return;
+    };
+    let has = |k: &str| v.as_array().unwrap().iter().any(|x| x == k);
+    assert!(has("env:QUOD_T_FOO"), "{v}");
+    assert!(has("envall:"), "{v}");
+    assert!(has("env:GITHUB_HEAD_REF"), "{v}");
+}

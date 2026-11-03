@@ -6,11 +6,15 @@
 //   f:<path>   a file's content (or that it is absent or a directory)
 //   pj:<path>  a workspace package.json, with dependency version values
 //              blanked (the installed versions are p: keys)
+//   pjf:<path>\0<fields>  a package.json the config parsed: its top-level
+//              names, and the values of the fields it read (JSON array)
 //   d:<path>   a directory's listing        r:<path>  a recursive listing
+//   dj:<path>  a listing's subdirectories and .json files (tsconfck's walk)
 //   e:<path>   that a path exists, its type, and a symlink's target
 //   p:<path>   an installed package (its root and package.json)
 //   env:<KEY>  one environment variable     envall:   all of them (but the
 //                                                     per-run CI ones)
+//   envtool:   the variables node and the tools behave on (vitest.rs tool_env)
 //
 // Over-record, never under-record: anything this cannot see (a child
 // process, the network, a worker thread) makes the test file unobservable,
@@ -56,6 +60,13 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     pjWhole: new Map(),
     // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
     envKept: new Map(),
+    // The environment copied for a known child process (esbuild's service), by who spawned it
+    envChild: new Map(),
+    // main process, package.json files read whole: path -> reads, and the
+    // reads parsed straight into an object whose fields are watched (pjf:)
+    pjReads: new Map(),
+    pjParsed: new Map(),
+    pjUse: new Map(),
     unobservable: new Set(),
     // Directories this process created (mkdir, recursive mkdir, mkdtemp)
     // outside the workspace, while recording: what is under one is the
@@ -121,8 +132,16 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       }
       if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
         if (resolverCaller()) kind = 'pj'
-        else if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
+        else {
+          if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
+          r.pjReads.set(p, (r.pjReads.get(p) ?? 0) + 1)
+        }
       }
+      // tsconfck (vite-tsconfig-paths) walks the workspace for tsconfig
+      // files: it descends into subdirectories and keeps files by name, so
+      // what it sees of a listing is those (dj:), not every file (a new
+      // changeset, a build's output chunks).
+      if (kind === 'd' && r.mode === 'main' && callerFrame().includes('/node_modules/tsconfck/')) kind = 'dj'
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -159,11 +178,20 @@ export function workspaceLink(pkg) {
 // must be in one of their packages. Any other reader (the config, a plugin
 // that injects `version`, a test) keeps the whole file.
 const SELF = fileURLToPath(import.meta.url)
+// Frames that say nothing of who reads: Quod's own, node's, and those with
+// no file (a builtin: `Array.map (<anonymous>)`, `async Promise.allSettled
+// (index 0)`). Not a CommonJS module's top level, which V8 names
+// `Object.<anonymous> (/path/file.js:1:2)`: skipping that hid the module
+// reading (a library copying the environment showed as
+// `async Promise.allSettled`) and could take its read for the tools'.
+function skipFrame(l) {
+  return l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || !l.includes('/')
+}
 const RESOLVERS = ['/node_modules/vite/', '/node_modules/vitest/', '/node_modules/@vitest/', '/node_modules/rolldown/', '/node_modules/@rolldown/']
 export function resolverCaller(stack = new Error().stack) {
   const lines = (stack ?? '').split('\n').slice(1)
   for (const l of lines) {
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (skipFrame(l)) continue
     if (l.includes('/node_modules/.vite-temp/')) return false
     return RESOLVERS.some((x) => l.includes(x))
   }
@@ -190,8 +218,13 @@ function toolCaller() {
   // `import.meta.env.X` goes through vitest's own getter, with the test's
   // frame below it.
   let tool = null
+  let spawn = false
   for (const l of stack.split('\n').slice(1)) {
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (l.includes('(node:child_process:') || l.includes('(node:internal/child_process:')) spawn = true
+    if (skipFrame(l)) continue
+    // node copying the environment for a child a known program spawned
+    // (CHILDREN): the child's input, not this process's.
+    if (spawn && !tool && CHILDREN.some((c) => l.includes(c))) return { tool: true, child: true, frame: l.trim() }
     if (HELPERS.some((h) => l.includes(h)) || RESOLVERS.some((x) => l.includes(x))) {
       tool ??= l.trim()
       continue
@@ -201,9 +234,21 @@ function toolCaller() {
   return tool ? { tool: true, frame: tool } : { tool: false, frame: '?' }
 }
 
+// Programs whose child process's reads of the environment are known.
+// esbuild's JS API spawns its Go service (and its sync API runs the same
+// binary) with node's copy of the whole environment, which lists and reads
+// every variable: in vitest's main process that made every variable, the
+// CI's per-branch and per-event ones and the package manager's
+// (npm_package_version) among them, an input of every file, so a pull
+// request's check replayed nothing a push recorded. The service reads none
+// of them: what node and the tools behave on (envtool:), Go's runtime
+// settings and esbuild's own (CHILD_ENV).
+const CHILDREN = ['/node_modules/esbuild/', '/node_modules/@esbuild/']
+const CHILD_ENV = /^(GOGC|GOMAXPROCS|GODEBUG|GOMEMLIMIT|GOTRACEBACK|GORACE|ESBUILD_.*)$/
+
 function callerFrame(stack = new Error().stack) {
   for (const l of (stack ?? '').split('\n').slice(1)) {
-    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (skipFrame(l)) continue
     return l.trim()
   }
   return '?'
@@ -288,7 +333,8 @@ export function patchFs(r) {
     }
   }
   const file = (a) => r.add('f', a[0])
-  both(['readFile'], file)
+  both(['readFile'], file, r.mode === 'main' ? (a, v) => pjText(r, a[0], v) : undefined)
+  if (r.mode === 'main') patchJsonParse(r)
   wrap(fs, 'createReadStream', file)
   // stat-like calls see size: a content dependency; lstat also sees a link
   both(['stat'], file)
@@ -362,8 +408,98 @@ export function patchFs(r) {
   } catch {}
 }
 
-// What a CI provider sets per branch, event, runner or job, and turbo per
-// task run (TURBO_HASH). vitest and vite read the environment for
+// A package.json the main process reads whole (the config, a plugin) is
+// keyed whole (f:), unless the read goes straight into JSON.parse, as in
+// `JSON.parse(readFileSync(p, 'utf8'))`: then what the code can see of the
+// file is the object, and the object's fields are watched (pjf:). A config
+// that takes its dependency names from package.json (convex-helpers: one
+// project per `zod-4.x` alias) then re-runs nothing for a version bump or
+// a script change. Straight: a synchronous read whose text the very next
+// JSON.parse call takes, from the same place in the same file, that call
+// written before the read (so the read is its argument, not a variable
+// that could be used again), without a reviver, giving an object. The
+// object stays a plain object (a proxy cannot be structured-cloned, and
+// vitest clones `provide`); its fields become accessors that note a read.
+// Its names are always keyed (Object.keys, `in` and for...in see no
+// accessor). Anything else keeps the file whole.
+const pending = { text: null, buf: null, p: null, at: null }
+function callerAt() {
+  const f = callerFrame()
+  const m = /^(?:at .*?\()?(?:at )?(.*):(\d+):(\d+)\)?$/.exec(f)
+  return m ? { file: m[1], line: +m[2], col: +m[3] } : null
+}
+function pjText(r, p0, v) {
+  pending.text = pending.buf = null
+  if (!r.on || p0 == null) return
+  const p = norm(p0)
+  if (p == null || !p.endsWith('/package.json') || resolverCaller()) return
+  const at = callerAt()
+  if (!at) return
+  if (typeof v === 'string') pending.text = v
+  else if (v instanceof Uint8Array) pending.buf = v
+  else return
+  pending.p = p
+  pending.at = at
+  // The very next parse, synchronously: nothing async comes in between.
+  queueMicrotask(() => {
+    pending.text = pending.buf = null
+  })
+}
+function patchJsonParse(r) {
+  const parse = JSON.parse
+  if (parse.__quod) return
+  const w = {
+    parse(text, reviver) {
+      const v = Reflect.apply(parse, this, arguments)
+      if (pending.text === null && pending.buf === null) return v
+      const hit = typeof text === 'string' ? text === pending.text : text === pending.buf
+      const p = pending.p
+      const was = pending.at
+      pending.text = pending.buf = null
+      if (!hit || reviver !== undefined || !r.on || v === null || typeof v !== 'object' || Array.isArray(v)) return v
+      const at = callerAt()
+      if (!at || at.file !== was.file || was.line - at.line > 2 || !(at.line < was.line || (at.line === was.line && at.col < was.col))) return v
+      return watchFields(r, p, v)
+    },
+  }.parse
+  Object.defineProperty(w, '__quod', { value: true })
+  JSON.parse = w
+}
+function watchFields(r, p, obj) {
+  let use = r.pjUse.get(p)
+  if (!use) r.pjUse.set(p, (use = new Set()))
+  r.pjParsed.set(p, (r.pjParsed.get(p) ?? 0) + 1)
+  for (const k of Object.keys(obj)) {
+    const val = obj[k]
+    Object.defineProperty(obj, k, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        use.add(k)
+        return val
+      },
+      set(x) {
+        Object.defineProperty(obj, k, { value: x, writable: true, enumerable: true, configurable: true })
+      },
+    })
+  }
+  return obj
+}
+// The main process's keys, with each package.json every whole read of
+// which was parsed and watched keyed by what was read of it (pjf:).
+export function settledKeys(r) {
+  const keys = new Set(r.keys)
+  for (const [p, n] of r.pjReads) {
+    if (r.pjParsed.get(p) !== n || !keys.has(`f:${p}`)) continue
+    keys.delete(`f:${p}`)
+    keys.add(`pjf:${p}\0${JSON.stringify([...r.pjUse.get(p)].sort())}`)
+    r.pjWhole.delete(p)
+  }
+  return keys
+}
+
+// What a CI provider sets per branch, event, runner or job, and turbo and
+// Nx per task run (TURBO_HASH, NX_TASK_HASH, ...). vitest and vite read the environment for
 // themselves (they copy all of it to the workers, pick reporters, find the
 // CI): those reads of these names are not inputs of the tests, so a
 // recording made on a push replays on a pull request. Their copy of the
@@ -371,7 +507,7 @@ export function patchFs(r) {
 // on (vitest.rs `tool_env`). Any other code that reads a variable (the
 // config, a plugin, a test, a library it loads) keys it. `CI` is not one of
 // these: vitest's behaviour depends on it (allowOnly, snapshot updates).
-export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k))
+export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k) || /^NX_(TASK_HASH|ANALYTICS_SESSION_ID|TERMINAL_OUTPUT_PATH)$/.test(k))
 // What node and the tools behave on (vitest.rs `tool_env`): their reads of
 // these are inputs; their reads of anything else (a copy of the whole
 // environment, one name at a time) are not.
@@ -385,6 +521,7 @@ export function patchEnv(r) {
     if (typeof k !== 'string') return
     if (ciVarying(k) || !toolEnv(k)) {
       const c = toolCaller()
+      if (c.child && CHILD_ENV.test(k)) r.keys.add(`env:${k}`)
       if (c.tool) return
       if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
     }
@@ -408,6 +545,12 @@ export function patchEnv(r) {
         const c = toolCaller()
         r.keys.add(c.tool ? 'envtool:' : 'envall:')
         if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
+        if (c.child) {
+          r.envChild.set(c.frame, (r.envChild.get(c.frame) ?? 0) + 1)
+          // Go's and esbuild's settings, set or not
+          for (const k of ['GOGC', 'GOMAXPROCS', 'GODEBUG', 'GOMEMLIMIT', 'GOTRACEBACK', 'GORACE']) r.keys.add(`env:${k}`)
+          for (const k of Reflect.ownKeys(t)) if (typeof k === 'string' && CHILD_ENV.test(k)) r.keys.add(`env:${k}`)
+        }
       }
       // In a test file's worker, a listing of the environment leaves out
       // the per-run CI variables (QUOD_VITEST_HIDE: the commit, the run id,
