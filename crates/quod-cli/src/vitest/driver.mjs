@@ -153,7 +153,14 @@ const covMismatch = () => {
     for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
       if (k === 'opts') {
         for (const o of new Set([...Object.keys(was.opts ?? {}), ...Object.keys(now.opts ?? {})])) {
-          if (JSON.stringify(was.opts?.[o]) !== JSON.stringify(now.opts?.[o])) diff.push(`coverage.${o}`)
+          const x = was.opts?.[o]
+          const y = now.opts?.[o]
+          if (JSON.stringify(x) === JSON.stringify(y)) continue
+          if (Array.isArray(x) && Array.isArray(y)) {
+            const gone = x.filter((v) => !y.some((w) => JSON.stringify(w) === JSON.stringify(v)))
+            const added = y.filter((v) => !x.some((w) => JSON.stringify(w) === JSON.stringify(v)))
+            diff.push(`coverage.${o} (-${JSON.stringify(gone).slice(0, 300)} +${JSON.stringify(added).slice(0, 300)})`)
+          } else diff.push(`coverage.${o} (${JSON.stringify(x)?.slice(0, 200)} -> ${JSON.stringify(y)?.slice(0, 200)})`)
         }
       } else if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) diff.push(k)
     }
