@@ -164,16 +164,38 @@ fn hash(parts: &[&[u8]]) -> String {
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// What `go list` reads of a .go file: everything up to the end of its
-/// imports (build constraints, the package clause, the cgo preamble), and
-/// every `//go:embed` line. None: not a file this lexer can read that far.
-pub(super) fn header(src: &[u8]) -> Option<String> {
+/// What `go list` reads of a .go file, in two parts.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Header {
+    /// Everything up to the package clause's end (build constraints and
+    /// other directives), every `//go:embed` line, and in a cgo file the
+    /// whole header (its preamble).
+    pub fixed: String,
+    /// The import paths.
+    pub imports: Vec<String>,
+}
+
+/// A .go file's `Header`. None: not a file this lexer can read that far.
+pub(super) fn header(src: &[u8]) -> Option<Header> {
     let toks = lex(src)?;
     let code: Vec<&Tok> = toks.iter().filter(|t| t.kind != Tk::Comment).collect();
     if code.len() < 2 || !is(src, code[0], "package") || code[1].kind != Tk::Ident {
         return None;
     }
-    let mut end = code[1].end;
+    let pkg_end = code[1].end;
+    let mut end = pkg_end;
+    let mut imports: Vec<String> = Vec::new();
+    let mut path = |t: &Tok| -> Option<()> {
+        if t.kind == Tk::Lit {
+            let s = std::str::from_utf8(text(src, t)).ok()?;
+            let inner = s.get(1..s.len().checked_sub(1)?)?;
+            if inner.contains('\\') || !(s.starts_with('"') || s.starts_with('`')) {
+                return None;
+            }
+            imports.push(inner.to_string());
+        }
+        Some(())
+    };
     let mut k = 2;
     while k < code.len() && is(src, code[k], "import") {
         k += 1;
@@ -181,6 +203,7 @@ pub(super) fn header(src: &[u8]) -> Option<String> {
             let mut depth = 0;
             loop {
                 let t = code.get(k)?;
+                path(t)?;
                 if is(src, t, "(") {
                     depth += 1;
                 } else if is(src, t, ")") {
@@ -197,6 +220,7 @@ pub(super) fn header(src: &[u8]) -> Option<String> {
             // One spec: up to the end of its line.
             let first = k;
             while k < code.len() && (k == first || !code[k].nl) && !is(src, code[k], ";") {
+                path(code[k])?;
                 end = code[k].end;
                 k += 1;
             }
@@ -210,13 +234,19 @@ pub(super) fn header(src: &[u8]) -> Option<String> {
             k += 1;
         }
     }
-    let mut parts: Vec<&[u8]> = vec![&src[..end]];
+    let cgo = imports.iter().any(|i| i == "C");
+    let mut parts: Vec<&[u8]> = vec![if cgo { &src[..end] } else { &src[..pkg_end] }];
     for t in &toks {
         if t.kind == Tk::Comment && text(src, t).starts_with(b"//go:embed") {
             parts.push(text(src, t));
         }
     }
-    Some(hash(&parts))
+    imports.sort();
+    imports.dedup();
+    Some(Header {
+        fixed: hash(&parts),
+        imports,
+    })
 }
 
 /// A top-level function or method.
@@ -475,14 +505,16 @@ mod tests {
     #[test]
     fn headers_ignore_bodies_but_not_imports() {
         let h = header(A.as_bytes()).unwrap();
+        assert_eq!(h.imports, vec!["fmt", "os", "strings"]);
         let body = A.replace("return nil", "return nil // changed");
         assert_eq!(header(body.as_bytes()).unwrap(), h);
-        let imp = A.replace("import \"strings\"", "import \"bytes\"");
-        assert_ne!(header(imp.as_bytes()).unwrap(), h);
+        let imp = header(A.replace("import \"strings\"", "import \"bytes\"").as_bytes()).unwrap();
+        assert_eq!(imp.fixed, h.fixed);
+        assert_eq!(imp.imports, vec!["bytes", "fmt", "os"]);
         let tag = A.replace("linux", "darwin");
-        assert_ne!(header(tag.as_bytes()).unwrap(), h);
+        assert_ne!(header(tag.as_bytes()).unwrap().fixed, h.fixed);
         let emb = A.replace("var X = 1", "//go:embed x.txt\nvar X string");
-        assert_ne!(header(emb.as_bytes()).unwrap(), h);
+        assert_ne!(header(emb.as_bytes()).unwrap().fixed, h.fixed);
         assert_eq!(header(b"x := 1"), None);
     }
 

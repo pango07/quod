@@ -159,7 +159,7 @@ struct Cached {
     meta: String,
     /// Every .go file under the root: its state and its header
     /// (`go_src::header`; None: unreadable to it).
-    files: BTreeMap<String, (String, Option<String>)>,
+    files: BTreeMap<String, (String, Option<go_src::Header>)>,
     roots: Vec<String>,
     pkgs: Vec<Pkg>,
     goenv: BTreeMap<String, String>,
@@ -1778,24 +1778,53 @@ fn tree(go: &str, p: &Parsed, root: &Path, skip: &Path) -> Tree {
 /// The shadow's listing, if nothing it depended on changed: the same
 /// toolchain, environment, paths and module files, and every .go file that
 /// changed still has the header it had (build constraints, package,
-/// imports, embeds).
+/// embeds; cgo's preamble), and imports nothing that is not already in the
+/// Deps of every build it is compiled into (an import it dropped leaves the
+/// listing a superset: more inputs, never fewer).
 fn reuse(c: &Cached, t: &Tree) -> Option<World> {
     if c.env != t.env || c.names != t.names || c.meta != t.meta || c.files.len() != t.gofiles.len()
     {
         return None;
     }
-    let mut changed: Vec<(&String, &Option<String>)> = Vec::new();
+    let mut changed: Vec<(&String, &go_src::Header)> = Vec::new();
     for (p, st) in &t.gofiles {
         let (st0, h0) = c.files.get(p)?;
         if st0 != st {
-            changed.push((p, h0));
+            changed.push((p, h0.as_ref()?));
         }
     }
-    let ok = par_map(&changed, |(p, h0)| {
-        h0.is_some() && fs::read(p).ok().and_then(|b| go_src::header(&b)) == **h0
-    });
-    if !ok.into_iter().all(|b| b) {
-        return None;
+    let now = par_map(&changed, |(p, _)| fs::read(p).ok().and_then(|b| go_src::header(&b)));
+    // The builds each file is compiled into, by their Deps' import paths.
+    let mut owners: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, p) in c.pkgs.iter().enumerate() {
+        for (_, list) in p.lists() {
+            for f in list {
+                owners
+                    .entry(Path::new(&p.dir).join(f).to_string_lossy().into_owned())
+                    .or_default()
+                    .push(i);
+            }
+        }
+    }
+    let base = |d: &str| d.split(" [").next().unwrap_or(d).to_string();
+    let mut deps: HashMap<usize, HashSet<String>> = HashMap::new();
+    for ((path, h0), h) in changed.iter().zip(now) {
+        let h = h?;
+        if h.fixed != h0.fixed {
+            return None;
+        }
+        let added: Vec<&String> = h.imports.iter().filter(|i| !h0.imports.contains(i)).collect();
+        if added.is_empty() {
+            continue;
+        }
+        for &i in owners.get(*path).map_or(&[][..], Vec::as_slice) {
+            let d = deps
+                .entry(i)
+                .or_insert_with(|| c.pkgs[i].deps.iter().map(|d| base(d)).collect());
+            if !added.iter().all(|a| d.contains(*a)) {
+                return None;
+            }
+        }
     }
     Some(World {
         roots: c.roots.clone(),
@@ -2028,7 +2057,7 @@ impl Ctx<'_> {
         let mut keys: BTreeSet<String> = BTreeSet::new();
         let mut covered = false;
         let mut cold: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        if got.status == "ok" {
+        if want.status == "ok" {
             let p = self
                 .world
                 .pkgs

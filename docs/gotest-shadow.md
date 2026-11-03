@@ -85,6 +85,73 @@ read of a pre-existing temp path is an input like any other.
 The hand-off is the vitest one: actions/cache keyed by branch and commit,
 restoring the newest completed ledger.
 
+## The critical path's own cost: go list reused
+
+`go list -deps -test` and `go env` cost about 60 ms on afero and 350 ms on
+expr. That is pure overhead on a commit where most packages run anyway.
+
+The shadow stores its listing in the ledger, with what the listing depended
+on:
+- the go command's path and file identity;
+- every environment variable and the go env file;
+- the directory, the patterns and go list's flags;
+- every path under the root (names and kinds, not contents);
+- the contents of every go.mod, go.sum, go.work, go.work.sum and
+  modules.txt;
+- per .go file, its state and its header. The header is everything up to the
+  end of the imports (build constraints, package clause, cgo preamble) plus
+  every `//go:embed` line, read by a small Go lexer (`gotest_shadow/go_src.rs`).
+
+The critical path walks the tree and hashes every .go file, which the closure
+keys need anyway. It reuses the listing when everything above is unchanged and
+every changed .go file still has its header. Otherwise it runs go list. A file
+the lexer cannot read never reuses.
+
+## Function-level narrowing
+
+The unit stays the package's test binary.
+- The shadow also runs with `-cover -covermode=set -coverpkg=<every local
+  non-main package>`. The -exec wrapper copies each binary's
+  `-test.gocoverdir`, and `go tool covdata textfmt` turns it into blocks.
+- Each local, non-test .go file of a package's closure is split by the lexer
+  into a **skeleton** and **bodies**. The skeleton is every token outside
+  top-level function bodies, with comments dropped (directives kept) and
+  newlines kept. The bodies are each function's exact bytes plus its start
+  line.
+- A function is **cold** for a package when it has coverage blocks and its
+  test binary ran none of them.
+- The record holds the closure's structure key: everything but those files'
+  contents, so names, other file kinds, modules and deps are still in it.
+  It also holds each file's state and the cold set. The ledger keeps the
+  shapes by file state.
+
+A package whose compiled code changed replays only if all of these hold:
+- the structure key is unchanged;
+- coverage was recorded;
+- every changed file's new version lexes, with the same skeleton;
+- every function that is not cold has the same body bytes and the same
+  start line (an edit that shifts a hot function's lines runs the package);
+- the runtime inputs and the global key are unchanged.
+
+Everything else runs the package: package-level declarations, types,
+signatures, method sets, imports, build tags, directives, embeds, cgo,
+test files, and non-Go files. So does a function with no coverage blocks
+(an empty body is never cold), and so does a file the lexer cannot split.
+
+-cover changes what go test prints, so the shadow uses it only with
+`--expect-report`; the replayed output is always the critical path's.
+`QUOD_GOTEST_NO_COVER=1` turns narrowing off.
+
+## Test names that vary
+
+Some suites put addresses or times in subtest names (testify's
+`ObjectsAreEqual(time.Date(...))`, `(*T)(0x1e95...)`). The recording check and
+audits compare per-test results by name. When the raw names differ, they
+compare the names with hex addresses, RFC 3339 times and `time.Date(...)`
+literals normalized, but only when normalizing keeps the mapping one to one.
+Otherwise the package stays quarantined. The bench's comparison normalizes the
+same way.
+
 ## Measured
 
 (see below)
