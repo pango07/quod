@@ -98,14 +98,6 @@ process.env.VITEST = 'true'
 process.env.NODE_ENV ??= 'test'
 
 const setupPath = path.join(codeDir, 'setup.mjs')
-// Measurement only (QUOD_VITEST_FSCACHE=1, never a default): vitest's own
-// persistent transform cache, in the state dir. Its key (id, content,
-// config, plugin names, lockfile) does not cover every input of a
-// transform, so it is not sound enough to ship; the bench uses it to size
-// what a sound cache would buy.
-if (process.env.QUOD_VITEST_FSCACHE === '1') {
-  options.experimental = { ...(options.experimental ?? {}), fsModuleCache: true, fsModuleCachePath: path.join(stateDir, 'fs-cache') }
-}
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 

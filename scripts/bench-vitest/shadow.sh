@@ -40,6 +40,19 @@ lag=${SHADOW_LAG:-0}
 audits=${SHADOW_AUDITS:-4}
 rm -rf "$out" "$state" "$snaps"; mkdir -p "$out/logs" "$snaps" "$state"
 : "${QUOD:?QUOD must point at the quod binary}"
+# Every flag this script passes must exist in the binary under test: an
+# older quod takes an unknown flag as a vitest argument and records nothing
+# without failing. Fail loudly instead.
+need_flags() { # binary, flags...
+  local bin=$1 help; shift
+  help=$("$bin" vitest --help 2>&1) || { echo "::error::$bin vitest --help failed"; exit 2; }
+  for f in "$@"; do
+    grep -q -- "$f" <<<"$help" || { echo "::error::$bin does not support quod vitest $f (this bench passes it); use a newer binary"; exit 2; }
+  done
+}
+need_flags "$QUOD" --dir --audits --summary --no-record --expect-report
+[ "${WHOLE_JOB:-0}" = 1 ] && need_flags "$QUOD" --plan
+[ -n "${QUOD_B:-}" ] && need_flags "$QUOD_B" --dir --summary --no-record
 cd "$proj"
 mapfile -t commits < <(git rev-list --first-parent -n $((n + 1)) "$sha" | tac)
 echo "window: ${#commits[@]} commits (first is the first run ever), ${commits[1]:0:9}..${commits[-1]:0:9}; lag $lag, shadow audits $audits"

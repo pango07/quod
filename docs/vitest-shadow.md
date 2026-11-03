@@ -176,3 +176,71 @@ Runs (pango07/ci-bench): ufo 41566245303, router 41566249277, core
   wrongly on 18 commits.
 - Runs: lag-1
   41560601953, safety net 41561416787 (pango07/ci-bench).
+
+## Future: a sound persistent transform cache (designed, not built)
+
+Measured same-job on router (ci-bench run 41568734381): vitest's own
+`experimental.fsModuleCache`, populated by the shadow and read by the
+critical path, cut the critical path 7.7% in total and 7% at the median
+(2.49 → 2.26 s on commits that run 1-14 files). It is not shipped because
+its key (module id and content, NODE_ENV, the environment's config, plugin
+*names*, config-file contents, the lockfile hash) does not cover everything
+a transform can depend on. A stale hit runs old code and nothing notices.
+The gaps:
+
+- **Other module files read during a transform.** An SFC's imported prop
+  types (`defineProps<Props>()` from `./types.ts`), a macro or codegen plugin
+  that reads sibling files, a plugin that inlines another file. Quod's
+  shared inputs deliberately exclude `f:` reads of files that are themselves
+  transformed modules (each test file's module graph accounts for those), so
+  a change to `types.ts` changes neither the cache key of the SFC nor a
+  shared input.
+- **Plugin behaviour.** Options and code beyond the plugin's name; covered
+  only indirectly, through the config-file contents and the lockfile.
+- **Resolution.** Import specifiers are rewritten to resolved ids. Vite's
+  JS resolver probes are main-process reads, which are shared inputs.
+  A native resolver's probes are invisible to the hooks.
+
+A sound version, keyed by Quod and never by vitest's key alone:
+
+1. **Per-transform read attribution (record runs).** Wrap every
+   environment's `transformRequest` in `AsyncLocalStorage.run({ file })`.
+   In the main-process fs hooks, a read inside that context of any path
+   other than the module's own file is a *foreign read* of that module. A
+   read of a transformed module's file outside any transform context
+   (buildStart, configResolved, a plugin's own cache warm-up) is a foreign
+   read of *every* module. The union of foreign-read files is F. Because
+   vite's and plugins' in-process caches mean a later transform may reuse a
+   read without repeating it, F is global, not per module.
+2. **Key.** The entry for module X in environment E is blake3 of:
+   - X's id and content;
+   - the current states of every shared (global) input;
+   - the contents of every file in F;
+   - E's name, the vite and vitest versions, and quod's driver hash.
+
+   The Rust side already hashes all of these during selection and passes
+   one `transformSig` to the driver, so a key costs nothing extra. Any
+   change to a shared input or to F changes every key: the cache starts a
+   new generation, never serves stale output.
+3. **Plugin allow-list.** Serve hits only when every plugin with a
+   `transform` or `load` hook in the environment is on a list whose
+   behaviour on a module depends only on that module's id, content and the
+   config: vite's core plugins, vitest's own, `@vitejs/plugin-vue` for
+   non-SFC modules (and for SFCs only with F covering their type imports),
+   `@vitejs/plugin-react`. Any other plugin disables the cache for that
+   environment. Also bail on `import.meta.glob`, as vitest does, and on any
+   module whose transform reached a native resolver or child process the
+   hooks cannot see.
+4. **Where.** Entries are written only by the shadow, from transforms it
+   ran fresh. The critical path reads them through a wrapped
+   `transformRequest`, returning the stored `{ code, map }` with the module
+   graph updated as vite would. Entries travel in the hand-off; size is
+   bounded by evicting entries not hit in the last N recordings.
+5. **Verification.** The shadow re-transforms every module it reaches (it
+   must anyway, to record). Where an entry exists under the same key it
+   compares bytes. A mismatch is a design bug: it disables the cache for
+   the repository, records why, and the bench fails loudly. It is not a
+   sampling rate.
+
+This is recording-side work (the recorder and the ledger), not run-phase
+work.
