@@ -99,3 +99,42 @@ export function concernsTestRun(e: Pick<TestRunSummary, "id" | "kind" | "repoSlu
 
 /** The page of a test run: under its repository, like a CI run. */
 export const testRunHref = (team: string, r: Pick<TestRunSummary, "repoSlug" | "id">) => `/${team}/${r.repoSlug}/tests/${encodeURIComponent(r.id)}`;
+
+/** A repository's test-level numbers for the Overview's Repositories card. */
+export interface RepoTests {
+  /** Critical runs in the last 7 days: test files skipped (replayed) and in all. */
+  skipped: number;
+  total: number;
+  /** savedMs of those runs. */
+  savedMs: number;
+  runs: number;
+  /** The newest run (critical or not, any age). */
+  last: Pick<TestRunSummary, "id" | "repoSlug" | "at" | "exit"> | null;
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Test runs added up per repository, keyed by lower-case full name
+ * (owner/name), for matching to the repo list by full name, never by slug.
+ */
+export function testsByRepo(runs: TestRunSummary[], now: number): Record<string, RepoTests> {
+  const out: Record<string, RepoTests> = {};
+  for (const r of runs) {
+    const key = r.repository.toLowerCase();
+    const t = (out[key] ??= { skipped: 0, total: 0, savedMs: 0, runs: 0, last: null });
+    const at = Date.parse(r.at);
+    if (!t.last || at > Date.parse(t.last.at)) t.last = { id: r.id, repoSlug: r.repoSlug, at: r.at, exit: r.exit };
+    if (r.kind !== "critical" || !(at <= now && now - at <= WEEK_MS)) continue;
+    t.skipped += r.files.replayed;
+    t.total += r.files.total;
+    t.savedMs += r.timing.savedMs ?? 0;
+    t.runs++;
+  }
+  return out;
+}
+
+/** "184 of 196, last 7 days", or "No runs in the last 7 days". */
+export function repoSkippedNote(t: Pick<RepoTests, "skipped" | "total">): string {
+  return t.total > 0 ? `${formatCount(t.skipped)} of ${formatCount(t.total)}, last 7 days` : "No runs in the last 7 days";
+}

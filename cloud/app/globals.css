@@ -173,7 +173,10 @@ p { margin: 0; text-wrap: pretty }
 .table-head, .trow { display: grid; gap: 16px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--rule); font-size: 14px }
 .table-head { color: var(--faint); font-size: 12px; padding-top: 10px; padding-bottom: 10px }
 a.trow { color: var(--text) }
-a.trow:hover { background: var(--hover); color: var(--text) }
+a.trow:hover, .trow.linked:hover { background: var(--hover); color: var(--text) }
+.trow.linked { position: relative }
+.trow.linked .stretch::after { content: ""; position: absolute; inset: 0 }
+.trow.linked .over { position: relative; z-index: 1 }
 .cols-repos { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) 16px }
 .cols-steps { grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, .8fr) }
 .cols-runs { grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, .9fr) }
