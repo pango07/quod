@@ -449,7 +449,10 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
     }
     let ledger_path = dir.join("ledger.json");
     let mut ledger = read_ledger(&ledger_path);
+    let tl = Instant::now();
+    let ledger_ms = t0.elapsed().as_millis() as u64;
     let tree = tree(&a.go, &parsed, &root, &dir);
+    let tree_ms = tl.elapsed().as_millis() as u64;
     let reused = if recording || full {
         None
     } else {
@@ -466,8 +469,10 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         }
         Err(e) => return Err(e),
     };
+    let tw = Instant::now();
     let global = global_key(&world, &parsed, &root);
     let closures = closures(&world, &tree.gofiles);
+    let closures_ms = tw.elapsed().as_millis() as u64;
     let decisions = select(&ledger, &world.roots, &global, &closures, full);
     let select_ms = t0.elapsed().as_millis() as u64;
 
@@ -579,6 +584,8 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         "fast_world": fast,
         "covered": cover,
         "select_ms": select_ms,
+        "phases_ms": { "ledger": ledger_ms, "tree": tree_ms, "closures": closures_ms },
+        "tree_files": tree.gofiles.len(),
         "go_ms": go_ms,
         "exit": outcome.exit,
     });
@@ -1860,7 +1867,23 @@ fn cache_world(w: &World, t: &Tree) -> Option<Cached> {
         meta: t.meta.clone(),
         files,
         roots: w.roots.clone(),
-        pkgs: w.pkgs.values().cloned().collect(),
+        // A standard package is keyed by the toolchain: its name is all a
+        // closure reads of it.
+        pkgs: w
+            .pkgs
+            .values()
+            .map(|p| {
+                if p.standard && p.error.is_none() {
+                    Pkg {
+                        import_path: p.import_path.clone(),
+                        standard: true,
+                        ..Pkg::default()
+                    }
+                } else {
+                    p.clone()
+                }
+            })
+            .collect(),
         goenv: w.goenv.clone(),
     })
 }
