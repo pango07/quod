@@ -85,9 +85,7 @@ process.env.NODE_ENV ??= 'test'
 const setupPath = path.join(codeDir, 'setup.mjs')
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
-// From here on a package.json the main process reads is vite's resolver's
-// (field-level, `pj:`); one read while the config loaded stays whole.
-r.pjOk = true
+
 process.env.QUOD_VITEST_ROOT = ctx.config.root
 
 // Record runs instrument the workspace's source as vite hands it to the

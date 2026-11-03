@@ -65,7 +65,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         // packages a run loads (p:), so a reinstall alone changes nothing.
         return
       }
-      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json') && (r.pjOk || toolCaller())) kind = 'pj'
+      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json') && resolverCaller()) kind = 'pj'
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -80,14 +80,18 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
   return r
 }
 
-// Is a package.json read (while the config loads) the tools' own, not the
-// config's code? The first frame outside Quod and node: a tool's when it is
-// in node_modules (but not vite's bundled config, under .vite-temp).
-function toolCaller() {
-  const lines = (new Error().stack ?? '').split('\n').slice(1)
+// Is a package.json read vite's or vitest's own (module resolution, which
+// uses the resolution fields only)? The first frame outside Quod and node
+// must be in one of their packages. Any other reader (the config, a plugin
+// that injects `version`, a test) keeps the whole file.
+const SELF = fileURLToPath(import.meta.url)
+const RESOLVERS = ['/node_modules/vite/', '/node_modules/vitest/', '/node_modules/@vitest/', '/node_modules/rolldown/', '/node_modules/@rolldown/']
+export function resolverCaller(stack = new Error().stack) {
+  const lines = (stack ?? '').split('\n').slice(1)
   for (const l of lines) {
-    if (l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
-    return l.includes('/node_modules/') && !l.includes('/node_modules/.vite-temp/')
+    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (l.includes('/node_modules/.vite-temp/')) return false
+    return RESOLVERS.some((x) => l.includes(x))
   }
   return false
 }
