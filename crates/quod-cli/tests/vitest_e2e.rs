@@ -122,6 +122,11 @@ fn edit(dir: &Path, file: &str, from: &str, to: &str) {
 #[test]
 fn records_replays_and_narrows_a_real_vitest_project() {
     let Some(node) = node_bin() else {
+        // On CI the gate installs node: a skip there would hide the test.
+        assert!(
+            std::env::var("CI").as_deref() != Ok("true"),
+            "no node/npm on CI"
+        );
         eprintln!("no node/npm: skipped");
         return;
     };
