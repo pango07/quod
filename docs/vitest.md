@@ -65,7 +65,7 @@ worker's own view:
   `package.json` read by vite's or vitest's own code (the first frame
   outside Quod is in vite, vitest, @vitest or rolldown) is keyed on the
   resolution fields only (`pj:`: name, type, exports, imports, main,
-  module, browser, workspaces, packageManager, engines, vite, vitest); a
+  module, browser, workspaces, vite, vitest); a
   release's `version` bump counts for nobody. Any other reader (the config,
   a plugin that injects `version`, a test's read or import) keeps the whole
   file (`f:`). Test: `tests/vitest_recorder.rs`.

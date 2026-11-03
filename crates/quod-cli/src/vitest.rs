@@ -738,6 +738,13 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
         if a.contains("/node_modules/.vite/") || a.contains("/node_modules/.vitest/") {
             continue;
         }
+        // An installed package counts when a file of it was read: a lookup
+        // that found nothing, or a symlink followed on the way, under
+        // node_modules loads nothing (resolution walks past every
+        // package's links; keying those made any reinstall a full run).
+        if a.contains("/node_modules/") && k != "f" {
+            continue;
+        }
         let key = if let Some(i) = a.rfind("/node_modules/") {
             let rest = &a[i + 14..];
             let mut seg = rest.split('/');
@@ -1095,7 +1102,9 @@ fn listing(p: &Path, recursive: bool) -> String {
         .to_string()
 }
 
-/// The package.json fields module resolution and the tools read.
+/// The package.json fields module resolution and the tools read (not
+/// `packageManager` or `engines`: neither vite nor vitest acts on them, and
+/// a bot bumps them often).
 const PJ_FIELDS: &[&str] = &[
     "name",
     "type",
@@ -1107,8 +1116,6 @@ const PJ_FIELDS: &[&str] = &[
     "jsnext:main",
     "jsnext",
     "workspaces",
-    "packageManager",
-    "engines",
     "vite",
     "vitest",
 ];
@@ -1281,7 +1288,10 @@ mod tests {
         fs::write(
             &m,
             r#"manifest b3:x
-{"entries":[{"p":"package.json","k":"f"},{"p":"other.json","k":"f"}]}"#,
+{"entries":[{"p":"package.json","k":"f"},{"p":"other.json","k":"f"},
+{"p":"node_modules/.pnpm/eslint@9/node_modules/eslint/x.js","k":"a"},
+{"p":"node_modules/eslint","k":"l"},
+{"p":"node_modules/.pnpm/vite@8/node_modules/vite/index.js","k":"f"}]}"#,
         )
         .unwrap();
         absorb(root, &dir, &dir.join("code"), &m).unwrap();
@@ -1292,7 +1302,15 @@ mod tests {
             .iter()
             .map(|k| l.keys[*k as usize].as_str())
             .collect();
-        assert_eq!(keys, ["pj:package.json", "f:other.json"]);
+        assert_eq!(
+            keys,
+            [
+                "pj:package.json",
+                "f:other.json",
+                "p:node_modules/.pnpm/vite@8/node_modules/vite"
+            ],
+            "a lookup or a link under node_modules loads nothing"
+        );
     }
 
     #[test]
@@ -1328,9 +1346,9 @@ mod tests {
 
     #[test]
     fn package_json_versions_do_not_count_but_the_rest_does() {
-        let v1 = pj_hash(br#"{"name":"x","version":"1.0.0","scripts":{"a":"b"}}"#);
-        let v2 = pj_hash(br#"{"name":"x","version":"1.0.1","scripts":{"a":"c"}}"#);
-        assert_eq!(v1, v2, "a release bump or a script counts for nobody");
+        let v1 = pj_hash(br#"{"name":"x","version":"1.0.0","packageManager":"pnpm@10.1.0"}"#);
+        let v2 = pj_hash(br#"{"name":"x","version":"1.0.1","packageManager":"pnpm@10.2.0"}"#);
+        assert_eq!(v1, v2, "a release bump or a packageManager bump counts for nobody");
         let a = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.1.0"}}"#);
         let b = pj_hash(br#"{"name":"x","type":"module","devDependencies":{"eslint":"^9.2.0"}}"#);
         let c = pj_hash(br#"{"name":"x","type":"commonjs","devDependencies":{"eslint":"^9.2.0"}}"#);
