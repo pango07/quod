@@ -451,3 +451,35 @@ console.log(JSON.stringify([...r.keys].filter((k) => /^dj?:/.test(k)).map((k) =>
         "{v}"
     );
 }
+
+#[test]
+fn a_commonjs_modules_top_level_read_is_the_modules() {
+    // V8 names a CommonJS module's top level `Object.<anonymous> (file)`.
+    // Taken for a frame without a file, a library's read at load, required
+    // from vitest, counted as vitest's own and was not keyed at all.
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(
+        &root.join("node_modules/some-lib/index.js"),
+        "module.exports = { copy: { ...process.env }, foo: process.env.QUOD_T_FOO };\n",
+    );
+    write(
+        &root.join("node_modules/vitest/dist/load.js"),
+        "module.exports = (req, done) => setImmediate(() => {\n  req('some-lib');\n  done();\n});\n",
+    );
+    let Some(v) = main_recorder(
+        root,
+        r#"
+// required from vitest's own callback: no other frame on the stack
+const load = req('./node_modules/vitest/dist/load.js')
+await new Promise((done) => load(createRequire(process.cwd() + '/node_modules/vitest/dist/load.js'), done))
+console.log(JSON.stringify([...r.keys].filter((k) => k.startsWith('env'))))
+"#,
+    ) else {
+        return;
+    };
+    let has = |k: &str| v.as_array().unwrap().iter().any(|x| x == k);
+    assert!(has("env:QUOD_T_FOO"), "{v}");
+    assert!(has("envall:"), "{v}");
+    assert!(has("env:GITHUB_HEAD_REF"), "{v}");
+}
