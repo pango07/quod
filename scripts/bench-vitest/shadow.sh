@@ -43,7 +43,10 @@ rm -rf "$out" "$state" "$snaps"; mkdir -p "$out/logs" "$snaps" "$state"
 cd "$proj"
 mapfile -t commits < <(git rev-list --first-parent -n $((n + 1)) "$sha" | tac)
 echo "window: ${#commits[@]} commits (first is the first run ever), ${commits[1]:0:9}..${commits[-1]:0:9}; lag $lag, shadow audits $audits"
-ms() { date +%s%3N; }
+# A monotonic clock (CLOCK_BOOTTIME via /proc/uptime, 10 ms resolution): the wall
+# clock of a fresh hosted runner is stepped by time sync during the job, which
+# made some runs come out 0.5-0.8 s shorter or longer than they were.
+ms() { local up _; read -r up _ </proc/uptime; echo $(( 10#${up/./} * 10 )); }
 lock=$(sha1sum pnpm-lock.yaml 2>/dev/null | cut -c1-40)
 
 plain() { # $1 = tag
