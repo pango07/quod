@@ -29,6 +29,7 @@ mod bench;
 mod deps;
 mod gitdir;
 mod gotest;
+mod gotest_shadow;
 mod hostfp;
 mod inspect;
 mod profile;
@@ -126,6 +127,9 @@ enum Cmd {
     /// Run a vitest suite replaying, per test file, every file whose recorded
     /// inputs are unchanged: `quod vitest -- run --project unit`.
     Vitest(vitest::VitestArgs),
+    /// Run go test replaying, per package, every package whose recorded
+    /// inputs are unchanged: `quod gotest -- -json ./...`.
+    Gotest(gotest_shadow::GotestArgs),
 }
 
 fn main() -> ExitCode {
@@ -140,6 +144,10 @@ fn main() -> ExitCode {
             // vitest keeps its own ledger next to the project; no store.
             if let Cmd::Vitest(args) = cli.cmd {
                 return vitest::cli(args);
+            }
+            // gotest keeps its own ledger too.
+            if let Cmd::Gotest(args) = cli.cmd {
+                return gotest_shadow::cli(args);
             }
             let state = state::State::resolve(cli.state.as_deref())?;
             match cli.cmd {
@@ -187,6 +195,7 @@ fn main() -> ExitCode {
                 }
                 Cmd::Profile(args) => profile::profile(args).map(|()| 0),
                 Cmd::Vitest(_) => unreachable!("handled before the state resolves"),
+                Cmd::Gotest(_) => unreachable!("handled before the state resolves"),
             }
         }));
     // A panic anywhere is a Quod failure too: exit 2 with the banner,
