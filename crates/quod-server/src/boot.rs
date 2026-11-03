@@ -314,8 +314,20 @@ pub fn lock(dir: &Path, wait: std::time::Duration) -> Result<InstanceLock, Strin
 /// The signing key, and whether it was generated now.
 fn signing_key(env: &Env) -> Result<(SigningKey, bool), String> {
     if let Some(hex) = env.signing_key_hex.as_ref().map(Secret::expose) {
-        let k =
-            quod_wire::signing_key_from_hex(hex).map_err(|e| format!("QUOD_SIGNING_KEY: {e}"))?;
+        // Surrounding whitespace (a pasted newline) is not part of the
+        // seed. A bad value is described by its length only, never shown.
+        let hex = hex.trim();
+        let k = quod_wire::signing_key_from_hex(hex).map_err(|_| {
+            format!(
+                "QUOD_SIGNING_KEY is not a key: expected 64 hex characters (the line in the key file), got {} characters{}",
+                hex.chars().count(),
+                if hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    ""
+                } else {
+                    ", not all of them hex digits"
+                }
+            )
+        })?;
         // The environment's key wins over the file, but never silently
         // replaces a different one: runners pinned to the file's key would
         // refuse every replay.
