@@ -206,6 +206,19 @@ impl S3 {
         query: &[(&str, &str)],
         body: &[u8],
     ) -> Result<Answer, CasError> {
+        let start = std::time::Instant::now();
+        let out = self.send_retrying(method, object, query, body);
+        crate::timing::add_s3(start.elapsed());
+        out
+    }
+
+    fn send_retrying(
+        &self,
+        method: &str,
+        object: Option<&str>,
+        query: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<Answer, CasError> {
         let mut last = String::new();
         for attempt in 0..3 {
             if attempt > 0 {

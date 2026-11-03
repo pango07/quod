@@ -1055,6 +1055,70 @@ pub struct ListQ {
     limit: Option<usize>,
 }
 
+/// The team's newest runs (one query), newest first.
+fn team_runs(d: &Db, team: &str) -> anyhow::Result<Vec<RunRow>> {
+    runs_where(d, "team = $1 ORDER BY id DESC LIMIT 5000", &[t(team)])
+}
+
+/// Repository names for slugs: the step scopes' and these runs', with no
+/// second query over the runs.
+fn repos_of(app: &App, team: &str, rows: &[RunRow]) -> anyhow::Result<BTreeSet<String>> {
+    let mut s: BTreeSet<String> = app
+        .store
+        .scopes(team)?
+        .into_iter()
+        .map(|s| s.repository)
+        .collect();
+    s.extend(rows.iter().map(|r| r.repository.clone()));
+    Ok(s)
+}
+
+/// The shadows among `rows` (newest first), by commit, suite, scope and
+/// workflow run (and by commit, suite and scope alone, for a critical run
+/// that names no run): `shadow_of` in memory.
+struct Shadows<'a> {
+    by_run: std::collections::HashMap<(&'a str, &'a str, &'a str, &'a str, &'a str), &'a RunRow>,
+    by_commit: std::collections::HashMap<(&'a str, &'a str, &'a str, &'a str), &'a RunRow>,
+}
+
+impl<'a> Shadows<'a> {
+    fn of(rows: &'a [RunRow]) -> Shadows<'a> {
+        let mut by_run = std::collections::HashMap::new();
+        let mut by_commit = std::collections::HashMap::new();
+        for r in rows.iter().filter(|r| r.kind == "shadow") {
+            let Some(sha) = r.sha.as_deref() else {
+                continue;
+            };
+            let k = (r.repo_key.as_str(), r.suite.as_str(), sha, r.scope.as_str());
+            by_commit.entry(k).or_insert(r);
+            if let Some(id) = r.run_id.as_deref() {
+                by_run.entry((k.0, k.1, k.2, k.3, id)).or_insert(r);
+            }
+        }
+        Shadows { by_run, by_commit }
+    }
+
+    fn get(&self, r: &RunRow) -> Option<&'a RunRow> {
+        if r.kind != "critical" {
+            return None;
+        }
+        let sha = r.sha.as_deref()?;
+        let k = (r.repo_key.as_str(), r.suite.as_str(), sha, r.scope.as_str());
+        match r.run_id.as_deref().filter(|s| !s.is_empty()) {
+            Some(id) => self.by_run.get(&(k.0, k.1, k.2, k.3, id)).copied(),
+            None => self.by_commit.get(&k).copied(),
+        }
+    }
+
+    fn summary(&self, r: &RunRow, repos: &BTreeSet<String>) -> Value {
+        let mut v = base_summary(r, repos);
+        if let Some(s) = self.get(r) {
+            v["audits"] = json!({"checked": s.audited, "mismatched": s.audit_mismatches});
+        }
+        v
+    }
+}
+
 pub async fn list_runs(
     State(app): State<AppState>,
     headers: HeaderMap,
@@ -1064,25 +1128,20 @@ pub async fn list_runs(
     blocking(move || {
         let v = crate::dash::viewer(&app, &headers, &team)?;
         let d = db(&app, &v.team)?;
-        let repos = all_repos(&app, &v.team, &d)?;
+        let rows = team_runs(&d, &v.team)?;
+        let repos = repos_of(&app, &v.team, &rows)?;
+        let shadows = Shadows::of(&rows);
         let limit = q.limit.unwrap_or(50).clamp(1, 200);
-        let rows = runs_where(
-            &d,
-            "team = $1 ORDER BY id DESC LIMIT 5000",
-            &[t(v.team.as_str())],
-        )?;
-        let mut out = vec![];
-        for r in rows {
-            if let Some(s) = &q.repo
-                && crate::dash::slug(&r.repository, &repos) != *s
-            {
-                continue;
-            }
-            out.push(summary(&d, &v.team, &r, &repos)?);
-            if out.len() >= limit {
-                break;
-            }
-        }
+        let out: Vec<Value> = rows
+            .iter()
+            .filter(|r| {
+                q.repo
+                    .as_ref()
+                    .is_none_or(|s| crate::dash::slug(&r.repository, &repos) == *s)
+            })
+            .take(limit)
+            .map(|r| shadows.summary(r, &repos))
+            .collect();
         Ok(Json(json!({ "runs": out })))
     })
     .await
@@ -1146,41 +1205,35 @@ pub async fn stats(
             .as_secs();
         let today = quod_ledger::format_rfc3339(now / 86_400 * 86_400, 0);
         let week = quod_ledger::format_rfc3339(now.saturating_sub(7 * 86_400), 0);
-        let sums = |from: &str| -> anyhow::Result<(f64, i64, i64, i64)> {
-            let r = d.query(
-                "SELECT CAST(coalesce(sum(saved_ms), 0) AS DOUBLE PRECISION), CAST(count(*) AS BIGINT),
-                        CAST(coalesce(sum(total), 0) AS BIGINT), CAST(coalesce(sum(replayed), 0) AS BIGINT)
-                 FROM test_runs WHERE team = $1 AND kind = 'critical' AND at >= $2",
-                &[t(v.team.as_str()), t(from)],
-                &[Ty::F, Ty::I, Ty::I, Ty::I],
-            )?;
-            let r = &r[0];
-            Ok((
-                r[0].f().unwrap_or(0.0),
-                r[1].i().unwrap_or(0),
-                r[2].i().unwrap_or(0),
-                r[3].i().unwrap_or(0),
-            ))
+        // One query: the team's newest runs; the sums are over those (the
+        // last 5000, far more than a week of any team today).
+        let rows = team_runs(&d, &v.team)?;
+        let repos = repos_of(&app, &v.team, &rows)?;
+        let shadows = Shadows::of(&rows);
+        let sums = |from: &str| {
+            let c: Vec<&RunRow> = rows
+                .iter()
+                .filter(|r| r.kind == "critical" && r.at.as_str() >= from)
+                .collect();
+            (
+                c.iter().filter_map(|r| r.saved_ms).sum::<f64>(),
+                c.len() as i64,
+                c.iter().map(|r| r.total).sum::<i64>(),
+                c.iter().map(|r| r.replayed).sum::<i64>(),
+            )
         };
-        let (t_saved, t_runs, _, _) = sums(&today)?;
-        let (w_saved, w_runs, w_total, w_skipped) = sums(&week)?;
-        let a = d.query(
-            "SELECT CAST(coalesce(sum(audited), 0) AS BIGINT), CAST(coalesce(sum(audit_mismatches), 0) AS BIGINT)
-             FROM test_runs WHERE team = $1 AND kind = 'shadow'",
-            &[t(v.team.as_str())],
-            &[Ty::I, Ty::I],
-        )?;
-        let (checked, mismatched) = (a[0][0].i().unwrap_or(0), a[0][1].i().unwrap_or(0));
-        let repos = all_repos(&app, &v.team, &d)?;
-        let recent = runs_where(
-            &d,
-            "team = $1 AND kind = 'critical' ORDER BY id DESC LIMIT 10",
-            &[t(v.team.as_str())],
-        )?;
-        let recent: Vec<Value> = recent
+        let (t_saved, t_runs, _, _) = sums(&today);
+        let (w_saved, w_runs, w_total, w_skipped) = sums(&week);
+        let (checked, mismatched) = rows
             .iter()
-            .map(|r| summary(&d, &v.team, r, &repos))
-            .collect::<anyhow::Result<_>>()?;
+            .filter(|r| r.kind == "shadow")
+            .fold((0i64, 0i64), |(c, m), r| (c + r.audited, m + r.audit_mismatches));
+        let recent: Vec<Value> = rows
+            .iter()
+            .filter(|r| r.kind == "critical")
+            .take(10)
+            .map(|r| shadows.summary(r, &repos))
+            .collect();
         Ok(Json(json!({
             "asOf": now_rfc3339(),
             "today": {"savedMs": t_saved, "runs": t_runs},
@@ -1198,85 +1251,108 @@ pub async fn stats(
 
 // ----- test files per suite (the Trust page) -----
 
-/// One suite's test files and their states, from its newest recording (the
-/// default branch's when there is one) and the reports: a file the
-/// recording replays is `ready` (never skipped yet) or `skipping`; one a
-/// spot-check found different is `paused`; one quarantined otherwise, or
-/// that ran but could not be recorded, `always`; one the reports name that
-/// no recording has yet, `learning`.
+/// A recording's per-file records (path, record), parsed from its
+/// ledger.json in the bucket once per ledger version: a ledger row never
+/// changes, so the id is the cache key.
+type Recs = Arc<Vec<(String, Value)>>;
+static RECS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(String, i64), Recs>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn ledger_recs(app: &App, team: &str, id: i64, files_json: &str) -> anyhow::Result<Recs> {
+    let key = (team.to_string(), id);
+    if let Some(r) = RECS.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(r.clone());
+    }
+    let files: Vec<LedgerFile> = serde_json::from_str(files_json)?;
+    if files.is_empty() {
+        // Not loaded (nothing to cache under this id).
+        return Ok(Arc::new(vec![]));
+    }
+    let mut recs = vec![];
+    if let Some(lf) = files.iter().find(|f| f.path == "ledger.json")
+        && let Some(b) = app.store.cas(team)?.read_capped(&lf.hash, MAX_BUNDLE)?
+    {
+        let l: Value = serde_json::from_slice(&b)?;
+        for rec in l["files"].as_object().into_iter().flat_map(|m| m.values()) {
+            if let Some(f) = rec["file"].as_str() {
+                recs.push((
+                    f.to_string(),
+                    json!({
+                        "project": rec["project"], "state": rec["state"], "duration": rec["duration"],
+                        "quarantined": rec["quarantined"], "runs": rec["runs"], "replays": rec["replays"],
+                    }),
+                ));
+            }
+        }
+    }
+    let recs = Arc::new(recs);
+    let mut c = RECS.lock().unwrap_or_else(|e| e.into_inner());
+    if c.len() > 256 {
+        c.clear();
+    }
+    c.insert(key, recs.clone());
+    Ok(recs)
+}
+
+/// The newest ledger head of a suite: the trusted scope's (every writer
+/// branch saves there: main, dev, ...) first, else any scope's.
+struct Head {
+    id: i64,
+    at: String,
+    scope: String,
+    git_ref: Option<String>,
+    sha: Option<String>,
+}
+
+/// One suite's test files and their states, from its newest recording and
+/// the runs: a file the recording replays is `ready` (never skipped yet)
+/// or `skipping`; one a spot-check found different is `paused`; one
+/// quarantined otherwise, or that ran but could not be recorded, `always`;
+/// one the runs name that no recording has yet, `learning`.
 fn suite_files(
-    app: &App,
-    team: &str,
-    d: &Db,
-    repo_key: &str,
-    suite: &str,
-) -> anyhow::Result<(Value, Vec<Value>)> {
-    let rows = d.query(
-        &format!(
-            "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 ORDER BY (scope = 'trusted') DESC, id DESC LIMIT 1"
-        ),
-        &[t(team), t(repo_key), t(suite)],
-        COL_TYS,
-    )?;
-    let ledger_row = rows.first().map(|v| row(v));
-    // The recording's per-file records.
-    let mut recs: Vec<(String, Value)> = vec![];
-    if let Some(r) = &ledger_row {
-        let files: Vec<LedgerFile> = serde_json::from_str(&r.files)?;
-        if let Some(lf) = files.iter().find(|f| f.path == "ledger.json") {
-            let blobs = app.store.cas(team)?;
-            if let Some(b) = blobs.read_capped(&lf.hash, MAX_BUNDLE)? {
-                let l: Value = serde_json::from_slice(&b)?;
-                if let Some(m) = l["files"].as_object() {
-                    for rec in m.values() {
-                        if let Some(f) = rec["file"].as_str() {
-                            recs.push((f.to_string(), rec.clone()));
-                        }
-                    }
+    head: Option<&Head>,
+    recs: &[(String, Value)],
+    runs: &[&RunRow],
+) -> (Value, Vec<Value>) {
+    // Spot-checks that differed, and the newest two runs' files that ran.
+    let details: Vec<(usize, Value)> = runs
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| *i < 2 || (r.kind == "shadow" && r.audit_mismatches > 0))
+        .map(|(i, r)| (i, serde_json::from_str(&r.detail).unwrap_or(Value::Null)))
+        .collect();
+    let mut differed: BTreeSet<&str> = BTreeSet::new();
+    let mut ran_why: BTreeMap<String, String> = BTreeMap::new();
+    for (i, det) in &details {
+        let r = runs[*i];
+        if r.kind == "shadow" && r.audit_mismatches > 0 {
+            for a in det["auditFiles"].as_array().into_iter().flatten() {
+                if a["ok"] == false
+                    && let Some(f) = a["file"].as_str()
+                {
+                    differed.insert(f);
                 }
             }
         }
-    }
-    // Spot-checks that differed, and the newest runs' files that ran.
-    let mut differed: BTreeSet<String> = BTreeSet::new();
-    for r in runs_where(
-        d,
-        "team = $1 AND repo_key = $2 AND suite = $3 AND kind = 'shadow' AND audit_mismatches > 0",
-        &[t(team), t(repo_key), t(suite)],
-    )? {
-        let det: Value = serde_json::from_str(&r.detail).unwrap_or(Value::Null);
-        for a in det["auditFiles"].as_array().into_iter().flatten() {
-            if a["ok"] == false
-                && let Some(f) = a["file"].as_str()
-            {
-                differed.insert(f.to_string());
-            }
-        }
-    }
-    let mut ran_why: BTreeMap<String, String> = BTreeMap::new();
-    for r in runs_where(
-        d,
-        "team = $1 AND repo_key = $2 AND suite = $3 ORDER BY id DESC LIMIT 2",
-        &[t(team), t(repo_key), t(suite)],
-    )? {
-        let det: Value = serde_json::from_str(&r.detail).unwrap_or(Value::Null);
-        for f in det["ranFiles"].as_array().into_iter().flatten() {
-            if let (Some(file), Some(why)) = (f["file"].as_str(), f["why"].as_str()) {
-                ran_why
-                    .entry(file.to_string())
-                    .or_insert_with(|| why.to_string());
+        if *i < 2 {
+            for f in det["ranFiles"].as_array().into_iter().flatten() {
+                if let (Some(file), Some(why)) = (f["file"].as_str(), f["why"].as_str()) {
+                    ran_why
+                        .entry(file.to_string())
+                        .or_insert_with(|| why.to_string());
+                }
             }
         }
     }
     let recorded: BTreeSet<&str> = recs.iter().map(|(f, _)| f.as_str()).collect();
     let mut out: Vec<Value> = vec![];
-    for (file, rec) in &recs {
+    for (file, rec) in recs {
         let skipped = rec["replays"].as_u64().unwrap_or(0);
         let ran = rec["runs"].as_u64().unwrap_or(0);
         let dur = rec["duration"].as_f64();
         let last = rec["state"].as_str().map(str::to_string);
         let (state, reason) = if rec["quarantined"].as_bool() == Some(true) {
-            if differed.contains(file) {
+            if differed.contains(file.as_str()) {
                 (
                     "paused",
                     Some("a spot-check found its result differed".to_string()),
@@ -1311,9 +1387,8 @@ fn suite_files(
         if recorded.contains(file.as_str()) {
             continue;
         }
-        let learning = ledger_row.is_none()
-            || why.starts_with("first run")
-            || why.starts_with("new test file");
+        let learning =
+            head.is_none() || why.starts_with("first run") || why.starts_with("new test file");
         out.push(json!({
             "file": file, "project": "",
             "state": if learning { "learning" } else { "always" },
@@ -1334,13 +1409,13 @@ fn suite_files(
         (rank(a["state"].as_str().unwrap_or("")), a["file"].as_str())
             .cmp(&(rank(b["state"].as_str().unwrap_or("")), b["file"].as_str()))
     });
-    let ledger = match &ledger_row {
-        Some(r) => {
-            json!({"at": r.at, "sha": r.sha, "branch": branch(r.git_ref.as_deref()), "scope": r.scope})
+    let ledger = match head {
+        Some(h) => {
+            json!({"at": h.at, "sha": h.sha, "branch": branch(h.git_ref.as_deref()), "scope": h.scope})
         }
         None => Value::Null,
     };
-    Ok((ledger, out))
+    (ledger, out)
 }
 
 pub async fn suites(
@@ -1351,25 +1426,90 @@ pub async fn suites(
     blocking(move || {
         let v = crate::dash::viewer(&app, &headers, &team)?;
         let d = db(&app, &v.team)?;
-        let repos = all_repos(&app, &v.team, &d)?;
+        // Three queries for the page: the runs, the ledger heads, and the
+        // chosen ledgers' file lists; each ledger's records come from the
+        // bucket once per ledger version (`ledger_recs`).
+        let rows = team_runs(&d, &v.team)?;
+        let repos = repos_of(&app, &v.team, &rows)?;
         let mut keys: BTreeMap<(String, String), String> = BTreeMap::new();
-        for sql in [
-            "SELECT repo_key, suite, repository FROM test_runs WHERE team = $1 ORDER BY id",
-            "SELECT repo_key, suite, repository FROM test_ledgers WHERE team = $1 ORDER BY id",
-        ] {
-            for r in d.query(sql, &[t(v.team.as_str())], &[Ty::T, Ty::T, Ty::T])? {
-                if let (Some(k), Some(s), Some(name)) = (r[0].t(), r[1].t(), r[2].t()) {
-                    keys.insert((k, s), name);
+        for r in rows.iter().rev() {
+            keys.insert((r.repo_key.clone(), r.suite.clone()), r.repository.clone());
+        }
+        let mut heads: BTreeMap<(String, String), Head> = BTreeMap::new();
+        for h in d.query(
+            "SELECT id, repo_key, suite, scope, at, sha, git_ref, repository FROM test_ledgers WHERE team = $1 ORDER BY id DESC LIMIT 5000",
+            &[t(v.team.as_str())],
+            &[Ty::I, Ty::T, Ty::T, Ty::T, Ty::T, Ty::T, Ty::T, Ty::T],
+        )? {
+            let (Some(id), Some(rk), Some(suite), Some(scope)) = (h[0].i(), h[1].t(), h[2].t(), h[3].t()) else {
+                continue;
+            };
+            let key = (rk, suite);
+            if let Some(name) = h[7].t() {
+                keys.entry(key.clone()).or_insert(name);
+            }
+            let better = match heads.get(&key) {
+                None => true,
+                // Newest first: replace only a non-trusted head by a trusted one.
+                Some(cur) => cur.scope != TRUSTED && scope == TRUSTED,
+            };
+            if better {
+                heads.insert(
+                    key,
+                    Head {
+                        id,
+                        at: h[4].t().unwrap_or_default(),
+                        scope,
+                        sha: h[5].t(),
+                        git_ref: h[6].t(),
+                    },
+                );
+            }
+        }
+        // The chosen ledgers' file lists, for those not cached yet.
+        let cached = |id: i64| {
+            RECS.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&(v.team.clone(), id))
+        };
+        let need: Vec<i64> = heads.values().map(|h| h.id).filter(|id| !cached(*id)).collect();
+        let mut files_of: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+        for chunk in need.chunks(200) {
+            let ors: Vec<String> = (0..chunk.len()).map(|k| format!("id = ${}", k + 2)).collect();
+            let mut params = vec![t(v.team.as_str())];
+            params.extend(chunk.iter().map(|id| i(*id)));
+            for r in d.query(
+                &format!("SELECT id, files FROM test_ledgers WHERE team = $1 AND ({})", ors.join(" OR ")),
+                &params,
+                &[Ty::I, Ty::T],
+            )? {
+                if let (Some(id), Some(f)) = (r[0].i(), r[1].t()) {
+                    files_of.insert(id, f);
                 }
             }
         }
         let mut out = vec![];
-        for ((repo_key, suite), repository) in keys {
-            let (ledger, files) = suite_files(&app, &v.team, &d, &repo_key, &suite)?;
+        for ((repo_key, suite), repository) in &keys {
+            let key = (repo_key.clone(), suite.clone());
+            let head = heads.get(&key);
+            let recs = match head {
+                Some(h) => ledger_recs(
+                    &app,
+                    &v.team,
+                    h.id,
+                    files_of.get(&h.id).map(String::as_str).unwrap_or("[]"),
+                )?,
+                None => Arc::new(vec![]),
+            };
+            let runs: Vec<&RunRow> = rows
+                .iter()
+                .filter(|r| r.repo_key == *repo_key && r.suite == *suite)
+                .collect();
+            let (ledger, files) = suite_files(head, &recs, &runs);
             let count = |s: &str| files.iter().filter(|f| f["state"] == s).count();
             let saved: f64 = files.iter().filter_map(|f| f["savedMs"].as_f64()).sum();
             out.push(json!({
-                "repoSlug": crate::dash::slug(&repository, &repos),
+                "repoSlug": crate::dash::slug(repository, &repos),
                 "repository": repository,
                 "suite": suite,
                 "ledger": ledger,

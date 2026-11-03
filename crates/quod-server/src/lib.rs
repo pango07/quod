@@ -22,6 +22,7 @@ pub mod pg;
 pub mod s3;
 pub mod store;
 pub mod testreplay;
+pub mod timing;
 pub mod warmup;
 
 use std::sync::Arc;
@@ -230,7 +231,8 @@ impl IntoResponse for ApiError {
 pub async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, ApiError> + Send + 'static,
 ) -> Result<T, ApiError> {
-    tokio::task::spawn_blocking(f)
+    let t = timing::current();
+    tokio::task::spawn_blocking(move || timing::with(t, f))
         .await
         .map_err(ApiError::internal)?
 }
@@ -324,6 +326,7 @@ pub fn router(app: AppState) -> Router {
         .merge(blob)
         .merge(dash::router())
         .layer(middleware::from_fn(protocol))
+        .layer(middleware::from_fn(timing::layer))
         .with_state(app)
 }
 

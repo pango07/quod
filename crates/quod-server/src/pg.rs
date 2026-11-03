@@ -42,7 +42,25 @@ use crate::store::{EventRow, StepRow, TrustedWrite};
 
 type Manager = PostgresConnectionManager<NoTls>;
 pub type Pool = r2d2::Pool<Manager>;
-type Conn = r2d2::PooledConnection<Manager>;
+/// A pooled connection; the time it is held counts as `db` in the
+/// request's Server-Timing.
+pub struct Conn {
+    inner: r2d2::PooledConnection<Manager>,
+    _span: crate::timing::DbSpan,
+}
+
+impl std::ops::Deref for Conn {
+    type Target = r2d2::PooledConnection<Manager>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for Conn {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
 type P<'a> = &'a (dyn ToSql + Sync);
 
 /// The quod-ledger schema version the Postgres ledger tables hold. The
@@ -260,7 +278,11 @@ impl Pg {
     }
 
     pub fn conn(&self) -> Result<Conn, LedgerError> {
-        self.pool.get().map_err(pool_err)
+        let span = crate::timing::DbSpan::start();
+        Ok(Conn {
+            inner: self.pool.get().map_err(pool_err)?,
+            _span: span,
+        })
     }
 
     /// Brings the schema to `PG_SCHEMA_VERSION`: one transaction, under an
