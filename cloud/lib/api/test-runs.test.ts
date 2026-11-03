@@ -106,6 +106,8 @@ describe("test runs in the sample data", () => {
     expect(suites?.map((s) => [s.repoSlug, s.suite, s.totals.files])).toEqual([
       ["web", "packages/backend", 184],
       ["web", "packages/web", 96],
+      ["web", "packages/contract", 7],
+      ["quod", ".", 9],
     ]);
   });
 });

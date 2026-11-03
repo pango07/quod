@@ -6,45 +6,50 @@ import { LiveRefresh } from "@/components/live/parts";
 import { ProtectedBranchHelp } from "@/components/protected-branch-help";
 import { SectionUnavailable } from "@/components/section";
 import { TestRunsTable } from "@/components/test-runs";
-import { TestSuitesList, TrustStart } from "@/components/test-suites";
+import { TrustCompact, TrustStart } from "@/components/test-suites";
 import { ProtectionNote, TrustList } from "@/components/trust-plain";
 import { Dot } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import type { StepSummary, Team } from "@/lib/api/types";
 import { RECENT_RUNS, recentRunDetails } from "@/lib/recent-runs";
-import { trustSections } from "@/lib/test-suites";
+import { formatAgo } from "@/lib/format";
+import { trustModel, trustSections } from "@/lib/test-suites";
 import { groupSteps, recentByKey } from "@/lib/trust-plain";
 
 /** /[team]/trust, plain: test files first (test-level replay), then steps when there are any. */
 export async function PlainTrust({ team }: { team: Team }) {
-  const [suitesS, testRunsS, found, runs] = await Promise.all([
+  // In parallel: suites, up to 200 test runs (the medians and the 7 days), the stats, and the steps.
+  // The step list's recent run details are read only when there are steps.
+  const [suitesS, testRunsS, statsS, [found, runs]] = await Promise.all([
     section(api().listTestSuites(team.slug)),
-    section(api().listTestRuns(team.slug, { limit: 10 })),
-    section(api().listSteps(team.slug)),
-    recentRunDetails(team.slug),
+    section(api().listTestRuns(team.slug, { limit: 200 })),
+    section(api().getTestStats(team.slug)),
+    section(api().listSteps(team.slug)).then(async (s) => [s, s.ok && s.value.length ? await recentRunDetails(team.slug) : []] as const),
   ]);
   const suites = suitesS.ok ? (suitesS.value ?? []) : [];
   const testRuns = testRunsS.ok ? (testRunsS.value ?? []) : [];
+  const stats = statsS.ok ? statsS.value : null;
   const groups = groupSteps(found.ok ? found.value : [], recentByKey(runs));
   const show = trustSections({ suites, testRuns: testRuns.length, steps: groups.length });
   const paused = groups.filter((g) => g.current.state.kind === "paused");
   const asOf = new Date().toISOString();
+  const now = Date.parse(asOf);
   // One "unavailable" card when quod-server is down, not one per source.
   const down = !suitesS.ok ? suitesS : !testRunsS.ok ? testRunsS : !found.ok ? found : null;
   const tests = show.suites || show.testRuns;
+  const model = show.suites ? trustModel({ team: team.slug, suites, runs: testRuns, stats, now, ago: (iso) => formatAgo(iso, asOf) }) : null;
   return (
     <div className="page">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <h1 className="h1">Trust</h1>
-        <p className="muted" style={{ maxWidth: "72ch", lineHeight: 1.6 }}>
-          Quod skips a test file when nothing it depends on has changed since a recorded run on your default branch, and reuses that result. Each file learns first, then it is
-          ready to skip. A few skipped files are re-run in the background to check; if one gives a different result, that file is paused and runs every time.
+        <p className="muted" style={{ maxWidth: "72ch" }}>
+          A test file is skipped only when nothing it depends on changed since it last passed. Spot-checks re-run skipped files at random to prove it.
         </p>
       </div>
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
       {down ? <SectionUnavailable s={down} what={down === found ? "Steps" : "Test files"} /> : null}
-      {show.suites ? <TestSuitesList team={team.slug} suites={suites} asOf={asOf} /> : null}
+      {model ? <TrustCompact model={model} asOf={asOf} /> : null}
       {show.testRuns ? (
         <section className="card" aria-labelledby="trust-tests-h" style={{ overflow: "hidden" }}>
           <div className="card-head">
@@ -53,11 +58,11 @@ export async function PlainTrust({ team }: { team: Team }) {
                 Recent test runs
               </h2>
               <p className="muted" style={{ fontSize: 13, lineHeight: 1.5, maxWidth: "72ch" }}>
-                Each test file&apos;s state shows here once a run on your default branch records it. Until then, these are the latest runs.
+                Each test file&apos;s state shows here once a run on a writer branch records it. Until then, these are the latest runs.
               </p>
             </div>
           </div>
-          <TestRunsTable team={team.slug} runs={testRuns} asOf={asOf} showRepo />
+          <TestRunsTable team={team.slug} runs={testRuns.slice(0, 10)} asOf={asOf} showRepo />
         </section>
       ) : null}
       {show.empty && !down ? <TrustStart /> : null}
