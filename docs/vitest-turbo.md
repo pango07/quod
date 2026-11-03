@@ -105,7 +105,7 @@ runs differing from plain; mutation checks 0 wrong).
 |---|---:|---:|---:|---|
 | ufo, 20 commits (run 41568727172) | 23.6 s | 15.4 s (17.0 s) | B/A 1.10 | 48.3 → 37.0 s (1.31x), 3 installs skipped |
 | router, 20 commits (run 41568730885) | 224.9 s | 48.2 s (50.3 s) | B/A 1.04 | 237.6 → 60.6 s (3.92x), 1 install skipped |
-| core (see the branch report) | | | | |
+| vuejs/core, 20 commits (run 41568738125) | 480.9 s | 170.4 s (181.9 s) | B/A 1.07 | 506.6 → 194.3 s (2.61x), 4 installs skipped |
 
 Rendered full replay, per commit where every file replays: ufo 220-270 ms
 → 0-10 ms; router 410 → 20-40 ms; core (7 of 20 commits) 40 s plain → 20 ms.
