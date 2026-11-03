@@ -1593,6 +1593,11 @@ fn parse_trace(text: &str) -> std::result::Result<Vec<Call>, String> {
         if rest.starts_with("+++") || rest.starts_with("---") {
             continue;
         }
+        if rest.ends_with("<detached ...>") {
+            // The process left in the middle of a call (exit_group from
+            // another thread): what it had started stays as `?`.
+            continue;
+        }
         let full = if let Some(head) = rest.strip_suffix("<unfinished ...>") {
             pending.insert(pid, head.trim_end().to_string());
             continue;
@@ -2339,7 +2344,8 @@ mod tests {
                  11 openat(AT_FDCWD</w/a>, \"testdata/x, y\", O_RDONLY|O_CLOEXEC <unfinished ...>\n\
                  10 newfstatat(AT_FDCWD</w/a>, \"go.mod\", {st_mode=S_IFREG|0644, st_size=10, ...}, 0) = 0\n\
                  11 <... openat resumed>) = 3</w/a/testdata/x, y>\n\
-                 12 openat(AT_FDCWD, \"/etc/hosts\", O_RDONLY <unfinished ...>\n";
+                 12 openat(AT_FDCWD, \"/etc/hosts\", O_RDONLY <unfinished ...>\n\
+                 13 ???( <detached ...>\n";
         let calls = parse_trace(t).unwrap();
         assert_eq!(calls.len(), 4);
         assert_eq!(calls[2].name, "openat");
