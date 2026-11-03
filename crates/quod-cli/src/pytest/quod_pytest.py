@@ -533,7 +533,6 @@ class Recorder:
             "socket.getaddrinfo": self._on_resolve,
             "socket.gethostbyname": self._on_resolve,
             "urllib.Request": lambda a: rec._unrec("uses the network"),
-            "ctypes.dlopen": lambda a: rec._unrec_file("loads native code (ctypes)"),
             "sqlite3.connect": self._on_sqlite,
             "os.rename": self._on_mutate,
             "os.remove": self._on_mutate,
@@ -953,6 +952,33 @@ def _display_read():
     return False
 
 
+def _source_imports(path):
+    """Every module name a file's source imports (and their parents), or
+    all of them when it cannot be parsed."""
+    out = set()
+    try:
+        with open(path, "rb") as f:
+            tree = ast.parse(f.read())
+    except Exception:
+        return {"*"}
+    for node in ast.walk(tree):
+        names = []
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                return {"*"}
+            base = node.module or ""
+            names = [base] + [base + "." + a.name for a in node.names]
+        for n in names:
+            parts = n.split(".")
+            for i in range(1, len(parts) + 1):
+                out.add(".".join(parts[:i]))
+    if "importlib" in out or "__import__" in open(path, encoding="utf-8", errors="replace").read():
+        return {"*"}
+    return out
+
+
 def _caller_ws():
     f = sys._getframe(2)
     while f is not None:
@@ -1027,9 +1053,27 @@ _SYS_SKIP = {
 }
 
 
+_IMMUTABLE_SCALARS = frozenset((type(None), bool, int, float, complex, str, bytes))
+
+
+def _mutable(v):
+    """Can this value change without being rebound? A scalar, a function, a
+    class, a module, or a tuple/frozenset of scalars cannot."""
+    t = type(v)
+    if t in _IMMUTABLE_SCALARS or isinstance(v, _OPAQUE):
+        return False
+    if t is tuple or t is frozenset:
+        return not (set(map(type, v)) <= _IMMUTABLE_SCALARS)
+    if t.__name__ == "Logger" or t.__name__ == "RootLogger":
+        return True
+    return True
+
+
 def _tag(v, depth):
     t = type(v)
     try:
+        if t.__name__ in ("Logger", "RootLogger", "PlaceHolder"):
+            return "logger:%s:%s:%d" % (getattr(v, "name", "?"), getattr(v, "level", "?"), len(getattr(v, "handlers", ()) or ()))
         if t in _SCALARS:
             r = repr(v) if not (t is str or t is bytes) or len(v) < 4096 else repr(v[:4096]) + "#%d" % len(v)
             return t.__name__ + ":" + hs(r)[:12]
@@ -1098,13 +1142,15 @@ def _module_fp(name, m):
             if isinstance(v, types.ModuleType):
                 continue
             ids[k] = id(v)
+            if not isinstance(v, _OPAQUE) and not _mutable(v):
+                continue
             if isinstance(v, _OPAQUE):
                 if isinstance(v, type) and getattr(v, "__module__", None) == name:
                     for ck, cv in list(vars(v).items()):
                         if (ck.startswith("__") and ck.endswith("__")) or ck.startswith("_abc_"):
                             continue
                         ids[k + "." + ck] = id(cv)
-                        if not isinstance(cv, _OPAQUE):
+                        if _mutable(cv):
                             tags[k + "." + ck] = _tag(cv, 1)
                 continue
             tags[k] = _tag(v, 2)
@@ -1168,7 +1214,7 @@ def _globals_fp():
                 g["g:signal." + s] = _tag(signal.getsignal(getattr(signal, s)), 0)
     except Exception:
         pass
-    g["g:threads"] = str(sorted(t.name for t in threading.enumerate() if t is not threading.main_thread()))
+    g["g:threads"] = str(sorted(t.name for t in threading.enumerate() if t is not threading.main_thread() and not t.daemon))
     return g
 
 
@@ -1291,6 +1337,8 @@ class Guard:
         name = getattr(mod, "__name__", None)
         if not isinstance(name, str) or name in self.before["mods"] or name in self.extra:
             return
+        if not _is_ws_module(mod):
+            return
         if self.scope is not None and name not in self.scope:
             return
         _pause(1)
@@ -1398,39 +1446,45 @@ def _innermost(funcs, lo, hi, insertion):
     return best
 
 
-def narrowable(old_src, new_src, executed):
-    """True when every change from old_src to new_src lies strictly inside the
-    body of a function never executed (executed: {(firstline, name)} of the
-    old version)."""
+def changed_functions(old_src, new_src):
+    """The (firstline, name) of the innermost old def holding each change, or
+    None when some change is not strictly inside a function body (or the
+    new version does not compile, or nothing changed)."""
     try:
         old_tree = ast.parse(old_src)
         new_tree = ast.parse(new_src)
         compile(new_src, "<quod>", "exec")
     except Exception:
-        return False
+        return None
     of = _functions(old_tree)
     nf = _functions(new_tree)
     a = old_src.splitlines()
     b = new_src.splitlines()
     sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
-    any_change = False
+    out = set()
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             continue
-        any_change = True
         fo = _innermost(of, i1 + 1, i2, i1 == i2)
         fn = _innermost(nf, j1 + 1, j2, j1 == j2)
         if fo is None or fn is None or fo[0] != fn[0]:
-            return False
-        if (fo[1], fo[2]) in executed:
-            return False
+            return None
         # Insertions at the very end of a body: the new side must agree the
         # lines are inside (a dedented statement would not be).
         if i1 == i2 and not (fn[3] <= j1 + 1 and j2 <= fn[4]):
-            return False
+            return None
         if j1 == j2 and not (fo[3] <= i1 + 1 and i2 <= fo[4]):
-            return False
-    return any_change
+            return None
+        out.add((fo[1], fo[2]))
+    return out or None
+
+
+def narrowable(old_src, new_src, executed):
+    """True when every change from old_src to new_src lies strictly inside the
+    body of a function never executed (executed: {(firstline, name)} of the
+    old version)."""
+    ch = changed_functions(old_src, new_src)
+    return ch is not None and not (ch & executed)
 
 
 # ---------------------------------------------------------------------------
@@ -1748,8 +1802,6 @@ class Quod:
         self.config = config
         WS = str(config.rootpath)
         self.taint = unsafe_reason(config)
-        if REC is not None:
-            REC.patch_rewrite()
 
     def pytest_sessionstart(self, session):
         self.session = session
@@ -1904,7 +1956,7 @@ class Quod:
                     if any(leak_relevant(k, None, None) for k in r["cleak"]):
                         collect.add(f)
                         changed = True
-                if r.get("rleak") and any(self.pos[a] > self.pos[f] for a in run):
+                if r.get("rleak") and any(self.pos[a] > self.pos[f] and self._observes(r["rleak"], a) for a in run):
                     run.add(f)
                     replay.pop(f)
                     collect.discard(f)
@@ -1927,6 +1979,33 @@ class Quod:
         if self.mode == "shadow":
             self._pick_audits()
 
+    def _observes(self, leak, a):
+        """Can running file `a` observe any of these keys? A key of a test
+        module's own state only when `a` imports that test module (its
+        record's closure, or its current source's imports)."""
+        tests = self._test_modules()
+        mods = None
+        for k in leak:
+            parts = k.split(":", 2)
+            if parts[0] in ("w", "t") and len(parts) == 3 and parts[1] in tests:
+                if mods is None:
+                    mods = set(((self.L["files"].get(a) or {}).get("modules") or ())) | _source_imports(absp(a))
+                if parts[1] in mods or "*" in mods:
+                    return True
+                continue
+            return True
+        return False
+
+    def _test_modules(self):
+        if getattr(self, "_tmods", None) is None:
+            self._tmods = set()
+            for f in self.L["files"]:
+                if f.endswith(".py"):
+                    m = f[:-3].replace("/", ".")
+                    self._tmods.add(m)
+                    self._tmods.add(m.rsplit(".", 1)[-1])  # rootdir-relative imports (prepend mode)
+        return self._tmods
+
     def _narrow(self, r, changed, sess_exec):
         exe = r.get("exec", {})
         quotes = set(r.get("quotes", []))
@@ -1937,15 +2016,22 @@ class Quod:
             old = r["keys"].get(k) or self.L["session"]["keys"].get(k)
             if not old or len(old) != 32:
                 return False
-            try:
-                with open(os.path.join(OPTS["dir"], "blobs", old), "rb") as f:
-                    old_src = f.read().decode("utf-8")
-                with open(absp(p), "rb") as f:
-                    new_src = f.read().decode("utf-8")
-            except (OSError, UnicodeDecodeError):
+            memo = self.__dict__.setdefault("_changed", {})
+            ch = memo.get((p, old), False)
+            if ch is False:
+                try:
+                    with open(os.path.join(OPTS["dir"], "blobs", old), "rb") as f:
+                        old_src = f.read().decode("utf-8")
+                    with open(absp(p), "rb") as f:
+                        new_src = f.read().decode("utf-8")
+                    ch = changed_functions(old_src, new_src)
+                except (OSError, UnicodeDecodeError):
+                    ch = None
+                memo[(p, old)] = ch
+            if ch is None:
                 return False
             executed = set(tuple(x) for x in exe.get(p, ())) | set(tuple(x) for x in sess_exec.get(p, ()))
-            if not narrowable(old_src, new_src, executed):
+            if ch & executed:
                 return False
         return True
 
@@ -2636,6 +2722,8 @@ def main():
         REC.install()
     import pytest
 
+    if REC is not None:
+        REC.patch_rewrite()
     sys.argv = [os.path.join(os.path.dirname(pytest.__file__), "__main__.py")] + args
     plugin = Quod(mode, args)
     rc = int(pytest.main(list(args), plugins=[plugin, _register(plugin)]))
