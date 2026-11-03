@@ -1521,7 +1521,9 @@ impl Standby {
         let rd = dir.join("render-next");
         let _ = fs::remove_dir_all(&rd);
         fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
-        let (pp, op, go) = (rd.join("plan.json"), rd.join("out.json"), rd.join("go.json"));
+        let pp = rd.join("plan.json");
+        let op = rd.join("out.json");
+        let go = rd.join("go.json");
         let plan = serde_json::json!({
             "stateDir": dir, "replay": {}, "audit": [], "record": false,
             "render": rd, "standby": go,
