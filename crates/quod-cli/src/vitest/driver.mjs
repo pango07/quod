@@ -324,14 +324,16 @@ if (plan.render) {
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
-  const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
+  // With typecheck on, the type tests (pool `typescript`, tsc) always run;
+  // the project's other files are recorded as usual.
+  const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.only
   if (ok) {
     if (record) {
       c.setupFiles = [setupPath, ...c.setupFiles]
       c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
     }
     recorded.add(p.name)
-  } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
+  } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck only or not isolated): its files always run`)
 }
 
 // Partition vitest's own list of test files.
@@ -349,7 +351,7 @@ specsApi.getRelevantTestSpecifications = async (f) => {
   for (const s of all) {
     const id = s.taskId
     const res = replay[id]
-    let ok = res && !audits.has(id) && recorded.has(s.project.name) && !s.testLines?.length && !s.testNamePattern
+    let ok = res && !audits.has(id) && recorded.has(s.project.name) && s.pool !== 'typescript' && !s.testLines?.length && !s.testNamePattern
     if (ok && covOn) {
       const c = loadCov(id)
       if (c) replayCov.set(id, c)
@@ -569,7 +571,7 @@ for (const m of endModules) {
     if (fp && metas?.length === 1 && !covShared.has(id)) {
       real.writeFileSync(gz, zlib.gzipSync(JSON.stringify(metas[0]), { level: 6 }))
       real.writeFileSync(fpFile, fp)
-    } else if (covOn) log(`coverage: ${file.filepath} handed over ${metas?.length ?? 0} coverage results${covShared.has(id) ? ' (with other files)' : ''}: not kept, it runs next time`)
+    } else if (covOn && dumps.get(id)) log(`coverage: ${file.filepath} handed over ${metas?.length ?? 0} coverage results${covShared.has(id) ? ' (with other files)' : ''}: not kept, it runs next time`)
   }
   // The shadow's safety net: a file records only if it ran here as it did on
   // the critical path of the same commit (uninstrumented); else recording
