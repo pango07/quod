@@ -159,3 +159,38 @@ console.log(JSON.stringify([...r.keys].sort()))
         ]
     );
 }
+
+#[test]
+fn the_env_proxy_takes_assignments() {
+    // vi.stubEnv assigns process.env.X; through a proxy without a `set`
+    // trap that became a partial defineProperty, which process.env refuses.
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchEnv }} from {record:?}
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker' }})
+process.env.QUOD_T = 'a'
+patchEnv(r)
+process.env.QUOD_T = 'b'
+process.env.QUOD_U = 'c'
+delete process.env.QUOD_U
+console.log(JSON.stringify([process.env.QUOD_T, process.env.QUOD_U ?? null]))
+"#,
+        record = record.display().to_string(),
+    );
+    let s = t.path().join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node").arg(&s).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v, serde_json::json!(["b", null]));
+}
