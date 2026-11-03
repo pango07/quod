@@ -61,7 +61,10 @@ const MAP_RE = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)
 // map to another source count as unmapped.
 function inlineMap(code, file) {
   const m = MAP_RE.exec(code)
-  if (!m) return { why: 'no inline map' }
+  if (!m) {
+    unmappedSample[file] ??= code.slice(-200)
+    return { why: 'no inline map' }
+  }
   try {
     const map = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'))
     if (!Array.isArray(map.sources) || !map.sources.length) return { why: 'a map without sources' }
@@ -110,6 +113,8 @@ function original(map, starts, offset) {
 
 // Why files got no entry (for diagnostics): reason -> count.
 export const unmapped = {}
+// One example of the end of a module whose map was not found (diagnostics).
+export const unmappedSample = {}
 const miss = (why) => (unmapped[why] = (unmapped[why] ?? 0) + 1)
 
 export function executedFunctions(scripts, em, root) {

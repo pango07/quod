@@ -230,6 +230,7 @@ const transformed = new Set()
 const dumps = new Map()
 const workerMs = { setup: 0, dump: 0, cov: 0 }
 const unmapped = {}
+let unmappedSample = null
 for (const id of ran.keys()) {
   let d = null
   try {
@@ -239,6 +240,7 @@ for (const id of ran.keys()) {
   if (d) for (const m of d.modules) transformed.add(path.resolve(m))
   if (d?.ms) for (const k of Object.keys(workerMs)) workerMs[k] += d.ms[k] ?? 0
   for (const [k, n] of Object.entries(d?.unmapped ?? {})) unmapped[k] = (unmapped[k] ?? 0) + n
+  if (d?.unmappedSample?.length && !unmappedSample) unmappedSample = d.unmappedSample[0]
 }
 const interrupted = ctx.isCancelling || crashed
 for (const m of endModules) {
@@ -394,5 +396,6 @@ writeJson(outPath, {
   unmapped,
 })
 if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)
+if (unmappedSample) log(`e.g. ${unmappedSample[0]} ends with: ${JSON.stringify(unmappedSample[1])}`)
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)
