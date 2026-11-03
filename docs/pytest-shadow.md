@@ -1,0 +1,168 @@
+# pytest replay with shadow recording (`quod pytest`)
+
+2026-11-03, branch exp/pytest-shadow (from exp/vitest-shadow). The shadow
+design of docs/vitest-shadow.md, brought to pytest: the developer's job runs
+only the affected test files, plainly, and replays the rest; a separate,
+non-blocking job records. Code: `crates/quod-cli/src/pytest.rs` (the CLI)
+and `crates/quod-cli/src/pytest/quod_pytest.py` (a pytest plugin that does
+the selection, the replay, the recording and the certification; the CLI
+writes it into `<dir>/plugin/` and runs it with the project's Python).
+Benchmark: pango07/ci-bench `bench-pytest.yml`, `scripts/pytest/`.
+
+## The two jobs
+
+**Critical path**: `quod pytest --no-record --dir L --python PY -- <pytest args>`.
+- Loads the ledger, hashes every recorded input once (stat cache), and
+  decides per test file: replay or run (below). Nothing is recorded: no
+  audit hook, no import tracking, no `sys.monitoring`.
+- Runs ONE pytest session with the project's arguments. Replayed files are
+  not collected (`pytest_ignore_collect`), so neither imported nor run; the
+  files that run keep their original relative order (pytest's own
+  collection order). Their recorded tests are inserted as `ReplayItem`s at
+  their position in the full run's file order, and each one's recorded
+  reports go through `pytest_runtest_logstart/logreport/logfinish` and
+  `pytest_warning_recorded`: the terminal summary, `-rA`, `--junitxml`,
+  `--durations` and the exit code are a full run's. The collected count and
+  `-k`/`-m` deselections are adjusted to a full run's.
+- First run ever (no ledger), a taint (`-x`, `--lf`, `--ff`, `-n`, random
+  order, reruns, ...), other arguments, another pytest/plugin set/Python:
+  every file runs; the job is plain pytest under the plugin.
+
+**Shadow** (a separate job, `continue-on-error`):
+`quod pytest --dir L --audits 4 --expect-report <critical path's --summary> -- <same args>`.
+- Same selection, then runs the affected files (plus up to 4 audited
+  replayable files) with recording.
+- A file records only if its per-test outcomes equal the critical path's
+  for the same commit (`--expect-report`, object addresses normalized for
+  matching only); otherwise "recording changed behaviour": quarantined. A
+  file the report lacks is not recorded.
+- **Certification**: every newly recorded file then runs alone, in a fresh
+  process (in parallel), with the same arguments. Its outcomes must equal
+  its outcomes in the session; then it is *certified order-independent*.
+  Only certified files replay.
+- Audits: an audited file whose results differ from its record is
+  quarantined.
+- Writes the ledger (`ledger.json`, `results/<id>.json`, `blobs/<hash>`)
+  that the next commit's critical path reads. The hand-off is the vitest
+  one (actions/cache keyed by branch and commit; see docs/vitest-shadow.md).
+
+## Attribution inside one process
+
+pytest collects every test file, then runs every test, in one process. The
+recorder keeps a stack of **windows**: the session (start-up, conftests,
+plugins, session- and package-scoped fixtures), each test file (its
+collection and its tests, module- and class-scoped fixtures included), and
+each module's first load. Everything the process does goes to the current
+window:
+- reads (`sys.addaudithook` "open"), directory listings (os.listdir and
+  os.scandir by anyone but the import system and pytest's collection),
+  stats (`os.stat`, `lstat`, `access`, `readlink` wrapped), env reads
+  (`os._Environ.__getitem__`, enumeration keys the whole environment),
+- imports (`builtins.__import__`, `_gcd_import`: every import, cached or
+  not, is an edge from the window to the module; failed imports too),
+- each module's source (its spec's origin, keyed at load: with a valid pyc
+  the source is never opened),
+- executed functions (`sys.monitoring` PY_START per window, 3.12+; events
+  restart at every window change).
+
+A file's inputs: its window's keys, plus every key of the module-load
+windows in the closure of its imports. The session's inputs (and the
+closure of the session's imports) are every file's. Import resolution is
+keyed per imported name in every workspace directory it is searched in
+(`x:dir/name`: a new `json.py` in tests/ shadows the stdlib). Not inputs:
+the stdlib and site-packages (the interpreter and the distributions are
+keyed instead), `__pycache__`, the temp dir, pytest's cache (a test reading
+it is not recorded), files the session wrote.
+
+**Session-level keys**: the interpreter (`py:`: version, executable,
+prefix, flags, `PYTHON*`), `sys.path` and meta path at start, every
+installed distribution by **name and file content** (RECORD-listed files
+hashed, dist-info bookkeeping and pycs excluded; not by dist-info dir
+names), the top-level `.pth` and `.py` files of site-packages, pytest's own
+section of `pyproject.toml`/`tox.ini`/`setup.cfg` when pytest is the
+reader (`ini:`; a version bump or a ruff setting is no input), the args
+(output-only ones excluded), pytest, its plugins, the plugin's own hash.
+
+**The project's own editable install** (attrs's lesson): its dist-info
+(version in the dir name and METADATA) is not part of the distribution key.
+A read of one of its files is keyed by file name inside the current
+dist-info (`od:name/METADATA`): `importlib.metadata.version(...)` keeps the
+version as an input of the files that read it; pytest's entry-point scan
+keys only `entry_points.txt`.
+
+**Unrecordable** (always runs): a subprocess, the network (anything but
+loopback), ctypes, a write into the workspace, a per-run CI variable read, a
+thread that outlives its file, a recorder error. The session is
+unrecordable (nothing replays) when it is one of these, or when a plugin
+interleaves test files.
+
+## Function-level narrowing
+
+As vitest's, with Python's `ast`: Quod keeps the source of every module key
+by content. A file whose only changed inputs are module sources (`m:`)
+replays when every change lies strictly inside the body of a `def` the file
+never executed (its windows, the session's, and its import closure's load
+windows; the innermost def that holds the change decides; the change must
+be inside the same def in the new version, which must compile). A change
+in a docstring, a signature, a decorator, a class body or at module level
+runs. No narrowing for a path the file's recorded results quote
+(warnings, captured logs: line numbers shift), nor for a path it read as
+data (`f:`).
+
+## Cross-file state: the rule
+
+pytest gives no isolation: a file can change state another file sees
+(module globals, class attributes, registries, monkeypatch leaks, env,
+cwd, warnings filters, logging, session-scoped fixture values). And the
+whole collection (every test module's import) happens before any test runs.
+
+**Certification** (above) proves at record time that a file's results do
+not depend on what ran before it in the session.
+
+**The leak guard** closes the other direction where state is fingerprinted.
+A fingerprint covers: every attribute of every workspace module (values to
+depth 2, and class attributes), rebinding of every other module's
+attributes (a third-party global going from None to a value counts as lazy
+initialisation), interpreter-wide state (env, cwd, sys.path, meta path,
+warnings filters, logging root, recursion limit, tz, gc, decimal context,
+socket timeout, locale, signal handlers, live threads), and session-scoped
+fixture values. The shadow records, per file, the delta of its collection
+(`cleak`) and of its tests (`rleak`).
+
+Selection then:
+1. A replayed file whose collection leaks is still collected (its tests
+   replay) whenever anything runs: in a plain run its import side effects
+   are there for every file.
+2. A replayed file whose tests leak, placed before a file that runs, runs.
+3. A file that failed certification runs with every file before it.
+4. The critical path fingerprints at the boundaries of what it runs. A
+   file that ran and changed state differently from its record (keys a
+   replayed file can observe: its import closure, its fixtures, or any
+   global) trips the guard: the whole suite runs again, plainly, and that
+   is the job's result. Same for an unpredicted new test file beside leaky
+   replayed files, and for missing records.
+
+**Residual, stated precisely.** A replayed, certified file B can still
+differ from a full plain run when a file that runs leaks state into B
+through something the fingerprint does not see:
+- mutation deeper than the fingerprint's depth (an object two levels down a
+  module global, a container longer than 200 entries mutated in place with
+  its length unchanged, an object's state reachable only through closures,
+  C-level state of an extension module, a `functools.lru_cache`'s
+  contents, `codecs`/`atexit`/`copyreg` registries, abc caches);
+- a third-party module's new attribute, or a third-party global going from
+  None to a value (treated as lazy initialisation);
+- files written outside the workspace (the temp dir) that B reads;
+- threads still running (taint only checks the files that started them).
+B was certified (alone == in session) when recorded, so such a leak needs a
+change in the file that leaks. The bench compares every replay with a full
+plain run; it would expose any instance.
+
+Also residual: a file that runs is run without the replayed files before it
+(like a developer's subset run). If it depends on state they leave that the
+fingerprint misses, it differs from the full run. Rule 3 covers files known
+to be order-dependent; a changed or new file is not yet known.
+
+## Measured
+
+(filled in below)

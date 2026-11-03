@@ -184,6 +184,12 @@ class States:
         kind, _, arg = key.partition(":")
         if kind in ("f", "m"):
             return self.content(absp(arg))
+        if kind == "et":
+            try:
+                st = _real_stat(absp(arg))
+            except OSError:
+                return "absent"
+            return "dir" if _statmod.S_ISDIR(st.st_mode) else "file" if _statmod.S_ISREG(st.st_mode) else "other"
         if kind == "e":
             try:
                 st = _real_stat(absp(arg))
@@ -197,6 +203,11 @@ class States:
         if kind == "l":
             r = self.listing(absp(arg))
             return "absent" if r is None else hs("\0".join(r))
+        if kind == "lm":
+            r = self.listing(absp(arg))
+            if r is None:
+                return "absent"
+            return hs("\0".join(n for n in r if n.lower().endswith((".dist-info", ".egg-info", ".egg-link", ".egg"))))
         if kind == "x":
             d, _, stem = arg.rpartition("/")
             r = self.listing(absp(d))
@@ -204,7 +215,7 @@ class States:
                 return "absent"
             return hs("\0".join(n for n in r if n == stem or n.startswith(stem + ".")))
         if kind == "v":
-            v = os.environ.get(arg)
+            v = START.get("env", os.environ).get(arg)
             return "unset" if v is None else hs(v)
         if kind == "venv":
             return env_all()
@@ -302,7 +313,8 @@ def volatile(name):
 
 
 def env_all():
-    return hs("\0".join("%s=%s" % kv for kv in sorted(os.environ.items()) if not volatile(kv[0])))
+    env = START.get("env", os.environ)
+    return hs("\0".join("%s=%s" % kv for kv in sorted(env.items()) if not volatile(kv[0])))
 
 
 def py_state():
@@ -405,6 +417,18 @@ def _caller():
     return ""
 
 
+_PYTEST_PROBES = {
+    "pytest.ini",
+    ".pytest.ini",
+    "pytest.toml",
+    ".pytest.toml",
+    "pyproject.toml",
+    "tox.ini",
+    "setup.cfg",
+    "conftest.py",
+    "__init__.py",
+}
+
 _LOCALHOST = ("127.0.0.1", "localhost", "::1", "0.0.0.0", "")
 
 
@@ -428,6 +452,7 @@ class Recorder:
         self.own = {}
         self.mon = None
         self.thread_start = None
+        self.why = {}
 
     @property
     def cur(self):
@@ -558,7 +583,7 @@ class Recorder:
         return os.path.normpath(p)
 
     def _excluded(self, p):
-        if "/__pycache__/" in p or p.endswith(".pyc"):
+        if "/__pycache__" in p or p.endswith(".pyc"):
             return True
         return (p + os.sep).startswith(self.excl) or p.startswith(self.excl)
 
@@ -597,13 +622,22 @@ class Recorder:
         if self.loading and p.endswith(".py"):
             w.reads["m:" + p] = None
             return
+        if _display_read():
+            return
         base = os.path.basename(p)
         if base in ("pyproject.toml", "tox.ini", "setup.cfg") and w is self.S:
             mod = _caller()
             if mod.startswith("_pytest") or mod.startswith("iniconfig") or mod == "tomllib" or mod.startswith("tomllib."):
                 w.reads["ini:" + p] = None
                 return
-        w.reads["f:" + p] = None
+        self.note("f:" + p, None)
+
+    def note(self, key, mod):
+        w = self.cur
+        if key not in w.reads:
+            w.reads[key] = None
+            if w is self.S and len(self.why) < 400:
+                self.why[key] = mod if mod is not None else _caller()
 
     def _on_write(self, p):
         if self._excluded(p) or "/.pytest_cache/" in p + "/":
@@ -623,11 +657,14 @@ class Recorder:
         if p is None or self._excluded(p) or p in self.written:
             return
         mod = _caller()
+        if mod.startswith("importlib.metadata") or mod.startswith("importlib_metadata"):
+            self.cur.reads["lm:" + p] = None
+            return
         if mod.startswith("importlib") or mod.startswith("_frozen_importlib") or mod.startswith("_pytest") or mod.startswith("pluggy"):
             # Import resolution is keyed per imported name (x:); pytest's
             # collection finds new test files itself.
             return
-        self.cur.reads["l:" + p] = None
+        self.note("l:" + p, mod)
 
     def _on_connect(self, args):
         addr = args[1] if len(args) > 1 else None
@@ -671,7 +708,18 @@ class Recorder:
                                 if ok is not None:
                                     rec.cur.reads[ok] = None
                                 elif not rec._excluded(p) and p not in rec.written:
-                                    rec.cur.reads["e:" + p] = None
+                                    mod = _caller()
+                                    if mod.startswith("importlib.metadata") or mod.startswith("importlib_metadata"):
+                                        pass
+                                    elif mod.startswith("_pytest") or mod.startswith("pluggy"):
+                                        # pytest finding test files and its
+                                        # outputs (it finds new ones itself);
+                                        # its config, conftest and package
+                                        # probes: existence and type.
+                                        if os.path.basename(p) in _PYTEST_PROBES or os.path.isdir(p):
+                                            rec.cur.reads["et:" + p] = None
+                                    else:
+                                        rec.note("e:" + p, mod)
                         except Exception:
                             pass
                         finally:
@@ -775,6 +823,11 @@ class Recorder:
                 w = rec.loads[name] = Window("l", name)
             rec.push(w)
             try:
+                origin = spec.origin if getattr(spec, "has_location", False) else None
+                if isinstance(origin, str) and rec.on:
+                    p = os.path.normpath(os.path.abspath(origin))
+                    if not rec._excluded(p):
+                        w.reads[("m:" if p.endswith(".py") else "f:") + p] = None
                 mod = orig_load(spec)
             finally:
                 rec.pop()
@@ -878,6 +931,26 @@ class Recorder:
         mon.register_callback(tool, mon.events.PY_START, on_start)
         mon.set_events(tool, mon.events.PY_START)
         self.mon = tool
+
+
+def _display_read():
+    """A source line read for pytest's own display (a warning's text in the
+    summary, a traceback it formats): not an input of any test."""
+    try:
+        f = sys._getframe(3)
+    except ValueError:
+        return False
+    seen = False
+    while f is not None:
+        g = f.f_globals.get("__name__", "") or ""
+        if g in ("warnings", "traceback") or g.startswith("_pytest._code"):
+            seen = True
+        elif seen and (g.startswith("_pytest") or g.startswith("pluggy")):
+            return True
+        elif seen and g not in _TRANSPARENT and g != __name__:
+            return False
+        f = f.f_back
+    return False
 
 
 def _caller_ws():
@@ -996,73 +1069,95 @@ def _is_ws_module(m):
     return "/site-packages/" not in f and "/.venv/" not in f and not f.startswith(sys.prefix + os.sep)
 
 
-def _module_fp(name, m, out):
-    if _is_ws_module(m):
-        for k, v in list(vars(m).items()):
-            if k in _SKIP_ATTRS or isinstance(v, types.ModuleType):
-                continue
-            out["w:%s:%s" % (name, k)] = (id(v), _tag(v, 2))
-            if isinstance(v, type) and getattr(v, "__module__", None) == name:
-                for ck, cv in list(vars(v).items()):
-                    if ck.startswith("__") and ck.endswith("__") or ck.startswith("_abc_"):
-                        continue
-                    out["w:%s:%s.%s" % (name, k, ck)] = (id(cv), _tag(cv, 1))
-        return
-    if m is sys.modules.get("__main__") or name in ("__main__", "quod_pytest", __name__) or name.startswith("_pytest") or name in ("pytest", "pluggy") or name.startswith("pluggy."):
-        return
+_OPAQUE = (types.FunctionType, types.BuiltinFunctionType, types.MethodType, types.ModuleType, type, staticmethod, classmethod, property)
+
+
+def _skip_module(name, m):
+    return (
+        m is sys.modules.get("__main__")
+        or name in ("__main__", "quod_pytest", __name__, "pytest", "pluggy")
+        or name.startswith("_pytest")
+        or name.startswith("pluggy.")
+    )
+
+
+def _module_fp(name, m):
+    """(ids, tags, workspace?) of a module: every attribute's identity (a
+    rebinding), and for the workspace's modules the content of every value
+    that is not code (to depth 2) and of their classes' attributes."""
     try:
-        items = list(vars(m).items())
+        d = vars(m)
     except TypeError:
-        return
-    skip = _SYS_SKIP if name == "sys" else ()
-    for k, v in items:
-        if k in _SKIP_ATTRS or k in skip or isinstance(v, types.ModuleType):
-            continue
-        if name == "builtins" and k in ("_", "__import__"):
-            continue
-        out["t:%s:%s" % (name, k)] = (id(v), type(v).__name__)
+        return None
+    if _is_ws_module(m):
+        ids = {}
+        tags = {}
+        for k, v in list(d.items()):
+            if k in _SKIP_ATTRS:
+                continue
+            if isinstance(v, types.ModuleType):
+                continue
+            ids[k] = id(v)
+            if isinstance(v, _OPAQUE):
+                if isinstance(v, type) and getattr(v, "__module__", None) == name:
+                    for ck, cv in list(vars(v).items()):
+                        if (ck.startswith("__") and ck.endswith("__")) or ck.startswith("_abc_"):
+                            continue
+                        ids[k + "." + ck] = id(cv)
+                        if not isinstance(cv, _OPAQUE):
+                            tags[k + "." + ck] = _tag(cv, 1)
+                continue
+            tags[k] = _tag(v, 2)
+        return (ids, tags, True)
+    # Everything else: rebinding only (C-speed).
+    ids = dict(zip(d, map(id, d.values())))
+    for k in _SKIP_ATTRS:
+        ids.pop(k, None)
+    if name == "sys":
+        for k in _SYS_SKIP:
+            ids.pop(k, None)
+    elif name == "builtins":
+        ids.pop("_", None)
+        ids.pop("__import__", None)
+    return (ids, None, False)
 
 
-def fingerprint(session=None):
-    out = {}
-    for name, m in list(sys.modules.items()):
-        if m is not None:
-            _module_fp(name, m, out)
-    g = out
+def _globals_fp():
+    g = {}
     try:
-        g["g:cwd"] = (0, hs(os.getcwd()))
+        g["g:cwd"] = hs(os.getcwd())
     except OSError:
-        g["g:cwd"] = (0, "gone")
-    g["g:sys.path"] = (0, hs("\0".join(map(str, sys.path))))
-    g["g:meta_path"] = (0, ",".join(type(x).__qualname__ for x in sys.meta_path))
-    g["g:path_hooks"] = (0, ",".join(getattr(x, "__qualname__", type(x).__qualname__) for x in sys.path_hooks))
+        g["g:cwd"] = "gone"
+    g["g:sys.path"] = hs("\0".join(map(str, sys.path)))
+    g["g:meta_path"] = ",".join(type(x).__qualname__ for x in sys.meta_path)
+    g["g:path_hooks"] = ",".join(getattr(x, "__qualname__", type(x).__qualname__) for x in sys.path_hooks)
     for k, v in list(os.environ.items()):
         if not volatile(k):
-            g["g:env:" + k] = (0, hs(v)[:12])
+            g["g:env:" + k] = hs(v)[:12]
     import warnings
 
-    g["g:warnings.filters"] = (0, _tag(list(warnings.filters), 1))
+    g["g:warnings.filters"] = _tag(list(warnings.filters), 1)
     import logging
 
     root = logging.getLogger()
-    g["g:logging.root"] = (0, "%s:%s" % (root.level, ",".join(type(x).__qualname__ for x in root.handlers)))
-    g["g:logging.disable"] = (0, str(logging.root.manager.disable))
-    g["g:recursionlimit"] = (0, str(sys.getrecursionlimit()))
-    g["g:switchinterval"] = (0, str(sys.getswitchinterval()))
-    g["g:tzname"] = (0, repr(time.tzname))
+    g["g:logging.root"] = "%s:%s" % (root.level, ",".join(type(x).__qualname__ for x in root.handlers))
+    g["g:logging.disable"] = str(logging.root.manager.disable)
+    g["g:recursionlimit"] = str(sys.getrecursionlimit())
+    g["g:switchinterval"] = str(sys.getswitchinterval())
+    g["g:tzname"] = repr(time.tzname)
     import gc
 
-    g["g:gc"] = (0, "%s:%s" % (gc.isenabled(), gc.get_threshold()))
+    g["g:gc"] = "%s:%s" % (gc.isenabled(), gc.get_threshold())
     if "decimal" in sys.modules:
         try:
-            g["g:decimal"] = (0, hs(repr(sys.modules["decimal"].getcontext())))
+            g["g:decimal"] = hs(repr(sys.modules["decimal"].getcontext()))
         except Exception:
             pass
     if "socket" in sys.modules:
-        g["g:socket.timeout"] = (0, repr(sys.modules["socket"].getdefaulttimeout()))
+        g["g:socket.timeout"] = repr(sys.modules["socket"].getdefaulttimeout())
     if "locale" in sys.modules:
         try:
-            g["g:locale"] = (0, sys.modules["locale"].setlocale(sys.modules["locale"].LC_ALL))
+            g["g:locale"] = sys.modules["locale"].setlocale(sys.modules["locale"].LC_ALL)
         except Exception:
             pass
     try:
@@ -1070,80 +1165,152 @@ def fingerprint(session=None):
 
         for s in ("SIGINT", "SIGTERM", "SIGALRM", "SIGUSR1", "SIGUSR2", "SIGHUP"):
             if hasattr(signal, s):
-                g["g:signal." + s] = (0, _tag(signal.getsignal(getattr(signal, s)), 0))
+                g["g:signal." + s] = _tag(signal.getsignal(getattr(signal, s)), 0)
     except Exception:
         pass
-    g["g:threads"] = (0, str(sorted(t.name for t in threading.enumerate() if t is not threading.main_thread())))
-    if session is not None:
-        try:
-            fm = session._fixturemanager
-            for fname, defs in list(fm._arg2fixturedefs.items()):
-                for d in defs:
-                    sc = getattr(d.scope, "value", d.scope)
-                    cr = getattr(d, "cached_result", None)
-                    if sc in ("session", "package") and cr is not None:
-                        out["fx:%s" % fname] = (id(cr[0]), _tag(cr[0], 2))
-        except Exception:
-            pass
+    g["g:threads"] = str(sorted(t.name for t in threading.enumerate() if t is not threading.main_thread()))
+    return g
+
+
+def _fixtures_fp(session):
+    out = {}
+    if session is None:
+        return out
+    try:
+        fm = session._fixturemanager
+        for fname, defs in list(fm._arg2fixturedefs.items()):
+            for d in defs:
+                sc = getattr(d.scope, "value", d.scope)
+                cr = getattr(d, "cached_result", None)
+                if sc in ("session", "package") and cr is not None:
+                    out[fname] = (id(cr[0]), _tag(cr[0], 2))
+    except Exception:
+        pass
     return out
+
+
+def fingerprint(session=None, scope=None):
+    mods = {}
+    for name, m in list(sys.modules.items()):
+        if m is None or (scope is not None and name not in scope) or _skip_module(name, m):
+            continue
+        fp = _module_fp(name, m)
+        if fp is not None:
+            mods[name] = fp
+    return {"mods": mods, "g": _globals_fp(), "fx": _fixtures_fp(session)}
+
+
+def _value_at(name, key):
+    m = sys.modules.get(name)
+    if m is None:
+        return None
+    obj = vars(m)
+    head, _, tail = key.partition(".")
+    v = obj.get(head)
+    if tail and v is not None:
+        v = vars(v).get(tail) if hasattr(v, "__dict__") else None
+    return v
+
+
+def fp_delta(before, extra, after):
+    """What changed from `before` (and modules first loaded since, as they
+    were at load: `extra`) to `after`, as {key: tag}."""
+    d = {}
+    none_id = id(None)
+    bm = before["mods"]
+    for name, (ids, tags, ws) in after["mods"].items():
+        b = bm.get(name) or extra.get(name)
+        if b is None:
+            continue  # a module first loaded in the window, never seen at load
+        bids, btags, _ = b
+        if ids == bids and tags == btags:
+            continue
+        prefix = ("w:" if ws else "t:") + name + ":"
+        for k, i in ids.items():
+            bi = bids.get(k)
+            if bi == i:
+                continue
+            if not ws and (bi is None or bi == none_id):
+                continue  # a third-party module's new attribute or lazy init
+            if ws and tags is not None and k in tags:
+                d[prefix + k] = tags[k]
+            else:
+                d[prefix + k] = _tag(_value_at(name, k), 0)
+        for k in bids:
+            if k not in ids and ws:
+                d[prefix + k] = "deleted"
+        if ws:
+            for k, t in tags.items():
+                if btags.get(k) != t:
+                    d[prefix + k] = t
+    for k, v in after["g"].items():
+        if before["g"].get(k) != v:
+            d[k] = v
+    bfx = dict(extra.get("<fx>", {}))
+    bfx.update(before["fx"])
+    for k, v in after["fx"].items():
+        b = bfx.get(k)
+        if b is not None and b != v:
+            d["fx:" + k] = v[1]
+    return d
 
 
 class Guard:
     """Fingerprints at file boundaries; the delta of a window."""
 
-    def __init__(self):
+    def __init__(self, scope=None):
+        self.scope = scope
         self.before = None
-        self.extra = {}  # state of modules first loaded inside the window, at load
+        self.extra = {}  # modules first loaded inside the window, as at load
+        self.ns = 0
+        self.n = 0
 
-    def start(self, session):
+    def _fp(self, session):
         _pause(1)
+        t = time.perf_counter_ns()
         try:
-            self.before = fingerprint(session)
+            return fingerprint(session, self.scope)
         finally:
             _pause(-1)
+            self.ns += time.perf_counter_ns() - t
+            self.n += 1
+
+    def start(self, session, reuse=False):
+        if reuse and self.before is not None:
+            return
+        self.before = self._fp(session)
+        self.extra = {}
+
+    def invalidate(self):
+        self.before = None
         self.extra = {}
 
     def loaded(self, mod):
         if self.before is None or mod is None:
             return
+        name = getattr(mod, "__name__", None)
+        if not isinstance(name, str) or name in self.before["mods"] or name in self.extra:
+            return
+        if self.scope is not None and name not in self.scope:
+            return
         _pause(1)
         try:
-            out = {}
-            _module_fp(mod.__name__, mod, out)
-            for k, v in out.items():
-                if k not in self.before:
-                    self.extra.setdefault(k, v)
+            if not _skip_module(name, mod):
+                fp = _module_fp(name, mod)
+                if fp is not None:
+                    self.extra[name] = fp
         except Exception:
             pass
         finally:
             _pause(-1)
 
     def fixture_set(self, name, value):
-        if self.before is not None:
-            self.extra.setdefault("fx:" + name, (id(value), _tag(value, 2)))
+        if self.before is not None and name not in self.before["fx"]:
+            self.extra.setdefault("<fx>", {}).setdefault(name, (id(value), _tag(value, 2)))
 
     def end(self, session):
-        _pause(1)
-        try:
-            after = fingerprint(session)
-        finally:
-            _pause(-1)
-        d = {}
-        before = dict(self.extra)
-        before.update(self.before or {})
-        for k, v in after.items():
-            b = before.get(k)
-            if b is None:
-                if k.startswith("t:"):
-                    continue  # a third-party module's new attribute: lazy caches
-                d[k] = v[1]
-            elif b != v:
-                if k.startswith("t:") and b[1] == "NoneType":
-                    continue  # lazy initialisation of a third-party global
-                d[k] = v[1]
-        for k in before:
-            if k not in after and not k.startswith("t:") and not k.startswith("fx:"):
-                d[k] = "deleted"
+        after = self._fp(session)
+        d = fp_delta(self.before, self.extra, after) if self.before is not None else {}
         self.before = after
         self.extra = {}
         return d
@@ -1571,6 +1738,7 @@ class Quod:
         self.guard_on = False
         self.tool = None
         self.thread_mark = None
+        self.reorders = None
 
     # -- configuration and selection ---------------------------------------
 
@@ -1601,7 +1769,15 @@ class Quod:
         self.select_ms = int((time.monotonic() - t0) * 1000)
         global GUARD
         if self.mode == "shadow" or (self.mode == "critical" and self.replay):
-            GUARD = Guard()
+            scope = None
+            if self.mode == "critical":
+                scope = set()
+                for r in self.replay.values():
+                    if r.get("modules") is None:
+                        scope = None
+                        break
+                    scope.update(r["modules"])
+            GUARD = Guard(scope)
             self.guard_on = True
             if self.mode == "critical":
                 self._install_load_hook()
@@ -1827,6 +2003,10 @@ class Quod:
             except Exception:
                 self.collect_status[r] = "failed"
 
+    def pytest_collection_finish(self, session):
+        if self.guard_on:
+            GUARD.invalidate()
+
     def pytest_deselected(self, items):
         for it in items:
             if getattr(it, "quod_placeholder", False):
@@ -1854,6 +2034,27 @@ class Quod:
                     self.unexpected.append(r)
             if self.unexpected and any(rr.get("cleak") or rr.get("rleak") for rr in self.replay.values()):
                 self.trip("test files the pre-scan did not predict (%s) beside replayed files that leak state" % ", ".join(self.unexpected[:3]))
+        # Replays go between the files that run, by the full run's file
+        # order. A plugin or conftest that interleaves files makes that
+        # order unknowable: no replays (and a shadow records nothing).
+        last = None
+        seen = set()
+        for it in items:
+            r = rel(str(it.path))
+            if r != last:
+                if r in seen:
+                    self.reorders = "tests of %s are not contiguous after collection" % r
+                    break
+                if last is not None and self.order and self._pos(r) < self._pos(last):
+                    self.reorders = "%s runs before %s, against the file order" % (r, last)
+                    break
+                seen.add(r)
+                last = r
+        if self.reorders:
+            if REC is not None:
+                REC.S.taint("a plugin reorders tests across files (%s)" % self.reorders)
+            if self.mode == "critical" and self.replay:
+                self.trip(self.reorders)
         if self.mode == "critical" and self.replay and self.guard_on:
             self._check_collect_leaks()
         if not self.replay:
@@ -1948,7 +2149,7 @@ class Quod:
         if first:
             self.cur_run = r
             if self.guard_on:
-                GUARD.start(self.session)
+                GUARD.start(self.session, reuse=True)
             if REC is not None:
                 self.thread_mark = set(threading.enumerate())
         if REC is not None:
@@ -2088,7 +2289,7 @@ def _register(plugin):
     import pytest
 
     class Wrap:
-        @pytest.hookimpl(hookwrapper=True)
+        @pytest.hookimpl(hookwrapper=True, tryfirst=True)
         def pytest_runtest_protocol(self, item, nextitem):
             yield from plugin._run_wrapper(item, nextitem)
 
@@ -2131,7 +2332,7 @@ def window_keys(windows, names, st):
     for w in windows:
         for k in w.reads:
             kind, _, p = k.partition(":")
-            if kind in ("f", "m", "e", "l", "ini"):
+            if kind in ("f", "m", "e", "et", "l", "lm", "ini"):
                 k = kind + ":" + rel(p)
             keys[k] = None
     # Import resolution: every name tried, in each workspace directory it
@@ -2201,7 +2402,7 @@ def record_shadow(plugin, rc):
         if extra:
             unrec = unrec or "threads run beside the tests (%s)" % ", ".join(t.name for t in extra[:3])
     sess_changed = unrec is not None or L["session"].get("keys") != s_keys
-    L["session"] = {"keys": s_keys, "exec": _code_map(s_exec), "unrecordable": unrec}
+    L["session"] = {"keys": s_keys, "exec": _code_map(s_exec), "unrecordable": unrec, "why": {rel(k.partition(":")[2]) + " (" + k.partition(":")[0] + ")": v for k, v in REC.why.items()}}
     # Collection layout for the next pre-scan.
     dirs = set()
     for f in plugin.collected_files:
@@ -2305,7 +2506,7 @@ def record_shadow(plugin, rc):
             if was != now:
                 rec["quarantined"] = "audit: its results differ from the recorded ones"
                 summary["audit_mismatches"].append(f)
-        if expect is not None and status == "passed":
+        if expect is not None and status == "passed" and f not in plugin.audit:
             for t in items:
                 e = expect.get(t["nodeid"])
                 if e is None:
@@ -2423,6 +2624,7 @@ def main():
     if args and args[0] == "--":
         args = args[1:]
     START["cwd"] = os.getcwd()
+    START["env"] = dict(os.environ)
     # As `python -m pytest`: the working directory first on sys.path.
     sys.path[0] = os.getcwd()
     START["sys_path"] = [p for p in sys.path]
@@ -2454,6 +2656,8 @@ def main():
         "unexpected": plugin.unexpected,
         "tests": plugin.outcomes(),
         "session_changed": plugin.session_changed[:20],
+        "guard_ms": int(GUARD.ns / 1e6) if GUARD is not None else 0,
+        "guard_fps": GUARD.n if GUARD is not None else 0,
     }
     if mode == "critical" and plugin.tripped:
         # The guard: a file that ran changed shared state a replayed file can
