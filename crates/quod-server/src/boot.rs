@@ -9,7 +9,15 @@
 //!   SQLite on a volume is single-writer by design, and the trust
 //!   transitions rely on one serializing writer per ledger. A second
 //!   instance waits `QUOD_LOCK_WAIT_SECS` (a redeploy's overlap), then
-//!   refuses to start.
+//!   refuses to start. With Postgres the ledger needs no such lock (its
+//!   writers serialize on Postgres advisory locks, across instances); the
+//!   lock stays because the data dir still holds per-instance state that
+//!   two processes must not share: the key file's first generation and
+//!   the resumable upload staging files.
+//! - With Postgres and S3 (`DATABASE_URL` and `S3_*`): both are connected
+//!   and checked (`connect`), Postgres migrated, and with
+//!   `QUOD_IMPORT_SQLITE=1` the volume's SQLite data imported, all before
+//!   listening.
 //! - The signing key: `QUOD_SIGNING_KEY` if the environment has one, else
 //!   the key file (`QUOD_SIGNING_KEY_FILE`, default
 //!   `$QUOD_DATA_DIR/signing.ed25519`), generated on first boot from the
@@ -20,6 +28,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use ed25519_dalek::SigningKey;
@@ -40,6 +49,30 @@ pub struct Boot {
     pub key_generated: bool,
     /// The ledgers brought to this binary's schemas before serving.
     pub migrated: crate::store::Migrated,
+    /// What `QUOD_IMPORT_SQLITE=1` imported at this boot.
+    pub imported: Option<crate::import::Imported>,
+}
+
+/// Connects Quod Cloud's backends: Postgres (pooled, migrated under its
+/// advisory lock) and the bucket, which must take and give back a blob
+/// (`probe`): a server that cannot store results refuses to start rather
+/// than answer every commit with a 500.
+pub fn connect(c: &crate::config::CloudEnv) -> Result<crate::store::Cloud, String> {
+    let pg = crate::pg::Pg::connect(&c.pg)?;
+    let v = pg.schema_version().map_err(|e| format!("postgres: {e}"))?;
+    crate::testreplay::ensure_pg(&pg)
+        .map_err(|e| format!("postgres (test replay tables): {e:#}"))?;
+    let s3 = crate::s3::S3::new(c.s3.clone())?;
+    let probe = crate::s3::S3Blobs::new(s3.clone(), "quod-probe");
+    let bytes = b"quod-server: the bucket takes and gives back a blob";
+    let back = quod_cas::BlobStore::put_blob(&probe, bytes)
+        .and_then(|h| quod_cas::BlobStore::read_blob(&probe, &h))
+        .map_err(|e| format!("object store {} bucket {}: {e}", c.s3.endpoint, c.s3.bucket))?;
+    if back != bytes {
+        return Err("object store: the probe blob came back different".into());
+    }
+    tracing::info!(target: "quod", pg_schema = v, pool = c.pg.pool_size, endpoint = %c.s3.endpoint, bucket = %c.s3.bucket, path_style = c.s3.path_style, "postgres and object store ready");
+    Ok(crate::store::Cloud { pg, s3 })
 }
 
 /// The exclusive lock on the data dir; released when dropped (or when the
@@ -67,21 +100,56 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
     let lock = lock(dir, env.lock_wait)?;
     let (signing_key, key_generated) = signing_key(env)?;
     let doc = env.document()?;
+    let (cloud, imported) = match &env.cloud {
+        None => (None, None),
+        Some(c) => {
+            let cloud = Arc::new(connect(c)?);
+            let imported = if env.import_sqlite {
+                let i = crate::import::import_sqlite(dir, &cloud)
+                    .map_err(|e| format!("import of the volume's SQLite data: {e:#}"))?;
+                tracing::info!(target: "quod", teams = ?i.teams, skipped = ?i.skipped, scopes = i.scopes, blobs = i.blobs, rows = ?i.rows, "SQLite data imported");
+                Some(i)
+            } else {
+                None
+            };
+            match crate::import::not_imported(dir, &cloud) {
+                Ok(t) if !t.is_empty() => {
+                    tracing::warn!(target: "quod", teams = ?t, "the volume holds SQLite ledgers of teams that Postgres has not imported; they are not served (QUOD_IMPORT_SQLITE=1 imports them at the next boot)");
+                }
+                Ok(_) => {}
+                Err(e) => return Err(format!("postgres: {e:#}")),
+            }
+            (Some(cloud), imported)
+        }
+    };
+    let store = match &cloud {
+        Some(c) => crate::store::Store::cloud(dir, c.clone()),
+        None => crate::store::Store::new(dir),
+    };
     // Under the lock, so no older instance still serves these files, and
-    // before listening, so no claim meets a ledger mid-migration.
-    let migrated = crate::store::Store::new(dir)
-        .migrate()
-        .map_err(|e| format!("data dir migration: {e:#}"))?;
-    let test_dbs = crate::testreplay::migrate(&crate::store::Store::new(dir))
-        .map_err(|e| format!("data dir migration (test replay): {e:#}"))?;
-    tracing::info!(target: "quod", test_replay_dbs = test_dbs, "test replay ready");
+    // before listening, so no claim meets a ledger mid-migration. With
+    // Postgres the files are left as they are (Postgres migrated in
+    // `connect`).
+    let migrated = if env.skip_migration {
+        tracing::warn!(target: "quod", "QUOD_SKIP_MIGRATION=1: no start-up migration pass; each SQLite ledger migrates when a request first opens it");
+        crate::store::Migrated::default()
+    } else {
+        store
+            .migrate()
+            .map_err(|e| format!("data dir migration: {e:#}"))?
+    };
+    if migrated.failed > 0 {
+        tracing::error!(target: "quod", failed = migrated.failed, "some SQLite files could not be read or migrated (logged above); their scopes answer 500, the rest serve");
+    }
     tracing::info!(
         target: "quod",
+        backend = store.backend(),
         teams = migrated.teams,
         scope_ledgers = migrated.ledgers,
         upgraded = migrated.upgraded,
         ledger_schema = quod_ledger::SCHEMA_VERSION,
         team_schema = crate::store::ACTIVITY_VERSION,
+        pg_schema = crate::pg::PG_SCHEMA_VERSION,
         "ledgers ready"
     );
     let pk = signing_key.verifying_key();
@@ -104,11 +172,13 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
             sse_hold: env.sse_hold,
             max_blob: env.max_blob,
             max_json: env.max_json,
+            cloud,
         },
         lock,
         persistence,
         key_generated,
         migrated,
+        imported,
     })
 }
 

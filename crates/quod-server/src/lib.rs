@@ -3,11 +3,13 @@
 //! here, inside the server's own transactions, with the same quod-trust
 //! code a local ledger runs, so two runners can never both "win".
 //!
-//! Storage in this build is SQLite plus a directory per team (`store`) on
-//! one persistent volume, served by one instance (`boot`: the data dir
-//! checks, the instance lock, the signing key). docs/cloud-ledger.md has
-//! the design, the go-live on Railway, and the Postgres and object-store
-//! backends that come next.
+//! Storage (`store`) is either SQLite plus a directory per team on one
+//! persistent volume (self-hosted), or Postgres (`pg`) plus an
+//! S3-compatible bucket (`s3`) for Quod Cloud, chosen by the environment
+//! (`config::cloud_env`); `import` moves the first into the second. One
+//! instance serves a data dir (`boot`: the data dir checks, the instance
+//! lock, the signing key). docs/cloud-ledger.md has the design and the
+//! Railway runbooks.
 
 pub mod api;
 pub mod auth;
@@ -15,6 +17,9 @@ pub mod blobs;
 pub mod boot;
 pub mod config;
 pub mod dash;
+pub mod import;
+pub mod pg;
+pub mod s3;
 pub mod store;
 pub mod testreplay;
 
@@ -56,7 +61,10 @@ impl App {
     pub fn new(settings: Settings) -> App {
         App {
             auth: Auth::new(&settings.doc, settings.workos_api_key.clone()),
-            store: Store::new(&settings.data_dir),
+            store: match &settings.cloud {
+                Some(c) => Store::cloud(&settings.data_dir, c.clone()),
+                None => Store::new(&settings.data_dir),
+            },
             settings,
         }
     }

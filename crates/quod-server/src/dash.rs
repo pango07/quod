@@ -24,7 +24,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post, put};
 use futures_util::Stream;
 use quod_cas::{Hash, Kind};
-use quod_ledger::{TrustRow, TrustState, now_rfc3339};
+use quod_ledger::{LedgerStore, TrustRow, TrustState, now_rfc3339};
 use quod_trust::{TRAILING_AUDITS, Verdict};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -170,15 +170,17 @@ impl TeamData {
         let mut audits = vec![];
         let mut branch_audits = vec![];
         let mut recent_div = BTreeMap::new();
-        // Pass 1: each key's row, from the scope that decides it.
-        let scopes = app.store.scopes(team);
+        // Pass 1: each key's row, from the scope that decides it. (A
+        // Postgres scope ledger holds no connection between statements, so
+        // keeping them all open costs nothing.)
+        let scopes = app.store.scopes(team)?;
         let mut ledgers = Vec::with_capacity(scopes.len());
         // (repository, key) -> (trusted, updated_at, index into `ledgers`)
         let mut owner: BTreeMap<(String, String), (bool, String, usize)> = BTreeMap::new();
         for (i, s) in scopes.iter().enumerate() {
             repos.insert(s.repository.clone());
             let trusted = s.scope == TRUSTED;
-            let l = crate::store::open_ledger(&s.path)?;
+            let l = app.store.open(team, s)?;
             for t in l.trust_rows()? {
                 let k = (s.repository.clone(), t.step_key.hex());
                 let better = match owner.get(&k) {
@@ -294,7 +296,7 @@ impl TeamData {
     /// and the run number of the run a replay came from. Not the team's
     /// every row, which `load` reads (once per step otherwise).
     fn for_row(app: &App, team: &str, row: &StepRow) -> Result<TeamData, ApiError> {
-        let scopes = app.store.scopes(team);
+        let scopes = app.store.scopes(team)?;
         let mut repos: BTreeSet<String> = scopes.iter().map(|s| s.repository.clone()).collect();
         repos.insert(row.repository.clone());
         let (mut trust, mut streaks, mut recent_div) =
@@ -310,7 +312,7 @@ impl TeamData {
             else {
                 continue;
             };
-            let l = crate::store::open_ledger(&s.path)?;
+            let l = app.store.open(team, s)?;
             if let Some(t) = l.trust(&key)? {
                 let k = (row.repository.clone(), key.hex());
                 let best = l.proofs_for_key(&key)?.iter().map(|p| p.streak).max();
@@ -1228,6 +1230,7 @@ pub fn trust_changed_event(
     let repos: BTreeSet<String> = app
         .store
         .scopes(team)
+        .unwrap_or_default()
         .into_iter()
         .map(|s| s.repository)
         .chain([repository.to_string()])
@@ -1312,7 +1315,7 @@ async fn events(
                 let ev = act.events_after(last, 500)?;
                 let repos: BTreeSet<String> = a
                     .store
-                    .scopes(&t)
+                    .scopes(&t)?
                     .into_iter()
                     .map(|s| s.repository)
                     .collect();

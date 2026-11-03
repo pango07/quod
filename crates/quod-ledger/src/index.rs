@@ -6,8 +6,8 @@
 //! its subdirectories' nodes, so its id covers every entry under it: two
 //! manifests that read the same thing under a directory share that node.
 //! A lookup checks candidates newest first and remembers each node's
-//! verdict against the tree (`Eval`): a node is checked once whatever the
-//! number of candidates holding it, and a candidate that differs from a
+//! verdict against the tree (`NodeEval`): a node is checked once whatever
+//! the number of candidates holding it, and a candidate that differs from a
 //! newer one only under the directories one commit touched costs only those
 //! nodes. That makes a lookup proportional to what differs between the
 //! manifests of a key, not to their number times their size (it decoded
@@ -16,6 +16,11 @@
 //! A node matches a tree exactly when every entry under it agrees with the
 //! tree (`quod_manifest::agrees`, the rule `matches` applies entry by
 //! entry), so a manifest's root matches exactly when `matches` says so.
+//!
+//! The nodes and their evaluation do not depend on where nodes are kept:
+//! `manifest_nodes` builds them and `NodeEval` reads them through a loader,
+//! so quod-server's Postgres ledger indexes and looks up exactly as SQLite
+//! does.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -46,8 +51,9 @@ fn dir_of(p: &str) -> &str {
     }
 }
 
-/// Stores `m`'s nodes (those not stored yet) and returns its root's id.
-pub(crate) fn put_nodes(db: &Connection, m: &Manifest) -> Result<Hash, LedgerError> {
+/// `m`'s nodes, children before parents, as (id, canonical JSON body), and
+/// its root's id (the last node's).
+pub fn manifest_nodes(m: &Manifest) -> Result<(Hash, Vec<(Hash, String)>), LedgerError> {
     // Every directory holding an entry, and every directory above one.
     let mut dirs: BTreeMap<&str, (Vec<&Entry>, BTreeSet<&str>)> = BTreeMap::new();
     dirs.entry("").or_default();
@@ -75,8 +81,7 @@ pub(crate) fn put_nodes(db: &Connection, m: &Manifest) -> Result<Hash, LedgerErr
         })
     });
     let mut ids: HashMap<&str, Hash> = HashMap::new();
-    let mut st =
-        db.prepare_cached("INSERT OR IGNORE INTO manifest_nodes (id, body) VALUES (?1, ?2)")?;
+    let mut out = Vec::with_capacity(order.len());
     for d in order {
         let (entries, kids) = &dirs[d];
         let mut c: Vec<(String, Hash)> = kids
@@ -94,42 +99,65 @@ pub(crate) fn put_nodes(db: &Connection, m: &Manifest) -> Result<Hash, LedgerErr
         };
         let body = quod_cas::canonical_json(&node).map_err(quod_manifest::ManifestError::from)?;
         let id = Hash::of(body.as_bytes());
-        st.execute(params![id.to_string(), body.into_bytes()])?;
+        out.push((id, body));
         ids.insert(d, id);
     }
-    Ok(ids[""])
+    Ok((ids[""], out))
 }
 
+/// Stores `m`'s nodes (those not stored yet) and returns its root's id.
+pub(crate) fn put_nodes(db: &Connection, m: &Manifest) -> Result<Hash, LedgerError> {
+    let (root, nodes) = manifest_nodes(m)?;
+    let mut st =
+        db.prepare_cached("INSERT OR IGNORE INTO manifest_nodes (id, body) VALUES (?1, ?2)")?;
+    for (id, body) in nodes {
+        st.execute(params![id.to_string(), body.into_bytes()])?;
+    }
+    Ok(root)
+}
+
+/// Reads a node's body by id; `None` when the store does not have it.
+pub type NodeLoader<'a> = Box<dyn FnMut(&Hash) -> Result<Option<Vec<u8>>, LedgerError> + 'a>;
+
 /// Node verdicts against one tree, remembered for one lookup.
-pub(crate) struct Eval<'a> {
-    db: &'a Connection,
+pub struct NodeEval<'a> {
+    load: NodeLoader<'a>,
     tree: &'a Tree,
     memo: HashMap<Hash, bool>,
     /// Nodes read from the ledger (for the stats).
-    pub(crate) loaded: usize,
+    pub loaded: usize,
 }
 
-impl<'a> Eval<'a> {
-    pub(crate) fn new(db: &'a Connection, tree: &'a Tree) -> Eval<'a> {
-        Eval {
-            db,
+impl<'a> NodeEval<'a> {
+    pub fn new(tree: &'a Tree, load: NodeLoader<'a>) -> NodeEval<'a> {
+        NodeEval {
+            load,
             tree,
             memo: HashMap::new(),
             loaded: 0,
         }
     }
 
+    /// Nodes read from a SQLite ledger's `manifest_nodes`.
+    pub(crate) fn sqlite(db: &'a Connection, tree: &'a Tree) -> NodeEval<'a> {
+        NodeEval::new(
+            tree,
+            Box::new(move |id: &Hash| {
+                Ok(db
+                    .prepare_cached("SELECT body FROM manifest_nodes WHERE id = ?1")?
+                    .query_row([id.to_string()], |r| r.get(0))
+                    .optional()?)
+            }),
+        )
+    }
+
     /// Whether every entry under node `id` agrees with the tree. A node
     /// the ledger does not have never matches.
-    pub(crate) fn matches(&mut self, id: &Hash) -> Result<bool, LedgerError> {
+    pub fn matches(&mut self, id: &Hash) -> Result<bool, LedgerError> {
         if let Some(&v) = self.memo.get(id) {
             return Ok(v);
         }
-        let body: Option<Vec<u8>> = self
-            .db
-            .prepare_cached("SELECT body FROM manifest_nodes WHERE id = ?1")?
-            .query_row([id.to_string()], |r| r.get(0))
-            .optional()?;
+        let body = (self.load)(id)?;
         self.loaded += 1;
         let ok = match body {
             None => false,
@@ -219,7 +247,7 @@ mod tests {
             } else {
                 verdicts.1 += 1;
             }
-            let mut ev = Eval::new(&db, &tree);
+            let mut ev = NodeEval::sqlite(&db, &tree);
             assert_eq!(
                 ev.matches(&root).unwrap(),
                 matches(m, &tree).is_ok(),
@@ -245,7 +273,7 @@ mod tests {
             .unwrap();
         // 50 package nodes and a top for the first; one package and a top more.
         assert_eq!(nodes, 51 + 2);
-        let mut ev = Eval::new(&db, &tree);
+        let mut ev = NodeEval::sqlite(&db, &tree);
         // The new manifest fails at its first package: its top and pkg0.
         assert!(!ev.matches(&new).unwrap());
         assert_eq!(ev.loaded, 2);

@@ -26,6 +26,135 @@ pub const DEFAULT_MAX_BLOB: u64 = 1 << 30;
 /// claim carries the whole workspace tree).
 pub const DEFAULT_MAX_JSON: u64 = 32 << 20;
 
+/// Quod Cloud's backends as the environment names them (P4): Postgres
+/// and an S3-compatible bucket. Its `Debug` shows no credential.
+#[derive(Clone)]
+pub struct CloudEnv {
+    pub pg: crate::pg::PgSettings,
+    pub s3: crate::s3::S3Settings,
+}
+
+impl std::fmt::Debug for CloudEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudEnv")
+            .field("pool_size", &self.pg.pool_size)
+            .field("s3", &self.s3)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The first of `names` that is set, and which it was.
+fn first_set(
+    set: &dyn Fn(&str) -> Option<String>,
+    names: &[&'static str],
+) -> Option<(&'static str, String)> {
+    names.iter().find_map(|n| set(n).map(|v| (*n, v)))
+}
+
+/// Which backend the environment selects (docs/cloud-ledger.md, P4):
+/// `DATABASE_URL` and the bucket's `S3_*` variables together select
+/// Postgres and S3; neither selects SQLite and the volume; one without
+/// the other is refused, never half used. `QUOD_BACKEND=sqlite` keeps
+/// SQLite whatever else is set (a rollback without unsetting anything);
+/// `QUOD_BACKEND=postgres` insists on the cloud backends.
+pub fn cloud_env(get: &dyn Fn(&str) -> Option<String>) -> Result<Option<CloudEnv>, String> {
+    let set = |k: &str| get(k).filter(|v| !v.trim().is_empty());
+    let backend = set("QUOD_BACKEND").unwrap_or_else(|| "auto".into());
+    let s3_names = [
+        "S3_ENDPOINT",
+        "S3_BUCKET",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+    ];
+    let named: Vec<&str> = std::iter::once("DATABASE_URL")
+        .chain(s3_names)
+        .filter(|n| set(n).is_some())
+        .collect();
+    match backend.as_str() {
+        "sqlite" => return Ok(None),
+        "auto" if named.is_empty() => return Ok(None),
+        "auto" | "postgres" => {}
+        other => {
+            return Err(format!(
+                "QUOD_BACKEND is {other:?}: sqlite, postgres, or unset (auto)"
+            ));
+        }
+    }
+    // The bucket's credentials: the generic S3_* names, else the AWS SDK's
+    // (Railway's "AWS SDK" preset sets those).
+    let endpoint = first_set(
+        &set,
+        &["S3_ENDPOINT", "AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL"],
+    );
+    let bucket = first_set(&set, &["S3_BUCKET"]);
+    let key = first_set(&set, &["S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"]);
+    let secret = first_set(&set, &["S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"]);
+    let url = first_set(&set, &["DATABASE_URL"]);
+    let missing: Vec<&str> = [
+        ("DATABASE_URL", url.is_none()),
+        ("S3_ENDPOINT", endpoint.is_none()),
+        ("S3_BUCKET", bucket.is_none()),
+        ("S3_ACCESS_KEY_ID", key.is_none()),
+        ("S3_SECRET_ACCESS_KEY", secret.is_none()),
+    ]
+    .into_iter()
+    .filter(|(_, m)| *m)
+    .map(|(n, _)| n)
+    .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "{} set, but {} not: Postgres and the object store are used together (both, or neither for SQLite on the volume); set the rest, or unset them (QUOD_BACKEND=sqlite keeps SQLite)",
+            if named.is_empty() {
+                "QUOD_BACKEND=postgres is".to_string()
+            } else {
+                format!(
+                    "{} {}",
+                    named.join(", "),
+                    if named.len() == 1 { "is" } else { "are" }
+                )
+            },
+            missing.join(", ")
+        ));
+    }
+    let region = first_set(&set, &["S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"])
+        .map_or_else(|| "us-east-1".to_string(), |(_, v)| v);
+    let path_style = match set("S3_FORCE_PATH_STYLE").as_deref() {
+        None | Some("0") | Some("false") => false,
+        Some("1") | Some("true") => true,
+        Some(v) => return Err(format!("S3_FORCE_PATH_STYLE is {v:?}: 1 or 0")),
+    };
+    let mut prefix = set("S3_PREFIX").unwrap_or_default();
+    if !prefix.is_empty() && !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    let pool_size = match set("QUOD_PG_POOL_SIZE") {
+        Some(v) => v
+            .parse()
+            .map_err(|_| format!("QUOD_PG_POOL_SIZE {v:?} is not a number"))?,
+        None => 10,
+    };
+    let s3 = crate::s3::S3Settings {
+        endpoint: endpoint.expect("checked").1,
+        bucket: bucket.expect("checked").1,
+        region,
+        access_key_id: key.expect("checked").1,
+        secret_access_key: secret.expect("checked").1,
+        path_style,
+        prefix,
+        part_size: crate::s3::PART_SIZE,
+    };
+    // Checked now (the endpoint's form), connected at boot.
+    crate::s3::S3::new(s3.clone())?;
+    Ok(Some(CloudEnv {
+        pg: crate::pg::PgSettings {
+            url: url.expect("checked").1,
+            pool_size,
+            options: None,
+        },
+        s3,
+    }))
+}
+
 /// A secret from the environment: its `Debug` never shows it.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Secret(pub String);
@@ -325,6 +454,9 @@ pub struct Settings {
     pub max_blob: u64,
     /// The largest JSON body accepted (a claim carries the whole tree).
     pub max_json: usize,
+    /// Postgres and the bucket, connected (`boot`); None: SQLite and files
+    /// under `data_dir`.
+    pub cloud: Option<std::sync::Arc<crate::store::Cloud>>,
 }
 
 impl Settings {
@@ -340,6 +472,7 @@ impl Settings {
             sse_hold: Duration::from_secs(240),
             max_blob: DEFAULT_MAX_BLOB,
             max_json: DEFAULT_MAX_JSON as usize,
+            cloud: None,
         }
     }
 }
@@ -369,6 +502,14 @@ pub struct Env {
     pub sse_hold: Duration,
     pub max_blob: u64,
     pub max_json: usize,
+    /// Postgres and the bucket, when the environment selects them.
+    pub cloud: Option<CloudEnv>,
+    /// `QUOD_IMPORT_SQLITE=1`: at boot, import the volume's SQLite data
+    /// into Postgres and the bucket (once per team; `import`).
+    pub import_sqlite: bool,
+    /// `QUOD_SKIP_MIGRATION=1`: no start-up pass over the SQLite files
+    /// (each still migrates when a request first opens it).
+    pub skip_migration: bool,
 }
 
 /// Where the teams document comes from.
@@ -382,30 +523,27 @@ pub enum TeamsSource {
 
 impl Env {
     /// From the environment. Refuses what this build cannot honor rather
-    /// than run with less: `DATABASE_URL` or object-store settings (the
-    /// Postgres and S3 backends are P4), and no `QUOD_DATA_DIR` outside
-    /// `QUOD_DEV=1`.
+    /// than run with less: half of the cloud backends (`cloud_env`), and
+    /// no `QUOD_DATA_DIR` outside `QUOD_DEV=1` (the volume holds the
+    /// signing key and upload staging with either backend, and the
+    /// ledgers and blobs with SQLite).
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Result<Env, String> {
         let set = |k: &str| get(k).filter(|v| !v.trim().is_empty());
         let dev = get("QUOD_DEV").is_some_and(|v| v == "1");
-        for v in [
-            "DATABASE_URL",
-            "S3_ENDPOINT",
-            "S3_BUCKET",
-            "S3_ACCESS_KEY_ID",
-            "S3_SECRET_ACCESS_KEY",
-        ] {
-            if set(v).is_some() {
-                return Err(format!(
-                    "{v} is set, but this build stores only in SQLite and a local directory (QUOD_DATA_DIR on a persistent volume); the Postgres and object-store backends are not built yet (docs/cloud-ledger.md, P4). Unset {v}."
-                ));
-            }
+        let cloud = cloud_env(&get)?;
+        let import_sqlite = match set("QUOD_IMPORT_SQLITE").as_deref() {
+            None | Some("0") => false,
+            Some("1") => true,
+            Some(v) => return Err(format!("QUOD_IMPORT_SQLITE is {v:?}: 1 or 0")),
+        };
+        if import_sqlite && cloud.is_none() {
+            return Err("QUOD_IMPORT_SQLITE=1 imports the volume's SQLite data into Postgres and the bucket, but they are not configured (DATABASE_URL and S3_*)".into());
         }
         let data_dir = match set("QUOD_DATA_DIR") {
             Some(d) => PathBuf::from(d),
             None if dev => PathBuf::from("quod-data"),
             None => {
-                return Err("QUOD_DATA_DIR is not set (the persistent directory for the SQLite ledgers, blobs and the signing key, e.g. a Railway volume at /data)".into());
+                return Err("QUOD_DATA_DIR is not set (the persistent directory for the signing key, upload staging and, without Postgres, the SQLite ledgers and blobs; e.g. a Railway volume at /data)".into());
             }
         };
         if !data_dir.is_absolute() && !dev {
@@ -466,6 +604,13 @@ impl Env {
             max_blob: num("QUOD_MAX_BLOB_BYTES", DEFAULT_MAX_BLOB)?,
             max_json: num("QUOD_MAX_JSON_BYTES", DEFAULT_MAX_JSON)? as usize,
             data_dir,
+            cloud,
+            import_sqlite,
+            skip_migration: match get("QUOD_SKIP_MIGRATION").as_deref() {
+                None | Some("") | Some("0") => false,
+                Some("1") => true,
+                Some(v) => return Err(format!("QUOD_SKIP_MIGRATION is {v:?}: 1 or 0")),
+            },
         })
     }
 
@@ -634,16 +779,56 @@ mod tests {
         // No data dir outside dev mode, or a relative one: refused.
         assert!(Env::from_env(env(&[])).is_err());
         assert!(Env::from_env(env(&[("QUOD_DATA_DIR", "data")])).is_err());
-        // Postgres or an object store configured: refused (P4), never ignored.
+        // Half of the cloud backends: refused, naming what is missing,
+        // never half used.
         for v in [
             "DATABASE_URL",
             "S3_ENDPOINT",
             "S3_BUCKET",
             "S3_SECRET_ACCESS_KEY",
         ] {
-            let e = Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), (v, "x")]));
-            assert!(e.err().unwrap().contains(v));
+            let e = Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), (v, "x")]))
+                .err()
+                .unwrap();
+            assert!(e.contains(v) && e.contains("used together"), "{e}");
         }
+        assert!(ok.cloud.is_none());
+        // Both: Postgres and S3. QUOD_BACKEND=sqlite keeps SQLite.
+        let all = [
+            ("QUOD_DATA_DIR", "/d"),
+            (
+                "DATABASE_URL",
+                "postgresql://u:p@postgres.railway.internal:5432/railway",
+            ),
+            ("S3_ENDPOINT", "https://t3.storageapi.dev"),
+            ("S3_BUCKET", "quod-results-x"),
+            ("S3_REGION", "auto"),
+            ("S3_ACCESS_KEY_ID", "tid"),
+            ("S3_SECRET_ACCESS_KEY", "secret-value"),
+        ];
+        let c = Env::from_env(env(&all)).unwrap().cloud.unwrap();
+        assert_eq!(
+            (c.s3.bucket.as_str(), c.s3.region.as_str(), c.s3.path_style),
+            ("quod-results-x", "auto", false)
+        );
+        assert!(!format!("{c:?}").contains("secret-value") && !format!("{c:?}").contains(":p@"));
+        let mut sqlite = all.to_vec();
+        sqlite.push(("QUOD_BACKEND", "sqlite"));
+        assert!(Env::from_env(env(&sqlite)).unwrap().cloud.is_none());
+        let mut path = all.to_vec();
+        path.push(("S3_FORCE_PATH_STYLE", "1"));
+        assert!(
+            Env::from_env(env(&path))
+                .unwrap()
+                .cloud
+                .unwrap()
+                .s3
+                .path_style
+        );
+        // The import needs the cloud backends.
+        assert!(
+            Env::from_env(env(&[("QUOD_DATA_DIR", "/d"), ("QUOD_IMPORT_SQLITE", "1")])).is_err()
+        );
         // The attestation is 1 or nothing.
         assert!(
             Env::from_env(env(&[

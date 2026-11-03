@@ -81,10 +81,74 @@ pub fn document_json(team_policy: serde_json::Value, workos_api: Option<&str>) -
 
 pub const SIGNING_SEED: &str = "5151515151515151515151515151515151515151515151515151515151515151";
 
+/// Whether the suites run on Postgres and S3: `QUOD_TEST_DATABASE_URL`
+/// (a Postgres the tests may create schemas in) and `QUOD_TEST_S3_ENDPOINT`,
+/// `QUOD_TEST_S3_BUCKET`, `QUOD_TEST_S3_ACCESS_KEY_ID`,
+/// `QUOD_TEST_S3_SECRET_ACCESS_KEY` (a MinIO in CI, path-style). Without
+/// them every server here is SQLite on a temporary data dir.
+pub fn cloud() -> bool {
+    std::env::var("QUOD_TEST_DATABASE_URL").is_ok_and(|v| !v.is_empty())
+}
+
+fn need(k: &str) -> String {
+    std::env::var(k).unwrap_or_else(|_| panic!("{k} is needed with QUOD_TEST_DATABASE_URL"))
+}
+
+/// A name no other test uses.
+pub fn unique(prefix: &str) -> String {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{prefix}_{}_{t}_{n}", std::process::id())
+}
+
+/// Fresh cloud settings: a Postgres schema of its own (created here) and
+/// an object prefix of its own, so tests never see each other's rows or
+/// blobs while sharing one database and bucket.
+pub fn cloud_env() -> quod_server::config::CloudEnv {
+    let url = need("QUOD_TEST_DATABASE_URL");
+    let schema = unique("t");
+    let mut c = r2d2_postgres::postgres::Client::connect(&url, r2d2_postgres::postgres::NoTls)
+        .expect("the test Postgres");
+    c.batch_execute(&format!("CREATE SCHEMA {schema}")).unwrap();
+    let s3 = quod_server::s3::S3Settings {
+        endpoint: need("QUOD_TEST_S3_ENDPOINT"),
+        bucket: need("QUOD_TEST_S3_BUCKET"),
+        region: "us-east-1".into(),
+        access_key_id: need("QUOD_TEST_S3_ACCESS_KEY_ID"),
+        secret_access_key: need("QUOD_TEST_S3_SECRET_ACCESS_KEY"),
+        path_style: true,
+        prefix: format!("{schema}/"),
+        part_size: quod_server::s3::MIN_PART_SIZE,
+    };
+    quod_server::s3::S3::new(s3.clone())
+        .unwrap()
+        .create_bucket()
+        .unwrap();
+    quod_server::config::CloudEnv {
+        pg: quod_server::pg::PgSettings {
+            url,
+            pool_size: 16,
+            options: Some(format!("-c search_path={schema}")),
+        },
+        s3,
+    }
+}
+
+/// Connected cloud backends on fresh settings.
+pub fn fresh_cloud() -> std::sync::Arc<quod_server::store::Cloud> {
+    std::sync::Arc::new(quod_server::boot::connect(&cloud_env()).unwrap())
+}
+
 pub struct Server {
     pub url: String,
     pub data: tempfile::TempDir,
     pub rt: tokio::runtime::Runtime,
+    /// The server's store (its backend), for looking at what it wrote.
+    pub store: quod_server::store::Store,
 }
 
 impl Server {
@@ -103,7 +167,21 @@ impl Server {
     }
 
     pub fn start_full(doc: Document, workos_api_key: Option<&str>) -> Server {
-        let data = tempfile::tempdir().unwrap();
+        Server::start_backend(
+            doc,
+            workos_api_key,
+            cloud().then(fresh_cloud),
+            tempfile::tempdir().unwrap(),
+        )
+    }
+
+    /// A server on the given backend (`None`: SQLite under `data`).
+    pub fn start_backend(
+        doc: Document,
+        workos_api_key: Option<&str>,
+        backend: Option<std::sync::Arc<quod_server::store::Cloud>>,
+        data: tempfile::TempDir,
+    ) -> Server {
         let settings = Settings {
             bind: "127.0.0.1".into(),
             port: 0,
@@ -114,6 +192,7 @@ impl Server {
             max_blob: 128 << 20,
             max_json: 64 << 20,
             workos_api_key: workos_api_key.map(String::from),
+            cloud: backend,
         };
         Server::on(settings, data)
     }
@@ -132,14 +211,25 @@ impl Server {
             .enable_all()
             .build()
             .unwrap();
+        let store = match &settings.cloud {
+            Some(c) => quod_server::store::Store::cloud(&settings.data_dir, c.clone()),
+            None => quod_server::store::Store::new(&settings.data_dir),
+        };
         let (url, _) = rt.block_on(quod_server::spawn_local(settings)).unwrap();
-        Server { url, data, rt }
+        Server {
+            url,
+            data,
+            rt,
+            store,
+        }
     }
 
     /// Stops the server (its tasks and connections end with the runtime)
     /// and hands back its data dir.
     pub fn stop(self) -> tempfile::TempDir {
         let Server { data, rt, .. } = self;
+        // (`store` goes with it; a cloud store's pool closes when the last
+        // clone does.)
         rt.shutdown_timeout(Duration::from_secs(5));
         data
     }
@@ -203,7 +293,9 @@ impl Runner {
                 url: url.to_string(),
                 auth,
                 server_key: key.map(|k| quod_wire::verifying_key_from_hex(k).unwrap()),
-                timeout: Duration::from_secs(20),
+                // On the cloud backend a large upload's last chunk waits for
+                // the copy to the bucket (P4 residual): more time there.
+                timeout: Duration::from_secs(if cloud() { 90 } else { 20 }),
                 scope: None,
                 ci: Some(quod_wire::CiContext {
                     repository: Some("acme/app".into()),

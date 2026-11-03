@@ -39,6 +39,7 @@ fn server(data: &std::path::Path) -> (String, tokio::runtime::Runtime, String) {
         max_blob: 1 << 30,
         max_json: 256 << 20,
         workos_api_key: None,
+        cloud: None,
     };
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (url, _) = rt.block_on(quod_server::spawn_local(settings)).unwrap();

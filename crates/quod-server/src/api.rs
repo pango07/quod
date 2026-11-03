@@ -5,8 +5,8 @@
 
 use axum::Extension;
 use axum::extract::State;
-use quod_cas::{BlobStore, Cas, Hash, Tree};
-use quod_ledger::{Ledger, Lookup, RunRecord, TrustState, now_rfc3339};
+use quod_cas::{BlobStore, Hash, Tree};
+use quod_ledger::{LedgerStore, Lookup, RunRecord, TrustState, now_rfc3339};
 use quod_manifest::{Manifest, StepResult, manifest_id};
 use quod_trust::{
     Claimed, Decision, LocalLedger, Policy, Reason, Replayed, StepLedger, Trust, Verdict,
@@ -19,7 +19,7 @@ use quod_wire::{
 use serde_json::json;
 
 use crate::auth::{Principal, Runner};
-use crate::store::StepRow;
+use crate::store::{ScopeLedger, StepRow, TeamBlobs};
 use crate::{ApiError, App, AppState, blocking, dash};
 
 use axum::Json;
@@ -105,7 +105,9 @@ pub async fn claim(
         for scope in &runner.read {
             // A scope nobody wrote has nothing to replay; the runner's own
             // write scope is opened (and created) regardless.
-            if *scope != runner.write && !app.store.has_ledger(&runner.team, runner.repo(), scope) {
+            if *scope != runner.write
+                && !app.store.has_ledger(&runner.team, runner.repo(), scope)?
+            {
                 continue;
             }
             let ledger = app.store.ledger(&runner.team, runner.repo(), scope)?;
@@ -247,7 +249,10 @@ fn resolve_hit(
             "the hit names a scope this runner cannot read",
         ));
     }
-    if !app.store.has_ledger(&runner.team, runner.repo(), &h.scope) {
+    if !app
+        .store
+        .has_ledger(&runner.team, runner.repo(), &h.scope)?
+    {
         return Ok(None);
     }
     let l = app.store.ledger(&runner.team, runner.repo(), &h.scope)?;
@@ -261,7 +266,7 @@ fn resolve_hit(
     Ok(r.map(|r| (m, r)))
 }
 
-fn write_ledger(app: &App, runner: &Runner) -> Result<(Ledger, Cas), ApiError> {
+fn write_ledger(app: &App, runner: &Runner) -> Result<(ScopeLedger, TeamBlobs), ApiError> {
     repository(runner)?;
     Ok((
         app.store
@@ -311,7 +316,7 @@ pub async fn commit(
         // stdout and stderr are read whole to normalize and compare them:
         // refused past MAX_OUTPUT_BYTES, by size, before any is read.
         for (what, h) in [("stdout", &r.stdout), ("stderr", &r.stderr)] {
-            let len = std::fs::metadata(cas.blob_path(h)).map_or(0, |m| m.len());
+            let len = cas.size(h).map_err(ApiError::internal)?.unwrap_or(0);
             if len > MAX_OUTPUT_BYTES {
                 return Err(ApiError::new(
                     axum::http::StatusCode::PAYLOAD_TOO_LARGE,

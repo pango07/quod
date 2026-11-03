@@ -4,6 +4,8 @@
 //! quod-server                 serve, configured from the environment
 //! quod-server pubkey          the public key of the configured signing key (QUOD_SERVER_KEY)
 //! quod-server hash-token      read a token on stdin, print its BLAKE3 for the config
+//! quod-server migrate [--dry-run]   the start-up migration alone (SQLite files, or Postgres)
+//! quod-server migrate-sqlite-to-postgres   import the volume's SQLite data into DATABASE_URL and S3_*
 //! quod-server healthcheck     exit 0 if this instance answers /healthz (container HEALTHCHECK)
 //! ```
 //!
@@ -82,6 +84,81 @@ fn main() -> anyhow::Result<()> {
                 .call()?;
             Ok(())
         }
+        Some("migrate") => {
+            // The start-up migration on its own: what it would do
+            // (`--dry-run`, read-only), or do it under the instance lock.
+            let dry = match std::env::args().nth(2).as_deref() {
+                None => false,
+                Some("--dry-run") => true,
+                Some(o) => anyhow::bail!("quod-server migrate: unknown argument {o:?} (--dry-run)"),
+            };
+            let env = quod_server::config::Env::from_env(get)
+                .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            if let Some(c) = &env.cloud {
+                let pg = quod_server::pg::Pg::open(&c.pg).map_err(anyhow::Error::msg)?;
+                let have = pg.recorded_version()?;
+                let want = quod_server::pg::PG_SCHEMA_VERSION;
+                if dry {
+                    println!(
+                        "postgres: schema v{have}, this build v{want}: {}",
+                        match have.cmp(&want) {
+                            std::cmp::Ordering::Less => "would migrate",
+                            std::cmp::Ordering::Equal => "current",
+                            std::cmp::Ordering::Greater =>
+                                "NEWER than this build: the server would refuse to start",
+                        }
+                    );
+                } else {
+                    let (from, to) = pg.migrate()?;
+                    println!("postgres: schema v{from} -> v{to}");
+                }
+                return Ok(());
+            }
+            let store = quod_server::store::Store::new(&env.data_dir);
+            if dry {
+                let mut too_new = false;
+                for p in store.plan() {
+                    too_new |= matches!(p.action, quod_server::store::Plan::TooNew(..));
+                    println!("{}: {:?}", p.what(), p.action);
+                }
+                if too_new {
+                    println!("a file is newer than this build: the server would refuse to start");
+                }
+                return Ok(());
+            }
+            let _lock = quod_server::boot::lock(&env.data_dir, env.lock_wait)
+                .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let m = store.migrate()?;
+            println!("{m:?}");
+            Ok(())
+        }
+        Some("migrate-sqlite-to-postgres") => {
+            // The volume's SQLite ledgers, team data and blobs into the
+            // configured Postgres and bucket (`import`). Holds the
+            // instance lock, so it never reads files a SQLite server is
+            // writing: stop that server first (on Railway, prefer
+            // QUOD_IMPORT_SQLITE=1, which runs this at boot).
+            let env = quod_server::config::Env::from_env(get)
+                .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let Some(c) = &env.cloud else {
+                anyhow::bail!(
+                    "quod-server: set DATABASE_URL and S3_* (the target) to import into them"
+                );
+            };
+            if !env.data_dir.join("teams").is_dir() {
+                anyhow::bail!(
+                    "quod-server: {} holds no teams/ directory: nothing to import",
+                    env.data_dir.display()
+                );
+            }
+            let _lock = quod_server::boot::lock(&env.data_dir, env.lock_wait)
+                .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let cloud =
+                quod_server::boot::connect(c).map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            let i = quod_server::import::import_sqlite(&env.data_dir, &cloud)?;
+            println!("{}", serde_json::to_string_pretty(&i)?);
+            Ok(())
+        }
         Some("hash-token") => {
             let mut t = String::new();
             std::io::stdin().read_to_string(&mut t)?;
@@ -89,7 +166,9 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => {
-            anyhow::bail!("unknown command {other:?}: serve, pubkey, hash-token, healthcheck")
+            anyhow::bail!(
+                "unknown command {other:?}: serve, pubkey, hash-token, healthcheck, migrate, migrate-sqlite-to-postgres"
+            )
         }
     }
 }

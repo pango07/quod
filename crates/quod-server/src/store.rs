@@ -1,5 +1,7 @@
-//! Where a team's data lives on a self-hosted server: one directory per
-//! team, so no query can reach another team's rows or blobs by mistake.
+//! Where a team's data lives, behind one interface for both backends.
+//!
+//! Self-hosted (SQLite and files): one directory per team, so no query can
+//! reach another team's rows or blobs by mistake.
 //!
 //! ```text
 //! <data>/teams/<team>/cas/                         blobs (quod_cas::Cas)
@@ -9,23 +11,36 @@
 //! ```
 //!
 //! `<repo>` is the repository's readable name plus a hash of it (two names
-//! never share a directory); its `repository` file holds the name. The
-//! scope ledgers are ordinary quod ledgers (quod-ledger's schema: v8 with
-//! trust v2, deferred audits' table and the network memory, both unused on
-//! a server), the same files a runner keeps locally, migrated by the same
-//! code, at start (`Store::migrate`); the server adds nothing to them. What only the server keeps (the
+//! never share a directory), or `github-<id>`; its `repository` file holds
+//! the name. The scope ledgers are ordinary quod ledgers (quod-ledger's
+//! schema: v8 with trust v2, deferred audits' table and the network
+//! memory, both unused on a server), the same files a runner keeps
+//! locally, migrated by the same code, at start (`Store::migrate`); the
+//! server adds nothing to them. What only the server keeps (the
 //! dashboard's step rows, the event outbox, trusted writes) is
 //! `team.sqlite`, with its own schema version (`ACTIVITY_VERSION`).
-//! Postgres and an object store replace this layout
-//! in P4 (docs/cloud-ledger.md) behind the same LedgerStore and BlobStore
-//! traits, with the team id a column every query filters on.
+//!
+//! Quod Cloud (P4): the same rows in Postgres (`pg`), every key and query
+//! carrying the team, a scope being a row keyed exactly as the directory
+//! above is (team, `<repo>`, scope); blobs in an S3-compatible bucket
+//! under `teams/<team>/blobs/` (`s3`). Resumable uploads still stage on the
+//! instance's data dir. Handlers see `ScopeLedger`, `TeamBlobs` and
+//! `Activity`, which are either backend.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use quod_cas::Cas;
-use quod_ledger::Ledger;
+use quod_cas::{BlobStore, Cas, CasError, Hash, Tree};
+use quod_ledger::{
+    AuditRow, Backlog, Ledger, LedgerError, LedgerStore, Lookup, NewPending, ProofRow, RunFacts,
+    RunRow, TrustRow,
+};
+use quod_manifest::{Manifest, StepResult};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
+
+use crate::pg::{Pg, PgActivity, PgLedger};
+use crate::s3::{S3, S3Blobs};
 
 /// A repository as storage keys it: its name, and GitHub's id when known.
 #[derive(Clone, Copy, Debug)]
@@ -49,64 +64,18 @@ impl<'a> From<&'a String> for RepoKey<'a> {
     }
 }
 
-/// Opens a scope ledger, one open at a time in this process. A ledger's
-/// first open switches a new file to WAL and migrates it; SQLite answers a
-/// concurrent `journal_mode` switch with SQLITE_BUSY at once, without the
-/// busy timeout (seen as a 500 under eight racing first commits, S2). Opens
-/// of an existing, current ledger are a read of `user_version`, so the
-/// lock costs microseconds; a migration holds it, which is what it should
-/// do (one instance; nothing is served from a ledger mid-migration).
-pub fn open_ledger(p: &Path) -> anyhow::Result<Ledger> {
-    static OPEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = OPEN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    Ok(Ledger::open(p)?)
-}
-
-#[derive(Clone, Debug)]
-pub struct Store {
-    root: PathBuf,
-}
-
-/// One scope ledger of a team.
-#[derive(Clone, Debug)]
-pub struct ScopeRef {
-    pub repository: String,
-    pub scope: String,
-    pub path: PathBuf,
-}
-
-impl Store {
-    pub fn new(root: impl Into<PathBuf>) -> Store {
-        Store { root: root.into() }
-    }
-
-    pub fn team_dir(&self, team: &str) -> PathBuf {
-        debug_assert!(crate::valid_id(team));
-        self.root.join("teams").join(team)
-    }
-
-    pub fn cas(&self, team: &str) -> anyhow::Result<Cas> {
-        Ok(Cas::open(self.team_dir(team).join("cas"))?)
-    }
-
-    pub fn uploads(&self, team: &str) -> anyhow::Result<PathBuf> {
-        let d = self.team_dir(team).join("uploads");
-        std::fs::create_dir_all(&d)?;
-        Ok(d)
-    }
-
-    /// A repository's directory: `github-<repository_id>` when GitHub's id
-    /// is known (OIDC), so a rename keeps the ledgers and a new repository
-    /// under an old name starts empty; else its readable name plus a hash.
-    fn repo_dir(&self, team: &str, repo: RepoKey) -> PathBuf {
-        let scopes = self.team_dir(team).join("scopes");
-        if let Some(id) = repo.github_id {
-            return scopes.join(format!("github-{id}"));
+impl RepoKey<'_> {
+    /// The repository's key in storage (its directory name self-hosted,
+    /// `scopes.repo_key` in Postgres): `github-<repository_id>` when
+    /// GitHub's id is known (OIDC), so a rename keeps the ledgers and a new
+    /// repository under an old name starts empty; else its readable name
+    /// plus a hash.
+    pub fn storage_key(&self) -> String {
+        if let Some(id) = self.github_id {
+            return format!("github-{id}");
         }
-        let repository = repo.name;
-        let readable: String = repository
+        let readable: String = self
+            .name
             .chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
@@ -117,8 +86,128 @@ impl Store {
             })
             .take(80)
             .collect();
-        let h = &blake3::hash(repository.as_bytes()).to_hex()[..12];
-        scopes.join(format!("{readable}-{h}"))
+        let h = &blake3::hash(self.name.as_bytes()).to_hex()[..12];
+        format!("{readable}-{h}")
+    }
+}
+
+/// The lock that serializes opens of one SQLite file in this process. A
+/// file's first open switches it to WAL and migrates it; SQLite answers a
+/// concurrent `journal_mode` switch with SQLITE_BUSY at once, without the
+/// busy timeout (seen as a 500 under eight racing first commits, S2). One
+/// lock per path: opens of different ledgers never wait on each other,
+/// and a migration holds only its own file's.
+fn path_lock(p: &Path) -> Arc<std::sync::Mutex<()>> {
+    static LOCKS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Arc<std::sync::Mutex<()>>>> =
+        std::sync::Mutex::new(std::collections::BTreeMap::new());
+    LOCKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .entry(p.to_path_buf())
+        .or_default()
+        .clone()
+}
+
+/// Opens a scope ledger, one open of that file at a time in this process
+/// (`path_lock`). Opens of an existing, current ledger are a read of
+/// `user_version`, so the lock costs microseconds.
+pub fn open_ledger(p: &Path) -> anyhow::Result<Ledger> {
+    let lock = path_lock(p);
+    let _one = lock
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Ledger::open(p)?)
+}
+
+/// Quod Cloud's backends: Postgres for the rows, a bucket for the blobs.
+pub struct Cloud {
+    pub pg: Pg,
+    pub s3: S3,
+}
+
+#[derive(Clone)]
+pub struct Store {
+    root: PathBuf,
+    cloud: Option<Arc<Cloud>>,
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store")
+            .field("root", &self.root)
+            .field("backend", &self.backend())
+            .finish()
+    }
+}
+
+/// Where one scope ledger is.
+#[derive(Clone, Debug)]
+pub enum ScopeLoc {
+    File(PathBuf),
+    Pg(i64),
+}
+
+/// One scope ledger of a team.
+#[derive(Clone, Debug)]
+pub struct ScopeRef {
+    pub repository: String,
+    pub scope: String,
+    pub loc: ScopeLoc,
+}
+
+impl Store {
+    /// The self-hosted store: SQLite and files under `root`.
+    pub fn new(root: impl Into<PathBuf>) -> Store {
+        Store {
+            root: root.into(),
+            cloud: None,
+        }
+    }
+
+    /// Quod Cloud's store: rows in Postgres, blobs in the bucket; `root`
+    /// (the data dir) holds only upload staging.
+    pub fn cloud(root: impl Into<PathBuf>, cloud: Arc<Cloud>) -> Store {
+        Store {
+            root: root.into(),
+            cloud: Some(cloud),
+        }
+    }
+
+    /// `sqlite` or `postgres+s3`.
+    pub fn backend(&self) -> &'static str {
+        if self.cloud.is_some() {
+            "postgres+s3"
+        } else {
+            "sqlite"
+        }
+    }
+
+    pub fn cloud_backend(&self) -> Option<&Cloud> {
+        self.cloud.as_deref()
+    }
+
+    pub fn team_dir(&self, team: &str) -> PathBuf {
+        debug_assert!(crate::valid_id(team));
+        self.root.join("teams").join(team)
+    }
+
+    /// A team's blobs.
+    pub fn cas(&self, team: &str) -> anyhow::Result<TeamBlobs> {
+        Ok(match &self.cloud {
+            Some(c) => TeamBlobs::S3(S3Blobs::new(c.s3.clone(), team)),
+            None => TeamBlobs::Local(Cas::open(self.team_dir(team).join("cas"))?),
+        })
+    }
+
+    /// Where a team's uploads stage (on the data dir in either backend).
+    pub fn uploads(&self, team: &str) -> anyhow::Result<PathBuf> {
+        let d = self.team_dir(team).join("uploads");
+        std::fs::create_dir_all(&d)?;
+        Ok(d)
+    }
+
+    fn repo_dir(&self, team: &str, repo: RepoKey) -> PathBuf {
+        self.team_dir(team).join("scopes").join(repo.storage_key())
     }
 
     fn ledger_path(&self, team: &str, repo: RepoKey, scope: &str) -> PathBuf {
@@ -126,19 +215,37 @@ impl Store {
         self.repo_dir(team, repo).join(scope).join("ledger.sqlite")
     }
 
-    pub fn has_ledger<'a>(&self, team: &str, repo: impl Into<RepoKey<'a>>, scope: &str) -> bool {
-        self.ledger_path(team, repo.into(), scope).is_file()
+    pub fn has_ledger<'a>(
+        &self,
+        team: &str,
+        repo: impl Into<RepoKey<'a>>,
+        scope: &str,
+    ) -> anyhow::Result<bool> {
+        let repo = repo.into();
+        Ok(match &self.cloud {
+            Some(c) => {
+                c.pg.scope_id(team, &repo.storage_key(), repo.name, scope, false)?
+                    .is_some()
+            }
+            None => self.ledger_path(team, repo, scope).is_file(),
+        })
     }
 
-    /// Opens (creating) a scope's ledger. The directory's `repository`
-    /// file holds the repository's newest name.
+    /// Opens (creating) a scope's ledger, keeping the repository's newest
+    /// name with it.
     pub fn ledger<'a>(
         &self,
         team: &str,
         repo: impl Into<RepoKey<'a>>,
         scope: &str,
-    ) -> anyhow::Result<Ledger> {
+    ) -> anyhow::Result<ScopeLedger> {
         let repo = repo.into();
+        if let Some(c) = &self.cloud {
+            let id =
+                c.pg.scope_id(team, &repo.storage_key(), repo.name, scope, true)?
+                    .expect("created");
+            return Ok(ScopeLedger::Pg(c.pg.ledger(team, id)?));
+        }
         let p = self.ledger_path(team, repo, scope);
         let repo_dir = self.repo_dir(team, repo);
         std::fs::create_dir_all(p.parent().unwrap())?;
@@ -146,7 +253,16 @@ impl Store {
         if std::fs::read_to_string(&name).ok().as_deref() != Some(repo.name) {
             std::fs::write(&name, repo.name)?;
         }
-        open_ledger(&p)
+        Ok(ScopeLedger::Sqlite(open_ledger(&p)?))
+    }
+
+    /// Opens a scope ledger `scopes` listed.
+    pub fn open(&self, team: &str, s: &ScopeRef) -> anyhow::Result<ScopeLedger> {
+        match (&s.loc, &self.cloud) {
+            (ScopeLoc::File(p), _) => Ok(ScopeLedger::Sqlite(open_ledger(p)?)),
+            (ScopeLoc::Pg(id), Some(c)) => Ok(ScopeLedger::Pg(c.pg.ledger(team, *id)?)),
+            (ScopeLoc::Pg(_), None) => anyhow::bail!("a Postgres scope without Postgres"),
+        }
     }
 
     /// A scope ledger found by the repository's name (as the dashboard
@@ -156,19 +272,37 @@ impl Store {
         team: &str,
         repository: &str,
         scope: &str,
-    ) -> anyhow::Result<Option<Ledger>> {
+    ) -> anyhow::Result<Option<ScopeLedger>> {
         match self
-            .scopes(team)
+            .scopes(team)?
             .into_iter()
             .find(|s| s.repository == repository && s.scope == scope)
         {
-            Some(s) => Ok(Some(open_ledger(&s.path)?)),
+            Some(s) => Ok(Some(self.open(team, &s)?)),
             None => Ok(None),
         }
     }
 
-    /// Every scope ledger of a team.
-    pub fn scopes(&self, team: &str) -> Vec<ScopeRef> {
+    /// Every scope ledger of a team, by repository then scope.
+    pub fn scopes(&self, team: &str) -> anyhow::Result<Vec<ScopeRef>> {
+        if let Some(c) = &self.cloud {
+            return Ok(c
+                .pg
+                .scopes(team)?
+                .into_iter()
+                .map(|(id, repository, scope)| ScopeRef {
+                    repository,
+                    scope,
+                    loc: ScopeLoc::Pg(id),
+                })
+                .collect());
+        }
+        Ok(self.scope_files(team))
+    }
+
+    /// Every SQLite scope ledger of a team on the data dir (whichever
+    /// backend serves).
+    pub fn scope_files(&self, team: &str) -> Vec<ScopeRef> {
         let mut out = vec![];
         let Ok(repos) = std::fs::read_dir(self.team_dir(team).join("scopes")) else {
             return out;
@@ -186,7 +320,7 @@ impl Store {
                     out.push(ScopeRef {
                         repository: repository.clone(),
                         scope: s.file_name().to_string_lossy().into_owned(),
-                        path,
+                        loc: ScopeLoc::File(path),
                     });
                 }
             }
@@ -210,50 +344,111 @@ impl Store {
         out
     }
 
-    /// Brings every ledger in the data dir to this binary's schemas, at
-    /// start, before anything is served: each scope ledger to quod-ledger's
-    /// `SCHEMA_VERSION` (the same migrations a laptop's ledger runs, each in
-    /// its own transaction, so a failure leaves that file as it was) and
-    /// each `team.sqlite` to `ACTIVITY_VERSION`. A ledger newer than this
-    /// binary (a rollback after a newer server ran) is an error: the server
-    /// refuses to start rather than answer every claim of that scope with a
-    /// 500. Nothing is deleted, and the signing key is not touched.
+    /// Brings every SQLite ledger in the data dir to this binary's
+    /// schemas, at start, before anything is served: each scope ledger to
+    /// quod-ledger's `SCHEMA_VERSION` (the same migrations a laptop's
+    /// ledger runs, each in its own transaction, so a failure leaves that
+    /// file as it was) and each `team.sqlite` to `ACTIVITY_VERSION`. A
+    /// ledger newer than this binary (a rollback after a newer server ran)
+    /// is an error: the server refuses to start rather than answer every
+    /// claim of that scope with a 500. Nothing is deleted, and the signing
+    /// key is not touched. With Postgres the files are not opened at all
+    /// (the importer reads them as they are); Postgres migrates itself
+    /// when it connects (`Pg::connect`).
+    ///
+    /// Only a file newer than this binary stops the boot. Any other
+    /// failure (a corrupt or unreadable file, a failed migration) is
+    /// logged with the team, scope and path, counted in `failed`, and the
+    /// boot goes on: the other scopes serve, and that one answers 500 when
+    /// a request opens it (its migration is tried again then).
     pub fn migrate(&self) -> anyhow::Result<Migrated> {
         let mut m = Migrated::default();
-        for team in self.teams_on_disk() {
-            m.teams += 1;
-            drop(self.activity(&team)?);
-            for scope in self.scopes(&team) {
-                let before = {
-                    let db = Connection::open_with_flags(
-                        &scope.path,
-                        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                    )?;
-                    db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))?
-                };
-                let l = open_ledger(&scope.path).map_err(|e| {
-                    anyhow::anyhow!(
-                        "team {team}, {} scope {} ({}): {e}",
-                        scope.repository,
-                        scope.scope,
-                        scope.path.display()
-                    )
-                })?;
-                let after = l.schema_version()? as i64;
-                m.ledgers += 1;
-                if after != before {
-                    m.upgraded += 1;
-                    tracing::info!(target: "quod", team = %team, repository = %scope.repository, scope = %scope.scope, from = before, to = after, "scope ledger migrated");
+        if self.cloud.is_some() {
+            return Ok(m);
+        }
+        let plan = self.plan();
+        // A file newer than this binary stops the boot before anything is
+        // migrated.
+        if let Some(p) = plan.iter().find(|p| matches!(p.action, Plan::TooNew(..))) {
+            let Plan::TooNew(v, known) = p.action else {
+                unreachable!()
+            };
+            anyhow::bail!(
+                "{}: schema version {v} is newer than this server's {known} (a newer server ran on this volume; roll forward, or restore the volume's backup)",
+                p.what()
+            );
+        }
+        for p in plan {
+            if p.scope.is_none() {
+                m.teams += 1;
+            }
+            if let Plan::Unreadable(e) = &p.action {
+                m.failed += 1;
+                tracing::error!(target: "quod", team = %p.team, repository = ?p.repository, scope = ?p.scope, path = %p.path.display(), error = %e, "unreadable; this scope answers 500 until it is repaired");
+                continue;
+            }
+            let opened = match &p.scope {
+                None => SqliteActivity::open(&p.path).map(drop),
+                Some(_) => open_ledger(&p.path).map(drop),
+            };
+            match opened {
+                Ok(()) => {
+                    if p.scope.is_some() {
+                        m.ledgers += 1;
+                    }
+                    if let Plan::Upgrade(from, to) = p.action {
+                        m.upgraded += usize::from(p.scope.is_some());
+                        tracing::info!(target: "quod", team = %p.team, repository = ?p.repository, scope = ?p.scope, from, to, "migrated");
+                    }
+                }
+                Err(e) => {
+                    m.failed += 1;
+                    tracing::error!(target: "quod", team = %p.team, repository = ?p.repository, scope = ?p.scope, path = %p.path.display(), error = %format!("{e:#}"), "migration failed; this scope answers 500 until it is repaired");
                 }
             }
         }
         Ok(m)
     }
 
+    /// What `migrate` would do to each SQLite file of the data dir, read
+    /// without writing (`quod-server migrate --dry-run`).
+    pub fn plan(&self) -> Vec<FilePlan> {
+        let mut out = vec![];
+        for team in self.teams_on_disk() {
+            let path = self.team_dir(&team).join("team.sqlite");
+            out.push(FilePlan {
+                action: Plan::of(&path, ACTIVITY_VERSION as usize),
+                team: team.clone(),
+                repository: None,
+                scope: None,
+                path,
+            });
+            for s in self.scope_files(&team) {
+                let ScopeLoc::File(path) = s.loc else {
+                    continue;
+                };
+                out.push(FilePlan {
+                    action: Plan::of(&path, quod_ledger::SCHEMA_VERSION),
+                    team: team.clone(),
+                    repository: Some(s.repository),
+                    scope: Some(s.scope),
+                    path,
+                });
+            }
+        }
+        out
+    }
+
     pub fn activity(&self, team: &str) -> anyhow::Result<Activity> {
+        if let Some(c) = &self.cloud {
+            return Ok(Activity::Pg(c.pg.activity(team)));
+        }
         let d = self.team_dir(team);
         std::fs::create_dir_all(&d)?;
-        Activity::open(&d.join("team.sqlite"))
+        let p = d.join("team.sqlite");
+        Ok(Activity::Sqlite(SqliteActivity::open(&p).map_err(|e| {
+            anyhow::anyhow!("team {team} ({}): {e:#}", p.display())
+        })?))
     }
 }
 
@@ -266,12 +461,353 @@ pub struct Migrated {
     pub ledgers: usize,
     /// Of those, how many were at an older schema before.
     pub upgraded: usize,
+    /// Files that could not be read or migrated (logged; their scopes
+    /// answer 500, the others serve).
+    pub failed: usize,
 }
 
-/// A team's CI activity (one row per step a runner reported) and its event
+/// What the start-up migration would do to one SQLite file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Plan {
+    /// At this binary's version.
+    Current(usize),
+    /// From, to.
+    Upgrade(usize, usize),
+    /// No file yet (a team directory without team.sqlite).
+    Create,
+    /// Newer than this binary (found, known): stops the boot.
+    TooNew(usize, usize),
+    /// Cannot be opened or read.
+    Unreadable(String),
+}
+
+impl Plan {
+    fn of(path: &Path, known: usize) -> Plan {
+        if !path.exists() {
+            return Plan::Create;
+        }
+        let v = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .and_then(|db| db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)));
+        match v {
+            Err(e) => Plan::Unreadable(e.to_string()),
+            Ok(v) if v < 0 => Plan::Unreadable(format!("user_version {v}")),
+            Ok(v) if v as usize > known => Plan::TooNew(v as usize, known),
+            Ok(v) if v as usize == known => Plan::Current(known),
+            Ok(v) => Plan::Upgrade(v as usize, known),
+        }
+    }
+}
+
+/// One SQLite file of the data dir and its plan.
+#[derive(Clone, Debug)]
+pub struct FilePlan {
+    pub team: String,
+    /// The scope ledger's repository and scope; None for team.sqlite.
+    pub repository: Option<String>,
+    pub scope: Option<String>,
+    pub path: PathBuf,
+    pub action: Plan,
+}
+
+impl FilePlan {
+    /// "team acme, acme/app scope trusted (<path>)".
+    pub fn what(&self) -> String {
+        match (&self.repository, &self.scope) {
+            (Some(r), Some(s)) => format!(
+                "team {}, {r} scope {s} ({})",
+                self.team,
+                self.path.display()
+            ),
+            _ => format!("team {} ({})", self.team, self.path.display()),
+        }
+    }
+}
+
+/// A team's blobs: the local CAS or the bucket.
+pub enum TeamBlobs {
+    Local(Cas),
+    S3(S3Blobs),
+}
+
+impl TeamBlobs {
+    /// The blob's size, or None when the team has no such blob.
+    pub fn size(&self, h: &Hash) -> Result<Option<u64>, CasError> {
+        match self {
+            TeamBlobs::Local(c) => Ok(std::fs::metadata(c.blob_path(h)).ok().map(|m| m.len())),
+            TeamBlobs::S3(s) => s.size(h),
+        }
+    }
+}
+
+impl BlobStore for TeamBlobs {
+    fn has_blob(&self, h: &Hash) -> Result<bool, CasError> {
+        match self {
+            TeamBlobs::Local(c) => c.has_blob(h),
+            TeamBlobs::S3(s) => s.has_blob(h),
+        }
+    }
+    fn read_blob(&self, h: &Hash) -> Result<Vec<u8>, CasError> {
+        match self {
+            TeamBlobs::Local(c) => c.read_blob(h),
+            TeamBlobs::S3(s) => s.read_blob(h),
+        }
+    }
+    fn open_blob_reader(&self, h: &Hash) -> Result<Box<dyn std::io::Read + Send>, CasError> {
+        match self {
+            TeamBlobs::Local(c) => c.open_blob_reader(h),
+            TeamBlobs::S3(s) => s.open_blob_reader(h),
+        }
+    }
+    fn put_blob(&self, bytes: &[u8]) -> Result<Hash, CasError> {
+        match self {
+            TeamBlobs::Local(c) => c.put_blob(bytes),
+            TeamBlobs::S3(s) => s.put_blob(bytes),
+        }
+    }
+    fn put_blob_file(&self, path: &Path) -> Result<(Hash, u64), CasError> {
+        match self {
+            TeamBlobs::Local(c) => c.put_blob_file(path),
+            TeamBlobs::S3(s) => s.put_blob_file(path),
+        }
+    }
+}
+
+/// A scope ledger in either backend.
+// One per request, moved rarely: the size difference does not matter.
+#[allow(clippy::large_enum_variant)]
+pub enum ScopeLedger {
+    Sqlite(Ledger),
+    Pg(PgLedger),
+}
+
+macro_rules! each {
+    ($s:expr, $l:ident => $e:expr) => {
+        match $s {
+            ScopeLedger::Sqlite($l) => $e,
+            ScopeLedger::Pg($l) => $e,
+        }
+    };
+}
+
+impl ScopeLedger {
+    pub fn run(&self, id: &str) -> Result<Option<RunRow>, LedgerError> {
+        each!(self, l => l.run(id))
+    }
+    pub fn trust_rows(&self) -> Result<Vec<TrustRow>, LedgerError> {
+        each!(self, l => l.trust_rows())
+    }
+    pub fn proofs_for_key(&self, step_key: &Hash) -> Result<Vec<ProofRow>, LedgerError> {
+        each!(self, l => l.proofs_for_key(step_key))
+    }
+    pub fn audits(
+        &self,
+        step_key: Option<&Hash>,
+        limit: usize,
+    ) -> Result<Vec<AuditRow>, LedgerError> {
+        each!(self, l => l.audits(step_key, limit))
+    }
+    pub fn suspect_runs(&self, step_key: Option<&Hash>) -> Result<Vec<RunRow>, LedgerError> {
+        each!(self, l => l.suspect_runs(step_key))
+    }
+    /// The quod-ledger schema version the rows are at (Postgres mirrors
+    /// one, `pg::PG_LEDGER_LEVEL`).
+    pub fn schema_version(&self) -> Result<usize, LedgerError> {
+        match self {
+            ScopeLedger::Sqlite(l) => l.schema_version(),
+            ScopeLedger::Pg(_) => Ok(crate::pg::PG_LEDGER_LEVEL),
+        }
+    }
+    /// Deferred-audit rows in any state.
+    pub fn pending_total(&self) -> Result<u64, LedgerError> {
+        match self {
+            ScopeLedger::Sqlite(l) => Ok([
+                quod_ledger::PendingState::Pending,
+                quod_ledger::PendingState::Running,
+                quod_ledger::PendingState::Passed,
+                quod_ledger::PendingState::Diverged,
+                quod_ledger::PendingState::Lost,
+            ]
+            .into_iter()
+            .map(|s| l.pending_audits(None, s).map(|v| v.len() as u64))
+            .sum::<Result<u64, _>>()?),
+            ScopeLedger::Pg(l) => l.pending_total(),
+        }
+    }
+}
+
+impl LedgerStore for ScopeLedger {
+    fn atomically<T, E: From<LedgerError>>(
+        &self,
+        f: impl FnOnce(&Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        match self {
+            ScopeLedger::Sqlite(l) => l.atomically(|_| f(self)),
+            ScopeLedger::Pg(l) => l.atomically(|_| f(self)),
+        }
+    }
+    fn find_match(&self, step_key: &Hash, tree: &Tree) -> Result<Lookup, LedgerError> {
+        each!(self, l => l.find_match(step_key, tree))
+    }
+    fn manifest(&self, id: &Hash) -> Result<Option<Manifest>, LedgerError> {
+        each!(self, l => l.manifest(id))
+    }
+    fn latest_result(
+        &self,
+        step_key: &Hash,
+        manifest_id: &Hash,
+    ) -> Result<Option<StepResult>, LedgerError> {
+        each!(self, l => l.latest_result(step_key, manifest_id))
+    }
+    fn results_for_run(&self, run_id: &str) -> Result<Vec<StepResult>, LedgerError> {
+        each!(self, l => l.results_for_run(run_id))
+    }
+    fn put_step_key(&self, step_key: &Hash, json: &str) -> Result<(), LedgerError> {
+        each!(self, l => l.put_step_key(step_key, json))
+    }
+    fn record_run_facts(&self, f: &RunFacts) -> Result<(), LedgerError> {
+        each!(self, l => l.record_run_facts(f))
+    }
+    fn record_execution_facts(
+        &self,
+        run: &RunFacts,
+        m: &Manifest,
+        r: &StepResult,
+    ) -> Result<Hash, LedgerError> {
+        each!(self, l => l.record_execution_facts(run, m, r))
+    }
+    fn trust(&self, step_key: &Hash) -> Result<Option<TrustRow>, LedgerError> {
+        each!(self, l => l.trust(step_key))
+    }
+    fn put_trust(&self, t: &TrustRow) -> Result<(), LedgerError> {
+        each!(self, l => l.put_trust(t))
+    }
+    fn proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<Option<ProofRow>, LedgerError> {
+        each!(self, l => l.proof(step_key, manifest_id))
+    }
+    fn put_proof(&self, p: &ProofRow) -> Result<(), LedgerError> {
+        each!(self, l => l.put_proof(p))
+    }
+    fn reset_proofs(&self, step_key: &Hash) -> Result<usize, LedgerError> {
+        each!(self, l => l.reset_proofs(step_key))
+    }
+    fn reset_proof(&self, step_key: &Hash, manifest_id: &Hash) -> Result<usize, LedgerError> {
+        each!(self, l => l.reset_proof(step_key, manifest_id))
+    }
+    fn recent_divergences(&self, step_key: &Hash, window: usize) -> Result<u64, LedgerError> {
+        each!(self, l => l.recent_divergences(step_key, window))
+    }
+    fn record_audit(&self, a: &AuditRow) -> Result<i64, LedgerError> {
+        each!(self, l => l.record_audit(a))
+    }
+    fn mark_suspect_replays(&self, step_key: &Hash, why: &str) -> Result<usize, LedgerError> {
+        each!(self, l => l.mark_suspect_replays(step_key, why))
+    }
+    fn backlog(&self, step_key: &Hash, stale_before: &str) -> Result<Backlog, LedgerError> {
+        each!(self, l => l.backlog(step_key, stale_before))
+    }
+    fn enqueue_audit(&self, a: &NewPending) -> Result<i64, LedgerError> {
+        each!(self, l => l.enqueue_audit(a))
+    }
+    fn finish_audit(
+        &self,
+        id: i64,
+        diverged: bool,
+        audit_id: i64,
+        detail: &str,
+    ) -> Result<(), LedgerError> {
+        each!(self, l => l.finish_audit(id, diverged, audit_id, detail))
+    }
+    fn supersede_pending(
+        &self,
+        step_key: &Hash,
+        except: Option<i64>,
+        why: &str,
+    ) -> Result<usize, LedgerError> {
+        each!(self, l => l.supersede_pending(step_key, except, why))
+    }
+    fn repay_audit(
+        &self,
+        step_key: &Hash,
+        audit_id: i64,
+        stale_before: &str,
+    ) -> Result<bool, LedgerError> {
+        each!(self, l => l.repay_audit(step_key, audit_id, stale_before))
+    }
+}
+
+/// A team's CI activity (one row per step a runner reported), its event
 /// outbox (the dashboard's stream reads it by id, which makes resuming with
-/// Last-Event-ID exact).
-pub struct Activity {
+/// Last-Event-ID exact) and its trusted writes, in either backend.
+pub enum Activity {
+    Sqlite(SqliteActivity),
+    Pg(PgActivity),
+}
+
+impl Activity {
+    pub fn insert_step(&self, s: &StepRow) -> anyhow::Result<()> {
+        match self {
+            Activity::Sqlite(a) => a.insert_step(s),
+            Activity::Pg(a) => Ok(a.insert_step(s)?),
+        }
+    }
+    pub fn record_trusted_write(
+        &self,
+        repository: &str,
+        git_ref: &str,
+        protected: Option<bool>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Activity::Sqlite(a) => a.record_trusted_write(repository, git_ref, protected),
+            Activity::Pg(a) => Ok(a.record_trusted_write(repository, git_ref, protected)?),
+        }
+    }
+    pub fn trusted_writes(&self, repository: Option<&str>) -> anyhow::Result<Vec<TrustedWrite>> {
+        match self {
+            Activity::Sqlite(a) => a.trusted_writes(repository),
+            Activity::Pg(a) => Ok(a.trusted_writes(repository)?),
+        }
+    }
+    pub fn run_number_of(&self, quod_run: &str) -> anyhow::Result<Option<u64>> {
+        match self {
+            Activity::Sqlite(a) => a.run_number_of(quod_run),
+            Activity::Pg(a) => Ok(a.run_number_of(quod_run)?),
+        }
+    }
+    pub fn steps(&self, repository: Option<&str>) -> anyhow::Result<Vec<StepRow>> {
+        match self {
+            Activity::Sqlite(a) => a.steps(repository),
+            Activity::Pg(a) => Ok(a.steps(repository)?),
+        }
+    }
+    pub fn push_event(
+        &self,
+        kind: &str,
+        repository: Option<&str>,
+        run_number: Option<u64>,
+        step_key: Option<&str>,
+        json: &Value,
+    ) -> anyhow::Result<i64> {
+        match self {
+            Activity::Sqlite(a) => a.push_event(kind, repository, run_number, step_key, json),
+            Activity::Pg(a) => Ok(a.push_event(kind, repository, run_number, step_key, json)?),
+        }
+    }
+    pub fn events_after(&self, after: i64, limit: usize) -> anyhow::Result<Vec<EventRow>> {
+        match self {
+            Activity::Sqlite(a) => a.events_after(after, limit),
+            Activity::Pg(a) => Ok(a.events_after(after, limit)?),
+        }
+    }
+    pub fn last_event(&self) -> anyhow::Result<i64> {
+        match self {
+            Activity::Sqlite(a) => a.last_event(),
+            Activity::Pg(a) => Ok(a.last_event()?),
+        }
+    }
+}
+
+/// `team.sqlite`: a self-hosted team's activity.
+pub struct SqliteActivity {
     db: Connection,
 }
 
@@ -363,14 +899,21 @@ pub struct EventRow {
     pub json: Value,
 }
 
-impl Activity {
-    fn open(path: &Path) -> anyhow::Result<Activity> {
+impl SqliteActivity {
+    /// Opens (creating and migrating) a team.sqlite, one open of that file
+    /// at a time in this process: its first open switches it to WAL, which
+    /// races as a scope ledger's does (`path_lock`).
+    fn open(path: &Path) -> anyhow::Result<SqliteActivity> {
+        let lock = path_lock(path);
+        let _one = lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let db = Connection::open(path)?;
         db.busy_timeout(std::time::Duration::from_secs(30))?;
         db.pragma_update(None, "journal_mode", "WAL")?;
         let current: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if current == ACTIVITY_VERSION {
-            return Ok(Activity { db });
+            return Ok(SqliteActivity { db });
         }
         // One migration at a time across connections: BEGIN IMMEDIATE.
         db.execute_batch("BEGIN IMMEDIATE")?;
@@ -396,7 +939,7 @@ impl Activity {
                 return Err(e);
             }
         }
-        Ok(Activity { db })
+        Ok(SqliteActivity { db })
     }
 
     pub fn insert_step(&self, s: &StepRow) -> anyhow::Result<()> {
@@ -592,7 +1135,7 @@ mod tests {
             )
             .unwrap();
         }
-        let a = Activity::open(&p).unwrap();
+        let a = SqliteActivity::open(&p).unwrap();
         let rows = a.steps(None).unwrap();
         assert_eq!(rows.len(), 1);
         assert!(rows[0].job_id.is_none());
@@ -604,11 +1147,11 @@ mod tests {
         assert_eq!((w.len(), w[0].writes, w[0].protected), (1, 2, Some(false)));
         drop(a);
         // Opening again is a no-op; a newer schema is refused.
-        Activity::open(&p).unwrap();
+        SqliteActivity::open(&p).unwrap();
         Connection::open(&p)
             .unwrap()
             .pragma_update(None, "user_version", ACTIVITY_VERSION + 1)
             .unwrap();
-        assert!(Activity::open(&p).is_err());
+        assert!(SqliteActivity::open(&p).is_err());
     }
 }

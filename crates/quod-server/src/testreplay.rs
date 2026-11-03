@@ -15,15 +15,19 @@
 //! - jobs on someone else's input (`unverified`: pull_request_target,
 //!   workflow_run, ...) and fork scopes read `trusted` and never save.
 //!   Fork pull requests get no OIDC token from GitHub at all.
+//!
 //! Rows are only ever added: nothing a non-writer sends can change or
 //! replace a `trusted` row, and a lookup reads only the scopes above.
 //!
-//! Storage: `teams/<team>/test-replay.sqlite`, its own file, so
-//! `team.sqlite`'s schema (and a rollback to a build without this module)
-//! is untouched. File bytes live in the team's CAS like every other blob.
+//! Storage. Quod Cloud: the rows in Postgres (`test_ledgers`, `test_runs`,
+//! `team` in every key and query), the files in the bucket with every
+//! other blob. Self-hosted: `teams/<team>/test-replay.sqlite` and the
+//! team's CAS. The tables are created idempotently at start, outside the
+//! versioned migrations, so a rollback to a build without this module
+//! finds a schema it knows.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::sync::Arc;
 
 use axum::Extension;
 use axum::Json;
@@ -32,80 +36,194 @@ use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
-use quod_cas::BlobStore;
+use quod_cas::{BlobStore, Hash};
 use quod_ledger::now_rfc3339;
 use quod_wire::testreplay::*;
 use quod_wire::{CiContext, PROTOCOL};
-use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::auth::{Principal, Runner, TRUSTED, UNVERIFIED};
 use crate::{ApiError, App, AppState, blocking};
 
-/// `test-replay.sqlite`'s schema version.
-pub const VERSION: i64 = 1;
-
+/// The tables, in SQL both backends take (`{ID}` is the id column's
+/// declaration, `{REAL}` a float column's).
 const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS ledgers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, repo_key TEXT NOT NULL, repository TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS test_ledgers (
+  id {ID}, team TEXT NOT NULL, at TEXT NOT NULL, repo_key TEXT NOT NULL, repository TEXT NOT NULL,
   suite TEXT NOT NULL, scope TEXT NOT NULL, git_ref TEXT, sha TEXT, files TEXT NOT NULL, files_hash TEXT NOT NULL,
-  n_files INTEGER NOT NULL, bytes INTEGER NOT NULL, run_id TEXT, workflow TEXT, job TEXT);
-CREATE INDEX IF NOT EXISTS ledgers_by_scope ON ledgers (repo_key, suite, scope, id);
-CREATE INDEX IF NOT EXISTS ledgers_by_sha ON ledgers (repo_key, suite, sha, id);
-CREATE TABLE IF NOT EXISTS runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, repo_key TEXT NOT NULL, repository TEXT NOT NULL,
+  n_files BIGINT NOT NULL, bytes BIGINT NOT NULL, run_id TEXT, workflow TEXT, job TEXT);
+CREATE INDEX IF NOT EXISTS test_ledgers_by_scope ON test_ledgers (team, repo_key, suite, scope, id);
+CREATE INDEX IF NOT EXISTS test_ledgers_by_sha ON test_ledgers (team, repo_key, suite, sha, id);
+CREATE TABLE IF NOT EXISTS test_runs (
+  id {ID}, team TEXT NOT NULL, at TEXT NOT NULL, repo_key TEXT NOT NULL, repository TEXT NOT NULL,
   suite TEXT NOT NULL, scope TEXT NOT NULL, kind TEXT NOT NULL, tool TEXT NOT NULL,
-  run_id TEXT, run_attempt INTEGER, run_number INTEGER, workflow TEXT, job TEXT, job_name TEXT,
+  run_id TEXT, run_attempt BIGINT, run_number BIGINT, workflow TEXT, job TEXT, job_name TEXT,
   git_ref TEXT, sha TEXT, event TEXT, actor TEXT,
-  total INTEGER NOT NULL, ran INTEGER NOT NULL, replayed INTEGER NOT NULL, narrowed INTEGER NOT NULL,
-  wall_ms REAL, select_ms REAL, est_plain_ms REAL, saved_ms REAL, exit INTEGER,
-  audited INTEGER NOT NULL, audit_mismatches INTEGER NOT NULL, detail TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS runs_by_at ON runs (at);
-CREATE INDEX IF NOT EXISTS runs_by_commit ON runs (repo_key, suite, sha, kind, id);
+  total BIGINT NOT NULL, ran BIGINT NOT NULL, replayed BIGINT NOT NULL, narrowed BIGINT NOT NULL,
+  wall_ms {REAL}, select_ms {REAL}, est_plain_ms {REAL}, saved_ms {REAL}, exit BIGINT,
+  audited BIGINT NOT NULL, audit_mismatches BIGINT NOT NULL, detail TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS test_runs_by_team ON test_runs (team, id);
+CREATE INDEX IF NOT EXISTS test_runs_by_at ON test_runs (team, kind, at);
+CREATE INDEX IF NOT EXISTS test_runs_by_commit ON test_runs (team, repo_key, suite, sha, kind, id);
 ";
 
-/// A team's test-replay database.
-pub struct Db {
-    db: Connection,
+/// Creates the tables in Postgres (at start, from `boot::connect`).
+pub fn ensure_pg(pg: &crate::pg::Pg) -> anyhow::Result<()> {
+    let sql = SCHEMA
+        .replace("{ID}", "BIGSERIAL PRIMARY KEY")
+        .replace("{REAL}", "DOUBLE PRECISION")
+        .replace("TEXT", "TEXT COLLATE \"C\"");
+    let mut c = pg.conn()?;
+    let mut tx = c.transaction()?;
+    // One instance at a time (CREATE ... IF NOT EXISTS races otherwise).
+    tx.execute("SELECT pg_advisory_xact_lock(7140513712)", &[])?;
+    tx.batch_execute(&sql)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// A value bound to or read from a statement.
+#[derive(Clone, Debug)]
+enum V {
+    I(Option<i64>),
+    F(Option<f64>),
+    T(Option<String>),
+}
+
+impl V {
+    fn i(&self) -> Option<i64> {
+        match self {
+            V::I(v) => *v,
+            _ => None,
+        }
+    }
+    fn f(&self) -> Option<f64> {
+        match self {
+            V::F(v) => *v,
+            _ => None,
+        }
+    }
+    fn t(&self) -> Option<String> {
+        match self {
+            V::T(v) => v.clone(),
+            _ => None,
+        }
+    }
+}
+
+fn t(s: impl Into<String>) -> V {
+    V::T(Some(s.into()))
+}
+fn ot(s: Option<impl Into<String>>) -> V {
+    V::T(s.map(Into::into))
+}
+fn i(v: i64) -> V {
+    V::I(Some(v))
+}
+
+#[derive(Clone, Copy)]
+enum Ty {
+    I,
+    F,
+    T,
+}
+
+/// A team's test-replay tables in either backend. Statements use `$1`..
+/// placeholders, each first appearing in order (SQLite numbers `$N`
+/// parameters by first appearance).
+enum Db {
+    Sqlite(rusqlite::Connection),
+    Pg(crate::pg::Pg),
 }
 
 impl Db {
-    pub fn open(path: &Path) -> anyhow::Result<Db> {
-        if let Some(d) = path.parent() {
-            std::fs::create_dir_all(d)?;
-        }
-        let db = Connection::open(path)?;
-        db.busy_timeout(std::time::Duration::from_secs(30))?;
-        db.pragma_update(None, "journal_mode", "WAL")?;
-        let v: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if v > VERSION {
-            anyhow::bail!(
-                "{} has schema version {v}, newer than this server's {VERSION}",
-                path.display()
-            );
-        }
-        if v < VERSION {
-            db.execute_batch("BEGIN IMMEDIATE")?;
-            let r = db
-                .execute_batch(SCHEMA)
-                .and_then(|_| db.pragma_update(None, "user_version", VERSION));
-            match r {
-                Ok(()) => db.execute_batch("COMMIT")?,
-                Err(e) => {
-                    let _ = db.execute_batch("ROLLBACK");
-                    return Err(e.into());
-                }
+    fn query(&self, sql: &str, params: &[V], tys: &[Ty]) -> anyhow::Result<Vec<Vec<V>>> {
+        match self {
+            Db::Sqlite(c) => {
+                let mut st = c.prepare(sql)?;
+                let ps: Vec<rusqlite::types::Value> = params
+                    .iter()
+                    .map(|v| match v {
+                        V::I(x) => x.map_or(rusqlite::types::Value::Null, Into::into),
+                        V::F(x) => x.map_or(rusqlite::types::Value::Null, Into::into),
+                        V::T(x) => x.clone().map_or(rusqlite::types::Value::Null, Into::into),
+                    })
+                    .collect();
+                let rows = st.query_map(rusqlite::params_from_iter(ps), |r| {
+                    tys.iter()
+                        .enumerate()
+                        .map(|(k, ty)| {
+                            Ok(match ty {
+                                Ty::I => V::I(r.get(k)?),
+                                Ty::F => V::F(r.get(k)?),
+                                Ty::T => V::T(r.get(k)?),
+                            })
+                        })
+                        .collect::<rusqlite::Result<Vec<V>>>()
+                })?;
+                Ok(rows.collect::<Result<_, _>>()?)
+            }
+            Db::Pg(pg) => {
+                use r2d2_postgres::postgres::types::ToSql;
+                let mut c = pg.conn()?;
+                let owned: Vec<Box<dyn ToSql + Sync>> = params
+                    .iter()
+                    .map(|v| -> Box<dyn ToSql + Sync> {
+                        match v {
+                            V::I(x) => Box::new(*x),
+                            V::F(x) => Box::new(*x),
+                            V::T(x) => Box::new(x.clone()),
+                        }
+                    })
+                    .collect();
+                let refs: Vec<&(dyn ToSql + Sync)> = owned.iter().map(|b| b.as_ref()).collect();
+                let rows = c.query(sql, &refs)?;
+                rows.iter()
+                    .map(|r| {
+                        tys.iter()
+                            .enumerate()
+                            .map(|(k, ty)| {
+                                Ok(match ty {
+                                    Ty::I => V::I(r.try_get(k)?),
+                                    Ty::F => V::F(r.try_get(k)?),
+                                    Ty::T => V::T(r.try_get(k)?),
+                                })
+                            })
+                            .collect::<anyhow::Result<Vec<V>>>()
+                    })
+                    .collect()
             }
         }
-        Ok(Db { db })
+    }
+
+    /// An INSERT ... RETURNING id.
+    fn insert(&self, sql: &str, params: &[V]) -> anyhow::Result<i64> {
+        self.query(sql, params, &[Ty::I])?
+            .first()
+            .and_then(|r| r[0].i())
+            .ok_or_else(|| anyhow::anyhow!("no id returned"))
     }
 }
 
 fn db(app: &App, team: &str) -> Result<Db, ApiError> {
-    Ok(Db::open(
-        &app.store.team_dir(team).join("test-replay.sqlite"),
-    )?)
+    if let Some(c) = app.store.cloud_backend() {
+        return Ok(Db::Pg(c.pg.clone()));
+    }
+    let p = app.store.team_dir(team).join("test-replay.sqlite");
+    std::fs::create_dir_all(app.store.team_dir(team)).map_err(ApiError::internal)?;
+    let c = rusqlite::Connection::open(&p).map_err(ApiError::internal)?;
+    c.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(ApiError::internal)?;
+    c.pragma_update(None, "journal_mode", "WAL")
+        .map_err(ApiError::internal)?;
+    c.execute_batch(
+        &SCHEMA
+            .replace("{ID}", "INTEGER PRIMARY KEY AUTOINCREMENT")
+            .replace("{REAL}", "REAL"),
+    )
+    .map_err(ApiError::internal)?;
+    Ok(Db::Sqlite(c))
 }
 
 /// Where a runner's repository is keyed: GitHub's id when known (a
@@ -174,24 +292,26 @@ struct Row {
     files: String,
 }
 
-fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
-    Ok(Row {
-        id: r.get(0)?,
-        at: r.get(1)?,
-        scope: r.get(2)?,
-        git_ref: r.get(3)?,
-        sha: r.get(4)?,
-        files: r.get(5)?,
-    })
-}
-
 const COLS: &str = "id, at, scope, git_ref, sha, files";
+const COL_TYS: &[Ty] = &[Ty::I, Ty::T, Ty::T, Ty::T, Ty::T, Ty::T];
+
+fn row(v: &[V]) -> Row {
+    Row {
+        id: v[0].i().unwrap_or_default(),
+        at: v[1].t().unwrap_or_default(),
+        scope: v[2].t().unwrap_or_default(),
+        git_ref: v[3].t(),
+        sha: v[4].t(),
+        files: v[5].t().unwrap_or_default(),
+    }
+}
 
 /// The ledger a lookup answers with: the newest of the first ancestor
 /// commit any read scope has (the job's own scope first), else the newest
 /// of the job's own scope, else the newest of `trusted`.
 fn find(
     db: &Db,
+    team: &str,
     repo: &str,
     suite: &str,
     scopes: &[String],
@@ -199,28 +319,39 @@ fn find(
 ) -> anyhow::Result<Option<(Row, &'static str)>> {
     let own = scopes.first().cloned().unwrap_or_default();
     let in_scopes = |s: &str| scopes.iter().any(|x| x == s);
-    let mut st = db.db.prepare(&format!(
-        "SELECT {COLS} FROM ledgers WHERE repo_key = ?1 AND suite = ?2 AND sha = ?3 ORDER BY id DESC LIMIT 20"
-    ))?;
+    let by_sha = format!(
+        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 ORDER BY id DESC LIMIT 20"
+    );
     for sha in ancestors.iter().filter(|s| valid_sha(s)) {
-        let rows: Vec<Row> = st
-            .query_map(params![repo, suite, sha], row)?
-            .collect::<Result<_, _>>()?;
+        let rows: Vec<Row> = db
+            .query(
+                &by_sha,
+                &[t(team), t(repo), t(suite), t(sha.as_str())],
+                COL_TYS,
+            )?
+            .iter()
+            .map(|v| row(v))
+            .collect();
         let pick = rows
             .iter()
             .position(|r| r.scope == own)
             .or_else(|| rows.iter().position(|r| in_scopes(&r.scope)));
-        if let Some(i) = pick {
-            return Ok(rows.into_iter().nth(i).map(|r| (r, "ancestor")));
+        if let Some(k) = pick {
+            return Ok(rows.into_iter().nth(k).map(|r| (r, "ancestor")));
         }
     }
-    let mut st = db.db.prepare(&format!(
-        "SELECT {COLS} FROM ledgers WHERE repo_key = ?1 AND suite = ?2 AND scope = ?3 ORDER BY id DESC LIMIT 1"
-    ))?;
+    let by_scope = format!(
+        "SELECT {COLS} FROM test_ledgers WHERE team = $1 AND repo_key = $2 AND suite = $3 AND scope = $4 ORDER BY id DESC LIMIT 1"
+    );
     for s in scopes {
-        if let Some(r) = st.query_row(params![repo, suite, s], row).optional()? {
+        let rows = db.query(
+            &by_scope,
+            &[t(team), t(repo), t(suite), t(s.as_str())],
+            COL_TYS,
+        )?;
+        if let Some(v) = rows.first() {
             let how = if s == TRUSTED { "default" } else { "branch" };
-            return Ok(Some((r, how)));
+            return Ok(Some((row(v), how)));
         }
     }
     Ok(None)
@@ -240,7 +371,7 @@ pub async fn lookup(
         let repo = repo_key(&runner)?;
         let scopes = read_scopes(&runner);
         let d = db(&app, &runner.team)?;
-        let found = find(&d, &repo, &req.suite, &scopes, &req.ancestors)?;
+        let found = find(&d, &runner.team, &repo, &req.suite, &scopes, &req.ancestors)?;
         let ledger = match found {
             None => None,
             Some((r, matched)) => {
@@ -296,27 +427,50 @@ pub async fn save(
         }
         check_files(&req.files).map_err(ApiError::bad_request)?;
         let repo = repo_key(&runner)?;
-        let cas = app.store.cas(&runner.team)?;
+        let blobs = app.store.cas(&runner.team)?;
+        // Every listed file must be on the server, with its listed size.
+        let mut uniq: Vec<&LedgerFile> = req.files.iter().collect();
+        uniq.sort_by_key(|f| f.hash);
+        uniq.dedup_by_key(|f| f.hash);
+        let sizes: Vec<(Hash, u64, Option<u64>)> = std::thread::scope(|s| {
+            let chunks: Vec<_> = uniq
+                .chunks(uniq.len().div_ceil(8).max(1))
+                .map(|c| {
+                    let blobs = &blobs;
+                    s.spawn(move || {
+                        c.iter()
+                            .map(|f| Ok((f.hash, f.size, blobs.size(&f.hash)?)))
+                            .collect::<Result<Vec<_>, quod_cas::CasError>>()
+                    })
+                })
+                .collect();
+            chunks
+                .into_iter()
+                .map(|h| h.join().expect("size check thread"))
+                .collect::<Result<Vec<Vec<_>>, _>>()
+                .map(|v| v.into_iter().flatten().collect())
+        })
+        .map_err(ApiError::internal)?;
         let mut missing = vec![];
-        for f in &req.files {
-            let p = cas.blob_path(&f.hash);
-            match std::fs::metadata(&p) {
-                Ok(m) if m.len() == f.size => {}
-                Ok(_) => {
+        for (h, want, got) in sizes {
+            match got {
+                None => missing.push(h),
+                Some(n) if n != want => {
                     return Err(ApiError::bad_request(format!(
-                        "{} is listed with another size than its blob",
-                        f.path
+                        "{h} is listed with another size than its blob"
                     )));
                 }
-                Err(_) if !cas.has_blob(&f.hash).map_err(ApiError::internal)? => {
-                    missing.push(f.hash)
-                }
-                Err(e) => return Err(ApiError::internal(e)),
+                Some(_) => {}
+            }
+        }
+        // One hash listed with two sizes (only the first was checked above).
+        let mut size_of = std::collections::HashMap::new();
+        for f in &req.files {
+            if *size_of.entry(f.hash).or_insert(f.size) != f.size {
+                return Err(ApiError::bad_request("one hash listed with two sizes"));
             }
         }
         if !missing.is_empty() {
-            missing.sort();
-            missing.dedup();
             return Err(ApiError::missing_blobs(missing));
         }
         let c = ci(&runner, &req.ci);
@@ -324,21 +478,19 @@ pub async fn save(
         files.sort();
         let fh = files_hash(&files).map_err(ApiError::internal)?;
         let bytes: u64 = files.iter().map(|f| f.size).sum();
+        let cap = |s: Option<&str>| s.map(crate::api::cap);
         let d = db(&app, &runner.team)?;
-        d.db.execute(
-            "INSERT INTO ledgers (at, repo_key, repository, suite, scope, git_ref, sha, files, files_hash, n_files, bytes, run_id, workflow, job)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
-            params![
-                now_rfc3339(), repo, runner.repository, req.suite, runner.write,
-                c.git_ref.as_deref().map(crate::api::cap), sha_of(&c),
-                serde_json::to_string(&files).map_err(ApiError::internal)?, fh.hex(),
-                files.len() as i64, bytes as i64,
-                c.run_id.as_deref().map(crate::api::cap), c.workflow.as_deref().map(crate::api::cap),
-                c.job.as_deref().map(crate::api::cap),
+        let id = d.insert(
+            "INSERT INTO test_ledgers (team, at, repo_key, repository, suite, scope, git_ref, sha, files, files_hash, n_files, bytes, run_id, workflow, job)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
+            &[
+                t(runner.team.as_str()), t(now_rfc3339()), t(repo.as_str()), t(runner.repository.as_str()),
+                t(req.suite.as_str()), t(runner.write.as_str()), ot(cap(c.git_ref.as_deref())), ot(sha_of(&c)),
+                t(serde_json::to_string(&files).map_err(ApiError::internal)?), t(fh.hex()),
+                i(files.len() as i64), i(bytes as i64),
+                ot(cap(c.run_id.as_deref())), ot(cap(c.workflow.as_deref())), ot(cap(c.job.as_deref())),
             ],
-        )
-        .map_err(ApiError::internal)?;
-        let id = d.db.last_insert_rowid();
+        )?;
         tracing::info!(target: "quod", team = %runner.team, repository = %runner.repository, scope = %runner.write, suite = %req.suite, files = files.len(), bytes, "test ledger saved");
         let notice = crate::api::note_trusted_write_ref(
             &app,
@@ -355,7 +507,8 @@ pub async fn save(
 }
 
 /// `POST /v1/blobs/pack`: the blobs asked for, in order, in one answer
-/// (`PackRequest`). Team-wide, as `GET /v1/blobs/{hash}` is.
+/// (`PackRequest`). Team-wide, as `GET /v1/blobs/{hash}` is. Up to 16
+/// reads in flight (the bucket's latency, not its bandwidth, is the cost).
 pub async fn pack(
     State(app): State<AppState>,
     Extension(principal): Extension<Principal>,
@@ -365,28 +518,30 @@ pub async fn pack(
     if req.hashes.len() > MAX_PACK {
         return Err(ApiError::bad_request("too many hashes"));
     }
-    let cas = {
+    let blobs = {
         let a = app.clone();
         let t = team.clone();
-        blocking(move || Ok(a.store.cas(&t)?)).await?
+        Arc::new(blocking(move || Ok(a.store.cas(&t)?)).await?)
     };
-    let dir = std::sync::Arc::new(cas);
-    let stream = futures_util::stream::iter(req.hashes).then(move |h| {
-        let dir = dir.clone();
-        async move {
-            let p = dir.blob_path(&h);
-            let mut out = match tokio::fs::read(&p).await {
-                Ok(b) => {
-                    let mut o = format!("{} {}\n", h.hex(), b.len()).into_bytes();
-                    o.extend_from_slice(&b);
-                    o
-                }
-                Err(_) => format!("{} -\n", h.hex()).into_bytes(),
-            };
-            out.shrink_to_fit();
-            Ok::<_, std::io::Error>(axum::body::Bytes::from(out))
-        }
-    });
+    let stream = futures_util::stream::iter(req.hashes)
+        .map(move |h| {
+            let blobs = blobs.clone();
+            async move {
+                let got = tokio::task::spawn_blocking(move || blobs.read_blob(&h))
+                    .await
+                    .map_err(std::io::Error::other)?;
+                let out = match got {
+                    Ok(b) => {
+                        let mut o = format!("{} {}\n", h.hex(), b.len()).into_bytes();
+                        o.extend_from_slice(&b);
+                        o
+                    }
+                    Err(_) => format!("{} -\n", h.hex()).into_bytes(),
+                };
+                Ok::<_, std::io::Error>(axum::body::Bytes::from(out))
+            }
+        })
+        .buffered(16);
     Ok((
         [("content-type", "application/octet-stream")],
         Body::from_stream(stream),
@@ -417,7 +572,9 @@ pub async fn report(
         check_suite(&req.suite)?;
         let r = &req.report;
         if !matches!(r.kind.as_str(), "critical" | "shadow") || r.tool != "vitest" {
-            return Err(ApiError::bad_request("kind is critical or shadow; tool is vitest"));
+            return Err(ApiError::bad_request(
+                "kind is critical or shadow; tool is vitest",
+            ));
         }
         if r.ran_files.len() > MAX_REPORT_FILES || r.audit_files.len() > MAX_REPORT_FILES {
             return Err(ApiError::bad_request("too many files in the report"));
@@ -460,28 +617,27 @@ pub async fn report(
             matched: l.matched.as_deref().map(|s| capped(s, 40)),
         });
         let detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger });
-        let cap = |s: &Option<String>| s.as_deref().map(crate::api::cap);
+        let cap = |s: &Option<String>| ot(s.as_deref().map(crate::api::cap));
         let d = db(&app, &runner.team)?;
-        d.db.execute(
-            "INSERT INTO runs (at, repo_key, repository, suite, scope, kind, tool, run_id, run_attempt, run_number, workflow, job, job_name, git_ref, sha, event, actor,
+        let id = d.insert(
+            "INSERT INTO test_runs (team, at, repo_key, repository, suite, scope, kind, tool, run_id, run_attempt, run_number, workflow, job, job_name, git_ref, sha, event, actor,
                total, ran, replayed, narrowed, wall_ms, select_ms, est_plain_ms, saved_ms, exit, audited, audit_mismatches, detail)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)",
-            params![
-                now_rfc3339(), repo, runner.repository, req.suite, runner.write, r.kind, r.tool,
-                cap(&c.run_id), c.run_attempt.map(|v| v as i64), c.run_number.map(|v| v as i64),
-                cap(&c.workflow), cap(&c.job), cap(&c.job_name), cap(&c.git_ref), sha_of(&c), cap(&c.event), cap(&c.actor),
-                r.total as i64, r.ran as i64, r.replayed as i64, r.narrowed as i64,
-                finite(r.wall_ms), finite(r.select_ms), finite(r.est_plain_ms), finite(r.saved_ms), r.exit,
-                r.audited as i64, mismatches, detail.to_string(),
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30) RETURNING id",
+            &[
+                t(runner.team.as_str()), t(now_rfc3339()), t(repo.as_str()), t(runner.repository.as_str()),
+                t(req.suite.as_str()), t(runner.write.as_str()), t(r.kind.as_str()), t(r.tool.as_str()),
+                cap(&c.run_id), V::I(c.run_attempt.map(|v| v as i64)), V::I(c.run_number.map(|v| v as i64)),
+                cap(&c.workflow), cap(&c.job), cap(&c.job_name), cap(&c.git_ref), ot(sha_of(&c)), cap(&c.event), cap(&c.actor),
+                i(r.total as i64), i(r.ran as i64), i(r.replayed as i64), i(r.narrowed as i64),
+                V::F(finite(r.wall_ms)), V::F(finite(r.select_ms)), V::F(finite(r.est_plain_ms)), V::F(finite(r.saved_ms)),
+                V::I(r.exit.map(i64::from)), i(r.audited as i64), i(mismatches), t(detail.to_string()),
             ],
-        )
-        .map_err(ApiError::internal)?;
-        let id = d.db.last_insert_rowid();
+        )?;
         // The live event: the summary as the dashboard lists it.
         let out = (|| -> anyhow::Result<()> {
             let repos = all_repos(&app, &runner.team, &d)?;
-            let run = load_run(&d, id)?.ok_or_else(|| anyhow::anyhow!("row gone"))?;
-            let summary = summary(&d, &run, &repos)?;
+            let run = load_run(&d, &runner.team, id)?.ok_or_else(|| anyhow::anyhow!("row gone"))?;
+            let summary = summary(&d, &runner.team, &run, &repos)?;
             app.store.activity(&runner.team)?.push_event(
                 "test.run",
                 Some(&runner.repository),
@@ -535,63 +691,101 @@ struct RunRow {
 }
 
 const RUN_COLS: &str = "id, at, repo_key, repository, suite, scope, kind, tool, run_id, run_attempt, run_number, workflow, job, job_name, git_ref, sha, event, total, ran, replayed, narrowed, wall_ms, select_ms, est_plain_ms, saved_ms, exit, audited, audit_mismatches, detail";
+const RUN_TYS: &[Ty] = &[
+    Ty::I,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::I,
+    Ty::I,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::T,
+    Ty::I,
+    Ty::I,
+    Ty::I,
+    Ty::I,
+    Ty::F,
+    Ty::F,
+    Ty::F,
+    Ty::F,
+    Ty::I,
+    Ty::I,
+    Ty::I,
+    Ty::T,
+];
 
-fn run_row(r: &rusqlite::Row) -> rusqlite::Result<RunRow> {
-    Ok(RunRow {
-        id: r.get(0)?,
-        at: r.get(1)?,
-        repo_key: r.get(2)?,
-        repository: r.get(3)?,
-        suite: r.get(4)?,
-        scope: r.get(5)?,
-        kind: r.get(6)?,
-        tool: r.get(7)?,
-        run_id: r.get(8)?,
-        run_attempt: r.get(9)?,
-        run_number: r.get(10)?,
-        workflow: r.get(11)?,
-        job: r.get(12)?,
-        job_name: r.get(13)?,
-        git_ref: r.get(14)?,
-        sha: r.get(15)?,
-        event: r.get(16)?,
-        total: r.get(17)?,
-        ran: r.get(18)?,
-        replayed: r.get(19)?,
-        narrowed: r.get(20)?,
-        wall_ms: r.get(21)?,
-        select_ms: r.get(22)?,
-        est_plain_ms: r.get(23)?,
-        saved_ms: r.get(24)?,
-        exit: r.get(25)?,
-        audited: r.get(26)?,
-        audit_mismatches: r.get(27)?,
-        detail: r.get(28)?,
-    })
+fn run_row(v: &[V]) -> RunRow {
+    let s = |k: usize| v[k].t().unwrap_or_default();
+    let n = |k: usize| v[k].i().unwrap_or_default();
+    RunRow {
+        id: n(0),
+        at: s(1),
+        repo_key: s(2),
+        repository: s(3),
+        suite: s(4),
+        scope: s(5),
+        kind: s(6),
+        tool: s(7),
+        run_id: v[8].t(),
+        run_attempt: v[9].i(),
+        run_number: v[10].i(),
+        workflow: v[11].t(),
+        job: v[12].t(),
+        job_name: v[13].t(),
+        git_ref: v[14].t(),
+        sha: v[15].t(),
+        event: v[16].t(),
+        total: n(17),
+        ran: n(18),
+        replayed: n(19),
+        narrowed: n(20),
+        wall_ms: v[21].f(),
+        select_ms: v[22].f(),
+        est_plain_ms: v[23].f(),
+        saved_ms: v[24].f(),
+        exit: v[25].i(),
+        audited: n(26),
+        audit_mismatches: n(27),
+        detail: s(28),
+    }
 }
 
-fn load_run(d: &Db, id: i64) -> anyhow::Result<Option<RunRow>> {
-    Ok(d.db
-        .query_row(
-            &format!("SELECT {RUN_COLS} FROM runs WHERE id = ?1"),
-            params![id],
-            run_row,
-        )
-        .optional()?)
+fn runs_where(d: &Db, cond: &str, params: &[V]) -> anyhow::Result<Vec<RunRow>> {
+    Ok(d.query(
+        &format!("SELECT {RUN_COLS} FROM test_runs WHERE {cond}"),
+        params,
+        RUN_TYS,
+    )?
+    .iter()
+    .map(|v| run_row(v))
+    .collect())
+}
+
+fn load_run(d: &Db, team: &str, id: i64) -> anyhow::Result<Option<RunRow>> {
+    Ok(runs_where(d, "team = $1 AND id = $2", &[t(team), i(id)])?
+        .into_iter()
+        .next())
 }
 
 /// The shadow report of the same commit and suite as a critical one.
-fn shadow_of(d: &Db, r: &RunRow) -> anyhow::Result<Option<RunRow>> {
+fn shadow_of(d: &Db, team: &str, r: &RunRow) -> anyhow::Result<Option<RunRow>> {
     let Some(sha) = &r.sha else { return Ok(None) };
-    Ok(d.db
-        .query_row(
-            &format!(
-                "SELECT {RUN_COLS} FROM runs WHERE repo_key = ?1 AND suite = ?2 AND sha = ?3 AND kind = 'shadow' ORDER BY id DESC LIMIT 1"
-            ),
-            params![r.repo_key, r.suite, sha],
-            run_row,
-        )
-        .optional()?)
+    Ok(runs_where(
+        d,
+        "team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND kind = 'shadow' ORDER BY id DESC LIMIT 1",
+        &[t(team), t(r.repo_key.as_str()), t(r.suite.as_str()), t(sha.as_str())],
+    )?
+    .into_iter()
+    .next())
 }
 
 /// Every repository name the team has (step scopes and test runs), for
@@ -599,13 +793,18 @@ fn shadow_of(d: &Db, r: &RunRow) -> anyhow::Result<Option<RunRow>> {
 fn all_repos(app: &App, team: &str, d: &Db) -> anyhow::Result<BTreeSet<String>> {
     let mut s: BTreeSet<String> = app
         .store
-        .scopes(team)
+        .scopes(team)?
         .into_iter()
         .map(|s| s.repository)
         .collect();
-    let mut st = d.db.prepare("SELECT DISTINCT repository FROM runs")?;
-    for r in st.query_map([], |r| r.get::<_, String>(0))? {
-        s.insert(r?);
+    for r in d.query(
+        "SELECT DISTINCT repository FROM test_runs WHERE team = $1",
+        &[t(team)],
+        &[Ty::T],
+    )? {
+        if let Some(x) = r[0].t() {
+            s.insert(x);
+        }
     }
     Ok(s)
 }
@@ -623,7 +822,7 @@ fn base_summary(r: &RunRow, repos: &BTreeSet<String>) -> Value {
     let github_url = r
         .run_id
         .as_ref()
-        .filter(|id| id.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
         .map(|id| match r.run_attempt {
             Some(a) => format!(
                 "https://github.com/{}/actions/runs/{id}/attempts/{a}",
@@ -663,10 +862,10 @@ fn base_summary(r: &RunRow, repos: &BTreeSet<String>) -> Value {
 }
 
 /// A run as the list shows it; a critical run carries its shadow's audits.
-fn summary(d: &Db, r: &RunRow, repos: &BTreeSet<String>) -> anyhow::Result<Value> {
+fn summary(d: &Db, team: &str, r: &RunRow, repos: &BTreeSet<String>) -> anyhow::Result<Value> {
     let mut v = base_summary(r, repos);
     if r.kind == "critical"
-        && let Some(s) = shadow_of(d, r)?
+        && let Some(s) = shadow_of(d, team, r)?
     {
         v["audits"] = json!({"checked": s.audited, "mismatched": s.audit_mismatches});
     }
@@ -690,16 +889,11 @@ pub async fn list_runs(
         let d = db(&app, &v.team)?;
         let repos = all_repos(&app, &v.team, &d)?;
         let limit = q.limit.unwrap_or(50).clamp(1, 200);
-        let mut st =
-            d.db.prepare(&format!(
-                "SELECT {RUN_COLS} FROM runs ORDER BY id DESC LIMIT 5000"
-            ))
-            .map_err(ApiError::internal)?;
-        let rows: Vec<RunRow> = st
-            .query_map([], run_row)
-            .map_err(ApiError::internal)?
-            .collect::<Result<_, _>>()
-            .map_err(ApiError::internal)?;
+        let rows = runs_where(
+            &d,
+            "team = $1 ORDER BY id DESC LIMIT 5000",
+            &[t(v.team.as_str())],
+        )?;
         let mut out = vec![];
         for r in rows {
             if let Some(s) = &q.repo
@@ -707,7 +901,7 @@ pub async fn list_runs(
             {
                 continue;
             }
-            out.push(summary(&d, &r, &repos)?);
+            out.push(summary(&d, &v.team, &r, &repos)?);
             if out.len() >= limit {
                 break;
             }
@@ -726,12 +920,12 @@ pub async fn get_run(
         let v = crate::dash::viewer(&app, &headers, &team)?;
         let id: i64 = id.parse().map_err(|_| ApiError::not_found("no such run"))?;
         let d = db(&app, &v.team)?;
-        let r = load_run(&d, id)?.ok_or_else(|| ApiError::not_found("no such run"))?;
+        let r = load_run(&d, &v.team, id)?.ok_or_else(|| ApiError::not_found("no such run"))?;
         let repos = all_repos(&app, &v.team, &d)?;
-        let mut out = summary(&d, &r, &repos)?;
+        let mut out = summary(&d, &v.team, &r, &repos)?;
         let detail: Value = serde_json::from_str(&r.detail).unwrap_or(json!({}));
         let shadow = if r.kind == "critical" {
-            shadow_of(&d, &r)?
+            shadow_of(&d, &v.team, &r)?
         } else {
             None
         };
@@ -763,38 +957,39 @@ pub async fn stats(
         let today = quod_ledger::format_rfc3339(now / 86_400 * 86_400, 0);
         let week = quod_ledger::format_rfc3339(now.saturating_sub(7 * 86_400), 0);
         let sums = |from: &str| -> anyhow::Result<(f64, i64, i64, i64)> {
-            Ok(d.db.query_row(
-                "SELECT coalesce(sum(saved_ms), 0), count(*), coalesce(sum(total), 0), coalesce(sum(replayed), 0)
-                 FROM runs WHERE kind = 'critical' AND at >= ?1",
-                params![from],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )?)
+            let r = d.query(
+                "SELECT CAST(coalesce(sum(saved_ms), 0) AS DOUBLE PRECISION), CAST(count(*) AS BIGINT),
+                        CAST(coalesce(sum(total), 0) AS BIGINT), CAST(coalesce(sum(replayed), 0) AS BIGINT)
+                 FROM test_runs WHERE team = $1 AND kind = 'critical' AND at >= $2",
+                &[t(v.team.as_str()), t(from)],
+                &[Ty::F, Ty::I, Ty::I, Ty::I],
+            )?;
+            let r = &r[0];
+            Ok((
+                r[0].f().unwrap_or(0.0),
+                r[1].i().unwrap_or(0),
+                r[2].i().unwrap_or(0),
+                r[3].i().unwrap_or(0),
+            ))
         };
         let (t_saved, t_runs, _, _) = sums(&today)?;
         let (w_saved, w_runs, w_total, w_skipped) = sums(&week)?;
-        let (checked, mismatched): (i64, i64) = d
-            .db
-            .query_row(
-                "SELECT coalesce(sum(audited), 0), coalesce(sum(audit_mismatches), 0) FROM runs WHERE kind = 'shadow'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(ApiError::internal)?;
+        let a = d.query(
+            "SELECT CAST(coalesce(sum(audited), 0) AS BIGINT), CAST(coalesce(sum(audit_mismatches), 0) AS BIGINT)
+             FROM test_runs WHERE team = $1 AND kind = 'shadow'",
+            &[t(v.team.as_str())],
+            &[Ty::I, Ty::I],
+        )?;
+        let (checked, mismatched) = (a[0][0].i().unwrap_or(0), a[0][1].i().unwrap_or(0));
         let repos = all_repos(&app, &v.team, &d)?;
-        let mut st = d
-            .db
-            .prepare(&format!(
-                "SELECT {RUN_COLS} FROM runs WHERE kind = 'critical' ORDER BY id DESC LIMIT 10"
-            ))
-            .map_err(ApiError::internal)?;
-        let recent: Vec<RunRow> = st
-            .query_map([], run_row)
-            .map_err(ApiError::internal)?
-            .collect::<Result<_, _>>()
-            .map_err(ApiError::internal)?;
+        let recent = runs_where(
+            &d,
+            "team = $1 AND kind = 'critical' ORDER BY id DESC LIMIT 10",
+            &[t(v.team.as_str())],
+        )?;
         let recent: Vec<Value> = recent
             .iter()
-            .map(|r| summary(&d, r, &repos))
+            .map(|r| summary(&d, &v.team, r, &repos))
             .collect::<anyhow::Result<_>>()?;
         Ok(Json(json!({
             "asOf": now_rfc3339(),
@@ -809,18 +1004,4 @@ pub async fn stats(
         })))
     })
     .await
-}
-
-/// Every team's test-replay database, at start (as `Store::migrate`
-/// does for the ledgers): a newer schema stops the boot.
-pub fn migrate(store: &crate::store::Store) -> anyhow::Result<usize> {
-    let mut n = 0;
-    for team in store.teams_on_disk() {
-        let p = store.team_dir(&team).join("test-replay.sqlite");
-        if p.is_file() {
-            Db::open(&p)?;
-            n += 1;
-        }
-    }
-    Ok(n)
 }
