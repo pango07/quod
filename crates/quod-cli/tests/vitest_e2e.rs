@@ -353,3 +353,29 @@ fn two_witnesses_by_default_inline() {
     assert_eq!(s["ran"], 1, "{s}");
     assert_eq!(s["replayed"], 3, "{s}");
 }
+
+#[test]
+fn a_failure_only_while_recording_does_not_fail_the_job() {
+    // A test that the instrumentation itself makes fail (here it sees the
+    // recorder; in the wild, a timing check slowed by V8 coverage) passes
+    // without Quod: inline, Quod runs it again plain and the job passes,
+    // with plain vitest's report.
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    fs::write(
+        p.dir.join("test/instr.test.ts"),
+        "import { expect, test } from 'vitest'\n\
+         test('not instrumented', () => {\n  \
+         expect((globalThis as any).__quod_vitest__).toBeUndefined()\n})\n",
+    )
+    .unwrap();
+    p.env = vec![("QUOD_VITEST_WITNESSES", "")];
+    for n in 1..=2 {
+        // run() asserts quod succeeded, as plain vitest did
+        let (plain, quod, s) = p.run(n);
+        assert_eq!(outcomes(&plain), outcomes(&quod));
+        assert_eq!(s["recorded_files"], 3, "instr.test.ts is never recorded: {s}");
+    }
+}

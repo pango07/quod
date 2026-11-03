@@ -811,6 +811,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest: the run was interrupted; nothing recorded");
         return Ok(code);
     }
+    // Inline recording never turns a green job red: the instrumentation (V8
+    // coverage, the hooks) can slow a timing-sensitive test into a failure
+    // (reselect's cache-hit performance check). The files that failed while
+    // recording run once more, plain, as without Quod, and every other file
+    // reports this run's own result; that run's outcome, outputs and report
+    // are the job's. Failed files are not recorded either way.
+    let code = if !a.no_record && a.expect_report.is_none() && code != 0 {
+        confirm_failures(&a, &code_dir, &plan, &replay, &out, &dir).unwrap_or(code)
+    } else {
+        code
+    };
     let ran_facts: Vec<(String, String, String, f64)> = out
         .ran
         .iter()
@@ -1706,6 +1717,52 @@ fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
         h.update(format!("{k}={v}\0").as_bytes());
     }
     Some(h.finalize().to_hex().to_string())
+}
+
+/// The failures of an inline recording, run again plain (see the caller).
+/// None when there is nothing to confirm (no failed file, or a file in
+/// another state) or the confirming run could not run.
+fn confirm_failures(
+    a: &VitestArgs,
+    code_dir: &Path,
+    plan: &serde_json::Value,
+    replay: &BTreeMap<String, String>,
+    out: &Out,
+    dir: &Path,
+) -> Option<u8> {
+    let failed = out.ran.iter().filter(|r| r.state == "fail").count();
+    let mut again = replay.clone();
+    for r in &out.ran {
+        if r.state == "pass" || r.state == "skip" {
+            again.insert(r.id.clone(), r.result.clone());
+        }
+    }
+    if failed == 0 || again.len() - replay.len() + failed != out.ran.len() {
+        return None;
+    }
+    eprintln!(
+        "quod vitest: {failed} files failed while recording; running them again without recording"
+    );
+    let mut p = plan.clone();
+    p["replay"] = serde_json::to_value(&again).ok()?;
+    p["record"] = serde_json::json!(false);
+    p["audit"] = serde_json::json!([]);
+    p["expect"] = serde_json::to_value(&out.facts).ok()?;
+    let pp = dir.join("plan-confirm.json");
+    fs::write(&pp, serde_json::to_vec(&p).ok()?).ok()?;
+    let status = without_credentials(&mut Command::new(&a.node))
+        .arg(code_dir.join("driver.mjs"))
+        .arg(&pp)
+        .arg(dir.join("out-confirm.json"))
+        .args(&a.args)
+        .status()
+        .ok()?;
+    let code = status.code().map_or(1, |c| c.clamp(0, 255) as u8);
+    eprintln!(
+        "quod vitest: without recording, the run {}",
+        if code == 0 { "passes" } else { "fails too" }
+    );
+    Some(code)
 }
 
 /// A render started with the run: the driver loads vitest and its config
