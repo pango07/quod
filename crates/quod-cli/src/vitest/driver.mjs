@@ -38,10 +38,11 @@ const codeDir = import.meta.dirname
 // state dir, so it travels with the ledger. The main process enables it
 // here, the workers through the environment they inherit. V8 checks the
 // source hash of every entry: a stale entry is recompiled, never used.
-// Not in record runs: they measure V8 coverage, which the cache must not
-// be able to touch.
-const off = (process.env.QUOD_VITEST_DISABLE ?? '').split(',')
-if (plan.record === false && !off.includes('compile-cache') && typeof nodeModule.enableCompileCache === 'function') {
+// Opt-in (QUOD_VITEST_COMPILE_CACHE=1): measured same-job on ufo it cost
+// ~40 ms a run, since the critical path's copy of the state dir is thrown
+// away and each run pays the cache writes. Never in record runs: they
+// measure V8 coverage, which the cache must not be able to touch.
+if (plan.record === false && process.env.QUOD_VITEST_COMPILE_CACHE === '1' && typeof nodeModule.enableCompileCache === 'function') {
   const cc = path.join(stateDir, 'compile-cache')
   try {
     const st = nodeModule.enableCompileCache(cc)
