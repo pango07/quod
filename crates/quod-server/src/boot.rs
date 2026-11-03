@@ -212,6 +212,17 @@ fn check_writable(dir: &Path) -> Result<(), String> {
 /// does.
 pub fn persistence(env: &Env) -> Result<String, String> {
     let dir = &env.data_dir;
+    // Quod Cloud with the key from the environment keeps nothing on the
+    // data dir that must survive: rows in Postgres, blobs in the bucket,
+    // the key in QUOD_SIGNING_KEY; the dir holds only upload staging (an
+    // interrupted resumable upload starts over). No volume needed, so a
+    // platform can start the new instance before stopping the old one.
+    if env.cloud.is_some() && env.signing_key_hex.is_some() {
+        return Ok(
+            "not needed: rows in Postgres, blobs in the bucket, the key from QUOD_SIGNING_KEY; the data dir holds only upload staging"
+                .into(),
+        );
+    }
     let covered = env
         .railway_volume
         .as_ref()
@@ -305,6 +316,20 @@ fn signing_key(env: &Env) -> Result<(SigningKey, bool), String> {
     if let Some(hex) = env.signing_key_hex.as_ref().map(Secret::expose) {
         let k =
             quod_wire::signing_key_from_hex(hex).map_err(|e| format!("QUOD_SIGNING_KEY: {e}"))?;
+        // The environment's key wins over the file, but never silently
+        // replaces a different one: runners pinned to the file's key would
+        // refuse every replay.
+        if env.key_file.exists() {
+            let (f, _) = load_or_generate(&env.key_file)?;
+            if f.verifying_key() != k.verifying_key() {
+                return Err(format!(
+                    "QUOD_SIGNING_KEY ({}) and the key file {} ({}) are different keys; keep one (runners pin the public key)",
+                    fingerprint(&k.verifying_key()),
+                    env.key_file.display(),
+                    fingerprint(&f.verifying_key())
+                ));
+            }
+        }
         return Ok((k, false));
     }
     load_or_generate(&env.key_file)
