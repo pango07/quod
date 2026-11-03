@@ -1073,7 +1073,11 @@ fn installed(key: &str) -> bool {
     let Some((_, p)) = key.split_once(':') else {
         return false;
     };
-    !p.starts_with('/') && (p.starts_with("node_modules/") || p.contains("/node_modules/"))
+    !p.starts_with('/')
+        && (p == "node_modules"
+            || p.starts_with("node_modules/")
+            || p.contains("/node_modules/")
+            || p.ends_with("/node_modules"))
 }
 
 /// Every file is recorded and replayable: a full replay can be rendered.
@@ -2078,6 +2082,8 @@ mod tests {
             "p:node_modules/.pnpm/vitest@4.1.10/node_modules/vitest"
         ));
         assert!(installed("e:packages/a/node_modules/b"));
+        assert!(installed("f:node_modules"));
+        assert!(installed("d:packages/a/node_modules"));
         assert!(!installed(
             "f:/usr/local/node/lib/node_modules/npm/index.js"
         ));
