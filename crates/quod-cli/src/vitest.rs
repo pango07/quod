@@ -1914,7 +1914,7 @@ fn keyed_args(args: &[String]) -> Vec<String> {
 }
 
 /// Every environment variable but the per-run and per-step ones; for the
-/// tools' own enumeration (`envtool:`), also but the CI provider's.
+/// tools' own enumeration (`envtool:`), those of them `tool_env` names.
 fn env_all(tools: bool) -> String {
     let mut vars: Vec<(String, String)> = std::env::vars_os()
         .map(|(k, v)| {
@@ -1923,7 +1923,7 @@ fn env_all(tools: bool) -> String {
                 v.to_string_lossy().into_owned(),
             )
         })
-        .filter(|(k, _)| !volatile_env(k) && !(tools && ci_varying(k)))
+        .filter(|(k, _)| !volatile_env(k) && (!tools || tool_env(k)))
         .collect();
     vars.sort();
     let mut h = blake3::Hasher::new();
@@ -1936,21 +1936,29 @@ fn env_all(tools: bool) -> String {
     h.finalize().to_hex().to_string()
 }
 
-/// What a CI provider sets per branch, event, runner or job (GitHub's
-/// `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`), and a task runner per task run
-/// (`TURBO_HASH`), as record.mjs's `ciVarying`. vitest
-/// and vite copy the whole environment to the workers (`envtool:`): these
-/// names are left out of that copy's key, and of a read by their own code,
-/// so a recording made on a push replays on a pull request. A read by any
-/// other code (the config, a plugin, a test) is an `env:` key like any
-/// other. `CI` is not one of them: vitest reads it (allowOnly, snapshots).
-fn ci_varying(name: &str) -> bool {
-    // TURBO_HASH: turbo's hash of the running task, new on every change to
-    // the package (turbo sets it for the task's processes).
-    name == "TURBO_HASH"
-        || ["GITHUB_", "RUNNER_", "ACTIONS_"]
-            .iter()
-            .any(|p| name.starts_with(p))
+/// The variables node, vite and vitest change their own behaviour on, the
+/// part of the environment the tools' copy to the workers (`envtool:`) is
+/// keyed on. The rest of a runner's environment (the CI provider's, the
+/// image's tool paths and versions: another value on another VM) counts only
+/// where some code other than the tools reads it: then it is an `env:` key.
+fn tool_env(name: &str) -> bool {
+    ["NODE_", "VITE", "LC_", "DEBUG", "UV_"]
+        .iter()
+        .any(|p| name.starts_with(p))
+        || [
+            "CI",
+            "TEST",
+            "TZ",
+            "LANG",
+            "LANGUAGE",
+            "FORCE_COLOR",
+            "NO_COLOR",
+            "TERM",
+            "TMPDIR",
+            "HOME",
+            "PATH",
+        ]
+        .contains(&name)
 }
 
 /// A per-run or per-step CI variable, or Quod's own.

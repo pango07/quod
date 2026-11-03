@@ -131,11 +131,11 @@ export function resolverCaller(stack = new Error().stack) {
 
 // Is an environment read the tools' own? The first frame outside Quod, node
 // and the small helpers vitest reads the environment through (std-env,
-// tinyexec, tinyrainbow: a helper called by user code has that code's
-// frame next) must be in vite, vitest or rolldown. Returns the deciding
+// tinyexec, tinyrainbow, obug and debug listing DEBUG_* options, the colour
+// helpers: a helper called by user code has that code's frame next) must be in vite, vitest or rolldown. Returns the deciding
 // frame too, for the log. A deep stack: node's own frames (a spawn's
 // argument handling) can come between the trap and the call.
-const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/']
+const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
 function toolCaller() {
   const limit = Error.stackTraceLimit
   Error.stackTraceLimit = 64
@@ -273,15 +273,15 @@ export function patchFs(r) {
   } catch {}
 }
 
-// What a CI provider sets per branch, event, runner or job (as vitest.rs's
-// `ci_varying`). vitest and vite read the environment for themselves (they
-// copy all of it to the workers, pick reporters, find the CI): those reads
-// of these names are not inputs of the tests, so a recording made on a push
-// replays on a pull request. Any other code that reads one (the config, a
-// plugin, a test, a library it loads) keys it like any variable. `CI`
-// is not one of them: vitest's behaviour depends on it (allowOnly,
-// snapshot updates).
-// TURBO_HASH: turbo's hash of the running task, new on every change.
+// What a CI provider sets per branch, event, runner or job, and turbo per
+// task run (TURBO_HASH). vitest and vite read the environment for
+// themselves (they copy all of it to the workers, pick reporters, find the
+// CI): those reads of these names are not inputs of the tests, so a
+// recording made on a push replays on a pull request. Their copy of the
+// whole environment is `envtool:`, keyed on what node and the tools behave
+// on (vitest.rs `tool_env`). Any other code that reads a variable (the
+// config, a plugin, a test, a library it loads) keys it. `CI` is not one of
+// these: vitest's behaviour depends on it (allowOnly, snapshot updates).
 export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k))
 
 export function patchEnv(r) {
