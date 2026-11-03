@@ -577,16 +577,22 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         t_select.as_millis()
     );
 
-    if a.no_record
+    // Every file replays (none to run, none to audit): emit the recorded
+    // full replay instead of starting vitest. Inline too: a run that runs
+    // nothing records nothing.
+    if (a.no_record || audit.is_empty())
         && fast_ok
         && !ledger.files.is_empty()
         && affected.is_empty()
         && replay.len() == ledger.files.len()
     {
-        let w = walk(&root, &dir);
+        let tree = match &tree_before {
+            Some(w) => w.hash.clone(),
+            None => walk(&root, &dir).hash,
+        };
         let emitted = node_version(&a.node)
             .ok_or_else(|| "node --version failed".to_string())
-            .and_then(|node| emit_render(&root, &dir, &ledger, &a.args, &node, &w.hash));
+            .and_then(|node| emit_render(&root, &dir, &ledger, &a.args, &node, &tree));
         match emitted {
             Ok(code) => {
                 let t = t0.elapsed();
@@ -622,6 +628,18 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
 
+    // The render (for a later run that replays every file) loads vitest
+    // while this run's tests run; it renders only if this run leaves every
+    // file recorded, else it is killed.
+    let no_render = std::env::var("QUOD_VITEST_DISABLE")
+        .is_ok_and(|v| v.split(',').any(|p| p == "render"));
+    let standby = if !a.no_record && fast_ok && !no_render {
+        Standby::start(&a, &dir, &code_dir)
+            .map_err(|e| eprintln!("quod vitest: no render ({e})"))
+            .ok()
+    } else {
+        None
+    };
     let status = Command::new(&a.node)
         .arg(code.join("driver.mjs"))
         .arg(&plan_path)
@@ -824,11 +842,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     ledger.render = None;
     let mut render_note = serde_json::Value::Null;
     lap("ingest", &mut phases);
-    let no_render = std::env::var("QUOD_VITEST_DISABLE")
-        .is_ok_and(|v| v.split(',').any(|p| p == "render"));
-    if fast_ok && !no_render && everything_recorded(&ledger) {
+    if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
         let tr = Instant::now();
-        match render(&a, &root, &dir, &code_dir, &ledger) {
+        match render(&a, &root, &dir, sb, &ledger) {
             Ok(r) => {
                 render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3 });
                 ledger.render = Some(r);
@@ -1488,39 +1504,99 @@ fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
     Some(h.finalize().to_hex().to_string())
 }
 
+/// A render started with the run: the driver loads vitest and its config
+/// while the tests run, then waits for the go file (the records to replay)
+/// or is killed. Rendering costs the replay itself, not a vitest start.
+struct Standby {
+    child: Option<std::process::Child>,
+    rd: PathBuf,
+    go: PathBuf,
+    out: PathBuf,
+}
+
+impl Standby {
+    /// Into `render-next` (the ledger's render stays usable until this one
+    /// replaces it).
+    fn start(a: &VitestArgs, dir: &Path, code_dir: &Path) -> std::result::Result<Self, String> {
+        let rd = dir.join("render-next");
+        let _ = fs::remove_dir_all(&rd);
+        fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+        let (pp, op, go) = (rd.join("plan.json"), rd.join("out.json"), rd.join("go.json"));
+        let plan = serde_json::json!({
+            "stateDir": dir, "replay": {}, "audit": [], "record": false,
+            "render": rd, "standby": go,
+        });
+        fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
+        let child = Command::new(&a.node)
+            .arg(code_dir.join("driver.mjs"))
+            .arg(&pp)
+            .arg(&op)
+            .args(&a.args)
+            .env("QUOD_VITEST_QUIET", "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(file("stdout")?)
+            .stderr(file("stderr")?)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(Standby {
+            child: Some(child),
+            rd,
+            go,
+            out: op,
+        })
+    }
+}
+
+impl Standby {
+    fn go(&self, v: &serde_json::Value) -> std::result::Result<(), String> {
+        let tmp = self.go.with_extension("tmp");
+        fs::write(&tmp, serde_json::to_vec(v).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        fs::rename(&tmp, &self.go).map_err(|e| e.to_string())
+    }
+}
+
+/// Not rendering: told to stop (it exits at once, or as soon as vitest has
+/// loaded, never in the middle of loading the config), killed after 2 s.
+impl Drop for Standby {
+    fn drop(&mut self) {
+        if let Some(mut c) = self.child.take() {
+            let _ = self.go(&serde_json::json!({ "abort": true }));
+            let t = Instant::now();
+            while t.elapsed() < std::time::Duration::from_secs(2) {
+                if !matches!(c.try_wait(), Ok(None)) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
 /// Shadow side: replay every file through vitest once more (no tests run)
 /// and keep what its reporters printed and wrote.
 fn render(
     a: &VitestArgs,
     root: &Path,
     dir: &Path,
-    code_dir: &Path,
+    mut sb: Standby,
     ledger: &Ledger,
 ) -> std::result::Result<Render, String> {
-    let rd = dir.join("render");
-    let _ = fs::remove_dir_all(&rd);
-    fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    let rd = sb.rd.clone();
     let replay: BTreeMap<&String, &String> =
         ledger.files.iter().map(|(id, r)| (id, &r.result)).collect();
-    let plan = serde_json::json!({
-        "stateDir": dir, "replay": replay, "audit": [], "record": false,
-        "render": rd, "expect": ledger.facts,
-    });
-    let (pp, op) = (rd.join("plan.json"), rd.join("out.json"));
-    fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
+    sb.go(&serde_json::json!({ "replay": replay, "expect": ledger.facts }))?;
+    let status = sb
+        .child
+        .take()
+        .ok_or("no render process")?
+        .wait()
         .map_err(|e| e.to_string())?;
-    let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
-    let status = Command::new(&a.node)
-        .arg(code_dir.join("driver.mjs"))
-        .arg(&pp)
-        .arg(&op)
-        .args(&a.args)
-        .env("QUOD_VITEST_QUIET", "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(file("stdout")?)
-        .stderr(file("stderr")?)
-        .status()
-        .map_err(|e| e.to_string())?;
+    let op = sb.out.clone();
     let out: Out = fs::read(&op)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -1561,6 +1637,9 @@ fn render(
             }
         })
         .collect();
+    let fin = dir.join("render");
+    let _ = fs::remove_dir_all(&fin);
+    fs::rename(&rd, &fin).map_err(|e| e.to_string())?;
     Ok(Render {
         sig: render_sig(ledger),
         args: a.args.clone(),

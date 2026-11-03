@@ -14,8 +14,8 @@
 //
 // What it cannot see it says: no record (or an `unobservable` reason) and
 // the file always runs.
-import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, writeJson } from './record.mjs'
-import { executedFunctions, unmapped, unmappedSample } from './coverage.mjs'
+import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, real, syncESM, writeJson } from './record.mjs'
+import { executedFunctions, io, unmapped, unmappedSample } from './coverage.mjs'
 import nodeModule from 'node:module'
 import inspector from 'node:inspector'
 
@@ -29,19 +29,34 @@ const ws = globalThis.__vitest_worker__
 // so the driver records no file of such a run (cov: no function-level data;
 // take: coverage on but never taken, i.e. V8's precise mode alone).
 const off = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(',').filter(Boolean))
+// Read before the env is watched (Quod's own settings are not inputs).
+const tickMs = Number(process.env.QUOD_VITEST_COV_TICK ?? 0)
+const covCache = process.env.QUOD_VITEST_COVCACHE !== '0'
 
 const post = (s, method, params) =>
   new Promise((resolve, reject) => s.post(method, params, (err, res) => (err ? reject(err) : resolve(res))))
 
 if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   const t0 = performance.now()
+  const steps = {}
+  let ts = t0
+  const step = (k) => {
+    const n = performance.now()
+    steps[k] = n - ts
+    ts = n
+  }
   const file = ws.current?.file ?? ws.current
   const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker' })
   globalThis.__quod_vitest__ = r
-  if (!off.has('fs')) patchFs(r)
+  if (!off.has('fs')) patchFs(r, { sync: false })
+  step('fs')
   if (!off.has('env')) patchEnv(r)
+  step('env')
   if (!off.has('loader')) patchLoader(r)
-  if (!off.has('escapes')) patchEscapes(r)
+  step('loader')
+  if (!off.has('escapes')) patchEscapes(r, { sync: false })
+  if (!off.has('fs') || !off.has('escapes')) syncESM()
+  step('escapes')
   const parts = ['fs', 'env', 'loader', 'escapes', 'main', 'preload', 'setup']
   if (parts.some((p) => off.has(p))) r.unobs(`recorder disabled: ${[...off]}`)
   // Function-level narrowing needs the functions this file executed; a test
@@ -51,12 +66,15 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   let usedToString = false
   if (!off.has('cov') && root) {
     try {
-      session = new inspector.Session()
-      session.connect()
-      await post(session, 'Profiler.enable')
-      // Precise (never best effort, which can drop an executed function),
-      // function granularity, binary counts: the cheapest exact mode.
-      await post(session, 'Profiler.startPreciseCoverage', { callCount: false, detailed: false })
+      if (globalThis.__quod_cov) session = globalThis.__quod_cov
+      else {
+        session = new inspector.Session()
+        session.connect()
+        await post(session, 'Profiler.enable')
+        // Precise (never best effort, which can drop an executed function),
+        // function granularity, binary counts: the cheapest exact mode.
+        await post(session, 'Profiler.startPreciseCoverage', { callCount: false, detailed: false })
+      }
       // The wrapper is preload.cjs's (installed before anything loaded);
       // what ran before this file's own code does not count.
       if (globalThis.__quod_toString) globalThis.__quod_toString.used = false
@@ -85,7 +103,6 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
       }
     }
   }
-  const tickMs = Number(process.env.QUOD_VITEST_COV_TICK ?? 0)
   let ticker = null
   let tickBusy = false
   let tickN = 0
@@ -103,6 +120,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
     }, tickMs)
     ticker.unref?.()
   }
+  step('cov')
   const setupMs = performance.now() - t0
   if (r.loaderMissing) r.unobs('no module.registerHooks')
   if (!file?.id || typeof ws.onCleanup !== 'function') r.unobs('no worker hooks')
@@ -140,7 +158,10 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
           }
           covMs = performance.now() - tc
           const tm = performance.now()
-          cov = executedFunctions(scripts, em, root)
+          // QUOD_VITEST_COVCACHE=0: map every module afresh (measuring)
+          const cacheDir = covCache ? `${stateDir}/covmap` : null
+          Object.assign(io, { read: real.readFileSync, write: real.writeFileSync, rename: real.renameSync, mkdir: real.mkdirSync })
+          cov = executedFunctions(scripts, em, root, cacheDir)
           mapMs = performance.now() - tm
         } catch {
           cov = null
@@ -160,7 +181,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         usedToString,
         unmapped,
         unmappedSample: Object.entries(unmappedSample).slice(0, 1),
-        ms: { setup: setupMs, dump: performance.now() - t1, cov: covMs, map: mapMs, keys: tw - t1 - covMs - mapMs, ticks: tickN },
+        ms: { setup: setupMs, dump: performance.now() - t1, cov: covMs, map: mapMs, keys: tw - t1 - covMs - mapMs, ticks: tickN, steps },
       })
     } catch (e) {
       console.error('quod vitest: could not record', file?.filepath, e)

@@ -19,3 +19,17 @@ if (!globalThis.__quod_toString) {
   Object.defineProperty(Function.prototype, 'toString', { value: wrapped, writable: true, configurable: true })
   Object.defineProperty(globalThis, '__quod_toString', { value: state, enumerable: false })
 }
+
+// QUOD_VITEST_COV_EARLY=1: V8 precise coverage from here, while the heap is
+// small (starting it later walks the heap and gives every live function a
+// feedback vector); setup.mjs takes the session over.
+if (process.env.QUOD_VITEST_COV_EARLY === '1' && !globalThis.__quod_cov) {
+  try {
+    const inspector = require('node:inspector')
+    const s = new inspector.Session()
+    s.connect()
+    s.post('Profiler.enable')
+    s.post('Profiler.startPreciseCoverage', { callCount: false, detailed: false })
+    Object.defineProperty(globalThis, '__quod_cov', { value: s, enumerable: false })
+  } catch {}
+}

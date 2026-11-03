@@ -37,6 +37,10 @@ const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_module
 
 export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
   const keys = new Set()
+  // (kind, absolute path) pairs already added: a repeated read adds nothing
+  // (a relative path depends on the cwd, a main-process package.json on
+  // its reader: those are worked out every time)
+  const seen = new Set()
   const r = {
     mode, // 'main' | 'worker'
     keys,
@@ -48,6 +52,12 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     on: true,
     add(kind, p) {
       if (!r.on || p == null) return
+      let memo = null
+      if (typeof p === 'string' && p.charCodeAt(0) === 47 && !(r.mode === 'main' && p.endsWith('package.json'))) {
+        memo = `${kind}\0${p}`
+        if (seen.has(memo)) return
+        seen.add(memo)
+      }
       p = norm(p)
       if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
@@ -151,7 +161,9 @@ function isRead(flags) {
   return /[r+]/.test(String(flags))
 }
 
-export function patchFs(r) {
+// `sync: false` leaves node:fs's ESM exports to the caller's one
+// syncBuiltinESMExports (each call walks every loaded builtin's exports).
+export function patchFs(r, { sync = true } = {}) {
   const P = fs.promises
   const both = (names, fn) => {
     for (const n of names) {
@@ -215,6 +227,10 @@ export function patchFs(r) {
   wrap(fs, 'watch', watch)
   wrap(fs, 'watchFile', watch)
   wrap(P, 'watch', watch)
+  if (sync) syncESM()
+}
+
+export function syncESM() {
   try {
     nodeModule.syncBuiltinESMExports()
   } catch {}
@@ -222,8 +238,12 @@ export function patchFs(r) {
 
 export function patchEnv(r) {
   const target = process.env
+  const seen = new Set()
   const rec = (k) => {
-    if (typeof k === 'string') r.keys.add(`env:${k}`)
+    if (typeof k === 'string' && !seen.has(k)) {
+      seen.add(k)
+      r.keys.add(`env:${k}`)
+    }
   }
   const proxy = new Proxy(target, {
     get(t, k) {
@@ -289,20 +309,21 @@ const ESCAPES = {
   worker_threads: (m, r) => wrap(m, 'Worker', () => r.unobs('worker_threads')),
   cluster: (m, r) => wrap(m, 'fork', () => r.unobs('child_process')),
 }
-export function patchEscapes(r) {
+export function patchEscapes(r, { sync = true } = {}) {
   const done = new Set()
-  const patch = (name) => {
+  const patch = (name, now = true) => {
     if (done.has(name)) return
     done.add(name)
     try {
       ESCAPES[name](process.getBuiltinModule(name), r)
-      nodeModule.syncBuiltinESMExports()
+      if (now) nodeModule.syncBuiltinESMExports()
     } catch {
       r.unobs(`could not watch ${name}`)
     }
   }
   const loaded = new Set(process.moduleLoadList?.filter((m) => m.startsWith('NativeModule ')).map((m) => m.slice(13)))
-  for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name)
+  for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name, false)
+  if (sync) syncESM()
   if (typeof nodeModule.registerHooks === 'function') {
     nodeModule.registerHooks({
       resolve(specifier, context, next) {
