@@ -30,6 +30,9 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "client")]
 pub mod client;
+pub mod testreplay;
+#[cfg(feature = "client")]
+pub mod testreplay_client;
 
 /// The protocol name, sent as the `quod-protocol` header.
 pub const PROTOCOL: &str = "quod.v1";

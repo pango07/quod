@@ -71,11 +71,20 @@ pub fn router() -> Router<AppState> {
         .route("/v1/teams/{team}/search-index", get(search_index))
         .route("/v1/teams/{team}/activity", get(activity))
         .route("/v1/teams/{team}/events", get(events))
+        .route(
+            "/v1/teams/{team}/test-runs",
+            get(crate::testreplay::list_runs),
+        )
+        .route(
+            "/v1/teams/{team}/test-runs/{id}",
+            get(crate::testreplay::get_run),
+        )
+        .route("/v1/teams/{team}/test-stats", get(crate::testreplay::stats))
 }
 
 /// The viewer, for the team the path names (its slug or WorkOS org id):
 /// 404 for any team that is not theirs.
-fn viewer(app: &App, headers: &HeaderMap, team: &str) -> Result<Viewer, ApiError> {
+pub(crate) fn viewer(app: &App, headers: &HeaderMap, team: &str) -> Result<Viewer, ApiError> {
     if !valid_id(team) {
         return Err(ApiError::not_found("no such team"));
     }

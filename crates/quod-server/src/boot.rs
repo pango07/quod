@@ -72,6 +72,9 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
     let migrated = crate::store::Store::new(dir)
         .migrate()
         .map_err(|e| format!("data dir migration: {e:#}"))?;
+    let test_dbs = crate::testreplay::migrate(&crate::store::Store::new(dir))
+        .map_err(|e| format!("data dir migration (test replay): {e:#}"))?;
+    tracing::info!(target: "quod", test_replay_dbs = test_dbs, "test replay ready");
     tracing::info!(
         target: "quod",
         teams = migrated.teams,

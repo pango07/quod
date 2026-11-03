@@ -583,10 +583,17 @@ fn note_step(
 /// (DECISIONS 2026-11-02: warn, do not require). Best effort, like the
 /// dashboard rows.
 fn note_trusted_write(app: &App, runner: &Runner, ctx: &Context) -> Option<String> {
+    let git_ref = ci(runner, ctx).git_ref.unwrap_or_default();
+    note_trusted_write_ref(app, runner, &git_ref)
+}
+
+/// `note_trusted_write` for a write whose ref is already known (a test
+/// ledger save).
+pub fn note_trusted_write_ref(app: &App, runner: &Runner, git_ref: &str) -> Option<String> {
     if runner.write != crate::auth::TRUSTED {
         return None;
     }
-    let git_ref = ci(runner, ctx).git_ref.unwrap_or_default();
+    let git_ref = git_ref.to_string();
     if let Err(e) = app
         .store
         .activity(&runner.team)

@@ -42,6 +42,7 @@ mod status;
 mod step;
 mod trust;
 mod vitest;
+mod vitest_cloud;
 
 /// Exit code for Quod's own failures. A step can exit 2 by itself, so
 /// the code alone does not say whose failure it was: a Quod failure

@@ -16,6 +16,7 @@ pub mod boot;
 pub mod config;
 pub mod dash;
 pub mod store;
+pub mod testreplay;
 
 use std::sync::Arc;
 
@@ -290,6 +291,10 @@ pub fn router(app: AppState) -> Router {
         .route("/v1/runs", post(api::runs))
         .route("/v1/step-keys", post(api::step_keys))
         .route("/v1/blobs/missing", post(blobs::missing))
+        .route("/v1/blobs/pack", post(testreplay::pack))
+        .route("/v1/test-ledgers/lookup", post(testreplay::lookup))
+        .route("/v1/test-ledgers", post(testreplay::save))
+        .route("/v1/test-runs", post(testreplay::report))
         .layer(DefaultBodyLimit::max(max_json))
         .layer(middleware::from_fn_with_state(app.clone(), runner_auth));
     let blob = Router::new()

@@ -115,6 +115,29 @@ pub struct VitestArgs {
     /// of every test file.
     #[arg(long, value_name = "MANIFEST")]
     absorb: Option<PathBuf>,
+    /// Keep the ledger in Quod Cloud instead of a cache: before the run,
+    /// fetch the nearest recorded ledger (the job's commit's ancestors,
+    /// else the newest of its branch, else the default branch's); after a
+    /// record run, save it; after every run, send the run's report. The
+    /// URL defaults to QUOD_SERVER. Auth: GitHub OIDC (`permissions:
+    /// id-token: write`) or QUOD_SERVER_TOKEN; QUOD_SERVER_KEY pins the key
+    /// lookups are signed with. Without this flag nothing is sent anywhere.
+    #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = "")]
+    cloud: Option<String>,
+    /// With --cloud: only fetch the ledger into --dir (`restore`) or only
+    /// save --dir (`save`), and exit 0 whatever happens. For a workflow
+    /// that keeps its own restore and save steps (as with actions/cache).
+    #[arg(long, value_name = "restore|save", requires = "cloud")]
+    cloud_only: Option<String>,
+    /// With --cloud: do not save the ledger after this run (e.g. when an
+    /// `--absorb` step follows and saves it).
+    #[arg(long, requires = "cloud")]
+    cloud_no_save: bool,
+    /// With --cloud: the suite's name in Quod Cloud (default: this
+    /// directory relative to the repository root, `.` at the root; also
+    /// QUOD_VITEST_SUITE).
+    #[arg(long, requires = "cloud")]
+    suite: Option<String>,
     /// vitest's arguments, e.g. `run --project unit`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
@@ -269,9 +292,36 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
     let code_dir = code.clone();
-    if let Some(m) = &a.absorb {
-        return absorb(&root, &dir, &code, m);
+    let cloud = a
+        .cloud
+        .as_deref()
+        .and_then(|u| crate::vitest_cloud::from_args(Some(u), a.suite.as_deref(), &root));
+    match a.cloud_only.as_deref() {
+        None => {}
+        Some("restore") => {
+            if let Some(c) = &cloud {
+                c.restore(&root, &dir);
+            }
+            return Ok(0);
+        }
+        Some("save") => {
+            if let Some(c) = &cloud {
+                c.save(&dir);
+            }
+            return Ok(0);
+        }
+        Some(o) => anyhow::bail!("--cloud-only: restore or save, not {o:?}"),
     }
+    if let Some(m) = &a.absorb {
+        let code = absorb(&root, &dir, &code, m)?;
+        if let Some(c) = &cloud
+            && !a.cloud_no_save
+        {
+            c.save(&dir);
+        }
+        return Ok(code);
+    }
+    let used = cloud.as_ref().map(|c| c.restore(&root, &dir));
     let blobs = dir.join("blobs");
     fs::create_dir_all(&blobs)?;
     let full = a.full || std::env::var("QUOD_VITEST_FULL").is_ok_and(|v| v == "1");
@@ -316,8 +366,35 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     // modules, with the states their records saw: narrowing candidates.
     let mut maybe: Vec<(String, Vec<(u32, String)>)> = Vec::new();
     let mut why_run: Vec<String> = Vec::new();
+    // Why each file that must run runs, in plain words (the run report).
+    let mut why: HashMap<String, String> = HashMap::new();
+    let global_why = if full {
+        "a full run was asked for".to_string()
+    } else if ledger.files.is_empty() {
+        "first run (nothing recorded yet)".to_string()
+    } else if ledger.args != keyed_args(&a.args) {
+        "the vitest arguments changed".to_string()
+    } else {
+        match ledger.global.iter().find(|k| changed.contains(k)) {
+            Some(k) => format!(
+                "a shared input changed: {}",
+                plain_key(&ledger.keys[*k as usize])
+            ),
+            None => String::new(),
+        }
+    };
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
+            why.insert(
+                id.clone(),
+                if !global_ok {
+                    global_why.clone()
+                } else if rec.quarantined {
+                    "always runs: a check found its reused result differed".into()
+                } else {
+                    format!("its last result was {}", rec.state)
+                },
+            );
             affected.push(id.clone());
             continue;
         }
@@ -353,6 +430,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             if let Some((d, _)) = first {
                 why_run.push(format!("{} <- {}", rec.file, ledger.keys[*d as usize]));
             }
+            let d = first.unwrap_or(&moved[0]).0;
+            why.insert(
+                id.clone(),
+                format!("changed: {}", plain_key(&ledger.keys[d as usize])),
+            );
             affected.push(id.clone());
         }
     }
@@ -415,6 +497,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 replay.insert(id.clone(), ledger.files[&id].result.clone());
                 narrowed.insert(id, moved);
             } else {
+                why.insert(
+                    id.clone(),
+                    format!(
+                        "changed: {} (code this test runs)",
+                        plain_key(&ledger.keys[moved[0].0 as usize])
+                    ),
+                );
                 affected.push(id);
             }
         }
@@ -470,6 +559,21 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let plan_path = dir.join("plan.json");
     let out_path = dir.join("out.json");
     let _ = fs::remove_file(&out_path);
+    let recorded: HashMap<String, (String, f64)> = ledger
+        .files
+        .iter()
+        .map(|(id, r)| (id.clone(), (r.file.clone(), r.duration)))
+        .collect();
+    let report_base = Reporting {
+        cloud: cloud.as_ref(),
+        used: used.clone(),
+        recorded: &recorded,
+        why: &why,
+        first_run: ledger.files.is_empty(),
+        narrowed: narrowed.len(),
+        t0,
+        select_ms: 0.0,
+    };
     let plan = serde_json::json!({
         "stateDir": dir,
         "replay": replay,
@@ -536,6 +640,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                         "ran": [], "replayed": ids, "auditMismatch": [], "fast": true,
                     }))?,
                 )?;
+                report_base.with_select(t_select).send(
+                    "critical",
+                    &[],
+                    &ids,
+                    &[],
+                    &HashSet::new(),
+                    Some(code),
+                );
                 if let Some(p) = &a.summary {
                     let s = serde_json::json!({
                         "recorded_files": ledger.files.len(), "ran": 0, "replayed": n_ids,
@@ -579,7 +691,21 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest: the run was interrupted; nothing recorded");
         return Ok(code);
     }
+    let ran_facts: Vec<(String, String, String, f64)> = out
+        .ran
+        .iter()
+        .map(|r| (r.id.clone(), r.file.clone(), r.state.clone(), r.duration))
+        .collect();
+    let replayed_ids: Vec<&String> = out.replayed.iter().collect();
     if a.no_record {
+        report_base.with_select(t_select).send(
+            "critical",
+            &ran_facts,
+            &replayed_ids,
+            &[],
+            &HashSet::new(),
+            Some(code),
+        );
         eprintln!(
             "quod vitest: ran {} files plain, replayed {} ({} function-level); quod {} ms (select); not recorded (the shadow run records)",
             out.ran.len(),
@@ -781,6 +907,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     for (u, n) in &no_fn_level {
         eprintln!("quod vitest:   {n} files without function-level data: {u}");
+    }
+    let mism: HashSet<String> = out.audit_mismatch.iter().cloned().collect();
+    report_base.with_select(t_select).send(
+        "shadow",
+        &ran_facts,
+        &replayed_ids,
+        &audit,
+        &mism,
+        Some(code),
+    );
+    if let Some(c) = &cloud
+        && !a.cloud_no_save
+    {
+        c.save(&dir);
     }
     if let Some(p) = &a.summary {
         let s = serde_json::json!({
@@ -1906,6 +2046,124 @@ impl Rng {
         self.0 ^= self.0 << 17;
         (self.0 % n as u64) as usize
     }
+}
+
+/// A dependency key in plain words: `f:src/a.ts` is `src/a.ts`, a package
+/// is `the package <name>`, a variable `the variable X`.
+fn plain_key(k: &str) -> String {
+    match k.split_once(':') {
+        Some(("f", p)) => p.to_string(),
+        Some(("p", p)) => {
+            let name = p.rsplit_once("node_modules/").map_or(p, |(_, n)| n);
+            format!("the package {name}")
+        }
+        Some(("env" | "envall", v)) => format!("the variable {v}"),
+        Some(("d", p)) => format!("the directory listing of {p}"),
+        Some(("e", p)) => format!("whether {p} exists"),
+        _ => k.to_string(),
+    }
+}
+
+/// What a run report needs from the selection, gathered before the record
+/// changes the ledger.
+#[derive(Clone)]
+struct Reporting<'a> {
+    cloud: Option<&'a crate::vitest_cloud::Cloud>,
+    used: Option<quod_wire::testreplay::LedgerUsed>,
+    /// Every recorded file: its path and recorded duration (ms).
+    recorded: &'a HashMap<String, (String, f64)>,
+    why: &'a HashMap<String, String>,
+    first_run: bool,
+    narrowed: usize,
+    t0: Instant,
+    select_ms: f64,
+}
+
+impl Reporting<'_> {
+    fn with_select(&self, t: std::time::Duration) -> Self {
+        let mut r = self.clone();
+        r.select_ms = t.as_secs_f64() * 1e3;
+        r
+    }
+
+    /// Sends the report, if --cloud: `ran` is (id, file, state, duration)
+    /// per file that ran, `replayed` the ids reused, `audit` the ids the
+    /// shadow checked and `mismatched` those whose fresh result differed.
+    fn send(
+        &self,
+        kind: &str,
+        ran: &[(String, String, String, f64)],
+        replayed: &[&String],
+        audit: &[String],
+        mismatched: &HashSet<String>,
+        exit: Option<u8>,
+    ) {
+        let Some(c) = self.cloud else { return };
+        let saved: f64 = replayed
+            .iter()
+            .filter_map(|id| self.recorded.get(*id).map(|r| r.1))
+            .sum();
+        let ran_ms: f64 = ran.iter().map(|r| r.3).sum();
+        let file_of = |id: &str| {
+            self.recorded
+                .get(id)
+                .map_or_else(|| id.to_string(), |r| r.0.clone())
+        };
+        let ran_files = ran
+            .iter()
+            .map(|(id, file, state, d)| quod_wire::testreplay::RanFile {
+                file: relativize_file(file),
+                project: String::new(),
+                why: self.why.get(id).cloned().unwrap_or_else(|| {
+                    if audit.contains(id) {
+                        "a check: run again to compare with its reused result".into()
+                    } else if self.first_run {
+                        "first run (nothing recorded yet)".into()
+                    } else if self.recorded.contains_key(id) {
+                        "changed".into()
+                    } else {
+                        "new test file (not recorded yet)".into()
+                    }
+                }),
+                duration_ms: Some(*d),
+                state: state.clone(),
+            })
+            .collect();
+        let audit_files = audit
+            .iter()
+            .map(|id| quod_wire::testreplay::AuditFile {
+                file: file_of(id),
+                ok: !mismatched.contains(id),
+            })
+            .collect();
+        let r = quod_wire::testreplay::TestReport {
+            tool: "vitest".into(),
+            kind: kind.into(),
+            total: (ran.len() + replayed.len()) as u64,
+            ran: ran.len() as u64,
+            replayed: replayed.len() as u64,
+            narrowed: self.narrowed.min(replayed.len()) as u64,
+            wall_ms: Some(self.t0.elapsed().as_secs_f64() * 1e3),
+            select_ms: Some(self.select_ms),
+            est_plain_ms: Some(saved + ran_ms),
+            saved_ms: Some(saved),
+            exit: exit.map(i32::from),
+            audited: audit.len() as u64,
+            audit_files,
+            ran_files,
+            ledger: self.used.clone(),
+        };
+        c.report(&r);
+    }
+}
+
+/// A test file's path for the report: relative to the working directory
+/// when under it.
+fn relativize_file(f: &str) -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    Path::new(f)
+        .strip_prefix(&cwd)
+        .map_or_else(|_| f.to_string(), |p| p.display().to_string())
 }
 
 #[cfg(test)]
