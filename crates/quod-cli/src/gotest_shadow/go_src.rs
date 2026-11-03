@@ -98,7 +98,8 @@ fn lex(src: &[u8]) -> Option<Vec<Tok>> {
             }
             i += 1;
             Tk::Lit
-        } else if c.is_ascii_digit() || (c == b'.' && src.get(i + 1).is_some_and(u8::is_ascii_digit))
+        } else if c.is_ascii_digit()
+            || (c == b'.' && src.get(i + 1).is_some_and(u8::is_ascii_digit))
         {
             i += 1;
             while i < src.len()
@@ -112,7 +113,8 @@ fn lex(src: &[u8]) -> Option<Vec<Tok>> {
             }
             Tk::Lit
         } else if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 {
-            while i < src.len() && (src[i].is_ascii_alphanumeric() || src[i] == b'_' || src[i] >= 0x80)
+            while i < src.len()
+                && (src[i].is_ascii_alphanumeric() || src[i] == b'_' || src[i] >= 0x80)
             {
                 i += 1;
             }
@@ -327,7 +329,10 @@ pub(super) fn shape(src: &[u8]) -> Option<Shape> {
             let (o, c) = (&toks[open], &toks[close]);
             skel.push(b"{body}");
             let mut id = String::from_utf8_lossy(&sig.join(&b' ')).into_owned();
-            let n = funcs.iter().filter(|f| f.id == id || f.id.starts_with(&format!("{id}#"))).count();
+            let n = funcs
+                .iter()
+                .filter(|f| f.id == id || f.id.starts_with(&format!("{id}#")))
+                .count();
             if n > 0 {
                 id = format!("{id}#{n}");
             }
@@ -362,7 +367,7 @@ pub(super) fn shape(src: &[u8]) -> Option<Shape> {
     })
 }
 
-fn push<'s>(skel: &mut Vec<&'s [u8]>, t: &Tok) {
+fn push(skel: &mut Vec<&[u8]>, t: &Tok) {
     if t.nl {
         skel.push(b"\n");
     }
@@ -430,7 +435,11 @@ fn rfc3339(b: &[u8]) -> Option<usize> {
         return None;
     }
     for (x, s) in b.iter().zip(shape) {
-        let ok = if *s == b'd' { x.is_ascii_digit() } else { x == s || (*s == b'T' && (*x == b' ' || *x == b'_')) };
+        let ok = if *s == b'd' {
+            x.is_ascii_digit()
+        } else {
+            x == s || (*s == b'T' && (*x == b' ' || *x == b'_'))
+        };
         if !ok {
             return None;
         }

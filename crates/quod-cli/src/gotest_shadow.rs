@@ -641,7 +641,11 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
             &outcome,
         );
         ledger.pkgs.retain(|p, _| world.roots.contains(p));
-        let used: HashSet<&String> = ledger.pkgs.values().flat_map(|r| r.local.values()).collect();
+        let used: HashSet<&String> = ledger
+            .pkgs
+            .values()
+            .flat_map(|r| r.local.values())
+            .collect();
         let keep: BTreeMap<String, FileShape> = ledger
             .shapes
             .iter()
@@ -911,7 +915,11 @@ fn closures(w: &World, known: &BTreeMap<String, String>) -> HashMap<String, Clos
                 files.insert(Path::new(&p.dir).join(f));
             }
         }
-        for m in p.module.iter().chain(p.module.as_ref().and_then(|m| m.replace.as_deref())) {
+        for m in p
+            .module
+            .iter()
+            .chain(p.module.as_ref().and_then(|m| m.replace.as_deref()))
+        {
             if !m.go_mod.is_empty() {
                 files.insert(PathBuf::from(&m.go_mod));
             }
@@ -1026,7 +1034,11 @@ fn entry_key(
     while let Some(m) = module {
         both(format!("mod {} {} {}\0", m.path, m.version, m.main).as_bytes());
         if hashed && !m.go_mod.is_empty() {
-            both(fh.get(Path::new(&m.go_mod)).map_or("unhashed", String::as_str).as_bytes());
+            both(
+                fh.get(Path::new(&m.go_mod))
+                    .map_or("unhashed", String::as_str)
+                    .as_bytes(),
+            );
         }
         module = m.replace.as_deref();
     }
@@ -1212,7 +1224,9 @@ fn narrow(
         let cold = rec.cold.get(path);
         for (id, b) in &o.funcs {
             if n.funcs.get(id) != Some(b) && !cold.is_some_and(|c| c.contains(id)) {
-                return Some(format!("{path}: a function its tests ran changed or moved ({id})"));
+                return Some(format!(
+                    "{path}: a function its tests ran changed or moved ({id})"
+                ));
             }
         }
     }
@@ -1643,8 +1657,11 @@ fn go_ident(go: &str) -> String {
     let p = if go.contains('/') {
         Some(PathBuf::from(go))
     } else {
-        std::env::var_os("PATH")
-            .and_then(|path| std::env::split_paths(&path).map(|d| d.join(go)).find(|p| p.is_file()))
+        std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|d| d.join(go))
+                .find(|p| p.is_file())
+        })
     };
     match p.and_then(|p| fs::metadata(&p).ok().map(|m| (p, m))) {
         Some((p, m)) => format!(
@@ -1729,7 +1746,10 @@ fn tree(go: &str, p: &Parsed, root: &Path, skip: &Path) -> Tree {
             let b = n.as_bytes();
             if b.ends_with(b".go") {
                 gofiles.push(p);
-            } else if matches!(b, b"go.mod" | b"go.sum" | b"go.work" | b"go.work.sum" | b"modules.txt") {
+            } else if matches!(
+                b,
+                b"go.mod" | b"go.sum" | b"go.work" | b"go.work.sum" | b"modules.txt"
+            ) {
                 meta_files.push(p);
             }
         }
@@ -1760,7 +1780,8 @@ fn tree(go: &str, p: &Parsed, root: &Path, skip: &Path) -> Tree {
 /// changed still has the header it had (build constraints, package,
 /// imports, embeds).
 fn reuse(c: &Cached, t: &Tree) -> Option<World> {
-    if c.env != t.env || c.names != t.names || c.meta != t.meta || c.files.len() != t.gofiles.len() {
+    if c.env != t.env || c.names != t.names || c.meta != t.meta || c.files.len() != t.gofiles.len()
+    {
         return None;
     }
     let mut changed: Vec<(&String, &Option<String>)> = Vec::new();
@@ -1790,7 +1811,9 @@ fn reuse(c: &Cached, t: &Tree) -> Option<World> {
 /// What the shadow stores for the next critical paths' `reuse`.
 fn cache_world(w: &World, t: &Tree) -> Option<Cached> {
     let paths: Vec<&String> = t.gofiles.keys().collect();
-    let heads = par_map(&paths, |p| fs::read(p).ok().and_then(|b| go_src::header(&b)));
+    let heads = par_map(&paths, |p| {
+        fs::read(p).ok().and_then(|b| go_src::header(&b))
+    });
     let files = paths
         .iter()
         .zip(heads)
@@ -1861,6 +1884,10 @@ struct Ctx<'a> {
     /// Package directories by import path (coverage names files by package).
     dirs: &'a HashMap<String, String>,
 }
+
+/// Coverage blocks by file: (line, column) of each block's start, and
+/// whether it ran.
+type Blocks = HashMap<String, Vec<(u32, u32, bool)>>;
 
 enum Fail {
     /// It failed: it always runs, nothing to record.
@@ -2076,8 +2103,8 @@ impl Ctx<'_> {
     /// The coverage blocks of a package's test binaries, by file: (line,
     /// column) of each block's start, and whether it ran. None: a binary
     /// left no coverage, or `go tool covdata` could not read it.
-    fn coverage(&self, traces: &[PathBuf]) -> Option<HashMap<String, Vec<(u32, u32, bool)>>> {
-        let mut out: HashMap<String, Vec<(u32, u32, bool)>> = HashMap::new();
+    fn coverage(&self, traces: &[PathBuf]) -> Option<Blocks> {
+        let mut out: Blocks = HashMap::new();
         for t in traces {
             let d = t.with_extension("cov");
             if !d.is_dir() {
