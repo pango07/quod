@@ -1199,7 +1199,8 @@ def _globals_fp():
     g["g:gc"] = "%s:%s" % (gc.isenabled(), gc.get_threshold())
     if "decimal" in sys.modules:
         try:
-            g["g:decimal"] = hs(repr(sys.modules["decimal"].getcontext()))
+            c = sys.modules["decimal"].getcontext()
+            g["g:decimal"] = hs(repr((c.prec, str(c.rounding), c.Emin, c.Emax, c.capitals, c.clamp, sorted(str(k) for k, v in c.traps.items() if v))))
         except Exception:
             pass
     if "socket" in sys.modules:
@@ -2603,7 +2604,7 @@ def record_shadow(plugin, rc):
     L["session"] = {"keys": s_keys, "exec": _code_map(s_exec), "unrecordable": unrec, "why": {rel(k.partition(":")[2]) + " (" + k.partition(":")[0] + ")": v for k, v in REC.why.items()}}
     # Collection layout for the next pre-scan.
     dirs = set()
-    for f in plugin.collected_files:
+    for f in set(plugin.collected_files) | set(L.get("order") or ()) | set(plugin.order or ()):
         d = os.path.dirname(f) or "."
         while True:
             dirs.add(d)
