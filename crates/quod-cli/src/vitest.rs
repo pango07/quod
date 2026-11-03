@@ -510,7 +510,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         t_select.as_millis()
     );
 
-    if a.no_record && fast_ok && affected.is_empty() && replay.len() == ledger.files.len() {
+    if a.no_record
+        && fast_ok
+        && !ledger.files.is_empty()
+        && affected.is_empty()
+        && replay.len() == ledger.files.len()
+    {
         let w = walk(&root, &dir);
         let emitted = node_version(&a.node)
             .ok_or_else(|| "node --version failed".to_string())
