@@ -50,6 +50,7 @@ const NODE22: &str = r#"{"os":"Linux","arch":"X64","node":"v22.1.0"}"#;
 fn session_env(s: &Server, token: &str, env: &str) -> (u16, String) {
     let r = ureq::post(&format!("{}/v1/task-cache/session", s.url))
         .set("quod-protocol", "quod.v1")
+        .set("content-type", "application/json")
         .set("authorization", &format!("Bearer {token}"))
         .send_string(&format!(r#"{{"env":{env}}}"#));
     match r {
@@ -117,7 +118,14 @@ fn put(s: &Server, tok: &str, hash: &str, bytes: &[u8]) -> u16 {
 }
 
 fn get(s: &Server, tok: &str, hash: &str) -> (u16, Vec<u8>) {
-    let (c, b, _, _) = call(s, "GET", &format!("/v8/artifacts/{hash}?slug=quod"), Some(tok), None, &[]);
+    let (c, b, _, _) = call(
+        s,
+        "GET",
+        &format!("/v8/artifacts/{hash}?slug=quod"),
+        Some(tok),
+        None,
+        &[],
+    );
     (c, b)
 }
 
@@ -147,9 +155,21 @@ fn k2_a_pull_requests_artifact_is_its_own() {
     // A pull request writes what it computed (say, a poisoned typecheck).
     assert_eq!(put(&s, &pr5, "h1", b"poison"), 202);
     assert_eq!(get(&s, &pr5, "h1"), (200, b"poison".to_vec()));
-    assert_eq!(get(&s, &main, "h1").0, 404, "the default branch never reads a pull request's");
-    assert_eq!(get(&s, &pr6, "h1").0, 404, "another pull request never reads it");
-    assert_eq!(get(&s, &branch, "h1").0, 404, "another branch never reads it");
+    assert_eq!(
+        get(&s, &main, "h1").0,
+        404,
+        "the default branch never reads a pull request's"
+    );
+    assert_eq!(
+        get(&s, &pr6, "h1").0,
+        404,
+        "another pull request never reads it"
+    );
+    assert_eq!(
+        get(&s, &branch, "h1").0,
+        404,
+        "another branch never reads it"
+    );
     // The default branch writes its own; the pull request still reads its own first.
     assert_eq!(put(&s, &main, "h1", b"main"), 202);
     assert_eq!(get(&s, &main, "h1"), (200, b"main".to_vec()));
@@ -176,9 +196,15 @@ fn k4_other_teams_repositories_and_environments_never_read_it() {
     let s = Server::start(1);
     let main = session(&s, &oidc("push", "refs/heads/main"));
     assert_eq!(put(&s, &main, "h4", b"acme"), 202);
-    let beta = session(&s, &oidc_for(BETA_OWNER, "beta/app", 9, "push", "refs/heads/main"));
+    let beta = session(
+        &s,
+        &oidc_for(BETA_OWNER, "beta/app", 9, "push", "refs/heads/main"),
+    );
     assert_eq!(get(&s, &beta, "h4").0, 404, "another team");
-    let other_repo = session(&s, &oidc_for(ACME_OWNER, "acme/other", 8, "push", "refs/heads/main"));
+    let other_repo = session(
+        &s,
+        &oidc_for(ACME_OWNER, "acme/other", 8, "push", "refs/heads/main"),
+    );
     assert_eq!(get(&s, &other_repo, "h4").0, 404, "another repository");
     let (c, node20) = session_env(
         &s,
@@ -204,7 +230,11 @@ fn k6_tokens() {
     let main = session(&s, &oidc("push", "refs/heads/main"));
     assert_eq!(put(&s, &main, "h6", b"x"), 202);
     assert_eq!(call(&s, "GET", "/v8/artifacts/h6", None, None, &[]).0, 401);
-    assert_eq!(get(&s, &oidc("push", "refs/heads/main"), "h6").0, 401, "a bare OIDC token");
+    assert_eq!(
+        get(&s, &oidc("push", "refs/heads/main"), "h6").0,
+        401,
+        "a bare OIDC token"
+    );
     assert_eq!(get(&s, ACME_RUNNER, "h6").0, 401, "a static token");
     let mut forged = main.clone();
     let n = forged.len();
@@ -226,8 +256,22 @@ fn k7_turbo_status_events_query_head() {
     assert_eq!(c, 200);
     assert!(String::from_utf8(b).unwrap().contains("enabled"));
     let ev = br#"[{"source":"REMOTE","event":"HIT","hash":"h7","duration":1}]"#;
-    assert_eq!(call(&s, "POST", "/v8/artifacts/events", Some(&main), Some(ev), &[("content-type", "application/json")]).0, 200);
-    assert_eq!(call(&s, "HEAD", "/v8/artifacts/h7", Some(&main), None, &[]).0, 404);
+    assert_eq!(
+        call(
+            &s,
+            "POST",
+            "/v8/artifacts/events",
+            Some(&main),
+            Some(ev),
+            &[("content-type", "application/json")]
+        )
+        .0,
+        200
+    );
+    assert_eq!(
+        call(&s, "HEAD", "/v8/artifacts/h7", Some(&main), None, &[]).0,
+        404
+    );
     assert_eq!(put(&s, &main, "h7", b"seven"), 202);
     let (c, _, dur, _) = call(&s, "HEAD", "/v8/artifacts/h7", Some(&main), None, &[]);
     assert_eq!((c, dur.as_deref()), (200, Some("4321")));
@@ -250,10 +294,22 @@ fn k8_nx() {
     let s = Server::start(1);
     let main = session(&s, &oidc("push", "refs/heads/main"));
     let pr = session(&s, &oidc("pull_request", "refs/pull/5/merge"));
-    assert_eq!(call(&s, "GET", "/nx/v1/cache/n1", Some(&main), None, &[]).0, 404);
-    assert_eq!(call(&s, "PUT", "/nx/v1/cache/n1", Some(&main), Some(b"nx"), &[]).0, 200);
-    assert_eq!(call(&s, "PUT", "/nx/v1/cache/n1", Some(&main), Some(b"nx2"), &[]).0, 409);
-    assert_eq!(call(&s, "GET", "/nx/v1/cache/n1", Some(&pr), None, &[]).1, b"nx".to_vec());
+    assert_eq!(
+        call(&s, "GET", "/nx/v1/cache/n1", Some(&main), None, &[]).0,
+        404
+    );
+    assert_eq!(
+        call(&s, "PUT", "/nx/v1/cache/n1", Some(&main), Some(b"nx"), &[]).0,
+        200
+    );
+    assert_eq!(
+        call(&s, "PUT", "/nx/v1/cache/n1", Some(&main), Some(b"nx2"), &[]).0,
+        409
+    );
+    assert_eq!(
+        call(&s, "GET", "/nx/v1/cache/n1", Some(&pr), None, &[]).1,
+        b"nx".to_vec()
+    );
     // turbo and Nx are separate hash spaces.
     assert_eq!(get(&s, &main, "n1").0, 404);
 }

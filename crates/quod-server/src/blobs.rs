@@ -52,7 +52,10 @@ async fn has(app: &AppState, team: &str, h: &Hash) -> Result<bool, ApiError> {
 /// chunks through a channel. The reader checks the bytes against the hash
 /// and fails at the end if they differ, which cuts the response short (a
 /// runner verifies every blob it fetches anyway).
-pub(crate) async fn s3_body(blobs: crate::s3::S3Blobs, h: Hash) -> Result<(Body, Option<u64>), ApiError> {
+pub(crate) async fn s3_body(
+    blobs: crate::s3::S3Blobs,
+    h: Hash,
+) -> Result<(Body, Option<u64>), ApiError> {
     let opened = blocking(move || match blobs.open(&h) {
         Ok(r) => Ok(Some(r)),
         Err(quod_cas::CasError::Missing(_)) => Ok(None),

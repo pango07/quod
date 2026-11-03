@@ -195,7 +195,10 @@ fn session_of(app: &App, headers: &HeaderMap) -> Result<Session, ApiError> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
+        .and_then(|v| {
+            v.strip_prefix("Bearer ")
+                .or_else(|| v.strip_prefix("bearer "))
+        })
         .ok_or_else(|| ApiError::unauthorized("no bearer token"))?;
     open(&mac_key(app), token.trim(), now_secs())
 }
@@ -320,7 +323,12 @@ async fn serve(app: &AppState, team: &str, f: &Found) -> Result<Response, ApiErr
     Ok(resp)
 }
 
-async fn get(app: AppState, headers: HeaderMap, tool: Tool, hash: String) -> Result<Response, ApiError> {
+async fn get(
+    app: AppState,
+    headers: HeaderMap,
+    tool: Tool,
+    hash: String,
+) -> Result<Response, ApiError> {
     let (s, f) = find_async(&app, &headers, tool, hash).await?;
     match f {
         Some(f) => serve(&app, &s.team, &f).await,
@@ -407,7 +415,10 @@ async fn put(
 
 // turbo: https://turborepo.com/docs/core-concepts/remote-caching#self-hosting
 
-pub async fn turbo_status(State(app): State<AppState>, headers: HeaderMap) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn turbo_status(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let a = app.clone();
     blocking(move || session_of(&a, &headers)).await?;
     Ok(Json(serde_json::json!({"status": "enabled"})))
@@ -451,11 +462,19 @@ pub async fn turbo_put(
 pub async fn turbo_query(
     State(app): State<AppState>,
     headers: HeaderMap,
-    Json(req): Json<serde_json::Value>,
+    body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Whatever content type it came with (turbo's clients differ).
+    let req: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|_| ApiError::bad_request("the body is not JSON"))?;
     let hashes: Vec<String> = req["hashes"]
         .as_array()
-        .map(|a| a.iter().filter_map(|h| h.as_str().map(String::from)).take(1000).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|h| h.as_str().map(String::from))
+                .take(1000)
+                .collect()
+        })
         .unwrap_or_default();
     blocking(move || {
         let s = session_of(&app, &headers)?;
@@ -477,7 +496,10 @@ pub async fn turbo_query(
 }
 
 /// `POST /v8/artifacts/events`: turbo's hit and miss events; not kept.
-pub async fn turbo_events(State(app): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+pub async fn turbo_events(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
     let a = app.clone();
     blocking(move || session_of(&a, &headers)).await?;
     Ok(StatusCode::OK)
