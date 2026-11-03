@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { sampleTestRuns, sampleTestSuites, summaryOnly } from "@/lib/api/fixture-tests";
 import type { TestFile, TestRunSummary, TestSuite } from "@/lib/api/types";
+import { LAST_CHECKS, shareText, shareTitle, skippedShare } from "./test-runs";
 import {
   fileStateLabel,
   filterCounts,
   lastResultText,
   matchesFilter,
   MAX_FILES,
-  medianSkippedPct,
   NO_RECORDING,
   runsOfSuite,
   sortFiles,
@@ -160,24 +160,64 @@ describe("compact Trust: sorting, the 8-file rule, filters", () => {
   });
 });
 
-describe("compact Trust: % skipped is the median of the last 20 critical runs", () => {
-  const run = (replayed: number, total = 100, kind: TestRunSummary["kind"] = "critical") => ({ kind, files: { total, replayed, ran: total - replayed, narrowed: 0 } });
+describe("compact Trust: % skipped is sum(replayed) / sum(total) over the last 20 checks", () => {
+  const T0 = Date.parse("2026-11-02T12:00:00Z");
+  let seq = 0;
+  /** A run `minutesAgo` before T0 of `suite`; ids are unique. */
+  const run = (minutesAgo: number, replayed: number, total: number, kind: TestRunSummary["kind"] = "critical", suite = "packages/backend") => ({
+    id: `r${++seq}`,
+    at: new Date(T0 - minutesAgo * 60_000).toISOString(),
+    kind,
+    suite,
+    files: { total, replayed, ran: total - replayed, narrowed: 0 },
+  });
+  // Mixed suites, as one team's runs: a big backend, a small web suite, and a first run after a rename (nothing skipped).
+  const checks = [run(1, 170, 184), run(2, 6, 7, "critical", "apps/media"), run(3, 0, 12, "critical", "apps/renamed"), run(4, 171, 184), run(5, 88, 96, "critical", "packages/web")];
+  // Background recordings run every file, or replay all of them: they must change nothing.
+  const shadows = [run(1, 0, 184, "shadow"), run(2, 7, 7, "shadow", "apps/media"), run(3, 0, 96, "shadow", "packages/web")];
 
-  it("odd and even counts; shadow runs and empty runs do not count", () => {
-    expect(medianSkippedPct([run(90), run(10), run(50)])).toBe(50);
-    expect(medianSkippedPct([run(90), run(80)])).toBe(85);
-    expect(medianSkippedPct([run(0, 100, "shadow"), run(40), run(0, 0)])).toBe(40);
+  it("adds the files up: one small or first run moves it by its size, not as one vote", () => {
+    const s = skippedShare(checks);
+    expect(s).toEqual({ replayed: 435, total: 483, checks: 5, pct: (435 / 483) * 100 });
+    expect(shareText(s)).toBe("90%");
+    expect(shareTitle(s)).toBe("435 of 483 files across 5 checks");
+    // A median of per-run shares would be 92% here and 43% with three tiny first runs; the pooled share barely moves.
+    const withFirsts = [...checks, run(0.5, 0, 3, "critical", "a"), run(0.6, 0, 3, "critical", "b"), run(0.7, 0, 3, "critical", "c")];
+    expect(Math.round(skippedShare(withFirsts).pct!)).toBe(88);
   });
 
-  it("only the newest 20 (runs come newest first)", () => {
-    const newest = Array.from({ length: 20 }, () => run(95));
-    const older = Array.from({ length: 30 }, () => run(0));
-    expect(medianSkippedPct([...newest, ...older])).toBe(95);
+  it("does not depend on shadow runs", () => {
+    expect(skippedShare([...checks, ...shadows])).toEqual(skippedShare(checks));
+    expect(skippedShare(shadows)).toEqual({ replayed: 0, total: 0, checks: 0, pct: null });
   });
 
-  it("no runs: null (shown as n/a)", () => {
-    expect(medianSkippedPct([])).toBeNull();
-    expect(medianSkippedPct([run(0, 100, "shadow")])).toBeNull();
+  it("does not depend on row order", () => {
+    const all = [...checks, ...shadows];
+    const reversed = [...all].reverse();
+    const shuffled = [all[3], all[6], all[0], all[7], all[2], all[5], all[1], all[4]];
+    expect(skippedShare(reversed)).toEqual(skippedShare(all));
+    expect(skippedShare(shuffled)).toEqual(skippedShare(all));
+  });
+
+  it("only the newest 20 checks, whatever order they come in", () => {
+    const newest = Array.from({ length: 20 }, (_, i) => run(10 + i, 95, 100));
+    const older = Array.from({ length: 30 }, (_, i) => run(1000 + i, 0, 100));
+    expect(skippedShare([...older, ...newest]).pct).toBe(95);
+    expect(skippedShare([...newest, ...older]).checks).toBe(LAST_CHECKS);
+  });
+
+  it("no checks: n/a", () => {
+    expect(shareText(skippedShare([]))).toBe("n/a");
+    expect(shareTitle(skippedShare([]))).toBe("No check runs yet");
+  });
+
+  it("each suite row uses its own suite's last 20 checks", () => {
+    const suite = (dir: string) => ({ ...sampleTestSuites(NOW)[0], suite: dir, repository: "quodci/web" });
+    const runs = [...checks, ...shadows].map((r) => ({ ...summaryOnly(sampleTestRuns(NOW)[0]), ...r, repository: "quodci/web" }));
+    const m = trustModel({ team: "t", suites: [suite("packages/backend"), suite("packages/web")], runs, stats: null, now: T0, ago: () => "" });
+    expect(m.suites[0].skipped).toMatchObject({ replayed: 341, total: 368, checks: 2 });
+    expect(m.suites[1].skipped).toMatchObject({ replayed: 88, total: 96, checks: 1 });
+    expect(m.summary.skipped).toEqual(skippedShare(runs));
   });
 });
 
@@ -197,7 +237,8 @@ describe("compact Trust: the model", () => {
     expect(m.summary.totals).toEqual({ files: 296, learning: 10, ready: 17, skipping: 265, always: 3, paused: 1, recordDiffers: 1 });
     expect(m.summary.bar.map((b) => b.state)).toEqual(["learning", "ready", "skipping", "always", "recordDiffers", "paused"]);
     expect(m.summary.wrongResults).toBe(0);
-    expect(m.summary.skippedPct).toBeGreaterThan(80);
+    expect(m.summary.skipped.pct).toBeGreaterThan(80);
+    expect(m.summary.skipped.checks).toBe(20);
     expect(m.summary.savedWeekMs).toBeGreaterThan(0);
     expect(m.look.map((l) => [l.state, l.file])).toEqual([
       ["paused", "src/billing/discounts.test.ts"],
@@ -210,7 +251,7 @@ describe("compact Trust: the model", () => {
     expect(root.heading).toBe("quod · repo root");
     expect(root.recorded).toBe(false);
     expect(root.ledger).toBe(NO_RECORDING);
-    expect(root.skippedPct).toBe(0);
+    expect(root.skipped).toMatchObject({ replayed: 0, total: 18, checks: 2, pct: 0 });
     expect(m.suites[0].files.slice(0, 3).map((f) => f.state)).toEqual(["paused", "always", "always"]);
     expect(m.suites[0].lastRunAt).not.toBeNull();
   });
@@ -219,13 +260,13 @@ describe("compact Trust: the model", () => {
     const m = trustModel({ team: "t", suites: [], runs: [], stats: null, now: NOW, ago });
     expect(m.look).toEqual([]);
     expect(m.suites).toEqual([]);
-    expect(m.summary).toMatchObject({ wrongResults: 0, spotChecksPassed: 0, savedWeekMs: 0, weekRuns: 0, skippedPct: null, bar: [] });
+    expect(m.summary).toMatchObject({ wrongResults: 0, spotChecksPassed: 0, savedWeekMs: 0, weekRuns: 0, skipped: { checks: 0, pct: null }, bar: [] });
   });
 
   it("a suite without runs: no last run, n/a skipped, links to its test runs", () => {
     const s = { ...sampleTestSuites(NOW)[0], repository: "acme/other", repoSlug: "other" };
     const m = trustModel({ team: "acme", suites: [s], runs, stats: null, now: NOW, ago });
-    expect(m.suites[0]).toMatchObject({ lastRunAt: null, skippedPct: null, savedWeekMs: 0 });
+    expect(m.suites[0]).toMatchObject({ lastRunAt: null, skipped: { checks: 0, pct: null }, savedWeekMs: 0 });
     expect(m.look[0].href).toBe("/acme/other/tests");
   });
 });

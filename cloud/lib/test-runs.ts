@@ -3,7 +3,7 @@
 // language, as on the Trust pages: a skipped file is "skipped (unchanged)",
 // never "replayed". Pure; shared with tests.
 
-import type { TestRunDetail, TestRunSummary, TestStats } from "@/lib/api/types";
+import type { DayMinutes, TestRunDetail, TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatCount } from "@/lib/format";
 
 /**
@@ -140,13 +140,53 @@ export function concernsTestRun(e: Pick<TestRunSummary, "id" | "kind" | "repoSlu
 /** The page of a test run: under its repository, like a CI run. */
 export const testRunHref = (team: string, r: Pick<TestRunSummary, "repoSlug" | "id">) => `/${team}/${r.repoSlug}/tests/${encodeURIComponent(r.id)}`;
 
+/** "% of test files skipped" is over this many of the newest check runs. */
+export const LAST_CHECKS = 20;
+
+/** The share of test files skipped over a set of check runs: the files, added up. */
+export interface SkippedShare {
+  /** Test files skipped (replayed) and in all, summed over the checks. */
+  replayed: number;
+  total: number;
+  /** Check runs counted (at most LAST_CHECKS). */
+  checks: number;
+  /** replayed / total, 0-100; null when there are no files. */
+  pct: number | null;
+}
+
+/**
+ * The share of test files skipped over the newest `n` check runs (kind
+ * "critical"; background recordings never count): sum(replayed) /
+ * sum(total), so a small one-suite run or a first run after a rename moves
+ * it by its size, not as one vote of n. Order-independent: the runs are
+ * sorted newest first here (ties by id).
+ */
+export function skippedShare(runs: Pick<TestRunSummary, "id" | "at" | "kind" | "files">[], n = LAST_CHECKS): SkippedShare {
+  const checks = runs
+    .filter((r) => r.kind === "critical" && r.files.total > 0)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, n);
+  const replayed = checks.reduce((a, r) => a + Math.min(r.files.replayed, r.files.total), 0);
+  const total = checks.reduce((a, r) => a + r.files.total, 0);
+  return { replayed, total, checks: checks.length, pct: total > 0 ? (replayed / total) * 100 : null };
+}
+
+/** "86%", or "n/a" without checks. */
+export const shareText = (s: Pick<SkippedShare, "pct">) => (s.pct === null ? "n/a" : `${Math.round(s.pct)}%`);
+
+/** The tooltip: "1,234 of 1,450 files across 20 checks". */
+export function shareTitle(s: SkippedShare): string {
+  if (s.checks === 0) return "No check runs yet";
+  return `${formatCount(s.replayed)} of ${formatCount(s.total)} files across ${plural(s.checks, "check")}`;
+}
+
 /** A repository's test-level numbers for the Overview's Repositories card. */
 export interface RepoTests {
-  /** Critical runs in the last 7 days: test files skipped (replayed) and in all. */
-  skipped: number;
-  total: number;
-  /** savedMs of those runs. */
+  /** Test files skipped over the repository's last LAST_CHECKS check runs (skippedShare). */
+  skipped: SkippedShare;
+  /** savedMs of its check runs in the last 7 days. */
   savedMs: number;
+  /** Check runs in the last 7 days. */
   runs: number;
   /** The newest run (critical or not, any age). */
   last: Pick<TestRunSummary, "id" | "repoSlug" | "at" | "exit"> | null;
@@ -159,22 +199,61 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * (owner/name), for matching to the repo list by full name, never by slug.
  */
 export function testsByRepo(runs: TestRunSummary[], now: number): Record<string, RepoTests> {
-  const out: Record<string, RepoTests> = {};
+  const byRepo = new Map<string, TestRunSummary[]>();
   for (const r of runs) {
     const key = r.repository.toLowerCase();
-    const t = (out[key] ??= { skipped: 0, total: 0, savedMs: 0, runs: 0, last: null });
-    const at = Date.parse(r.at);
-    if (!t.last || at > Date.parse(t.last.at)) t.last = { id: r.id, repoSlug: r.repoSlug, at: r.at, exit: r.exit };
-    if (r.kind !== "critical" || !(at <= now && now - at <= WEEK_MS)) continue;
-    t.skipped += r.files.replayed;
-    t.total += r.files.total;
-    t.savedMs += r.timing.savedMs ?? 0;
-    t.runs++;
+    byRepo.set(key, [...(byRepo.get(key) ?? []), r]);
+  }
+  const out: Record<string, RepoTests> = {};
+  for (const [key, own] of byRepo) {
+    let last: RepoTests["last"] = null;
+    let savedMs = 0;
+    let week = 0;
+    for (const r of own) {
+      const at = Date.parse(r.at);
+      if (!last || at > Date.parse(last.at)) last = { id: r.id, repoSlug: r.repoSlug, at: r.at, exit: r.exit };
+      if (r.kind !== "critical" || !(at <= now && now - at <= WEEK_MS)) continue;
+      savedMs += r.timing.savedMs ?? 0;
+      week++;
+    }
+    out[key] = { skipped: skippedShare(own), savedMs, runs: week, last };
   }
   return out;
 }
 
-/** "184 of 196, last 7 days", or "No runs in the last 7 days". */
-export function repoSkippedNote(t: Pick<RepoTests, "skipped" | "total">): string {
-  return t.total > 0 ? `${formatCount(t.skipped)} of ${formatCount(t.total)}, last 7 days` : "No runs in the last 7 days";
+/** "1,234 of 1,450 files, last 20 checks", or "No checks yet". */
+export function repoSkippedNote(s: SkippedShare): string {
+  return s.checks > 0 ? `${formatCount(s.replayed)} of ${formatCount(s.total)} files, last ${plural(s.checks, "check")}` : "No checks yet";
+}
+
+/** The last `n` UTC days up to and including `now`'s, oldest first: "2026-10-27" ... "2026-11-02". */
+export function lastUtcDays(n: number, now: number): string[] {
+  const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+  return Array.from({ length: n }, (_, i) => new Date(today - (n - 1 - i) * 86_400_000).toISOString().slice(0, 10));
+}
+
+/** A check run's own running time: its wall time, or (not reported) the ran files' recorded time, estPlainMs − savedMs. */
+export function ranMs(r: Pick<TestRunSummary, "timing">): number {
+  const { wallMs, estPlainMs, savedMs } = r.timing;
+  if (wallMs !== null) return Math.max(0, wallMs);
+  if (estPlainMs !== null) return Math.max(0, estPlainMs - (savedMs ?? 0));
+  return 0;
+}
+
+/**
+ * The Overview's "CI minutes per day" from test runs: per UTC day of `days`,
+ * check runs only (background recordings never count), saved = sum of
+ * timing.savedMs (an estimate, shown "≈ saved"), ran = ranMs. Minutes are not
+ * rounded here: test runs are seconds, and the chart formats them.
+ */
+export function testMinutesPerDay(runs: Pick<TestRunSummary, "kind" | "at" | "timing">[], days: string[]): DayMinutes[] {
+  const by = new Map(days.map((d) => [d, { day: d, replayedMinutes: 0, ranMinutes: 0 }]));
+  for (const r of runs) {
+    if (r.kind !== "critical") continue;
+    const d = by.get(new Date(r.at).toISOString().slice(0, 10));
+    if (!d) continue;
+    d.replayedMinutes += (r.timing.savedMs ?? 0) / 60_000;
+    d.ranMinutes += ranMs(r) / 60_000;
+  }
+  return days.map((d) => by.get(d)!);
 }

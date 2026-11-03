@@ -6,11 +6,12 @@
 // server (trustModel in lib/test-suites.ts); this only filters and expands.
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 import { EmptyState } from "@/components/ui";
 import type { TestFile, TestFileState } from "@/lib/api/types";
 import { formatAgo, formatCount } from "@/lib/format";
-import { formatSaved, SAVED_EXPLAINED } from "@/lib/test-runs";
+import { formatSaved, LAST_CHECKS, SAVED_EXPLAINED, shareText, shareTitle } from "@/lib/test-runs";
 import {
   type BarSegment,
   FILE_LEGEND,
@@ -19,8 +20,6 @@ import {
   lastResultText,
   matchesFilter,
   MAX_FILES,
-  MEDIAN_OF,
-  pctText,
   type StateFilter,
   type SuiteRow,
   type TrustModel,
@@ -62,9 +61,13 @@ function Summary({ s }: { s: TrustModel["summary"] }) {
         </span>
       </div>
       <div>
-        <span className="label">Test files skipped</span>
-        <span className="value tnum">{pctText(s.skippedPct)}</span>
-        <span className="note">median of the last {MEDIAN_OF} runs</span>
+        <span className="label">Skipped</span>
+        <span className="value tnum" title={shareTitle(s.skipped)}>
+          {shareText(s.skipped)}
+        </span>
+        <span className="note" title={shareTitle(s.skipped)}>
+          of test files skipped, last {LAST_CHECKS} checks
+        </span>
       </div>
       <div style={{ gap: 8 }}>
         <span className="label">{formatCount(s.totals.files)} test files</span>
@@ -174,9 +177,9 @@ function Suite({ s, asOf, files, active, open, onToggle, showAll, onShowAll }: {
             {active ? ` · ${formatCount(files.length)} match` : ""}
           </span>
         </span>
-        <span className="tnum" style={{ fontSize: 14 }}>
+        <span className="tnum" style={{ fontSize: 14 }} title={shareTitle(s.skipped)}>
           <span className="label-sm">Skipped </span>
-          {pctText(s.skippedPct)}
+          {shareText(s.skipped)}
         </span>
         <span className="muted">
           <span className="label-sm">Last run </span>
@@ -283,7 +286,7 @@ export function TrustCompact({ model, asOf }: { model: TrustModel; asOf: string 
             <div className="suite-head suite-grid" aria-hidden="true">
               <span>Suite</span>
               <span>Files</span>
-              <span title={`Median share of test files skipped over the suite's last ${MEDIAN_OF} runs`}>
+              <span title={`Share of test files skipped over the suite's last ${LAST_CHECKS} checks (files added up)`}>
                 Skipped
               </span>
               <span>Last run</span>
@@ -314,6 +317,35 @@ export function TrustCompact({ model, asOf }: { model: TrustModel; asOf: string 
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * The test files could not be read (server down, timeout, a proxy's 404, no
+ * session): say so and offer a retry, never the empty state. Retry re-runs
+ * the page's server reads (router.refresh, which bypasses the client cache).
+ */
+export function TestsLoadError({ detail }: { detail?: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <section className="card" role="alert">
+      <EmptyState
+        title="Couldn't load test files"
+        action={
+          <button type="button" className="btn" onClick={() => start(() => router.refresh())} disabled={pending} aria-busy={pending}>
+            {pending ? "Retrying…" : "Retry"}
+          </button>
+        }
+      >
+        Quod&apos;s server didn&apos;t answer just now, so your test files can&apos;t be shown. Nothing was lost; try again in a moment.
+        {detail ? (
+          <span className="faint" style={{ display: "block", fontSize: 12, marginTop: 8 }}>
+            {detail}
+          </span>
+        ) : null}
+      </EmptyState>
+    </section>
   );
 }
 

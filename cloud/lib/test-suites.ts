@@ -4,9 +4,10 @@
 // skipping, always runs, paused. Pure; shared with tests.
 
 import type { TestFile, TestFileState, TestRunSummary, TestStats, TestSuite } from "@/lib/api/types";
+import type { Section } from "@/lib/api/section";
 import type { Tone } from "@/lib/trust";
 import { formatCount } from "@/lib/format";
-import { formatSaved, spotChecksWithinWeek, testRunHref } from "@/lib/test-runs";
+import { formatSaved, type SkippedShare, skippedShare, spotChecksWithinWeek, testRunHref } from "@/lib/test-runs";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
@@ -119,6 +120,26 @@ export function testFilesLine(suites: TestSuite[] | null): string | null {
 }
 
 
+/**
+ * What the Trust page's test part shows, from how /test-suites and
+ * /test-runs answered:
+ * - "error": either failed (down, timeout, a bare 404, no session): "Couldn't
+ *   load test files" with Retry, never the empty state.
+ * - "suites" / "runs": data.
+ * - "empty": BOTH answered 200 with nothing (the only way to the empty state).
+ * - "not-available": an older server (quod.v1 404 or 501) on either, and no
+ *   data from the other: hidden, as before (a card when nothing else shows).
+ */
+export type TestsView = { kind: "error"; message: string } | { kind: "suites" } | { kind: "runs" } | { kind: "empty" } | { kind: "not-available" };
+
+export function testsView(suites: Section<TestSuite[] | null>, runs: Section<TestRunSummary[] | null>): TestsView {
+  for (const s of [suites, runs]) if (!s.ok && s.kind === "unavailable") return { kind: "error", message: s.message };
+  if (suites.ok && suites.value?.some((s) => s.files.length > 0 || s.totals.files > 0)) return { kind: "suites" };
+  if (runs.ok && runs.value?.length) return { kind: "runs" };
+  if (suites.ok && suites.value !== null && runs.ok && runs.value !== null) return { kind: "empty" };
+  return { kind: "not-available" };
+}
+
 /** Which sections the Trust page shows, top to bottom. */
 export interface TrustSections {
   /** Test files per suite (test-first). */
@@ -153,9 +174,6 @@ export const BAR_ORDER = ["learning", "ready", "skipping", "always", "paused"] a
 
 /** An expanded suite lists at most this many files until "Show all". */
 export const MAX_FILES = 8;
-
-/** "% skipped" is the median over this many of the newest critical runs. */
-export const MEDIAN_OF = 20;
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -196,25 +214,6 @@ export function filterCounts(files: Pick<TestFile, "file" | "state">[], query = 
   for (const f of files) for (const { key } of FILTERS) if (matchesFilter(f, key, query)) out[key]++;
   return out;
 }
-
-function median(xs: number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-/** The median share (0-100) of test files skipped over the newest `n` critical runs (runs come newest first); null when there are none. */
-export function medianSkippedPct(runs: Pick<TestRunSummary, "kind" | "files">[], n = MEDIAN_OF): number | null {
-  const pcts = runs
-    .filter((r) => r.kind === "critical" && r.files.total > 0)
-    .slice(0, n)
-    .map((r) => (r.files.replayed / r.files.total) * 100);
-  return median(pcts);
-}
-
-/** "93%", or "n/a" when there are no runs. */
-export const pctText = (p: number | null) => (p === null ? "n/a" : `${Math.round(p)}%`);
 
 function normSuite(s: string): string {
   const t = s.trim().replace(/^\.\/+/, "").replace(/\/+$/, "");
@@ -315,7 +314,8 @@ export interface SuiteRow {
   totals: TestSuite["totals"];
   bar: BarSegment[];
   summary: string;
-  skippedPct: number | null;
+  /** Test files skipped over the last LAST_CHECKS check runs (skippedShare). */
+  skipped: SkippedShare;
   lastRunAt: string | null;
   savedWeekMs: number;
   /** Listed files, sorted (sortFiles). */
@@ -331,7 +331,8 @@ export interface TrustSummary {
   spotChecksWindow: "week" | "all";
   savedWeekMs: number;
   weekRuns: number;
-  skippedPct: number | null;
+  /** Test files skipped over the last LAST_CHECKS check runs (skippedShare). */
+  skipped: SkippedShare;
   totals: FileCounts & { files: number };
   bar: BarSegment[];
 }
@@ -366,7 +367,7 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
     spotChecksWindow: spotFromRuns ? "week" : "all",
     savedWeekMs: stats ? stats.week.savedMs : week.savedMs,
     weekRuns: stats ? stats.week.runs : week.runs,
-    skippedPct: medianSkippedPct(runs),
+    skipped: skippedShare(runs),
     totals,
     bar: barSegments(totals),
   };
@@ -398,7 +399,7 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
       totals: s.totals,
       bar: barSegments(s.totals),
       summary: suiteRowSummary(s.totals),
-      skippedPct: medianSkippedPct(own),
+      skipped: skippedShare(own),
       lastRunAt: own[0]?.at ?? null,
       savedWeekMs: savedWithinWeek(own, now).savedMs,
       files,

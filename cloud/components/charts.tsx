@@ -1,5 +1,6 @@
 import type { DayMinutes, RunTimePoint } from "@/lib/api/types";
 import { formatCount, formatDay, formatDuration } from "@/lib/format";
+import { formatSaved, formatSavedMs } from "@/lib/test-runs";
 
 // Charts are plain HTML: every bar is focusable and has its value as its
 // accessible name, the tooltip shows on hover and on keyboard focus, and the
@@ -8,20 +9,32 @@ import { formatCount, formatDay, formatDuration } from "@/lib/format";
 // Tooltips near the ends open inward so they stay on screen.
 const edge = (i: number, n: number) => (i < n / 3 ? "edge-l" : i >= (2 * n) / 3 ? "edge-r" : "");
 
-export function MinutesChart({ days, from }: { days: DayMinutes[]; from: string }) {
-  const max = Math.max(1, ...days.map((d) => d.replayedMinutes + d.ranMinutes));
+/**
+ * CI time per day, saved and ran. `source: "tests"` (from test check runs,
+ * lib/test-runs.ts testMinutesPerDay): times are seconds to minutes, shown
+ * with formatSavedMs, and saved is an estimate ("≈ saved"). The table shows
+ * the same values as the bars.
+ */
+export function MinutesChart({ days, from, source = "steps" }: { days: DayMinutes[]; from: string; source?: "steps" | "tests" }) {
+  const tests = source === "tests";
+  // Minimum scale: a whole minute for steps; for tests, the largest day (seconds count).
+  const max = Math.max(tests ? Number.EPSILON : 1, ...days.map((d) => d.replayedMinutes + d.ranMinutes));
   const pct = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
+  const t = (min: number) => (tests ? formatSavedMs(min * 60_000) : `${formatCount(min)} min`);
+  const saved = (min: number) => (tests ? formatSaved(min * 60_000) : `${formatCount(min)} min`);
   return (
     <>
-      <ol className={`chart ${days.length > 40 ? "dense" : ""}`} aria-label="CI minutes per day, replayed and ran">
+      <ol className={`chart ${days.length > 40 ? "dense" : ""}`} aria-label={tests ? "Test time per day, saved (estimated) and ran" : "CI minutes per day, replayed and ran"}>
         {days.map((d, i) => {
-          const label = `${formatDay(d.day)}: ${formatCount(d.replayedMinutes)} minutes replayed (saved), ${formatCount(d.ranMinutes)} minutes ran`;
+          const label = tests
+            ? `${formatDay(d.day)}: ${saved(d.replayedMinutes)} saved (estimated), ${t(d.ranMinutes)} ran`
+            : `${formatDay(d.day)}: ${formatCount(d.replayedMinutes)} minutes replayed (saved), ${formatCount(d.ranMinutes)} minutes ran`;
           return (
             <li key={d.day} className={`bar ${edge(i, days.length)}`} tabIndex={0} aria-label={label}>
               <span className="tip" aria-hidden="true">
                 <strong>{formatDay(d.day)}</strong>
                 <br />
-                Saved {formatCount(d.replayedMinutes)} min, ran {formatCount(d.ranMinutes)} min
+                Saved {saved(d.replayedMinutes)}, ran {t(d.ranMinutes)}
               </span>
               <span className="seg-blue" style={{ height: pct(d.replayedMinutes) }} />
               <span className="seg-ran" style={{ height: pct(d.ranMinutes) }} />
@@ -37,20 +50,20 @@ export function MinutesChart({ days, from }: { days: DayMinutes[]; from: string 
         <summary>Show the numbers</summary>
         <div className="scroll">
           <table>
-            <caption className="sr-only">CI minutes per day</caption>
+            <caption className="sr-only">{tests ? "Test check time per day" : "CI minutes per day"}</caption>
             <thead>
               <tr>
                 <th scope="col">Day</th>
-                <th scope="col">Replayed (saved), min</th>
-                <th scope="col">Ran, min</th>
+                <th scope="col">{tests ? "≈ Saved" : "Replayed (saved), min"}</th>
+                <th scope="col">{tests ? "Ran" : "Ran, min"}</th>
               </tr>
             </thead>
             <tbody>
               {[...days].reverse().map((d) => (
                 <tr key={d.day}>
                   <td>{formatDay(d.day)}</td>
-                  <td>{formatCount(d.replayedMinutes)}</td>
-                  <td>{formatCount(d.ranMinutes)}</td>
+                  <td>{tests ? saved(d.replayedMinutes) : formatCount(d.replayedMinutes)}</td>
+                  <td>{tests ? t(d.ranMinutes) : formatCount(d.ranMinutes)}</td>
                 </tr>
               ))}
             </tbody>

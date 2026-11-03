@@ -23,7 +23,8 @@ describe("Trust, compact", () => {
     expect(t).toContain("Wrong results 0");
     expect(t).toMatch(/\d+ spot-checks passed/);
     expect(t).toContain("Time saved, 7 days");
-    expect(t).toContain("median of the last 20 runs");
+    expect(t).toContain("of test files skipped, last 20 checks");
+    expect(html).toMatch(/title="[0-9,]+ of [0-9,]+ files across 20 checks"/);
     expect(t).toContain("296 test files");
     expect(t).toContain("10 learning");
     expect(t).toContain("265 skipping");

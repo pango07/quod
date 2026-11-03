@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Chip, Dot } from "@/components/ui";
 import type { TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatAgo, formatCount, shortSha } from "@/lib/format";
-import { exitLabel, formatSaved, kindLabel, KIND_EXPLAINED, SAVED_EXPLAINED, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
+import { exitLabel, formatSaved, kindLabel, KIND_EXPLAINED, LAST_CHECKS, SAVED_EXPLAINED, shareText, shareTitle, type SkippedShare, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
 
 /** One line per run: headline numbers, branch and commit, when. */
 export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; runs: TestRunSummary[]; asOf: string; showRepo?: boolean }) {
@@ -86,24 +86,26 @@ export function TestStatsCard({
   stats,
   filesLine,
   spotChecksWeek,
+  skippedLast,
 }: {
   team: string;
   stats: TestStats;
   filesLine?: string | null;
   /** Spot-checks over the last 7 days (from /test-runs); without it, the stats' all-time count, labelled so. */
   spotChecksWeek?: { checked: number; mismatched: number } | null;
+  /** Test files skipped over the team's last LAST_CHECKS check runs (from /test-runs); without it, the stats' week. */
+  skippedLast?: SkippedShare | null;
 }) {
   const skipped = weekSkipped(stats);
   const wrong = stats.wrongResults;
   const recent = stats.recent.slice(0, 5);
+  const why = "Skipped because nothing they depend on changed since a recorded run; their earlier result was reused.";
   const rows: [string, string, string?][] = [
     ["Time saved today", formatSaved(stats.today.savedMs), SAVED_EXPLAINED],
     ["Time saved this week", formatSaved(stats.week.savedMs), SAVED_EXPLAINED],
-    [
-      "Test files skipped this week",
-      skipped ? `${skipped} (${formatCount(stats.week.filesSkipped)} of ${formatCount(stats.week.filesTotal)})` : "None yet",
-      "Skipped because nothing they depend on changed since a recorded run; their earlier result was reused.",
-    ],
+    skippedLast
+      ? [`Test files skipped, last ${LAST_CHECKS} checks`, skippedLast.checks ? shareText(skippedLast) : "None yet", `${shareTitle(skippedLast)}. ${why}`]
+      : ["Test files skipped this week", skipped ? `${skipped} (${formatCount(stats.week.filesSkipped)} of ${formatCount(stats.week.filesTotal)})` : "None yet", why],
     ["Wrong results", formatCount(wrong), "Spot-checks that found a skipped file would have given a different result if it had run. This should be 0."],
     spotChecksWeek
       ? [
