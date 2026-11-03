@@ -177,7 +177,13 @@ const covFingerprint = () => {
     } catch {}
     // processingConcurrency is the machine's CPU count: how fast the report
     // is made, not what it says.
+    // The include and exclude globs as sets: vitest assembles exclude from
+    // the projects in an order that varies run to run (pinia), and a glob
+    // list's order does not change what it matches.
     const { processingConcurrency, ...opts } = ctx.config.coverage ?? {}
+    for (const k of ['include', 'exclude']) {
+      if (Array.isArray(opts[k])) opts[k] = [...new Set(opts[k].map((x) => (typeof x === 'string' ? x : JSON.stringify(x))))].sort()
+    }
     const text = JSON.stringify({ v: 1, provider: p?.name ?? null, ver, vitest: vitestPkg.version, root: ctx.config.root, opts }, (k, v) =>
       typeof v === 'function' ? `fn:${v.toString()}` : v instanceof RegExp ? `re:${v}` : v,
     )
