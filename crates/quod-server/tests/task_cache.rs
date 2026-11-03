@@ -291,11 +291,17 @@ fn k7_turbo_status_events_query_head() {
     let big = vec![b' '; 4 << 20];
     let unauth = ureq::post(&format!("{}/v8/artifacts", s.url)).send_bytes(&big);
     assert!(
-        matches!(unauth, Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Transport(_))),
+        matches!(
+            unauth,
+            Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Transport(_))
+        ),
         "{unauth:?}"
     );
     let over = vec![b' '; 80 << 10];
-    assert_eq!(call(&s, "POST", "/v8/artifacts", Some(&main), Some(&over), &[]).0, 400);
+    assert_eq!(
+        call(&s, "POST", "/v8/artifacts", Some(&main), Some(&over), &[]).0,
+        400
+    );
 }
 
 #[test]
