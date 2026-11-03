@@ -1581,7 +1581,8 @@ fn state(
             }),
             None,
         ),
-        "envall" => (envall.get_or_init(env_all).clone(), None),
+        "envall" => (envall.get_or_init(|| env_all(false)).clone(), None),
+        "envtool" => (env_all(true), None),
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
         "r" => (listing(&path(), true), None),
@@ -1897,8 +1898,9 @@ fn keyed_args(args: &[String]) -> Vec<String> {
     out
 }
 
-/// Every environment variable but the per-run and per-step ones.
-fn env_all() -> String {
+/// Every environment variable but the per-run and per-step ones; for the
+/// tools' own enumeration (`envtool:`), also but the CI provider's.
+fn env_all(tools: bool) -> String {
     let mut vars: Vec<(String, String)> = std::env::vars_os()
         .map(|(k, v)| {
             (
@@ -1906,7 +1908,7 @@ fn env_all() -> String {
                 v.to_string_lossy().into_owned(),
             )
         })
-        .filter(|(k, _)| !volatile_env(k))
+        .filter(|(k, _)| !volatile_env(k) && !(tools && ci_varying(k)))
         .collect();
     vars.sort();
     let mut h = blake3::Hasher::new();
@@ -1917,6 +1919,19 @@ fn env_all() -> String {
         h.update(b"\0");
     }
     h.finalize().to_hex().to_string()
+}
+
+/// What a CI provider sets per branch, event, runner or job (GitHub's
+/// `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`), as record.mjs's `ciVarying`. vitest
+/// and vite copy the whole environment to the workers (`envtool:`): these
+/// names are left out of that copy's key, and of a read by their own code,
+/// so a recording made on a push replays on a pull request. A read by any
+/// other code (the config, a plugin, a test) is an `env:` key like any
+/// other. `CI` is not one of them: vitest reads it (allowOnly, snapshots).
+fn ci_varying(name: &str) -> bool {
+    ["GITHUB_", "RUNNER_", "ACTIONS_"]
+        .iter()
+        .any(|p| name.starts_with(p))
 }
 
 /// A per-run or per-step CI variable, or Quod's own.

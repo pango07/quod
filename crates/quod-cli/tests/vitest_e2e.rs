@@ -39,12 +39,17 @@ struct Project {
     dir: PathBuf,
     path: String,
     node: PathBuf,
+    /// Set for every command (the CI provider's variables of a run).
+    env: Vec<(&'static str, &'static str)>,
 }
 
 impl Project {
     fn cmd(&self, prog: &Path) -> Command {
         let mut c = Command::new(prog);
         c.current_dir(&self.dir).env("PATH", &self.path);
+        for (k, v) in &self.env {
+            c.env(k, v);
+        }
         c
     }
 
@@ -119,8 +124,8 @@ fn edit(dir: &Path, file: &str, from: &str, to: &str) {
     fs::write(&p, s.replace(from, to)).unwrap();
 }
 
-#[test]
-fn records_replays_and_narrows_a_real_vitest_project() {
+/// The fixture, installed, in a temp dir; None (skipped) without node.
+fn project(t: &tempfile::TempDir) -> Option<Project> {
     let Some(node) = node_bin() else {
         // On CI the gate installs node: a skip there would hide the test.
         assert!(
@@ -128,9 +133,8 @@ fn records_replays_and_narrows_a_real_vitest_project() {
             "no node/npm on CI"
         );
         eprintln!("no node/npm: skipped");
-        return;
+        return None;
     };
-    let t = tempfile::tempdir().unwrap();
     let dir = t.path().join("p");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/vitest-e2e");
     copy_dir(&fixture, &dir);
@@ -139,13 +143,27 @@ fn records_replays_and_narrows_a_real_vitest_project() {
         node.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let p = Project { dir, path, node };
+    let p = Project {
+        dir,
+        path,
+        node,
+        env: Vec::new(),
+    };
     let ci = p
         .cmd(&p.node.join("npm"))
         .args(["ci", "--no-audit", "--no-fund", "--loglevel=error"])
         .status()
         .unwrap();
     assert!(ci.success(), "npm ci failed");
+    Some(p)
+}
+
+#[test]
+fn records_replays_and_narrows_a_real_vitest_project() {
+    let t = tempfile::tempdir().unwrap();
+    let Some(p) = project(&t) else {
+        return;
+    };
 
     // 1. Nothing recorded yet: every file runs and is recorded.
     let (plain, quod, s) = p.run(1);
@@ -174,4 +192,58 @@ fn records_replays_and_narrows_a_real_vitest_project() {
     let (plain, quod, s) = p.run(4);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert!(s["ran"].as_u64().unwrap() >= 1, "{s}");
+}
+
+#[test]
+fn a_branch_variable_counts_only_for_the_test_that_reads_it() {
+    // vitest copies the whole environment to its workers; GitHub sets
+    // GITHUB_REF, GITHUB_EVENT_NAME, ... per branch and event. A recording
+    // made on a push replays on a pull request, but for the test file that
+    // reads GITHUB_REF itself: that one runs again.
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    fs::write(
+        p.dir.join("test/ref.test.ts"),
+        "import { expect, test } from 'vitest'\n\
+         test('reads the ref', () => {\n  \
+         expect(process.env.GITHUB_REF?.startsWith('refs/')).toBe(true)\n})\n",
+    )
+    .unwrap();
+    let pr = vec![
+        ("GITHUB_REF", "refs/pull/7/merge"),
+        ("GITHUB_REF_NAME", "7/merge"),
+        ("GITHUB_EVENT_NAME", "pull_request"),
+        ("GITHUB_HEAD_REF", "feature/x"),
+        ("GITHUB_BASE_REF", "dev"),
+    ];
+    p.env = vec![
+        ("GITHUB_REF", "refs/heads/dev"),
+        ("GITHUB_REF_NAME", "dev"),
+        ("GITHUB_EVENT_NAME", "push"),
+        ("GITHUB_HEAD_REF", ""),
+        ("GITHUB_BASE_REF", ""),
+    ];
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["recorded_files"], 4, "{s}");
+
+    p.env = pr.clone();
+    let (plain, quod, s) = p.run(2);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 1, "only ref.test.ts reads GITHUB_REF: {s}");
+    assert_eq!(s["replayed"], 3, "{s}");
+
+    // Recorded again on the pull request: everything replays there.
+    let (plain, quod, s) = p.run(3);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 0, "{s}");
+    assert_eq!(s["replayed"], 4, "{s}");
+
+    // Any other variable still counts for every file (CI is vitest's own).
+    p.env = pr.into_iter().chain([("CI", "1")]).collect();
+    let (plain, quod, s) = p.run(4);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 4, "{s}");
 }

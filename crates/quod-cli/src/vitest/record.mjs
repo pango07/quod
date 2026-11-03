@@ -127,6 +127,18 @@ export function resolverCaller(stack = new Error().stack) {
   return false
 }
 
+// resolverCaller with a deep enough stack: node's own frames (a spawn's
+// argument handling) can come between the trap and the tool's call.
+function toolCaller() {
+  const limit = Error.stackTraceLimit
+  Error.stackTraceLimit = 64
+  try {
+    return resolverCaller(new Error().stack)
+  } finally {
+    Error.stackTraceLimit = limit
+  }
+}
+
 function callerFrame(stack = new Error().stack) {
   for (const l of (stack ?? '').split('\n').slice(1)) {
     if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
@@ -246,10 +258,22 @@ export function patchFs(r) {
   } catch {}
 }
 
+// What a CI provider sets per branch, event, runner or job (as vitest.rs's
+// `ci_varying`). vitest and vite read the environment for themselves (they
+// copy all of it to the workers, pick reporters, find the CI): those reads
+// of these names are not inputs of the tests, so a recording made on a push
+// replays on a pull request. Any other code that reads one (the config, a
+// plugin, a test, a library it loads) keys it like any variable. `CI`
+// is not one of them: vitest's behaviour depends on it (allowOnly,
+// snapshot updates).
+export const ciVarying = (k) => typeof k === 'string' && /^(GITHUB|RUNNER|ACTIONS)_/.test(k)
+
 export function patchEnv(r) {
   const target = process.env
   const rec = (k) => {
-    if (typeof k === 'string') r.keys.add(`env:${k}`)
+    if (typeof k !== 'string') return
+    if (ciVarying(k) && toolCaller()) return
+    r.keys.add(`env:${k}`)
   }
   const proxy = new Proxy(target, {
     get(t, k) {
@@ -265,7 +289,7 @@ export function patchEnv(r) {
       return Reflect.getOwnPropertyDescriptor(t, k)
     },
     ownKeys(t) {
-      if (r.on) r.keys.add('envall:')
+      if (r.on) r.keys.add(toolCaller() ? 'envtool:' : 'envall:')
       return Reflect.ownKeys(t)
     },
   })
