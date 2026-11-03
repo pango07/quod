@@ -325,16 +325,18 @@ fn a_config_reading_package_json_straight_is_keyed_by_the_fields_it_read() {
          export default { test: { env: { PKG_PRIVATE: String(pkg.private) } } }\n",
     )
     .unwrap();
-    let (plain, quod, s) = p.run(1);
-    assert_eq!(outcomes(&plain), outcomes(&quod));
-    assert_eq!(s["recorded_files"], 3, "{s}");
-
+    // (its names count too: a version field from the start)
     edit(
         &p.dir,
         "package.json",
         "\"private\": true,",
-        "\"private\": true,\n  \"version\": \"1.0.1\",",
+        "\"private\": true,\n  \"version\": \"1.0.0\",",
     );
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["recorded_files"], 3, "{s}");
+
+    edit(&p.dir, "package.json", "\"1.0.0\"", "\"1.0.1\"");
     let (plain, quod, s) = p.run(2);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 0, "a version bump: {s}");
