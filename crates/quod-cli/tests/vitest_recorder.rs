@@ -27,7 +27,10 @@ fn a_plugin_reading_package_json_keeps_it_whole() {
     );
     let reader = "const fs = require('node:fs');\nmodule.exports = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));\n";
     write(&root.join("node_modules/vite/dist/resolve.cjs"), reader);
-    write(&root.join("node_modules/vite-plugin-version/index.cjs"), reader);
+    write(
+        &root.join("node_modules/vite-plugin-version/index.cjs"),
+        reader,
+    );
     let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
     let script = format!(
         r#"
@@ -59,4 +62,41 @@ console.log(JSON.stringify({{ resolver: pjOnly(resolver), plugin: pjOnly([...r.k
     let pj = root.join("package.json").display().to_string();
     assert_eq!(v["resolver"], serde_json::json!([format!("pj:{pj}")]));
     assert_eq!(v["plugin"], serde_json::json!([format!("f:{pj}")]));
+}
+
+#[test]
+fn the_preloaded_tostring_sees_a_reference_cached_before_setup() {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let preload = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/preload.cjs");
+    // A library caches the method at load (before Quod's setup file), the
+    // setup file resets the flag, a test then formats a function's source.
+    let script = r#"
+const fnToString = Function.prototype.toString
+const state = globalThis.__quod_toString
+state.used = false
+const name = fnToString.call(() => false)
+const native = Function.prototype.toString.call(Function.prototype.toString)
+console.log(JSON.stringify({ used: state.used, name, native }))
+"#;
+    let s = t.path().join("t.cjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node")
+        .arg("--require")
+        .arg(&preload)
+        .arg(&s)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["used"], true);
+    assert_eq!(v["name"], "() => false");
+    assert_eq!(v["native"], "function toString() { [native code] }");
 }

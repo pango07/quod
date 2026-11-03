@@ -7,8 +7,8 @@
 // granularity, binary: executed or not). Nothing it does is observable to
 // the test: the source is not touched (instrumenting it changed function
 // source text and test names), only the inspector watches.
-// Function.prototype.toString is wrapped to notice a test reading source
-// (no narrowing for that file); the wrapper reads as the native one.
+// Function.prototype.toString is wrapped (preload.cjs, before any module
+// loads) to notice a test reading source: no narrowing for that file.
 // Its record is written when the worker is torn down, after the file's
 // last hook.
 //
@@ -55,15 +55,10 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
       // Precise (never best effort, which can drop an executed function),
       // function granularity, binary counts: the cheapest exact mode.
       await post(session, 'Profiler.startPreciseCoverage', { callCount: false, detailed: false })
-      const fts = Function.prototype.toString
-      const wrapped = {
-        toString() {
-          if (this === wrapped) return fts.call(fts)
-          usedToString = true
-          return fts.call(this)
-        },
-      }.toString
-      Object.defineProperty(Function.prototype, 'toString', { value: wrapped, writable: true, configurable: true })
+      // The wrapper is preload.cjs's (installed before anything loaded);
+      // what ran before this file's own code does not count.
+      if (globalThis.__quod_toString) globalThis.__quod_toString.used = false
+      else usedToString = true
     } catch {
       session = null
     }
@@ -91,6 +86,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
       r.on = false
       let cov = null
       let covMs = 0
+      if (globalThis.__quod_toString?.used) usedToString = true
       if (session && !usedToString) {
         const tc = performance.now()
         try {

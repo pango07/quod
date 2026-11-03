@@ -38,6 +38,7 @@ const DRIVER: &str = include_str!("vitest/driver.mjs");
 const SETUP: &str = include_str!("vitest/setup.mjs");
 const RECORD: &str = include_str!("vitest/record.mjs");
 const COVERAGE: &str = include_str!("vitest/coverage.mjs");
+const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 
 /// Bumped when what a key means or what is recorded changes: a ledger of
@@ -194,6 +195,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ("setup.mjs", SETUP),
         ("record.mjs", RECORD),
         ("coverage.mjs", COVERAGE),
+        ("preload.cjs", PRELOAD),
         ("narrow.mjs", NARROW),
     ] {
         let p = code.join(name);

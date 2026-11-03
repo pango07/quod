@@ -93,7 +93,10 @@ for (const p of ctx.projects) {
   const c = p.config
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
   if (ok) {
-    if (record) c.setupFiles = [setupPath, ...c.setupFiles]
+    if (record) {
+      c.setupFiles = [setupPath, ...c.setupFiles]
+      c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
+    }
     recorded.add(p.name)
   } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
 }
@@ -253,6 +256,22 @@ for (const m of endModules) {
       cov = {}
       for (const [f, fns] of Object.entries(d.cov)) {
         if (f !== file.filepath && !d.keys.includes(`f:${f}`) && !d.keys.includes(`e:${f}`)) cov[f] = fns
+      }
+      // Belt and braces: a result (test names, messages, logs) that quotes
+      // the source of a file it reached gets no narrowing for any file.
+      const text = JSON.stringify(file)
+      const snippets = [...text.matchAll(/[^"\\]{0,24}(?:=>|function\b)[^"\\]{0,24}/g)].slice(0, 50).map((m) => m[0].trim()).filter((x) => x.length >= 8)
+      if (snippets.length) {
+        for (const f of Object.keys(cov)) {
+          let src = ''
+          try {
+            src = real.readFileSync(f, 'utf8')
+          } catch {}
+          if (snippets.some((x) => src.includes(x))) {
+            cov = null
+            break
+          }
+        }
       }
     }
   }
