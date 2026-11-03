@@ -90,6 +90,18 @@ pub struct VitestArgs {
     /// that ran (and audits), off the job's critical path.
     #[arg(long)]
     no_record: bool,
+    /// Before installing dependencies: decide from the checkout alone
+    /// (lockfile, package.json files, node, pnpm, the source) whether any
+    /// test file must run. When none must and the last recording rendered
+    /// a full replay, print it (summary, reports, exit code) and write
+    /// `done` to FILE: the job can skip the install. Otherwise write `run`
+    /// (install and run `quod vitest --no-record`). Uncertain means `run`.
+    #[arg(long, value_name = "FILE")]
+    plan: Option<PathBuf>,
+    /// Never emit a rendered full replay; always start vitest. Also
+    /// QUOD_VITEST_NO_FAST=1.
+    #[arg(long)]
+    no_fast: bool,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -118,6 +130,43 @@ struct Ledger {
     args: Vec<String>,
     /// By vitest's task id of the file (its path and project).
     files: BTreeMap<String, Rec>,
+    /// Every test file vitest found at the last record (task ids, sorted).
+    #[serde(default)]
+    all_files: Vec<String>,
+    /// The workspace's paths (not contents) when the last record started;
+    /// empty when they could not be summed (a symlink to a directory).
+    #[serde(default)]
+    tree: String,
+    /// What a frozen install depends on (lockfile, package.json files, npm
+    /// config, node, pnpm), when the last record ran; empty: unknown.
+    #[serde(default)]
+    install: String,
+    /// A full replay of this ledger as vitest printed and wrote it.
+    #[serde(default)]
+    render: Option<Render>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Render {
+    /// `render_sig` of the ledger it was made from.
+    sig: String,
+    /// vitest's arguments, exactly.
+    args: Vec<String>,
+    /// `code_hash`: the quod that made it.
+    code: String,
+    exit: u8,
+    outputs: Vec<RenderOut>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct RenderOut {
+    /// Under `<dir>/render`.
+    file: String,
+    /// Where the reporter wrote it (relative: under the root).
+    to: String,
+    append: bool,
+    /// The target is this variable's value now (GitHub's step summary).
+    env: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -156,6 +205,10 @@ struct Out {
     audit_mismatch: Vec<String>,
     #[serde(default)]
     timings: BTreeMap<String, f64>,
+    #[serde(default)]
+    all_files: Option<Vec<String>>,
+    #[serde(default)]
+    render: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -201,6 +254,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             fs::write(&p, body)?;
         }
     }
+    let code_dir = code.clone();
     if let Some(m) = &a.absorb {
         return absorb(&root, &dir, &code, m);
     }
@@ -215,6 +269,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .unwrap_or_default();
     ledger.version = LEDGER_VERSION;
     let t_load = t0.elapsed();
+    if let Some(pf) = &a.plan {
+        return plan(&a, pf, &root, &dir, &ledger, full);
+    }
+    let fast_ok = !a.no_fast && std::env::var("QUOD_VITEST_NO_FAST").map_or(true, |v| v != "1");
+    // The paths as this run starts (a record keeps them: the next critical
+    // path compares its own before emitting a rendered full replay).
+    let tree_before = if a.no_record { None } else { Some(walk(&root, &dir)) };
 
     // Every recorded input, hashed once.
     let live = ledger.live();
@@ -385,6 +446,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
+        "workers": if affected.len() > 4 * workers { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
@@ -417,6 +479,44 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         changed.len(),
         t_select.as_millis()
     );
+
+    if a.no_record && fast_ok && affected.is_empty() && replay.len() == ledger.files.len() {
+        let w = walk(&root, &dir);
+        let emitted = node_version(&a.node)
+            .ok_or_else(|| "node --version failed".to_string())
+            .and_then(|node| emit_render(&root, &dir, &ledger, &a.args, &node, &w.hash));
+        match emitted {
+            Ok(code) => {
+                let t = t0.elapsed();
+                eprintln!(
+                    "quod vitest: every file replays; emitted the recorded full replay (no vitest start) in {} ms",
+                    t.as_millis()
+                );
+                let ids: Vec<&String> = ledger.files.keys().collect();
+                let n_ids = ids.len();
+                fs::write(
+                    &out_path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "facts": ledger.facts, "exitCode": code, "interrupted": false, "global": [],
+                        "ran": [], "replayed": ids, "auditMismatch": [], "fast": true,
+                    }))?,
+                )?;
+                if let Some(p) = &a.summary {
+                    let s = serde_json::json!({
+                        "recorded_files": ledger.files.len(), "ran": 0, "replayed": n_ids,
+                        "audited": 0, "audit_mismatches": [], "shared_inputs_changed": false,
+                        "narrowed": narrowed.len(), "narrow": narrow_note, "inputs_hashed": live.len(),
+                        "select_ms": t_select.as_secs_f64() * 1e3,
+                        "vitest_ms": (t - t_select).as_secs_f64() * 1e3,
+                        "record_ms": 0.0, "fast": true, "exit": code,
+                    });
+                    fs::write(p, serde_json::to_vec(&s)?)?;
+                }
+                return Ok(code);
+            }
+            Err(why) => eprintln!("quod vitest: every file replays, but no rendered replay to emit ({why}); starting vitest"),
+        }
+    }
 
     let status = Command::new(&a.node)
         .arg(code.join("driver.mjs"))
@@ -566,6 +666,31 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     ledger.facts = out.facts;
     ledger.args = keyed_args(&a.args);
+    let mut all_files = out.all_files.clone().unwrap_or_default();
+    all_files.sort();
+    ledger.all_files = all_files;
+    let tree = tree_before.unwrap_or_else(|| walk(&root, &dir));
+    ledger.tree = tree.hash.clone();
+    ledger.install = ledger
+        .facts
+        .get("node")
+        .and_then(|n| install_key(&root, &tree, n))
+        .unwrap_or_default();
+    ledger.render = None;
+    let mut render_note = serde_json::Value::Null;
+    if fast_ok && everything_recorded(&ledger) {
+        let tr = Instant::now();
+        match render(&a, &root, &dir, &code_dir, &ledger) {
+            Ok(r) => {
+                render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3 });
+                ledger.render = Some(r);
+            }
+            Err(why) => {
+                eprintln!("quod vitest: no rendered full replay ({why})");
+                render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3, "why": why });
+            }
+        }
+    }
 
     // States: the selection's for keys it hashed, new keys now.
     let live = ledger.live();
@@ -629,6 +754,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "vitest_ms": (t_run - t_select).as_secs_f64() * 1e3,
             "record_ms": (t_done - t_run).as_secs_f64() * 1e3,
             "driver": out.timings,
+            "render": render_note,
             "exit": code,
         });
         fs::write(p, serde_json::to_vec(&s)?)?;
@@ -773,6 +899,445 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
         eprintln!("quod vitest:   + {k}");
     }
     Ok(0)
+}
+
+/// `quod vitest --plan FILE`, before the dependencies are installed: the
+/// selection with every input under the workspace's node_modules taken as
+/// recorded, which holds only when what a frozen install depends on is
+/// what it was at the record (`install_key`). Writes `done` (and emits the
+/// rendered full replay) or `run` to FILE.
+fn plan(
+    a: &VitestArgs,
+    pf: &Path,
+    root: &Path,
+    dir: &Path,
+    ledger: &Ledger,
+    full: bool,
+) -> Result<u8> {
+    let t0 = Instant::now();
+    let verdict = |why: String| -> Result<u8> {
+        fs::write(pf, "run\n")?;
+        eprintln!(
+            "quod vitest --plan: install and run ({why}; {} ms)",
+            t0.elapsed().as_millis()
+        );
+        Ok(0)
+    };
+    if full {
+        return verdict("--full".into());
+    }
+    if a.no_fast || std::env::var("QUOD_VITEST_NO_FAST").is_ok_and(|v| v == "1") {
+        return verdict("--no-fast".into());
+    }
+    if ledger.files.is_empty() || ledger.render.is_none() || ledger.install.is_empty() {
+        return verdict("no recording with a rendered full replay and install inputs".into());
+    }
+    let Some(node) = node_version(&a.node) else {
+        return verdict("node --version failed".into());
+    };
+    let w = walk(root, dir);
+    match install_key(root, &w, &node) {
+        None => return verdict("install inputs unknown (a pnpm lockfile and pnpm are needed)".into()),
+        Some(k) if k != ledger.install => return verdict("install inputs changed".into()),
+        Some(_) => {}
+    }
+    let live = ledger.live();
+    let check: Vec<u32> = live
+        .iter()
+        .copied()
+        .filter(|k| !installed(&ledger.keys[*k as usize]))
+        .collect();
+    let cur = states(root, ledger, &check, None);
+    let now: HashMap<u32, String> = check.iter().copied().zip(cur.into_iter().map(|s| s.0)).collect();
+    let state_now = |k: u32| -> &str { now.get(&k).map_or(ledger.states[k as usize].as_str(), |s| s.as_str()) };
+    if ledger.args != keyed_args(&a.args) {
+        return verdict("other vitest arguments".into());
+    }
+    if let Some(k) = ledger.global.iter().find(|k| state_now(**k) != ledger.states[**k as usize]) {
+        return verdict(format!("shared input changed: {}", ledger.keys[*k as usize]));
+    }
+    for (id, rec) in &ledger.files {
+        if rec.quarantined || !(rec.state == "pass" || rec.state == "skip") {
+            return verdict(format!("{id} must run"));
+        }
+        let moved = rec.deps.iter().find(|d| {
+            let seen = rec.pinned.get(d).unwrap_or(&ledger.states[**d as usize]);
+            state_now(**d) != seen.as_str()
+        });
+        if let Some(d) = moved {
+            return verdict(format!("{} changed ({})", ledger.keys[*d as usize], rec.file));
+        }
+    }
+    match emit_render(root, dir, ledger, &a.args, &node, &w.hash) {
+        Ok(code) => {
+            fs::write(pf, "done\n")?;
+            eprintln!(
+                "quod vitest --plan: every test file replays without installing; emitted the recorded full replay ({} inputs checked, {} ms)",
+                check.len(),
+                t0.elapsed().as_millis()
+            );
+            if let Some(p) = &a.summary {
+                let s = serde_json::json!({
+                    "recorded_files": ledger.files.len(), "ran": 0, "replayed": ledger.files.len(),
+                    "plan": "done", "fast": true, "inputs_hashed": check.len(),
+                    "select_ms": t0.elapsed().as_secs_f64() * 1e3, "vitest_ms": 0.0, "exit": code,
+                });
+                fs::write(p, serde_json::to_vec(&s)?)?;
+            }
+            Ok(code)
+        }
+        Err(why) => verdict(why),
+    }
+}
+
+/// A key the install determines: a path under the workspace's node_modules.
+fn installed(key: &str) -> bool {
+    let Some((_, p)) = key.split_once(':') else {
+        return false;
+    };
+    !p.starts_with('/') && (p.starts_with("node_modules/") || p.contains("/node_modules/"))
+}
+
+/// Every file is recorded and replayable: a full replay can be rendered.
+fn everything_recorded(l: &Ledger) -> bool {
+    !l.all_files.is_empty()
+        && l.all_files.len() == l.files.len()
+        && l.all_files.iter().all(|id| {
+            l.files
+                .get(id)
+                .is_some_and(|r| !r.quarantined && (r.state == "pass" || r.state == "skip"))
+        })
+}
+
+/// The ledger's recorded results, as a render depends on them.
+fn render_sig(l: &Ledger) -> String {
+    let mut h = blake3::Hasher::new();
+    for (id, r) in &l.files {
+        let runs = r.runs.to_string();
+        for x in [id.as_str(), r.project.as_str(), r.result.as_str(), r.state.as_str(), runs.as_str()] {
+            h.update(x.as_bytes());
+            h.update(b"\0");
+        }
+        h.update(b"\n");
+    }
+    for id in &l.all_files {
+        h.update(id.as_bytes());
+        h.update(b"\n");
+    }
+    h.finalize().to_hex().to_string()
+}
+
+/// This quod's driver code and version.
+fn code_hash() -> String {
+    let mut h = blake3::Hasher::new();
+    for s in [DRIVER, SETUP, RECORD, INSTRUMENT, NARROW, env!("CARGO_PKG_VERSION")] {
+        h.update(s.as_bytes());
+        h.update(b"\0");
+    }
+    h.finalize().to_hex()[..16].to_string()
+}
+
+/// `process.platform-process.arch` as node names them.
+fn platform() -> Option<String> {
+    let os = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        _ => return None,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        _ => return None,
+    };
+    Some(format!("{os}-{arch}"))
+}
+
+fn node_version(node: &str) -> Option<String> {
+    let o = Command::new(node).arg("--version").output().ok()?;
+    let v = String::from_utf8(o.stdout).ok()?.trim().to_string();
+    (o.status.success() && v.starts_with('v')).then_some(v)
+}
+
+/// The installed pnpm's version: the `pnpm` on PATH, resolved to its
+/// package (a shim of another package manager is not pnpm: unknown).
+fn pnpm_version() -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    let bin = std::env::split_paths(&path)
+        .map(|d| d.join("pnpm"))
+        .find(|p| p.is_file())?;
+    let mut d = fs::canonicalize(bin).ok()?;
+    for _ in 0..6 {
+        d = d.parent()?.to_path_buf();
+        if let Ok(b) = fs::read(d.join("package.json")) {
+            let v: serde_json::Value = serde_json::from_slice(&b).ok()?;
+            return (v["name"] == "pnpm").then(|| v["version"].as_str().map(String::from))?;
+        }
+    }
+    None
+}
+
+/// The workspace's paths: every name under the root but node_modules,
+/// .git and the ledger's own directory, with its type (a link with its
+/// target). What vitest's glob for test files can see, so the same sum
+/// means the same test files. A symlink to a directory leaves it unsummed.
+struct Walk {
+    hash: String,
+    /// The files a package manager's install depends on.
+    install: Vec<PathBuf>,
+}
+
+const INSTALL_FILES: &[&str] = &[
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    ".npmrc",
+    ".pnpmfile.cjs",
+    ".pnpmfile.mjs",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "yarn.lock",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bun.lock",
+    "bun.lockb",
+];
+
+fn walk(root: &Path, dir: &Path) -> Walk {
+    let mut names = Vec::new();
+    let mut install = Vec::new();
+    let mut ok = true;
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let abs = root.join(&rel);
+        if abs == dir {
+            continue;
+        }
+        let Ok(rd) = fs::read_dir(&abs) else {
+            ok = false;
+            break;
+        };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let r = rel.join(&name);
+            let Ok(t) = e.file_type() else {
+                ok = false;
+                continue;
+            };
+            if t.is_dir() {
+                if name == "node_modules" || name == ".git" {
+                    continue;
+                }
+                names.push(format!("{}\0d", r.display()));
+                stack.push(r);
+            } else if t.is_symlink() {
+                if e.path().is_dir() {
+                    ok = false;
+                }
+                let target = fs::read_link(e.path()).map_or(String::new(), |t| t.display().to_string());
+                names.push(format!("{}\0l\0{target}", r.display()));
+            } else {
+                if name.to_str().is_some_and(|n| INSTALL_FILES.contains(&n)) {
+                    install.push(r.clone());
+                }
+                names.push(format!("{}\0{}", r.display(), if t.is_file() { 'f' } else { 'o' }));
+            }
+        }
+    }
+    names.sort_unstable();
+    install.sort();
+    Walk {
+        hash: if ok {
+            blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+        } else {
+            String::new()
+        },
+        install,
+    }
+}
+
+/// What a frozen pnpm install produces depends on: the lockfile and every
+/// install file in the workspace (whole), the npm/pnpm configuration in the
+/// environment and the user's .npmrc, node, the platform, pnpm, and this
+/// quod. None when it cannot be known (not pnpm, pnpm not found).
+fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
+    if w.hash.is_empty() || !root.join("pnpm-lock.yaml").is_file() {
+        return None;
+    }
+    let pnpm = pnpm_version()?;
+    let mut h = blake3::Hasher::new();
+    for x in [node.to_string(), platform()?, pnpm, code_hash()] {
+        h.update(x.as_bytes());
+        h.update(b"\0");
+    }
+    for rel in &w.install {
+        h.update(rel.display().to_string().as_bytes());
+        h.update(b"\0");
+        h.update(blake3::hash(&fs::read(root.join(rel)).ok()?).as_bytes());
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        h.update(b"~/.npmrc\0");
+        h.update(blake3::hash(&fs::read(Path::new(&home).join(".npmrc")).unwrap_or_default()).as_bytes());
+    }
+    let mut vars: Vec<(String, String)> = std::env::vars()
+        .filter(|(k, _)| {
+            let l = k.to_ascii_lowercase();
+            l.starts_with("npm_config_") || l.starts_with("pnpm_") || l.starts_with("corepack_")
+        })
+        .collect();
+    vars.sort();
+    for (k, v) in vars {
+        h.update(format!("{k}={v}\0").as_bytes());
+    }
+    Some(h.finalize().to_hex().to_string())
+}
+
+/// Shadow side: replay every file through vitest once more (no tests run)
+/// and keep what its reporters printed and wrote.
+fn render(
+    a: &VitestArgs,
+    root: &Path,
+    dir: &Path,
+    code_dir: &Path,
+    ledger: &Ledger,
+) -> std::result::Result<Render, String> {
+    let rd = dir.join("render");
+    let _ = fs::remove_dir_all(&rd);
+    fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    let replay: BTreeMap<&String, &String> =
+        ledger.files.iter().map(|(id, r)| (id, &r.result)).collect();
+    let plan = serde_json::json!({
+        "stateDir": dir, "replay": replay, "audit": [], "record": false,
+        "render": rd, "expect": ledger.facts,
+    });
+    let (pp, op) = (rd.join("plan.json"), rd.join("out.json"));
+    fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
+    let status = Command::new(&a.node)
+        .arg(code_dir.join("driver.mjs"))
+        .arg(&pp)
+        .arg(&op)
+        .args(&a.args)
+        .env("QUOD_VITEST_QUIET", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(file("stdout")?)
+        .stderr(file("stderr")?)
+        .status()
+        .map_err(|e| e.to_string())?;
+    let out: Out = fs::read(&op)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or("the render left no record")?;
+    let r = out.render.unwrap_or_default();
+    if r["ok"] != true {
+        return Err(format!("render: {}", r["reason"].as_str().unwrap_or("not supported")));
+    }
+    if out.interrupted || !out.ran.is_empty() || out.replayed.len() != ledger.files.len() {
+        return Err(format!(
+            "the render ran {} files and replayed {} of {}",
+            out.ran.len(),
+            out.replayed.len(),
+            ledger.files.len()
+        ));
+    }
+    let mut all = out.all_files.unwrap_or_default();
+    all.sort();
+    if all != ledger.all_files {
+        return Err("the render saw other test files".into());
+    }
+    let outputs = r["outputs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|o| {
+            let to = o["to"].as_str().unwrap_or_default();
+            RenderOut {
+                file: o["file"].as_str().unwrap_or_default().to_string(),
+                to: Path::new(to)
+                    .strip_prefix(root)
+                    .map_or(to.to_string(), |p| p.display().to_string()),
+                append: o["append"] == true,
+                env: o["env"].as_str().map(String::from),
+            }
+        })
+        .collect();
+    Ok(Render {
+        sig: render_sig(ledger),
+        args: a.args.clone(),
+        code: code_hash(),
+        exit: status.code().map_or(1, |c| c.clamp(0, 255) as u8),
+        outputs,
+    })
+}
+
+/// Critical side: when every file replays, emit the render of exactly this
+/// ledger instead of starting vitest, if it still says what vitest would
+/// print: same results, arguments, quod, node, platform and test files.
+fn emit_render(
+    root: &Path,
+    dir: &Path,
+    ledger: &Ledger,
+    args: &[String],
+    node: &str,
+    tree: &str,
+) -> std::result::Result<u8, String> {
+    let r = ledger.render.as_ref().ok_or("the recording has none")?;
+    if r.sig != render_sig(ledger) {
+        return Err("it is of other results".into());
+    }
+    if r.args != args {
+        return Err("other vitest arguments".into());
+    }
+    if r.code != code_hash() {
+        return Err("another quod made it".into());
+    }
+    if ledger.facts.get("node").map(String::as_str) != Some(node) {
+        return Err("another node".into());
+    }
+    if ledger.facts.get("platform") != platform().as_ref() {
+        return Err("another platform".into());
+    }
+    if tree.is_empty() || ledger.tree != tree {
+        return Err("paths were added, removed or renamed".into());
+    }
+    if !everything_recorded(ledger) {
+        return Err("not every test file is recorded".into());
+    }
+    let rd = dir.join("render");
+    let read = |n: &str| fs::read(rd.join(n)).map_err(|e| format!("{n}: {e}"));
+    let (stdout, stderr) = (read("stdout")?, read("stderr")?);
+    let mut outs = Vec::new();
+    for o in &r.outputs {
+        let to = match &o.env {
+            Some(e) => match std::env::var_os(e) {
+                Some(v) if !v.is_empty() => PathBuf::from(v),
+                _ => continue,
+            },
+            None => root.join(&o.to),
+        };
+        outs.push((to, o.append, read(&o.file)?));
+    }
+    use std::io::Write;
+    for (to, append, bytes) in outs {
+        if let Some(p) = to.parent() {
+            fs::create_dir_all(p).map_err(|e| e.to_string())?;
+        }
+        let res = if append {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&to)
+                .and_then(|mut f| f.write_all(&bytes))
+        } else {
+            fs::write(&to, &bytes)
+        };
+        res.map_err(|e| format!("{}: {e}", to.display()))?;
+    }
+    // Printed last: nothing can fail after the first byte (a failure before
+    // it falls back to vitest, which writes every output again).
+    let _ = std::io::stdout().write_all(&stdout);
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().write_all(&stderr);
+    Ok(r.exit)
 }
 
 impl Ledger {
@@ -1293,6 +1858,36 @@ mod tests {
             vec![0]
         );
         assert_eq!(l.states, vec!["1".to_string(), "3".to_string()]);
+    }
+
+    #[test]
+    fn installed_keys_are_under_the_workspace_node_modules() {
+        assert!(installed("p:node_modules/.pnpm/vitest@4.1.10/node_modules/vitest"));
+        assert!(installed("e:packages/a/node_modules/b"));
+        assert!(!installed("f:/usr/local/node/lib/node_modules/npm/index.js"));
+        assert!(!installed("f:src/index.ts"));
+        assert!(!installed("envall"));
+    }
+
+    #[test]
+    fn walk_sums_paths_and_finds_install_files() {
+        let d = std::env::temp_dir().join(format!("quod-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("src")).unwrap();
+        fs::create_dir_all(d.join("node_modules/x")).unwrap();
+        fs::write(d.join("package.json"), "{}").unwrap();
+        fs::write(d.join("src/a.ts"), "1").unwrap();
+        let ledger_dir = d.join(".quod");
+        let a = walk(&d, &ledger_dir);
+        assert_eq!(a.install, vec![PathBuf::from("package.json")]);
+        // contents and node_modules do not count; a new path does
+        fs::write(d.join("src/a.ts"), "2").unwrap();
+        fs::write(d.join("node_modules/x/y"), "").unwrap();
+        fs::create_dir_all(&ledger_dir).unwrap();
+        assert_eq!(walk(&d, &ledger_dir).hash, a.hash);
+        fs::write(d.join("src/b.spec.ts"), "").unwrap();
+        assert_ne!(walk(&d, &ledger_dir).hash, a.hash);
+        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
