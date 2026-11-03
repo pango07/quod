@@ -18,6 +18,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { fileURLToPath } from 'node:url'
 
 // The originals, for Quod's own I/O (never recorded).
@@ -35,6 +36,13 @@ export const VERSION = 'quod-vitest-1'
 
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
+// The module whose `import.meta.glob` vite is expanding in the main process
+// (driver.mjs runs that plugin's transform inside it). A directory listing
+// made there is what the glob found, which goes into that module's code
+// and nowhere else: an input of the files that load the module, not of
+// every file (`byModule`).
+export const globbing = new AsyncLocalStorage()
+
 export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
   const keys = new Set()
   const r = {
@@ -44,6 +52,8 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     watches: new Set(),
     // package.json files kept whole in the main process, and who read them
     pjWhole: new Map(),
+    // main process: module -> the listings its import.meta.glob made
+    byModule: new Map(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -70,6 +80,15 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
       if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
         if (resolverCaller()) kind = 'pj'
         else if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
+      }
+      if (r.mode === 'main' && (kind === 'd' || kind === 'r')) {
+        const m = globbing.getStore()
+        if (m) {
+          let s = r.byModule.get(m)
+          if (!s) r.byModule.set(m, (s = new Set()))
+          s.add(`${kind}:${p}`)
+          return
+        }
       }
       keys.add(`${kind}:${p}`)
     },

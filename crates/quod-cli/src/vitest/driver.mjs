@@ -14,7 +14,7 @@
 //     module graph and reads) for the Rust side to key and store.
 import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
-import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
+import { createRecorder, globbing, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
@@ -160,7 +160,36 @@ if (plan.render) {
   } else if (of) ctx.config.outputFile = outFiles
 }
 
-// Projects Quod can record: isolated node workers. Others always run.
+// vite's import.meta.glob lists directories while it transforms the module
+// that calls it, and writes what it found into that module's code: those
+// listings are inputs of the test files that load the module (keyed below,
+// per file, from its module graph), not of every file. A new file under a
+// globbed directory (convex-test's `import.meta.glob("../convex/**/*.ts")`)
+// re-runs the files that import the glob, not the whole suite. Only that
+// plugin, and only listings: it lists afresh on every transform, so no other
+// module's transform can reuse what it saw; anything else read there (a
+// resolution, a stat) stays shared.
+const globPlugins = new Set()
+function wrapGlob(pl) {
+  if (!pl || globPlugins.has(pl) || !/(^|:)import-glob$/.test(pl.name ?? '')) return
+  const h = pl.transform
+  const fn = typeof h === 'function' ? h : h?.handler
+  if (typeof fn !== 'function') return
+  globPlugins.add(pl)
+  const w = function (code, id, ...rest) {
+    const m = typeof id === 'string' ? id.split('?')[0] : ''
+    if (!m.startsWith('/')) return fn.call(this, code, id, ...rest)
+    return globbing.run(path.resolve(m), () => fn.call(this, code, id, ...rest))
+  }
+  pl.transform = typeof h === 'function' ? w : { ...h, handler: w }
+}
+if (record) {
+  for (const p of ctx.projects) {
+    for (const pl of p.vite?.config?.plugins ?? []) wrapGlob(pl)
+    for (const env of Object.values(p.vite?.environments ?? {})) for (const pl of env?.plugins ?? []) wrapGlob(pl)
+  }
+}
+
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
@@ -302,6 +331,7 @@ const moduleKeys = (mods) => {
   return w.keys
 }
 const transformed = new Set()
+const globUsed = new Set() // modules whose glob listings some recorded file's graph took
 const dumps = new Map()
 const workerMs = { setup: 0, dump: 0, cov: 0 }
 const unmapped = {}
@@ -333,6 +363,12 @@ for (const m of endModules) {
   if (d) {
     const ks = new Set(d.keys)
     for (const k of moduleKeys(d.modules)) ks.add(k)
+    for (const m of d.modules) {
+      const g = r.byModule.get(path.resolve(m))
+      if (!g) continue
+      globUsed.add(path.resolve(m))
+      for (const k of g) ks.add(k)
+    }
     keys = [...ks]
     unobservable = d.unobservable
     const root = ctx.config.root + '/'
@@ -415,6 +451,9 @@ for (const k of r.keys) {
   if (k.startsWith('f:') && transformed.has(p)) continue
   global.push(k)
 }
+// A glob no recorded file's module graph has (a setup file's, one the
+// graph did not report): shared, as any main-process read.
+for (const [m, g] of r.byModule) if (!globUsed.has(m)) for (const k of g) global.push(k)
 for (const p of ctx.projects) {
   for (const f of [p.vite?.config?.configFile, ...(p.vite?.config?.configFileDependencies ?? [])]) {
     if (f) global.push(`f:${path.resolve(f)}`)
@@ -472,6 +511,7 @@ writeJson(outPath, {
   timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
   unmapped,
 })
+if (r.byModule.size) log(`import.meta.glob listings keyed per module (not shared): ${[...r.byModule].map(([m, g]) => `${path.relative(cwd, m)} (${g.size}${globUsed.has(m) ? '' : ', shared: no recorded file loads it'})`).join(', ')}`)
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)
 if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)
 if (unmappedSample) log(`e.g. ${unmappedSample[0]} ends with: ${JSON.stringify(unmappedSample[1])}`)

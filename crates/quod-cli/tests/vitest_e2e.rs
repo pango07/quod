@@ -3,7 +3,9 @@
 //! every file with function-level data; an unchanged re-run replays them
 //! all; a change inside a function only one test file executed re-runs that
 //! file and replays the others (function-level); a change to a function
-//! whose source a test name quotes re-runs that test. Every run's JSON
+//! whose source a test name quotes re-runs that test; a new file in a
+//! directory one test's import.meta.glob lists re-runs that test only (the
+//! listing is that module's input, not every file's). Every run's JSON
 //! report matches plain vitest's. A recorder crash fails here, not in a
 //! benchmark. Skipped when there is no node/npm (the lint gate installs
 //! node at /usr/local/node).
@@ -150,18 +152,19 @@ fn records_replays_and_narrows_a_real_vitest_project() {
     // 1. Nothing recorded yet: every file runs and is recorded.
     let (plain, quod, s) = p.run(1);
     assert_eq!(outcomes(&plain), outcomes(&quod));
-    assert_eq!(s["ran"], 3, "{s}");
-    assert_eq!(s["recorded_files"], 3, "{s}");
+    assert_eq!(s["ran"], 4, "{s}");
+    assert_eq!(s["recorded_files"], 4, "{s}");
 
     // 2. Nothing changed: everything replays.
     let (plain, quod, s) = p.run(2);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 0, "{s}");
-    assert_eq!(s["replayed"], 3, "{s}");
+    assert_eq!(s["replayed"], 4, "{s}");
 
     // 3. The body of `sub`, which only sub.test.ts executes, changes:
     //    sub.test.ts runs; add.test.ts replays function-level; name.test.ts
-    //    (no function-level data: it reads source) runs.
+    //    (no function-level data: it reads source) runs; glob.test.ts
+    //    replays (it never loads math.ts).
     edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");
     let (plain, quod, s) = p.run(3);
     assert_eq!(outcomes(&plain), outcomes(&quod));
@@ -174,4 +177,14 @@ fn records_replays_and_narrows_a_real_vitest_project() {
     let (plain, quod, s) = p.run(4);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert!(s["ran"].as_u64().unwrap() >= 1, "{s}");
+
+    // 5. A new file in src/lib, which only glob.test.ts's import.meta.glob
+    //    lists: that listing changed what vite wrote into glob.test.ts, so it
+    //    runs; it is not a shared input, so the other files replay.
+    fs::write(p.dir.join("src/lib/three.ts"), "export const three = 3\n").unwrap();
+    let (plain, quod, s) = p.run(5);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["shared_inputs_changed"], false, "{s}");
+    assert_eq!(s["ran"], 1, "{s}");
+    assert_eq!(s["replayed"], 3, "{s}");
 }
