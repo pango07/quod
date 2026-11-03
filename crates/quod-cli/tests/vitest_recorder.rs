@@ -27,7 +27,10 @@ fn a_plugin_reading_package_json_keeps_it_whole() {
     );
     let reader = "const fs = require('node:fs');\nmodule.exports = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));\n";
     write(&root.join("node_modules/vite/dist/resolve.cjs"), reader);
-    write(&root.join("node_modules/vite-plugin-version/index.cjs"), reader);
+    write(
+        &root.join("node_modules/vite-plugin-version/index.cjs"),
+        reader,
+    );
     let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
     let script = format!(
         r#"
