@@ -44,6 +44,8 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     watches: new Set(),
     // package.json files kept whole in the main process, and who read them
     pjWhole: new Map(),
+    // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
+    envKept: new Map(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -57,15 +59,24 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         const rest = p.slice(nm + 14)
         const seg = rest.split('/')
         const name = seg[0].startsWith('@') ? `${seg[0]}/${seg[1] ?? ''}` : seg[0]
-        if (name && !name.startsWith('.')) {
-          keys.add(`p:${p.slice(0, nm + 14)}${name}`)
-          return
-        }
         // A dot entry of node_modules is the package manager's or a tool's
         // (.bin shims, .modules.yaml, .pnpm/lock.yaml, workspace state,
         // caches), not a package: what is installed counts through the
         // packages a run loads (p:), so a reinstall alone changes nothing.
-        return
+        if (!name || name.startsWith('.')) return
+        const pkg = `${p.slice(0, nm + 14)}${name}`
+        // A workspace package linked into node_modules (npm, pnpm and yarn
+        // workspaces) is source, not an installed package: its package.json
+        // says nothing about its other files. A read through the link is
+        // keyed at the real path, as a read there would be, plus the link.
+        const ws = workspaceLink(pkg)
+        if (!ws) {
+          keys.add(`p:${pkg}`)
+          return
+        }
+        keys.add(`e:${pkg}`)
+        p = ws + p.slice(pkg.length)
+        if (p.includes('/node_modules/')) return r.add(kind, p)
       }
       if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
         if (resolverCaller()) kind = 'pj'
@@ -85,6 +96,23 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
   return r
 }
 
+// The real path of a package root under node_modules that is a link to a
+// directory outside every node_modules (a workspace package), else null.
+// An installed package (a plain directory, or pnpm's link into its store,
+// which is under node_modules/.pnpm) is null: its package.json names it.
+const links = new Map()
+export function workspaceLink(pkg) {
+  let ws = links.get(pkg)
+  if (ws !== undefined) return ws
+  ws = null
+  try {
+    const target = real.realpathSync(pkg)
+    if (target !== pkg && !`${target}/`.includes('/node_modules/')) ws = target
+  } catch {}
+  links.set(pkg, ws)
+  return ws
+}
+
 // Is a package.json read vite's or vitest's own (module resolution, which
 // uses the resolution fields only)? The first frame outside Quod and node
 // must be in one of their packages. Any other reader (the config, a plugin
@@ -99,6 +127,37 @@ export function resolverCaller(stack = new Error().stack) {
     return RESOLVERS.some((x) => l.includes(x))
   }
   return false
+}
+
+// Is an environment read the tools' own? Every frame outside Quod and node
+// must be in vite, vitest, rolldown or the small helpers they read the
+// environment through (std-env, tinyexec, tinyrainbow, obug and debug
+// listing DEBUG_* options, the colour helpers), and there must be one. Any
+// other frame (the config, a plugin, a test, a library) makes it theirs.
+// The whole stack, however deep. Returns the deciding frame, for the log.
+const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
+function toolCaller() {
+  const limit = Error.stackTraceLimit
+  Error.stackTraceLimit = Infinity
+  let stack
+  try {
+    stack = new Error().stack ?? ''
+  } finally {
+    Error.stackTraceLimit = limit
+  }
+  // Every frame counts, not only the first: a test reading
+  // `import.meta.env.X` goes through vitest's own getter, with the test's
+  // frame below it.
+  let tool = null
+  for (const l of stack.split('\n').slice(1)) {
+    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (HELPERS.some((h) => l.includes(h)) || RESOLVERS.some((x) => l.includes(x))) {
+      tool ??= l.trim()
+      continue
+    }
+    return { tool: false, frame: l.trim() }
+  }
+  return tool ? { tool: true, frame: tool } : { tool: false, frame: '?' }
 }
 
 function callerFrame(stack = new Error().stack) {
@@ -220,10 +279,32 @@ export function patchFs(r) {
   } catch {}
 }
 
+// What a CI provider sets per branch, event, runner or job, and turbo per
+// task run (TURBO_HASH). vitest and vite read the environment for
+// themselves (they copy all of it to the workers, pick reporters, find the
+// CI): those reads of these names are not inputs of the tests, so a
+// recording made on a push replays on a pull request. Their copy of the
+// whole environment is `envtool:`, keyed on what node and the tools behave
+// on (vitest.rs `tool_env`). Any other code that reads a variable (the
+// config, a plugin, a test, a library it loads) keys it. `CI` is not one of
+// these: vitest's behaviour depends on it (allowOnly, snapshot updates).
+export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k))
+// What node and the tools behave on (vitest.rs `tool_env`): their reads of
+// these are inputs; their reads of anything else (a copy of the whole
+// environment, one name at a time) are not.
+const TOOL_ENV = new Set(['CI', 'TEST', 'TZ', 'LANG', 'LANGUAGE', 'FORCE_COLOR', 'NO_COLOR', 'TERM', 'TMPDIR', 'HOME', 'PATH'])
+export const toolEnv = (k) => TOOL_ENV.has(k) || /^(NODE_|VITE|LC_|DEBUG|UV_)/.test(k)
+
 export function patchEnv(r) {
   const target = process.env
   const rec = (k) => {
-    if (typeof k === 'string') r.keys.add(`env:${k}`)
+    if (typeof k !== 'string') return
+    if (ciVarying(k) || !toolEnv(k)) {
+      const c = toolCaller()
+      if (c.tool) return
+      if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
+    }
+    r.keys.add(`env:${k}`)
   }
   const proxy = new Proxy(target, {
     get(t, k) {
@@ -239,8 +320,20 @@ export function patchEnv(r) {
       return Reflect.getOwnPropertyDescriptor(t, k)
     },
     ownKeys(t) {
-      if (r.on) r.keys.add('envall:')
+      if (r.on) {
+        const c = toolCaller()
+        r.keys.add(c.tool ? 'envtool:' : 'envall:')
+        if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
+      }
       return Reflect.ownKeys(t)
+    },
+    // Writes go to process.env itself. Without this trap an assignment
+    // through the proxy becomes a defineProperty with a partial descriptor,
+    // which process.env refuses ("only accepts a configurable, writable, and
+    // enumerable data descriptor"): vi.stubEnv threw in every recorded file
+    // (class-management's backend; the shadow quarantined them).
+    set(t, k, v) {
+      return Reflect.set(t, k, v)
     },
   })
   try {

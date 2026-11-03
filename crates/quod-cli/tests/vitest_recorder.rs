@@ -100,3 +100,97 @@ console.log(JSON.stringify({ used: state.used, name, native }))
     assert_eq!(v["name"], "() => false");
     assert_eq!(v["native"], "function toString() { [native code] }");
 }
+
+#[test]
+fn a_read_through_a_workspace_link_is_keyed_at_the_real_path() {
+    // npm (and pnpm, yarn) workspaces link a workspace package into
+    // node_modules. Its package.json says nothing about its other files, so
+    // a read through the link is keyed as a read of the real file (plus the
+    // link); an installed package stays one `p:` key.
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().canonicalize().unwrap();
+    write(&root.join("packages/b/package.json"), r#"{"name":"@ws/b"}"#);
+    write(&root.join("packages/b/data/x.json"), "{}");
+    write(&root.join("node_modules/c/package.json"), r#"{"name":"c"}"#);
+    write(&root.join("node_modules/c/index.js"), "");
+    fs::create_dir_all(root.join("node_modules/@ws")).unwrap();
+    std::os::unix::fs::symlink("../../packages/b", root.join("node_modules/@ws/b")).unwrap();
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchFs }} from {record:?}
+import fs from 'node:fs'
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker' }})
+patchFs(r)
+fs.readFileSync({link:?})
+fs.readdirSync({linkdir:?})
+fs.readFileSync({inst:?})
+console.log(JSON.stringify([...r.keys].sort()))
+"#,
+        record = record.display().to_string(),
+        link = root
+            .join("node_modules/@ws/b/data/x.json")
+            .display()
+            .to_string(),
+        linkdir = root.join("node_modules/@ws/b/data").display().to_string(),
+        inst = root.join("node_modules/c/index.js").display().to_string(),
+    );
+    let s = root.join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node").arg(&s).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: Vec<String> = serde_json::from_slice(&out.stdout).unwrap();
+    let r = root.display().to_string();
+    assert_eq!(
+        v,
+        vec![
+            format!("d:{r}/packages/b/data"),
+            format!("e:{r}/node_modules/@ws/b"),
+            format!("f:{r}/packages/b/data/x.json"),
+            format!("p:{r}/node_modules/c"),
+        ]
+    );
+}
+
+#[test]
+fn the_env_proxy_takes_assignments() {
+    // vi.stubEnv assigns process.env.X; through a proxy without a `set`
+    // trap that became a partial defineProperty, which process.env refuses.
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchEnv }} from {record:?}
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker' }})
+process.env.QUOD_T = 'a'
+patchEnv(r)
+process.env.QUOD_T = 'b'
+process.env.QUOD_U = 'c'
+delete process.env.QUOD_U
+console.log(JSON.stringify([process.env.QUOD_T, process.env.QUOD_U ?? null]))
+"#,
+        record = record.display().to_string(),
+    );
+    let s = t.path().join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node").arg(&s).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v, serde_json::json!(["b", null]));
+}

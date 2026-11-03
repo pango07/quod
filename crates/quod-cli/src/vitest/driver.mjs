@@ -102,6 +102,18 @@ const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
+// The repository the project is in (the nearest .git up from its root): in
+// a monorepo whose packages each run vitest (npm or yarn workspaces), a
+// write to a sibling package is a write to the workspace too.
+let wsRoot = ctx.config.root
+for (let d = ctx.config.root; ; d = path.dirname(d)) {
+  if (real.existsSync(path.join(d, '.git'))) {
+    wsRoot = d
+    break
+  }
+  if (path.dirname(d) === d) break
+}
+wsRoot += '/'
 
 // A large run (the plan says so) uses every CPU, not vitest's default of
 // one fewer: the main process idles while workers run. Only when neither
@@ -336,7 +348,7 @@ for (const m of endModules) {
     keys = [...ks]
     unobservable = d.unobservable
     const root = ctx.config.root + '/'
-    const ws = d.writes.filter((w) => w.startsWith(root) && !w.includes('/node_modules/'))
+    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/'))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
     // A watched path is read whole (recursively, content included) at the
     // end of the file; under a directory the file itself created (its own
@@ -381,7 +393,10 @@ for (const m of endModules) {
   // changed its behaviour, and it is quarantined.
   // A file the report does not have (or an unreadable report) cannot be
   // verified: it is not recorded (and runs next time), but not quarantined.
-  if (record && expected && !auditMismatch.includes(id)) {
+  // An audit is verified against its own record instead (below): the
+  // critical path replayed it, so the report has it only as a replay, or
+  // not at all after a rendered full replay.
+  if (record && expected && !auditMismatch.includes(id) && !audits.has(id)) {
     const want = expected.get(file.filepath)
     const got = JSON.stringify(testStates(file).map(([n, s]) => `${n}=${s === 'pass' ? 'passed' : s === 'fail' ? 'failed' : 'other'}`).sort())
     if (want === undefined) {
@@ -404,6 +419,17 @@ for (const m of endModules) {
     } catch {}
   }
   ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
+}
+
+// `--report`: every test's name and state per file, in the shape of vitest's
+// JSON report, whatever reporters the run has (the shadow's --expect-report).
+if (plan.report) {
+  const status = (st) => (st === 'pass' ? 'passed' : st === 'fail' ? 'failed' : st === 'skip' || st === 'todo' ? 'skipped' : 'pending')
+  const testResults = endModules.map((m) => ({
+    name: m.task.filepath,
+    assertionResults: testStates(m.task).map(([title, st]) => ({ ancestorTitles: [], title, status: status(st) })),
+  }))
+  writeJson(plan.report, { testResults })
 }
 
 // The main process's reads: inputs of every file, except the source the
@@ -473,6 +499,7 @@ writeJson(outPath, {
   unmapped,
 })
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)
+for (const [k, frame] of r.envKept) log(`${k === '*' ? 'the whole environment' : k} keyed for every file (read by ${frame})`)
 if (Object.keys(unmapped).length) log(`source files without function-level data: ${JSON.stringify(unmapped)}`)
 if (unmappedSample) log(`e.g. ${unmappedSample[0]} ends with: ${JSON.stringify(unmappedSample[1])}`)
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
