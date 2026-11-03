@@ -1048,11 +1048,11 @@ fn pj_hash(bytes: &[u8]) -> String {
     for (k, val) in v {
         if PJ_FIELDS.contains(&k.as_str()) {
             kept.insert(k, val);
-        } else if k.ends_with("ependencies") {
-            if let serde_json::Value::Object(m) = val {
-                let names: Vec<String> = m.keys().cloned().collect();
-                kept.insert(k, serde_json::json!(names));
-            }
+        } else if k.ends_with("ependencies")
+            && let serde_json::Value::Object(m) = val
+        {
+            let names: Vec<String> = m.keys().cloned().collect();
+            kept.insert(k, serde_json::json!(names));
         }
     }
     let canon = serde_json::to_vec(&kept).unwrap_or_default();
