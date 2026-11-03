@@ -413,8 +413,7 @@ mod tests {
                 timeout: std::time::Duration::from_secs(5),
                 scope: None,
                 ci: None,
-            })
-            .without_retries(),
+            }),
             suite: ".".into(),
             fallback_local,
         }
