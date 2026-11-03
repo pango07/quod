@@ -376,6 +376,9 @@ fn a_failure_only_while_recording_does_not_fail_the_job() {
         // run() asserts quod succeeded, as plain vitest did
         let (plain, quod, s) = p.run(n);
         assert_eq!(outcomes(&plain), outcomes(&quod));
-        assert_eq!(s["recorded_files"], 3, "instr.test.ts is never recorded: {s}");
+        assert_eq!(
+            s["recorded_files"], 3,
+            "instr.test.ts is never recorded: {s}"
+        );
     }
 }
