@@ -73,6 +73,11 @@ if (muts.length) {
   out.push('|---:|---|---:|---|---:|---:|')
   for (const m of muts) out.push(`| ${m.i} | \`${m.target}\` | ${m.plain_failed_files} | ${m.ran} / ${m.replayed} | ${m.quod_exit} | ${m.wrong ? m.wrong.length : 'not compared'} |`)
 }
+const pt = rows.filter((r) => r.narrow?.per_test_would_skip?.of)
+if (pt.length) {
+  out.push('')
+  out.push(`Not used (informational): a per-test rule would have skipped ${pt.map((r) => `#${r.i} ${r.narrow.per_test_would_skip.tests}/${r.narrow.per_test_would_skip.of}`).join(', ')} tests of the files that ran for a changed function. Tests of one file share module state, so skipping one is not provably sound; Quod runs the whole file.`)
+}
 const keys = {}
 for (const r of rows) for (const k of r.shared_changed_keys ?? []) keys[k] = (keys[k] ?? 0) + 1
 if (Object.keys(keys).length) out.push(`\nShared inputs that changed (commits): ${Object.entries(keys).map(([k, n]) => `\`${k}\` (${n})`).join(', ')}.`)

@@ -289,7 +289,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                         })
                     })
                     .collect();
-                serde_json::json!({ "id": id, "checks": checks })
+                let per = dir.join("tests").join(format!("{id}.json"));
+                serde_json::json!({ "id": id, "checks": checks, "tests": per.is_file().then_some(per) })
             })
             .collect();
         let req_path = dir.join("narrow-request.json");
@@ -332,6 +333,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         narrow_note = serde_json::json!({
             "ms": tn.elapsed().as_secs_f64() * 1e3,
             "why": ans.as_ref().map(|v| v["why"].clone()),
+            "per_test_would_skip": ans.as_ref().map(|v| v["perTest"].clone()),
         });
         eprintln!(
             "quod vitest: function-level: {} of {} test files with changed source replay ({} ms): {}",
@@ -716,7 +718,8 @@ fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
                 first.to_string()
             };
             if name.is_empty() || name.starts_with('.') {
-                format!("{}:{a}", if k == "f" { "f" } else { "e" })
+                // the package manager's or a tool's (record.mjs), not a package
+                continue;
             } else {
                 format!("p:{}{name}", &a[..i + 14])
             }

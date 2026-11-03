@@ -58,8 +58,11 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
           keys.add(`p:${p.slice(0, nm + 14)}${name}`)
           return
         }
-        if (!name) return
-        // node_modules/.pnpm/lock.yaml and the like: a plain file
+        // A dot entry of node_modules is the package manager's or a tool's
+        // (.bin shims, .modules.yaml, .pnpm/lock.yaml, workspace state,
+        // caches), not a package: what is installed counts through the
+        // packages a run loads (p:), so a reinstall alone changes nothing.
+        return
       }
       if (kind === 'f' && r.mode === 'main' && r.pjOk && p.endsWith('/package.json')) kind = 'pj'
       keys.add(`${kind}:${p}`)

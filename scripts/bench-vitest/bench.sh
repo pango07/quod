@@ -22,7 +22,8 @@ rm -rf "$out" "$state"; mkdir -p "$out/logs"
 cd "$proj"
 mapfile -t commits < <(git rev-list --first-parent -n $((n + 1)) "$sha" | tac)
 echo "window: ${#commits[@]} commits (first is the warm-up), ${commits[1]:0:9}..${commits[-1]:0:9}"
-ms() { date +%s%3N; }
+# Monotonic milliseconds: a hosted runner's wall clock is stepped mid-job.
+ms() { awk '{ printf "%d\n", $1 * 1000 }' /proc/uptime; }
 lock=$(sha1sum pnpm-lock.yaml 2>/dev/null | cut -c1-40)
 
 plain() { # $1 = tag

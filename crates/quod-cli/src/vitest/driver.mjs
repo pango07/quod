@@ -306,11 +306,36 @@ for (const m of endModules) {
         }
       }
       for (const [key, idx] of Object.entries(d.hits)) add(key, idx)
+      const fileLevel = new Map(all)
+      for (const [f, s] of fileLevel) fileLevel.set(f, new Map(s))
       for (const t of Object.values(d.tests ?? {})) for (const [key, idx] of Object.entries(t)) add(key, idx)
       cov = {}
       for (const [f, s] of all) {
         if (bad.has(f) || f === file.filepath || d.keys.includes(`f:${f}`) || d.keys.includes(`e:${f}`)) continue
         cov[f] = [...s.values()]
+      }
+      // Per test (recorded, not used for selection: tests of one file share
+      // module state, so skipping one is not provably sound): what each
+      // test executed, and what ran outside every test.
+      if (d.tests) {
+        const ranges = (m) => {
+          const o = {}
+          for (const [key, idx] of Object.entries(m)) {
+            const e = tables.get(key)
+            if (e && cov[e.file]) o[e.file] = idx.map((i) => e.t[i]).filter(Boolean)
+          }
+          return o
+        }
+        const per = { order: [], file: {}, tests: {} }
+        for (const [f, s] of fileLevel) if (cov[f]) per.file[f] = [...s.values()]
+        for (const [tid, m] of Object.entries(d.tests)) {
+          per.order.push(tid)
+          per.tests[tid] = ranges(m)
+        }
+        try {
+          real.mkdirSync(path.join(stateDir, 'tests'), { recursive: true })
+          writeJson(path.join(stateDir, 'tests', `${id}.json`), per)
+        } catch {}
       }
     }
   }
