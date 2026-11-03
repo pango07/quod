@@ -102,6 +102,9 @@ const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
+// vitest 3's per-run directories of transformed modules (record.mjs `skip`).
+const tmpDirs = ctx.projects.map((p) => p.tmpDir).filter((d) => typeof d === 'string' && path.isAbsolute(d))
+if (tmpDirs.length) process.env.QUOD_VITEST_SKIP = [...new Set(tmpDirs)].join('\n')
 // The repository the project is in (the nearest .git up from its root): in
 // a monorepo whose packages each run vitest (npm or yarn workspaces), a
 // write to a sibling package is a write to the workspace too.
@@ -298,18 +301,28 @@ const ranOut = []
 const auditMismatch = []
 // The critical path's vitest JSON report (`--expect-report`): per file, its
 // tests' names and states, in testStates' form.
+// A file is the same file in each project that runs it (a config with
+// several projects, e.g. one per dependency version): one entry per
+// project and file. A report without projects (an older quod's) verifies
+// only a file it lists once.
+const fileKey = (project, file) => `${project ?? ''}\u0000${file}`
 let expected = null
 if (plan.expectReport) {
   try {
     expected = new Map()
+    const byName = new Map()
     for (const t of JSON.parse(real.readFileSync(plan.expectReport, 'utf8')).testResults) {
       const tests = t.assertionResults.map(
         (x) => `${[...x.ancestorTitles, x.title].join(' > ')}=${x.status === 'passed' || x.status === 'failed' ? x.status : 'other'}`,
       )
-      expected.set(t.name, JSON.stringify(tests.sort()))
+      const v = JSON.stringify(tests.sort())
+      if (typeof t.project === 'string') expected.set(fileKey(t.project, t.name), v)
+      else byName.set(t.name, byName.has(t.name) ? null : v)
     }
+    expected.byName = byName
   } catch (e) {
     expected = new Map() // unreadable: nothing verifies, so nothing that ran records
+    expected.byName = new Map()
     log(`expect report ${plan.expectReport} unreadable (${e.message}): nothing that ran is recorded`)
   }
 }
@@ -398,7 +411,7 @@ for (const m of endModules) {
   // critical path replayed it, so the report has it only as a replay, or
   // not at all after a rendered full replay.
   if (record && expected && !auditMismatch.includes(id) && !audits.has(id)) {
-    const want = expected.get(file.filepath)
+    const want = expected.get(fileKey(file.projectName, file.filepath)) ?? expected.byName.get(file.filepath) ?? undefined
     const got = JSON.stringify(testStates(file).map(([n, s]) => `${n}=${s === 'pass' ? 'passed' : s === 'fail' ? 'failed' : 'other'}`).sort())
     if (want === undefined) {
       keys = null
@@ -430,10 +443,11 @@ if (plan.report) {
   // run a file this run replayed (its ledger is another) can still verify
   // it, as an audit would.
   const tasks = new Map()
-  for (const t of replayedTasks) tasks.set(t.filepath, t)
-  for (const m of endModules) tasks.set(m.task.filepath, m.task)
+  for (const t of replayedTasks) tasks.set(fileKey(t.projectName, t.filepath), t)
+  for (const m of endModules) tasks.set(fileKey(m.task.projectName, m.task.filepath), m.task)
   const testResults = [...tasks.values()].map((t) => ({
     name: t.filepath,
+    project: t.projectName ?? '',
     assertionResults: testStates(t).map(([title, st]) => ({ ancestorTitles: [], title, status: status(st) })),
   }))
   writeJson(plan.report, { testResults })

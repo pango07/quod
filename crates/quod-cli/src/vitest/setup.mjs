@@ -29,6 +29,21 @@ const ws = globalThis.__vitest_worker__
 // the driver records no file of such a run (cov: no function-level data).
 const off = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(',').filter(Boolean))
 
+// The worker's module graph in vitest 4's shape (evaluatedModules: id ->
+// { id, file, meta.code }). vitest 3 (vite-node) keeps it in moduleCache:
+// normalized file path (the id vite-node evaluates the module under, its
+// script's name) -> { code: the transformed code it evaluated, ... }.
+function moduleGraph(ws) {
+  if (ws.evaluatedModules?.idToModuleMap) return ws.evaluatedModules
+  const mc = ws.moduleCache
+  if (!(mc instanceof Map)) return null
+  const idToModuleMap = new Map()
+  for (const [id, mod] of Map.prototype.entries.call(mc)) {
+    if (typeof id === 'string') idToModuleMap.set(id, { id, file: id.split('?')[0], meta: { code: mod?.code } })
+  }
+  return { idToModuleMap }
+}
+
 const post = (s, method, params) =>
   new Promise((resolve, reject) => s.post(method, params, (err, res) => (err ? reject(err) : resolve(res))))
 
@@ -78,7 +93,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
     try {
       r.on = true
       for (const k of Object.keys(req.cache)) r.add('f', k)
-      const em = ws.evaluatedModules
+      const em = moduleGraph(ws)
       const modules = []
       if (em?.idToModuleMap) {
         for (const node of em.idToModuleMap.values()) {

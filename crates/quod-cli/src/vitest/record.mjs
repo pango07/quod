@@ -41,6 +41,12 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
   const alias = new Map()
   // A path under a made directory is this process's own output, not an input.
   const under = (p) => r.made.some((m) => p === m || p.startsWith(`${m}/`))
+  // vitest's own per-run directories (the driver's QUOD_VITEST_SKIP, one per
+  // line): vitest 3 hands a worker each transformed module as a file in its
+  // project's temp directory, a new one every run. What is in it is a
+  // module's transform, keyed where it comes from (the module graph, the
+  // config); the path itself is not an input.
+  const skip = (process.env.QUOD_VITEST_SKIP ?? '').split('\n').filter(Boolean).map((d) => (d.endsWith('/') ? d : `${d}/`))
   const r = {
     mode, // 'main' | 'worker'
     keys,
@@ -86,6 +92,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       p = norm(p)
       if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
       if (r.made.length && under(p)) return
+      if (skip.length && skip.some((d) => p.startsWith(d))) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {

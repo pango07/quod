@@ -350,6 +350,25 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
         return Ok(code);
     }
+    // vitest before 3.2 has neither the worker module graph nor the reporter
+    // hooks quod records and replays with: plain vitest, nothing else.
+    if let Some((version, entry)) = vitest_install(&root)
+        && !vitest_supported(&version)
+    {
+        eprintln!(
+            "quod vitest: vitest {version} is not supported (3.2 or later); running plain vitest"
+        );
+        let mut cmd = Command::new(&a.node);
+        cmd.arg(entry);
+        if a.args.first().map(String::as_str) != Some("run") {
+            cmd.arg("run");
+        }
+        let status = cmd
+            .args(&a.args)
+            .status()
+            .with_context(|| format!("running {}", a.node))?;
+        return Ok(status.code().map_or(1, |c| c.clamp(0, 255) as u8));
+    }
     let used = cloud.as_ref().map(|c| c.restore(&root, &dir));
     let blobs = dir.join("blobs");
     fs::create_dir_all(&blobs)?;
@@ -1875,6 +1894,29 @@ fn hidden_env() -> String {
     v.join(",")
 }
 
+/// The vitest the project resolves from `root` (the nearest
+/// node_modules/vitest up from it): its version and its CLI entry.
+fn vitest_install(root: &Path) -> Option<(String, PathBuf)> {
+    let d = root
+        .ancestors()
+        .map(|d| d.join("node_modules").join("vitest"))
+        .find(|d| d.join("package.json").is_file())?;
+    let pj: serde_json::Value =
+        serde_json::from_slice(&fs::read(d.join("package.json")).ok()?).ok()?;
+    let entry = d.join("vitest.mjs");
+    let version = pj["version"].as_str()?.to_string();
+    entry.is_file().then_some((version, entry))
+}
+
+/// vitest 3.2 or later.
+fn vitest_supported(version: &str) -> bool {
+    let mut n = version.split(['.', '-']).map(|x| x.parse::<u32>().ok());
+    match (n.next().flatten(), n.next().flatten()) {
+        (Some(major), Some(minor)) => major > 3 || (major == 3 && minor >= 2),
+        _ => true,
+    }
+}
+
 /// `--report` for a rendered full replay: every file's recorded tests, in
 /// the shape the driver writes (vitest's JSON report: per file, each test's
 /// full name and status).
@@ -1911,8 +1953,9 @@ fn report_from_ledger(dir: &Path, ledger: &Ledger) -> serde_json::Value {
             for c in file["tasks"].as_array().into_iter().flatten() {
                 walk(c, &mut Vec::new(), &mut tests);
             }
-            results
-                .push(serde_json::json!({ "name": file["filepath"], "assertionResults": tests }));
+            results.push(serde_json::json!({
+                "name": file["filepath"], "project": rec.project, "assertionResults": tests,
+            }));
         }
     }
     serde_json::json!({ "testResults": results })
@@ -2503,6 +2546,16 @@ mod tests {
         assert_eq!(relativize(root, "f:/tmp/x"), "f:/tmp/x");
         assert_eq!(relativize(root, "env:HOME"), "env:HOME");
         assert_eq!(relativize(root, "envall:"), "envall:");
+    }
+
+    #[test]
+    fn vitest_before_3_2_is_not_supported() {
+        for v in ["3.2.0", "3.2.4", "4.0.0", "4.1.12", "5.0.0-beta.1", "weird"] {
+            assert!(vitest_supported(v), "{v}");
+        }
+        for v in ["3.1.4", "3.0.9", "2.1.9", "1.6.0"] {
+            assert!(!vitest_supported(v), "{v}");
+        }
     }
 
     #[test]
