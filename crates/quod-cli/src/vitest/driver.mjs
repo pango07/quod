@@ -280,7 +280,7 @@ for (const m of endModules) {
       }
       // Belt and braces: a result (test names, messages, logs) that quotes
       // the source of a file it reached gets no narrowing for any file.
-      const text = JSON.stringify(file)
+      const text = strip(file) // back references (task.file, suite) make the task circular
       const snippets = [...text.matchAll(/[^"\\]{0,24}(?:=>|function\b)[^"\\]{0,24}/g)].slice(0, 50).map((m) => m[0].trim()).filter((x) => x.length >= 8)
       if (snippets.length) {
         for (const f of Object.keys(cov)) {
