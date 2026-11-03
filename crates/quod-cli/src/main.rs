@@ -32,6 +32,7 @@ mod gotest;
 mod hostfp;
 mod inspect;
 mod profile;
+mod pytest;
 mod rootfs;
 mod run;
 mod runner;
@@ -126,6 +127,9 @@ enum Cmd {
     /// Run a vitest suite replaying, per test file, every file whose recorded
     /// inputs are unchanged: `quod vitest -- run --project unit`.
     Vitest(vitest::VitestArgs),
+    /// Run a pytest suite replaying, per test file, every file whose recorded
+    /// inputs are unchanged: `quod pytest --no-record -- tests/`.
+    Pytest(pytest::PytestArgs),
 }
 
 fn main() -> ExitCode {
@@ -140,6 +144,10 @@ fn main() -> ExitCode {
             // vitest keeps its own ledger next to the project; no store.
             if let Cmd::Vitest(args) = cli.cmd {
                 return vitest::cli(args);
+            }
+            // pytest too: its ledger and plugin live next to the project.
+            if let Cmd::Pytest(args) = cli.cmd {
+                return pytest::cli(args);
             }
             let state = state::State::resolve(cli.state.as_deref())?;
             match cli.cmd {
@@ -186,7 +194,9 @@ fn main() -> ExitCode {
                     Ok(0)
                 }
                 Cmd::Profile(args) => profile::profile(args).map(|()| 0),
-                Cmd::Vitest(_) => unreachable!("handled before the state resolves"),
+                Cmd::Vitest(_) | Cmd::Pytest(_) => {
+                    unreachable!("handled before the state resolves")
+                }
             }
         }));
     // A panic anywhere is a Quod failure too: exit 2 with the banner,
