@@ -1812,7 +1812,8 @@ fn state(
         "env" if volatile_env(p) => ("volatile".into(), None),
         "env" => (
             std::env::var_os(p).map_or("unset".into(), |v| {
-                blake3::hash(v.as_encoded_bytes()).to_hex()[..32].to_string()
+                let v = yarn_stable(&v.to_string_lossy());
+                blake3::hash(v.as_bytes()).to_hex()[..32].to_string()
             }),
             None,
         ),
@@ -2289,6 +2290,44 @@ fn keyed_args(args: &[String]) -> Vec<String> {
     out
 }
 
+/// An environment value with yarn's per-run directory names made constant.
+/// Yarn runs scripts with a directory of its own first on PATH (berry:
+/// `<tmp>/xfs-<8 hex>`, also BERRY_BIN_FOLDER and npm_node_execpath; classic:
+/// `<tmp>/yarn--<ms>-<random>`), a new one every run, holding wrappers that
+/// run yarn's node and yarn itself (each keyed where it is: the node
+/// version, the yarn release). The name is not an input.
+fn yarn_stable(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut rest = v;
+    loop {
+        let xfs = rest.find("/xfs-");
+        let classic = rest.find("/yarn--");
+        let (at, skip, ok): (usize, usize, fn(char) -> bool) = match (xfs, classic) {
+            (Some(a), Some(b)) if b < a => (b, 7, |c| c.is_ascii_digit() || c == '-' || c == '.'),
+            (Some(a), _) => (a, 5, |c| c.is_ascii_hexdigit()),
+            (None, Some(b)) => (b, 7, |c| c.is_ascii_digit() || c == '-' || c == '.'),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at + skip]);
+        let tail = &rest[at + skip..];
+        let n = tail.find(|c: char| !ok(c)).unwrap_or(tail.len());
+        // Only a whole path component made of the generated part.
+        if n > 0
+            && tail[n..]
+                .chars()
+                .next()
+                .is_none_or(|c| c == '/' || c == ':')
+        {
+            out.push('*');
+        } else {
+            out.push_str(&tail[..n]);
+        }
+        rest = &tail[n..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Every environment variable but the per-run and per-step ones; for the
 /// tools' own enumeration (`envtool:`), those of them `tool_env` names.
 fn env_all(tools: bool) -> String {
@@ -2296,7 +2335,7 @@ fn env_all(tools: bool) -> String {
         .map(|(k, v)| {
             (
                 k.to_string_lossy().into_owned(),
-                v.to_string_lossy().into_owned(),
+                yarn_stable(&v.to_string_lossy()),
             )
         })
         .filter(|(k, _)| !volatile_env(k) && (!tools || tool_env(k)))
@@ -2546,6 +2585,23 @@ mod tests {
         assert_eq!(relativize(root, "f:/tmp/x"), "f:/tmp/x");
         assert_eq!(relativize(root, "env:HOME"), "env:HOME");
         assert_eq!(relativize(root, "envall:"), "envall:");
+    }
+
+    #[test]
+    fn yarn_run_directories_are_not_inputs() {
+        assert_eq!(
+            yarn_stable("/tmp/xfs-d5f5e454:/home/r/_temp/quod/bin:/usr/bin"),
+            "/tmp/xfs-*:/home/r/_temp/quod/bin:/usr/bin"
+        );
+        assert_eq!(yarn_stable("/tmp/xfs-0a1b2c3d/node"), "/tmp/xfs-*/node");
+        assert_eq!(
+            yarn_stable("/tmp/yarn--1730000000000-0.4512/node:/a"),
+            "/tmp/yarn--*/node:/a"
+        );
+        // not yarn's: kept as is
+        assert_eq!(yarn_stable("/opt/xfs-tools/bin"), "/opt/xfs-tools/bin");
+        assert_eq!(yarn_stable("/a/yarn--x/b"), "/a/yarn--x/b");
+        assert_eq!(yarn_stable("plain"), "plain");
     }
 
     #[test]
