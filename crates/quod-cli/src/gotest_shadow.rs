@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 mod go_src;
 
 /// Bumped when what a key means or what is recorded changes.
-const LEDGER_VERSION: u32 = 1;
+const LEDGER_VERSION: u32 = 2;
 
 /// Variables the GitHub runner sets per step; not keyed (as `quod vitest`).
 const STEP_VOLATILE: &[&str] = &[
@@ -207,7 +207,8 @@ struct Rec {
     /// What its test binary touched (`f:`, `d:`, `s:`, `l:` + path), with
     /// each one's state.
     inputs: BTreeMap<String, String>,
-    /// go test's stdout for the package, as the critical path printed it.
+    /// go test's stdout for the package, as the critical path printed it:
+    /// the blake3 of the blob `<dir>/out/<hash>` that holds it.
     output: String,
     /// `ok` or `nofiles` (a failure is never recorded).
     status: String,
@@ -243,6 +244,9 @@ struct Chunk {
     /// The output was not UTF-8 (`output` is lossy; never recorded).
     #[serde(default)]
     binary: bool,
+    /// In a report file: `output` is in `<report>.out/<blob>` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    blob: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -489,20 +493,36 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
             audited.insert(replayable.swap_remove(i).to_string());
         }
     }
+    let blobs = dir.join("out");
+    let wanted: Vec<(&String, &str)> = decisions
+        .iter()
+        .filter(|d| d.run.is_none() && !audited.contains(&d.pkg))
+        .filter_map(|d| Some((&d.pkg, ledger.pkgs.get(&d.pkg)?.output.as_str())))
+        .collect();
+    let read = par_map(&wanted, |(_, h)| get_blob(&blobs, h));
+    let mut replays: BTreeMap<String, String> = BTreeMap::new();
+    let mut lost: HashSet<String> = HashSet::new();
+    for ((pkg, _), out) in wanted.iter().zip(read) {
+        match out {
+            Some(o) => {
+                replays.insert((*pkg).clone(), o);
+            }
+            None => {
+                lost.insert((*pkg).clone());
+            }
+        }
+    }
+    let mut decisions = decisions;
+    for d in &mut decisions {
+        if lost.contains(&d.pkg) {
+            d.run = Some("its recorded output is missing".into());
+            d.narrowed = false;
+        }
+    }
     let run: Vec<String> = decisions
         .iter()
         .filter(|d| d.run.is_some() || audited.contains(&d.pkg))
         .map(|d| d.pkg.clone())
-        .collect();
-    let replays: BTreeMap<String, String> = decisions
-        .iter()
-        .filter(|d| d.run.is_none() && !audited.contains(&d.pkg))
-        .filter_map(|d| {
-            ledger
-                .pkgs
-                .get(&d.pkg)
-                .map(|r| (d.pkg.clone(), r.output.clone()))
-        })
         .collect();
     eprintln!(
         "quod gotest: {} packages: {} run, {} replay{}",
@@ -557,7 +577,7 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
             p,
             &Report {
                 args: a.args.clone(),
-                ran: outcome.chunks.clone(),
+                ran: put_report_blobs(p, &outcome.chunks)?,
                 replayed: replays.keys().cloned().collect(),
             },
         )?;
@@ -605,6 +625,14 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
                         a.args
                     );
                 }
+                let mut r = r;
+                let dir = report_blobs(p);
+                for c in r.ran.values_mut() {
+                    if let Some(h) = &c.blob {
+                        c.output = get_blob(&dir, h)
+                            .with_context(|| format!("{}: blob {h} is missing", p.display()))?;
+                    }
+                }
                 Some(r)
             }
             None => None,
@@ -642,6 +670,7 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
                 cover,
                 shapes_now: &shapes_now,
                 dirs: &dirs,
+                blobs: &blobs,
             },
             &run,
             &audited,
@@ -665,6 +694,15 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         let tmp = dir.join("ledger.json.tmp");
         fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
         fs::rename(tmp, ledger_path)?;
+        // Outputs no record holds any more.
+        let held: HashSet<&str> = ledger.pkgs.values().map(|r| r.output.as_str()).collect();
+        if let Ok(rd) = fs::read_dir(&blobs) {
+            for e in rd.filter_map(Result::ok) {
+                if e.file_name().to_str().is_none_or(|n| !held.contains(n)) {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
         let _ = fs::remove_dir_all(trace_dir);
         if let (Some(s), Some(r)) = (summary.as_object_mut(), rec.as_object()) {
             s.extend(r.clone());
@@ -692,6 +730,57 @@ fn plain(go: &str, args: &[String]) -> Result<u8> {
 
 fn exit_code(st: std::process::ExitStatus) -> u8 {
     st.code().map_or(1, |c| c.clamp(0, 255) as u8)
+}
+
+/// Stores `text` as `<dir>/<blake3>`; returns the hash.
+fn put_blob(dir: &Path, text: &str) -> std::io::Result<String> {
+    let h = blake3::hash(text.as_bytes()).to_hex().to_string();
+    let p = dir.join(&h);
+    if !p.exists() {
+        fs::create_dir_all(dir)?;
+        let tmp = dir.join(format!("{h}.tmp{}", std::process::id()));
+        fs::write(&tmp, text)?;
+        fs::rename(tmp, p)?;
+    }
+    Ok(h)
+}
+
+/// A blob, if it is there and is what its name says.
+fn get_blob(dir: &Path, h: &str) -> Option<String> {
+    let b = fs::read(dir.join(h)).ok()?;
+    if blake3::hash(&b).to_hex().as_str() != h {
+        return None;
+    }
+    String::from_utf8(b).ok()
+}
+
+/// Where a report's outputs live: `<report>.out`.
+fn report_blobs(report: &Path) -> PathBuf {
+    let mut s = report.as_os_str().to_owned();
+    s.push(".out");
+    PathBuf::from(s)
+}
+
+/// The report's chunks with their outputs moved to blobs (raw files: no
+/// JSON escaping of megabytes of output on the critical path).
+fn put_report_blobs(
+    report: &Path,
+    chunks: &BTreeMap<String, Chunk>,
+) -> Result<BTreeMap<String, Chunk>> {
+    let dir = report_blobs(report);
+    let mut out = BTreeMap::new();
+    for (k, c) in chunks {
+        let h = put_blob(&dir, &c.output).with_context(|| format!("writing {}", dir.display()))?;
+        out.insert(
+            k.clone(),
+            Chunk {
+                output: String::new(),
+                blob: Some(h),
+                ..c.clone()
+            },
+        );
+    }
+    Ok(out)
 }
 
 fn write_json<T: Serialize>(p: &Path, v: &T) -> Result<()> {
@@ -1498,6 +1587,7 @@ impl<'a> Merger<'a> {
                     status: std::mem::take(&mut self.status[k]),
                     tests: std::mem::take(&mut self.tests[k]),
                     binary,
+                    blob: None,
                 },
             );
         }
@@ -1535,11 +1625,13 @@ fn verbose_result(line: &str) -> Option<(String, String)> {
 /// The package under test a `-json` line is about: its Package, or the
 /// test binary an ImportPath (`Q [P.test]`) is built for.
 fn json_root(line: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(line.trim_end()).ok()?;
-    if let Some(p) = v.get("Package").and_then(|p| p.as_str()) {
+    if !line.starts_with("{\"") {
+        return None;
+    }
+    if let Some(p) = field(line, "Package") {
         return Some(p.to_string());
     }
-    let ip = v.get("ImportPath")?.as_str()?;
+    let ip = field(line, "ImportPath")?;
     Some(match ip.split_once(" [") {
         Some((_, rest)) => {
             let rest = rest.strip_suffix(']').unwrap_or(rest);
@@ -1549,7 +1641,24 @@ fn json_root(line: &str) -> Option<String> {
     })
 }
 
+/// A string field of a test2json event, found without parsing the line:
+/// `"Key":"value"` with no escape in the value (import paths and actions
+/// have none). A field's name in quotes can only appear unescaped as a key:
+/// inside a string value every quote is escaped.
+fn field<'l>(line: &'l str, key: &str) -> Option<&'l str> {
+    let pat = format!("\"{key}\":\"");
+    let i = line.find(&pat)? + pat.len();
+    let v = &line[i..i + line[i..].find('"')?];
+    (!v.contains('\\')).then_some(v)
+}
+
 fn json_event(line: &str, status: &mut String, tests: &mut BTreeMap<String, String>) {
+    // Most lines are output: only a result needs the full parse.
+    if !line.starts_with("{\"")
+        || !field(line, "Action").is_some_and(|a| matches!(a, "pass" | "fail" | "skip"))
+    {
+        return;
+    }
     let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim_end()) else {
         return;
     };
@@ -1941,6 +2050,8 @@ struct Ctx<'a> {
     shapes_now: &'a HashMap<String, Option<go_src::Shape>>,
     /// Package directories by import path (coverage names files by package).
     dirs: &'a HashMap<String, String>,
+    /// Where recorded outputs go (`<dir>/out`).
+    blobs: &'a Path,
 }
 
 /// Coverage blocks by file: (line, column) of each block's start, and
@@ -2008,6 +2119,14 @@ fn record(
                         if let Some(Some(sh)) = cx.shapes_now.get(path) {
                             ledger.shapes.insert(st.clone(), FileShape::from(sh));
                         }
+                    }
+                }
+                let mut rec = rec;
+                match put_blob(cx.blobs, &rec.output) {
+                    Ok(h) => rec.output = h,
+                    Err(e) => {
+                        unrecordable.insert(pkg.clone(), format!("storing its output: {e}"));
+                        continue;
                     }
                 }
                 ledger.pkgs.insert(pkg.clone(), rec);
