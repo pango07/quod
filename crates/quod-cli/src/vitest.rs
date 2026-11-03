@@ -21,6 +21,16 @@
 //! result is compared with the recorded one; a mismatch quarantines the
 //! file (it always runs from then on). So audits cost no wall time.
 //!
+//! Second witness (the default; `QUOD_VITEST_WITNESSES=1` trusts a record at
+//! once, as before, and a higher number asks for more): a record is
+//! provisional until a second, independent run of the file produces the same
+//! key (the same states of all its inputs, the same vitest arguments and
+//! facts, shared inputs unchanged in between) with the same per-test
+//! results; only then does it replay. A disagreement quarantines the file:
+//! it runs until it re-proves (one more agreeing witness per recent
+//! disagreement, as the trust ledger's proofs). With it the job that runs
+//! the tests records inline and no shadow job is needed.
+//!
 //! See docs/vitest.md for the design and the measurements.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -247,6 +257,46 @@ struct Rec {
     /// (function-level narrowing): the state the record saw.
     #[serde(default)]
     pinned: BTreeMap<u32, String>,
+    /// The second-witness policy's state of this record.
+    #[serde(default)]
+    w: Witness,
+}
+
+/// Second witness: who has vouched for a record.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct Witness {
+    /// Independent runs that produced this key with these results, in a row.
+    #[serde(default)]
+    n: u32,
+    /// The key: every input's state (and the arguments and facts) when recorded.
+    #[serde(default)]
+    key: String,
+    /// The per-test results (names and states).
+    #[serde(default)]
+    tests: String,
+    /// Disagreements seen (each one raises the bar to re-prove, up to 5).
+    #[serde(default)]
+    disagreements: u32,
+}
+
+/// Witnesses a record needs before it replays: 2 (the default, the
+/// second-witness policy); `QUOD_VITEST_WITNESSES=1` trusts a record at once.
+fn witnesses_needed() -> u32 {
+    std::env::var("QUOD_VITEST_WITNESSES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+        .max(1)
+}
+
+/// The witnesses a record needs (more after disagreements).
+fn bar(need: u32, w: &Witness) -> u32 {
+    need + w.disagreements.min(5)
+}
+
+/// May this record replay under the witness policy?
+fn witnessed(need: u32, r: &Rec) -> bool {
+    need <= 1 || r.w.n >= bar(need, &r.w)
 }
 
 #[derive(Deserialize)]
@@ -280,6 +330,9 @@ struct Ran {
     cov: Option<BTreeMap<String, Vec<[u32; 4]>>>,
     #[serde(default, rename = "covWhy")]
     cov_why: Option<String>,
+    /// Per-test names and states (the second witness compares these).
+    #[serde(default)]
+    tests: Option<String>,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -368,11 +421,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let fast_ok = !a.no_fast && std::env::var("QUOD_VITEST_NO_FAST").map_or(true, |v| v != "1");
     // The paths as this run starts (a record keeps them: the next critical
     // path compares its own before emitting a rendered full replay).
+    let tw = Instant::now();
     let tree_before = if a.no_record {
         None
     } else {
         Some(walk(&root, &dir))
     };
+    let walk_ms = tw.elapsed().as_secs_f64() * 1e3;
 
     // Every recorded input, hashed once.
     let live = ledger.live();
@@ -412,6 +467,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             None => String::new(),
         }
     };
+    let need = witnesses_needed();
+    let mut provisional = 0usize;
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
             why.insert(
@@ -424,6 +481,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     format!("its last result was {}", rec.state)
                 },
             );
+            affected.push(id.clone());
+            continue;
+        }
+        if !witnessed(need, rec) {
+            // One witness so far: it runs again, and agreeing makes it two.
+            provisional += 1;
             affected.push(id.clone());
             continue;
         }
@@ -624,6 +687,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     for k in shared_changed.iter().take(8) {
         eprintln!("quod vitest:   shared input changed: {k}");
     }
+    if need > 1 {
+        eprintln!(
+            "quod vitest: second witness: {provisional} provisional records run again ({need} witnesses needed)"
+        );
+    }
     eprintln!(
         "quod vitest: {} recorded files: {} replay, {} to run{}{}; {} inputs hashed, {} changed; selected in {} ms",
         ledger.files.len(),
@@ -644,16 +712,22 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         t_select.as_millis()
     );
 
-    if a.no_record
+    // Every file replays (none to run, none to audit): emit the recorded
+    // full replay instead of starting vitest. Inline too: a run that runs
+    // nothing records nothing.
+    if (a.no_record || audit.is_empty())
         && fast_ok
         && !ledger.files.is_empty()
         && affected.is_empty()
         && replay.len() == ledger.files.len()
     {
-        let w = walk(&root, &dir);
+        let tree = match &tree_before {
+            Some(w) => w.hash.clone(),
+            None => walk(&root, &dir).hash,
+        };
         let emitted = node_version(&a.node)
             .ok_or_else(|| "node --version failed".to_string())
-            .and_then(|node| emit_render(&root, &dir, &ledger, &a.args, &node, &w.hash));
+            .and_then(|node| emit_render(&root, &dir, &ledger, &a.args, &node, &tree));
         match emitted {
             Ok(code) => {
                 let t = t0.elapsed();
@@ -700,8 +774,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
 
+    // The render (for a later run that replays every file) loads vitest
+    // while this run's tests run; it renders only if this run leaves every
+    // file recorded, else it is stopped.
+    let no_render =
+        std::env::var("QUOD_VITEST_DISABLE").is_ok_and(|v| v.split(',').any(|p| p == "render"));
+    let standby = if !a.no_record && fast_ok && !no_render {
+        Standby::start(&a, &dir, &code_dir)
+            .map_err(|e| eprintln!("quod vitest: no render ({e})"))
+            .ok()
+    } else {
+        None
+    };
     let status = without_credentials(&mut Command::new(&a.node))
-        .env("QUOD_VITEST_HIDE", hidden_env())
+        .env("QUOD_VITEST_HIDE", hidden_env(&a))
         .arg(code.join("driver.mjs"))
         .arg(&plan_path)
         .arg(&out_path)
@@ -763,6 +849,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 "vitest_ms": (t_run - t_select).as_secs_f64() * 1e3,
                 "record_ms": 0.0,
                 "driver": out.timings,
+                "provisional": provisional,
                 "exit": code,
             });
             fs::write(p, serde_json::to_vec(&s)?)?;
@@ -771,6 +858,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
 
     // Ingest: the files that ran replace their records.
+    let mut phase = Instant::now();
+    let mut phases: BTreeMap<&str, f64> = BTreeMap::new();
+    let mut lap = |name: &'static str, phases: &mut BTreeMap<&str, f64>| {
+        phases.insert(name, phase.elapsed().as_secs_f64() * 1e3);
+        phase = Instant::now();
+    };
+    phases.insert("walk", walk_ms);
     let mut intern: HashMap<String, u32> = ledger
         .keys
         .iter()
@@ -796,9 +890,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     global.sort_unstable();
     global.dedup();
     ledger.global = global;
+    // Under the witness policy the previous record of a file that runs is
+    // what this run's result is witnessed against.
+    let mut prev: HashMap<String, Rec> = HashMap::new();
     for id in &affected {
-        ledger.files.remove(id);
+        if let Some(r) = ledger.files.remove(id)
+            && need > 1
+        {
+            prev.insert(id.clone(), r);
+        }
     }
+    let mut witness_todo: Vec<(String, Option<Witness>, bool)> = Vec::new();
     let mismatched: HashSet<&String> = out.audit_mismatch.iter().collect();
     let mut unobservable: BTreeMap<String, usize> = BTreeMap::new();
     let mut no_fn_level: BTreeMap<String, usize> = BTreeMap::new();
@@ -809,7 +911,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     let (mut recorded, mut failed) = (0usize, 0usize);
     for r in &out.ran {
-        let old = ledger.files.remove(&r.id);
+        let old = ledger.files.remove(&r.id).or_else(|| prev.remove(&r.id));
         // Quarantine is re-proved, not permanent: a quarantined file runs
         // every time, and once `reprove()` recordings in a row matched (a
         // one-off difference: a timeout under load), it may replay again.
@@ -869,6 +971,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             }
         }
         recorded += 1;
+        if need > 1 {
+            witness_todo.push((
+                r.id.clone(),
+                old.as_ref().map(|o| o.w.clone()),
+                mismatched.contains(&r.id),
+            ));
+        }
         ledger.files.insert(
             r.id.clone(),
             Rec {
@@ -884,6 +993,18 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 replays: old.as_ref().map_or(0, |o| o.replays),
                 cov,
                 pinned: BTreeMap::new(),
+                w: Witness {
+                    tests: r
+                        .tests
+                        .as_ref()
+                        .map(|t| {
+                            blake3::hash(format!("{}\n{t}", r.state).as_bytes())
+                                .to_hex()
+                                .to_string()
+                        })
+                        .unwrap_or_default(),
+                    ..Witness::default()
+                },
             },
         );
     }
@@ -909,9 +1030,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .unwrap_or_default();
     ledger.render = None;
     let mut render_note = serde_json::Value::Null;
-    if fast_ok && everything_recorded(&ledger) {
+    lap("ingest", &mut phases);
+    if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
         let tr = Instant::now();
-        match render(&a, &root, &dir, &code_dir, &ledger) {
+        match render(&a, &root, &dir, sb, &ledger) {
             Ok(r) => {
                 render_note = serde_json::json!({ "ms": tr.elapsed().as_secs_f64() * 1e3 });
                 ledger.render = Some(r);
@@ -924,6 +1046,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
 
+    lap("render", &mut phases);
     // States: the selection's for keys it hashed, new keys now.
     let live = ledger.live();
     let missing: Vec<u32> = live
@@ -940,13 +1063,73 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         ledger.states[*k as usize] = s.clone();
         ledger.idents[*k as usize] = *id;
     }
+    lap("states", &mut phases);
+    let (mut promoted, mut disagreed, mut witnessed_again) = (0usize, 0usize, 0usize);
+    for (id, old, mismatch) in witness_todo {
+        let key = {
+            let r = &ledger.files[&id];
+            let mut h = blake3::Hasher::new();
+            for x in ledger
+                .args
+                .iter()
+                .chain(ledger.facts.iter().flat_map(|(k, v)| [k, v]))
+            {
+                h.update(x.as_bytes());
+                h.update(b"\0");
+            }
+            for d in &r.deps {
+                h.update(ledger.keys[*d as usize].as_bytes());
+                h.update(b"\0");
+                h.update(ledger.states[*d as usize].as_bytes());
+                h.update(b"\0");
+            }
+            h.finalize().to_hex().to_string()
+        };
+        let r = ledger.files.get_mut(&id).expect("recorded above");
+        r.w.key = key;
+        let old = old.unwrap_or_default();
+        r.w.disagreements = old.disagreements;
+        let same_key = global_ok && !old.key.is_empty() && old.key == r.w.key;
+        let agrees = same_key && !old.tests.is_empty() && old.tests == r.w.tests;
+        if mismatch || (same_key && !agrees) {
+            // A second run of the same key disagreed (or an audit did).
+            r.w.disagreements += 1;
+            r.w.n = 1;
+            r.quarantined = true;
+            disagreed += 1;
+            eprintln!(
+                "quod vitest: second witness DISAGREES: {} (quarantined until it re-proves)",
+                r.file
+            );
+        } else if agrees {
+            let was = old.n >= bar(need, &old);
+            r.w.n = old.n + 1;
+            witnessed_again += 1;
+            if r.w.n >= bar(need, &r.w) {
+                r.quarantined = false;
+                if !was {
+                    promoted += 1;
+                }
+            }
+        } else {
+            // A new key: its first witness.
+            r.w.n = 1;
+        }
+    }
+    lap("witness", &mut phases);
     ledger.compact();
     let tmp = dir.join("ledger.json.tmp");
     fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
     fs::rename(&tmp, &ledger_path)?;
+    lap("write", &mut phases);
     let t_done = t0.elapsed();
 
     let quod_ms = (t_select + (t_done - t_run)).as_millis();
+    if need > 1 {
+        eprintln!(
+            "quod vitest: second witness: {promoted} records now trusted, {witnessed_again} witnessed again, {disagreed} disagreed"
+        );
+    }
     eprintln!(
         "quod vitest: ran {} files ({} recorded, {} failed, {} unrecordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
         out.ran.len(),
@@ -1005,6 +1188,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "record_ms": (t_done - t_run).as_secs_f64() * 1e3,
             "driver": out.timings,
             "render": render_note,
+            "phases": phases,
+            "witnesses_needed": need,
+            "provisional": provisional,
+            "promoted": promoted,
+            "witnessed_again": witnessed_again,
+            "witness_disagreed": disagreed,
             "exit": code,
         });
         fs::write(p, serde_json::to_vec(&s)?)?;
@@ -1233,9 +1422,13 @@ fn plan(
             ledger.keys[*k as usize]
         ));
     }
+    let need = witnesses_needed();
     for (id, rec) in &ledger.files {
         if rec.quarantined || !(rec.state == "pass" || rec.state == "skip") {
             return verdict(format!("{id} must run"));
+        }
+        if !witnessed(need, rec) {
+            return verdict(format!("{id} has one witness"));
         }
         let moved = rec.deps.iter().find(|d| {
             let seen = rec.pinned.get(d).unwrap_or(&ledger.states[**d as usize]);
@@ -1302,9 +1495,11 @@ fn everything_recorded(l: &Ledger) -> bool {
     !l.all_files.is_empty()
         && l.all_files.len() == l.files.len()
         && l.all_files.iter().all(|id| {
-            l.files
-                .get(id)
-                .is_some_and(|r| !r.quarantined && (r.state == "pass" || r.state == "skip"))
+            l.files.get(id).is_some_and(|r| {
+                !r.quarantined
+                    && (r.state == "pass" || r.state == "skip")
+                    && witnessed(witnesses_needed(), r)
+            })
         })
 }
 
@@ -1512,39 +1707,102 @@ fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
     Some(h.finalize().to_hex().to_string())
 }
 
+/// A render started with the run: the driver loads vitest and its config
+/// while the tests run, then waits for the go file (the records to replay)
+/// or is killed. Rendering costs the replay itself, not a vitest start.
+struct Standby {
+    child: Option<std::process::Child>,
+    rd: PathBuf,
+    go: PathBuf,
+    out: PathBuf,
+}
+
+impl Standby {
+    /// Into `render-next` (the ledger's render stays usable until this one
+    /// replaces it).
+    fn start(a: &VitestArgs, dir: &Path, code_dir: &Path) -> std::result::Result<Self, String> {
+        let rd = dir.join("render-next");
+        let _ = fs::remove_dir_all(&rd);
+        fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+        let pp = rd.join("plan.json");
+        let op = rd.join("out.json");
+        let go = rd.join("go.json");
+        let plan = serde_json::json!({
+            "stateDir": dir, "replay": {}, "audit": [], "record": false,
+            "render": rd, "standby": go,
+        });
+        fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
+        let child = without_credentials(&mut Command::new(&a.node))
+            .env("QUOD_VITEST_HIDE", hidden_env(a))
+            .arg(code_dir.join("driver.mjs"))
+            .arg(&pp)
+            .arg(&op)
+            .args(&a.args)
+            .env("QUOD_VITEST_QUIET", "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(file("stdout")?)
+            .stderr(file("stderr")?)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(Standby {
+            child: Some(child),
+            rd,
+            go,
+            out: op,
+        })
+    }
+}
+
+impl Standby {
+    fn go(&self, v: &serde_json::Value) -> std::result::Result<(), String> {
+        let tmp = self.go.with_extension("tmp");
+        fs::write(&tmp, serde_json::to_vec(v).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        fs::rename(&tmp, &self.go).map_err(|e| e.to_string())
+    }
+}
+
+/// Not rendering: told to stop (it exits at once, or as soon as vitest has
+/// loaded, never in the middle of loading the config), killed after 2 s.
+impl Drop for Standby {
+    fn drop(&mut self) {
+        if let Some(mut c) = self.child.take() {
+            let _ = self.go(&serde_json::json!({ "abort": true }));
+            let t = Instant::now();
+            while t.elapsed() < std::time::Duration::from_secs(2) {
+                if !matches!(c.try_wait(), Ok(None)) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
 /// Shadow side: replay every file through vitest once more (no tests run)
 /// and keep what its reporters printed and wrote.
 fn render(
     a: &VitestArgs,
     root: &Path,
     dir: &Path,
-    code_dir: &Path,
+    mut sb: Standby,
     ledger: &Ledger,
 ) -> std::result::Result<Render, String> {
-    let rd = dir.join("render");
-    let _ = fs::remove_dir_all(&rd);
-    fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    let rd = sb.rd.clone();
     let replay: BTreeMap<&String, &String> =
         ledger.files.iter().map(|(id, r)| (id, &r.result)).collect();
-    let plan = serde_json::json!({
-        "stateDir": dir, "replay": replay, "audit": [], "record": false,
-        "render": rd, "expect": ledger.facts,
-    });
-    let (pp, op) = (rd.join("plan.json"), rd.join("out.json"));
-    fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
+    sb.go(&serde_json::json!({ "replay": replay, "expect": ledger.facts }))?;
+    let status = sb
+        .child
+        .take()
+        .ok_or("no render process")?
+        .wait()
         .map_err(|e| e.to_string())?;
-    let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
-    let status = without_credentials(&mut Command::new(&a.node))
-        .arg(code_dir.join("driver.mjs"))
-        .arg(&pp)
-        .arg(&op)
-        .args(&a.args)
-        .env("QUOD_VITEST_QUIET", "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(file("stdout")?)
-        .stderr(file("stderr")?)
-        .status()
-        .map_err(|e| e.to_string())?;
+    let op = sb.out.clone();
     let out: Out = fs::read(&op)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -1585,6 +1843,9 @@ fn render(
             }
         })
         .collect();
+    let fin = dir.join("render");
+    let _ = fs::remove_dir_all(&fin);
+    fs::rename(&rd, &fin).map_err(|e| e.to_string())?;
     Ok(Render {
         sig: render_sig(ledger),
         args: a.args.clone(),
@@ -1843,7 +2104,16 @@ fn state(
 /// The per-run variables present (the commit, the run id, the event file,
 /// the runner's per-step paths, Quod's own): a recording worker lists the
 /// environment without them (record.mjs).
-fn hidden_env() -> String {
+///
+/// Only for a shadow (`--expect-report`), whose recording is checked against
+/// the uninstrumented run of the same commit. Inline (the job that runs the
+/// tests records them) nothing is hidden: the tests run exactly as plain
+/// vitest's, and a result that depends on a per-run value is a second
+/// witness that disagrees (quarantined).
+fn hidden_env(a: &VitestArgs) -> String {
+    if a.expect_report.is_none() {
+        return String::new();
+    }
     let mut v: Vec<String> = std::env::vars_os()
         .map(|(k, _)| k.to_string_lossy().into_owned())
         .filter(|k| volatile_env(k))
@@ -2632,6 +2902,7 @@ mod tests {
                 replays: 0,
                 cov: BTreeMap::from([(2, vec![[1, 0, 3, 0]])]),
                 pinned: BTreeMap::from([(0, "old".to_string())]),
+                w: Witness::default(),
             },
         );
         l.compact();

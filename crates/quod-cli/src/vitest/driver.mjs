@@ -16,19 +16,33 @@ import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
 import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import nodeModule from 'node:module'
 import { pathToFileURL } from 'node:url'
 
 const [planPath, outPath, ...vitestArgs] = process.argv.slice(2)
 const plan = JSON.parse(real.readFileSync(planPath, 'utf8'))
+// A standby render loads vitest beside a run's tests: on idle CPU only.
+if (plan.standby) {
+  try {
+    os.setPriority(19)
+  } catch {}
+}
 const stateDir = plan.stateDir
 const dumpDir = path.join(stateDir, 'dump')
 const resultsDir = path.join(stateDir, 'results')
 for (const d of [dumpDir, resultsDir]) real.mkdirSync(d, { recursive: true })
-for (const f of real.readdirSync(dumpDir)) {
+// (a render runs beside a recording run: the dumps are the recording's)
+if (!plan.render) {
+  for (const f of real.readdirSync(dumpDir)) {
+    try {
+      fs.unlinkSync(path.join(dumpDir, f))
+    } catch {}
+  }
+  // The workers' coverage mapping cache (coverage.mjs), kept bounded.
   try {
-    fs.unlinkSync(path.join(dumpDir, f))
+    if (real.readdirSync(path.join(stateDir, 'covmap')).length > 20000) fs.rmSync(path.join(stateDir, 'covmap'), { recursive: true, force: true })
   } catch {}
 }
 
@@ -54,8 +68,11 @@ if (plan.record === false && process.env.QUOD_VITEST_COMPILE_CACHE === '1' && ty
 const record = plan.record !== false
 const r = createRecorder({ stateDir, codeDir, mode: 'main' })
 r.on = record
-// QUOD_VITEST_DISABLE=main: measuring the main process recorder's cost only.
-if (record && !(process.env.QUOD_VITEST_DISABLE ?? '').split(',').includes('main')) {
+// QUOD_VITEST_DISABLE (read before the env is watched): main (no main
+// process recorder), setup (no setup file: nothing recorded) or preload (no
+// toString wrapper): measuring the recorder's cost only.
+const offs = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(','))
+if (record && !offs.has('main')) {
   patchFs(r)
   patchEnv(r)
   patchLoader(r)
@@ -174,15 +191,31 @@ if (plan.render) {
   } else if (of) ctx.config.outputFile = outFiles
 }
 
+// A standby render (started beside a recording run) waits here, vitest
+// loaded, for the records to replay: the go file Quod writes once the
+// recording is in, or the end of Quod (it kills this).
+if (plan.standby) {
+  const ppid = process.ppid
+  let go = null
+  while (!go) {
+    if (real.existsSync(plan.standby)) go = JSON.parse(real.readFileSync(plan.standby, 'utf8'))
+    else if (process.ppid !== ppid) process.exit(0)
+    else await new Promise((res) => setTimeout(res, 5))
+  }
+  if (go.abort) process.exit(0)
+  replay = go.replay ?? {}
+  if (go.expect && Object.keys(facts).some((k) => go.expect[k] !== facts[k])) replay = {}
+}
+
 // Projects Quod can record: isolated node workers. Others always run.
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
   if (ok) {
-    if (record) {
+    if (record && !offs.has('setup')) {
       c.setupFiles = [setupPath, ...c.setupFiles]
-      c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
+      if (!offs.has('preload')) c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
     }
     recorded.add(p.name)
   } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
@@ -320,7 +353,15 @@ const moduleKeys = (mods) => {
 }
 const transformed = new Set()
 const dumps = new Map()
-const workerMs = { setup: 0, dump: 0, cov: 0 }
+const workerMs = { setup: 0, dump: 0, cov: 0, map: 0, keys: 0, ticks: 0 }
+const workerSteps = {}
+const tPost = {}
+let tp = performance.now()
+const lap = (k) => {
+  const n = performance.now()
+  tPost[k] = (tPost[k] ?? 0) + n - tp
+  tp = n
+}
 const unmapped = {}
 let unmappedSample = null
 for (const id of ran.keys()) {
@@ -331,10 +372,13 @@ for (const id of ran.keys()) {
   dumps.set(id, d)
   if (d) for (const m of d.modules) transformed.add(path.resolve(m))
   if (d?.ms) for (const k of Object.keys(workerMs)) workerMs[k] += d.ms[k] ?? 0
+  for (const [k, v] of Object.entries(d?.ms?.steps ?? {})) workerSteps[k] = (workerSteps[k] ?? 0) + v
   for (const [k, n] of Object.entries(d?.unmapped ?? {})) unmapped[k] = (unmapped[k] ?? 0) + n
   if (d?.unmappedSample?.length && !unmappedSample) unmappedSample = d.unmappedSample[0]
 }
+lap('dumps')
 const interrupted = ctx.isCancelling || crashed
+const sources = new Map() // reached source files' text, read once
 for (const m of endModules) {
   const id = m.task.id
   if (!ran.has(id)) continue
@@ -343,6 +387,8 @@ for (const m of endModules) {
   const failed = st === 'fail' || testStates(file).some(([, s]) => s === 'fail')
   const state = failed ? 'fail' : st === 'pass' ? 'pass' : st === 'skip' || file.mode === 'skip' ? 'skip' : (st ?? 'none')
   const d = dumps.get(id)
+  let stripped = null
+  const text = () => (stripped ??= strip(file)) // back references (task.file, suite) make the task circular
   let keys = null
   let unobservable = []
   let cov = null
@@ -370,14 +416,18 @@ for (const m of endModules) {
       }
       // Belt and braces: a result (test names, messages, logs) that quotes
       // the source of a file it reached gets no narrowing for any file.
-      const text = strip(file) // back references (task.file, suite) make the task circular
-      const snippets = [...text.matchAll(/[^"\\]{0,24}(?:=>|function\b)[^"\\]{0,24}/g)].slice(0, 50).map((m) => m[0].trim()).filter((x) => x.length >= 8)
+      const snippets = [...text().matchAll(/[^"\\]{0,24}(?:=>|function\b)[^"\\]{0,24}/g)].slice(0, 50).map((m) => m[0].trim()).filter((x) => x.length >= 8)
       if (snippets.length) {
         for (const f of Object.keys(cov)) {
-          let src = ''
-          try {
-            src = real.readFileSync(f, 'utf8')
-          } catch {}
+          let src = sources.get(f)
+          if (src === undefined) {
+            try {
+              src = real.readFileSync(f, 'utf8')
+            } catch {
+              src = ''
+            }
+            sources.set(f, src)
+          }
           if (snippets.some((x) => src.includes(x))) {
             cov = null
             covWhy = 'its results quote reached source'
@@ -388,7 +438,7 @@ for (const m of endModules) {
     }
   }
   const resultRel = `results/${id}.json`
-  if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), strip(file))
+  if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), text())
   // The shadow's safety net: a file records only if it ran here as it did on
   // the critical path of the same commit (uninstrumented); else recording
   // changed its behaviour, and it is quarantined.
@@ -419,8 +469,9 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)) })
 }
+lap('files')
 
 // `--report`: every test's name and state per file, in the shape of vitest's
 // JSON report, whatever reporters the run has (the shadow's --expect-report).
@@ -491,6 +542,7 @@ while (stack.length) {
   }
 }
 for (const d of pkgs) global.push(`p:${d}`)
+lap('global')
 
 writeJson(outPath, {
   facts,
@@ -502,7 +554,20 @@ writeJson(outPath, {
   allFiles,
   render,
   auditMismatch,
-  timings: { init: tInit - t0, run: tRun - tInit, record: performance.now() - tRun, workerSetupSum: workerMs.setup, workerDumpSum: workerMs.dump, workerCovSum: workerMs.cov },
+  timings: {
+    init: tInit - t0,
+    run: tRun - tInit,
+    record: performance.now() - tRun,
+    ...Object.fromEntries(Object.entries(tPost).map(([k, v]) => [`post_${k}`, v])),
+    ...Object.fromEntries(Object.entries(workerSteps).map(([k, v]) => [`workerStep_${k}`, v])),
+    workerSetupSum: workerMs.setup,
+    workerDumpSum: workerMs.dump,
+    workerCovSum: workerMs.cov,
+    workerMapSum: workerMs.map,
+    workerKeysSum: workerMs.keys,
+    workerTicks: workerMs.ticks,
+    files: ran.size,
+  },
   unmapped,
 })
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)

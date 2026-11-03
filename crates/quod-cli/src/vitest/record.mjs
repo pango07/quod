@@ -41,6 +41,10 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
   const alias = new Map()
   // A path under a made directory is this process's own output, not an input.
   const under = (p) => r.made.some((m) => p === m || p.startsWith(`${m}/`))
+  // (kind, absolute path) pairs whose key is in: a repeated read adds
+  // nothing. Marked only once added (a path under a made directory, a
+  // relative path, a main-process package.json are worked out every time).
+  const seen = new Set()
   const r = {
     mode, // 'main' | 'worker'
     keys,
@@ -83,6 +87,11 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     },
     add(kind, p) {
       if (!r.on || p == null) return
+      let memo = null
+      if (typeof p === 'string' && p.charCodeAt(0) === 47 && !(r.mode === 'main' && p.endsWith('package.json'))) {
+        memo = `${kind}\0${p}`
+        if (seen.has(memo)) return
+      }
       p = norm(p)
       if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
       if (r.made.length && under(p)) return
@@ -105,6 +114,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         // keyed at the real path, as a read there would be, plus the link.
         const ws = workspaceLink(pkg)
         if (!ws) {
+          if (memo) seen.add(memo)
           keys.add(`p:${pkg}`)
           return
         }
@@ -116,6 +126,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         if (resolverCaller()) kind = 'pj'
         else if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
       }
+      if (memo) seen.add(memo)
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -271,7 +282,9 @@ function isRead(flags) {
   return /[r+]/.test(String(flags))
 }
 
-export function patchFs(r) {
+// `sync: false` leaves node:fs's ESM exports to the caller's one
+// syncBuiltinESMExports (each call walks every loaded builtin's exports).
+export function patchFs(r, { sync = true } = {}) {
   const P = fs.promises
   const both = (names, fn, after) => {
     for (const n of names) {
@@ -350,6 +363,10 @@ export function patchFs(r) {
   wrap(fs, 'watch', watch)
   wrap(fs, 'watchFile', watch)
   wrap(P, 'watch', watch)
+  if (sync) syncESM()
+}
+
+export function syncESM() {
   try {
     nodeModule.syncBuiltinESMExports()
   } catch {}
@@ -374,13 +391,16 @@ export const toolEnv = (k) => TOOL_ENV.has(k) || /^(NODE_|VITE|LC_|DEBUG|UV_)/.t
 export function patchEnv(r) {
   const target = process.env
   const hidden = new Set((target.QUOD_VITEST_HIDE ?? '').split(',').filter(Boolean))
+  // names whose env: key is in (a repeated read adds nothing, and walks no stack)
+  const seen = new Set()
   const rec = (k) => {
-    if (typeof k !== 'string') return
+    if (typeof k !== 'string' || seen.has(k)) return
     if (ciVarying(k) || !toolEnv(k)) {
       const c = toolCaller()
       if (c.tool) return
       if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
     }
+    seen.add(k)
     r.keys.add(`env:${k}`)
   }
   const proxy = new Proxy(target, {
@@ -467,20 +487,27 @@ const ESCAPES = {
   worker_threads: (m, r) => wrap(m, 'Worker', () => r.unobs('worker_threads')),
   cluster: (m, r) => wrap(m, 'fork', () => r.unobs('child_process')),
 }
-export function patchEscapes(r) {
+export function patchEscapes(r, { sync = true } = {}) {
   const done = new Set()
-  const patch = (name) => {
+  const patch = (name, now = true) => {
     if (done.has(name)) return
     done.add(name)
     try {
       ESCAPES[name](process.getBuiltinModule(name), r)
-      nodeModule.syncBuiltinESMExports()
+      if (now) nodeModule.syncBuiltinESMExports()
     } catch {
       r.unobs(`could not watch ${name}`)
     }
   }
+  // net always (loading it if need be): every TCP connection made in JS
+  // goes through net.Socket.prototype.connect, node's own too (undici's
+  // fetch and WebSocket, http, tls), even from a module node loads
+  // internally, past the resolve hook. So the WebSocket global is left
+  // alone: reading it loads undici (~8 ms per worker).
   const loaded = new Set(process.moduleLoadList?.filter((m) => m.startsWith('NativeModule ')).map((m) => m.slice(13)))
-  for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name)
+  loaded.add('net')
+  for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name, false)
+  if (sync) syncESM()
   if (typeof nodeModule.registerHooks === 'function') {
     nodeModule.registerHooks({
       resolve(specifier, context, next) {
@@ -491,7 +518,6 @@ export function patchEscapes(r) {
     })
   } else for (const name of Object.keys(ESCAPES)) patch(name)
   wrap(globalThis, 'fetch', () => r.unobs('network'))
-  if (typeof globalThis.WebSocket === 'function') wrap(globalThis, 'WebSocket', () => r.unobs('network'))
 }
 
 // Write JSON atomically with the unrecorded fs.

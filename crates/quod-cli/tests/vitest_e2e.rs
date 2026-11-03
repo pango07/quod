@@ -47,6 +47,9 @@ impl Project {
     fn cmd(&self, prog: &Path) -> Command {
         let mut c = Command::new(prog);
         c.current_dir(&self.dir).env("PATH", &self.path);
+        // These cases predate the second witness (the default): one run
+        // trusts a record. `two_witnesses_by_default` covers the default.
+        c.env("QUOD_VITEST_WITNESSES", "1");
         for (k, v) in &self.env {
             c.env(k, v);
         }
@@ -307,4 +310,46 @@ fn a_hidden_variable_read_through_an_env_copy_quarantines_the_file() {
     let (ok, s) = quod(&["--no-record", "--report", report], "crit2");
     assert!(ok, "{s}");
     assert_eq!(s["ran"], 1, "{s}");
+}
+
+#[test]
+fn two_witnesses_by_default_inline() {
+    // The check job records inline (the action, no shadow job): a record
+    // replays only once a second run of the same inputs agreed. Nothing is
+    // hidden from the tests: a copy of the environment has the run id (so
+    // that file reads a per-run variable and always runs).
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    fs::write(
+        p.dir.join("test/copy.test.ts"),
+        "import { expect, test } from 'vitest'\n\
+         test('the run id, from a copy', () => {\n  \
+         const env = { ...process.env }\n  \
+         expect(env.GITHUB_RUN_ID).toBeTruthy()\n})\n",
+    )
+    .unwrap();
+    // "" is no number: the default policy.
+    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "41")];
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 4, "{s}");
+    assert_eq!(s["recorded_files"], 3, "copy.test.ts reads the run id: {s}");
+    assert_eq!(s["witnesses_needed"], 2, "{s}");
+
+    // A second run (another run id): every record is provisional, so every
+    // file runs again; agreeing makes it trusted.
+    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "42")];
+    let (plain, quod, s) = p.run(2);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 4, "{s}");
+    assert_eq!(s["promoted"], 3, "{s}");
+
+    // Now they replay.
+    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "43")];
+    let (plain, quod, s) = p.run(3);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 1, "{s}");
+    assert_eq!(s["replayed"], 3, "{s}");
 }

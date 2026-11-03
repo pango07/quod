@@ -14,6 +14,10 @@
 // 0-based, the end being the function's last character.
 
 import path from 'node:path'
+import crypto from 'node:crypto'
+
+// Quod's own I/O (never recorded): set by the caller.
+export const io = { read: null, write: null, rename: null, mkdir: null }
 
 const B64 = new Map([...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'].map((c, i) => [c, i]))
 
@@ -128,7 +132,55 @@ const miss = (why) => (unmapped[why] = (unmapped[why] ?? 0) + 1)
 const EXPORT_GETTER =
   /^(?:get\s*\(\)|\(\)\s*=>)\s*\{\s*(?:try\s*\{\s*)?return\s+[\w$.]+;?\s*(?:\}\s*catch\s*(?:\(\w*\))?\s*\{\s*\})?\s*\}$/
 
-export function executedFunctions(scripts, em, root) {
+// The mapping of one module's functions, cached by a hash of the file name
+// and its transformed code (the inline map included): the same code maps the
+// same way, so a hit is the computation's own answer. Per code offset pair
+// (`start:end`, relative to the code): [startLine, startCol, endLine,
+// endCol], 0 (an export getter: skipped) or -1 (maps nowhere); `map:` the
+// reason a module has no usable map. Written whole, atomically; two workers
+// racing lose only entries, which are recomputed.
+// The key also covers this module's own source (the mapping's rules).
+let self = null
+const sha1 = (x) => (crypto.hash ? crypto.hash('sha1', x) : crypto.createHash('sha1').update(x).digest('hex'))
+function cached(dir, file, code) {
+  const mem = () => {
+    const m = new Map()
+    return { get: (k) => m.get(k), set: (k, v) => m.set(k, v), save() {} }
+  }
+  if (!dir) return mem()
+  let key
+  try {
+    self ??= sha1(io.read(new URL(import.meta.url), 'utf8'))
+    key = sha1(`${self}\0${file}\0${code}`)
+  } catch {
+    return mem()
+  }
+  const p = `${dir}/${key}.json`
+  let c = null
+  try {
+    c = JSON.parse(io.read(p, 'utf8'))
+  } catch {}
+  let dirty = false
+  return {
+    get: (k) => c?.[k],
+    set(k, v) {
+      c ??= {}
+      c[k] = v
+      dirty = true
+    },
+    save() {
+      if (!dirty) return
+      try {
+        io.mkdir(dir, { recursive: true })
+        const tmp = `${p}.${process.pid}.tmp`
+        io.write(tmp, JSON.stringify(c))
+        io.rename(tmp, p)
+      } catch {}
+    },
+  }
+}
+
+export function executedFunctions(scripts, em, root, cacheDir = null) {
   const byId = new Map()
   for (const node of em?.idToModuleMap?.values() ?? []) {
     if (typeof node.meta?.code === 'string') byId.set(node.id, node)
@@ -158,31 +210,70 @@ export function executedFunctions(scripts, em, root) {
       miss('script is not the module runner wrapper around its code')
       continue
     }
-    const map = inlineMap(code, file)
-    if (!map.lines) {
-      miss(map.why)
+    const c = cached(cacheDir, file, code)
+    let map = null
+    let starts = null
+    const why = c.get('map:')
+    if (why) {
+      miss(why)
       continue
     }
-    const starts = lineStarts(code)
+    // A module first seen (or a function not yet mapped): map every
+    // function V8 lists for it, executed or not, so the next test file that
+    // executes another set of them finds them too.
+    const fill = () => {
+      map = inlineMap(code, file)
+      if (!map.lines) {
+        c.set('map:', map.why)
+        return false
+      }
+      starts = lineStarts(code)
+      for (const f of s.functions) {
+        const r = f.ranges[0]
+        if (!r || r.startOffset < prefix) continue
+        const k = `${r.startOffset - prefix}:${r.endOffset - prefix}`
+        if (c.get(k) !== undefined) continue
+        const a = original(map, starts, r.startOffset - prefix)
+        const b = original(map, starts, r.endOffset - 1 - prefix)
+        let v
+        if (!a || !b || b[0] < a[0]) {
+          // vite's SSR transform adds an export getter per export
+          // (`get(){ return x }`, `() => { try { return x } catch {} }`):
+          // generated code, mapped nowhere, that only reads a binding (whose
+          // own code is keyed where it is).
+          const text = code.slice(r.startOffset - prefix, r.endOffset - prefix)
+          if (EXPORT_GETTER.test(text)) v = 0
+          else {
+            v = -1
+            if (r.count !== 0) unmappedSample[`${file} (function)`] ??= text.slice(0, 120)
+          }
+        } else v = [a[0], a[1], b[0], b[1]]
+        c.set(k, v)
+      }
+      return true
+    }
     const fns = []
     let ok = true
     for (const f of s.functions) {
       const r = f.ranges[0]
       if (!r || r.count === 0 || r.startOffset < prefix) continue
-      const a = original(map, starts, r.startOffset - prefix)
-      const b = original(map, starts, r.endOffset - 1 - prefix)
-      if (!a || !b || b[0] < a[0]) {
-        // vite's SSR transform adds an export getter per export
-        // (`get(){ return x }`, `() => { try { return x } catch {} }`):
-        // generated code, mapped nowhere, that only reads a binding (whose
-        // own code is keyed where it is).
-        const text = code.slice(r.startOffset - prefix, r.endOffset - prefix)
-        if (EXPORT_GETTER.test(text)) continue
-        unmappedSample[`${file} (function)`] ??= text.slice(0, 120)
+      const k = `${r.startOffset - prefix}:${r.endOffset - prefix}`
+      let v = c.get(k)
+      if (v === undefined && !map) {
+        if (!fill()) break
+        v = c.get(k)
+      }
+      if (v === 0) continue
+      if (v === -1 || v === undefined) {
         ok = false
         break
       }
-      fns.push([a[0], a[1], b[0], b[1]])
+      fns.push(v)
+    }
+    c.save()
+    if (map && !map.lines) {
+      miss(map.why)
+      continue
     }
     if (ok) out[file] = fns
     else miss('an executed function maps nowhere')
