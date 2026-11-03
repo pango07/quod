@@ -154,4 +154,46 @@ same way.
 
 ## Measured
 
-(see below)
+The bench uses pango07/ci-bench `bench-gotest.yml`
+(`scripts/bench-gotest/shadow.sh`, copied there as `scripts/gotest/`), binary
+bin-cb8e39b, go1.27.3, GitHub-hosted runners.
+- 20 consecutive first-parent commits, oldest first. Commit 0 is the first run
+  and is outside the headline.
+- Per commit: plain, the critical path, the shadow.
+- Plain has its own GOCACHE, warm across commits (a perfect actions/cache), and
+  a shared module cache. Every checkout gets fresh mtimes, as in CI.
+- Every critical `-json` stream is compared with plain's per package and per
+  test, and the exit codes are compared.
+- 4 mutation checks: a panic at the top of a covered function.
+- Lever 1 runs use `QUOD_GOTEST_NO_COVER=1`.
+
+| tier | project | mode | plain total | critical total | speedup total / median | go's own cache hit on plain | run / replayed (narrowed) | selection median | shadow compute | wrong | mutations | run |
+|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|---|
+| 1 | spf13/afero (5 pkgs, ~4.5 s) | go list reuse | 98.8 s | 74.3 s | 1.33x / 1.00x | 40% | 43 / 57 | 92 ms | 95 s | 0 | 4/4 | 41586341834 |
+| 1 | spf13/afero | + narrowing | 98.6 s | 72.3 s | 1.36x / 1.04x | 40% | 33 / 67 (10) | 93 ms | 105 s | 0 | 4/4 | 41586347979 |
+| 2 | expr-lang/expr (62 pkgs, 4-10 s) | go list reuse | 155.3 s | 137.0 s | 1.13x / 0.98x | 49% | 570 / 691 | 48 ms | 272 s | 0 | 4/4 | 41586344930 |
+| 2 | expr-lang/expr | + narrowing | 159.4 s | 140.9 s | 1.13x / 0.98x | 49% | 559 / 702 (14) | 50 ms | 320 s | 0 | 4/4 | 41586350705 |
+
+- **Commits that change no Go code** (docs, CI): afero's critical path is
+  10–20 ms against plain's 4.4 s. go's own cache missed there because afero's
+  tests open files, and a fresh checkout's mtimes defeat go's cache. On expr it
+  is 1.1–2.6 s against 4–5 s; the testify package runs every time (below).
+- **Code commits** are at parity, within about 150 ms on expr. Both projects'
+  commits nearly always touch a core package that every test binary links:
+  afero's root, and expr's checker, vm, parser or builtin. That package's own
+  tests execute the changed function, so it must run.
+- **Selection:** with go list reused, afero takes 7 ms and expr 47 ms. go list
+  runs only when the module's structure really changes (a new file, an import
+  outside the closure, go.mod); then it takes 95 ms, or 500 ms with a go.mod
+  change.
+  - Two fixes got expr there. The 60 MB `-json` ledger was the critical path's
+    main cost (220 ms of selection, plus a 50 MB report): outputs are now raw
+    content-addressed blobs. And -json events are scanned, not parsed.
+- **Narrowing** replays 10 (afero) and 14 (expr) packages over 20 commits.
+  These are cheap packages whose tests never ran the changed functions.
+- **The safety net:** expr's internal/testify/assert has subtest names with
+  pointers and `time.Date(...)` that collide even after normalization. It is
+  quarantined on the first shadow ("recording changed behaviour") and runs
+  every time; the bench counts it flaky, not wrong.
+- Earlier binaries (95131c7, before levers 1 to 3) measured afero 1.35x and
+  expr 1.03x (runs 41579743789, 41579359948).
