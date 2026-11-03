@@ -419,7 +419,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy })
 }
 
 // `--report`: every test's name and state per file, in the shape of vitest's
@@ -527,3 +527,11 @@ if (Object.keys(unmapped).length) log(`source files without function-level data:
 if (unmappedSample) log(`e.g. ${unmappedSample[0]} ends with: ${JSON.stringify(unmappedSample[1])}`)
 log(`vitest init ${(tInit - t0).toFixed(0)} ms, run ${(tRun - tInit).toFixed(0)} ms, record ${(performance.now() - tRun).toFixed(0)} ms`)
 process.exit(process.exitCode ?? 0)
+
+// A file's time as a run spends it: its tests, plus collecting its module
+// graph, its setup files, the worker's preparation and its environment
+// (what a replay saves); vitest's per-file numbers when it has them.
+function fileTime(file) {
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
+  return n(file.result?.duration) + n(file.collectDuration) + n(file.setupDuration) + n(file.prepareDuration) + n(file.environmentLoad)
+}

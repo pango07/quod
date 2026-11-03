@@ -679,6 +679,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     &ids,
                     &[],
                     &HashSet::new(),
+                    &HashMap::new(),
                     Some(code),
                 );
                 if let Some(p) = &a.summary {
@@ -738,6 +739,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             &replayed_ids,
             &[],
             &HashSet::new(),
+            &HashMap::new(),
             Some(code),
         );
         eprintln!(
@@ -808,6 +810,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
     let (mut recorded, mut failed) = (0usize, 0usize);
+    // Why each file that ran was not recorded (for the run report).
+    let mut unrec: HashMap<String, String> = HashMap::new();
     for r in &out.ran {
         let old = ledger.files.remove(&r.id);
         // Quarantine is re-proved, not permanent: a quarantined file runs
@@ -833,8 +837,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         for u in &r.unobservable {
             *unobservable.entry(u.clone()).or_default() += 1;
         }
-        let Some(keys) = &r.keys else { continue };
-        if !r.unobservable.is_empty() {
+        let Some(keys) = &r.keys else {
+            unrec.insert(
+                r.id.clone(),
+                "not recorded: it is not in the check's report".into(),
+            );
+            continue;
+        };
+        if let Some(u) = r.unobservable.first() {
+            unrec.insert(r.id.clone(), u.clone());
             continue;
         }
         // A per-run value (the commit, the run id) makes a result
@@ -852,6 +863,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             *unobservable
                 .entry(format!("reads the per-run variable {v}"))
                 .or_default() += 1;
+            unrec.insert(r.id.clone(), format!("reads the per-run variable {v}"));
             continue;
         }
         if r.state != "pass" && r.state != "skip" {
@@ -947,12 +959,21 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let t_done = t0.elapsed();
 
     let quod_ms = (t_select + (t_done - t_run)).as_millis();
+    // Failed as vitest counts it (any file whose state is not a pass or a
+    // skip, recordable or not); not recorded: everything else that ran and
+    // has no record.
+    let _ = failed;
+    let failed_all = out
+        .ran
+        .iter()
+        .filter(|r| r.state != "pass" && r.state != "skip")
+        .count();
     eprintln!(
-        "quod vitest: ran {} files ({} recorded, {} failed, {} unrecordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
+        "quod vitest: ran {} files ({} recorded, {} failed, {} not recordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
         out.ran.len(),
         recorded,
-        failed,
-        out.ran.len() - recorded - failed,
+        failed_all,
+        unrec.len(),
         out.replayed.len(),
         audit.len(),
         if mismatched.is_empty() {
@@ -977,6 +998,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         &replayed_ids,
         &audit,
         &mism,
+        &unrec,
         Some(code),
     );
     if let Some(c) = &cloud
@@ -2377,6 +2399,7 @@ impl Reporting<'_> {
         replayed: &[&String],
         audit: &[String],
         mismatched: &HashSet<String>,
+        unrecordable: &HashMap<String, String>,
         exit: Option<u8>,
     ) {
         let Some(c) = self.cloud else { return };
@@ -2408,6 +2431,25 @@ impl Reporting<'_> {
                 }),
                 duration_ms: Some(*d),
                 state: state.clone(),
+                unrecordable: unrecordable.get(id).cloned(),
+            })
+            .collect();
+        // Files the shadow ran to record (not to audit) whose result
+        // differed from the check's: quarantined at record time.
+        let record_differs = mismatched
+            .iter()
+            .filter(|id| !audit.iter().any(|a| a == *id))
+            .map(|id| {
+                ran.iter()
+                    .find(|r| &r.0 == id)
+                    .map_or_else(|| file_of(id), |r| relativize_file(&r.1))
+            })
+            .collect();
+        let replayed_files = replayed
+            .iter()
+            .map(|id| quod_wire::testreplay::ReplayedFile {
+                file: file_of(id),
+                duration_ms: self.recorded.get(*id).map(|r| r.1),
             })
             .collect();
         let audit_files = audit
@@ -2433,6 +2475,8 @@ impl Reporting<'_> {
             audit_files,
             ran_files,
             ledger: self.used.clone(),
+            replayed_files,
+            record_differs,
         };
         c.report(&r);
     }

@@ -98,10 +98,13 @@ impl TestReplayClient {
 
     fn post<T: DeserializeOwned>(&self, path: &str, body: &impl Serialize) -> Result<T, CallError> {
         let body = serde_json::to_vec(body).map_err(|e| CallError(e.to_string()))?;
-        let resp = self
-            .request("POST", path)?
-            .set("content-type", "application/json")
-            .send_bytes(&body)?;
+        let resp = retrying(|| {
+            self.request("POST", path)
+                .map_err(Err)?
+                .set("content-type", "application/json")
+                .send_bytes(&body)
+                .map_err(Ok)
+        })?;
         if resp.header(PROTOCOL_HEADER) != Some(PROTOCOL) {
             return Err(CallError("the answer is not quod.v1".into()));
         }
@@ -178,9 +181,9 @@ impl TestReplayClient {
         }
         if let Some(b) = bundle {
             let got = (|| -> Result<u64, CallError> {
-                let resp = self
-                    .request("GET", &format!("/v1/blobs/{}", b.hash.hex()))?
-                    .call()?;
+                let path = format!("/v1/blobs/{}", b.hash.hex());
+                let resp =
+                    retrying(|| self.request("GET", &path).map_err(Err)?.call().map_err(Ok))?;
                 // The bundle's own hash is checked as it streams, and every
                 // file in it against the signed list.
                 let mut r = BufReader::with_capacity(
@@ -211,15 +214,17 @@ impl TestReplayClient {
         let hashes: Vec<Hash> = by_hash.keys().copied().collect();
         let mut total = 0u64;
         for chunk in hashes.chunks(MAX_PACK) {
-            let resp = self
-                .request("POST", "/v1/blobs/pack")?
-                .set("content-type", "application/json")
-                .send_bytes(
-                    &serde_json::to_vec(&PackRequest {
-                        hashes: chunk.to_vec(),
-                    })
-                    .map_err(|e| CallError(e.to_string()))?,
-                )?;
+            let body = serde_json::to_vec(&PackRequest {
+                hashes: chunk.to_vec(),
+            })
+            .map_err(|e| CallError(e.to_string()))?;
+            let resp = retrying(|| {
+                self.request("POST", "/v1/blobs/pack")
+                    .map_err(Err)?
+                    .set("content-type", "application/json")
+                    .send_bytes(&body)
+                    .map_err(Ok)
+            })?;
             let mut r = BufReader::with_capacity(1 << 20, resp.into_reader());
             let sub: BTreeMap<Hash, Vec<&LedgerFile>> =
                 chunk.iter().map(|h| (*h, by_hash[h].clone())).collect();
@@ -257,11 +262,16 @@ impl TestReplayClient {
                         let Some((h, p)) = todo.get(i) else { break };
                         let r = (|| -> Result<u64, CallError> {
                             let size = std::fs::metadata(p)?.len();
-                            let f = std::fs::File::open(p)?;
-                            self.request("PUT", &format!("/v1/blobs/{}", h.hex()))?
-                                .set("content-type", "application/octet-stream")
-                                .set("content-length", &size.to_string())
-                                .send(f)?;
+                            let path = format!("/v1/blobs/{}", h.hex());
+                            retrying(|| {
+                                let f = std::fs::File::open(p).map_err(|e| Err(e.into()))?;
+                                self.request("PUT", &path)
+                                    .map_err(Err)?
+                                    .set("content-type", "application/octet-stream")
+                                    .set("content-length", &size.to_string())
+                                    .send(f)
+                                    .map_err(Ok)
+                            })?;
                             Ok(size)
                         })();
                         match r {
@@ -302,6 +312,39 @@ impl TestReplayClient {
                 scope: self.cfg.scope.clone(),
             },
         )
+    }
+}
+
+/// Pauses between tries of a request the server could not take (a
+/// redeploy answers 502/503 for a few seconds, or drops the connection):
+/// about 30 s in all.
+const BACKOFF_MS: &[u64] = &[1000, 2000, 4000, 8000, 15000];
+
+/// Runs `call` (an `Err(Ok(e))` is ureq's error, worth a retry when it is
+/// transient; an `Err(Err(e))` is final), retrying 502, 503, 504 and
+/// transport errors with `BACKOFF_MS`.
+fn retrying(
+    mut call: impl FnMut() -> Result<ureq::Response, Result<ureq::Error, CallError>>,
+) -> Result<ureq::Response, CallError> {
+    let mut tries = BACKOFF_MS.iter();
+    loop {
+        match call() {
+            Ok(r) => return Ok(r),
+            Err(Err(e)) => return Err(e),
+            Err(Ok(e)) => {
+                let transient = match &e {
+                    ureq::Error::Status(code, _) => matches!(code, 502..=504),
+                    ureq::Error::Transport(_) => true,
+                };
+                match tries.next() {
+                    Some(ms) if transient => {
+                        tracing::info!(target: "quod", error = %e, wait_ms = ms, "Quod Cloud busy; trying again");
+                        std::thread::sleep(std::time::Duration::from_millis(*ms));
+                    }
+                    _ => return Err(e.into()),
+                }
+            }
+        }
     }
 }
 

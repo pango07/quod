@@ -69,6 +69,11 @@ CREATE INDEX IF NOT EXISTS test_runs_by_commit ON test_runs (team, repo_key, sui
 CREATE TABLE IF NOT EXISTS test_bundles (
   team TEXT NOT NULL, ledger_id BIGINT NOT NULL, hash TEXT NOT NULL, size BIGINT NOT NULL,
   PRIMARY KEY (team, ledger_id));
+CREATE TABLE IF NOT EXISTS test_file_stats (
+  team TEXT NOT NULL, repo_key TEXT NOT NULL, suite TEXT NOT NULL, file TEXT NOT NULL,
+  skipped BIGINT NOT NULL DEFAULT 0, saved_ms {REAL} NOT NULL DEFAULT 0,
+  reason TEXT, reason_kind TEXT, last_at TEXT,
+  PRIMARY KEY (team, repo_key, suite, file));
 ";
 
 /// Creates the tables in Postgres (at start, from `boot::connect`).
@@ -734,7 +739,11 @@ pub async fn report(
                 "kind is critical or shadow; tool is vitest",
             ));
         }
-        if r.ran_files.len() > MAX_REPORT_FILES || r.audit_files.len() > MAX_REPORT_FILES {
+        if r.ran_files.len() > MAX_REPORT_FILES
+            || r.audit_files.len() > MAX_REPORT_FILES
+            || r.record_differs.len() > MAX_REPORT_FILES
+            || r.replayed_files.len() > MAX_FILES
+        {
             return Err(ApiError::bad_request("too many files in the report"));
         }
         let max = 10_000_000u64;
@@ -755,8 +764,11 @@ pub async fn report(
                 why: capped(&f.why, 1024),
                 duration_ms: finite(f.duration_ms),
                 state: capped(&f.state, 40),
+                unrecordable: f.unrecordable.as_deref().map(|s| capped(s, 300)),
             })
             .collect();
+        let record_differs: Vec<String> =
+            r.record_differs.iter().map(|f| capped(f, 1024)).collect();
         let audit_files: Vec<AuditFile> = r
             .audit_files
             .iter()
@@ -774,12 +786,11 @@ pub async fn report(
             scope: l.scope.as_deref().map(|s| capped(s, 200)),
             matched: l.matched.as_deref().map(|s| capped(s, 40)),
         });
-        let mut detail =
-            json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger });
+        let mut detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs });
         while detail.to_string().len() > MAX_DETAIL && !ran_files.is_empty() {
             let keep = ran_files.len() / 2;
             ran_files.truncate(keep);
-            detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "ranFilesTruncated": true });
+            detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs, "ranFilesTruncated": true });
         }
         if detail.to_string().len() > MAX_DETAIL {
             return Err(ApiError::bad_request("the report is too large"));
@@ -800,6 +811,11 @@ pub async fn report(
                 V::I(r.exit.map(i64::from)), i(r.audited as i64), i(mismatches), t(detail.to_string()),
             ],
         )?;
+        // Per-file stats: a check's skips (and the recorded time they
+        // saved), a record run's reasons a file always runs. Best effort.
+        if let Err(e) = file_stats(&d, &runner.team, &repo, &req.suite, r, &ran_files, &record_differs) {
+            tracing::warn!(target: "quod", error = %format!("{e:#}"), "test file stats not written");
+        }
         // The live event: the summary as the dashboard lists it.
         let out = (|| -> anyhow::Result<()> {
             let repos = all_repos(&app, &runner.team, &d)?;
@@ -820,6 +836,136 @@ pub async fn report(
         Ok(Json(ReportResponse { id }))
     })
     .await
+}
+
+/// Updates `test_file_stats` from a report: every file a check replayed
+/// counts one skip and its recorded time; a record run sets each file's
+/// reason it always runs (unrecordable, or its recording differed from the
+/// check), and clears it for a file it recorded.
+fn file_stats(
+    d: &Db,
+    team: &str,
+    repo: &str,
+    suite: &str,
+    r: &TestReport,
+    ran: &[RanFile],
+    differs: &[String],
+) -> anyhow::Result<()> {
+    let now = now_rfc3339();
+    // (file, skipped, saved_ms, reason, reason_kind, set_reason)
+    let mut rows: Vec<(String, i64, f64, Option<String>, Option<String>, bool)> = vec![];
+    if r.kind == "critical" {
+        for f in &r.replayed_files {
+            rows.push((
+                capped(&f.file, 1024),
+                1,
+                finite(f.duration_ms).unwrap_or(0.0),
+                None,
+                None,
+                false,
+            ));
+        }
+    } else {
+        for f in ran {
+            if differs.contains(&f.file) {
+                continue;
+            }
+            match &f.unrecordable {
+                Some(why) => rows.push((
+                    f.file.clone(),
+                    0,
+                    0.0,
+                    Some(why.clone()),
+                    Some("unrecordable".into()),
+                    true,
+                )),
+                None => rows.push((f.file.clone(), 0, 0.0, None, None, true)),
+            }
+        }
+        for f in differs {
+            rows.push((
+                f.clone(),
+                0,
+                0.0,
+                Some("its recorded run behaved differently from the check".into()),
+                Some("differs".into()),
+                true,
+            ));
+        }
+    }
+    for set_reason in [false, true] {
+        let mine: Vec<&(String, i64, f64, Option<String>, Option<String>, bool)> =
+            rows.iter().filter(|x| x.5 == set_reason).collect();
+        for chunk in mine.chunks(400) {
+            let mut params = vec![t(team), t(repo), t(suite), t(now.as_str())];
+            let mut values = vec![];
+            for (k, (file, skipped, saved, reason, kind, _)) in chunk.iter().enumerate() {
+                let b = 5 + k * 5;
+                values.push(format!(
+                    "($1, $2, $3, $4, ${}, ${}, ${}, ${}, ${})",
+                    b,
+                    b + 1,
+                    b + 2,
+                    b + 3,
+                    b + 4
+                ));
+                params.extend([
+                    t(file.as_str()),
+                    i(*skipped),
+                    V::F(Some(*saved)),
+                    ot(reason.clone()),
+                    ot(kind.clone()),
+                ]);
+            }
+            let update = if set_reason {
+                "reason = excluded.reason, reason_kind = excluded.reason_kind, last_at = excluded.last_at"
+            } else {
+                "skipped = test_file_stats.skipped + excluded.skipped, saved_ms = test_file_stats.saved_ms + excluded.saved_ms, last_at = excluded.last_at"
+            };
+            d.query(
+                &format!(
+                    "INSERT INTO test_file_stats (team, repo_key, suite, last_at, file, skipped, saved_ms, reason, reason_kind) VALUES {} ON CONFLICT (team, repo_key, suite, file) DO UPDATE SET {update} RETURNING skipped",
+                    values.join(", ")
+                ),
+                &params,
+                &[Ty::I],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// A suite's per-file stats: file -> (skipped, saved_ms, reason, kind).
+type FileStats = std::collections::HashMap<String, (i64, f64, Option<String>, Option<String>)>;
+
+fn suite_stats(d: &Db, team: &str) -> anyhow::Result<BTreeMap<(String, String), FileStats>> {
+    let mut out: BTreeMap<(String, String), FileStats> = BTreeMap::new();
+    for r in d.query(
+        "SELECT repo_key, suite, file, skipped, saved_ms, reason, reason_kind FROM test_file_stats WHERE team = $1",
+        &[t(team)],
+        &[Ty::T, Ty::T, Ty::T, Ty::I, Ty::F, Ty::T, Ty::T],
+    )? {
+        if let (Some(rk), Some(s), Some(f)) = (r[0].t(), r[1].t(), r[2].t()) {
+            out.entry((rk, s)).or_default().insert(
+                f,
+                (r[3].i().unwrap_or(0), r[4].f().unwrap_or(0.0), r[5].t(), r[6].t()),
+            );
+        }
+    }
+    Ok(out)
+}
+
+/// An old suite name the client used before suites were named by their
+/// directory (`apps_web-4f53cda1`): retired when the repository has the
+/// new name (`apps/web`), so a renamed suite counts once.
+fn retired(suite: &str, others: &BTreeSet<&str>) -> bool {
+    let Some((base, tail)) = suite.rsplit_once('-') else {
+        return false;
+    };
+    let new = base.replace('_', "/");
+    tail.len() == 8
+        && tail.bytes().all(|b| b.is_ascii_hexdigit())
+        && (others.contains(new.as_str()) || others.contains(base))
 }
 
 // ----- the dashboard's reads -----
@@ -1042,6 +1188,7 @@ fn base_summary(r: &RunRow, repos: &BTreeSet<String>) -> Value {
 fn summary(d: &Db, team: &str, r: &RunRow, repos: &BTreeSet<String>) -> anyhow::Result<Value> {
     let mut v = base_summary(r, repos);
     if r.kind == "critical"
+        && r.replayed > 0
         && let Some(s) = shadow_of(d, team, r)?
     {
         v["audits"] = json!({"checked": s.audited, "mismatched": s.audit_mismatches});
@@ -1112,7 +1259,9 @@ impl<'a> Shadows<'a> {
 
     fn summary(&self, r: &RunRow, repos: &BTreeSet<String>) -> Value {
         let mut v = base_summary(r, repos);
-        if let Some(s) = self.get(r) {
+        if r.replayed > 0
+            && let Some(s) = self.get(r)
+        {
             v["audits"] = json!({"checked": s.audited, "mismatched": s.audit_mismatches});
         }
         v
@@ -1181,7 +1330,55 @@ pub async fn get_run(
                 })
                 .collect(),
         );
-        out["auditFiles"] = audit_detail.get("auditFiles").cloned().unwrap_or(json!([]));
+        // Spot-checks apply to a check only for files it reused (not ones
+        // it ran), and not at all when it reused nothing.
+        let ran_here: BTreeSet<&str> = detail["ranFiles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f["file"].as_str())
+            .collect();
+        out["auditFiles"] = if r.kind == "critical" && r.replayed == 0 {
+            json!([])
+        } else {
+            Value::Array(
+                audit_detail["auditFiles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|a| {
+                        r.kind != "critical"
+                            || a["file"].as_str().is_some_and(|f| !ran_here.contains(f))
+                    })
+                    .cloned()
+                    .collect(),
+            )
+        };
+        if r.kind == "critical" && out["auditFiles"].as_array().is_some_and(|a| a.is_empty()) {
+            out["audits"] = Value::Null;
+        }
+        // Why a file ran: what the record run found, when the check could
+        // only say it was not recorded.
+        let stats = suite_stats(&d, &v.team)?;
+        if let Some(st) = stats.get(&(r.repo_key.clone(), r.suite.clone()))
+            && let Some(files) = out["ranFiles"].as_array_mut()
+        {
+            for f in files {
+                let why = f["why"].as_str().unwrap_or("");
+                if !(why.starts_with("new test file") || why.starts_with("first run")) {
+                    continue;
+                }
+                if let Some((_, _, Some(reason), Some(kind))) =
+                    f["file"].as_str().and_then(|n| st.get(n))
+                {
+                    f["why"] = json!(if kind == "differs" {
+                        format!("always runs: recording differed ({reason})")
+                    } else {
+                        format!("always runs: {reason}")
+                    });
+                }
+            }
+        }
         out["shadow"] = match &shadow {
             Some(s) => base_summary(s, &repos),
             None => Value::Null,
@@ -1313,7 +1510,10 @@ fn suite_files(
     head: Option<&Head>,
     recs: &[(String, Value)],
     runs: &[&RunRow],
+    stats: Option<&FileStats>,
 ) -> (Value, Vec<Value>) {
+    let none = FileStats::default();
+    let stats = stats.unwrap_or(&none);
     // Spot-checks that differed, and the newest two runs' files that ran.
     let details: Vec<(usize, Value)> = runs
         .iter()
@@ -1347,10 +1547,16 @@ fn suite_files(
     let recorded: BTreeSet<&str> = recs.iter().map(|(f, _)| f.as_str()).collect();
     let mut out: Vec<Value> = vec![];
     for (file, rec) in recs {
-        let skipped = rec["replays"].as_u64().unwrap_or(0);
+        let st = stats.get(file);
+        // Skips: the checks' count (every check reports what it reused),
+        // not only the recordings'.
+        let skipped = st
+            .map_or(0, |s| s.0.max(0) as u64)
+            .max(rec["replays"].as_u64().unwrap_or(0));
         let ran = rec["runs"].as_u64().unwrap_or(0);
         let dur = rec["duration"].as_f64();
         let last = rec["state"].as_str().map(str::to_string);
+        let mut differs = false;
         let (state, reason) = if rec["quarantined"].as_bool() == Some(true) {
             if differed.contains(file.as_str()) {
                 (
@@ -1358,9 +1564,13 @@ fn suite_files(
                     Some("a spot-check found its result differed".to_string()),
                 )
             } else {
+                differs = true;
                 (
                     "always",
-                    Some("recording changed its behaviour".to_string()),
+                    Some(
+                        "recording differed: its recorded run behaved differently from the check"
+                            .to_string(),
+                    ),
                 )
             }
         } else if !matches!(last.as_deref(), Some("pass" | "skip")) {
@@ -1376,26 +1586,48 @@ fn suite_files(
         } else {
             ("ready", None)
         };
+        let saved = match st {
+            Some(s) if s.1 > 0.0 => Some(s.1),
+            _ => dur.map(|d| d * skipped as f64),
+        };
         out.push(json!({
             "file": file, "project": rec["project"].as_str().unwrap_or(""),
             "state": state, "reason": reason, "lastResult": last,
             "skipped": skipped, "ran": ran, "durationMs": dur,
-            "savedMs": dur.map(|d| d * skipped as f64),
+            "savedMs": saved, "recordDiffers": differs,
         }));
     }
     for (file, why) in &ran_why {
         if recorded.contains(file.as_str()) {
             continue;
         }
-        let learning =
-            head.is_none() || why.starts_with("first run") || why.starts_with("new test file");
+        // What the record run found, when it said: the file cannot be
+        // recorded (and why), or its recording differed from the check.
+        let known = stats
+            .get(file)
+            .and_then(|s| Some((s.2.clone()?, s.3.clone()?)));
+        let (state, reason, differs) = match known {
+            Some((r, kind)) if kind == "differs" => {
+                ("always", format!("recording differed: {r}"), true)
+            }
+            Some((r, _)) => ("always", r, false),
+            None if head.is_none()
+                || why.starts_with("first run")
+                || why.starts_with("new test file") =>
+            {
+                ("learning", "not recorded yet".to_string(), false)
+            }
+            None => (
+                "always",
+                "not recorded: it failed, or did something the recorder cannot follow (a child process, the network, a worker)".to_string(),
+                false,
+            ),
+        };
         out.push(json!({
             "file": file, "project": "",
-            "state": if learning { "learning" } else { "always" },
-            "reason": if learning { "not recorded yet".to_string() } else {
-                "not recorded: it failed, or did something the recorder cannot follow (a child process, the network, a worker)".to_string()
-            },
+            "state": state, "reason": reason,
             "lastResult": Value::Null, "skipped": 0, "ran": 0, "durationMs": Value::Null, "savedMs": Value::Null,
+            "recordDiffers": differs,
         }));
     }
     let rank = |s: &str| match s {
@@ -1488,8 +1720,19 @@ pub async fn suites(
                 }
             }
         }
+        let stats = suite_stats(&d, &v.team)?;
+        let mut by_repo: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for (rk, s) in keys.keys() {
+            by_repo.entry(rk.as_str()).or_default().insert(s.as_str());
+        }
         let mut out = vec![];
         for ((repo_key, suite), repository) in &keys {
+            if by_repo
+                .get(repo_key.as_str())
+                .is_some_and(|others| retired(suite, others))
+            {
+                continue;
+            }
             let key = (repo_key.clone(), suite.clone());
             let head = heads.get(&key);
             let recs = match head {
@@ -1505,7 +1748,7 @@ pub async fn suites(
                 .iter()
                 .filter(|r| r.repo_key == *repo_key && r.suite == *suite)
                 .collect();
-            let (ledger, files) = suite_files(head, &recs, &runs);
+            let (ledger, files) = suite_files(head, &recs, &runs, stats.get(&key));
             let count = |s: &str| files.iter().filter(|f| f["state"] == s).count();
             let saved: f64 = files.iter().filter_map(|f| f["savedMs"].as_f64()).sum();
             out.push(json!({
@@ -1516,6 +1759,7 @@ pub async fn suites(
                 "totals": {
                     "files": files.len(), "learning": count("learning"), "ready": count("ready"),
                     "skipping": count("skipping"), "always": count("always"), "paused": count("paused"),
+                    "recordDiffers": files.iter().filter(|f| f["recordDiffers"] == true).count(),
                     "savedMs": saved,
                 },
                 "files": files,
