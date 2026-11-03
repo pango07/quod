@@ -58,9 +58,60 @@ worker's own view:
   vitest and the test environment (jsdom) load before Quod's setup file
   can watch: their dependency closure. So a lockfile change that bumps
   eslint re-runs nothing; one that bumps vite or jsdom re-runs everything.
-  A workspace `package.json` read by the tools is keyed with its
-  dependency version values blanked (`pj:`); what is installed is keyed by
-  the packages. A test that reads a package.json itself keys all of it.
+  The package manager's own files under node_modules (dot entries: `.bin`
+  shims, `.modules.yaml`, `.pnpm/lock.yaml`, workspace state, caches) are
+  not inputs: the packages loaded are.
+- **package.json, field-level only for the resolvers.** A workspace
+  `package.json` read by vite's or vitest's own code (the first frame
+  outside Quod is in vite, vitest, @vitest or rolldown) is keyed on the
+  resolution fields only (`pj:`: name, type, exports, imports, main,
+  module, browser, workspaces, packageManager, engines, vite, vitest); a
+  release's `version` bump counts for nobody. Any other reader (the config,
+  a plugin that injects `version`, a test's read or import) keeps the whole
+  file (`f:`). Test: `tests/vitest_recorder.rs`.
+- **fs.watch** keys the watched path's whole recursive content at the end
+  of the file (`rc:`), except under a directory the file itself created
+  (its own output).
+- **vitest's arguments** are keyed, but not the output-only ones
+  (`--reporter`, `--outputFile`, `--silent`, `--color`, ...); replays render
+  through whatever reporters a run asks for.
+
+## Function-level narrowing
+
+A test file whose only changed inputs are workspace source files it reached
+as modules may still replay. Recording: the worker takes V8 precise
+coverage (function granularity, binary counts; never best effort, which can
+drop an executed function) and maps each executed function of a workspace
+module back to the original source: the module runner evaluates
+`'use strict';async (...)=>{{<code>\n}}`, so a range minus that prefix is an
+offset in the transformed code, and its inline source map (the last one:
+vitest's module cache appends metadata after it; several sources are fine
+when exactly one is the file) gives the original line and column. A file
+with an executed function that maps nowhere gets no function-level data
+(vite's generated SSR export getters excepted). Nothing is instrumented: an
+earlier version instrumented the transformed source and changed function
+source text, test names and results (wrong replays on vuejs/router); the
+bench now fails on any recorded run whose results differ from plain.
+
+Selection: Quod keeps every workspace source version by content
+(`<dir>/blobs`), so `narrow.mjs` diffs the version a record saw against
+the current one (Myers, by line), parses the old version with the
+project's `typescript`, and checks the new one compiles (transpile, then
+V8). The file replays only if every changed region lies strictly inside
+the body of a function the test file never executed (an executed function
+that strictly contains it is an ancestor; equal or overlapping ranges run).
+Everything else runs: a change outside every body (top-level, imports,
+exports, class fields, signatures), a function it executed, a parse or
+compile failure, no typescript. A replay so narrowed keeps the version it
+was recorded on (`pinned`) and is audited first.
+
+A test that reads function source (`Function.prototype.toString`, watched
+by `preload.cjs`, loaded into every recorded worker with `--require` before
+any library can cache the original) gets no function-level data, nor does
+one whose results quote text of a source file it reached.
+
+Per test: tests of one file share module state, so skipping one test while
+running another is not provably sound; Quod narrows whole files only.
 
 **The observer backstop** (`scripts/bench-vitest/observe.sh`, `quod vitest
 --absorb`): the same suite runs once under Quod's FUSE observer (`quod
@@ -112,6 +163,13 @@ The benchmark verifies independently: every commit also runs plain vitest
 and the two JSON reports are compared per file and per test; a difference
 in a file Quod replayed is a wrong replay and fails the job.
 
+## Supported versions
+
+vitest 4.x (the driver uses `createVitest`, `_testRun`, `_reportFileTask`,
+the module runner's `evaluatedModules` and the worker's `onCleanup`); vitest
+3.1 projects were not recordable (ufo's older commits). Node with
+`module.registerHooks` (22.15+, 23.5+).
+
 ## Residual risks
 
 1. Inputs read before Quod's setup file runs in a worker that are neither
@@ -129,5 +187,16 @@ in a file Quod replayed is a wrong replay and fails the job.
 
 ## Measured
 
-See the bench run linked from the report below (filled in from
-`report.md`).
+ci-bench (pango07/ci-bench, GitHub-hosted runners), inline recording,
+bin-b09f2a4, 20 first-parent commits each, every commit's plain and Quod
+JSON reports compared file by file and test by test:
+
+| project | plain median | Quod median | median speedup | total | wrong | recording differences |
+|---|---:|---:|---:|---:|---:|---:|
+| vuejs/router (b810a7e) | 15.0 s | 2.4 s | 6.3x | 300 s to 66 s (4.5x) | 0 | 0 |
+| vuejs/core (68f25a4) | 24.0 s | 12.4 s | 2.0x | 481 s to 227 s (2.1x) | 0 | 0 |
+
+Runs: router https://github.com/pango07/ci-bench/actions/runs/41561553026,
+vue https://github.com/pango07/ci-bench/actions/runs/41561573192. The
+shadow-recording line (exp/vitest-shadow) takes recording off the critical
+path; its numbers are in docs/vitest-shadow.md.
