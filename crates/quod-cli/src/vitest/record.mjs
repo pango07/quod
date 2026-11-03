@@ -373,6 +373,7 @@ export const toolEnv = (k) => TOOL_ENV.has(k) || /^(NODE_|VITE|LC_|DEBUG|UV_)/.t
 
 export function patchEnv(r) {
   const target = process.env
+  const hidden = new Set((target.QUOD_VITEST_HIDE ?? '').split(',').filter(Boolean))
   const rec = (k) => {
     if (typeof k !== 'string') return
     if (ciVarying(k) || !toolEnv(k)) {
@@ -401,7 +402,15 @@ export function patchEnv(r) {
         r.keys.add(c.tool ? 'envtool:' : 'envall:')
         if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
       }
-      return Reflect.ownKeys(t)
+      // In a test file's worker, a listing of the environment leaves out
+      // the per-run CI variables (QUOD_VITEST_HIDE: the commit, the run id,
+      // the event file, ...): code that copies the whole environment (an
+      // SDK's config loader) then never holds one, and the file can record.
+      // A read by name still sees it and makes the file unrecordable. If a
+      // listing without them changed a result, the shadow's comparison with
+      // the critical path (which runs plain) quarantines the file.
+      const all = Reflect.ownKeys(t)
+      return r.mode === 'worker' && hidden.size ? all.filter((k) => !hidden.has(k)) : all
     },
     // Writes go to process.env itself. Without this trap an assignment
     // through the proxy becomes a defineProperty with a partial descriptor,

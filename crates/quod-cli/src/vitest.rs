@@ -662,7 +662,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     t.as_millis()
                 );
                 if let Some(r) = &a.report {
-                    fs::write(r, br#"{"testResults":[]}"#)?;
+                    fs::write(r, serde_json::to_vec(&report_from_ledger(&dir, &ledger))?)?;
                 }
                 let ids: Vec<&String> = ledger.files.keys().collect();
                 let n_ids = ids.len();
@@ -701,6 +701,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
 
     let status = without_credentials(&mut Command::new(&a.node))
+        .env("QUOD_VITEST_HIDE", hidden_env())
         .arg(code.join("driver.mjs"))
         .arg(&plan_path)
         .arg(&out_path)
@@ -1837,6 +1838,61 @@ fn state(
         }
         _ => (format!("unknown kind {kind}"), None),
     }
+}
+
+/// The per-run variables present (the commit, the run id, the event file,
+/// the runner's per-step paths, Quod's own): a recording worker lists the
+/// environment without them (record.mjs).
+fn hidden_env() -> String {
+    let mut v: Vec<String> = std::env::vars_os()
+        .map(|(k, _)| k.to_string_lossy().into_owned())
+        .filter(|k| volatile_env(k))
+        .collect();
+    v.push("QUOD_VITEST_HIDE".into());
+    v.sort();
+    v.join(",")
+}
+
+/// `--report` for a rendered full replay: every file's recorded tests, in
+/// the shape the driver writes (vitest's JSON report: per file, each test's
+/// full name and status).
+fn report_from_ledger(dir: &Path, ledger: &Ledger) -> serde_json::Value {
+    fn walk(t: &serde_json::Value, names: &mut Vec<String>, out: &mut Vec<serde_json::Value>) {
+        names.push(t["name"].as_str().unwrap_or("").to_string());
+        if t["type"] == "test" {
+            let st = t["result"]["state"]
+                .as_str()
+                .or(t["mode"].as_str())
+                .unwrap_or("");
+            let status = match st {
+                "pass" => "passed",
+                "fail" => "failed",
+                "skip" | "todo" => "skipped",
+                _ => "pending",
+            };
+            out.push(serde_json::json!({
+                "ancestorTitles": [], "title": names.join(" > "), "status": status,
+            }));
+        }
+        for c in t["tasks"].as_array().into_iter().flatten() {
+            walk(c, names, out);
+        }
+        names.pop();
+    }
+    let mut results = Vec::new();
+    for rec in ledger.files.values() {
+        let file: Option<serde_json::Value> = fs::read(dir.join(&rec.result))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        if let Some(file) = file {
+            let mut tests = Vec::new();
+            for c in file["tasks"].as_array().into_iter().flatten() {
+                walk(c, &mut Vec::new(), &mut tests);
+            }
+            results.push(serde_json::json!({ "name": file["filepath"], "assertionResults": tests }));
+        }
+    }
+    serde_json::json!({ "testResults": results })
 }
 
 /// Recordings in a row that must match before a quarantined file may

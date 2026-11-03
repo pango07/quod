@@ -251,6 +251,8 @@ function testStates(file) {
 const testRun = ctx._testRun
 const origEnd = testRun.end.bind(testRun)
 let endModules = []
+// The replayed files' recorded tasks, for --report.
+const replayedTasks = []
 testRun.end = async (specs, errors, coverage) => {
   const tr = performance.now()
   const extra = []
@@ -267,6 +269,7 @@ testRun.end = async (specs, errors, coverage) => {
     file.id = id
     await ctx._reportFileTask(file)
     extra.push(spec)
+    replayedTasks.push(file)
   }
   if (replayed.length) log(`reported ${extra.length} replayed files in ${(performance.now() - tr).toFixed(0)} ms`)
   const all = [...specs, ...extra]
@@ -423,9 +426,15 @@ for (const m of endModules) {
 // JSON report, whatever reporters the run has (the shadow's --expect-report).
 if (plan.report) {
   const status = (st) => (st === 'pass' ? 'passed' : st === 'fail' ? 'failed' : st === 'skip' || st === 'todo' ? 'skipped' : 'pending')
-  const testResults = endModules.map((m) => ({
-    name: m.task.filepath,
-    assertionResults: testStates(m.task).map(([title, st]) => ({ ancestorTitles: [], title, status: status(st) })),
+  // Replayed files too, with their recorded results: a shadow that has to
+  // run a file this run replayed (its ledger is another) can still verify
+  // it, as an audit would.
+  const tasks = new Map()
+  for (const t of replayedTasks) tasks.set(t.filepath, t)
+  for (const m of endModules) tasks.set(m.task.filepath, m.task)
+  const testResults = [...tasks.values()].map((t) => ({
+    name: t.filepath,
+    assertionResults: testStates(t).map(([title, st]) => ({ ancestorTitles: [], title, status: status(st) })),
   }))
   writeJson(plan.report, { testResults })
 }
