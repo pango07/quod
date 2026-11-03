@@ -187,16 +187,32 @@ the module runner's `evaluatedModules` and the worker's `onCleanup`); vitest
 
 ## Measured
 
-ci-bench (pango07/ci-bench, GitHub-hosted runners), inline recording,
-bin-b09f2a4, 20 first-parent commits each, every commit's plain and Quod
-JSON reports compared file by file and test by test:
+ci-bench (pango07/ci-bench, GitHub-hosted runners), shadow recording
+(the developer's job is `quod vitest --no-record`; recording runs as a
+separate job), bin-b9b9d4b (exp/vitest-fast and exp/vitest-shadow at
+b9b9d4b), 20 first-parent commits per project, every commit's critical-path
+JSON report compared with plain vitest's file by file and test by test, and
+a mutation check on 4 commits each:
 
-| project | plain median | Quod median | median speedup | total | wrong | recording differences |
+| project | plain median | Quod median | median speedup | total | wrong | audits (mismatches) |
 |---|---:|---:|---:|---:|---:|---:|
-| vuejs/router (b810a7e) | 15.0 s | 2.4 s | 6.3x | 300 s to 66 s (4.5x) | 0 | 0 |
-| vuejs/core (68f25a4) | 24.0 s | 12.4 s | 2.0x | 481 s to 227 s (2.1x) | 0 | 0 |
+| vuejs/core (68f25a4) | 42.6 s | 4.1 s | 16.1x | 851 s to 223 s (3.8x) | 0 | 74 (0) |
+| vuejs/router (b810a7e) | 9.1 s | 1.5 s | 6.0x | 183 s to 39 s (4.7x) | 0 | 80 (0) |
+| unjs/ufo (f06c800) | 1.4 s | 1.0 s | 1.4x | 31 s to 18 s (1.8x) | 0 | 47 (0) |
 
-Runs: router https://github.com/pango07/ci-bench/actions/runs/41561553026,
-vue https://github.com/pango07/ci-bench/actions/runs/41561573192. The
-shadow-recording line (exp/vitest-shadow) takes recording off the critical
-path; its numbers are in docs/vitest-shadow.md.
+Where every file had to run (the first run; vue's vite/rolldown bump) the
+critical path cost -2.7% to +0.5% against plain. Shadow compute (machine
+time off the critical path): vue median 7.0 s per commit, router 2.4 s, ufo
+1.8 s. Whole job (install plus tests, `--plan` first, WHOLE_JOB=1) on
+router: median 16.1 s to 3.3 s (4.9x); vue: median 42.4 s to 11.6 s (3.6x), 4 of
+20 commits skipped the install.
+
+Runs: vue https://github.com/pango07/ci-bench/actions/runs/41573419257,
+router https://github.com/pango07/ci-bench/actions/runs/41573428966,
+ufo https://github.com/pango07/ci-bench/actions/runs/41573438808,
+router whole job https://github.com/pango07/ci-bench/actions/runs/41573456977,
+vue whole job https://github.com/pango07/ci-bench/actions/runs/41573448188.
+
+Earlier, inline recording (recording inside the developer's run; retired
+as a shipping mode), bin-b09f2a4: router 6.3x median, vue 2.0x, 0 wrong,
+0 recording differences.
