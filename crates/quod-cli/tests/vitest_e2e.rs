@@ -247,3 +247,64 @@ fn a_branch_variable_counts_only_for_the_test_that_reads_it() {
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 4, "{s}");
 }
+
+#[test]
+fn a_hidden_variable_read_through_an_env_copy_quarantines_the_file() {
+    // A recording worker lists the environment without the per-run
+    // variables (QUOD_VITEST_HIDE). Code that copies the environment and
+    // then reads a per-run variable from the copy sees it in the critical
+    // path (plain) and not while recording: the shadow's comparison with
+    // the critical path's report catches the difference and quarantines the
+    // file, so it never replays.
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    fs::write(
+        p.dir.join("test/copy.test.ts"),
+        "import { expect, test } from 'vitest'\n\
+         test('the run id, from a copy', () => {\n  \
+         const env = { ...process.env }\n  \
+         expect(env.GITHUB_RUN_ID).toBe('42')\n})\n",
+    )
+    .unwrap();
+    p.env = vec![("GITHUB_RUN_ID", "42")];
+    let quod = |extra: &[&str], n: &str| {
+        let summary = p.dir.join(format!("summary-{n}.json"));
+        let out = p
+            .cmd(Path::new(env!("CARGO_BIN_EXE_quod")))
+            .arg("vitest")
+            .arg("--dir")
+            .arg(p.dir.join(".quod/vitest"))
+            .arg("--node")
+            .arg(p.node.join("node"))
+            .arg("--summary")
+            .arg(&summary)
+            .args(extra)
+            .args(["--", "run"])
+            .output()
+            .unwrap();
+        let s: serde_json::Value = serde_json::from_slice(&fs::read(&summary).unwrap()).unwrap();
+        (out.status.success(), s)
+    };
+    let report = p.dir.join("critical.json");
+    let report = report.to_str().unwrap();
+    // The critical path, plain: the copy has the run id; the test passes.
+    let (ok, _) = quod(&["--no-record", "--report", report], "crit");
+    assert!(ok, "the critical path failed");
+    // The shadow: recording, the copy has no run id; the test fails there,
+    // and the file is quarantined (recording changed its behaviour).
+    let (_, s) = quod(&["--audits", "0", "--expect-report", report], "shadow");
+    let bad: Vec<String> = s["audit_mismatches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(bad.len(), 1, "{s}");
+    // So the next critical path runs it (never a replay of the shadow's
+    // result), and the others replay.
+    let (ok, s) = quod(&["--no-record", "--report", report], "crit2");
+    assert!(ok, "{s}");
+    assert_eq!(s["ran"], 1, "{s}");
+}

@@ -45,6 +45,32 @@ the fallback trivial: when the shadow of commit N-1 has not finished, the
 critical path of commit N reads the newest ledger that exists (N-2, N-3, ...)
 and the files whose inputs changed since then run.
 
+## Per-run variables while recording (QUOD_VITEST_HIDE)
+
+A recording worker lists the environment without the per-run variables:
+the commit, the run id, the event file, the runner's per-step paths, and
+Quod's own. Code that copies the whole environment therefore never holds
+one, and the file can record. Without this, an SDK that copies
+`process.env` when it loads made 88 of class-management's backend files
+unrecordable. A read of such a variable by name still sees it, and that
+read makes the file unrecordable.
+
+**Residual.** Take a per-run variable that is copied by a listing and later
+read through the copy. While recording, the copy has no such variable. In
+a plain run, it has one.
+- If the outcome depends on whether the variable is present (a test
+  expects it, or code branches on it), the shadow's comparison with the
+  critical path catches the difference. The file is quarantined and runs.
+  Test: `a_hidden_variable_read_through_an_env_copy_quarantines_the_file`.
+- If the outcome depends only on the value, and only when one is present,
+  the comparison does not catch it. Plain runs compute with this run's
+  value; the recording computed with none, and a replay reports that. Such
+  a result changes from run to run by construction (the value is per-run),
+  so it was never repeatable. The residual case is a result that a per-run
+  value changes only in a way the test's pass/fail does not show, such as
+  logged output or a snapshot of the copied environment. Those differ in a
+  replay. Pass/fail and test names do not.
+
 ## The hand-off: actions/cache, keyed by branch and commit
 
 The ledger is one directory (`ledger.json`, `results/<taskId>.json`,
