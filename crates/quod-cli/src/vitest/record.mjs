@@ -41,6 +41,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     mode, // 'main' | 'worker'
     keys,
     writes: new Set(),
+    watches: new Set(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -58,10 +59,13 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
           keys.add(`p:${p.slice(0, nm + 14)}${name}`)
           return
         }
-        if (!name) return
-        // node_modules/.pnpm/lock.yaml and the like: a plain file
+        // A dot entry of node_modules is the package manager's or a tool's
+        // (.bin shims, .modules.yaml, .pnpm/lock.yaml, workspace state,
+        // caches), not a package: what is installed counts through the
+        // packages a run loads (p:), so a reinstall alone changes nothing.
+        return
       }
-      if (kind === 'f' && r.mode === 'main' && r.pjOk && p.endsWith('/package.json')) kind = 'pj'
+      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json') && resolverCaller()) kind = 'pj'
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -74,6 +78,22 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     },
   }
   return r
+}
+
+// Is a package.json read vite's or vitest's own (module resolution, which
+// uses the resolution fields only)? The first frame outside Quod and node
+// must be in one of their packages. Any other reader (the config, a plugin
+// that injects `version`, a test) keeps the whole file.
+const SELF = fileURLToPath(import.meta.url)
+const RESOLVERS = ['/node_modules/vite/', '/node_modules/vitest/', '/node_modules/@vitest/', '/node_modules/rolldown/', '/node_modules/@rolldown/']
+export function resolverCaller(stack = new Error().stack) {
+  const lines = (stack ?? '').split('\n').slice(1)
+  for (const l of lines) {
+    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    if (l.includes('/node_modules/.vite-temp/')) return false
+    return RESOLVERS.some((x) => l.includes(x))
+  }
+  return false
 }
 
 function norm(p) {
@@ -172,8 +192,16 @@ export function patchFs(r) {
     r.write(a[1])
   }
   both(['copyFile', 'cp', 'link', 'symlink'], copy)
-  wrap(fs, 'watch', () => r.unobs('fs.watch'))
-  wrap(fs, 'watchFile', () => r.unobs('fs.watchFile'))
+  // A watch sees whatever lands under its path, for as long as it lives:
+  // the driver keys it as the path's whole recursive content at the end
+  // of the file (or not at all, under a directory the file created).
+  const watch = (a) => {
+    const p = norm(a[0])
+    if (p && r.on) r.watches.add(p)
+  }
+  wrap(fs, 'watch', watch)
+  wrap(fs, 'watchFile', watch)
+  wrap(P, 'watch', watch)
   try {
     nodeModule.syncBuiltinESMExports()
   } catch {}
