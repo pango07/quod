@@ -21,12 +21,19 @@ non-blocking job of the same commit records.
   under the driver.
 
 **Shadow** (a separate job, `continue-on-error`, never a required check):
-`quod vitest --dir L --audits 4`.
+`quod vitest --dir L --audits 4 --expect-report <the critical path's vitest JSON report>`.
 - It restores the same way, re-selects against its ledger, and runs the
   affected files with full recording. On a first run that means all of
   them, and the observer backstop (`observe.sh`) can run there too.
 - It audits up to 4 replayable files. A mismatch quarantines the file in
   the ledger, so the next critical path runs it.
+- **Recording must not change behaviour.** A file records only if its
+  per-test results in the shadow match the critical path's (uninstrumented)
+  results for the same commit (`--expect-report`). On a mismatch the shadow
+  logs "recording changed behaviour" and quarantines the file. A file the
+  report lacks is not recorded. This is how the bench caught an
+  instrumentation that changed test names and outcomes on vuejs/router: the
+  recorded results would otherwise have been replayed as wrong results.
 - It saves the ledger for this commit. Its exit code and report are
   diagnostics only: the developer's verdict is the critical path's.
 
@@ -64,9 +71,14 @@ jobs:
           restore-keys: |
             quod-vitest-${{ github.ref_name }}-
             quod-vitest-${{ github.event.repository.default_branch }}-
-      - run: quod vitest --no-record --dir .quod/vitest -- run
+      - run: quod vitest --no-record --dir .quod/vitest -- run --reporter=default --reporter=json --outputFile.json=report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: vitest-report, path: report.json }
 
   quod-shadow:                # recording, off the critical path
+    needs: test               # for its report; the check has already reported
+    if: always() && needs.test.result != 'cancelled'
     runs-on: ubuntu-latest
     continue-on-error: true
     # Fork PRs never write a ledger (see Trust below).
@@ -82,7 +94,9 @@ jobs:
           restore-keys: |
             quod-vitest-${{ github.ref_name }}-
             quod-vitest-${{ github.event.repository.default_branch }}-
-      - run: quod vitest --dir .quod/vitest --audits 4 -- run || true
+      - uses: actions/download-artifact@v4
+        with: { name: vitest-report }
+      - run: quod vitest --dir .quod/vitest --audits 4 --expect-report report.json -- run --reporter=default --reporter=json --outputFile.json=report.json || true
       - uses: actions/cache/save@v4
         if: steps.restore.outputs.cache-hit != 'true'
         with:
@@ -91,9 +105,13 @@ jobs:
 ```
 
 Notes:
-- The jobs start together on two runners, and neither `needs` the other.
-  The workflow's overall status waits for the shadow, but the required
-  check is the `test` job, and the shadow cannot fail anything.
+- The shadow `needs` the critical job only for its report (the same
+  vitest arguments, so the same keys). The developer's check has reported
+  by then; the shadow costs no wall time on it. The workflow's overall
+  status waits for the shadow, but the required check is the `test` job,
+  and the shadow cannot fail anything. (Variant: start the shadow in
+  parallel and fetch the report only at the end of its run; the report is
+  read after the tests ran.)
 - Cache scope: a branch reads its own entries and the default branch's.
   A PR's entries live in the PR's merge-ref scope, so `github.ref_name`
   there is `<n>/merge` and the prefix falls back to the default branch.

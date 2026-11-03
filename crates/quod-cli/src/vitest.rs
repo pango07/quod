@@ -90,6 +90,12 @@ pub struct VitestArgs {
     /// that ran (and audits), off the job's critical path.
     #[arg(long)]
     no_record: bool,
+    /// Shadow runs: the critical path's vitest JSON report of the same
+    /// commit. A file that ran here records only if its per-test results
+    /// match the report's; otherwise recording changed its behaviour and it
+    /// is quarantined (it always runs).
+    #[arg(long, value_name = "REPORT")]
+    expect_report: Option<PathBuf>,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -385,6 +391,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
+        "expectReport": a.expect_report.as_ref().map(|p| std::path::absolute(p)).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
