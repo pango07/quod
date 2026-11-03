@@ -61,7 +61,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         if (!name) return
         // node_modules/.pnpm/lock.yaml and the like: a plain file
       }
-      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) kind = 'pj'
+      if (kind === 'f' && r.mode === 'main' && r.pjOk && p.endsWith('/package.json')) kind = 'pj'
       keys.add(`${kind}:${p}`)
     },
     write(p) {
