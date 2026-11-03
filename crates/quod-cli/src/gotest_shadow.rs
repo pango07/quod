@@ -46,6 +46,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+mod go_src;
+
 /// Bumped when what a key means or what is recorded changes.
 const LEDGER_VERSION: u32 = 1;
 
@@ -139,6 +141,61 @@ struct Ledger {
     code: String,
     /// By import path.
     pkgs: BTreeMap<String, Rec>,
+    /// What go list and go env said at the last record, and what that
+    /// depended on: the critical path reuses it while all of that holds.
+    #[serde(default)]
+    world: Option<Cached>,
+    /// The shapes of the files records narrow on, by file state.
+    #[serde(default)]
+    shapes: BTreeMap<String, FileShape>,
+}
+
+/// `World` as the shadow listed it, with what the listing depended on.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct Cached {
+    /// `Tree::env`, `Tree::names`, `Tree::meta`.
+    env: String,
+    names: String,
+    meta: String,
+    /// Every .go file under the root: its state and its header
+    /// (`go_src::header`; None: unreadable to it).
+    files: BTreeMap<String, (String, Option<String>)>,
+    roots: Vec<String>,
+    pkgs: Vec<Pkg>,
+    goenv: BTreeMap<String, String>,
+}
+
+/// A file's skeleton and its functions' bodies and lines (`go_src::Shape`).
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+struct FileShape {
+    skeleton: String,
+    funcs: BTreeMap<String, (String, u32)>,
+}
+
+impl From<&go_src::Shape> for FileShape {
+    fn from(s: &go_src::Shape) -> FileShape {
+        FileShape {
+            skeleton: s.skeleton.clone(),
+            funcs: s
+                .funcs
+                .iter()
+                .map(|f| (f.id.clone(), (f.body.clone(), f.line)))
+                .collect(),
+        }
+    }
+}
+
+/// What go list's answer depends on, as of now.
+struct Tree {
+    /// The go command's identity, every environment variable, the go env
+    /// file, the directory, the flags go list takes, the patterns.
+    env: String,
+    /// Every path under the root (names and kinds, not contents).
+    names: String,
+    /// go.mod, go.sum, go.work, go.work.sum and modules.txt contents.
+    meta: String,
+    /// Every .go file under the root, by state.
+    gofiles: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -159,6 +216,19 @@ struct Rec {
     /// Why it always runs.
     #[serde(default)]
     quarantined: Option<String>,
+    /// `Clo::structure` when recorded.
+    #[serde(default)]
+    structure: String,
+    /// `Clo::local` when recorded.
+    #[serde(default)]
+    local: BTreeMap<String, String>,
+    /// Per file of `local`: the functions with statements its test binary
+    /// ran none of (a change there cannot change its results).
+    #[serde(default)]
+    cold: BTreeMap<String, BTreeSet<String>>,
+    /// Coverage was recorded: `cold` can be trusted.
+    #[serde(default)]
+    covered: bool,
 }
 
 /// One package's part of go test's stdout.
@@ -182,7 +252,7 @@ struct Report {
     replayed: Vec<String>,
 }
 
-#[derive(Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Module {
     #[serde(default)]
@@ -197,7 +267,7 @@ struct Module {
     replace: Option<Box<Module>>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Pkg {
     #[serde(default)]
@@ -208,6 +278,10 @@ struct Pkg {
     name: String,
     #[serde(default)]
     standard: bool,
+    /// Set on the test build's own variants (`P [P.test]`, `P_test
+    /// [P.test]`, a dependency recompiled against P's test files).
+    #[serde(default)]
+    for_test: String,
     #[serde(default)]
     module: Option<Module>,
     #[serde(default)]
@@ -253,8 +327,11 @@ struct Pkg {
 }
 
 impl Pkg {
-    fn lists(&self) -> [(&'static str, &Vec<String>); 16] {
-        [
+    /// The files compiled into a test binary that links this entry: a
+    /// package's own test files only in the test build's variants (a plain
+    /// dependency's _test.go files are not linked into anything here).
+    fn lists(&self) -> Vec<(&'static str, &Vec<String>)> {
+        let all = [
             ("go", &self.go_files),
             ("cgo", &self.cgo_files),
             ("c", &self.c_files),
@@ -271,7 +348,11 @@ impl Pkg {
             ("xtest", &self.x_test_go_files),
             ("testembed", &self.test_embed_files),
             ("xtestembed", &self.x_test_embed_files),
-        ]
+        ];
+        let tests = !self.for_test.is_empty();
+        all.into_iter()
+            .filter(|(kind, _)| tests || !kind.contains("test"))
+            .collect()
     }
 
     /// Whether its files are hashed by content: anything but a package of
@@ -306,8 +387,24 @@ struct World {
     goenv: BTreeMap<String, String>,
 }
 
-/// A package's compiled-closure key, or why it must run.
-type Closure = std::result::Result<String, String>;
+/// A package's compiled closure: its key; the key of everything but the
+/// contents of its local, non-test .go files; and those files' states.
+#[derive(Clone)]
+struct Clo {
+    full: String,
+    structure: String,
+    local: BTreeMap<String, String>,
+}
+
+/// A package's compiled closure, or why it must run.
+type Closure = std::result::Result<Clo, String>;
+
+/// One listed package's part of a `Clo`.
+struct Entry {
+    full: String,
+    structure: String,
+    local: Vec<(String, String)>,
+}
 
 #[derive(Debug, Default, PartialEq)]
 struct Parsed {
@@ -324,6 +421,9 @@ struct Decision {
     pkg: String,
     /// Why it runs; None: it replays.
     run: Option<String>,
+    /// It replays although its compiled code changed: only in functions its
+    /// tests never ran.
+    narrowed: bool,
 }
 
 struct Outcome {
@@ -347,7 +447,16 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
     if recording {
         check_strace(&a.strace)?;
     }
-    let world = match load(&a.go, &parsed) {
+    let ledger_path = dir.join("ledger.json");
+    let mut ledger = read_ledger(&ledger_path);
+    let tree = tree(&a.go, &parsed, &root, &dir);
+    let reused = if recording || full {
+        None
+    } else {
+        ledger.world.as_ref().and_then(|c| reuse(c, &tree))
+    };
+    let fast = reused.is_some();
+    let world = match reused.map_or_else(|| load(&a.go, &parsed), Ok) {
         Ok(w) if !w.roots.is_empty() => w,
         Ok(_) if !recording => return plain(&a.go, &a.args),
         Ok(_) => bail!("go list found no packages for {:?}", parsed.patterns),
@@ -358,9 +467,7 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         Err(e) => return Err(e),
     };
     let global = global_key(&world, &parsed, &root);
-    let ledger_path = dir.join("ledger.json");
-    let mut ledger = read_ledger(&ledger_path);
-    let closures = closures(&world);
+    let closures = closures(&world, &tree.gofiles);
     let decisions = select(&ledger, &world.roots, &global, &closures, full);
     let select_ms = t0.elapsed().as_millis() as u64;
 
@@ -404,6 +511,13 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         }
     );
 
+    let coverpkgs = coverpkgs(&world);
+    // Coverage changes what go test prints: only with the critical path's
+    // report, whose output is what replays.
+    let cover = recording
+        && a.expect_report.is_some()
+        && !coverpkgs.is_empty()
+        && std::env::var("QUOD_GOTEST_NO_COVER").is_err();
     let mut cmd = Command::new(&a.go);
     cmd.arg("test").args(&parsed.flags);
     let trace_dir = std::env::temp_dir().join(format!("quod-gotest-{}", std::process::id()));
@@ -418,6 +532,10 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))?;
         cmd.arg(format!("-exec={}", wrapper.display()));
         cmd.env("QUOD_GOTEST_TRACE", &trace_dir);
+        if cover {
+            cmd.args(["-cover", "-covermode=set"])
+                .arg(format!("-coverpkg={}", coverpkgs.join(",")));
+        }
     }
     if !recording && run.len() == world.roots.len() {
         // Everything runs: exactly the developer's command.
@@ -457,6 +575,9 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
         "ran_pkgs": run.iter().filter(|p| !audited.contains(*p)).collect::<Vec<_>>(),
         "reasons": reasons,
         "go_cached": cached,
+        "narrowed": decisions.iter().filter(|d| d.narrowed).count(),
+        "fast_world": fast,
+        "covered": cover,
         "select_ms": select_ms,
         "go_ms": go_ms,
         "exit": outcome.exit,
@@ -481,6 +602,25 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
             }
             None => None,
         };
+        let mut paths: Vec<&String> = run
+            .iter()
+            .filter_map(|p| closures.get(p)?.as_ref().ok())
+            .flat_map(|c| c.local.keys())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        let parsed_shapes = par_map(&paths, |p| fs::read(p).ok().and_then(|b| go_src::shape(&b)));
+        let shapes_now: HashMap<String, Option<go_src::Shape>> = paths
+            .iter()
+            .map(|p| (*p).clone())
+            .zip(parsed_shapes)
+            .collect();
+        let dirs: HashMap<String, String> = world
+            .pkgs
+            .values()
+            .filter(|p| p.for_test.is_empty() && !p.standard)
+            .map(|p| (p.import_path.clone(), p.dir.clone()))
+            .collect();
         let rec = record(
             &mut ledger,
             &Ctx {
@@ -491,12 +631,25 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
                 world: &world,
                 workspace: &fs::canonicalize(&root).unwrap_or_else(|_| root.clone()),
                 scratch: &scratch(),
+                go: &a.go,
+                cover,
+                shapes_now: &shapes_now,
+                dirs: &dirs,
             },
             &run,
             &audited,
             &outcome,
         );
         ledger.pkgs.retain(|p, _| world.roots.contains(p));
+        let used: HashSet<&String> = ledger.pkgs.values().flat_map(|r| r.local.values()).collect();
+        let keep: BTreeMap<String, FileShape> = ledger
+            .shapes
+            .iter()
+            .filter(|(k, _)| used.contains(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        ledger.shapes = keep;
+        ledger.world = cache_world(&world, &tree);
         fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         let tmp = dir.join("ledger.json.tmp");
         fs::write(&tmp, serde_json::to_vec(&ledger)?)?;
@@ -655,6 +808,7 @@ fn load(go: &str, p: &Parsed) -> Result<World> {
 fn code_hash() -> String {
     let mut h = blake3::Hasher::new();
     h.update(include_str!("gotest_shadow.rs").as_bytes());
+    h.update(include_str!("gotest_shadow/go_src.rs").as_bytes());
     h.update(b"\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.finalize().to_hex()[..16].to_string()
@@ -720,10 +874,11 @@ fn volatile_env(name: &str) -> bool {
         || name == "GOCACHE"
 }
 
-/// Every root's compiled-closure key: the packages its test binary links
+/// Every root's compiled closure: the packages its test binary links
 /// (`P.test` and its Deps; a package with no test files: itself and its
-/// Deps), each by `entry_key`, and its directory's default.pgo.
-fn closures(w: &World) -> HashMap<String, Closure> {
+/// Deps), each by `entry_key`, and its directory's default.pgo. `known`:
+/// file states already computed (`Tree::gofiles`).
+fn closures(w: &World, known: &BTreeMap<String, String>) -> HashMap<String, Closure> {
     let modcache = w.goenv.get("GOMODCACHE").cloned().unwrap_or_default();
     let mut sets: Vec<(String, std::result::Result<Vec<String>, String>)> = Vec::new();
     for r in &w.roots {
@@ -756,11 +911,7 @@ fn closures(w: &World) -> HashMap<String, Closure> {
                 files.insert(Path::new(&p.dir).join(f));
             }
         }
-        for m in p
-            .module
-            .iter()
-            .chain(p.module.as_ref().and_then(|m| m.replace.as_deref()))
-        {
+        for m in p.module.iter().chain(p.module.as_ref().and_then(|m| m.replace.as_deref())) {
             if !m.go_mod.is_empty() {
                 files.insert(PathBuf::from(&m.go_mod));
             }
@@ -771,52 +922,71 @@ fn closures(w: &World) -> HashMap<String, Closure> {
             files.insert(Path::new(&p.dir).join("default.pgo"));
         }
     }
-    let files: Vec<PathBuf> = files.into_iter().collect();
-    let hashes = par_map(&files, |f| file_state(f));
-    let fh: HashMap<&Path, &str> = files
+    let todo: Vec<PathBuf> = files
         .iter()
-        .map(PathBuf::as_path)
-        .zip(hashes.iter().map(String::as_str))
+        .filter(|f| f.to_str().is_none_or(|s| !known.contains_key(s)))
+        .cloned()
         .collect();
-    let entries: HashMap<&str, Closure> = names
+    let hashes = par_map(&todo, |f| file_state(f));
+    let mut fh: HashMap<PathBuf, String> = todo.into_iter().zip(hashes).collect();
+    for f in &files {
+        if let Some(s) = f.to_str().and_then(|s| known.get(s)) {
+            fh.insert(f.clone(), s.clone());
+        }
+    }
+    let entries: HashMap<&str, std::result::Result<Entry, String>> = names
         .iter()
         .map(|n| (n.as_str(), entry_key(w.pkgs.get(n), n, &modcache, &fh)))
         .collect();
     sets.into_iter()
         .map(|(r, set)| {
             let key = set.and_then(|v| {
-                let mut h = blake3::Hasher::new();
+                let mut full = blake3::Hasher::new();
+                let mut structure = blake3::Hasher::new();
+                let mut local = BTreeMap::new();
                 for n in &v {
                     let e = entries
                         .get(n.as_str())
-                        .cloned()
-                        .unwrap_or_else(|| Err(format!("go list did not list {n}")))?;
-                    h.update(n.as_bytes());
-                    h.update(b"=");
-                    h.update(e.as_bytes());
-                    h.update(b"\0");
+                        .ok_or_else(|| format!("go list did not list {n}"))?
+                        .as_ref()
+                        .map_err(String::clone)?;
+                    for (h, k) in [(&mut full, &e.full), (&mut structure, &e.structure)] {
+                        h.update(n.as_bytes());
+                        h.update(b"=");
+                        h.update(k.as_bytes());
+                        h.update(b"\0");
+                    }
+                    local.extend(e.local.iter().cloned());
                 }
                 if let Some(p) = w.pkgs.get(&r) {
                     let pgo = Path::new(&p.dir).join("default.pgo");
-                    h.update(b"pgo=");
-                    h.update(
-                        fh.get(pgo.as_path())
-                            .copied()
-                            .unwrap_or("unhashed")
-                            .as_bytes(),
-                    );
+                    let st = fh.get(&pgo).map_or("unhashed", String::as_str);
+                    for h in [&mut full, &mut structure] {
+                        h.update(b"pgo=");
+                        h.update(st.as_bytes());
+                    }
                 }
-                Ok(h.finalize().to_hex().to_string())
+                Ok(Clo {
+                    full: full.finalize().to_hex().to_string(),
+                    structure: structure.finalize().to_hex().to_string(),
+                    local,
+                })
             });
             (r, key)
         })
         .collect()
 }
 
-/// One listed package's part of a closure key, or why the packages linking
-/// it must run (it has errors, or cgo: the host's C toolchain and headers
-/// are not keyed).
-fn entry_key(p: Option<&Pkg>, name: &str, modcache: &str, fh: &HashMap<&Path, &str>) -> Closure {
+/// One listed package's part of a closure, or why the packages linking it
+/// must run (it has errors, or cgo: the host's C toolchain and headers are
+/// not keyed). Its local, non-test .go files are `local`: in `full` by
+/// content, in `structure` by name only.
+fn entry_key(
+    p: Option<&Pkg>,
+    name: &str,
+    modcache: &str,
+    fh: &HashMap<PathBuf, String>,
+) -> std::result::Result<Entry, String> {
     let Some(p) = p else {
         return Err(format!("go list did not list {name}"));
     };
@@ -826,55 +996,73 @@ fn entry_key(p: Option<&Pkg>, name: &str, modcache: &str, fh: &HashMap<&Path, &s
     if p.incomplete || p.deps_errors.as_ref().is_some_and(|v| !v.is_empty()) {
         return Err(format!("{name}'s dependencies have errors"));
     }
-    let mut h = blake3::Hasher::new();
+    let fixed = |tag: &str| Entry {
+        full: tag.to_string(),
+        structure: tag.to_string(),
+        local: Vec::new(),
+    };
     if p.standard {
-        h.update(b"std");
-        return Ok(h.finalize().to_hex().to_string());
+        return Ok(fixed("std"));
     }
     if p.is_testmain() {
-        h.update(b"testmain");
-        return Ok(h.finalize().to_hex().to_string());
+        return Ok(fixed("testmain"));
     }
     if !p.cgo_files.is_empty() {
         return Err(format!("{name} uses cgo"));
     }
     let hashed = p.hashed(modcache);
+    let mut full = blake3::Hasher::new();
+    let mut structure = blake3::Hasher::new();
+    let mut local = Vec::new();
+    let mut both = |b: &[u8]| {
+        full.update(b);
+        structure.update(b);
+    };
     for s in [p.name.as_str(), p.dir.as_str()] {
-        h.update(s.as_bytes());
-        h.update(b"\0");
+        both(s.as_bytes());
+        both(b"\0");
     }
     let mut module = p.module.as_ref();
     while let Some(m) = module {
-        h.update(format!("mod {} {} {}\0", m.path, m.version, m.main).as_bytes());
+        both(format!("mod {} {} {}\0", m.path, m.version, m.main).as_bytes());
         if hashed && !m.go_mod.is_empty() {
-            h.update(
-                fh.get(Path::new(&m.go_mod))
-                    .copied()
-                    .unwrap_or("unhashed")
-                    .as_bytes(),
-            );
+            both(fh.get(Path::new(&m.go_mod)).map_or("unhashed", String::as_str).as_bytes());
         }
         module = m.replace.as_deref();
     }
+    let mut contents: Vec<(bool, String)> = Vec::new();
     for (kind, list) in p.lists() {
-        h.update(kind.as_bytes());
-        h.update(b":");
+        both(kind.as_bytes());
+        both(b":");
         for f in list {
-            h.update(f.as_bytes());
-            h.update(b"=");
+            both(f.as_bytes());
+            both(b"=");
             if hashed {
                 let path = Path::new(&p.dir).join(f);
-                h.update(
-                    fh.get(path.as_path())
-                        .copied()
-                        .unwrap_or("unhashed")
-                        .as_bytes(),
-                );
+                let st = fh.get(&path).map_or("unhashed", String::as_str).to_string();
+                if kind == "go" {
+                    local.push((path.to_string_lossy().into_owned(), st.clone()));
+                    contents.push((true, st));
+                } else {
+                    contents.push((false, st));
+                }
             }
-            h.update(b"\0");
+            both(b"\0");
         }
     }
-    Ok(h.finalize().to_hex().to_string())
+    for (narrowable, st) in contents {
+        full.update(st.as_bytes());
+        full.update(b"\0");
+        if !narrowable {
+            structure.update(st.as_bytes());
+            structure.update(b"\0");
+        }
+    }
+    Ok(Entry {
+        full: full.finalize().to_hex().to_string(),
+        structure: structure.finalize().to_hex().to_string(),
+        local,
+    })
 }
 
 fn read_ledger(p: &Path) -> Ledger {
@@ -888,7 +1076,7 @@ fn read_ledger(p: &Path) -> Ledger {
         Ledger {
             version: LEDGER_VERSION,
             code: code_hash(),
-            pkgs: BTreeMap::new(),
+            ..Ledger::default()
         }
     }
 }
@@ -901,34 +1089,62 @@ fn select(
     full: bool,
 ) -> Vec<Decision> {
     let mut keys: Vec<String> = Vec::new();
+    let mut changed: Vec<String> = Vec::new();
     if !full {
         for r in roots {
-            if let Some(rec) = ledger.pkgs.get(r)
-                && rec.quarantined.is_none()
-                && rec.global == global
-                && matches!(closures.get(r), Some(Ok(c)) if *c == rec.closure)
-            {
+            let (Some(rec), Some(Ok(c))) = (ledger.pkgs.get(r), closures.get(r)) else {
+                continue;
+            };
+            if rec.quarantined.is_some() || rec.global != global {
+                continue;
+            }
+            if c.full == rec.closure {
                 keys.extend(rec.inputs.keys().cloned());
+            } else if rec.covered && c.structure == rec.structure {
+                keys.extend(rec.inputs.keys().cloned());
+                changed.extend(
+                    c.local
+                        .iter()
+                        .filter(|(p, s)| rec.local.get(*p) != Some(*s))
+                        .map(|(p, _)| p.clone()),
+                );
             }
         }
     }
     keys.sort();
     keys.dedup();
+    changed.sort();
+    changed.dedup();
     let states = par_map(&keys, |k| state(k));
     let now: HashMap<&str, &str> = keys
         .iter()
         .map(String::as_str)
         .zip(states.iter().map(String::as_str))
         .collect();
+    let parsed = par_map(&changed, |p| {
+        fs::read(p)
+            .ok()
+            .and_then(|b| go_src::shape(&b))
+            .map(|s| FileShape::from(&s))
+    });
+    let shapes: HashMap<&str, Option<FileShape>> =
+        changed.iter().map(String::as_str).zip(parsed).collect();
     roots
         .iter()
-        .map(|r| Decision {
-            pkg: r.clone(),
-            run: if full {
+        .map(|r| {
+            let rec = ledger.pkgs.get(r);
+            let run = if full {
                 Some("a full run".into())
             } else {
-                why_run(ledger.pkgs.get(r), global, closures.get(r), &now)
-            },
+                why_run(rec, global, closures.get(r), &now, &ledger.shapes, &shapes)
+            };
+            let narrowed = run.is_none()
+                && matches!((rec, closures.get(r)), (Some(rec), Some(Ok(c))) if c.full != rec.closure);
+            Decision {
+                pkg: r.clone(),
+                run,
+                narrowed,
+            }
         })
         .collect()
 }
@@ -938,8 +1154,10 @@ fn why_run(
     global: &str,
     closure: Option<&Closure>,
     now: &HashMap<&str, &str>,
+    old: &BTreeMap<String, FileShape>,
+    shapes: &HashMap<&str, Option<FileShape>>,
 ) -> Option<String> {
-    let closure = match closure {
+    let clo = match closure {
         Some(Ok(c)) => c,
         Some(Err(e)) => return Some(e.clone()),
         None => return Some("not listed".into()),
@@ -953,13 +1171,52 @@ fn why_run(
     if rec.global != global {
         return Some("the toolchain, environment or flags changed".into());
     }
-    if rec.closure != *closure {
-        return Some("its compiled code changed".into());
+    if rec.closure != clo.full
+        && let Some(why) = narrow(rec, clo, old, shapes)
+    {
+        return Some(why);
     }
     rec.inputs
         .iter()
         .find(|(k, s)| now.get(k.as_str()).copied() != Some(s.as_str()))
         .map(|(k, _)| format!("{k} changed"))
+}
+
+/// Why a package whose compiled code changed must still run, or None: every
+/// change is inside the body of a function its tests ran none of, and
+/// every function they ran is byte-for-byte where it was. Anything else
+/// (the skeleton: declarations, types, signatures, imports, directives; a
+/// file the lexer cannot split; no coverage) runs it.
+fn narrow(
+    rec: &Rec,
+    clo: &Clo,
+    old: &BTreeMap<String, FileShape>,
+    shapes: &HashMap<&str, Option<FileShape>>,
+) -> Option<String> {
+    if !rec.covered || rec.structure != clo.structure || rec.local.len() != clo.local.len() {
+        return Some("its compiled code changed".into());
+    }
+    for (path, st) in &clo.local {
+        let Some(st0) = rec.local.get(path) else {
+            return Some("its compiled code changed".into());
+        };
+        if st0 == st {
+            continue;
+        }
+        let (Some(o), Some(Some(n))) = (old.get(st0), shapes.get(path.as_str())) else {
+            return Some(format!("{path} changed"));
+        };
+        if o.skeleton != n.skeleton {
+            return Some(format!("{path} changed outside function bodies"));
+        }
+        let cold = rec.cold.get(path);
+        for (id, b) in &o.funcs {
+            if n.funcs.get(id) != Some(b) && !cold.is_some_and(|c| c.contains(id)) {
+                return Some(format!("{path}: a function its tests ran changed or moved ({id})"));
+            }
+        }
+    }
+    None
 }
 
 /// What one input key's path is now: `f:` a file's content (a directory's
@@ -1297,8 +1554,22 @@ fn json_event(line: &str, status: &mut String, tests: &mut BTreeMap<String, Stri
     }
 }
 
+/// Whether a run's results are a record's: the same status (a package
+/// with no test files may say `ok` under -cover), and the same result per
+/// test; test names compared as given, or else as `go_src::norm_name`
+/// normalizes them when that maps both sides one to one.
 fn same(c: &Chunk, status: &str, tests: &BTreeMap<String, String>) -> bool {
-    c.status == status && c.tests == *tests
+    let st = c.status == status
+        || (status == "nofiles" && c.status == "ok" && c.tests.is_empty() && tests.is_empty());
+    st && (c.tests == *tests || norm_tests(&c.tests).is_some_and(|a| norm_tests(tests) == Some(a)))
+}
+
+fn norm_tests(t: &BTreeMap<String, String>) -> Option<BTreeMap<String, String>> {
+    let m: BTreeMap<String, String> = t
+        .iter()
+        .map(|(k, v)| (go_src::norm_name(k), v.clone()))
+        .collect();
+    (m.len() == t.len()).then_some(m)
 }
 
 // ---- the shadow's recording ----
@@ -1325,16 +1596,215 @@ fn check_strace(strace: &str) -> Result<()> {
 fn wrapper_script(strace: &str) -> String {
     format!(
         "#!/bin/sh\n\
-         # quod gotest: a test binary under strace, logged by this script's pid.\n\
+         # quod gotest: a test binary under strace, logged by this script's pid;\n\
+         # its coverage (-cover) copied next to its trace.\n\
          d=\"$QUOD_GOTEST_TRACE\"\n\
          pwd -P >\"$d/$$.dir\" || exit 97\n\
-         exec {} -f -qq --seccomp-bpf -s 4096 -y -e signal=none -e trace={TRACE_SET} -o \"$d/$$.trace\" -- \"$@\"\n",
+         cov=\n\
+         for a in \"$@\"; do\n\
+         \x20 case \"$a\" in -test.gocoverdir=*) cov=${{a#-test.gocoverdir=}} ;; esac\n\
+         done\n\
+         {} -f -qq --seccomp-bpf -s 4096 -y -e signal=none -e trace={TRACE_SET} -o \"$d/$$.trace\" -- \"$@\"\n\
+         rc=$?\n\
+         if [ -n \"$cov\" ] && [ -d \"$cov\" ]; then mkdir -p \"$d/$$.cov\" && cp -R \"$cov/.\" \"$d/$$.cov/\"; fi\n\
+         exit $rc\n",
         sh_quote(strace)
     )
 }
 
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// The local, non-main, non-cgo packages a test binary can link: what the
+/// shadow's coverage instruments.
+fn coverpkgs(w: &World) -> Vec<String> {
+    let modcache = w.goenv.get("GOMODCACHE").cloned().unwrap_or_default();
+    let mut v: Vec<String> = w
+        .pkgs
+        .values()
+        .filter(|p| {
+            p.for_test.is_empty()
+                && !p.standard
+                && !p.is_testmain()
+                && p.name != "main"
+                && p.cgo_files.is_empty()
+                && !p.go_files.is_empty()
+                && p.hashed(&modcache)
+        })
+        .map(|p| p.import_path.clone())
+        .collect();
+    v.sort();
+    v
+}
+
+/// The go command the PATH finds, by path and file identity.
+fn go_ident(go: &str) -> String {
+    let p = if go.contains('/') {
+        Some(PathBuf::from(go))
+    } else {
+        std::env::var_os("PATH")
+            .and_then(|path| std::env::split_paths(&path).map(|d| d.join(go)).find(|p| p.is_file()))
+    };
+    match p.and_then(|p| fs::metadata(&p).ok().map(|m| (p, m))) {
+        Some((p, m)) => format!(
+            "{}:{}:{}:{}:{}.{}",
+            p.display(),
+            m.dev(),
+            m.ino(),
+            m.len(),
+            m.mtime(),
+            m.mtime_nsec()
+        ),
+        None => "unknown".into(),
+    }
+}
+
+/// go's own settings file (`go env -w`), by content.
+fn goenv_file() -> String {
+    let p = match std::env::var_os("GOENV") {
+        Some(v) => PathBuf::from(v),
+        None => match std::env::var_os("XDG_CONFIG_HOME") {
+            Some(x) => PathBuf::from(x).join("go/env"),
+            None => std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".config/go/env"))
+                .unwrap_or_default(),
+        },
+    };
+    file_state(&p)
+}
+
+/// What go list's answer depends on now (`Tree`). `skip`: the ledger's
+/// directory, when it is under the root.
+fn tree(go: &str, p: &Parsed, root: &Path, skip: &Path) -> Tree {
+    let mut env = blake3::Hasher::new();
+    for s in [
+        code_hash(),
+        go_ident(go),
+        env_all(),
+        goenv_file(),
+        root.display().to_string(),
+        p.list.join("\0"),
+        p.patterns.join("\0"),
+    ] {
+        env.update(s.as_bytes());
+        env.update(b"\0");
+    }
+    let mut names = blake3::Hasher::new();
+    let mut meta_files: Vec<PathBuf> = Vec::new();
+    let mut gofiles: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&d) else {
+            names.update(b"unreadable:");
+            names.update(d.as_os_str().as_bytes());
+            continue;
+        };
+        let mut ents: Vec<fs::DirEntry> = rd.filter_map(Result::ok).collect();
+        ents.sort_by_key(fs::DirEntry::file_name);
+        for e in ents {
+            let p = e.path();
+            let Ok(t) = e.file_type() else {
+                names.update(b"untyped:");
+                names.update(p.as_os_str().as_bytes());
+                continue;
+            };
+            let n = e.file_name();
+            if t.is_dir() && (n == ".git" || n == ".quod" || p == skip) {
+                continue;
+            }
+            names.update(p.as_os_str().as_bytes());
+            if t.is_dir() {
+                names.update(b"/d\0");
+                stack.push(p);
+                continue;
+            }
+            if t.is_symlink() {
+                names.update(b"/l:");
+                if let Ok(target) = fs::read_link(&p) {
+                    names.update(target.as_os_str().as_bytes());
+                }
+            }
+            names.update(b"\0");
+            let b = n.as_bytes();
+            if b.ends_with(b".go") {
+                gofiles.push(p);
+            } else if matches!(b, b"go.mod" | b"go.sum" | b"go.work" | b"go.work.sum" | b"modules.txt") {
+                meta_files.push(p);
+            }
+        }
+    }
+    let go_states = par_map(&gofiles, |f| file_state(f));
+    let meta_states = par_map(&meta_files, |f| file_state(f));
+    let mut meta = blake3::Hasher::new();
+    for (f, st) in meta_files.iter().zip(&meta_states) {
+        meta.update(f.as_os_str().as_bytes());
+        meta.update(b"=");
+        meta.update(st.as_bytes());
+        meta.update(b"\0");
+    }
+    Tree {
+        env: env.finalize().to_hex().to_string(),
+        names: names.finalize().to_hex().to_string(),
+        meta: meta.finalize().to_hex().to_string(),
+        gofiles: gofiles
+            .iter()
+            .map(|f| f.to_string_lossy().into_owned())
+            .zip(go_states)
+            .collect(),
+    }
+}
+
+/// The shadow's listing, if nothing it depended on changed: the same
+/// toolchain, environment, paths and module files, and every .go file that
+/// changed still has the header it had (build constraints, package,
+/// imports, embeds).
+fn reuse(c: &Cached, t: &Tree) -> Option<World> {
+    if c.env != t.env || c.names != t.names || c.meta != t.meta || c.files.len() != t.gofiles.len() {
+        return None;
+    }
+    let mut changed: Vec<(&String, &Option<String>)> = Vec::new();
+    for (p, st) in &t.gofiles {
+        let (st0, h0) = c.files.get(p)?;
+        if st0 != st {
+            changed.push((p, h0));
+        }
+    }
+    let ok = par_map(&changed, |(p, h0)| {
+        h0.is_some() && fs::read(p).ok().and_then(|b| go_src::header(&b)) == **h0
+    });
+    if !ok.into_iter().all(|b| b) {
+        return None;
+    }
+    Some(World {
+        roots: c.roots.clone(),
+        pkgs: c
+            .pkgs
+            .iter()
+            .map(|p| (p.import_path.clone(), p.clone()))
+            .collect(),
+        goenv: c.goenv.clone(),
+    })
+}
+
+/// What the shadow stores for the next critical paths' `reuse`.
+fn cache_world(w: &World, t: &Tree) -> Option<Cached> {
+    let paths: Vec<&String> = t.gofiles.keys().collect();
+    let heads = par_map(&paths, |p| fs::read(p).ok().and_then(|b| go_src::header(&b)));
+    let files = paths
+        .iter()
+        .zip(heads)
+        .map(|(p, h)| ((*p).clone(), (t.gofiles[*p].clone(), h)))
+        .collect();
+    Some(Cached {
+        env: t.env.clone(),
+        names: t.names.clone(),
+        meta: t.meta.clone(),
+        files,
+        roots: w.roots.clone(),
+        pkgs: w.pkgs.values().cloned().collect(),
+        goenv: w.goenv.clone(),
+    })
 }
 
 /// The traces the wrapper left, by the (canonical) directory they ran in.
@@ -1383,6 +1853,13 @@ struct Ctx<'a> {
     world: &'a World,
     workspace: &'a Path,
     scratch: &'a [PathBuf],
+    go: &'a str,
+    /// The shadow ran with -cover: each binary's coverage is next to its trace.
+    cover: bool,
+    /// The local files of the packages that ran, split (`go_src::shape`).
+    shapes_now: &'a HashMap<String, Option<go_src::Shape>>,
+    /// Package directories by import path (coverage names files by package).
+    dirs: &'a HashMap<String, String>,
 }
 
 enum Fail {
@@ -1441,6 +1918,13 @@ fn record(
         ledger.pkgs.remove(pkg);
         match cx.record(pkg, got) {
             Ok(rec) => {
+                if rec.covered {
+                    for (path, st) in &rec.local {
+                        if let Some(Some(sh)) = cx.shapes_now.get(path) {
+                            ledger.shapes.insert(st.clone(), FileShape::from(sh));
+                        }
+                    }
+                }
                 ledger.pkgs.insert(pkg.clone(), rec);
                 recorded.push(pkg.clone());
             }
@@ -1515,6 +1999,8 @@ impl Ctx<'_> {
             None => return Err(Fail::Unrecordable("not listed".into())),
         };
         let mut keys: BTreeSet<String> = BTreeSet::new();
+        let mut covered = false;
+        let mut cold: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         if got.status == "ok" {
             let p = self
                 .world
@@ -1529,6 +2015,9 @@ impl Ctx<'_> {
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| Fail::Unrecordable("no trace of its test binary".into()))?;
             for f in files {
+                if fs::metadata(f).is_ok_and(|m| m.len() > 1 << 30) {
+                    return Err(Fail::Unrecordable("its trace is over 1 GiB".into()));
+                }
                 let text = fs::read_to_string(f)
                     .map_err(|e| Fail::Unrecordable(format!("its trace: {e}")))?;
                 let calls = parse_trace(&text).map_err(Fail::Unrecordable)?;
@@ -1537,18 +2026,99 @@ impl Ctx<'_> {
                         .map_err(Fail::Unrecordable)?,
                 );
             }
+            if self.cover
+                && let Some(blocks) = self.coverage(files)
+            {
+                covered = true;
+                for path in closure.local.keys() {
+                    let Some(Some(sh)) = self.shapes_now.get(path) else {
+                        covered = false;
+                        break;
+                    };
+                    let mut has = vec![false; sh.funcs.len()];
+                    let mut hit = vec![false; sh.funcs.len()];
+                    for &(l, c, h) in blocks.get(path).into_iter().flatten() {
+                        if let Some(i) = go_src::owner(&sh.funcs, l, c) {
+                            has[i] = true;
+                            hit[i] |= h;
+                        }
+                    }
+                    let set: BTreeSet<String> = sh
+                        .funcs
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| has[*i] && !hit[*i])
+                        .map(|(_, f)| f.id.clone())
+                        .collect();
+                    if !set.is_empty() {
+                        cold.insert(path.clone(), set);
+                    }
+                }
+            }
         }
         let keys: Vec<String> = keys.into_iter().collect();
         let states = par_map(&keys, |k| state(k));
         Ok(Rec {
             global: self.global.to_string(),
-            closure,
+            closure: closure.full,
             inputs: keys.into_iter().zip(states).collect(),
             output: want.output.clone(),
-            status: got.status.clone(),
+            status: want.status.clone(),
             tests: want.tests.clone(),
             quarantined: None,
+            structure: closure.structure,
+            local: closure.local,
+            cold: if covered { cold } else { BTreeMap::new() },
+            covered,
         })
+    }
+
+    /// The coverage blocks of a package's test binaries, by file: (line,
+    /// column) of each block's start, and whether it ran. None: a binary
+    /// left no coverage, or `go tool covdata` could not read it.
+    fn coverage(&self, traces: &[PathBuf]) -> Option<HashMap<String, Vec<(u32, u32, bool)>>> {
+        let mut out: HashMap<String, Vec<(u32, u32, bool)>> = HashMap::new();
+        for t in traces {
+            let d = t.with_extension("cov");
+            if !d.is_dir() {
+                return None;
+            }
+            let txt = t.with_extension("cov.txt");
+            let ok = Command::new(self.go)
+                .args(["tool", "covdata", "textfmt"])
+                .arg(format!("-i={}", d.display()))
+                .arg(format!("-o={}", txt.display()))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .ok()?
+                .success();
+            if !ok {
+                return None;
+            }
+            let text = fs::read_to_string(&txt).ok()?;
+            for line in text.lines() {
+                if line.starts_with("mode:") || line.is_empty() {
+                    continue;
+                }
+                let mut it = line.rsplitn(3, ' ');
+                let (count, _, loc) = (it.next()?, it.next()?, it.next()?);
+                let (name, range) = loc.rsplit_once(':')?;
+                let (start, _) = range.split_once(',')?;
+                let (l, c) = start.split_once('.')?;
+                let (ip, file) = name.rsplit_once('/')?;
+                let Some(dir) = self.dirs.get(ip) else {
+                    continue;
+                };
+                out.entry(format!("{dir}/{file}")).or_default().push((
+                    l.parse().ok()?,
+                    c.parse().ok()?,
+                    count != "0",
+                ));
+            }
+        }
+        Some(out)
     }
 }
 

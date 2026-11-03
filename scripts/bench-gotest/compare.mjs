@@ -33,7 +33,25 @@ const norm = (lines) => lines.join('').split('\n')
   .map((l) => l.replace(/\(\d+(\.\d+)?s\)/g, '(T)').replace(/\t(\d+(\.\d+)?s|\(cached\))/g, '\tT'))
   .filter((l) => l !== '')
   .sort().join('\n')
+// Test names with what varies run to run (hex addresses, RFC 3339 times,
+// time.Date literals) normalized, as quod gotest matches them: used only when
+// it maps both sides one to one.
+const normName = (n) => n
+  .replace(/0x[0-9a-fA-F]+/g, '0x?')
+  .replace(/time\.Date\([^)]*\)/g, 'time.Date(?)')
+  .replace(/\d{4}-\d{2}-\d{2}[T _]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?/g, '<time>')
+const normTests = (m) => {
+  const o = new Map()
+  for (const [k, v] of m) o.set(normName(k), v)
+  return o.size === m.size ? o : null
+}
 const a = parse(plainPath), b = parse(quodPath)
+for (const [n, p] of a) {
+  const q = b.get(n)
+  if (!q) continue
+  const np = normTests(p.tests), nq = normTests(q.tests)
+  if (np && nq) { p.tests = np; q.tests = nq }
+}
 let sum = {}
 try { sum = JSON.parse(fs.readFileSync(sumPath, 'utf8')) } catch {}
 const ran = new Set(sum.ran_pkgs || [])
