@@ -134,6 +134,9 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 | `GET /v1/teams/:team/connect` | | `ConnectSetup` | 501 | the built-in setup |
 | `PUT /v1/teams/:team/connect` | `{ store, host }` | 204 | 501 | "Not available yet" message |
 | `GET /v1/teams/:team/search-index` | | `SearchIndex` | yes | ⌘K, plus GitHub's repos |
+| `GET /v1/teams/:team/test-runs` | `?repo=&limit=` (default 50, at most 200) | `{ runs: TestRunSummary[] }` newest first | in progress | repo Tests tab; hidden on 404/501 |
+| `GET /v1/teams/:team/test-runs/:id` | | `TestRunDetail` \| 404 | in progress | test run page |
+| `GET /v1/teams/:team/test-stats` | | `TestStats` | in progress | Overview's test card; hidden on 404/501 |
 | `GET /v1/teams/:team/activity` | `?repo=` (ignored) | `Activity` (`jobs: []`, `cursor`) | yes | "Now running" with GitHub's jobs |
 | `GET /v1/teams/:team/events` | `?scope=`, `Last-Event-ID` | `text/event-stream` | yes | everything live |
 
@@ -179,6 +182,35 @@ The types are `lib/api/types.ts`; the recorded bodies in
   lines, exit codes), `history` (tagged events, newest first) and `inputs`
   (files read, folders listed, paths looked for and not found, network
   access).
+- **Test runs** (test-level replay; `TestRunSummary`, `TestRunDetail`,
+  `TestStats` in `lib/api/types.ts`). One vitest run's report: `suite` (the
+  vitest project dir, `.` for the root), `kind` (`critical`: the developer's
+  check; `shadow`: the background recording job), GitHub run fields,
+  `files {total, ran, replayed, narrowed}` (replayed = skipped because
+  unchanged, results reused; narrowed = of those, the ones whose source
+  changed but not the functions the file runs), `timing {wallMs, selectMs,
+  estPlainMs, savedMs}` (milliseconds, unlike the rest of quod.v1; savedMs is
+  the recorded per-file durations of the skipped files, summed across
+  workers, so it is test-file time, not wall time), `exit`, `ledger` (the
+  earlier recording reused, or null) and `audits {checked, mismatched}`
+  (spot-checks, merged into a critical run from its commit's shadow). The
+  detail adds `ranFiles [{file, project, why, durationMs, state}]`,
+  `auditFiles [{file, ok}]` and `shadow` (the same commit and suite's shadow
+  report, or null). `TestStats`: `today {savedMs, runs}`, `week {savedMs,
+  runs, filesTotal, filesSkipped, skippedPct}`, `wrongResults`, `audits
+  {checked, passed}`, `recent` (up to 10). The dashboard computes the week's
+  share from `filesSkipped / filesTotal`, so `skippedPct`'s scale does not
+  matter to it. Repo slugs in all of these are quod-server's and are mapped
+  like every other (`repo-map.ts`).
+  Older servers: the HTTP adapter turns 404 and 501 on these endpoints into
+  `null` (`listTestRuns`, `getTestRun`, `getTestStats`), and the UI hides the
+  Overview card and shows an empty Tests tab; nothing is thrown. A server
+  that is down is still "unavailable" (section card on the Tests tab and the
+  run page; the Overview card is just left out). The Overview card is also
+  left out for a team with no test runs at all.
+  Pages: `/[team]/[repo]/tests` (the repo's Tests tab) and
+  `/[team]/[repo]/tests/[id]` (one run; a wrong repo in the URL redirects to
+  the run's own). The Overview links its recent runs there.
 - **Connect** (`ConnectSetup`): the setup action name, runner labels,
   install command, a self-hosted server example, the first repo (or null)
   and the saved choice.
@@ -222,6 +254,12 @@ as an event.
 | `step.finished` | the `RunStep`, `jobId`, `index`, `stepKey` | Quod runner hooks | yes |
 | `trust.changed` | step key, new `TrustState`, the `TrustEvent` | quod-server's trust decisions | yes (`proven` and `paused` only) |
 | `stats.updated` | repo, day, a `StatsDelta` | quod-server, as steps finish | not yet |
+| `test.run` | `repoSlug`, `run` (a `TestRunSummary`) | quod-server, when a test run's report (critical or shadow) arrives | in progress |
+
+On `test.run` the Overview and the repo's Tests tab refresh (debounced 4 s),
+and a test run's page refreshes when the event is its own run or the shadow
+of its commit and suite (`concernsTestRun` in `lib/test-runs.ts`). A
+`test.run` whose `run` is not a `TestRunSummary` is skipped.
 
 The dashboard re-serves the merged stream to the browser from
 `GET /[team]/events` (a route handler with the same session and membership

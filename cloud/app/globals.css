@@ -177,6 +177,9 @@ a.trow:hover { background: var(--hover); color: var(--text) }
 .cols-repos { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) 16px }
 .cols-steps { grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, .8fr) }
 .cols-runs { grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, .9fr) }
+/* Test runs (components/test-runs.tsx) */
+.cols-tests { grid-template-columns: minmax(0, 3fr) minmax(0, 1.3fr) minmax(0, .7fr) minmax(0, .8fr) minmax(0, .9fr) }
+.cols-files { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, .7fr) }
 /* Plain trust wording (components/trust-plain.tsx; lib/ui-version.ts) */
 .cols-plain { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.6fr) minmax(0, 1.7fr) minmax(0, .9fr) minmax(0, .7fr) }
 .chip.wrap { white-space: normal; line-height: 16px; padding-top: 3px; padding-bottom: 3px }

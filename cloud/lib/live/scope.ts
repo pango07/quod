@@ -43,6 +43,7 @@ function subject(e: LiveEvent): { repo: string; run: number | null; key: string 
     case "trust.changed":
       return { repo: e.repoSlug, run: null, key: e.key };
     case "stats.updated":
+    case "test.run":
       return { repo: e.repoSlug, run: null, key: null };
   }
 }

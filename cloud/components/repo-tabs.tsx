@@ -10,6 +10,7 @@ export async function RepoTabs({ params }: { params: Promise<{ team: string; rep
         { href: base, label: "Overview" },
         { href: `${base}/runs`, label: "Runs" },
         { href: `${base}/steps`, label: "Steps" },
+        { href: `${base}/tests`, label: "Tests" },
         { href: `${base}/settings`, label: "Settings" },
       ]}
     />

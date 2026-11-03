@@ -22,7 +22,7 @@ interface LiveState {
 
 const Ctx = createContext<LiveState | null>(null);
 
-const TYPES: LiveEventType[] = ["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated"];
+const TYPES: LiveEventType[] = ["job.queued", "job.started", "job.finished", "run.started", "run.finished", "step.started", "step.finished", "trust.changed", "stats.updated", "test.run"];
 const MAX_BACKOFF = 30_000;
 /** Don't show or announce "Reconnecting" for blips shorter than this. */
 const RECONNECTING_AFTER = 3_000;
