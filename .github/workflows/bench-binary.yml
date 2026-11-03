@@ -1,0 +1,75 @@
+# A `quod` binary for the public benchmark repo (pango07/ci-bench), so its
+# workflows download a release asset instead of building from source (which
+# stays here). Builds quod-cli (release, x86_64 Linux, on ubuntu-latest: the
+# same image, so the same glibc, as the bench runners) from `ref` and uploads
+# quod-linux-x86_64.tar.gz plus sha.txt as the artifact `bench-binary`.
+#
+# The vitest driver needs no separate files: the binary embeds driver.mjs,
+# setup.mjs, record.mjs, coverage.mjs and narrow.mjs (include_str! in
+# crates/quod-cli/src/vitest.rs) and writes them into the project's
+# node_modules/.quod-vitest on every `quod vitest` run. The build checks
+# that the subcommand is there.
+#
+# One command builds and publishes it (no tokens beyond your gh login):
+#   scripts/publish-bench-binary.sh <ref>
+name: bench-binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The quod commit, branch or tag to build
+        required: true
+  # Registers the workflow while it lives only on this branch (a dispatch
+  # otherwise needs it on the default branch); the job runs on dispatch only.
+  push:
+    branches: ['ci/bench-binary']
+    paths: ['.github/workflows/bench-binary.yml']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: rust toolchain (rust-toolchain.toml)
+        run: |
+          ch=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$ch" --profile minimal --no-self-update
+          cargo --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: bench-binary
+      - name: build
+        run: |
+          cargo build --release --locked -p quod-cli
+          mkdir -p dist
+          cp target/release/quod dist/quod
+          strip dist/quod
+          ./dist/quod --version || true
+          ./dist/quod vitest --help >/dev/null || { echo "::error::this ref has no 'quod vitest'"; exit 1; }
+          tar -C dist -czf quod-linux-x86_64.tar.gz quod
+          git rev-parse HEAD > sha.txt
+          sha=$(cat sha.txt)
+          {
+            echo "### bench binary ${sha:0:7}"
+            echo "built from \`$sha\` (\`${{ inputs.ref }}\`), glibc $(ldd --version | head -1 | awk '{print $NF}'), $(du -h quod-linux-x86_64.tar.gz | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-binary
+          path: |
+            quod-linux-x86_64.tar.gz
+            sha.txt
+          retention-days: 7
+          if-no-files-found: error
