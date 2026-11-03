@@ -812,10 +812,19 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if !r.unobservable.is_empty() {
             continue;
         }
-        if let Some(v) = keys
-            .iter()
-            .find_map(|k| k.strip_prefix("env:").filter(|n| volatile_env(n)))
-        {
+        // A per-run value (the commit, the run id) makes a result
+        // unrepeatable. The runner's per-step bookkeeping (STEP_VOLATILE:
+        // file-command paths, artifact lists) and Quod's own variables do
+        // not: a test environment
+        // that copies the whole environment into its context (edge-runtime)
+        // reads them all, and that kept 88 of class-management's backend
+        // files from ever recording.
+        if let Some(v) = keys.iter().find_map(|k| {
+            k.strip_prefix("env:")
+                .filter(|n| {
+                    volatile_env(n) && !STEP_VOLATILE.contains(n) && !n.starts_with("QUOD_")
+                })
+        }) {
             *unobservable
                 .entry(format!("reads the per-run variable {v}"))
                 .or_default() += 1;
