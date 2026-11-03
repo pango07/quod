@@ -14,7 +14,7 @@
 //     module graph and reads) for the Rust side to key and store.
 import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
-import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
+import { createRecorder, patchEnv, patchFs, patchLoader, real, settledKeys, writeJson, VERSION } from './record.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -493,7 +493,7 @@ if (plan.report) {
 // The main process's reads: inputs of every file, except the source the
 // workers asked it to transform (each file's own module graph has those).
 const global = []
-for (const k of r.keys) {
+for (const k of settledKeys(r)) {
   const i = k.indexOf(':')
   const p = k.slice(i + 1)
   if (k.startsWith('f:') && transformed.has(p)) continue
@@ -571,6 +571,8 @@ writeJson(outPath, {
   unmapped,
 })
 for (const [p, frame] of r.pjWhole) log(`${path.relative(cwd, p)} kept whole (read by ${frame})`)
+for (const [p, use] of r.pjUse) if (!r.pjWhole.has(p)) log(`${path.relative(cwd, p)} keyed by its names and the fields read: ${[...use].sort().join(', ') || '(none)'}`)
+for (const [frame, n] of r.envChild) log(`the environment copied ${n}x for a child process (${frame}): keyed as the tools' copy`)
 for (const [k, frame] of r.envKept) log(`${k === '*' ? 'the whole environment' : k} keyed for every file (read by ${frame})`)
 // The same for the workers: who in a test file's worker read CI-provider
 // variables (a test, a library it loads, the environment), by reader.

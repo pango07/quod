@@ -382,3 +382,35 @@ fn a_failure_only_while_recording_does_not_fail_the_job() {
         );
     }
 }
+
+#[test]
+fn a_config_reading_package_json_straight_is_keyed_by_the_fields_it_read() {
+    // The config takes a field of package.json (convex-helpers takes its
+    // dependency names): a version bump replays every file, a change to the
+    // field it read runs every file.
+    let t = tempfile::tempdir().unwrap();
+    let Some(p) = project(&t) else {
+        return;
+    };
+    fs::write(
+        p.dir.join("vitest.config.mjs"),
+        "import { readFileSync } from 'node:fs'\n\
+         const pkg = JSON.parse(\n  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),\n)\n\
+         export default { test: { env: { PKG_PRIVATE: String(pkg.private) } } }\n",
+    )
+    .unwrap();
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["recorded_files"], 3, "{s}");
+
+    edit(&p.dir, "package.json", "\"private\": true,", "\"private\": true,\n  \"version\": \"1.0.1\",");
+    let (plain, quod, s) = p.run(2);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 0, "a version bump: {s}");
+    assert_eq!(s["replayed"], 3, "{s}");
+
+    edit(&p.dir, "package.json", "\"private\": true,", "\"private\": false,");
+    let (plain, quod, s) = p.run(3);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 3, "the field the config read changed: {s}");
+}
