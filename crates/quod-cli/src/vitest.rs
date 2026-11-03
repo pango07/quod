@@ -820,10 +820,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // reads them all, and that kept 88 of class-management's backend
         // files from ever recording.
         if let Some(v) = keys.iter().find_map(|k| {
-            k.strip_prefix("env:")
-                .filter(|n| {
-                    volatile_env(n) && !STEP_VOLATILE.contains(n) && !n.starts_with("QUOD_")
-                })
+            k.strip_prefix("env:").filter(|n| {
+                volatile_env(n) && !STEP_VOLATILE.contains(n) && !n.starts_with("QUOD_")
+            })
         }) {
             *unobservable
                 .entry(format!("reads the per-run variable {v}"))

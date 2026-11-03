@@ -453,6 +453,10 @@ fn t8_run_reports_reach_the_dashboard() {
         "https://github.com/acme/app/actions/runs/2002/attempts/1"
     );
     assert_eq!(d["ranFiles"][0]["why"], "changed: src/a.ts");
+    assert_eq!(
+        d["ranFiles"][0]["durationMs"], 120.0,
+        "the dashboard's names"
+    );
     assert_eq!(d["audits"]["checked"], 2);
     assert_eq!(d["auditFiles"].as_array().unwrap().len(), 2);
     assert_eq!(d["shadow"]["kind"], "shadow");

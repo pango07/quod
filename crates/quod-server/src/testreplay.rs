@@ -1108,7 +1108,20 @@ pub async fn get_run(
         };
         let audit_source = shadow.as_ref().unwrap_or(&r);
         let audit_detail: Value = serde_json::from_str(&audit_source.detail).unwrap_or(json!({}));
-        out["ranFiles"] = detail.get("ranFiles").cloned().unwrap_or(json!([]));
+        // The dashboard's names (the stored detail keeps the wire's).
+        out["ranFiles"] = Value::Array(
+            detail["ranFiles"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|f| {
+                    json!({
+                        "file": f["file"], "project": f["project"], "why": f["why"],
+                        "durationMs": f["duration_ms"], "state": f["state"],
+                    })
+                })
+                .collect(),
+        );
         out["auditFiles"] = audit_detail.get("auditFiles").cloned().unwrap_or(json!([]));
         out["shadow"] = match &shadow {
             Some(s) => base_summary(s, &repos),
