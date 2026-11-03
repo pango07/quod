@@ -77,7 +77,7 @@ run phase's gains are visible.
    8.38 vs 9.08 s (-7%). 10 files got slower in the breakdown (2.1 → 2.2 s),
    hence the threshold.
 5. **Transform cache** (measured, not shipped): vitest's own
-   `experimental.fsModuleCache` in the state dir (`QUOD_VITEST_FSCACHE=1`,
+   `experimental.fsModuleCache` in the state dir (a measurement-only switch, since removed;
    populated by the shadow). Same-job on router, 20 commits: total -7.7%,
    median per commit -7% (2.49 → 2.26 s on the 16 commits running 1-14
    files), 0 wrong in that window. Not shipped: its key (id, content,
@@ -88,7 +88,7 @@ run phase's gains are visible.
    cannot make that never-wrong. A sound version needs per-transform read
    attribution in the recorder (AsyncLocalStorage around transformRequest,
    every read of another module file joining the key) and a plugin
-   allow-list; that is recording-side work (agent A's area).
+   allow-list: designed in docs/vitest-shadow.md, "Future".
 6. **Scheduling** (no change): vitest's sequencer already runs
    longest-first from its results cache, which the bench keeps; maxWorkers
    8 on 4 CPUs is slower (3.7 vs 3.3 s), 2 slower too.
