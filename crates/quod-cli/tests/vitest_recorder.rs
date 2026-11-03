@@ -294,3 +294,49 @@ console.log(JSON.stringify(out))
     assert!(keys.contains(&format!("f:{b}/pre/x.txt")), "{keys:?}");
     assert!(keys.contains(&format!("d:{b}/ws/src/made")), "{keys:?}");
 }
+
+#[test]
+fn listing_the_environment_keys_presence_and_a_copy_keys_values() {
+    // Object.keys on the env proxy asks for every name's descriptor (only
+    // to see it is enumerable): that is each variable's presence (`envp:`),
+    // so a per-run value (the commit) listed by a library does not change a
+    // key from one CI job to the next. A copy reads the values (`env:`).
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchEnv }} from {record:?}
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker' }})
+patchEnv(r)
+Object.keys(process.env).filter((k) => /^debug_/i.test(k))
+const listed = [...r.keys].filter((k) => k.endsWith(':GITHUB_SHA'))
+const copy = {{ ...process.env }}
+const copied = [...r.keys].filter((k) => k.endsWith(':GITHUB_SHA'))
+console.log(JSON.stringify({{ listed, copied, all: r.keys.has('envall:') }}))
+"#,
+        record = record.display().to_string(),
+    );
+    let s = t.path().join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node")
+        .arg(&s)
+        .env("GITHUB_SHA", "abc")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["listed"], serde_json::json!(["envp:GITHUB_SHA"]));
+    assert_eq!(
+        v["copied"],
+        serde_json::json!(["envp:GITHUB_SHA", "env:GITHUB_SHA"])
+    );
+    assert_eq!(v["all"], true);
+}

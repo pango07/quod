@@ -403,6 +403,22 @@ export function patchEnv(r) {
     seen.add(k)
     r.keys.add(`env:${k}`)
   }
+  // A descriptor asked for by name is the variable's presence (envp:), not
+  // its value: Object.keys and for...in on a proxy ask for every name's
+  // descriptor only to see it is enumerable (the `debug` package lists the
+  // environment that way in vite's plugins; by value that keyed the commit
+  // and the run id for every file, so nothing replayed from one CI job to
+  // the next). A copy ({ ...env }, JSON.stringify) reads each value through
+  // `get`, keyed by value as before; so does Object.entries/values.
+  const seenP = new Set()
+  const recPresence = (k) => {
+    if (typeof k !== 'string' || seen.has(k) || seenP.has(k)) return
+    if (ciVarying(k) || !toolEnv(k)) {
+      if (toolCaller().tool) return
+    }
+    seenP.add(k)
+    r.keys.add(`envp:${k}`)
+  }
   const proxy = new Proxy(target, {
     get(t, k) {
       if (r.on) rec(k)
@@ -413,7 +429,7 @@ export function patchEnv(r) {
       return Reflect.has(t, k)
     },
     getOwnPropertyDescriptor(t, k) {
-      if (r.on) rec(k)
+      if (r.on) recPresence(k)
       return Reflect.getOwnPropertyDescriptor(t, k)
     },
     ownKeys(t) {

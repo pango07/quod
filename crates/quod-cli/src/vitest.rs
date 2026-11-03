@@ -2037,6 +2037,15 @@ fn state(
             }),
             None,
         ),
+        // set or not (record.mjs: a descriptor asked for by name)
+        "envp" => (
+            if std::env::var_os(p).is_some() {
+                "set".into()
+            } else {
+                "unset".into()
+            },
+            None,
+        ),
         "envall" => (envall.get_or_init(|| env_all(false)).clone(), None),
         "envtool" => (env_all(true), None),
         "e" => (exists(&path()), None),
@@ -2610,6 +2619,7 @@ fn plain_key(k: &str) -> String {
             format!("the package {name}")
         }
         Some(("env" | "envall", v)) => format!("the variable {v}"),
+        Some(("envp", v)) => format!("whether the variable {v} is set"),
         Some(("d", p)) => format!("the directory listing of {p}"),
         Some(("e", p)) => format!("whether {p} exists"),
         _ => k.to_string(),
