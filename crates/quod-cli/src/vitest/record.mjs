@@ -42,6 +42,8 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
     keys,
     writes: new Set(),
     watches: new Set(),
+    // package.json files kept whole in the main process, and who read them
+    pjWhole: new Map(),
     unobservable: new Set(),
     on: true,
     add(kind, p) {
@@ -65,7 +67,10 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode }) {
         // packages a run loads (p:), so a reinstall alone changes nothing.
         return
       }
-      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json') && resolverCaller()) kind = 'pj'
+      if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
+        if (resolverCaller()) kind = 'pj'
+        else if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
+      }
       keys.add(`${kind}:${p}`)
     },
     write(p) {
@@ -94,6 +99,14 @@ export function resolverCaller(stack = new Error().stack) {
     return RESOLVERS.some((x) => l.includes(x))
   }
   return false
+}
+
+function callerFrame(stack = new Error().stack) {
+  for (const l of (stack ?? '').split('\n').slice(1)) {
+    if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
+    return l.trim()
+  }
+  return '?'
 }
 
 function norm(p) {
