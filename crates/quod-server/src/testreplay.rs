@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS test_runs (
 CREATE INDEX IF NOT EXISTS test_runs_by_team ON test_runs (team, id);
 CREATE INDEX IF NOT EXISTS test_runs_by_at ON test_runs (team, kind, at);
 CREATE INDEX IF NOT EXISTS test_runs_by_commit ON test_runs (team, repo_key, suite, sha, kind, id);
+CREATE TABLE IF NOT EXISTS test_bundles (
+  team TEXT NOT NULL, ledger_id BIGINT NOT NULL, hash TEXT NOT NULL, size BIGINT NOT NULL,
+  PRIMARY KEY (team, ledger_id));
 ";
 
 /// Creates the tables in Postgres (at start, from `boot::connect`).
@@ -404,7 +407,21 @@ pub async fn lookup(
                 };
                 let receipt = sign_ledger(&app.settings.signing_key, statement)
                     .map_err(ApiError::internal)?;
+                let bundle = d
+                    .query(
+                        "SELECT hash, size FROM test_bundles WHERE team = $1 AND ledger_id = $2",
+                        &[t(runner.team.as_str()), i(r.id)],
+                        &[Ty::T, Ty::I],
+                    )?
+                    .first()
+                    .and_then(|v| {
+                        Some(BundleRef {
+                            hash: v[0].t()?.parse().ok()?,
+                            size: v[1].i()? as u64,
+                        })
+                    });
                 Some(FoundLedger {
+                    bundle,
                     id: r.id,
                     scope: r.scope,
                     git_ref: r.git_ref,
@@ -513,6 +530,22 @@ pub async fn save(
             ],
         )?;
         tracing::info!(target: "quod", team = %runner.team, repository = %runner.repository, scope = %runner.write, suite = %req.suite, files = files.len(), bytes, "test ledger saved");
+        // The whole ledger as one object, so a restore is one download.
+        // Best effort: without it the client fetches file by file.
+        if bytes <= MAX_BUNDLE {
+            let built = build_bundle(&blobs, &files).and_then(|(h, n)| {
+                d.query(
+                    "INSERT INTO test_bundles (team, ledger_id, hash, size) VALUES ($1, $2, $3, $4) RETURNING ledger_id",
+                    &[t(runner.team.as_str()), i(id), t(h.to_string()), i(n as i64)],
+                    &[Ty::I],
+                )
+                .map(|_| n)
+            });
+            match built {
+                Ok(n) => tracing::info!(target: "quod", ledger = id, bytes = n, "test ledger bundle stored"),
+                Err(e) => tracing::warn!(target: "quod", ledger = id, error = %format!("{e:#}"), "test ledger bundle not stored"),
+            }
+        }
         let notice = crate::api::note_trusted_write_ref(
             &app,
             &runner,
@@ -601,6 +634,62 @@ pub async fn pack(
         Body::from_stream(stream),
     )
         .into_response())
+}
+
+/// The largest ledger stored as one bundle object.
+const MAX_BUNDLE: u64 = 64 << 20;
+
+/// Reads a ledger's blobs (32 at a time) and stores them as one object in
+/// pack format, each blob once, in hash order. Returns its hash and size.
+fn build_bundle(
+    blobs: &crate::store::TeamBlobs,
+    files: &[LedgerFile],
+) -> anyhow::Result<(Hash, u64)> {
+    let mut hashes: Vec<Hash> = files.iter().map(|f| f.hash).collect();
+    hashes.sort();
+    hashes.dedup();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let got: std::sync::Mutex<Vec<Option<Vec<u8>>>> =
+        std::sync::Mutex::new(vec![None; hashes.len()]);
+    let failed: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    std::thread::scope(|sc| {
+        for _ in 0..32.min(hashes.len()) {
+            sc.spawn(|| {
+                loop {
+                    let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(h) = hashes.get(k) else { break };
+                    match blobs.read_capped(h, MAX_BUNDLE) {
+                        Ok(Some(b)) => got.lock().unwrap_or_else(|e| e.into_inner())[k] = Some(b),
+                        Ok(None) => {
+                            *failed.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(format!("{h} is too large"));
+                            break;
+                        }
+                        Err(e) => {
+                            *failed.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(format!("{h}: {e}"));
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    if let Some(e) = failed.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        anyhow::bail!(e);
+    }
+    let mut out = Vec::new();
+    for (h, b) in hashes
+        .iter()
+        .zip(got.into_inner().unwrap_or_else(|e| e.into_inner()))
+    {
+        let b = b.ok_or_else(|| anyhow::anyhow!("{h} not read"))?;
+        out.extend_from_slice(format!("{} {}\n", h.hex(), b.len()).as_bytes());
+        out.extend_from_slice(&b);
+    }
+    let n = out.len() as u64;
+    let h = blobs.put_blob(&out)?;
+    Ok((h, n))
 }
 
 /// Packs streaming at once per instance.

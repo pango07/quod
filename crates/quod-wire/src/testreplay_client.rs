@@ -162,12 +162,51 @@ impl TestReplayClient {
     }
 
     /// Fetches `files` into `dest` (an empty directory), each checked
-    /// against its hash. Returns the bytes fetched.
-    pub fn fetch(&self, files: &[LedgerFile], dest: &Path) -> Result<u64, CallError> {
+    /// against its hash: from the ledger's bundle (one object) when the
+    /// lookup named one, else (or when the bundle fails) with a pack.
+    /// Returns the bytes fetched and how (`bundle` or `pack`).
+    pub fn fetch(
+        &self,
+        files: &[LedgerFile],
+        dest: &Path,
+        bundle: Option<&BundleRef>,
+    ) -> Result<(u64, &'static str), CallError> {
         check_files(files).map_err(CallError)?;
         let mut by_hash: BTreeMap<Hash, Vec<&LedgerFile>> = BTreeMap::new();
         for f in files {
             by_hash.entry(f.hash).or_default().push(f);
+        }
+        if let Some(b) = bundle {
+            let got = (|| -> Result<u64, CallError> {
+                let resp = self
+                    .request("GET", &format!("/v1/blobs/{}", b.hash.hex()))?
+                    .call()?;
+                // The bundle's own hash is checked as it streams, and every
+                // file in it against the signed list.
+                let mut r = BufReader::with_capacity(
+                    1 << 20,
+                    HashingReader {
+                        inner: resp.into_reader(),
+                        hasher: blake3::Hasher::new(),
+                    },
+                );
+                let n = read_entries(&mut r, &by_hash, dest, None)?;
+                let mut rest = Vec::new();
+                r.read_to_end(&mut rest)?;
+                if !rest.is_empty() || Hash::from_blake3(r.into_inner().hasher.finalize()) != b.hash
+                {
+                    return Err(CallError("the bundle is not what its name says".into()));
+                }
+                Ok(n)
+            })();
+            match got {
+                Ok(n) => return Ok((n, "bundle")),
+                Err(e) => {
+                    tracing::warn!(target: "quod", error = %e.0, "ledger bundle not used; fetching file by file");
+                    let _ = std::fs::remove_dir_all(dest);
+                    std::fs::create_dir_all(dest)?;
+                }
+            }
         }
         let hashes: Vec<Hash> = by_hash.keys().copied().collect();
         let mut total = 0u64;
@@ -182,64 +221,11 @@ impl TestReplayClient {
                     .map_err(|e| CallError(e.to_string()))?,
                 )?;
             let mut r = BufReader::with_capacity(1 << 20, resp.into_reader());
-            for want in chunk {
-                let mut line = Vec::new();
-                (&mut r).take(200).read_until(b'\n', &mut line)?;
-                let line =
-                    String::from_utf8(line).map_err(|_| CallError("a bad pack header".into()))?;
-                let (h, size) = line
-                    .trim_end()
-                    .split_once(' ')
-                    .ok_or_else(|| CallError("a bad pack header".into()))?;
-                if h != want.hex() {
-                    return Err(CallError("the pack is out of order".into()));
-                }
-                if size == "-" {
-                    return Err(CallError(format!("the server lacks {want}")));
-                }
-                let size: u64 = size
-                    .parse()
-                    .map_err(|_| CallError("a bad pack size".into()))?;
-                let targets = &by_hash[want];
-                if size != targets[0].size {
-                    return Err(CallError(format!("{want} has another size than listed")));
-                }
-                let first = dest.join(&targets[0].path);
-                std::fs::create_dir_all(first.parent().unwrap_or(dest))?;
-                // create_new: never through a link, never over a file
-                // already written (two paths one file system folds together).
-                let mut out = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&first)?;
-                let mut hasher = blake3::Hasher::new();
-                let mut left = size;
-                let mut buf = vec![0u8; 1 << 16];
-                while left > 0 {
-                    let n = r.read(&mut buf[..(left.min(1 << 16)) as usize])?;
-                    if n == 0 {
-                        return Err(CallError("the pack ended early".into()));
-                    }
-                    hasher.update(&buf[..n]);
-                    out.write_all(&buf[..n])?;
-                    left -= n as u64;
-                }
-                if Hash::from_blake3(hasher.finalize()) != *want {
-                    return Err(CallError(format!("{want} came back with other bytes")));
-                }
-                total += size;
-                for t in &targets[1..] {
-                    let p = dest.join(&t.path);
-                    std::fs::create_dir_all(p.parent().unwrap_or(dest))?;
-                    let mut o = std::fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(&p)?;
-                    std::io::copy(&mut std::fs::File::open(&first)?, &mut o)?;
-                }
-            }
+            let sub: BTreeMap<Hash, Vec<&LedgerFile>> =
+                chunk.iter().map(|h| (*h, by_hash[h].clone())).collect();
+            total += read_entries(&mut r, &sub, dest, Some(chunk))?;
         }
-        Ok(total)
+        Ok((total, "pack"))
     }
 
     /// Saves the ledger directory `dir`: uploads the files the server
@@ -317,6 +303,101 @@ impl TestReplayClient {
             },
         )
     }
+}
+
+/// A reader that hashes what passes through it.
+struct HashingReader<R> {
+    inner: R,
+    hasher: blake3::Hasher,
+}
+
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+}
+
+/// Reads pack-format entries (`<64 hex> <size>\n` and the bytes, or
+/// `<64 hex> -\n`) into `dest`: each blob's files, created new, checked
+/// against the hash. `order`: the hashes in the order the server must send
+/// them (a pack); `None`: any order, each wanted hash exactly once (a
+/// bundle). Returns the bytes written (once per blob).
+fn read_entries(
+    r: &mut impl BufRead,
+    by_hash: &BTreeMap<Hash, Vec<&LedgerFile>>,
+    dest: &Path,
+    order: Option<&[Hash]>,
+) -> Result<u64, CallError> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total = 0u64;
+    for k in 0..by_hash.len() {
+        let mut line = Vec::new();
+        (&mut *r).take(200).read_until(b'\n', &mut line)?;
+        let line = String::from_utf8(line).map_err(|_| CallError("a bad pack header".into()))?;
+        let (h, size) = line
+            .trim_end()
+            .split_once(' ')
+            .ok_or_else(|| CallError("a bad pack header".into()))?;
+        let want: Hash = format!("b3:{h}")
+            .parse()
+            .map_err(|_| CallError("a bad pack header".into()))?;
+        if let Some(o) = order
+            && o.get(k) != Some(&want)
+        {
+            return Err(CallError("the pack is out of order".into()));
+        }
+        let Some(targets) = by_hash.get(&want) else {
+            return Err(CallError(format!("{want} is not in the ledger")));
+        };
+        if !seen.insert(want) {
+            return Err(CallError(format!("{want} came twice")));
+        }
+        if size == "-" {
+            return Err(CallError(format!("the server lacks {want}")));
+        }
+        let size: u64 = size
+            .parse()
+            .map_err(|_| CallError("a bad pack size".into()))?;
+        if size != targets[0].size {
+            return Err(CallError(format!("{want} has another size than listed")));
+        }
+        let first = dest.join(&targets[0].path);
+        std::fs::create_dir_all(first.parent().unwrap_or(dest))?;
+        // create_new: never through a link, never over a file already
+        // written (two paths one file system folds together).
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&first)?;
+        let mut hasher = blake3::Hasher::new();
+        let mut left = size;
+        let mut buf = vec![0u8; 1 << 16];
+        while left > 0 {
+            let n = r.read(&mut buf[..(left.min(1 << 16)) as usize])?;
+            if n == 0 {
+                return Err(CallError("the pack ended early".into()));
+            }
+            hasher.update(&buf[..n]);
+            out.write_all(&buf[..n])?;
+            left -= n as u64;
+        }
+        if Hash::from_blake3(hasher.finalize()) != want {
+            return Err(CallError(format!("{want} came back with other bytes")));
+        }
+        total += size;
+        for t in &targets[1..] {
+            let p = dest.join(&t.path);
+            std::fs::create_dir_all(p.parent().unwrap_or(dest))?;
+            let mut o = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&p)?;
+            std::io::copy(&mut std::fs::File::open(&first)?, &mut o)?;
+        }
+    }
+    Ok(total)
 }
 
 /// The files of a ledger directory that travel (`TOP_FILES`, `TOP_DIRS`),

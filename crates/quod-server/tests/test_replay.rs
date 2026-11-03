@@ -137,7 +137,28 @@ fn fetch(c: &J, ancestors: &[&str]) -> (Option<FoundLedger>, tempfile::TempDir) 
     let r = c.lookup(".", &anc).unwrap();
     let d = tempfile::tempdir().unwrap();
     if let Some(f) = &r.ledger {
-        c.fetch(&f.files, d.path()).unwrap();
+        // Every save stores a bundle: one download.
+        assert!(f.bundle.is_some(), "no bundle");
+        let (_, how) = c.fetch(&f.files, d.path(), f.bundle.as_ref()).unwrap();
+        assert_eq!(how, "bundle");
+        // File by file gives the same files.
+        let d2 = tempfile::tempdir().unwrap();
+        let (_, how) = c.fetch(&f.files, d2.path(), None).unwrap();
+        assert_eq!(how, "pack");
+        for x in &f.files {
+            assert_eq!(
+                std::fs::read(d.path().join(&x.path)).unwrap(),
+                std::fs::read(d2.path().join(&x.path)).unwrap()
+            );
+        }
+        // A bundle that is not what it says falls back to the pack.
+        let d3 = tempfile::tempdir().unwrap();
+        let wrong = BundleRef {
+            hash: f.files[0].hash,
+            size: 1,
+        };
+        let (_, how) = c.fetch(&f.files, d3.path(), Some(&wrong)).unwrap();
+        assert_eq!(how, "pack");
     }
     (r.ledger, d)
 }

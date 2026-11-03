@@ -167,6 +167,18 @@ pub struct FoundLedger {
     pub matched: String,
     pub files: Vec<LedgerFile>,
     pub receipt: SignedLedger,
+    /// The whole ledger as one object (pack format, any order), when the
+    /// server made one: one download instead of one read per file. Not
+    /// signed: every file in it is checked against the signed list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<BundleRef>,
+}
+
+/// A blob by hash and size.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BundleRef {
+    pub hash: Hash,
+    pub size: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -497,6 +509,7 @@ mod tests {
             matched: "ancestor".into(),
             files,
             receipt: sign_ledger(key, st).unwrap(),
+            bundle: None,
         }
     }
 

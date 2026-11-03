@@ -137,6 +137,7 @@ fn entries(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
 /// Removes the local ledger (`ledger.json` first); an error if any of it
 /// is still there.
 fn clear(dir: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(dir.join(MARKER));
     let all: Vec<PathBuf> = entries(dir).collect();
     for e in all.iter().rev() {
         remove(e);
@@ -148,6 +149,27 @@ fn clear(dir: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The restore marker in the ledger directory.
+const MARKER: &str = ".quod-cloud-restore.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Marker {
+    tag: String,
+    used: LedgerUsed,
+}
+
+/// This job's run, attempt and job, and the suite; `None` outside GitHub
+/// Actions (no marker: every `--cloud` run restores).
+fn job_tag(suite: &str) -> Option<String> {
+    let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    Some(format!(
+        "{}/{}/{}/{suite}",
+        get("GITHUB_RUN_ID")?,
+        get("GITHUB_RUN_ATTEMPT")?,
+        get("GITHUB_JOB")?
+    ))
 }
 
 /// This job as GitHub describes it: a lookup answer must be for it.
@@ -167,9 +189,46 @@ impl Cloud {
     /// on a persistent runner) is removed first, so when the server has
     /// none, or anything fails, there is no ledger and every test file
     /// runs.
+    ///
+    /// A restore that completed (a ledger, or the server's word that there
+    /// is none) leaves a marker naming this job's run, attempt and job and
+    /// the suite; a later `--cloud` run in the same job uses that ledger
+    /// instead of fetching it again, so the restore can run in parallel with
+    /// the dependency install (`--cloud-only restore &`). A marker from any
+    /// other job (a cache, a committed file, a persistent runner) does not
+    /// match and is removed with the rest.
     pub fn restore(&self, root: &Path, dir: &Path) -> LedgerUsed {
+        let marker = dir.join(MARKER);
+        let here = job_tag(&self.suite);
+        if let Some(tag) = &here
+            && let Some(m) = std::fs::read(&marker)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Marker>(&b).ok())
+            && m.tag == *tag
+            && (!m.used.found || dir.join("ledger.json").is_file())
+        {
+            eprintln!("quod vitest: using the ledger restored from Quod Cloud earlier in this job");
+            return m.used;
+        }
+        let _ = std::fs::remove_file(&marker);
+        let (used, definitive) = self.restore_fresh(root, dir);
+        if definitive && let Some(tag) = here {
+            let m = Marker {
+                tag,
+                used: used.clone(),
+            };
+            if let Ok(b) = serde_json::to_vec(&m) {
+                let _ = std::fs::write(&marker, b);
+            }
+        }
+        used
+    }
+
+    /// The restore itself: (what was used, whether it completed: a ledger
+    /// or the server's word that it has none).
+    fn restore_fresh(&self, root: &Path, dir: &Path) -> (LedgerUsed, bool) {
         let t = Instant::now();
-        let none = LedgerUsed::default();
+        let none = (LedgerUsed::default(), false);
         if let Err(e) = clear(dir) {
             eprintln!(
                 "quod vitest: the local ledger could not be removed ({e}); Quod Cloud is not used"
@@ -193,7 +252,7 @@ impl Cloud {
                 self.suite,
                 t.elapsed().as_millis()
             );
-            return none;
+            return (LedgerUsed::default(), true);
         };
         let staging = dir.join(format!(".cloud-restore-{}", std::process::id()));
         remove(&staging);
@@ -201,8 +260,10 @@ impl Cloud {
             eprintln!("quod vitest: Quod Cloud restore failed ({e}); every test file runs");
             return none;
         }
-        let fetched = self.client.fetch(&found.files, &staging);
-        let bytes = match fetched {
+        let fetched = self
+            .client
+            .fetch(&found.files, &staging, found.bundle.as_ref());
+        let (bytes, how) = match fetched {
             Ok(b) => b,
             Err(e) => {
                 remove(&staging);
@@ -234,7 +295,7 @@ impl Cloud {
             return none;
         }
         eprintln!(
-            "quod vitest: restored the ledger of {} ({}, {}) from Quod Cloud: {} files, {} KB in {} ms",
+            "quod vitest: restored the ledger of {} ({}, {}) from Quod Cloud: {} files, {} KB ({how}) in {} ms",
             found
                 .sha
                 .as_deref()
@@ -250,14 +311,17 @@ impl Cloud {
             bytes / 1024,
             t.elapsed().as_millis()
         );
-        LedgerUsed {
-            found: true,
-            id: Some(found.id),
-            sha: found.sha,
-            git_ref: found.git_ref,
-            scope: Some(found.scope),
-            matched: Some(found.matched),
-        }
+        (
+            LedgerUsed {
+                found: true,
+                id: Some(found.id),
+                sha: found.sha,
+                git_ref: found.git_ref,
+                scope: Some(found.scope),
+                matched: Some(found.matched),
+            },
+            true,
+        )
     }
 
     /// Saves `dir` to Quod Cloud (only what the server lacks goes up).
