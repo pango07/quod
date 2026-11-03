@@ -62,9 +62,18 @@ critical() { # $1 = tag, $2 = ledger dir (a completed recording; a fresh copy, s
   local rc=$?; mv -f "$out/quod.json" "$out/crit.json"
   echo "$(( $(ms) - s )) $rc"
 }
+# Same-job A/B (QUOD_B=<another quod>, B_ENV="K=V ..." for its runs): B's
+# critical path on its own fresh copy of the same recording, in the same
+# job, plain/A/B in rotating order per commit; compared with plain as well.
+critical_b() { # $1 = tag, $2 = ledger dir
+  local s; s=$(ms)
+  env ${B_ENV:-} "$QUOD_B" vitest --no-record --dir "$2" --summary "$out/crit-b-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/crit-b-$1.log" 2>&1
+  local rc=$?; mv -f "$out/quod.json" "$out/crit-b.json"
+  echo "$(( $(ms) - s )) $rc"
+}
 shadow() { # $1 = tag
   local s; s=$(ms)
-  "$QUOD" vitest --dir "$state" --audits "$audits" --expect-report "$out/crit.json" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
+  env ${SHADOW_ENV:-} "$QUOD" vitest --dir "$state" --audits "$audits" --expect-report "$out/crit.json" --summary "$out/shadow-summary.json" -- "${args[@]}" --reporter=default --reporter=json --outputFile.json="$out/quod.json" >"$out/logs/shadow-$1.log" 2>&1
   local rc=$?; mv -f "$out/quod.json" "$out/shadow.json"
   echo "$(( $(ms) - s )) $rc"
 }
@@ -106,7 +115,16 @@ for i in "${!commits[@]}"; do
     install_ms=$(( $(ms) - s ))
     lock=$nl
   fi
-  if (( i % 2 == 0 )); then
+  b_ms=0; b_rc=0; bcmp='{}'
+  if [ -n "${QUOD_B:-}" ]; then
+    bdir=/work/state/crit-ledger-b; rm -rf "$bdir"; cp -a "$cdir" "$bdir"
+    case $(( i % 3 )) in
+      0) read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r b_ms b_rc < <(critical_b "$i" "$bdir") ;;
+      1) read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r b_ms b_rc < <(critical_b "$i" "$bdir"); read -r p_ms p_rc < <(plain "$i") ;;
+      2) read -r b_ms b_rc < <(critical_b "$i" "$bdir"); read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir") ;;
+    esac
+    bcmp=$(node "$here/compare.mjs" "$out/plain.json" "$out/crit-b.json" "$bdir/out.json" 2>&1 | tee "$out/logs/compare-b-$i.log" | tail -1)
+  elif (( i % 2 == 0 )); then
     read -r p_ms p_rc < <(plain "$i"); read -r q_ms q_rc < <(critical "$i" "$cdir")
   else
     read -r q_ms q_rc < <(critical "$i" "$cdir"); read -r p_ms p_rc < <(plain "$i")
@@ -137,11 +155,12 @@ for i in "${!commits[@]}"; do
   areas=$(echo "$files" | awk -F/ 'NF{ if ($1=="packages"||$1=="packages-private") print $1"/"$2; else if (NF>1) print $1"/"; else print $1 }' | sort | uniq -c | sort -rn | awk '{printf "%s%s(%s)", sep, $2, $1; sep=", "}')
   subject=$(git log -1 --format=%s "$c")
   node -e '
-    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp] = process.argv.slice(1)
+    const [i, c, subject, touched, areas, p_ms, p_rc, q_ms, q_rc, sh_ms, sh_rc, obs_ms, from, install_ms, bytes, cmp, scmp, cs, ss, plan_ms, verdict, pcmp, b_ms, bcmp, bs] = process.argv.slice(1)
     const fs = require("fs")
     const j = (p) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return {} } }
     const k = (t) => { try { return JSON.parse(t) } catch { return { error: t } } }
-    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp), pc = k(pcmp)
+    const s = j(cs), h = j(ss), a = k(cmp), b = k(scmp), pc = k(pcmp), bc = k(bcmp), bsum = j(bs)
+    const ab = +b_ms ? { crit_b_ms: +b_ms, b_wrong: bc.wrong ?? null, b_ran: bsum.ran, b_fast: !!bsum.fast } : {}
     const whole = verdict ? { plan_ms: +plan_ms, plan: verdict, whole_plain_ms: +install_ms + +p_ms,
       whole_quod_ms: +plan_ms + (verdict === "done" ? 0 : +install_ms + +q_ms),
       plan_wrong: verdict === "done" ? (pc.wrong ?? null) : [] } : {}
@@ -153,8 +172,8 @@ for i in "${!commits[@]}"; do
       shadow_ran: h.ran, shadow_replayed: h.replayed, audited: h.audited, audit_mismatches: h.audit_mismatches,
       unrecordable: h.unrecordable, record_ms: h.record_ms, shadow_driver: h.driver,
       files: a.files, wrong: a.wrong ?? null, flaky: a.flaky ?? null, compare_error: a.error,
-      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, fast: !!s.fast, render: h.render ?? null, ...whole }))
-  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" | tee -a "$out/results.jsonl"
+      shadow_wrong: b.wrong ?? null, shadow_flaky: b.flaky ?? null, fast: !!s.fast, render: h.render ?? null, ...whole, ...ab }))
+  ' "$i" "$c" "$subject" "$touched" "$areas" "$p_ms" "$p_rc" "$q_ms" "$q_rc" "$sh_ms" "$sh_rc" "$obs_ms" "$from" "$install_ms" "$ledger_bytes" "$cmp" "$scmp" "$out/crit-summary.json" "$out/shadow-summary.json" "$plan_ms" "$verdict" "$pcmp" "$b_ms" "$bcmp" "$out/crit-b-summary.json" | tee -a "$out/results.jsonl"
 
   # Mutation check (not timed): a throw in a function some recorded test
   # executed must make the critical path run that test and report the same
@@ -188,7 +207,7 @@ node "$here/report-shadow.mjs" "$out/results.jsonl" "${args[*]}" "$(git remote g
 cat "$out/report.md"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
 # Loud: a wrong replay on the critical path (or a mutation it missed) fails the job.
-if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
+if node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);process.exit(l.some(r=>r.wrong===null||r.wrong.length||(r.b_wrong!==undefined&&(r.b_wrong===null||r.b_wrong.length))||(r.plan_wrong!==undefined&&(r.plan_wrong===null||r.plan_wrong.length)))?1:0)' "$out/results.jsonl"; then
   echo "0 wrong replays"
 else
   echo "::error::WRONG REPLAYS (or an uncompared commit): see report.md"; exit 1

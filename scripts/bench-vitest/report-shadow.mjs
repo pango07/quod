@@ -47,6 +47,12 @@ if (wj.length) {
   out.push(`| **whole job, median** (install + tests; Quod: \`--plan\` first, install only when a file must run) | ${s(median(wj.map((r) => r.whole_plain_ms)))} s | ${s(median(wj.map((r) => r.whole_quod_ms)))} s | **${median(wj.map((r) => x(r.whole_plain_ms, r.whole_quod_ms))).toFixed(1)}x** |`)
   out.push(`| **whole job, total** | ${s(wp)} s | ${s(wq)} s | **${x(wp, wq).toFixed(1)}x**; ${done} of ${wj.length} commits skipped the install (plan: every file replays), ${pw} wrong |`)
 }
+const abr = rows.filter((r) => r.crit_b_ms != null)
+if (abr.length) {
+  const ta = sum(abr.map((r) => r.crit_ms)), tb = sum(abr.map((r) => r.crit_b_ms))
+  const bw = abr.reduce((a, r) => a + (r.b_wrong ? r.b_wrong.length : 1), 0)
+  out.push(`| **same-job A/B**: critical path A (this run's quod) vs B (\`QUOD_B\`${process.env.B_ENV ? `, ${process.env.B_ENV}` : ''}) | A ${s(median(abr.map((r) => r.crit_ms)))} s median, ${s(ta)} s total | B ${s(median(abr.map((r) => r.crit_b_ms)))} s median, ${s(tb)} s total | B/A total ${x(tb, ta).toFixed(3)}, median per-commit B/A ${median(abr.map((r) => r.crit_b_ms / Math.max(r.crit_ms, 10))).toFixed(3)}; B wrong ${bw} |`)
+}
 out.push(`| shadow compute (separate job, not on the critical path) | | ${s(ts)} s total | median ${s(median(rows.map((r) => r.shadow_ms)))} s per commit; ${aud} audits, ${mism} mismatches (quarantined) |`)
 out.push('')
 if (first) {
