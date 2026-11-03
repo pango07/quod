@@ -204,10 +204,12 @@ fn version(db: &Connection) -> anyhow::Result<i64> {
 }
 
 /// Uploads a team's local blobs; (count, bytes uploaded, damaged names).
+/// 16 at a time (each is a HEAD and maybe a PUT to the bucket, so latency,
+/// not bandwidth, is the cost), with a progress line every 1000 blobs.
 fn import_blobs(cas_dir: &Path, blobs: &S3Blobs) -> anyhow::Result<(u64, u64, Vec<String>)> {
-    let (mut n, mut bytes, mut damaged) = (0, 0, vec![]);
+    let mut files: Vec<(String, std::path::PathBuf)> = vec![];
     let Ok(shards) = std::fs::read_dir(cas_dir) else {
-        return Ok((0, 0, damaged));
+        return Ok((0, 0, vec![]));
     };
     for shard in shards.flatten() {
         if !shard.path().is_dir() {
@@ -215,20 +217,61 @@ fn import_blobs(cas_dir: &Path, blobs: &S3Blobs) -> anyhow::Result<(u64, u64, Ve
         }
         for f in std::fs::read_dir(shard.path())?.flatten() {
             let name = f.file_name().to_string_lossy().into_owned();
-            let Ok(want) = format!("b3:{name}").parse::<Hash>() else {
+            if format!("b3:{name}").parse::<Hash>().is_err() {
                 continue; // not a blob (a temporary file)
-            };
-            if !f.path().is_file() {
-                continue;
             }
-            let (got, sent) = blobs.put_blob_file(&f.path())?;
-            if got != want {
-                tracing::warn!(target: "quod", blob = %name, actual = %got, "a local blob does not hash to its name; stored under its true hash only");
-                damaged.push(name);
+            if f.path().is_file() {
+                files.push((name, f.path()));
             }
-            n += 1;
-            bytes += sent;
         }
+    }
+    let total = files.len();
+    crate::warmup::BLOBS_TOTAL.fetch_add(total as u64, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!(target: "quod", blobs = total, "importing blobs to the bucket");
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    type Acc = (u64, u64, Vec<String>, Option<anyhow::Error>);
+    let acc: std::sync::Mutex<Acc> = std::sync::Mutex::new((0, 0, vec![], None));
+    std::thread::scope(|sc| {
+        for _ in 0..16 {
+            sc.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some((name, path)) = files.get(i) else {
+                        break;
+                    };
+                    let r = blobs.put_blob_file(path);
+                    let mut g = acc.lock().unwrap_or_else(|e| e.into_inner());
+                    if g.3.is_some() {
+                        break;
+                    }
+                    match r {
+                        Ok((got, sent)) => {
+                            if format!("b3:{name}").parse::<Hash>().ok() != Some(got) {
+                                tracing::warn!(target: "quod", blob = %name, actual = %got, "a local blob does not hash to its name; stored under its true hash only");
+                                g.2.push(name.clone());
+                            }
+                            g.0 += 1;
+                            g.1 += sent;
+                        }
+                        Err(e) => {
+                            g.3 = Some(e.into());
+                            break;
+                        }
+                    }
+                    drop(g);
+                    crate::warmup::BLOBS_DONE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if d % 1000 == 0 {
+                        tracing::info!(target: "quod", done = d, of = total, "blobs imported");
+                    }
+                }
+            });
+        }
+    });
+    let (n, bytes, damaged, err) = acc.into_inner().unwrap_or_else(|e| e.into_inner());
+    if let Some(e) = err {
+        return Err(e);
     }
     Ok((n, bytes, damaged))
 }

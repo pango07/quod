@@ -22,6 +22,7 @@ pub mod pg;
 pub mod s3;
 pub mod store;
 pub mod testreplay;
+pub mod warmup;
 
 use std::sync::Arc;
 

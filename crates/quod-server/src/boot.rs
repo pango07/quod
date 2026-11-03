@@ -97,14 +97,17 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
         .map_err(|e| format!("QUOD_DATA_DIR {}: cannot create it: {e}", dir.display()))?;
     check_writable(dir)?;
     let persistence = persistence(env)?;
+    crate::warmup::phase("waiting for the instance lock");
     let lock = lock(dir, env.lock_wait)?;
     let (signing_key, key_generated) = signing_key(env)?;
     let doc = env.document()?;
     let (cloud, imported) = match &env.cloud {
         None => (None, None),
         Some(c) => {
+            crate::warmup::phase("connecting to postgres and the bucket");
             let cloud = Arc::new(connect(c)?);
             let imported = if env.import_sqlite {
+                crate::warmup::phase("importing the volume's SQLite data");
                 let i = crate::import::import_sqlite(dir, &cloud)
                     .map_err(|e| format!("import of the volume's SQLite data: {e:#}"))?;
                 tracing::info!(target: "quod", teams = ?i.teams, skipped = ?i.skipped, scopes = i.scopes, blobs = i.blobs, rows = ?i.rows, "SQLite data imported");
@@ -130,6 +133,7 @@ pub fn boot(env: &Env) -> Result<Boot, String> {
     // before listening, so no claim meets a ledger mid-migration. With
     // Postgres the files are left as they are (Postgres migrated in
     // `connect`).
+    crate::warmup::phase("migrating");
     let migrated = if env.skip_migration {
         tracing::warn!(target: "quod", "QUOD_SKIP_MIGRATION=1: no start-up migration pass; each SQLite ledger migrates when a request first opens it");
         crate::store::Migrated::default()

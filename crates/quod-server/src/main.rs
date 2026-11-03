@@ -35,8 +35,14 @@ fn main() -> anyhow::Result<()> {
             }
             let env = quod_server::config::Env::from_env(get)
                 .map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
-            let boot =
-                quod_server::boot::boot(&env).map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
+            // /healthz answers while boot runs (a long import must not
+            // look like a dead instance); everything else is 503 until then.
+            let warm = quod_server::warmup::Warmup::start(&env.bind, env.port);
+            let booted = quod_server::boot::boot(&env);
+            if let Some(w) = warm {
+                w.stop();
+            }
+            let boot = booted.map_err(|e| anyhow::anyhow!("quod-server: {e}"))?;
             let settings = boot.settings.clone();
             let rt = tokio::runtime::Runtime::new()?;
             let served = rt.block_on(quod_server::serve(settings));
