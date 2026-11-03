@@ -62,6 +62,8 @@ pub fn connect(c: &crate::config::CloudEnv) -> Result<crate::store::Cloud, Strin
     let v = pg.schema_version().map_err(|e| format!("postgres: {e}"))?;
     crate::testreplay::ensure_pg(&pg)
         .map_err(|e| format!("postgres (test replay tables): {e:#}"))?;
+    crate::taskcache::ensure_pg(&pg)
+        .map_err(|e| format!("postgres (task cache table): {e:#}"))?;
     let s3 = crate::s3::S3::new(c.s3.clone())?;
     let probe = crate::s3::S3Blobs::new(s3.clone(), "quod-probe");
     let bytes = b"quod-server: the bucket takes and gives back a blob";

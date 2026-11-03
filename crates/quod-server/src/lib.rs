@@ -21,6 +21,7 @@ pub mod import;
 pub mod pg;
 pub mod s3;
 pub mod store;
+pub mod taskcache;
 pub mod testreplay;
 pub mod timing;
 pub mod warmup;
@@ -306,6 +307,7 @@ pub fn router(app: AppState) -> Router {
         .route("/v1/test-ledgers/lookup", post(testreplay::lookup))
         .route("/v1/test-ledgers", post(testreplay::save))
         .route("/v1/test-runs", post(testreplay::report))
+        .route("/v1/task-cache/session", post(taskcache::session))
         .layer(DefaultBodyLimit::max(max_json))
         .layer(middleware::from_fn_with_state(app.clone(), runner_auth));
     let blob = Router::new()
@@ -324,6 +326,7 @@ pub fn router(app: AppState) -> Router {
         .route("/v1/keys", get(keys))
         .merge(runner)
         .merge(blob)
+        .merge(taskcache::router())
         .merge(dash::router())
         .layer(middleware::from_fn(protocol))
         .layer(middleware::from_fn(timing::layer))

@@ -93,26 +93,26 @@ pub fn ensure_pg(pg: &crate::pg::Pg) -> anyhow::Result<()> {
 
 /// A value bound to or read from a statement.
 #[derive(Clone, Debug)]
-enum V {
+pub(crate) enum V {
     I(Option<i64>),
     F(Option<f64>),
     T(Option<String>),
 }
 
 impl V {
-    fn i(&self) -> Option<i64> {
+    pub(crate) fn i(&self) -> Option<i64> {
         match self {
             V::I(v) => *v,
             _ => None,
         }
     }
-    fn f(&self) -> Option<f64> {
+    pub(crate) fn f(&self) -> Option<f64> {
         match self {
             V::F(v) => *v,
             _ => None,
         }
     }
-    fn t(&self) -> Option<String> {
+    pub(crate) fn t(&self) -> Option<String> {
         match self {
             V::T(v) => v.clone(),
             _ => None,
@@ -120,18 +120,18 @@ impl V {
     }
 }
 
-fn t(s: impl Into<String>) -> V {
+pub(crate) fn t(s: impl Into<String>) -> V {
     V::T(Some(s.into()))
 }
-fn ot(s: Option<impl Into<String>>) -> V {
+pub(crate) fn ot(s: Option<impl Into<String>>) -> V {
     V::T(s.map(Into::into))
 }
-fn i(v: i64) -> V {
+pub(crate) fn i(v: i64) -> V {
     V::I(Some(v))
 }
 
 #[derive(Clone, Copy)]
-enum Ty {
+pub(crate) enum Ty {
     I,
     F,
     T,
@@ -140,13 +140,13 @@ enum Ty {
 /// A team's test-replay tables in either backend. Statements use `$1`..
 /// placeholders, each first appearing in order (SQLite numbers `$N`
 /// parameters by first appearance).
-enum Db {
+pub(crate) enum Db {
     Sqlite(rusqlite::Connection),
     Pg(crate::pg::Pg),
 }
 
 impl Db {
-    fn query(&self, sql: &str, params: &[V], tys: &[Ty]) -> anyhow::Result<Vec<Vec<V>>> {
+    pub(crate) fn query(&self, sql: &str, params: &[V], tys: &[Ty]) -> anyhow::Result<Vec<Vec<V>>> {
         match self {
             Db::Sqlite(c) => {
                 let mut st = c.prepare(sql)?;
@@ -206,7 +206,7 @@ impl Db {
     }
 
     /// An INSERT ... RETURNING id.
-    fn insert(&self, sql: &str, params: &[V]) -> anyhow::Result<i64> {
+    pub(crate) fn insert(&self, sql: &str, params: &[V]) -> anyhow::Result<i64> {
         self.query(sql, params, &[Ty::I])?
             .first()
             .and_then(|r| r[0].i())
@@ -215,10 +215,17 @@ impl Db {
 }
 
 fn db(app: &App, team: &str) -> Result<Db, ApiError> {
+    db_with(app, team, "test-replay.sqlite", SCHEMA)
+}
+
+/// A team's tables in `file` (self-hosted: a SQLite file in the team's
+/// directory, `schema` created in it) or in Postgres (Quod Cloud: the
+/// tables are created at start, `boot::connect`).
+pub(crate) fn db_with(app: &App, team: &str, file: &str, schema: &str) -> Result<Db, ApiError> {
     if let Some(c) = app.store.cloud_backend() {
         return Ok(Db::Pg(c.pg.clone()));
     }
-    let p = app.store.team_dir(team).join("test-replay.sqlite");
+    let p = app.store.team_dir(team).join(file);
     std::fs::create_dir_all(app.store.team_dir(team)).map_err(ApiError::internal)?;
     let c = rusqlite::Connection::open(&p).map_err(ApiError::internal)?;
     c.busy_timeout(std::time::Duration::from_secs(30))
@@ -226,7 +233,7 @@ fn db(app: &App, team: &str) -> Result<Db, ApiError> {
     c.pragma_update(None, "journal_mode", "WAL")
         .map_err(ApiError::internal)?;
     c.execute_batch(
-        &SCHEMA
+        &schema
             .replace("{ID}", "INTEGER PRIMARY KEY AUTOINCREMENT")
             .replace("{REAL}", "REAL"),
     )
@@ -237,7 +244,7 @@ fn db(app: &App, team: &str) -> Result<Db, ApiError> {
 /// Where a runner's repository is keyed: GitHub's id when known (a
 /// rename keeps the ledgers, a new repository under an old name starts
 /// empty), else its name.
-fn repo_key(r: &Runner) -> Result<String, ApiError> {
+pub(crate) fn repo_key(r: &Runner) -> Result<String, ApiError> {
     if r.repository.is_empty() {
         return Err(ApiError::forbidden("this runner token names no repository"));
     }
@@ -248,7 +255,7 @@ fn repo_key(r: &Runner) -> Result<String, ApiError> {
 }
 
 /// Whether a job may save a ledger: not one on someone else's input.
-fn may_save(r: &Runner) -> bool {
+pub(crate) fn may_save(r: &Runner) -> bool {
     r.write != UNVERIFIED && !r.write.starts_with("fork-")
 }
 
