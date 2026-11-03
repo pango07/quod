@@ -9,6 +9,10 @@
 //! inside the ledger directory. The caller treats every error as "no
 //! ledger" (every test file runs), never as a failed job.
 
+// `retrying`'s calls hand back ureq's error whole (its status decides a
+// retry); boxing it would only move the size around.
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
