@@ -695,7 +695,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
 
-    let status = Command::new(&a.node)
+    let status = without_credentials(&mut Command::new(&a.node))
         .arg(code.join("driver.mjs"))
         .arg(&plan_path)
         .arg(&out_path)
@@ -1509,7 +1509,7 @@ fn render(
     fs::write(&pp, serde_json::to_vec(&plan).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     let file = |n: &str| fs::File::create(rd.join(n)).map_err(|e| e.to_string());
-    let status = Command::new(&a.node)
+    let status = without_credentials(&mut Command::new(&a.node))
         .arg(code_dir.join("driver.mjs"))
         .arg(&pp)
         .arg(&op)
@@ -1813,6 +1813,55 @@ fn state(
         }
         _ => (format!("unknown kind {kind}"), None),
     }
+}
+
+/// Credentials quod itself may hold (Quod Cloud's: GitHub's OIDC request
+/// token, a server token; the runner's own). vitest, the tests and so the
+/// recorded results never see them.
+const CREDENTIALS: &[&str] = &[
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    "ACTIONS_ID_TOKEN_REQUEST_URL",
+    "ACTIONS_RUNTIME_TOKEN",
+    "ACTIONS_RESULTS_URL",
+    "QUOD_SERVER_TOKEN",
+];
+
+fn without_credentials(c: &mut Command) -> &mut Command {
+    for k in CREDENTIALS {
+        c.env_remove(k);
+    }
+    c
+}
+
+/// A credential's value found in a file under `dir` (a ledger about to
+/// leave the machine): its name. Values shorter than 16 bytes are not
+/// searched (no real credential is that short; a short one would match
+/// by chance).
+pub(crate) fn credential_in(dir: &Path) -> Option<&'static str> {
+    let secrets: Vec<(&'static str, Vec<u8>)> = CREDENTIALS
+        .iter()
+        .filter_map(|k| std::env::var_os(k).map(|v| (*k, v.into_encoded_bytes())))
+        .filter(|(_, v)| v.len() >= 16)
+        .collect();
+    if secrets.is_empty() {
+        return None;
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                stack.push(p);
+            } else if let Ok(b) = fs::read(&p) {
+                for (k, v) in &secrets {
+                    if b.windows(v.len()).any(|w| w == v.as_slice()) {
+                        return Some(k);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// May a large run take every CPU (vitest's default leaves one)? Not when a

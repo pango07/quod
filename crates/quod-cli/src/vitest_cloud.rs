@@ -330,6 +330,12 @@ impl Cloud {
             eprintln!("quod vitest: no ledger to save to Quod Cloud");
             return;
         }
+        if let Some(k) = crate::vitest::credential_in(dir) {
+            eprintln!(
+                "quod vitest: the ledger was not saved to Quod Cloud: it contains the value of {k}"
+            );
+            return;
+        }
         let t = Instant::now();
         match self.client.save(&self.suite, dir) {
             Ok((r, n, bytes)) => {
