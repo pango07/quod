@@ -631,8 +631,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     // The render (for a later run that replays every file) loads vitest
     // while this run's tests run; it renders only if this run leaves every
     // file recorded, else it is killed.
-    let no_render = std::env::var("QUOD_VITEST_DISABLE")
-        .is_ok_and(|v| v.split(',').any(|p| p == "render"));
+    let no_render =
+        std::env::var("QUOD_VITEST_DISABLE").is_ok_and(|v| v.split(',').any(|p| p == "render"));
     let standby = if !a.no_record && fast_ok && !no_render {
         Standby::start(&a, &dir, &code_dir)
             .map_err(|e| eprintln!("quod vitest: no render ({e})"))
