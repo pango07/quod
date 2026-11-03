@@ -37,6 +37,8 @@ pub struct TestReplayClient {
     agent: ureq::Agent,
     bearer: OnceLock<String>,
     key: OnceLock<VerifyingKey>,
+    /// Pauses between tries of a request the server could not take.
+    backoff: &'static [u64],
 }
 
 /// A nonce: 16 bytes from the OS's randomness.
@@ -57,7 +59,14 @@ impl TestReplayClient {
             bearer: OnceLock::new(),
             cfg,
             agent,
+            backoff: BACKOFF_MS,
         }
+    }
+
+    /// No retries: every request is tried once (tests).
+    pub fn without_retries(mut self) -> TestReplayClient {
+        self.backoff = &[];
+        self
     }
 
     pub fn url(&self) -> &str {
@@ -102,7 +111,7 @@ impl TestReplayClient {
 
     fn post<T: DeserializeOwned>(&self, path: &str, body: &impl Serialize) -> Result<T, CallError> {
         let body = serde_json::to_vec(body).map_err(|e| CallError(e.to_string()))?;
-        let resp = retrying(|| {
+        let resp = retrying(self.backoff, || {
             self.request("POST", path)
                 .map_err(Err)?
                 .set("content-type", "application/json")
@@ -186,8 +195,9 @@ impl TestReplayClient {
         if let Some(b) = bundle {
             let got = (|| -> Result<u64, CallError> {
                 let path = format!("/v1/blobs/{}", b.hash.hex());
-                let resp =
-                    retrying(|| self.request("GET", &path).map_err(Err)?.call().map_err(Ok))?;
+                let resp = retrying(self.backoff, || {
+                    self.request("GET", &path).map_err(Err)?.call().map_err(Ok)
+                })?;
                 // The bundle's own hash is checked as it streams, and every
                 // file in it against the signed list.
                 let mut r = BufReader::with_capacity(
@@ -222,7 +232,7 @@ impl TestReplayClient {
                 hashes: chunk.to_vec(),
             })
             .map_err(|e| CallError(e.to_string()))?;
-            let resp = retrying(|| {
+            let resp = retrying(self.backoff, || {
                 self.request("POST", "/v1/blobs/pack")
                     .map_err(Err)?
                     .set("content-type", "application/json")
@@ -267,7 +277,7 @@ impl TestReplayClient {
                         let r = (|| -> Result<u64, CallError> {
                             let size = std::fs::metadata(p)?.len();
                             let path = format!("/v1/blobs/{}", h.hex());
-                            retrying(|| {
+                            retrying(self.backoff, || {
                                 let f = std::fs::File::open(p).map_err(|e| Err(e.into()))?;
                                 self.request("PUT", &path)
                                     .map_err(Err)?
@@ -328,9 +338,10 @@ const BACKOFF_MS: &[u64] = &[1000, 2000, 4000, 8000, 15000];
 /// transient; an `Err(Err(e))` is final), retrying 502, 503, 504 and
 /// transport errors with `BACKOFF_MS`.
 fn retrying(
+    backoff: &[u64],
     mut call: impl FnMut() -> Result<ureq::Response, Result<ureq::Error, CallError>>,
 ) -> Result<ureq::Response, CallError> {
-    let mut tries = BACKOFF_MS.iter();
+    let mut tries = backoff.iter();
     loop {
         match call() {
             Ok(r) => return Ok(r),

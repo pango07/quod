@@ -2392,6 +2392,7 @@ impl Reporting<'_> {
     /// Sends the report, if --cloud: `ran` is (id, file, state, duration)
     /// per file that ran, `replayed` the ids reused, `audit` the ids the
     /// shadow checked and `mismatched` those whose fresh result differed.
+    #[allow(clippy::too_many_arguments)]
     fn send(
         &self,
         kind: &str,
