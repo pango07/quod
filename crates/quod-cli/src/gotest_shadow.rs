@@ -385,7 +385,12 @@ pub fn cli(a: GotestArgs) -> Result<u8> {
     let replays: BTreeMap<String, String> = decisions
         .iter()
         .filter(|d| d.run.is_none() && !audited.contains(&d.pkg))
-        .filter_map(|d| ledger.pkgs.get(&d.pkg).map(|r| (d.pkg.clone(), r.output.clone())))
+        .filter_map(|d| {
+            ledger
+                .pkgs
+                .get(&d.pkg)
+                .map(|r| (d.pkg.clone(), r.output.clone()))
+        })
         .collect();
     eprintln!(
         "quod gotest: {} packages: {} run, {} replay{}",
@@ -674,11 +679,9 @@ fn global_key(w: &World, p: &Parsed, root: &Path) -> String {
         put(f);
     }
     put(&root.to_string_lossy());
-    put(
-        &std::thread::available_parallelism()
-            .map_or(0, |n| n.get())
-            .to_string(),
-    );
+    put(&std::thread::available_parallelism()
+        .map_or(0, |n| n.get())
+        .to_string());
     if let Some(work) = w.goenv.get("GOWORK")
         && !work.is_empty()
         && work != "off"
@@ -753,7 +756,11 @@ fn closures(w: &World) -> HashMap<String, Closure> {
                 files.insert(Path::new(&p.dir).join(f));
             }
         }
-        for m in p.module.iter().chain(p.module.as_ref().and_then(|m| m.replace.as_deref())) {
+        for m in p
+            .module
+            .iter()
+            .chain(p.module.as_ref().and_then(|m| m.replace.as_deref()))
+        {
             if !m.go_mod.is_empty() {
                 files.insert(PathBuf::from(&m.go_mod));
             }
@@ -792,7 +799,12 @@ fn closures(w: &World) -> HashMap<String, Closure> {
                 if let Some(p) = w.pkgs.get(&r) {
                     let pgo = Path::new(&p.dir).join("default.pgo");
                     h.update(b"pgo=");
-                    h.update(fh.get(pgo.as_path()).copied().unwrap_or("unhashed").as_bytes());
+                    h.update(
+                        fh.get(pgo.as_path())
+                            .copied()
+                            .unwrap_or("unhashed")
+                            .as_bytes(),
+                    );
                 }
                 Ok(h.finalize().to_hex().to_string())
             });
@@ -804,12 +816,7 @@ fn closures(w: &World) -> HashMap<String, Closure> {
 /// One listed package's part of a closure key, or why the packages linking
 /// it must run (it has errors, or cgo: the host's C toolchain and headers
 /// are not keyed).
-fn entry_key(
-    p: Option<&Pkg>,
-    name: &str,
-    modcache: &str,
-    fh: &HashMap<&Path, &str>,
-) -> Closure {
+fn entry_key(p: Option<&Pkg>, name: &str, modcache: &str, fh: &HashMap<&Path, &str>) -> Closure {
     let Some(p) = p else {
         return Err(format!("go list did not list {name}"));
     };
@@ -840,7 +847,12 @@ fn entry_key(
     while let Some(m) = module {
         h.update(format!("mod {} {} {}\0", m.path, m.version, m.main).as_bytes());
         if hashed && !m.go_mod.is_empty() {
-            h.update(fh.get(Path::new(&m.go_mod)).copied().unwrap_or("unhashed").as_bytes());
+            h.update(
+                fh.get(Path::new(&m.go_mod))
+                    .copied()
+                    .unwrap_or("unhashed")
+                    .as_bytes(),
+            );
         }
         module = m.replace.as_deref();
     }
@@ -852,7 +864,12 @@ fn entry_key(
             h.update(b"=");
             if hashed {
                 let path = Path::new(&p.dir).join(f);
-                h.update(fh.get(path.as_path()).copied().unwrap_or("unhashed").as_bytes());
+                h.update(
+                    fh.get(path.as_path())
+                        .copied()
+                        .unwrap_or("unhashed")
+                        .as_bytes(),
+                );
             }
             h.update(b"\0");
         }
@@ -981,7 +998,11 @@ fn file_state(p: &Path) -> String {
         Ok(m) if m.is_dir() => format!("dir:{}", listing(p)),
         Ok(m) if !m.is_file() => format!("special:{:o}", m.mode()),
         Ok(m) => match fs::read(p) {
-            Ok(b) => format!("{}:{:o}", &blake3::hash(&b).to_hex()[..32], m.mode() & 0o777),
+            Ok(b) => format!(
+                "{}:{:o}",
+                &blake3::hash(&b).to_hex()[..32],
+                m.mode() & 0o777
+            ),
             Err(e) => err_state(&e),
         },
     }
@@ -1465,8 +1486,7 @@ fn record(
 
 impl Ctx<'_> {
     fn record(&self, pkg: &str, got: Option<&Chunk>) -> std::result::Result<Rec, Fail> {
-        let got =
-            got.ok_or_else(|| Fail::Unrecordable("go test printed nothing for it".into()))?;
+        let got = got.ok_or_else(|| Fail::Unrecordable("go test printed nothing for it".into()))?;
         if got.status != "ok" && got.status != "nofiles" {
             return Err(Fail::Failed);
         }
@@ -1475,9 +1495,10 @@ impl Ctx<'_> {
         }
         let want = match self.expect {
             None => got,
-            Some(r) => r.ran.get(pkg).ok_or_else(|| {
-                Fail::Unrecordable("the critical path did not run it".into())
-            })?,
+            Some(r) => r
+                .ran
+                .get(pkg)
+                .ok_or_else(|| Fail::Unrecordable("the critical path did not run it".into()))?,
         };
         if !same(got, &want.status, &want.tests) {
             return Err(Fail::Changed(format!(
@@ -1586,7 +1607,8 @@ fn parse_trace(text: &str) -> std::result::Result<Vec<Call>, String> {
         } else {
             rest.to_string()
         };
-        calls.push(parse_call(pid, &full).ok_or_else(|| format!("an unparsed trace line: {line}"))?);
+        calls
+            .push(parse_call(pid, &full).ok_or_else(|| format!("an unparsed trace line: {line}"))?);
     }
     let mut left: Vec<(u32, String)> = pending.into_iter().collect();
     left.sort();
@@ -1786,7 +1808,11 @@ fn sockaddr(s: &str) -> Addr {
     };
     let rest = &s[i + "sa_family=".len()..];
     let fam = rest.split([',', '}']).next().unwrap_or("").trim();
-    let port = |key: &str| between(rest, key, ")").and_then(|p| p.parse().ok()).unwrap_or(0);
+    let port = |key: &str| {
+        between(rest, key, ")")
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0)
+    };
     match fam {
         "AF_UNSPEC" => Addr::Unspec,
         "AF_INET" => Addr::Inet {
@@ -1996,9 +2022,16 @@ fn observe(
                     "creat" => (resolve("AT_FDCWD", 0, &cwd)?, "O_WRONLY|O_CREAT|O_TRUNC"),
                     _ => (resolve(c.arg(0), 1, &cwd)?, c.arg(2)),
                 };
-                let write = ["O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND", "O_TMPFILE"]
-                    .into_iter()
-                    .any(|f| flags.contains(f));
+                let write = [
+                    "O_WRONLY",
+                    "O_RDWR",
+                    "O_CREAT",
+                    "O_TRUNC",
+                    "O_APPEND",
+                    "O_TMPFILE",
+                ]
+                .into_iter()
+                .any(|f| flags.contains(f));
                 if write {
                     o.changed(c.ok(), &p)?;
                 } else if flags.contains("O_DIRECTORY") {
@@ -2172,7 +2205,10 @@ mod tests {
 
     #[test]
     fn args_split_flags_from_patterns() {
-        let p = parse_args(&s(&["-json", "-run", "TestA", "-tags=x", "./...", "-count=1"])).unwrap();
+        let p = parse_args(&s(&[
+            "-json", "-run", "TestA", "-tags=x", "./...", "-count=1",
+        ]))
+        .unwrap();
         assert_eq!(p.flags, s(&["-json", "-run=TestA", "-tags=x", "-count=1"]));
         assert_eq!(p.list, s(&["-tags=x"]));
         assert_eq!(p.patterns, s(&["./..."]));
@@ -2192,7 +2228,10 @@ mod tests {
         let run = s(&["m/b", "m/d"]);
         let replays: BTreeMap<String, String> = [
             ("m/a".to_string(), "ok  \tm/a\t0.1s\n".to_string()),
-            ("m/c".to_string(), "?   \tm/c\t[no test files]\n".to_string()),
+            (
+                "m/c".to_string(),
+                "?   \tm/c\t[no test files]\n".to_string(),
+            ),
             ("m/e".to_string(), "ok  \tm/e\t(cached)\n".to_string()),
         ]
         .into_iter()
@@ -2223,10 +2262,12 @@ mod tests {
     fn json_output_merges_by_package() {
         let roots = s(&["m/a", "m/b", "m/c"]);
         let run = s(&["m/a", "m/c"]);
-        let replays: BTreeMap<String, String> =
-            [("m/b".to_string(), "{\"Action\":\"pass\",\"Package\":\"m/b\"}\n".to_string())]
-                .into_iter()
-                .collect();
+        let replays: BTreeMap<String, String> = [(
+            "m/b".to_string(),
+            "{\"Action\":\"pass\",\"Package\":\"m/b\"}\n".to_string(),
+        )]
+        .into_iter()
+        .collect();
         let mut m = Merger::new(&run, &roots, &replays, true);
         let mut out = Vec::new();
         for l in [
@@ -2267,8 +2308,14 @@ mod tests {
     fn terminators_match_the_exact_package() {
         assert_eq!(terminator("ok  \tm/a\t0.1s\n", "m/a"), Some("ok"));
         assert_eq!(terminator("ok  \tm/ab\t0.1s\n", "m/a"), None);
-        assert_eq!(terminator("FAIL\tm/a [build failed]\n", "m/a"), Some("fail"));
-        assert_eq!(terminator("?   \tm/a\t[no test files]\n", "m/a"), Some("nofiles"));
+        assert_eq!(
+            terminator("FAIL\tm/a [build failed]\n", "m/a"),
+            Some("fail")
+        );
+        assert_eq!(
+            terminator("?   \tm/a\t[no test files]\n", "m/a"),
+            Some("nofiles")
+        );
         assert_eq!(
             verbose_result("    --- PASS: TestA/sub_1 (0.00s)\n"),
             Some(("TestA/sub_1".into(), "pass".into()))
@@ -2278,7 +2325,10 @@ mod tests {
     #[test]
     fn cstrings_unescape() {
         assert_eq!(cstr("\"a\\nb\\\"c\"").unwrap(), b"a\nb\"c");
-        assert_eq!(cstr("\"\\303\\251\\x41\"").unwrap(), vec![0o303, 0o251, 0x41]);
+        assert_eq!(
+            cstr("\"\\303\\251\\x41\"").unwrap(),
+            vec![0o303, 0o251, 0x41]
+        );
         assert_eq!(cstr("\"abc\"..."), None);
         assert_eq!(cstr("AT_FDCWD"), None);
     }
@@ -2296,7 +2346,13 @@ mod tests {
         assert_eq!(calls[2].args.len(), 3);
         assert_eq!(calls[2].ret, "3</w/a/testdata/x, y>");
         assert_eq!(calls[3].ret, "?");
-        let got = observe(&calls, Path::new("/w/a"), Path::new("/w"), &[PathBuf::from("/tmp")]).unwrap();
+        let got = observe(
+            &calls,
+            Path::new("/w/a"),
+            Path::new("/w"),
+            &[PathBuf::from("/tmp")],
+        )
+        .unwrap();
         let want: BTreeSet<String> = ["f:/w/a/testdata/x, y", "s:/w/a/go.mod", "f:/etc/hosts"]
             .iter()
             .map(|x| x.to_string())
@@ -2305,13 +2361,19 @@ mod tests {
     }
 
     fn obs(lines: &[&str]) -> std::result::Result<BTreeSet<String>, String> {
-        let mut t = String::from("1 execve(\"/tmp/go-build9/b001/p.test\", [], 0x1 /* 1 var */) = 0\n");
+        let mut t =
+            String::from("1 execve(\"/tmp/go-build9/b001/p.test\", [], 0x1 /* 1 var */) = 0\n");
         for l in lines {
             t.push_str(l);
             t.push('\n');
         }
         let calls = parse_trace(&t).unwrap();
-        observe(&calls, Path::new("/w/p"), Path::new("/w"), &[PathBuf::from("/tmp")])
+        observe(
+            &calls,
+            Path::new("/w/p"),
+            Path::new("/w"),
+            &[PathBuf::from("/tmp")],
+        )
     }
 
     #[test]
@@ -2336,13 +2398,19 @@ mod tests {
 
     #[test]
     fn unrecordable_traces() {
-        assert!(obs(&["1 openat(AT_FDCWD</w/p>, \"out.txt\", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3"]).is_err());
+        assert!(
+            obs(&["1 openat(AT_FDCWD</w/p>, \"out.txt\", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3"])
+                .is_err()
+        );
         assert!(obs(&["1 mkdirat(AT_FDCWD</w/p>, \"/home/u/.cache/x\", 0755) = 0"]).is_err());
         assert!(obs(&["2 execve(\"/usr/bin/git\", [\"git\"], 0x1 /* 1 var */) = 0"]).is_err());
         assert!(obs(&["1 connect(3<TCP:[1]>, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr(\"140.82.112.3\")}, 16) = 0"]).is_err());
         assert!(obs(&["1 connect(3<UDP:[1]>, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(\"127.0.0.53\")}, 16) = 0"]).is_err());
         assert!(obs(&["1 socket(AF_NETLINK, SOCK_RAW|SOCK_CLOEXEC, NETLINK_ROUTE) = 3"]).is_err());
-        assert!(obs(&["1 mount(\"x\", \"/y\", NULL, 0, NULL) = -1 EPERM (Operation not permitted)"]).is_err());
+        assert!(
+            obs(&["1 mount(\"x\", \"/y\", NULL, 0, NULL) = -1 EPERM (Operation not permitted)"])
+                .is_err()
+        );
         // Its own listener, and a failed write in the workspace (an existence check).
         let ok = obs(&[
             "1 socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 3",
@@ -2354,15 +2422,22 @@ mod tests {
         .unwrap();
         assert_eq!(
             ok,
-            ["s:/w/p/testdata".to_string()].into_iter().collect::<BTreeSet<_>>()
+            ["s:/w/p/testdata".to_string()]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
         );
     }
 
     #[test]
     fn sockaddrs() {
         assert_eq!(
-            sockaddr("{sa_family=AF_INET6, sin6_port=htons(8080), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, \"::1\", &sin6_addr), sin6_scope_id=0}"),
-            Addr::Inet { local: true, port: 8080 }
+            sockaddr(
+                "{sa_family=AF_INET6, sin6_port=htons(8080), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, \"::1\", &sin6_addr), sin6_scope_id=0}"
+            ),
+            Addr::Inet {
+                local: true,
+                port: 8080
+            }
         );
         assert_eq!(
             sockaddr("{sa_family=AF_UNIX, sun_path=\"/tmp/s.sock\"}"),
