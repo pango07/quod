@@ -1776,7 +1776,9 @@ fn prefixed(p: &Path, prefix: &str) -> String {
         })
         .collect();
     names.sort_unstable();
-    blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+    blake3::hash(names.join("\n").as_bytes())
+        .to_hex()
+        .to_string()
 }
 
 /// `rn.<hex needle>:<dir>`: every path under a directory whose path in it
@@ -1803,15 +1805,16 @@ fn named_tree(p: &Path, needle: &str) -> String {
                 names.push(format!("{s}\0{kind}"));
             }
             let into = kind == "d"
-                || (kind.ends_with(">d")
-                    && fs::canonicalize(&full).is_ok_and(|c| seen.insert(c)));
+                || (kind.ends_with(">d") && fs::canonicalize(&full).is_ok_and(|c| seen.insert(c)));
             if into {
                 stack.push(r);
             }
         }
     }
     names.sort_unstable();
-    blake3::hash(names.join("\n").as_bytes()).to_hex().to_string()
+    blake3::hash(names.join("\n").as_bytes())
+        .to_hex()
+        .to_string()
 }
 
 /// A directory's names and types (recursively: every path under it).
@@ -2157,7 +2160,10 @@ mod tests {
         let env = std::sync::OnceLock::new();
         let st = |k: &str| state(root, k, None, wall_ns(), &env, None).0;
         let hx = |s: &str| s.bytes().map(|b| format!("{b:02x}")).collect::<String>();
-        let (dp, rn) = (format!("dp.{}:c", hx("notes.")), format!("rn.{}:c", hx("_generated")));
+        let (dp, rn) = (
+            format!("dp.{}:c", hx("notes.")),
+            format!("rn.{}:c", hx("_generated")),
+        );
         let (a, b) = (st(&dp), st(&rn));
         fs::write(root.join("c/notesx.ts"), "").unwrap();
         fs::write(root.join("c/lib/closures.ts"), "").unwrap();
