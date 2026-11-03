@@ -321,7 +321,13 @@ export function patchEscapes(r, { sync = true } = {}) {
       r.unobs(`could not watch ${name}`)
     }
   }
+  // net always (loading it if need be): every TCP connection made in JS
+  // goes through net.Socket.prototype.connect, node's own too (undici's
+  // fetch and WebSocket, http, tls), even from a module node loads
+  // internally, past the resolve hook. So the WebSocket global is left
+  // alone: reading it loads undici (~8 ms per worker).
   const loaded = new Set(process.moduleLoadList?.filter((m) => m.startsWith('NativeModule ')).map((m) => m.slice(13)))
+  loaded.add('net')
   for (const name of Object.keys(ESCAPES)) if (loaded.has(name) || !process.moduleLoadList) patch(name, false)
   if (sync) syncESM()
   if (typeof nodeModule.registerHooks === 'function') {
@@ -334,7 +340,6 @@ export function patchEscapes(r, { sync = true } = {}) {
     })
   } else for (const name of Object.keys(ESCAPES)) patch(name)
   wrap(globalThis, 'fetch', () => r.unobs('network'))
-  if (typeof globalThis.WebSocket === 'function') wrap(globalThis, 'WebSocket', () => r.unobs('network'))
 }
 
 // Write JSON atomically with the unrecorded fs.

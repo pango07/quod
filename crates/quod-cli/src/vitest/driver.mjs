@@ -16,12 +16,19 @@ import { performance } from 'node:perf_hooks'
 const t0 = performance.now()
 import { createRecorder, patchEnv, patchFs, patchLoader, real, writeJson, VERSION } from './record.mjs'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import nodeModule from 'node:module'
 import { pathToFileURL } from 'node:url'
 
 const [planPath, outPath, ...vitestArgs] = process.argv.slice(2)
 const plan = JSON.parse(real.readFileSync(planPath, 'utf8'))
+// A standby render loads vitest beside a run's tests: on idle CPU only.
+if (plan.standby) {
+  try {
+    os.setPriority(19)
+  } catch {}
+}
 const stateDir = plan.stateDir
 const dumpDir = path.join(stateDir, 'dump')
 const resultsDir = path.join(stateDir, 'results')

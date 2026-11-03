@@ -143,13 +143,17 @@ const EXPORT_GETTER =
 let self = null
 const sha1 = (x) => (crypto.hash ? crypto.hash('sha1', x) : crypto.createHash('sha1').update(x).digest('hex'))
 function cached(dir, file, code) {
-  if (!dir) return { get: () => undefined, set() {}, save() {} }
+  const mem = () => {
+    const m = new Map()
+    return { get: (k) => m.get(k), set: (k, v) => m.set(k, v), save() {} }
+  }
+  if (!dir) return mem()
   let key
   try {
     self ??= sha1(io.read(new URL(import.meta.url), 'utf8'))
     key = sha1(`${self}\0${file}\0${code}`)
   } catch {
-    return { get: () => undefined, set() {}, save() {} }
+    return mem()
   }
   const p = `${dir}/${key}.json`
   let c = null
@@ -214,24 +218,24 @@ export function executedFunctions(scripts, em, root, cacheDir = null) {
       miss(why)
       continue
     }
-    const fns = []
-    let ok = true
-    for (const f of s.functions) {
-      const r = f.ranges[0]
-      if (!r || r.count === 0 || r.startOffset < prefix) continue
-      const k = `${r.startOffset - prefix}:${r.endOffset - prefix}`
-      let v = c.get(k)
-      if (v === undefined) {
-        if (!map) {
-          map = inlineMap(code, file)
-          if (!map.lines) {
-            c.set('map:', map.why)
-            break
-          }
-          starts = lineStarts(code)
-        }
+    // A module first seen (or a function not yet mapped): map every
+    // function V8 lists for it, executed or not, so the next test file that
+    // executes another set of them finds them too.
+    const fill = () => {
+      map = inlineMap(code, file)
+      if (!map.lines) {
+        c.set('map:', map.why)
+        return false
+      }
+      starts = lineStarts(code)
+      for (const f of s.functions) {
+        const r = f.ranges[0]
+        if (!r || r.startOffset < prefix) continue
+        const k = `${r.startOffset - prefix}:${r.endOffset - prefix}`
+        if (c.get(k) !== undefined) continue
         const a = original(map, starts, r.startOffset - prefix)
         const b = original(map, starts, r.endOffset - 1 - prefix)
+        let v
         if (!a || !b || b[0] < a[0]) {
           // vite's SSR transform adds an export getter per export
           // (`get(){ return x }`, `() => { try { return x } catch {} }`):
@@ -241,13 +245,26 @@ export function executedFunctions(scripts, em, root, cacheDir = null) {
           if (EXPORT_GETTER.test(text)) v = 0
           else {
             v = -1
-            unmappedSample[`${file} (function)`] ??= text.slice(0, 120)
+            if (r.count !== 0) unmappedSample[`${file} (function)`] ??= text.slice(0, 120)
           }
         } else v = [a[0], a[1], b[0], b[1]]
         c.set(k, v)
       }
+      return true
+    }
+    const fns = []
+    let ok = true
+    for (const f of s.functions) {
+      const r = f.ranges[0]
+      if (!r || r.count === 0 || r.startOffset < prefix) continue
+      const k = `${r.startOffset - prefix}:${r.endOffset - prefix}`
+      let v = c.get(k)
+      if (v === undefined && !map) {
+        if (!fill()) break
+        v = c.get(k)
+      }
       if (v === 0) continue
-      if (v === -1) {
+      if (v === -1 || v === undefined) {
         ok = false
         break
       }
