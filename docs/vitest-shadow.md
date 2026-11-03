@@ -137,11 +137,37 @@ Notes:
 
 ## Measured
 
-`.github/workflows/bench-vitest.yml` mode `shadow`
-(`scripts/bench-vitest/shadow.sh`). It runs on the same 20 vuejs/core
-commits, and per commit, in sequence: plain, the critical path, then that
-commit's shadow. It reports the critical path against plain (the headline),
-with shadow compute as its own column. The full-plain per-file comparison
-and the mutation check are kept. `SHADOW_LAG=1` makes every critical path
-read the recording from two commits back, which simulates a shadow that
-has not finished. Numbers: see the run linked in the branch's report.
+Bench mode `shadow` (`scripts/bench-vitest/shadow.sh`, `report-shadow.mjs`).
+It runs in this repo's `bench-vitest.yml` and, for the numbers below, in
+the public pango07/ci-bench, which downloads a `bin-<sha>` release built
+from this branch. Per commit, in sequence: plain, the critical path, then
+that commit's shadow (with `--expect-report` of the critical path's
+report). It reports the critical path against plain (the headline), with
+shadow compute as its own column. Every critical-path report is compared
+with plain's per file and per test, and four commits get a mutation check.
+Times come from a monotonic clock: the hosted runner's wall clock is stepped
+during the job. `SHADOW_LAG=1` makes every critical path read the recording
+from two commits back, which simulates a shadow that has not finished.
+
+20 first-parent commits each, GitHub-hosted public runners (4 CPUs);
+binary bin-29742b8 (2026-11-03):
+
+| tier | project | plain total | critical path total | speedup (total / median) | shadow compute | wrong | mutations |
+|---|---|---:|---:|---:|---:|---:|---|
+| 1 | unjs/ufo (13 files, ~1.3 s) | 26.7 s | 19.2 s | 1.39x / 1.0x | 27.1 s | 0 | 4/4 |
+| 2 | vuejs/router (81 files, ~12 s) | 241.0 s | 47.9 s | 5.0x / 6.9x | 65.2 s | 0 | 4/4 |
+| 3 | vuejs/core (184 files, ~41 s) | 817.9 s | 326.9 s | 2.50x / 2.3x | 392.2 s | 0 | 4/4 |
+
+- When every file must run (the first run, or a shared input changed), the
+  critical path costs the same as plain: tier 1 ±0.1 s, tier 3 median
+  -0.2%, worst +0.8%. Quod's own work outside vitest is 3-10 ms, and the
+  driver's vitest start-up replaces the CLI's.
+- Lag 1 on router (bin-a074f76): 2.74x against 3.9x at lag 0 on the same
+  binary, 0 wrong.
+- The safety net, validated: bin-a5e5bf0 had an instrumentation that
+  changed test names and outcomes in 3 router files. The shadow flagged
+  those files "recording changed behaviour" and quarantined them, and the
+  run had 0 wrong replays. Without the net, the same binary replayed 2 files
+  wrongly on 18 commits.
+- Runs: ufo 41561706644, router 41561710020, core 41561713091, lag-1
+  41560601953, safety net 41561416787 (pango07/ci-bench).
