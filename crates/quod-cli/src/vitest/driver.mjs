@@ -181,11 +181,23 @@ const covByFile = new Map() // `${project}\0${name}` -> task id, for the files t
 const captured = new Map() // id -> payloads this run's workers handed over
 const covShared = new Set() // ids whose coverage came in one payload with other files
 let covWrapped = false
+let covTmp = null // the provider's temp directory, with a trailing separator
 const wrapProvider = (p) => {
   if (!p || covWrapped || !covOn) return
   covWrapped = true
+  if (typeof p.coverageFilesDirectory === 'string') covTmp = p.coverageFilesDirectory + path.sep
   const after = p.onAfterSuiteRun.bind(p)
-  p.onAfterSuiteRun = (meta) => {
+  p.onAfterSuiteRun = (meta0) => {
+    let meta = meta0
+    // vitest 5 hands over a file the worker wrote (removed after the
+    // report): kept by content.
+    if (record && typeof meta?.coverage === 'string') {
+      try {
+        meta = { ...meta0, coverage: JSON.parse(real.readFileSync(meta0.coverage, 'utf8')), quodFile: true }
+      } catch {
+        meta = { ...meta0, coverage: null }
+      }
+    }
     if (record && meta?.coverage) {
       const ids = (meta.testFiles ?? []).map((f) => covByFile.get(`${meta.projectName ?? ''}\0${f}`))
       for (const id of ids) {
@@ -196,13 +208,22 @@ const wrapProvider = (p) => {
         captured.set(id, l)
       }
     }
-    return after(meta)
+    return after(meta0)
   }
   // The report is made fresh every run from every file's contribution: what
   // the provider reads and writes then is not an input of any test file.
   const gen = p.generateCoverage.bind(p)
   p.generateCoverage = async (...a) => {
-    for (const meta of replayCov.values()) after(meta)
+    let n = 0
+    for (const meta of replayCov.values()) {
+      if (meta.quodFile) {
+        // as the worker would have: a file in the provider's directory
+        const { quodFile, ...m } = meta
+        const f = path.join(p.coverageFilesDirectory, `quod-replay-${n++}.json`)
+        real.writeFileSync(f, JSON.stringify(m.coverage))
+        after({ ...m, coverage: f })
+      } else after(meta)
+    }
     if (replayCov.size) log(`coverage: the recorded coverage of ${replayCov.size} replayed files goes into the report`)
     const was = r.on
     r.on = false
@@ -525,7 +546,9 @@ for (const m of endModules) {
     for (const w of d.watches ?? []) ks.add(`rc:${w}`)
     keys = [...ks]
     unobservable = d.unobservable
-    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/'))
+    // vitest 5's worker writes its coverage to the provider's temp directory
+    // itself (handed over by name): vitest's file, not the test's output.
+    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/') && !(covTmp && w.startsWith(covTmp)))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
