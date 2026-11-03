@@ -132,9 +132,11 @@ export function resolverCaller(stack = new Error().stack) {
 // Is an environment read the tools' own? The first frame outside Quod, node
 // and the small helpers vitest reads the environment through (std-env,
 // tinyexec, tinyrainbow, obug and debug listing DEBUG_* options, the colour
-// helpers: a helper called by user code has that code's frame next) must be in vite, vitest or rolldown. Returns the deciding
-// frame too, for the log. A deep stack: node's own frames (a spawn's
-// argument handling) can come between the trap and the call.
+// helpers: a helper called by user code has that code's frame next) must be
+// in vite, vitest or rolldown. A helper's own module evaluation (obug lists
+// DEBUG_* options when it loads) has no caller frame: the helper's. Returns
+// the deciding frame too, for the log. A deep stack: node's own frames (a
+// spawn's argument handling) can come between the trap and the call.
 const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
 function toolCaller() {
   const limit = Error.stackTraceLimit
@@ -145,13 +147,17 @@ function toolCaller() {
   } finally {
     Error.stackTraceLimit = limit
   }
+  let helper = null
   for (const l of stack.split('\n').slice(1)) {
     if (l.includes(SELF) || l.includes('/.quod-vitest/') || l.includes('(node:') || l.includes(' node:') || l.includes('<anonymous>')) continue
-    if (HELPERS.some((h) => l.includes(h))) continue
+    if (HELPERS.some((h) => l.includes(h))) {
+      helper ??= l.trim()
+      continue
+    }
     if (l.includes('/node_modules/.vite-temp/')) return { tool: false, frame: l.trim() }
     return { tool: RESOLVERS.some((x) => l.includes(x)), frame: l.trim() }
   }
-  return { tool: false, frame: '?' }
+  return helper ? { tool: true, frame: helper } : { tool: false, frame: '?' }
 }
 
 function callerFrame(stack = new Error().stack) {
@@ -283,15 +289,20 @@ export function patchFs(r) {
 // config, a plugin, a test, a library it loads) keys it. `CI` is not one of
 // these: vitest's behaviour depends on it (allowOnly, snapshot updates).
 export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k))
+// What node and the tools behave on (vitest.rs `tool_env`): their reads of
+// these are inputs; their reads of anything else (a copy of the whole
+// environment, one name at a time) are not.
+const TOOL_ENV = new Set(['CI', 'TEST', 'TZ', 'LANG', 'LANGUAGE', 'FORCE_COLOR', 'NO_COLOR', 'TERM', 'TMPDIR', 'HOME', 'PATH'])
+export const toolEnv = (k) => TOOL_ENV.has(k) || /^(NODE_|VITE|LC_|DEBUG|UV_)/.test(k)
 
 export function patchEnv(r) {
   const target = process.env
   const rec = (k) => {
     if (typeof k !== 'string') return
-    if (ciVarying(k)) {
+    if (ciVarying(k) || !toolEnv(k)) {
       const c = toolCaller()
       if (c.tool) return
-      if (!r.envKept.has(k)) r.envKept.set(k, c.frame)
+      if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
     }
     r.keys.add(`env:${k}`)
   }
