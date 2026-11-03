@@ -24,8 +24,8 @@ A replayed result is only useful if it's the result you would have got. Quod is 
 - **Inputs are observed, not guessed.** Each test file's dependencies come from what it actually read during a real run, not from a config file or an import scan. If Quod can't follow something a file does, such as starting a child process, using the network, or writing into the repository, that file always runs.
 - **Failures never replay.** Only a file that passed (or was skipped) can be replayed.
 - **Recording can't change a result.** A file is recorded only if its tests did exactly what they did in your un-instrumented test job.
-- **Audits run replays for real.** Quod re-runs a random sample of replayable files on idle workers and compares them test by test. A mismatch stops that file replaying.
-- **Only trusted branches write.** Pull requests read results recorded on your protected branches, but they can't write them. See [Trust and audits](/docs/trust).
+- **Audits run replays for real.** The shadow job re-runs a random sample of replayable files and compares them with the recording, test by test. A mismatch stops that file replaying.
+- **Only trusted branches write.** Pull requests read results recorded on your writer branches, such as `main`, but they can't write them. See [Trust and audits](/docs/trust).
 
 ## Headline numbers
 
