@@ -21,5 +21,31 @@ for (const rec of Object.values(l.files)) {
   }
 }
 const uniq = [...new Set(options)].sort()
-if (!uniq.length) process.exit(1)
+// No function-level data in the ledger (coverage did not map for this
+// project): fall back to a block-bodied function declaration in a workspace
+// source file some recorded test file depends on (run from the project root).
+if (!uniq.length) {
+  const deps = new Set()
+  for (const rec of Object.values(l.files)) for (const k of rec.deps ?? []) deps.add(l.keys[k])
+  for (const key of deps) {
+    if (!key?.startsWith('f:') || !/\.[cm]?[tj]sx?$/.test(key) || /__tests__|\.spec\.|\.test\.|(^|\/)test\//.test(key) || key.includes('node_modules')) continue
+    let lines
+    try {
+      lines = fs.readFileSync(key.slice(2), 'utf8').split('\n')
+    } catch {
+      continue
+    }
+    lines.forEach((t, n) => {
+      if (/^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\*?\s*\w*\s*(<[^>]*>)?\(.*\{\s*$/.test(t) && !/\}\s*$/.test(t.replace(/\{\s*$/, ''))) {
+        if (lines.slice(n + 1, n + 4).some((x) => x.trim() && x.trim() !== '}')) uniq.push(`${key.slice(2)} ${n}`)
+      }
+    })
+  }
+  uniq.sort()
+  if (uniq.length) console.error(`no function-level data; ${uniq.length} declared functions in dependencies`)
+}
+if (!uniq.length) {
+  console.error('no mutation target')
+  process.exit(1)
+}
 console.log(uniq[rand(uniq.length)])
