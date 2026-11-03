@@ -9,7 +9,7 @@
 // every repo slug going to quod-server and coming back through this.
 
 import { TEAM_PAGES } from "@/lib/routes";
-import type { LiveEvent, LiveScope, Overview, RepoDetail, RepoSummary, RunDetail, RunSummary, SearchIndex, StepSummary, StepTrust, TestRunDetail, TestRunSummary, TestStats } from "./types";
+import type { LiveEvent, LiveScope, Overview, RepoDetail, RepoSummary, RunDetail, RunSummary, SearchIndex, StepSummary, StepTrust, TestRunDetail, TestRunSummary, TestStats, TestSuite } from "./types";
 
 export interface RepoMap {
   /** Dashboard slug -> quod-server's slug (unknown slugs pass through). */
@@ -24,6 +24,12 @@ export interface RepoMap {
   toDash(slug: string): string;
   /** quod-server's repo by full name (lowercase). */
   quodByName: Map<string, { slug: string; fullName: string }>;
+  /**
+   * Full name (lowercase) -> dashboard slug, for every repo either side knows.
+   * Test runs and suites carry their full name, so a repo that quod-server's
+   * repo list does not have (one with only test runs) still lands on its GitHub slug.
+   */
+  dashByName?: Map<string, string>;
   identity: boolean;
   /** quod-server's repo list could not be read: the map is GitHub's alone. */
   failed?: Error;
@@ -65,7 +71,10 @@ export function buildRepoMap(quod: { slug: string; fullName: string }[], github:
     d2q.set(lower(dash), r.slug);
   }
   const ghSlugs = new Set(github.map((r) => lower(r.slug)));
+  const dashByName = new Map(ghByName);
+  for (const r of quod) if (!dashByName.has(lower(r.fullName))) dashByName.set(lower(r.fullName), q2d.get(r.slug) ?? r.slug);
   return {
+    dashByName,
     toQuod: (s) => d2q.get(lower(s)) ?? s,
     quodSlug: (s) => d2q.get(lower(s)) ?? (ghSlugs.has(lower(s)) ? null : s),
     toDash: (s) => q2d.get(s) ?? s,
@@ -80,7 +89,12 @@ export const mapRepoSummary = (m: RepoMap, r: RepoSummary): RepoSummary => (m.id
 export const mapRunSummary = <R extends RunSummary | RunDetail>(m: RepoMap, r: R): R => (m.identity ? r : { ...r, repoSlug: m.toDash(r.repoSlug) });
 export const mapStep = <S extends StepSummary | StepTrust>(m: RepoMap, s: S): S => (m.identity ? s : { ...s, repoSlug: m.toDash(s.repoSlug) });
 
-export const mapTestRun = <T extends TestRunSummary>(m: RepoMap, r: T): T => (m.identity ? r : { ...r, repoSlug: m.toDash(r.repoSlug) });
+/** A test run or suite's repo, by its full name first (quod-server's repo list may not have it), then by quod-server's slug. */
+const testRepoSlug = (m: RepoMap, r: { repoSlug: string; repository: string }) => m.dashByName?.get(lower(r.repository)) ?? m.toDash(r.repoSlug);
+
+export const mapTestRun = <T extends TestRunSummary>(m: RepoMap, r: T): T => (m.identity ? r : { ...r, repoSlug: testRepoSlug(m, r) });
+
+export const mapTestSuite = (m: RepoMap, s: TestSuite): TestSuite => (m.identity ? s : { ...s, repoSlug: testRepoSlug(m, s) });
 
 export function mapTestRunDetail(m: RepoMap, d: TestRunDetail): TestRunDetail {
   if (m.identity) return d;
@@ -120,8 +134,10 @@ export function mapEvent(m: RepoMap, e: LiveEvent): LiveEvent {
     case "run.started":
     case "run.finished":
       return { ...e, run: mapRunSummary(m, e.run) };
-    case "test.run":
-      return { ...e, repoSlug: m.toDash(e.repoSlug), run: mapTestRun(m, e.run) };
+    case "test.run": {
+      const run = mapTestRun(m, e.run);
+      return { ...e, repoSlug: run.repoSlug, run };
+    }
     default:
       return { ...e, repoSlug: m.toDash(e.repoSlug) };
   }

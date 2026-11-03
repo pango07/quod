@@ -4,7 +4,7 @@
 // ("shadow"), which re-runs a few skipped files to check them. Shaped on
 // measured runs, not real. Times are measured back from now.
 
-import type { RanFile, TestRunDetail, TestRunSummary, TestStats } from "./types";
+import type { RanFile, TestFile, TestFileState, TestRunDetail, TestRunSummary, TestStats, TestSuite } from "./types";
 
 const REPO = { repoSlug: "web", repository: "quodci/web" } as const;
 const MIN = 60_000;
@@ -218,4 +218,83 @@ export function summaryOnly(d: TestRunDetail): TestRunSummary {
   delete s.auditFiles;
   delete s.shadow;
   return s as TestRunSummary;
+}
+
+// ---------------------------------------------------------------- Test files per suite (Trust)
+
+const BACKEND_DIRS = ["src/api/routes", "src/billing", "src/auth", "src/jobs", "src/db", "src/lib", "src/notifications", "src/search"];
+const WEB_DIRS = ["src/components", "src/pages", "src/hooks", "src/lib"];
+
+type FileSeed = Pick<TestFile, "file" | "state" | "reason" | "lastResult"> & { skipped?: number; ran?: number; durationMs?: number | null };
+
+function testFile(s: FileSeed, i: number): TestFile {
+  const durationMs = s.durationMs === undefined ? 300 + ((i * 53) % 4200) : s.durationMs;
+  const skipped = s.skipped ?? (s.state === "skipping" ? 1 + ((i * 7) % 23) : 0);
+  const ran = s.ran ?? (s.state === "learning" ? 0 : 1 + (i % 3));
+  return { file: s.file, project: "", state: s.state, reason: s.reason, lastResult: s.lastResult, skipped, ran, durationMs, savedMs: durationMs === null ? null : skipped * durationMs };
+}
+
+const STATE_ORDER: Record<TestFileState, number> = { paused: 0, always: 1, learning: 2, skipping: 3, ready: 4 };
+
+function suiteOf(suite: string, ledger: TestSuite["ledger"], special: FileSeed[], dirs: string[], skipping: number, ready: number, ext: string): TestSuite {
+  const seeds: FileSeed[] = [...special];
+  const taken = new Set(special.map((s) => s.file));
+  let n = 0;
+  const next = () => {
+    let f: string;
+    do {
+      f = `${dirs[n % dirs.length]}/module-${String(Math.floor(n / dirs.length) + 1).padStart(2, "0")}.test.${ext}`;
+      n++;
+    } while (taken.has(f));
+    return f;
+  };
+  for (let i = 0; i < skipping; i++) seeds.push({ file: next(), state: "skipping", reason: null, lastResult: "pass" });
+  for (let i = 0; i < ready; i++) seeds.push({ file: next(), state: "ready", reason: null, lastResult: "pass" });
+  const files = seeds.map(testFile).sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.file.localeCompare(b.file));
+  const count = (s: TestFileState) => files.filter((f) => f.state === s).length;
+  return {
+    ...REPO,
+    suite,
+    ledger,
+    totals: {
+      files: files.length,
+      learning: count("learning"),
+      ready: count("ready"),
+      skipping: count("skipping"),
+      always: count("always"),
+      paused: count("paused"),
+      savedMs: files.reduce((a, f) => a + (f.savedMs ?? 0), 0),
+    },
+    files,
+  };
+}
+
+/** The sample team's suites: the default branch's newest recording, read per test file. */
+export function sampleTestSuites(now = Date.now()): TestSuite[] {
+  const ledger = { at: new Date(now - 93 * MIN).toISOString(), sha: "1d7e5b2c90a4f3e8b6c1d2a7e9f0b3c4d5e6f7a8", branch: "main", scope: "main" };
+  return [
+    suiteOf(
+      "packages/backend",
+      ledger,
+      [
+        { file: "src/billing/discounts.test.ts", state: "paused", reason: "a spot-check differed", lastResult: "pass", skipped: 6, ran: 3, durationMs: 2210 },
+        { file: "src/api/routes/login.test.ts", state: "always", reason: "it failed last time", lastResult: "fail", skipped: 0, ran: 4, durationMs: 2650 },
+        { file: "src/db/migrations.test.ts", state: "always", reason: "recording changed its behaviour", lastResult: "pass", skipped: 0, ran: 5, durationMs: 8740 },
+        { file: "src/billing/retry.test.ts", state: "learning", reason: "not recorded yet", lastResult: null, skipped: 0, ran: 0, durationMs: null },
+      ],
+      BACKEND_DIRS,
+      170,
+      10,
+      "ts",
+    ),
+    suiteOf(
+      "packages/web",
+      ledger,
+      [{ file: "src/components/date-picker.test.tsx", state: "always", reason: "recording changed its behaviour", lastResult: "pass", skipped: 0, ran: 3, durationMs: 1340 }],
+      WEB_DIRS,
+      88,
+      7,
+      "tsx",
+    ),
+  ];
 }

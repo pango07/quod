@@ -46,6 +46,7 @@ import type {
   TestRunDetail,
   TestRunSummary,
   TestStats,
+  TestSuite,
 } from "./types";
 
 export const PROTOCOL = "quod.v1";
@@ -201,6 +202,16 @@ const shapes = {
     list(o.recent, "test-stats.recent", testRunSummary);
     return o as unknown as TestStats;
   },
+  testSuites: (v: unknown): TestSuite[] =>
+    list(has(v, "test-suites", { suites: "array" }).suites, "test-suites.suites", (x, w) => {
+      const o = has(x, w, { repoSlug: "string", repository: "string", suite: "string", ledger: "object|null", totals: "object", files: "array" });
+      if (o.ledger) has(o.ledger, `${w}.ledger`, { at: "string", sha: "string|null", branch: "string|null" });
+      has(o.totals, `${w}.totals`, { files: "number", learning: "number", ready: "number", skipping: "number", always: "number", paused: "number", savedMs: "number" });
+      list(o.files, `${w}.files`, (f, fw) =>
+        has(f, fw, { file: "string", state: "string", reason: "string|null", lastResult: "string|null", skipped: "number", ran: "number", durationMs: "number|null", savedMs: "number|null" }),
+      );
+      return o as unknown as TestSuite;
+    }),
   health: (v: unknown) => has(v, "health", { wrongReplays: "number", spotChecks: "number", pausedSteps: "number", repos: "number" }) as unknown as TeamHealth,
   overview: (v: unknown) => {
     const o = has(v, "overview", { asOf: "string", totals: "object", days: "array", repos: "array", trust: "object", runners: "array" });
@@ -559,6 +570,13 @@ export class HttpCloudApi implements CloudApi {
     const s = await this.team(team);
     if (!s) return null;
     return this.optional(s.c, `${s.t}/test-stats`, shapes.testStats);
+  }
+
+  // GET /v1/teams/:team/test-suites -> { suites: TestSuite[] }
+  async listTestSuites(team: string): Promise<TestSuite[] | null> {
+    const s = await this.team(team);
+    if (!s) return null;
+    return this.optional(s.c, `${s.t}/test-suites`, shapes.testSuites);
   }
 
   // GET /v1/teams/:team/activity -> Activity. quod-server has no jobs (GitHub's come from the composite); its `cursor` is the stream position.
