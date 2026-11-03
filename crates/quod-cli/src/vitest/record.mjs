@@ -9,7 +9,8 @@
 //   pjf:<path>\0<fields>  a package.json the config parsed: its top-level
 //              names, and the values of the fields it read (JSON array)
 //   d:<path>   a directory's listing        r:<path>  a recursive listing
-//   dj:<path>  a listing's subdirectories and .json files (tsconfck's walk)
+//   rj:<path>  the .json files under a directory, recursively, outside
+//              node_modules and .git (tsconfck's walk for tsconfig files)
 //   e:<path>   that a path exists, its type, and a symlink's target
 //   p:<path>   an installed package (its root and package.json)
 //   env:<KEY>  one environment variable     envall:   all of them (but the
@@ -61,6 +62,8 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     pjReads: new Map(),
     pjParsed: new Map(),
     pjUse: new Map(),
+    // main process: where tsconfck's walks started (rj: keys)
+    rjRoots: [],
     unobservable: new Set(),
     // Directories this process created (mkdir, recursive mkdir, mkdtemp)
     // outside the workspace, while recording: what is under one is the
@@ -131,10 +134,16 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         }
       }
       // tsconfck (vite-tsconfig-paths) walks the workspace for tsconfig
-      // files: it descends into subdirectories and keeps files by name, so
-      // what it sees of a listing is those (dj:), not every file (a new
-      // changeset, a build's output chunks).
-      if (kind === 'd' && r.mode === 'main' && callerFrame().includes('/node_modules/tsconfck/')) kind = 'dj'
+      // files: what it finds is the tsconfig files under where it started
+      // (it descends into every directory but node_modules and .git, not
+      // through links, and keeps files by name). Keyed as the .json files
+      // under the walk's start (rj:), not each listing: a new changeset, a
+      // build's output (dist/ there or not) change nothing it finds.
+      if (kind === 'd' && r.mode === 'main' && callerFrame().includes('/node_modules/tsconfck/')) {
+        if (r.rjRoots.some((d) => p === d || p.startsWith(`${d}/`))) return
+        r.rjRoots.push(p)
+        kind = 'rj'
+      }
       keys.add(`${kind}:${p}`)
     },
     write(p) {

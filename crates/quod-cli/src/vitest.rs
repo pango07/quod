@@ -1801,7 +1801,7 @@ fn state(
         "envtool" => (env_all(true), None),
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
-        "dj" => (listing_of(&path(), false, true), None),
+        "rj" => (listing_of(&path(), true, true), None),
         "pjf" => {
             let (fp, fields) = p.split_once('\0').unwrap_or((p, "[]"));
             let fp = if fp.starts_with('/') {
@@ -2153,10 +2153,11 @@ fn listing(p: &Path, recursive: bool) -> String {
     listing_of(p, recursive, false)
 }
 
-/// A directory's listing; `dirs_and_json`: only its subdirectories and its
-/// `.json` files (`dj:`, what tsconfck's walk for tsconfig files sees: it
-/// descends into directories and keeps files by name, skipping links).
-fn listing_of(p: &Path, recursive: bool, dirs_and_json: bool) -> String {
+/// A directory's listing; `json_only`: only its `.json` files, not under
+/// node_modules or .git (`rj:`, what tsconfck's walk for tsconfig files
+/// finds: it descends into directories but those, not through links, and
+/// keeps files by name).
+fn listing_of(p: &Path, recursive: bool, json_only: bool) -> String {
     if !p.is_dir() {
         return if p.exists() {
             "notdir".into()
@@ -2179,13 +2180,16 @@ fn listing_of(p: &Path, recursive: bool, dirs_and_json: bool) -> String {
                 Some(t) if t.is_file() => 'f',
                 _ => 'o',
             };
-            if dirs_and_json
-                && !(kind == 'd'
-                    || kind == 'f' && e.file_name().to_string_lossy().ends_with(".json"))
-            {
+            let r = rel.join(e.file_name());
+            if json_only {
+                let name = e.file_name();
+                if kind == 'd' && name != "node_modules" && name != ".git" {
+                    stack.push(r);
+                } else if kind == 'f' && name.to_string_lossy().ends_with(".json") {
+                    names.push(format!("{}\0f", r.display()));
+                }
                 continue;
             }
-            let r = rel.join(e.file_name());
             names.push(format!("{}\0{kind}", r.display()));
             if recursive && kind == 'd' {
                 stack.push(r);
@@ -2530,7 +2534,8 @@ fn plain_key(k: &str) -> String {
             format!("the package {name}")
         }
         Some(("env" | "envall", v)) => format!("the variable {v}"),
-        Some(("d" | "dj", p)) => format!("the directory listing of {p}"),
+        Some(("d", p)) => format!("the directory listing of {p}"),
+        Some(("rj", p)) => format!("the .json files under {p}"),
         Some(("pjf", p)) => {
             let (f, fields) = p.split_once('\0').unwrap_or((p, ""));
             format!("{f} (its names and {fields})")
@@ -2731,17 +2736,28 @@ mod tests {
     }
 
     #[test]
-    fn a_dirs_and_json_listing_ignores_other_files() {
+    fn a_json_tree_sees_only_json_files_outside_node_modules() {
         let d = tempfile::tempdir().unwrap();
-        let a = listing_of(d.path(), false, true);
+        let rj = |p: &Path| listing_of(p, true, true);
+        let a = rj(d.path());
+        // other files, a new directory (a build's dist/), node_modules: no
         fs::write(d.path().join("CHANGELOG.md"), "x").unwrap();
-        assert_eq!(a, listing_of(d.path(), false, true));
-        assert_ne!(listing(d.path(), false), listing_of(d.path(), false, true));
-        fs::write(d.path().join("tsconfig.json"), "{}").unwrap();
-        let b = listing_of(d.path(), false, true);
+        fs::create_dir_all(d.path().join("dist/esm")).unwrap();
+        fs::write(d.path().join("dist/esm/index.js"), "x").unwrap();
+        fs::create_dir_all(d.path().join("node_modules/x")).unwrap();
+        fs::write(d.path().join("node_modules/x/tsconfig.json"), "{}").unwrap();
+        assert_eq!(a, rj(d.path()));
+        // a tsconfig, at any depth: yes
+        fs::create_dir_all(d.path().join("packages/p")).unwrap();
+        fs::write(d.path().join("packages/p/tsconfig.json"), "{}").unwrap();
+        let b = rj(d.path());
         assert_ne!(a, b);
-        fs::create_dir(d.path().join("sub")).unwrap();
-        assert_ne!(b, listing_of(d.path(), false, true));
+        fs::rename(
+            d.path().join("packages/p/tsconfig.json"),
+            d.path().join("packages/p/jsconfig.json"),
+        )
+        .unwrap();
+        assert_ne!(b, rj(d.path()));
     }
 
     #[test]
