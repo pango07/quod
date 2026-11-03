@@ -272,35 +272,84 @@ export type ProtectionRead =
   | { kind: "ok"; defaultBranch: string; classic: boolean | null; rulesets: boolean | null; reason: string | null; rate: RateInfo }
   | { kind: "gone"; rate: RateInfo }
   | { kind: "limited"; rate: RateInfo }
-  | { kind: "error"; status: number; rate: RateInfo };
+  | { kind: "error"; status: number; rate: RateInfo; reason?: "timeout" };
 
 const isLimited = (res: Response, rate: RateInfo) => res.status === 429 || (res.status === 403 && (rate.remaining === 0 || rate.retryAfterMs !== null));
 
+/** A protection read gives up after this long (all its requests together). */
+export const PROTECTION_TIMEOUT_MS = 5_000;
+
+/** The `reason` when GitHub's plan does not offer branch protection for the repo (a private repo on the free plan). */
+export const PLAN_REASON = "plan";
+
+/** GitHub's 403 for classic protection on a plan without it: "Upgrade to GitHub Pro or make this repository public to enable this feature." */
+export const isPlanLimit = (message: string) => /upgrade to github pro|make this repository public/i.test(message);
+
+const NO_RATE: RateInfo = { remaining: null, resetAt: null, retryAfterMs: null };
+
+const messageOf = (res: Response) =>
+  res.json().then(
+    (v: { message?: unknown }) => (typeof v?.message === "string" ? v.message : ""),
+    () => "",
+  );
+
 /**
- * Is the repository's default branch protected? Three reads with the
- * installation token: the repository (its default branch), the branch's
- * classic protection (needs Administration: read; a 404 "Branch not
- * protected" means none), and the rules that apply to the branch from
- * rulesets, the repository's or the organization's (needs only Metadata).
- * `null` means that part could not be read. Never throws on an HTTP status.
+ * Is the repository's default branch protected? Up to three reads with the
+ * installation token: the repository (its default branch), the rules that
+ * apply to the branch from rulesets, the repository's or the organization's
+ * (needs only Metadata; read first, and enough when one applies), then the
+ * branch's classic protection (needs Administration: read; a 404 "Branch
+ * not protected" means none; a 403 asking to upgrade the plan is reason
+ * "plan"). `null` means that part could not be read. Never throws: an HTTP
+ * status, a network failure or the 5 s timeout is an "error".
  */
-export async function readDefaultBranchProtection(token: string, fullName: string, f: Fetch = fetch): Promise<ProtectionRead> {
-  const repoRes = await f(`${GITHUB_API}/repos/${repoPath(fullName)}`, { headers: headers(token), cache: "no-store" });
+export async function readDefaultBranchProtection(token: string, fullName: string, f: Fetch = fetch, timeoutMs = PROTECTION_TIMEOUT_MS): Promise<ProtectionRead> {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const get = (path: string) => f(`${GITHUB_API}/repos/${repoPath(fullName)}${path}`, { headers: headers(token), cache: "no-store", signal });
+  try {
+    return await readProtection(get, signal);
+  } catch (e) {
+    const timedOut = signal.aborted || (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"));
+    return timedOut ? { kind: "error", status: 0, rate: NO_RATE, reason: "timeout" } : { kind: "error", status: 0, rate: NO_RATE };
+  }
+}
+
+async function readProtection(get: (path: string) => Promise<Response>, signal: AbortSignal): Promise<ProtectionRead> {
+  // A fetch that ignores the signal still loses the race.
+  const timed = <T>(p: Promise<T>) =>
+    Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(signal.reason);
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+    ]);
+  const repoRes = await timed(get(""));
   let rate = rateInfo(repoRes.headers);
   if (repoRes.status === 404 || repoRes.status === 410) return { kind: "gone", rate };
   if (isLimited(repoRes, rate)) return { kind: "limited", rate };
   if (!repoRes.ok) return { kind: "error", status: repoRes.status, rate };
-  const branch = ((await repoRes.json()) as { default_branch?: unknown }).default_branch;
+  const branch = ((await timed(repoRes.json())) as { default_branch?: unknown }).default_branch;
   if (typeof branch !== "string" || !branch) return { kind: "error", status: 502, rate };
   const b = encodeURIComponent(branch);
 
-  const [classicRes, rulesRes] = await Promise.all([
-    f(`${GITHUB_API}/repos/${repoPath(fullName)}/branches/${b}/protection`, { headers: headers(token), cache: "no-store" }),
-    f(`${GITHUB_API}/repos/${repoPath(fullName)}/rules/branches/${b}?per_page=1`, { headers: headers(token), cache: "no-store" }),
-  ]);
+  const rulesRes = await timed(get(`/rules/branches/${b}?per_page=1`));
   rate = rateInfo(rulesRes.headers);
-  if (isLimited(classicRes, rateInfo(classicRes.headers)) || isLimited(rulesRes, rate)) return { kind: "limited", rate };
+  if (isLimited(rulesRes, rate)) return { kind: "limited", rate };
+  let rulesets: boolean | null = null;
+  let rulesReason: string | null = null;
+  if (rulesRes.ok) {
+    const rules = (await timed(rulesRes.json())) as unknown;
+    rulesets = Array.isArray(rules) && rules.length > 0;
+  } else {
+    await rulesRes.body?.cancel().catch(() => undefined);
+    rulesReason = `rules-${rulesRes.status}`;
+  }
+  // A ruleset already protects it: classic protection would not change the answer.
+  if (rulesets) return { kind: "ok", defaultBranch: branch, classic: null, rulesets, reason: null, rate };
 
+  const classicRes = await timed(get(`/branches/${b}/protection`));
+  if (isLimited(classicRes, rateInfo(classicRes.headers))) return { kind: "limited", rate: rateInfo(classicRes.headers) };
   let classic: boolean | null = null;
   let reason: string | null = null;
   if (classicRes.ok) {
@@ -308,24 +357,13 @@ export async function readDefaultBranchProtection(token: string, fullName: strin
     await classicRes.body?.cancel().catch(() => undefined);
   } else if (classicRes.status === 404) {
     // GitHub answers "Branch not protected" for an unprotected branch; any other 404 (no access) proves nothing.
-    const msg = await classicRes.json().then(
-      (v: { message?: unknown }) => (typeof v?.message === "string" ? v.message : ""),
-      () => "",
-    );
-    if (/not protected/i.test(msg)) classic = false;
+    if (/not protected/i.test(await timed(messageOf(classicRes)))) classic = false;
     else reason = "no-access";
+  } else if (classicRes.status === 403) {
+    reason = isPlanLimit(await timed(messageOf(classicRes))) ? PLAN_REASON : "no-permission";
   } else {
     await classicRes.body?.cancel().catch(() => undefined);
-    reason = classicRes.status === 403 ? "no-permission" : `classic-${classicRes.status}`;
+    reason = `classic-${classicRes.status}`;
   }
-
-  let rulesets: boolean | null = null;
-  if (rulesRes.ok) {
-    const rules = (await rulesRes.json()) as unknown;
-    rulesets = Array.isArray(rules) && rules.length > 0;
-  } else {
-    await rulesRes.body?.cancel().catch(() => undefined);
-    reason ??= `rules-${rulesRes.status}`;
-  }
-  return { kind: "ok", defaultBranch: branch, classic, rulesets, reason, rate };
+  return { kind: "ok", defaultBranch: branch, classic, rulesets, reason: reason ?? rulesReason, rate };
 }

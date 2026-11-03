@@ -83,6 +83,10 @@ export interface BranchProtection {
   state: "protected" | "unprotected" | "unknown";
   branch: string | null;
   checkedAt: string | null;
+  /** "plan": GitHub does not offer branch protection to this repo on its plan, so it can't be checked. */
+  detail?: "plan";
+  /** A first read is under way (never read, claimed seconds ago): "checking protection". Otherwise an unread repo is "unknown". */
+  pending?: boolean;
 }
 
 /**
