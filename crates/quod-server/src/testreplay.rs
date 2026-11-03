@@ -852,18 +852,22 @@ fn load_run(d: &Db, team: &str, id: i64) -> anyhow::Result<Option<RunRow>> {
         .next())
 }
 
-/// The shadow report of the same commit and suite as a critical one.
+/// The shadow report of the same commit, suite, scope and workflow run
+/// as a critical one.
 fn shadow_of(d: &Db, team: &str, r: &RunRow) -> anyhow::Result<Option<RunRow>> {
     let Some(sha) = &r.sha else { return Ok(None) };
+    // The same workflow run too, when known: two runs of one commit (a
+    // re-dispatch, a benchmark) each show their own shadow's checks.
     Ok(runs_where(
         d,
-        "team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND scope = $5 AND kind = 'shadow' ORDER BY id DESC LIMIT 1",
+        "team = $1 AND repo_key = $2 AND suite = $3 AND sha = $4 AND scope = $5 AND kind = 'shadow' AND ($6 = '' OR run_id = $6) ORDER BY id DESC LIMIT 1",
         &[
             t(team),
             t(r.repo_key.as_str()),
             t(r.suite.as_str()),
             t(sha.as_str()),
             t(r.scope.as_str()),
+            t(r.run_id.clone().unwrap_or_default()),
         ],
     )?
     .into_iter()
