@@ -2543,6 +2543,9 @@ def record_shadow(plugin, rc):
         ex = set()
         for x in windows:
             ex |= x.exec
+        for pth in _code_map(ex):
+            if ("f:" + pth) not in keys:
+                keys.setdefault("m:" + pth, st.state("m:" + pth))
         nodeids = plugin.items_by_file.get(f, [])
         items = []
         status = "passed"
@@ -2652,6 +2655,33 @@ def record_shadow(plugin, rc):
     return summary
 
 
+_SESSION_KINDS = ("d", "dists", "py", "sp", "mp")
+
+
+def alone_deps(plugin, f):
+    """Everything the alone run's session and its one file read, imported
+    and executed."""
+    REC.on = False
+    REC.paused += 1
+    st = States(None, REC.own)
+    w = REC.files.get(f) or Window("f", f)
+    S = REC.S
+    names = closure(S.imports | S.failed | w.imports | w.failed, REC.loads)
+    windows = [S, w] + [REC.loads[m] for m in names if m in REC.loads]
+    keys = window_keys(windows, names | S.failed | w.failed, st)
+    ex = set()
+    unrec = None
+    for x in windows:
+        ex |= x.exec
+        unrec = unrec or x.unrec
+    exec_map = _code_map(ex)
+    for pth in exec_map:
+        if ("f:" + pth) not in keys:
+            keys.setdefault("m:" + pth, st.state("m:" + pth))
+    keys = {k: v for k, v in keys.items() if k.partition(":")[0] not in _SESSION_KINDS}
+    return {"keys": keys, "exec": exec_map, "modules": sorted(names), "unrecordable": unrec}
+
+
 def certify(plugin, todo, files, summary):
     """A file is order-independent (it may replay while others run) when its
     results alone, in a fresh process, equal its results in the session."""
@@ -2678,19 +2708,48 @@ def certify(plugin, todo, files, summary):
         subprocess.run([sys.executable, _ME, op] + list(plugin.args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=START["cwd"])
         try:
             with open(out) as fh:
-                return json.load(fh).get("tests")
+                return json.load(fh)
         except (OSError, ValueError):
             return None
 
     with ThreadPoolExecutor(jobs) as ex:
         res = list(ex.map(one, todo))
-    for f, alone in zip(todo, res):
+    blobs = os.path.join(OPTS["dir"], "blobs")
+    for f, out in zip(todo, res):
         rec = files[f]
         session = {}
         prev = load_results(rec["id"]) or {"items": []}
         for t in prev["items"]:
             session[t["nodeid"]] = norm_text(t["outcome"])
+        alone = (out or {}).get("tests")
+        deps = (out or {}).get("deps") or {}
         ok = alone is not None and {k: norm_text(v) for k, v in alone.items()} == session
+        if ok and (not deps or "error" in deps):
+            ok = False
+            summary["not_recorded"][f] = "the alone run recorded nothing: %s" % deps.get("error")
+        if ok and deps.get("unrecordable"):
+            ok = False
+            rec["unrecordable"] = "alone: " + deps["unrecordable"]
+        if ok:
+            # Inputs: the union of what the file used in the session and alone.
+            for k, v in deps["keys"].items():
+                rec["keys"].setdefault(k, v)
+                if k.startswith("m:") and len(v) == 32:
+                    bp = os.path.join(blobs, v)
+                    if not os.path.exists(bp):
+                        try:
+                            with open(absp(k[2:]), "rb") as src:
+                                data = src.read()
+                            if h(data) == v:
+                                with open(bp, "wb") as fo:
+                                    fo.write(data)
+                        except OSError:
+                            pass
+            for pth, fns in deps["exec"].items():
+                cur = set(tuple(x) for x in rec["exec"].get(pth, ()))
+                cur |= set(tuple(x) for x in fns)
+                rec["exec"][pth] = sorted(cur)
+            rec["modules"] = sorted(set(rec.get("modules") or ()) | set(deps["modules"]))
         rec["certified"] = bool(ok)
         if ok:
             summary["certified"] += 1
@@ -2717,7 +2776,7 @@ def main():
     START["meta"] = ",".join(type(x).__qualname__ for x in sys.meta_path)
     mode = OPTS["mode"]
     t0 = time.monotonic()
-    if mode == "shadow":
+    if mode in ("shadow", "alone"):
         REC = Recorder()
         REC.install()
     import pytest
@@ -2786,6 +2845,11 @@ def main():
                 s.get("certify_ms", 0),
             )
         )
+    if mode == "alone":
+        try:
+            summary["deps"] = alone_deps(plugin, OPTS["file"])
+        except Exception as e:
+            summary["deps"] = {"error": repr(e)}
     if OPTS.get("summary"):
         write_json(OPTS["summary"], summary)
     if mode in ("critical", "shadow"):
