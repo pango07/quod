@@ -139,6 +139,27 @@ if (covOn) {
 // version, every option (include, exclude, all, thresholds, reporters...),
 // vitest's version and the root.
 let covFp = null
+let covFpText = ''
+// The configuration a record was made under (diagnostics: what changed).
+const covConfigFile = path.join(stateDir, 'results', 'coverage-config.json')
+let covMismatchLogged = false
+const covMismatch = () => {
+  if (covMismatchLogged) return
+  covMismatchLogged = true
+  try {
+    const was = JSON.parse(real.readFileSync(covConfigFile, 'utf8'))
+    const now = JSON.parse(covFpText)
+    const diff = []
+    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+      if (k === 'opts') {
+        for (const o of new Set([...Object.keys(was.opts ?? {}), ...Object.keys(now.opts ?? {})])) {
+          if (JSON.stringify(was.opts?.[o]) !== JSON.stringify(now.opts?.[o])) diff.push(`coverage.${o}`)
+        }
+      } else if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) diff.push(k)
+    }
+    if (diff.length) log(`coverage: the configuration changed since the record: ${diff.join(', ')}`)
+  } catch {}
+}
 const covFingerprint = () => {
   if (covFp !== null) return covFp
   try {
@@ -154,11 +175,13 @@ const covFingerprint = () => {
       typeof v === 'function' ? `fn:${v.toString()}` : v instanceof RegExp ? `re:${v}` : v,
     )
     covFp = p && ver ? crypto.createHash('sha256').update(text).digest('hex') : ''
+    covFpText = text
   } catch {
     covFp = ''
   }
   return covFp
 }
+let covConfigWritten = false
 const covPaths = (id) => [path.join(stateDir, 'results', `${id}.cov.json.gz`), path.join(stateDir, 'results', `${id}.covfp`)]
 // A replayed file's recorded contribution, or null (then it runs).
 const loadCov = (id) => {
@@ -166,7 +189,10 @@ const loadCov = (id) => {
   if (!fp) return null
   const [gz, fpFile] = covPaths(id)
   try {
-    if (real.readFileSync(fpFile, 'utf8') !== fp) return null
+    if (real.readFileSync(fpFile, 'utf8') !== fp) {
+      covMismatch()
+      return null
+    }
     const meta = JSON.parse(zlib.gunzipSync(real.readFileSync(gz)).toString('utf8'))
     // vitest 3 transforms a module the run did not load in ssr mode when it
     // makes the report: a web-mode record would map onto other code.
@@ -253,6 +279,8 @@ if (covOn) {
     const res = await init(...a)
     r.on = was
     wrapProvider(ctx.coverageProvider)
+    // as resolved, before the run can touch it
+    if (ctx.coverageProvider) covFingerprint()
     return res
   }
   wrapProvider(ctx.coverageProvider)
@@ -594,6 +622,10 @@ for (const m of endModules) {
     if (fp && metas?.length === 1 && !covShared.has(id)) {
       real.writeFileSync(gz, zlib.gzipSync(JSON.stringify(metas[0]), { level: 6 }))
       real.writeFileSync(fpFile, fp)
+      if (!covConfigWritten) {
+        covConfigWritten = true
+        real.writeFileSync(covConfigFile, covFpText)
+      }
     } else if (covOn && dumps.get(id)) log(`coverage: ${file.filepath} handed over ${metas?.length ?? 0} coverage results${covShared.has(id) ? ' (with other files)' : ''}: not kept, it runs next time`)
   }
   // The shadow's safety net: a file records only if it ran here as it did on
