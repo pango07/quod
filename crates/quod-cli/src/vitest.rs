@@ -109,6 +109,14 @@ pub struct VitestArgs {
     /// is quarantined (it always runs).
     #[arg(long, value_name = "REPORT")]
     expect_report: Option<PathBuf>,
+    /// Write every test's name and state, per file, to FILE in the form of
+    /// vitest's JSON report (`testResults[].assertionResults[]`), whatever
+    /// reporters the run uses: the critical path's report for a shadow's
+    /// `--expect-report`, without adding a reporter to the user's run. A
+    /// rendered full replay writes it with no files (the shadow then runs
+    /// none either).
+    #[arg(long, value_name = "FILE")]
+    report: Option<PathBuf>,
     /// Instead of running: fold an observer manifest (`quod inspect` of a
     /// `quod run` of the same suite) into the ledger. Every path the
     /// observer saw read that no recorded key accounts for becomes an input
@@ -485,6 +493,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "record": !a.no_record,
         "workers": if affected.len() > 4 * workers { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
+        "report": a.report.as_ref().map(std::path::absolute).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
     });
     fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
@@ -535,6 +544,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     "quod vitest: every file replays; emitted the recorded full replay (no vitest start) in {} ms",
                     t.as_millis()
                 );
+                if let Some(r) = &a.report {
+                    fs::write(r, br#"{"testResults":[]}"#)?;
+                }
                 let ids: Vec<&String> = ledger.files.keys().collect();
                 let n_ids = ids.len();
                 fs::write(
@@ -1922,16 +1934,20 @@ fn env_all(tools: bool) -> String {
 }
 
 /// What a CI provider sets per branch, event, runner or job (GitHub's
-/// `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`), as record.mjs's `ciVarying`. vitest
+/// `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`), and a task runner per task run
+/// (`TURBO_HASH`), as record.mjs's `ciVarying`. vitest
 /// and vite copy the whole environment to the workers (`envtool:`): these
 /// names are left out of that copy's key, and of a read by their own code,
 /// so a recording made on a push replays on a pull request. A read by any
 /// other code (the config, a plugin, a test) is an `env:` key like any
 /// other. `CI` is not one of them: vitest reads it (allowOnly, snapshots).
 fn ci_varying(name: &str) -> bool {
-    ["GITHUB_", "RUNNER_", "ACTIONS_"]
-        .iter()
-        .any(|p| name.starts_with(p))
+    // TURBO_HASH: turbo's hash of the running task, new on every change to
+    // the package (turbo sets it for the task's processes).
+    name == "TURBO_HASH"
+        || ["GITHUB_", "RUNNER_", "ACTIONS_"]
+            .iter()
+            .any(|p| name.starts_with(p))
 }
 
 /// A per-run or per-step CI variable, or Quod's own.

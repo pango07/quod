@@ -418,6 +418,17 @@ for (const m of endModules) {
   ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: file.result?.duration ?? 0, keys, unobservable, result: resultRel, cov, covWhy })
 }
 
+// `--report`: every test's name and state per file, in the shape of vitest's
+// JSON report, whatever reporters the run has (the shadow's --expect-report).
+if (plan.report) {
+  const status = (st) => (st === 'pass' ? 'passed' : st === 'fail' ? 'failed' : st === 'skip' || st === 'todo' ? 'skipped' : 'pending')
+  const testResults = endModules.map((m) => ({
+    name: m.task.filepath,
+    assertionResults: testStates(m.task).map(([title, st]) => ({ ancestorTitles: [], title, status: status(st) })),
+  }))
+  writeJson(plan.report, { testResults })
+}
+
 // The main process's reads: inputs of every file, except the source the
 // workers asked it to transform (each file's own module graph has those).
 const global = []

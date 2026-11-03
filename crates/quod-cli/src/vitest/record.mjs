@@ -266,7 +266,8 @@ export function patchFs(r) {
 // plugin, a test, a library it loads) keys it like any variable. `CI`
 // is not one of them: vitest's behaviour depends on it (allowOnly,
 // snapshot updates).
-export const ciVarying = (k) => typeof k === 'string' && /^(GITHUB|RUNNER|ACTIONS)_/.test(k)
+// TURBO_HASH: turbo's hash of the running task, new on every change.
+export const ciVarying = (k) => typeof k === 'string' && (k === 'TURBO_HASH' || /^(GITHUB|RUNNER|ACTIONS)_/.test(k))
 
 export function patchEnv(r) {
   const target = process.env
