@@ -34,6 +34,7 @@ class Redirect extends Error {
 }
 
 vi.mock("server-only", () => ({}));
+const invitationsPage = (data: unknown[]) => ({ data, autoPagination: async () => data });
 vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Redirect(to);
@@ -96,7 +97,7 @@ beforeEach(() => {
   saveSession.mockResolvedValue(undefined);
   // By default the person is already in a team, so sign-in makes none (the personal-team tests below say otherwise).
   um.listOrganizationMemberships.mockResolvedValue({ data: [{ organizationId: "org_existing" }] });
-  um.listInvitations.mockResolvedValue({ data: [] });
+  um.listInvitations.mockResolvedValue(invitationsPage([]));
 });
 afterEach(() => vi.useRealTimers());
 
@@ -321,7 +322,7 @@ describe("a team of one's own (decision 2026-11-04)", () => {
 
   it("someone with a pending invitation who signs in without the link gets no team; '/' lists the invitation", async () => {
     noTeam();
-    um.listInvitations.mockResolvedValue({ data: [{ ...invitation, email: NEWCOMER }] });
+    um.listInvitations.mockResolvedValue(invitationsPage([{ ...invitation, email: NEWCOMER }]));
     um.authenticateWithPassword.mockResolvedValue(signedInNew);
     expect(await run(actions.signInWithPassword({}, form({ email: NEWCOMER, password: "pw", returnTo: "/" })))).toEqual({ to: "/" });
     expect(orgs.createOrganization).not.toHaveBeenCalled();
@@ -364,7 +365,7 @@ describe("a team of one's own (decision 2026-11-04)", () => {
 
     it("is offered next to invitations too, so it ignores them", async () => {
       noTeam();
-      um.listInvitations.mockResolvedValue({ data: [{ ...invitation, email: NEWCOMER }] });
+      um.listInvitations.mockResolvedValue(invitationsPage([{ ...invitation, email: NEWCOMER }]));
       withAuth.mockResolvedValue({ user: newcomer });
       expect(await press()).toEqual({ to: "/sams-team/connect" });
       expect(orgs.createOrganization).toHaveBeenCalledTimes(1);

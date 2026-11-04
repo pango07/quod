@@ -55,9 +55,10 @@ async function activeOrgOf(userId: string): Promise<string | undefined> {
 
 /** Pending, unexpired invitations to this email. Unlike pendingInvitationsFor, a failed read throws: never create a team on a guess. */
 async function hasOpenInvitation(email: string): Promise<boolean> {
-  const page = await getWorkOS().userManagement.listInvitations({ email, limit: 20 });
+  // Every page: an open invitation on a later page must still stop the team being made.
+  const all = await (await getWorkOS().userManagement.listInvitations({ email, limit: 100 })).autoPagination();
   const now = Date.now();
-  return page.data.some((inv) => inv.organizationId && invitationProvesEmail(inv, email, now));
+  return all.some((inv) => inv.organizationId && invitationProvesEmail(inv, email, now));
 }
 
 /** The user's own organization: found by externalId, else created with it. A concurrent create loses to the unique externalId and finds the winner. */

@@ -7,6 +7,7 @@ const orgs = { getOrganizationByExternalId: vi.fn(), createOrganization: vi.fn()
 const invalidateMemberships = vi.fn();
 
 vi.mock("server-only", () => ({}));
+const invitationsPage = (data: unknown[]) => ({ data, autoPagination: async () => data });
 vi.mock("@workos-inc/authkit-nextjs", () => ({ getWorkOS: () => ({ userManagement: um, organizations: orgs }) }));
 vi.mock("./session", () => ({ invalidateMemberships: (...a: unknown[]) => invalidateMemberships(...a) }));
 
@@ -20,7 +21,7 @@ const openInvitation = { id: "invitation_1", email: sam.email, state: "pending",
 beforeEach(() => {
   for (const f of [...Object.values(um), ...Object.values(orgs), invalidateMemberships]) f.mockReset();
   um.listOrganizationMemberships.mockResolvedValue({ data: [] });
-  um.listInvitations.mockResolvedValue({ data: [] });
+  um.listInvitations.mockResolvedValue(invitationsPage([]));
   um.createOrganizationMembership.mockResolvedValue({ id: "om_1" });
   orgs.getOrganizationByExternalId.mockRejectedValue(notFound());
   orgs.createOrganization.mockResolvedValue({ id: "org_sam", name: "Sam's team" });
@@ -59,14 +60,21 @@ describe("ensurePersonalTeam", () => {
   });
 
   it("an open invitation wins over a new team, unless the person asked for one", async () => {
-    um.listInvitations.mockResolvedValue({ data: [openInvitation] });
+    um.listInvitations.mockResolvedValue(invitationsPage([openInvitation]));
     expect(await ensurePersonalTeam(sam, { honorInvitations: true })).toEqual({ kind: "invited" });
     expect(orgs.createOrganization).not.toHaveBeenCalled();
     expect((await ensurePersonalTeam(sam, { honorInvitations: false })).kind).toBe("created");
   });
 
+  it("an open invitation past the first page still wins", async () => {
+    const stale = { ...openInvitation, state: "revoked" };
+    um.listInvitations.mockResolvedValue({ data: Array(100).fill(stale), autoPagination: async () => [...Array(100).fill(stale), openInvitation] });
+    expect(await ensurePersonalTeam(sam, { honorInvitations: true })).toEqual({ kind: "invited" });
+    expect(orgs.createOrganization).not.toHaveBeenCalled();
+  });
+
   it("an expired or someone else's invitation doesn't count", async () => {
-    um.listInvitations.mockResolvedValue({ data: [{ ...openInvitation, expiresAt: new Date(Date.now() - 1000).toISOString() }, { ...openInvitation, state: "accepted" }] });
+    um.listInvitations.mockResolvedValue(invitationsPage([{ ...openInvitation, expiresAt: new Date(Date.now() - 1000).toISOString() }, { ...openInvitation, state: "accepted" }]));
     expect((await ensurePersonalTeam(sam, { honorInvitations: true })).kind).toBe("created");
   });
 
