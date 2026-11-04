@@ -2,6 +2,7 @@ import "server-only";
 import { getWorkOS } from "@workos-inc/authkit-nextjs";
 import { authMode } from "./config";
 import { DEMO_MEMBERS } from "./demo";
+import { invitationProvesEmail } from "./invite";
 import type { Member, Role } from "./types";
 
 // Members, invitations and the Admin Portal live in WorkOS. Quod stores none of it.
@@ -50,7 +51,7 @@ export async function pendingInvitationsFor(email: string): Promise<{ id: string
     const workos = getWorkOS();
     const page = await workos.userManagement.listInvitations({ email, limit: 20 });
     const now = Date.now();
-    const open = page.data.filter((inv) => inv.state === "pending" && inv.organizationId && new Date(inv.expiresAt).getTime() > now && inv.email.toLowerCase() === email.toLowerCase());
+    const open = page.data.filter((inv) => inv.organizationId && invitationProvesEmail(inv, email, now));
     return await Promise.all(
       open.map(async (inv) => ({ id: inv.id, teamName: (await workos.organizations.getOrganization(inv.organizationId as string)).name })),
     );
