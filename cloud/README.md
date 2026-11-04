@@ -173,8 +173,11 @@ created once, from the dashboard, with GitHub's App Manifest flow.
 **1. Database (engineer, once, after the product owner approves the SQL).**
 The tables are in `db/migrations/0001_github_app.sql`,
 `0002_github_app_review.sql`, `0003_reconcile_state.sql`,
-`0004_step_polling.sql` and `0005_branch_protection.sql` (the writer-trust
-warning's cache; not applied yet). With Neon's
+`0004_step_polling.sql`, `0005_branch_protection.sql` (the writer-trust
+warning's cache; not applied yet) and `0006_team_settings.sql` (the team's
+runner price for the Overview's savings; not applied yet: until it is,
+Settings can't save a price and the Overview uses GitHub's Linux 2-core
+price). With Neon's
 direct URL in your shell as
 `DATABASE_URL_UNPOOLED` (it is in Vercel):
 

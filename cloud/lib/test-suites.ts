@@ -305,7 +305,12 @@ export interface LookItem {
 
 export interface SuiteRow {
   key: string;
+  /** "class-management · apps/web": where the repository is not shown around it. */
   heading: string;
+  /** owner/name, for grouping by repository. */
+  repository: string;
+  /** The suite alone: "apps/web", or "repo root". */
+  name: string;
   ledger: string;
   /** Has a recording to read (ledger not null). */
   recorded: boolean;
@@ -390,9 +395,12 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
         linkText: differed ? "See what differed" : run ? "Latest run" : "Test runs",
       });
     }
+    const dir = s.suite.trim();
     return {
       key: `${s.repository}:${s.suite}`,
       heading,
+      repository: s.repository,
+      name: dir === "" || dir === "." || dir === "./" ? "repo root" : dir,
       ledger: suiteLedgerText(s.ledger, p.ago),
       recorded: !!s.ledger,
       href: testsHref,
@@ -409,4 +417,31 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
   // Paused before always runs, across suites (stable within each).
   look.sort((a, b) => (a.state === "paused" ? 0 : 1) - (b.state === "paused" ? 0 : 1));
   return { summary, look, suites: rows };
+}
+
+/** One repository's suites, for the Trust page's repo headings. */
+export interface RepoSuites {
+  repository: string;
+  /** The repository's name without its owner. */
+  name: string;
+  suites: SuiteRow[];
+  files: number;
+  savedWeekMs: number;
+}
+
+/** Suites grouped by repository: the repository with the most test files first, then by name; suites keep their order. */
+export function suitesByRepo(rows: SuiteRow[]): RepoSuites[] {
+  const by = new Map<string, RepoSuites>();
+  for (const r of rows) {
+    const k = r.repository.toLowerCase();
+    let g = by.get(k);
+    if (!g) {
+      g = { repository: r.repository, name: r.repository.split("/").pop() || r.repository, suites: [], files: 0, savedWeekMs: 0 };
+      by.set(k, g);
+    }
+    g.suites.push(r);
+    g.files += r.totals.files;
+    g.savedWeekMs += r.savedWeekMs;
+  }
+  return [...by.values()].sort((a, b) => b.files - a.files || a.name.localeCompare(b.name));
 }

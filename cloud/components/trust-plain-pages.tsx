@@ -37,7 +37,6 @@ export async function PlainTrust({ team }: { team: Team }) {
   const paused = groups.filter((g) => g.current.state.kind === "paused");
   const asOf = new Date().toISOString();
   const now = Date.parse(asOf);
-  const tests = show.suites || show.testRuns;
   const model = show.suites ? trustModel({ team: team.slug, suites, runs: testRuns, stats, now, ago: (iso) => formatAgo(iso, asOf) }) : null;
   return (
     <div className="page">
@@ -72,11 +71,6 @@ export async function PlainTrust({ team }: { team: Team }) {
       ) : null}
       {/* Only when both test reads answered 200 with nothing, and there are no steps. */}
       {view.kind === "empty" && !show.steps && found.ok ? <TrustStart /> : null}
-      {show.steps && tests ? (
-        <h2 className="h2" style={{ marginTop: 8 }}>
-          Steps
-        </h2>
-      ) : null}
       {paused.map((g) => (
         <Link key={g.id} href={`/${team.slug}/${g.repoSlug}/steps/${g.current.step.key}#diff`} className="notice">
           <Dot tone="amber" />

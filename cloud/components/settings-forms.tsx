@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { inviteMember, openAdminPortal, type ActionResult } from "@/lib/actions";
+import { inviteMember, openAdminPortal, saveRunnerRate, type ActionResult } from "@/lib/actions";
 import type { PortalIntent } from "@/lib/auth/directory";
 
 export function InviteForm({ team }: { team: string }) {
@@ -81,5 +81,43 @@ export function PortalButtons({ team, canEdit }: { team: string; canEdit: boolea
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** The runner price the Overview's money saved is estimated with. Empty: GitHub's Linux 2-core price. */
+export function RunnerRateForm({ team, current, custom, canEdit, canSave, defaultRate }: { team: string; current: number; custom: boolean; canEdit: boolean; canSave: boolean; defaultRate: number }) {
+  const [state, action, pending] = useActionState(saveRunnerRate.bind(null, team), null as ActionResult);
+  const disabled = !canEdit || !canSave;
+  return (
+    <form action={action} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="field" style={{ flex: "0 1 220px" }}>
+          Price per runner minute (USD)
+          <input
+            className="input mono"
+            name="rate"
+            inputMode="decimal"
+            placeholder={String(defaultRate)}
+            defaultValue={custom ? String(current) : ""}
+            disabled={disabled}
+            aria-describedby="rate-help"
+            autoComplete="off"
+          />
+        </label>
+        <button className="btn solid" type="submit" disabled={disabled || pending} style={{ height: 36 }} title={canEdit ? undefined : "Only team admins can change this"}>
+          {pending ? "Saving…" : "Save price"}
+        </button>
+      </div>
+      <p id="rate-help" className="faint" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: "70ch" }}>
+        Leave it empty to use ${defaultRate} per minute, GitHub&apos;s published price for a Linux 2-core runner. Set your own if you use larger runners, self-hosted machines or have a
+        negotiated price.
+        {canSave ? null : " Saving a price isn't set up on this deploy yet, so the default is used."}
+      </p>
+      {state ? (
+        <p role="status" className={`toast ${state.ok ? "ok" : "err"}`}>
+          {state.message}
+        </p>
+      ) : null}
+    </form>
   );
 }

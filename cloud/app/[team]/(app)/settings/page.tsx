@@ -1,8 +1,10 @@
 import { GitHubSettings } from "@/components/github-settings";
-import { InviteForm, PortalButtons } from "@/components/settings-forms";
+import { InviteForm, PortalButtons, RunnerRateForm } from "@/components/settings-forms";
 import { Chip } from "@/components/ui";
 import { listMembers } from "@/lib/auth/directory";
 import { requireTeam } from "@/lib/dal";
+import { DEFAULT_USD_PER_MINUTE, rateText } from "@/lib/savings";
+import { runnerRate } from "@/lib/team-settings";
 
 export const metadata = { title: "Settings" };
 
@@ -10,7 +12,7 @@ export default async function SettingsPage({ params }: PageProps<"/[team]/settin
   const { team: slug } = await params;
   const ctx = await requireTeam(slug);
   const { team, admin, viewer } = ctx;
-  const members = await listMembers(team.orgId);
+  const [members, rate] = await Promise.all([listMembers(team.orgId), runnerRate(team.orgId)]);
   return (
     <div className="page" style={{ maxWidth: 880 }}>
       <h1 className="h1">Settings</h1>
@@ -67,6 +69,19 @@ export default async function SettingsPage({ params }: PageProps<"/[team]/settin
             <InviteForm team={team.slug} />
           </div>
         ) : null}
+      </section>
+
+      <section className="card" aria-labelledby="savings-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }} id="savings">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <h2 id="savings-h" className="h2">
+            Savings estimate
+          </h2>
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: "72ch" }}>
+            The Overview turns the runner minutes Quod saves into money with this price. Now: {rateText(rate.usdPerMinute)}
+            {rate.source === "default" ? " (GitHub's Linux 2-core price)" : " (set by your team)"}.
+          </p>
+        </div>
+        <RunnerRateForm team={team.slug} current={rate.usdPerMinute} custom={rate.source === "team"} canEdit={admin} canSave={rate.canSave} defaultRate={DEFAULT_USD_PER_MINUTE} />
       </section>
 
       <GitHubSettings ctx={ctx} />

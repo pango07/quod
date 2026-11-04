@@ -55,7 +55,7 @@ export const LEGEND: { kind: PlainKind; label: string; help: string }[] = [
   { kind: "ready", label: "Ready to skip", help: "Recorded. The next time nothing this step reads has changed, Quod gives back the recorded result instead of running it." },
   { kind: "skipping", label: "Skipping", help: "Quod skips it when nothing it reads changed. The first skips are re-run and compared, then a few at random, so a wrong result is caught." },
   { kind: "paused", label: "Paused", help: "A re-check ran the step on the same inputs and got different output. It runs every time until it gives the same result again." },
-  { kind: "recording", label: "Recording only", help: "Quod is set to observe: the step always runs and Quod records what it reads, and counts how often it could have skipped it." },
+  { kind: "recording", label: "Watching only", help: "Quod is set to observe: the step always runs, Quod records what it reads, and counts how often it could have been skipped." },
   { kind: "always", label: "Always runs", help: "Quod never skips it: it uses the network, so Quod cannot see everything it depends on." },
 ];
 
@@ -78,7 +78,7 @@ export function plainState(t: TrustState, seen?: Pick<Seen, "checks" | "skips" |
     case "watching":
       return {
         kind: "recording",
-        label: t.wouldHaveReplayed > 0 ? `Recording only: could have skipped ${formatCount(t.wouldHaveReplayed)}×` : "Recording only",
+        label: t.wouldHaveReplayed > 0 ? `Watching only: could have skipped ${formatCount(t.wouldHaveReplayed)}×` : "Watching only",
         help: HELP.recording,
         tone: "dim",
       };
@@ -354,4 +354,53 @@ export function plainEvent(e: TrustEvent): { what: string; detail: string; tone:
     case "proofs-changed":
       return { what: "Good runs needed changed", detail: `${e.from} → ${e.to} by ${e.by}`, tone: "white" };
   }
+}
+
+// ---------------------------------------------------------------- One step, in sentences (the Trust list)
+
+/** The chip's word for each state: short, the sentence says the rest. */
+export const STATE_WORD: Record<PlainKind, string> = {
+  learning: "Learning",
+  ready: "Ready to skip",
+  skipping: "Skipping",
+  paused: "Paused",
+  recording: "Watching only",
+  always: "Always runs",
+};
+
+/** What is happening with a step and what happens next, in one or two plain sentences. `recentRuns`: how many runs `seen` looked at. */
+export function stepSentence(v: Version, recentRuns: number): string {
+  const t = v.step.trust;
+  switch (v.state.kind) {
+    case "recording": {
+      const n = t.kind === "watching" ? t.wouldHaveReplayed : 0;
+      return n > 0
+        ? `Quod only watches this step, so it always runs. Nothing it reads had changed ${n === 1 ? "once" : `${formatCount(n)} times`}: it could have been skipped then.`
+        : "Quod only watches this step, so it always runs. It records what the step reads, to show how often it could be skipped.";
+    }
+    case "learning": {
+      const left = t.kind === "proving" ? Math.max(0, t.need - t.have) : 1;
+      return `It runs every time while Quod learns it. After ${plural(left, "more good run")} with the same inputs, it can be skipped.`;
+    }
+    case "ready":
+      return "Quod has a result it trusts. The next time nothing this step reads has changed, it is skipped and that result is reused.";
+    case "skipping": {
+      const skips = v.seen?.skips ?? 0;
+      const checks = v.seen?.checks ?? 0;
+      const head = skips > 0 ? `Skipped ${skips === 1 ? "once" : `${formatCount(skips)} times`} in the last ${formatCount(recentRuns)} runs` : "Skipped when nothing it reads has changed";
+      return `${head}. ${checks > 0 ? `${plural(checks, "skip was", "skips were")} re-run to check, and matched.` : "A few skips are re-run at random to check them."}`;
+    }
+    case "paused": {
+      const extra = t.kind === "paused" ? ` (${formatCount(t.consistent)} of ${formatCount(t.need)} so far)` : "";
+      return `A re-check got different output from the same inputs. It runs every time until it gives the same result again${extra}.`;
+    }
+    case "always":
+      return "It uses the network, so Quod can't see everything it depends on. It always runs.";
+  }
+}
+
+/** "Saved 2m 10s", "Could have saved 2m 10s" (watching only), or "Nothing saved yet". */
+export function savedLine(kind: PlainKind, seconds: number): string {
+  if (seconds < 1) return "Nothing saved yet";
+  return kind === "recording" ? `Could have saved ${formatDuration(seconds)}` : `Saved ${formatDuration(seconds)}`;
 }

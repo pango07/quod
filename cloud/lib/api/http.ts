@@ -20,6 +20,7 @@
 
 import { SseDecoder } from "@/lib/live/sse";
 import { isSlug } from "@/lib/params";
+import { lite } from "@/lib/savings";
 import { NoQuodCloudApi } from "./none";
 import { ApiForbiddenError, ApiInvalidRequestError, ApiNotAvailableError, ApiUnavailableError } from "./types";
 import type {
@@ -45,6 +46,7 @@ import type {
   TeamHealth,
   TestRunDetail,
   TestRunSummary,
+  TestRunLite,
   TestStats,
   TestSuite,
 } from "./types";
@@ -184,7 +186,16 @@ const testRunSummary = (v: unknown, w: string): TestRunSummary => {
   return o as unknown as TestRunSummary;
 };
 
+/** A GET /test-history row: a test run cut to what the savings need (lib/savings.ts). */
+const testRunLite = (v: unknown, w: string): TestRunLite => {
+  const o = has(v, w, { id: "string", at: "string", repoSlug: "string", repository: "string", suite: "string", kind: "string", files: "object", timing: "object" });
+  has(o.files, `${w}.files`, { total: "number", ran: "number", replayed: "number" });
+  has(o.timing, `${w}.timing`, { wallMs: "number|null", estPlainMs: "number|null", savedMs: "number|null" });
+  return lite(o as unknown as TestRunLite);
+};
+
 const shapes = {
+  testHistory: (v: unknown) => list(has(v, "test-history", { runs: "array" }).runs, "test-history.runs", testRunLite),
   testRuns: (v: unknown) => list(has(v, "test-runs", { runs: "array" }).runs, "test-runs.runs", testRunSummary),
   testRun: (v: unknown): TestRunDetail => {
     const o = testRunSummary(v, "test-run") as unknown as Record<string, unknown>;
@@ -585,6 +596,14 @@ export class HttpCloudApi implements CloudApi {
     const s = await this.team(team);
     if (!s) return null;
     return this.optional(s.c, `${s.t}/test-suites`, shapes.testSuites);
+  }
+
+  // GET /v1/teams/:team/test-history?days= -> { runs: TestRunLite[] } newest first (quod-server after cloud/test-history).
+  async listTestHistory(team: string, opts: { days: number }): Promise<TestRunLite[] | null> {
+    const s = await this.team(team);
+    if (!s) return null;
+    const days = Math.min(Math.max(Math.trunc(opts.days), 1), 365);
+    return this.optional(s.c, `${s.t}/test-history?days=${days}`, shapes.testHistory);
   }
 
   // GET /v1/teams/:team/activity -> Activity. quod-server has no jobs (GitHub's come from the composite); its `cursor` is the stream position.
