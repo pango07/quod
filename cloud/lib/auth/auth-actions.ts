@@ -6,7 +6,7 @@
 // code or token is logged.
 
 import { getWorkOS, switchToOrganization, withAuth } from "@workos-inc/authkit-nextjs";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { authMode } from "./config";
 import {
   attempt,
@@ -91,7 +91,11 @@ async function invitationFor(token: string | undefined) {
 async function skipCodeForInvitee(first: Outcome, email: string, run: () => Promise<Outcome>): Promise<Outcome> {
   if (first.kind !== "pending" || first.to !== STEP_PATH["verify-email"]) return first;
   try {
-    const userId = (await readPending())?.userId ?? (await userIdForEmail(email));
+    // The pending cookie's user only when it is this same email's code step; a stale cookie from
+    // another attempt must never get its user marked verified. Otherwise look the user up by email.
+    const pending = await readPending();
+    const fromPending = pending?.step === "verify-email" && pending.email?.trim().toLowerCase() === email.trim().toLowerCase() ? pending.userId : undefined;
+    const userId = fromPending ?? (await userIdForEmail(email));
     if (!userId) return first;
     await getWorkOS().userManagement.updateUser({ userId, emailVerified: true });
   } catch (e) {
@@ -358,7 +362,8 @@ export async function resendVerification(): Promise<FormState> {
     if (status(e) === 429) return { error: RATE_LIMITED };
     console.warn("[quod-cloud] magic auth code not sent for verification", { status: status(e) });
   }
-  if (pending.via === "magic" || !pending.token) return { error: TRY_AGAIN };
+  // WorkOS's verification email needs the original pending token; a step that switched to Magic Auth still has it.
+  if (!pending.token) return { error: TRY_AGAIN };
   try {
     // WorkOS's email_verification_required answer does not always name the user; look it up by email.
     const userId = pending.userId ?? (await userIdForEmail(pending.email));
@@ -447,8 +452,15 @@ export async function joinTeam(_prev: FormState, form: FormData): Promise<FormSt
     return { error: TRY_AGAIN };
   }
   invalidateMemberships(user.id);
-  // Scope the session to the new team, then "/" opens it.
-  await switchToOrganization(organizationId, { returnTo: "/" });
+  // Scope the session to the new team, then "/" opens it. The membership is already active, so a failed
+  // switch is reported, not thrown; Next.js's redirect from switchToOrganization still propagates.
+  try {
+    await switchToOrganization(organizationId, { returnTo: "/" });
+  } catch (e) {
+    unstable_rethrow(e);
+    console.warn("[quod-cloud] session not switched to the joined team", { status: status(e) });
+    return { error: "You joined the team. Sign out and sign in again to open it." };
+  }
   redirect("/");
 }
 

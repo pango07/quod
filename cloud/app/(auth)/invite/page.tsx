@@ -70,7 +70,24 @@ async function Invite({ searchParams }: PageProps<"/invite">) {
   const signedIn = isDemo() ? null : (await withAuth()).user;
   if (signedIn) {
     const mine = signedIn.email.toLowerCase() === info.email.toLowerCase();
-    return mine ? (
+    // Joining needs a verified email (joinTeam checks it). An unverified account signs out and
+    // comes back through the invitation link, which counts as verifying the email.
+    return mine && !signedIn.emailVerified ? (
+      <AuthShell
+        title={`Join ${info.teamName} on Quod`}
+        lede={
+          <>
+            You are signed in as <strong style={{ color: "var(--text)" }}>{signedIn.email}</strong>, which isn&apos;t verified yet. Sign out, then open the invitation link again to join.
+          </>
+        }
+      >
+        <form action={signOutAction} className="auth-form">
+          <button type="submit" className="btn solid lg auth-btn">
+            Sign out
+          </button>
+        </form>
+      </AuthShell>
+    ) : mine ? (
       <AuthShell title={`Join ${info.teamName} on Quod`} lede={<>You are signed in as <strong style={{ color: "var(--text)" }}>{signedIn.email}</strong>.</>}>
         <JoinTeamForm invitationId={info.id} teamName={info.teamName} />
       </AuthShell>

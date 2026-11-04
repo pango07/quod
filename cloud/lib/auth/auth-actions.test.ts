@@ -33,6 +33,9 @@ vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Redirect(to);
   },
+  unstable_rethrow: (e: unknown) => {
+    if (e instanceof Redirect) throw e;
+  },
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
@@ -138,6 +141,16 @@ describe("sign-up from an invitation", () => {
     expect(um.createMagicAuth).toHaveBeenCalledWith(expect.objectContaining({ email: TEAMMATE, invitationToken: TOKEN }));
   });
 
+  it("a stale code-step cookie for another email never gets its user marked verified", async () => {
+    await flow.savePending({ step: "verify-email", via: "verification", token: "old_tok", returnTo: "/", email: "someone@example.com", userId: "user_other" });
+    um.listUsers.mockResolvedValue({ data: [{ id: "user_1" }] });
+    um.findInvitationByToken.mockResolvedValue(invitation);
+    um.authenticateWithPassword.mockRejectedValueOnce(verificationRequired()).mockResolvedValueOnce(signedIn);
+    expect(await run(actions.signUp({}, signUpForm({ invitationToken: TOKEN })))).toEqual({ to: "/" });
+    expect(um.updateUser).toHaveBeenCalledWith({ userId: "user_1", emailVerified: true });
+    expect(um.updateUser).not.toHaveBeenCalledWith(expect.objectContaining({ userId: "user_other" }));
+  });
+
   it("signing in to accept (existing account, unverified) skips the code too", async () => {
     um.listUsers.mockResolvedValue({ data: [{ id: "user_1" }] });
     um.findInvitationByToken.mockResolvedValue(invitation);
@@ -161,6 +174,14 @@ describe("the email code step", () => {
 
   it("falls back to WorkOS's verification email when Magic Auth is refused", async () => {
     await pendingVerification();
+    um.createMagicAuth.mockRejectedValue(Object.assign(new Error("magic auth disabled"), { status: 422 }));
+    um.listUsers.mockResolvedValue({ data: [{ id: "user_1" }] });
+    expect((await actions.resendVerification()).notice).toBeDefined();
+    expect(um.sendVerificationEmail).toHaveBeenCalledWith({ userId: "user_1" });
+  });
+
+  it("falls back to the verification email even after an earlier resend switched the step to Magic Auth", async () => {
+    await flow.savePending({ step: "verify-email", via: "magic", token: "pending_tok", returnTo: "/", email: TEAMMATE, invitationToken: TOKEN });
     um.createMagicAuth.mockRejectedValue(Object.assign(new Error("magic auth disabled"), { status: 422 }));
     um.listUsers.mockResolvedValue({ data: [{ id: "user_1" }] });
     expect((await actions.resendVerification()).notice).toBeDefined();
@@ -224,6 +245,16 @@ describe("joining a team while signed in", () => {
     expect(um.acceptInvitation).toHaveBeenCalledWith(invitation.id);
     expect(invalidateMemberships).toHaveBeenCalledWith("user_1");
     expect(switchToOrganization).toHaveBeenCalledWith(invitation.organizationId, { returnTo: "/" });
+  });
+
+  it("a failed team switch after joining says so instead of crashing; the membership stays", async () => {
+    withAuth.mockResolvedValue({ user: { id: "user_1", email: TEAMMATE, emailVerified: true } });
+    um.getInvitation.mockResolvedValue(invitation);
+    switchToOrganization.mockRejectedValue(Object.assign(new Error("boom"), { status: 500 }));
+    const out = await join();
+    expect(out).toEqual({ state: { error: expect.stringContaining("You joined the team") } });
+    expect(um.acceptInvitation).toHaveBeenCalledWith(invitation.id);
+    expect(invalidateMemberships).toHaveBeenCalledWith("user_1");
   });
 
   it("refuses someone else's invitation, or an unverified email", async () => {
