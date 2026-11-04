@@ -140,6 +140,8 @@ jobs:
     timeout-minutes: 35
     env:
       QUOD_INTEGRATION: 1
+      # Pull requests: unit tests only (~4 min). Milestone dispatches also run the integration tests.
+      QUOD_LINT_TESTS: ${{ github.event_name == 'pull_request' && 'unit' || 'all' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
