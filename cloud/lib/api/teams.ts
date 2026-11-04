@@ -9,9 +9,11 @@
 import { TEAMS } from "./fixture-data";
 import type { OrgRef, Team } from "./types";
 
+// Apostrophes vanish rather than split a word: "Sam's team" is /sams-team, not /sam-s-team.
 const slugify = (s: string) =>
   s
     .toLowerCase()
+    .replace(/['\u2019]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || "team";

@@ -4,6 +4,7 @@ import { AuthenticationException, type AuthenticationResponse } from "@workos-in
 import { sealData, unsealData } from "iron-session";
 import { cookies, headers } from "next/headers";
 import { assertCookieFits, UNSUPPORTED_MESSAGE, UNSUPPORTED_STEPS } from "./limits";
+import { ensurePersonalTeam, onboardingPath } from "./personal-team";
 
 // Our own sign-in on the WorkOS User Management APIs. The session cookie is
 // AuthKit's (saveSession), so the proxy, withAuth and requireTeam work as before.
@@ -195,11 +196,35 @@ export async function attempt(run: () => Promise<AuthenticationResponse>, ctx: C
   } catch (e) {
     return fromError(e, ctx, fallback);
   }
+  const next = await withPersonalTeam(res, ctx);
   try {
-    return await finish(res, ctx.returnTo);
+    return await finish(next.response, next.returnTo);
   } catch (e) {
     log("session not saved after a successful sign-in", e);
     return { kind: "error", message: TRY_AGAIN };
+  }
+}
+
+/**
+ * First sign-in with no team and no invitation: make the user's own team,
+ * scope the session to it, and send them on to connect GitHub (a returnTo
+ * other than "/" still wins). Arriving with an invitation token, or a session
+ * WorkOS already scoped to an organization, skips all of it. Never fails the
+ * sign-in: on any error the session stays unscoped and "/" offers "Create my team".
+ */
+export async function withPersonalTeam(res: AuthenticationResponse, ctx: Ctx): Promise<{ response: AuthenticationResponse; returnTo: string }> {
+  const unchanged = { response: res, returnTo: ctx.returnTo };
+  if (ctx.invitationToken || res.organizationId || !res.user?.id || !res.refreshToken) return unchanged;
+  try {
+    const team = await ensurePersonalTeam(res.user, { honorInvitations: true });
+    if (team.kind !== "created") return unchanged;
+    const scoped = await getWorkOS().userManagement.authenticateWithRefreshToken({ clientId: clientId(), refreshToken: res.refreshToken, organizationId: team.orgId });
+    // Keep how they signed in (the refresh grant reports its own method).
+    const response = { ...scoped, authenticationMethod: res.authenticationMethod, impersonator: res.impersonator };
+    return { response, returnTo: ctx.returnTo === "/" ? onboardingPath(team.orgId, team.name) : ctx.returnTo };
+  } catch (e) {
+    log("personal team not set up at sign-in", e);
+    return unchanged;
   }
 }
 
