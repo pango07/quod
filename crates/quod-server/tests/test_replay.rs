@@ -504,3 +504,95 @@ fn t9_a_second_save_uploads_only_what_changed() {
     let (_, got) = fetch(&job(&s, "push", "refs/heads/main", SHA_B), &[]);
     assert_eq!(read(&got, "results/a.json"), "result a two");
 }
+
+#[test]
+fn t10_checks_count_skips_and_record_runs_say_why() {
+    let s = Server::start(1);
+    let job = job(&s, "push", "refs/heads/main", SHA_A);
+    let base = TestReport {
+        tool: "vitest".into(),
+        kind: "critical".into(),
+        total: 3,
+        ran: 2,
+        replayed: 1,
+        ..Default::default()
+    };
+    // Two checks reuse a.test.ts; the record run finds b unrecordable and
+    // c's recording different from the check.
+    for _ in 0..2 {
+        let r = TestReport {
+            replayed_files: vec![ReplayedFile {
+                file: "a.test.ts".into(),
+                duration_ms: Some(400.0),
+            }],
+            ran_files: vec![
+                RanFile {
+                    file: "b.test.ts".into(),
+                    why: "new test file (not recorded yet)".into(),
+                    state: "pass".into(),
+                    ..Default::default()
+                },
+                RanFile {
+                    file: "c.test.ts".into(),
+                    why: "new test file (not recorded yet)".into(),
+                    state: "pass".into(),
+                    ..Default::default()
+                },
+            ],
+            ..base.clone()
+        };
+        job.report("apps/web", &r).unwrap();
+    }
+    let shadow = TestReport {
+        kind: "shadow".into(),
+        ran_files: vec![RanFile {
+            file: "b.test.ts".into(),
+            why: "new test file (not recorded yet)".into(),
+            state: "pass".into(),
+            unrecordable: Some("reads the per-run variable X_EVENT".into()),
+            ..Default::default()
+        }],
+        record_differs: vec!["c.test.ts".into()],
+        ..base.clone()
+    };
+    job.report("apps/web", &shadow).unwrap();
+    // An old name of the same suite, from before the rename.
+    job.report("apps_web-4f53cda1", &base).unwrap();
+    let j = |path: &str| -> serde_json::Value {
+        let (c, b) = s.get(path, ACME_VIEWER);
+        assert_eq!(c, 200, "{path}: {b}");
+        serde_json::from_str(&b).unwrap()
+    };
+    let su = j("/v1/teams/acme/test-suites");
+    let suites = su["suites"].as_array().unwrap();
+    assert_eq!(suites.len(), 1, "the renamed suite counts once: {su}");
+    let files = suites[0]["files"].as_array().unwrap();
+    let get = |n: &str| files.iter().find(|f| f["file"] == n).cloned().unwrap();
+    assert_eq!(get("b.test.ts")["state"], "always");
+    assert_eq!(
+        get("b.test.ts")["reason"],
+        "reads the per-run variable X_EVENT"
+    );
+    assert_eq!(get("c.test.ts")["recordDiffers"], true);
+    assert_eq!(suites[0]["totals"]["recordDiffers"], 1);
+    // The check's "why" uses what the record run found.
+    let runs = j("/v1/teams/acme/test-runs");
+    let crit = runs["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "critical" && r["suite"] == "apps/web")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let d = j(&format!("/v1/teams/acme/test-runs/{crit}"));
+    let why_b = d["ranFiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["file"] == "b.test.ts")
+        .unwrap()["why"]
+        .clone();
+    assert_eq!(why_b, "always runs: reads the per-run variable X_EVENT");
+}

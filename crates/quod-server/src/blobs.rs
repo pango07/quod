@@ -52,7 +52,10 @@ async fn has(app: &AppState, team: &str, h: &Hash) -> Result<bool, ApiError> {
 /// chunks through a channel. The reader checks the bytes against the hash
 /// and fails at the end if they differ, which cuts the response short (a
 /// runner verifies every blob it fetches anyway).
-async fn s3_body(blobs: crate::s3::S3Blobs, h: Hash) -> Result<(Body, Option<u64>), ApiError> {
+pub(crate) async fn s3_body(
+    blobs: crate::s3::S3Blobs,
+    h: Hash,
+) -> Result<(Body, Option<u64>), ApiError> {
     let opened = blocking(move || match blobs.open(&h) {
         Ok(r) => Ok(Some(r)),
         Err(quod_cas::CasError::Missing(_)) => Ok(None),
@@ -204,7 +207,7 @@ pub fn sweep_uploads(data_dir: &Path, age: std::time::Duration) -> usize {
 /// Refuses an upload when the data dir's filesystem is short of space:
 /// below `FREE_FLOOR_BYTES` or `FREE_FLOOR_SHARE` of its size, whichever
 /// is larger. The ledgers need room to commit what is already uploaded.
-fn check_free_space(dir: &Path) -> Result<(), ApiError> {
+pub(crate) fn check_free_space(dir: &Path) -> Result<(), ApiError> {
     let Ok(s) = rustix::fs::statvfs(dir) else {
         return Ok(());
     };
@@ -224,7 +227,7 @@ fn check_free_space(dir: &Path) -> Result<(), ApiError> {
 
 /// Streams `body` onto the end of `file`, failing past `max` total bytes
 /// or when no data comes for `CHUNK_READ_DEADLINE`.
-async fn append(file: &Path, body: Body, max: u64) -> Result<u64, ApiError> {
+pub(crate) async fn append(file: &Path, body: Body, max: u64) -> Result<u64, ApiError> {
     let mut f = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)

@@ -389,6 +389,19 @@ pub struct RanFile {
     /// vitest's state: pass, fail, skip, ...
     #[serde(default)]
     pub state: String,
+    /// A record run: why this file could not be recorded (it reads a
+    /// per-run variable, uses the network, a child process ...); it then
+    /// always runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unrecordable: Option<String>,
+}
+
+/// A file a run reused instead of running, with its recorded time.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReplayedFile {
+    pub file: String,
+    #[serde(default)]
+    pub duration_ms: Option<f64>,
 }
 
 /// A replayable file the shadow ran to check it, and whether its fresh
@@ -451,6 +464,13 @@ pub struct TestReport {
     pub ran_files: Vec<RanFile>,
     #[serde(default)]
     pub ledger: Option<LedgerUsed>,
+    /// The files this run reused (the check's skips, counted per file).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replayed_files: Vec<ReplayedFile>,
+    /// A record run: files whose recorded run behaved differently from the
+    /// check's (quarantined at record time, not recorded).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_differs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

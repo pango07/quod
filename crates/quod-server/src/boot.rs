@@ -62,6 +62,7 @@ pub fn connect(c: &crate::config::CloudEnv) -> Result<crate::store::Cloud, Strin
     let v = pg.schema_version().map_err(|e| format!("postgres: {e}"))?;
     crate::testreplay::ensure_pg(&pg)
         .map_err(|e| format!("postgres (test replay tables): {e:#}"))?;
+    crate::taskcache::ensure_pg(&pg).map_err(|e| format!("postgres (task cache table): {e:#}"))?;
     let s3 = crate::s3::S3::new(c.s3.clone())?;
     let probe = crate::s3::S3Blobs::new(s3.clone(), "quod-probe");
     let bytes = b"quod-server: the bucket takes and gives back a blob";
@@ -212,6 +213,17 @@ fn check_writable(dir: &Path) -> Result<(), String> {
 /// does.
 pub fn persistence(env: &Env) -> Result<String, String> {
     let dir = &env.data_dir;
+    // Quod Cloud with the key from the environment keeps nothing on the
+    // data dir that must survive: rows in Postgres, blobs in the bucket,
+    // the key in QUOD_SIGNING_KEY; the dir holds only upload staging (an
+    // interrupted resumable upload starts over). No volume needed, so a
+    // platform can start the new instance before stopping the old one.
+    if env.cloud.is_some() && env.signing_key_hex.is_some() {
+        return Ok(
+            "not needed: rows in Postgres, blobs in the bucket, the key from QUOD_SIGNING_KEY; the data dir holds only upload staging"
+                .into(),
+        );
+    }
     let covered = env
         .railway_volume
         .as_ref()
@@ -303,8 +315,34 @@ pub fn lock(dir: &Path, wait: std::time::Duration) -> Result<InstanceLock, Strin
 /// The signing key, and whether it was generated now.
 fn signing_key(env: &Env) -> Result<(SigningKey, bool), String> {
     if let Some(hex) = env.signing_key_hex.as_ref().map(Secret::expose) {
-        let k =
-            quod_wire::signing_key_from_hex(hex).map_err(|e| format!("QUOD_SIGNING_KEY: {e}"))?;
+        // Surrounding whitespace (a pasted newline) is not part of the
+        // seed. A bad value is described by its length only, never shown.
+        let hex = hex.trim();
+        let k = quod_wire::signing_key_from_hex(hex).map_err(|_| {
+            format!(
+                "QUOD_SIGNING_KEY is not a key: expected 64 hex characters (the line in the key file), got {} characters{}",
+                hex.chars().count(),
+                if hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    ""
+                } else {
+                    ", not all of them hex digits"
+                }
+            )
+        })?;
+        // The environment's key wins over the file, but never silently
+        // replaces a different one: runners pinned to the file's key would
+        // refuse every replay.
+        if env.key_file.exists() {
+            let (f, _) = load_or_generate(&env.key_file)?;
+            if f.verifying_key() != k.verifying_key() {
+                return Err(format!(
+                    "QUOD_SIGNING_KEY ({}) and the key file {} ({}) are different keys; keep one (runners pin the public key)",
+                    fingerprint(&k.verifying_key()),
+                    env.key_file.display(),
+                    fingerprint(&f.verifying_key())
+                ));
+            }
+        }
         return Ok((k, false));
     }
     load_or_generate(&env.key_file)

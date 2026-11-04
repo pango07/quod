@@ -172,16 +172,63 @@ the recorded ones; a mismatch quarantines the file (it always runs). The
 audited file's reported result is the fresh one, so an audit never makes
 the job wrong and costs no wall time.
 
+The shadow's own check (`--expect-report`, the critical path's `--report`
+of the same commit) is per project and file: a file several projects run
+(convex-helpers runs zodVersion.test.ts in eight zod-version projects) is
+compared with the same project's run. A report without projects (an older
+quod's) verifies only a file it lists once; any other file is not recorded.
+
 The benchmark verifies independently: every commit also runs plain vitest
 and the two JSON reports are compared per file and per test; a difference
 in a file Quod replayed is a wrong replay and fails the job.
 
 ## Supported versions
 
-vitest 4.x (the driver uses `createVitest`, `_testRun`, `_reportFileTask`,
-the module runner's `evaluatedModules` and the worker's `onCleanup`); vitest
-3.1 projects were not recordable (ufo's older commits). Node with
-`module.registerHooks` (22.15+, 23.5+).
+vitest 3.2 and later (the driver uses `createVitest`, `_testRun`,
+`_reportFileTask` and the worker's `onCleanup`, all in 3.2). The worker's
+module graph is vitest 4's `evaluatedModules`, or on vitest 3 vite-node's
+`moduleCache` (module id -> the transformed code it evaluated, under the
+same `'use strict';async (...)=>{{` wrapper, so function-level coverage maps
+the same way). vitest 3 hands a forks-pool worker each transformed module
+as a file in its project's temp directory (`project.tmpDir`, a new one each
+run); reads there are not inputs (the driver's `QUOD_VITEST_SKIP`): the
+module's own source is keyed through the graph. Before 3.2 (no
+`_reportFileTask`; vitest 3.1 projects were not recordable on ufo's older
+commits) the action's hook leaves vitest alone and prints one line, and
+`quod vitest` itself runs plain vitest with the same arguments, nothing
+recorded or hashed. Node with `module.registerHooks` (22.15+, 23.5+).
+
+Yarn (classic and berry, node-modules linker) runs scripts with a `node`
+of its own first on PATH (a wrapper in /tmp/yarn--* or /tmp/xfs-* that runs
+yarn's `process.execPath`), so the action's shim makes `process.execPath`
+the shim inside yarn's own process (quod-action hook.cjs `yarnNode`). Yarn
+Plug'n'Play stays plain vitest (dependencies in zip archives).
+
+### What always runs, and why
+
+A file that starts a child process or touches the network (net, tls,
+http(s), http2, dgram, dns, fetch, WebSocket) is unrecordable: what it
+read lives in another process or on another machine, and nothing in the
+worker can key it. It always runs, on every commit, at full cost (axios:
+16 of its unit files start a local HTTP server or a child process and take
+the whole ~65 s of the run; the rest replay in no time). A worker thread,
+`fs.watch`, and a write inside the workspace are the same. This is by
+design: replaying such a file would trust inputs Quod never saw.
+
+### Timing-sensitive tests
+
+Recording costs a test that reads `process.env` in a hot loop about 220 ns
+a read through the recorder's Proxy (node's own `process.env` read is
+~100 ns; measured on node 25, 1M reads: 104 ms plain, 324 ms through a bare
+Proxy, 350 ms with the recorder's bookkeeping). reselect's dev-mode check
+reads `process.env.NODE_ENV` once per recomputation; its two perf tests
+recompute 1M times against a 2000 ms budget and go over it only while
+recording (2.1-2.7 s). The shadow compares every file it records with the
+critical path's report of the same commit; such a file ran differently, so
+it is quarantined and always runs (never replayed, never wrong). The
+critical path itself runs plain (`--no-record`), so the job's result is
+the plain one. Precise V8 coverage (function granularity, binary) was
+measured not to slow reselect's selector loop (240 ms either way).
 
 ## npm workspaces and the CI environment (exp/vitest-npm)
 
@@ -230,7 +277,12 @@ directory, and node_modules is hoisted to the repository root.
 - **Every CPU for large runs** is off under a task runner (`TURBO_HASH`,
   `NX_TASK_*`, `LERNA_PACKAGE_NAME`) and with `QUOD_VITEST_ALL_CPUS=0`.
   turbo's five concurrent suites oversubscribed the runner, and a test with
-  a 5 s timeout timed out.
+  a 5 s timeout timed out. It is also off on the critical path
+  (`--no-record`): there vitest keeps its own worker count, the one the
+  project's timeouts were set under. On convex-helpers one more worker made
+  a 25 s CPU-bound test take 29-30 s, and it timed out at 30 s where plain
+  vitest passed (no gain in total time: 99.8 s plain, 101.6 s with it).
+  Only the recording run, which is diagnostics only, uses every CPU.
 
 The customer-facing setup is pango07/quod-action. Its README is the "Add
 Quod to your CI" page.

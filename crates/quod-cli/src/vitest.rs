@@ -403,6 +403,25 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
         return Ok(code);
     }
+    // vitest before 3.2 has neither the worker module graph nor the reporter
+    // hooks quod records and replays with: plain vitest, nothing else.
+    if let Some((version, entry)) = vitest_install(&root)
+        && !vitest_supported(&version)
+    {
+        eprintln!(
+            "quod vitest: vitest {version} is not supported (3.2 or later); running plain vitest"
+        );
+        let mut cmd = Command::new(&a.node);
+        cmd.arg(entry);
+        if a.args.first().map(String::as_str) != Some("run") {
+            cmd.arg("run");
+        }
+        let status = cmd
+            .args(&a.args)
+            .status()
+            .with_context(|| format!("running {}", a.node))?;
+        return Ok(status.code().map_or(1, |c| c.clamp(0, 255) as u8));
+    }
     let used = cloud.as_ref().map(|c| c.restore(&root, &dir));
     let blobs = dir.join("blobs");
     fs::create_dir_all(&blobs)?;
@@ -671,7 +690,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
-        "workers": if affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
+        // Every CPU only in a shadow (`--expect-report`, diagnostics only):
+        // the critical path keeps vitest's own worker count, the one the
+        // project's timeouts were set under (convex-helpers: a 25 s
+        // CPU-bound test took 29-30 s with one more worker and timed out
+        // at 30 s, the job red where plain vitest was green). With inline
+        // recording (no shadow) the critical path records, so recording
+        // alone does not lift the count.
+        "workers": if !a.no_record && a.expect_report.is_some() && affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
         "report": a.report.as_ref().map(std::path::absolute).transpose()?,
         "expect": if ledger.facts.is_empty() { serde_json::Value::Null } else { serde_json::to_value(&ledger.facts)? },
@@ -753,6 +779,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     &ids,
                     &[],
                     &HashSet::new(),
+                    &HashMap::new(),
                     Some(code),
                 );
                 if let Some(p) = &a.summary {
@@ -835,6 +862,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             &replayed_ids,
             &[],
             &HashSet::new(),
+            &HashMap::new(),
             Some(code),
         );
         eprintln!(
@@ -921,6 +949,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
     }
     let (mut recorded, mut failed) = (0usize, 0usize);
+    // Why each file that ran was not recorded (for the run report).
+    let mut unrec: HashMap<String, String> = HashMap::new();
     for r in &out.ran {
         let old = ledger.files.remove(&r.id).or_else(|| prev.remove(&r.id));
         // Quarantine is re-proved, not permanent: a quarantined file runs
@@ -946,8 +976,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         for u in &r.unobservable {
             *unobservable.entry(u.clone()).or_default() += 1;
         }
-        let Some(keys) = &r.keys else { continue };
-        if !r.unobservable.is_empty() {
+        let Some(keys) = &r.keys else {
+            unrec.insert(
+                r.id.clone(),
+                "not recorded: it is not in the check's report".into(),
+            );
+            continue;
+        };
+        if let Some(u) = r.unobservable.first() {
+            unrec.insert(r.id.clone(), u.clone());
             continue;
         }
         // A per-run value (the commit, the run id) makes a result
@@ -965,6 +1002,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             *unobservable
                 .entry(format!("reads the per-run variable {v}"))
                 .or_default() += 1;
+            unrec.insert(r.id.clone(), format!("reads the per-run variable {v}"));
             continue;
         }
         if r.state != "pass" && r.state != "skip" {
@@ -1142,12 +1180,21 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "quod vitest: second witness: {promoted} records now trusted, {witnessed_again} witnessed again, {disagreed} disagreed"
         );
     }
+    // Failed as vitest counts it (any file whose state is not a pass or a
+    // skip, recordable or not); not recorded: everything else that ran and
+    // has no record.
+    let _ = failed;
+    let failed_all = out
+        .ran
+        .iter()
+        .filter(|r| r.state != "pass" && r.state != "skip")
+        .count();
     eprintln!(
-        "quod vitest: ran {} files ({} recorded, {} failed, {} unrecordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
+        "quod vitest: ran {} files ({} recorded, {} failed, {} not recordable), replayed {}, audited {}{}; quod {} ms (select {} ms, record {} ms)",
         out.ran.len(),
         recorded,
-        failed,
-        out.ran.len() - recorded - failed,
+        failed_all,
+        unrec.len(),
         out.replayed.len(),
         audit.len(),
         if mismatched.is_empty() {
@@ -1172,6 +1219,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         &replayed_ids,
         &audit,
         &mism,
+        &unrec,
         Some(code),
     );
     if let Some(c) = &cloud
@@ -2090,7 +2138,8 @@ fn state(
         "env" if volatile_env(p) => ("volatile".into(), None),
         "env" => (
             std::env::var_os(p).map_or("unset".into(), |v| {
-                blake3::hash(v.as_encoded_bytes()).to_hex()[..32].to_string()
+                let v = yarn_stable(&v.to_string_lossy());
+                blake3::hash(v.as_bytes()).to_hex()[..32].to_string()
             }),
             None,
         ),
@@ -2200,6 +2249,29 @@ fn hidden_env(a: &VitestArgs) -> String {
     v.join(",")
 }
 
+/// The vitest the project resolves from `root` (the nearest
+/// node_modules/vitest up from it): its version and its CLI entry.
+fn vitest_install(root: &Path) -> Option<(String, PathBuf)> {
+    let d = root
+        .ancestors()
+        .map(|d| d.join("node_modules").join("vitest"))
+        .find(|d| d.join("package.json").is_file())?;
+    let pj: serde_json::Value =
+        serde_json::from_slice(&fs::read(d.join("package.json")).ok()?).ok()?;
+    let entry = d.join("vitest.mjs");
+    let version = pj["version"].as_str()?.to_string();
+    entry.is_file().then_some((version, entry))
+}
+
+/// vitest 3.2 or later.
+fn vitest_supported(version: &str) -> bool {
+    let mut n = version.split(['.', '-']).map(|x| x.parse::<u32>().ok());
+    match (n.next().flatten(), n.next().flatten()) {
+        (Some(major), Some(minor)) => major > 3 || (major == 3 && minor >= 2),
+        _ => true,
+    }
+}
+
 /// `--report` for a rendered full replay: every file's recorded tests, in
 /// the shape the driver writes (vitest's JSON report: per file, each test's
 /// full name and status).
@@ -2236,8 +2308,9 @@ fn report_from_ledger(dir: &Path, ledger: &Ledger) -> serde_json::Value {
             for c in file["tasks"].as_array().into_iter().flatten() {
                 walk(c, &mut Vec::new(), &mut tests);
             }
-            results
-                .push(serde_json::json!({ "name": file["filepath"], "assertionResults": tests }));
+            results.push(serde_json::json!({
+                "name": file["filepath"], "project": rec.project, "assertionResults": tests,
+            }));
         }
     }
     serde_json::json!({ "testResults": results })
@@ -2721,6 +2794,44 @@ fn keyed_args(args: &[String]) -> Vec<String> {
     out
 }
 
+/// An environment value with yarn's per-run directory names made constant.
+/// Yarn runs scripts with a directory of its own first on PATH (berry:
+/// `<tmp>/xfs-<8 hex>`, also BERRY_BIN_FOLDER and npm_node_execpath; classic:
+/// `<tmp>/yarn--<ms>-<random>`), a new one every run, holding wrappers that
+/// run yarn's node and yarn itself (each keyed where it is: the node
+/// version, the yarn release). The name is not an input.
+fn yarn_stable(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut rest = v;
+    loop {
+        let xfs = rest.find("/xfs-");
+        let classic = rest.find("/yarn--");
+        let (at, skip, ok): (usize, usize, fn(char) -> bool) = match (xfs, classic) {
+            (Some(a), Some(b)) if b < a => (b, 7, |c| c.is_ascii_digit() || c == '-' || c == '.'),
+            (Some(a), _) => (a, 5, |c| c.is_ascii_hexdigit()),
+            (None, Some(b)) => (b, 7, |c| c.is_ascii_digit() || c == '-' || c == '.'),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at + skip]);
+        let tail = &rest[at + skip..];
+        let n = tail.find(|c: char| !ok(c)).unwrap_or(tail.len());
+        // Only a whole path component made of the generated part.
+        if n > 0
+            && tail[n..]
+                .chars()
+                .next()
+                .is_none_or(|c| c == '/' || c == ':')
+        {
+            out.push('*');
+        } else {
+            out.push_str(&tail[..n]);
+        }
+        rest = &tail[n..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Every environment variable but the per-run and per-step ones; for the
 /// tools' own enumeration (`envtool:`), those of them `tool_env` names.
 fn env_all(tools: bool) -> String {
@@ -2728,7 +2839,7 @@ fn env_all(tools: bool) -> String {
         .map(|(k, v)| {
             (
                 k.to_string_lossy().into_owned(),
-                v.to_string_lossy().into_owned(),
+                yarn_stable(&v.to_string_lossy()),
             )
         })
         .filter(|(k, _)| !volatile_env(k) && (!tools || tool_env(k)))
@@ -2894,6 +3005,7 @@ impl Reporting<'_> {
         replayed: &[&String],
         audit: &[String],
         mismatched: &HashSet<String>,
+        unrecordable: &HashMap<String, String>,
         exit: Option<u8>,
     ) {
         let Some(c) = self.cloud else { return };
@@ -2925,6 +3037,25 @@ impl Reporting<'_> {
                 }),
                 duration_ms: Some(*d),
                 state: state.clone(),
+                unrecordable: unrecordable.get(id).cloned(),
+            })
+            .collect();
+        // Files the shadow ran to record (not to audit) whose result
+        // differed from the check's: quarantined at record time.
+        let record_differs = mismatched
+            .iter()
+            .filter(|id| !audit.iter().any(|a| a == *id))
+            .map(|id| {
+                ran.iter()
+                    .find(|r| &r.0 == id)
+                    .map_or_else(|| file_of(id), |r| relativize_file(&r.1))
+            })
+            .collect();
+        let replayed_files = replayed
+            .iter()
+            .map(|id| quod_wire::testreplay::ReplayedFile {
+                file: file_of(id),
+                duration_ms: self.recorded.get(*id).map(|r| r.1),
             })
             .collect();
         let audit_files = audit
@@ -2950,6 +3081,8 @@ impl Reporting<'_> {
             audit_files,
             ran_files,
             ledger: self.used.clone(),
+            replayed_files,
+            record_differs,
         };
         c.report(&r);
     }
@@ -3068,6 +3201,33 @@ mod tests {
         assert_eq!(relativize(root, "f:/tmp/x"), "f:/tmp/x");
         assert_eq!(relativize(root, "env:HOME"), "env:HOME");
         assert_eq!(relativize(root, "envall:"), "envall:");
+    }
+
+    #[test]
+    fn yarn_run_directories_are_not_inputs() {
+        assert_eq!(
+            yarn_stable("/tmp/xfs-d5f5e454:/home/r/_temp/quod/bin:/usr/bin"),
+            "/tmp/xfs-*:/home/r/_temp/quod/bin:/usr/bin"
+        );
+        assert_eq!(yarn_stable("/tmp/xfs-0a1b2c3d/node"), "/tmp/xfs-*/node");
+        assert_eq!(
+            yarn_stable("/tmp/yarn--1730000000000-0.4512/node:/a"),
+            "/tmp/yarn--*/node:/a"
+        );
+        // not yarn's: kept as is
+        assert_eq!(yarn_stable("/opt/xfs-tools/bin"), "/opt/xfs-tools/bin");
+        assert_eq!(yarn_stable("/a/yarn--x/b"), "/a/yarn--x/b");
+        assert_eq!(yarn_stable("plain"), "plain");
+    }
+
+    #[test]
+    fn vitest_before_3_2_is_not_supported() {
+        for v in ["3.2.0", "3.2.4", "4.0.0", "4.1.12", "5.0.0-beta.1", "weird"] {
+            assert!(vitest_supported(v), "{v}");
+        }
+        for v in ["3.1.4", "3.0.9", "2.1.9", "1.6.0"] {
+            assert!(!vitest_supported(v), "{v}");
+        }
     }
 
     #[test]
