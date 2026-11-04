@@ -21,10 +21,13 @@ if ! cargo test -q --workspace --no-run >"$log" 2>&1; then
   exit 1
 fi
 phase test-build
-if ! cargo test -q --workspace >>"$log" 2>&1; then
+if ! cargo test --workspace >>"$log" 2>&1; then
   grep -E "^---- |panicked at|^test .* FAILED|^error: test failed" "$log" || tail -40 "$log"
   echo "lint FAILED: unit tests (full output in $log)" >&2
   exit 1
 fi
 phase test-run
+# The slowest test binaries ("Running <target>" then its "finished in").
+awk '/^ *Running /{t=$2} /^test result:/{for(i=1;i<=NF;i++) if($i=="in") {sub(/s$/,"",$(i+1)); printf "%8.1fs %s\n", $(i+1), t}}' "$log" \
+  | sort -rn | head -12 | sed 's/^/lint: slowest /'
 echo lint ok
