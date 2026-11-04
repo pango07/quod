@@ -28,6 +28,6 @@ if ! cargo test --workspace >>"$log" 2>&1; then
 fi
 phase test-run
 # The slowest test binaries ("Running <target>" then its "finished in").
-awk '/^ *Running /{t=$2} /^test result:/{for(i=1;i<=NF;i++) if($i=="in") {sub(/s$/,"",$(i+1)); printf "%8.1fs %s\n", $(i+1), t}}' "$log" \
+sed $'s/\e\\[[0-9;]*m//g' "$log" | awk '/^ *Running /{t=$0; sub(/^ *Running /,"",t)} /^test result:/{for(i=1;i<=NF;i++) if($i=="in") {sub(/s$/,"",$(i+1)); printf "%8.1fs %s\n", $(i+1), t}}' \
   | sort -rn | head -12 | sed 's/^/lint: slowest /'
 echo lint ok

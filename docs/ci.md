@@ -178,8 +178,27 @@ Debug builds use `CARGO_PROFILE_DEV_DEBUG=line-tables-only` (gate.yml's
 `env`): backtraces keep file and line, and the debug builds and the ~20 test
 binaries link faster with smaller caches. Release builds are unaffected.
 `scripts/lint.sh` prints each phase's time (`lint: fmt 3s`, `clippy`,
-`clippy-all-features`, `test-build`, `test-run`); the lint job's summary
-shows them.
+`clippy-all-features`, `test-build`, `test-run`) and the twelve slowest test
+binaries (`lint: slowest`); the lint job's summary shows them.
+
+Where lint's time goes (2026-11-04, runs 41887928583 cold and 41891374126
+warm, `only=lint` on ci/milestone-gates):
+
+| Phase | Cold cache | Warm cache |
+|---|---|---|
+| fmt | 1 s | 0 s |
+| clippy | 52 s | 13 s |
+| clippy, all features | 8 s | 8 s |
+| building the tests | 59 s | 34 s |
+| running the tests (`QUOD_INTEGRATION=1`, as root, 2 CPUs) | 1,036 s | 1,095 s |
+| job, billed | 21 min | 22 min |
+
+The warm cache saves about a minute of compiling. The rest of lint is the
+test run, and six test binaries take about 1,000 s of it (413, 166, 141,
+126, 80 and 76 s). The cheap lever left is to run the integration tests
+(`QUOD_INTEGRATION=1`) only at milestones and keep fmt, clippy and the unit
+tests on pull requests (about 4 min); that trades coverage, so it is the
+owner's call and not done here.
 
 ## GitHub's runners against the dev VM
 
@@ -209,17 +228,16 @@ GitHub bills each job rounded up to the minute, cancelled runs included.
 
 | | Minutes |
 |---|---|
-| full gate (every Rust job; `changes` 1, lint 15, merge-gate 6, bench-lite 7, hooks 46, acceptance-cli 102, node 24, python 21) | about 220 |
-| fast gate (`changes`, lint, merge-gate, bench-lite), warm caches | about 29 |
-| the same with cold caches (a new Cargo.lock) | about 40 |
+| full gate (every Rust job; `changes` 1, lint 22, merge-gate 6, bench-lite 7, hooks 46, acceptance-cli 102, node 24, python 21) | about 230 |
+| fast gate (`changes`, lint, merge-gate, bench-lite) | about 36 (warm and cold caches differ by a couple of minutes) |
 | a merge to main, caches current (cache mode) | about 6 |
 | cloud job | about 3 |
 
 Before 2026-11-04 every push to `exp/**`, `fix/**`, `cloud/**` or `ci/**`
 ran the fast gate, cold on a branch's first push: about 1,230 minutes from
 2026-11-03 to the morning of 2026-11-04. Under the milestone policy a month
-of, say, 20 pull requests with two pushes each (40 fast gates, about 1,200),
-20 merges (120) and two milestone dispatches (440) is about 1,750; fewer
+of, say, 15 pull requests with two pushes each (30 fast gates, about 1,080),
+15 merges (90) and two milestone dispatches (460) is about 1,630; fewer
 pull request pushes (draft until ready) is where the rest of the room is.
 
 Spending it well:
