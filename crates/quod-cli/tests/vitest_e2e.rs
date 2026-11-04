@@ -426,3 +426,151 @@ fn a_config_reading_package_json_straight_is_keyed_by_the_fields_it_read() {
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 3, "the field the config read changed: {s}");
 }
+
+/// The coverage outputs a CI job depends on, as written: coverage-final.json
+/// (parsed: istanbul's per-file statement, branch and function counters),
+/// lcov.info and coverage-summary.json (bytes). None when absent.
+fn coverage_outputs(dir: &Path) -> Vec<(String, Option<String>)> {
+    ["coverage-final.json", "lcov.info", "coverage-summary.json"]
+        .iter()
+        .map(|f| {
+            let s = fs::read_to_string(dir.join("coverage").join(f)).ok();
+            let s = match (*f, s) {
+                ("coverage-final.json", Some(s)) => Some(
+                    serde_json::from_str::<serde_json::Value>(&s)
+                        .unwrap()
+                        .to_string(),
+                ),
+                (_, s) => s,
+            };
+            (f.to_string(), s)
+        })
+        .collect()
+}
+
+#[test]
+fn coverage_reports_and_thresholds_match_plain_with_replays() {
+    // `vitest --coverage`, v8 and istanbul: a replayed file's recorded
+    // coverage goes into the report, so every coverage output and the
+    // threshold's exit code are plain vitest's, run after run.
+    for provider in ["v8", "istanbul"] {
+        let t = tempfile::tempdir().unwrap();
+        let Some(p) = project(&t) else {
+            return;
+        };
+        fs::write(
+            p.dir.join("src/other.ts"),
+            "export function twice(n: number): number {\n  if (n > 100) {\n    return n\n  }\n  return n * 2\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            p.dir.join("src/untested.ts"),
+            "export const never = (x: number) => x + 1\n",
+        )
+        .unwrap();
+        fs::write(
+            p.dir.join("test/other.test.ts"),
+            "import { expect, test } from 'vitest'\nimport { twice } from '../src/other'\n\ntest('twice', () => {\n  expect(twice(2)).toBe(4)\n})\n",
+        )
+        .unwrap();
+        let args = |extra: &[&str]| -> Vec<String> {
+            let mut v: Vec<String> = [
+                "run",
+                "--coverage",
+                "--coverage.include=src/**",
+                "--coverage.reporter=json",
+                "--coverage.reporter=lcov",
+                "--coverage.reporter=json-summary",
+                "--coverage.reporter=text",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            v.push(format!("--coverage.provider={provider}"));
+            v.extend(extra.iter().map(|s| s.to_string()));
+            v
+        };
+        // `witnesses`: QUOD_VITEST_WITNESSES ("" is the default policy, a
+        // second witness before a record replays).
+        let run = |n: u32, extra: &[&str], witnesses: &str| -> (bool, bool, serde_json::Value) {
+            let plain = p
+                .cmd(&p.dir.join("node_modules/.bin/vitest"))
+                .args(args(extra))
+                .output()
+                .unwrap();
+            let want = coverage_outputs(&p.dir);
+            assert!(
+                want.iter().all(|(_, s)| s.is_some()),
+                "{provider}: plain wrote no coverage:\n{}",
+                String::from_utf8_lossy(&plain.stderr)
+            );
+            fs::remove_dir_all(p.dir.join("coverage")).unwrap();
+            let summary = p.dir.join(format!("summary-{provider}-{n}.json"));
+            let out = p
+                .cmd(Path::new(env!("CARGO_BIN_EXE_quod")))
+                .env("QUOD_VITEST_WITNESSES", witnesses)
+                .arg("vitest")
+                .arg("--dir")
+                .arg(p.dir.join(".quod/vitest"))
+                .arg("--node")
+                .arg(p.node.join("node"))
+                .arg("--summary")
+                .arg(&summary)
+                .args(["--audits", "0", "--"])
+                .args(args(extra))
+                .output()
+                .unwrap();
+            let err = String::from_utf8_lossy(&out.stderr);
+            let got = coverage_outputs(&p.dir);
+            for ((f, a), (_, b)) in want.iter().zip(&got) {
+                assert_eq!(a, b, "{provider} run {n}: {f} differs from plain\n{err}");
+            }
+            let s: serde_json::Value =
+                serde_json::from_slice(&fs::read(&summary).unwrap()).unwrap();
+            (plain.status.success(), out.status.success(), s)
+        };
+
+        // 1. Nothing recorded: every file runs (and records its coverage).
+        let (pl, q, s) = run(1, &[], "1");
+        assert!(pl && q, "{provider}: {s}");
+        assert_eq!(s["ran"], 4, "{provider}: {s}");
+        // 2. Nothing changed: every file replays; the report is the same.
+        let (pl, q, s) = run(2, &[], "1");
+        assert!(pl && q, "{provider}: {s}");
+        assert_eq!(s["replayed"], 4, "{provider}: {s}");
+        // 3. math.ts changes: its three test files run (coverage: no
+        //    function-level narrowing), other.test.ts replays.
+        edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");
+        let (pl, q, s) = run(3, &[], "1");
+        assert!(pl && q, "{provider}: {s}");
+        assert_eq!(s["ran"], 3, "{provider}: {s}");
+        assert_eq!(s["replayed"], 1, "{provider}: {s}");
+        // 4. A threshold the untested file breaks: the configuration is part
+        //    of the key (every file runs), and the job fails as plain's does.
+        let th = ["--coverage.thresholds.functions=100"];
+        let (pl, q, s) = run(4, &th, "1");
+        assert!(!pl && !q, "{provider}: the threshold must fail both: {s}");
+        assert_eq!(s["ran"], 4, "{provider}: {s}");
+        // 5. Unchanged under the threshold: replays, and still fails.
+        let (pl, q, s) = run(5, &th, "1");
+        assert!(!pl && !q, "{provider}: {s}");
+        assert_eq!(s["replayed"], 4, "{provider}: {s}");
+        // 6-8. The default policy (inline recording, a second witness): a
+        //    change to math.ts records its three files provisionally (other.test.ts too if
+        //    its one-witness record counts as provisional), the
+        //    next run witnesses them again, the one after replays them;
+        //    every run's coverage is plain's (the threshold still fails
+        //    both).
+        edit(&p.dir, "src/math.ts", "return a + b", "return a + b + 0");
+        let (pl, q, s) = run(6, &th, "");
+        assert!(!pl && !q, "{provider}: {s}");
+        assert!(s["ran"].as_u64().unwrap() >= 3, "{provider}: {s}");
+        let (pl, q, s) = run(7, &th, "");
+        assert!(!pl && !q, "{provider}: {s}");
+        assert!(s["ran"].as_u64().unwrap() >= 3, "{provider}: {s}");
+        assert!(s["promoted"].as_u64().unwrap() >= 3, "{provider}: {s}");
+        let (pl, q, s) = run(8, &th, "");
+        assert!(!pl && !q, "{provider}: {s}");
+        assert_eq!(s["replayed"], 4, "{provider}: {s}");
+    }
+}
