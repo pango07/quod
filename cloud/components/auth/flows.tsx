@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import {
   chooseOrganization,
+  createMyTeam,
   continueWithProvider,
   joinTeam,
   requestPasswordReset,
@@ -247,6 +248,20 @@ export function JoinTeamForm({ invitationId, teamName, secondary }: { invitation
         <input type="hidden" name="invitationId" value={invitationId} />
         <Submit secondary={secondary} pending="Joining…">
           Join {teamName}
+        </Submit>
+      </form>
+    </>
+  );
+}
+
+export function CreateTeamForm({ secondary }: { secondary?: boolean }) {
+  const [state, action] = useActionState(createMyTeam, {});
+  return (
+    <>
+      <FormError message={state.error} focus />
+      <form action={action} className="auth-form">
+        <Submit secondary={secondary} pending="Creating your team…">
+          Create my team
         </Submit>
       </form>
     </>

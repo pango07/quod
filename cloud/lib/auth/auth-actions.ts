@@ -26,6 +26,7 @@ import {
 } from "./flow";
 import { invitationProvesEmail, mayAcceptInvitation } from "./invite";
 import { RateLimiter, TtlCache } from "./limits";
+import { ensurePersonalTeam, onboardingPath } from "./personal-team";
 import { invalidateMemberships } from "./session";
 import { checkCode, checkEmail, checkId, checkName, checkNewPassword, checkPassword, checkToken, sanitizeReturnTo } from "./validate";
 
@@ -462,6 +463,39 @@ export async function joinTeam(_prev: FormState, form: FormData): Promise<FormSt
     return { error: "You joined the team. Sign out and sign in again to open it." };
   }
   redirect("/");
+}
+
+/**
+ * "Create my team" on "/": the signed-in person's own free team, for whoever
+ * has none (sign-in normally makes it; this is the fallback, and the choice
+ * for someone with invitations who would rather start their own). Idempotent:
+ * a second press finds the same team. Then the session is scoped to it and
+ * they go on to connect GitHub.
+ */
+export async function createMyTeam(): Promise<FormState> {
+  if (isDemo()) return DEMO;
+  const { user } = await withAuth();
+  if (!user) redirect("/sign-in");
+  let orgId: string;
+  let to = "/";
+  try {
+    const team = await ensurePersonalTeam(user, { honorInvitations: false });
+    if (team.kind === "invited") return { error: TRY_AGAIN }; // not reachable without honorInvitations
+    orgId = team.orgId;
+    if (team.kind === "created") to = onboardingPath(team.orgId, team.name);
+  } catch (e) {
+    if (status(e) === 429) return { error: RATE_LIMITED };
+    console.warn("[quod-cloud] personal team not created", { status: status(e) });
+    return { error: TRY_AGAIN };
+  }
+  try {
+    await switchToOrganization(orgId, { returnTo: to });
+  } catch (e) {
+    unstable_rethrow(e);
+    console.warn("[quod-cloud] session not switched to the new team", { status: status(e) });
+    return { error: "Your team is ready. Sign out and sign in again to open it." };
+  }
+  redirect(to);
 }
 
 // ---------------------------------------------------------------- Password reset

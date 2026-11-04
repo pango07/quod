@@ -27,7 +27,7 @@ export type LinkRefusal =
   | "changed";
 
 export const REFUSAL_MESSAGE: Record<LinkRefusal, string> = {
-  "no-team": "You are not in a Quod team yet. Ask a teammate to invite you, then open this link again.",
+  "no-team": "You are not in a Quod team yet. Create your free team from the dashboard (or ask a teammate to invite you), then open this link again.",
   "not-member": "You are not a member of that Quod team.",
   "not-admin": "Only a team admin can link a GitHub installation. Ask an admin of this team, or switch to a team where you are an admin.",
   "not-in-user-installations": "GitHub does not list this installation for your GitHub account, so it cannot be linked. Install the App from your own account or organization, then try again.",

@@ -41,7 +41,8 @@ export default async function GitHubLink({ searchParams }: { searchParams: SP })
   const installUrl = cfg.ok ? "/github/install" : null;
   const [viewer, teams] = await Promise.all([getViewer(), getTeams()]);
   const team = currentTeam(viewer, teams);
-  const home = team ? `/${team.slug}` : "/";
+  // The current team, else the first one; with none, "/" offers "Create my team" (and any invitations).
+  const home = team ? `/${team.slug}` : teams[0] ? `/${teams[0].slug}` : "/";
 
   if (error) {
     return (

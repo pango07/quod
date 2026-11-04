@@ -16,7 +16,12 @@ const um = {
   findInvitationByToken: vi.fn(),
   getInvitation: vi.fn(),
   acceptInvitation: vi.fn(),
+  listOrganizationMemberships: vi.fn(),
+  listInvitations: vi.fn(),
+  createOrganizationMembership: vi.fn(),
+  authenticateWithRefreshToken: vi.fn(),
 };
+const orgs = { getOrganizationByExternalId: vi.fn(), createOrganization: vi.fn() };
 const saveSession = vi.fn();
 const withAuth = vi.fn();
 const switchToOrganization = vi.fn();
@@ -29,6 +34,7 @@ class Redirect extends Error {
 }
 
 vi.mock("server-only", () => ({}));
+const invitationsPage = (data: unknown[]) => ({ data, autoPagination: async () => data });
 vi.mock("next/navigation", () => ({
   redirect: (to: string) => {
     throw new Redirect(to);
@@ -49,7 +55,7 @@ vi.mock("@workos-inc/authkit-nextjs", () => ({
   saveSession: (...a: unknown[]) => saveSession(...a),
   withAuth: (...a: unknown[]) => withAuth(...a),
   switchToOrganization: (...a: unknown[]) => switchToOrganization(...a),
-  getWorkOS: () => ({ userManagement: um, multiFactorAuth: {} }),
+  getWorkOS: () => ({ userManagement: um, organizations: orgs, multiFactorAuth: {} }),
 }));
 vi.mock("./session", () => ({ invalidateMemberships: (...a: unknown[]) => invalidateMemberships(...a) }));
 
@@ -87,8 +93,11 @@ async function run<T>(p: Promise<T>): Promise<{ to: string } | { state: T }> {
 
 beforeEach(() => {
   jar.clear();
-  for (const f of [...Object.values(um), saveSession, withAuth, switchToOrganization, invalidateMemberships]) f.mockReset();
+  for (const f of [...Object.values(um), ...Object.values(orgs), saveSession, withAuth, switchToOrganization, invalidateMemberships]) f.mockReset();
   saveSession.mockResolvedValue(undefined);
+  // By default the person is already in a team, so sign-in makes none (the personal-team tests below say otherwise).
+  um.listOrganizationMemberships.mockResolvedValue({ data: [{ organizationId: "org_existing" }] });
+  um.listInvitations.mockResolvedValue(invitationsPage([]));
 });
 afterEach(() => vi.useRealTimers());
 
@@ -270,5 +279,121 @@ describe("joining a team while signed in", () => {
   it("refuses a malformed id without asking WorkOS", async () => {
     expect(await run(actions.joinTeam({}, form({ invitationId: "../org_1" })))).toMatchObject({ state: { error: expect.any(String) } });
     expect(um.getInvitation).not.toHaveBeenCalled();
+  });
+});
+
+describe("a team of one's own (decision 2026-11-04)", () => {
+  const NEWCOMER = "sam@example.com";
+  const newcomer = { id: "user_9", email: NEWCOMER, firstName: "Sam" };
+  const signedInNew = { user: newcomer, accessToken: "at", refreshToken: "rt", authenticationMethod: "Password" };
+  const scoped = { user: newcomer, organizationId: "org_sam", accessToken: "at2", refreshToken: "rt2", authenticationMethod: "RefreshToken" };
+  const noTeam = () => {
+    um.listOrganizationMemberships.mockResolvedValue({ data: [] });
+    orgs.getOrganizationByExternalId.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+    orgs.createOrganization.mockResolvedValue({ id: "org_sam", name: "Sam's team" });
+    um.createOrganizationMembership.mockResolvedValue({ id: "om_1" });
+    um.authenticateWithRefreshToken.mockResolvedValue(scoped);
+  };
+  const newSignUp = (extra: Record<string, string> = {}) => form({ firstName: "Sam", lastName: "Lee", email: NEWCOMER, password: "a long enough password", returnTo: "/", ...extra });
+
+  it("an uninvited sign-up gets 'Sam's team' as admin, a session scoped to it, and lands on connecting GitHub", async () => {
+    noTeam();
+    um.listUsers.mockResolvedValue({ data: [] });
+    um.authenticateWithPassword.mockRejectedValue(verificationRequired());
+    expect(await run(actions.signUp({}, newSignUp()))).toEqual({ to: "/verify-email" });
+    expect(orgs.createOrganization).not.toHaveBeenCalled(); // nothing before the email is proven
+    um.authenticateWithEmailVerification.mockResolvedValue(signedInNew);
+    expect(await run(actions.verifyEmail({}, form({ code: "123456" })))).toEqual({ to: "/sams-team/connect" });
+    expect(orgs.createOrganization).toHaveBeenCalledWith({ name: "Sam's team", externalId: "quod-personal:user_9", metadata: { quod_personal_team_of: "user_9" } }, { idempotencyKey: "quod-personal:user_9" });
+    expect(um.createOrganizationMembership).toHaveBeenCalledWith({ organizationId: "org_sam", userId: "user_9", roleSlug: "admin" });
+    expect(um.authenticateWithRefreshToken).toHaveBeenCalledWith(expect.objectContaining({ refreshToken: "rt", organizationId: "org_sam" }));
+    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "at2", refreshToken: "rt2", authenticationMethod: "Password" }), expect.any(String));
+  });
+
+  it("an invited sign-up joins the inviting team and gets no team of its own", async () => {
+    noTeam();
+    um.listUsers.mockResolvedValue({ data: [] });
+    um.findInvitationByToken.mockResolvedValue({ ...invitation, email: NEWCOMER });
+    um.authenticateWithPassword.mockResolvedValue({ ...signedInNew, organizationId: invitation.organizationId });
+    expect(await run(actions.signUp({}, newSignUp({ invitationToken: TOKEN })))).toEqual({ to: "/" });
+    expect(um.listOrganizationMemberships).not.toHaveBeenCalled();
+    expect(orgs.createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("someone with a pending invitation who signs in without the link gets no team; '/' lists the invitation", async () => {
+    noTeam();
+    um.listInvitations.mockResolvedValue(invitationsPage([{ ...invitation, email: NEWCOMER }]));
+    um.authenticateWithPassword.mockResolvedValue(signedInNew);
+    expect(await run(actions.signInWithPassword({}, form({ email: NEWCOMER, password: "pw", returnTo: "/" })))).toEqual({ to: "/" });
+    expect(orgs.createOrganization).not.toHaveBeenCalled();
+    expect(um.createOrganizationMembership).not.toHaveBeenCalled();
+  });
+
+  it("an existing user with no team gets one on their next sign-in, and a returnTo other than '/' still wins", async () => {
+    noTeam();
+    um.authenticateWithPassword.mockResolvedValue(signedInNew);
+    expect(await run(actions.signInWithPassword({}, form({ email: NEWCOMER, password: "pw", returnTo: "/github/link" })))).toEqual({ to: "/github/link" });
+    expect(orgs.createOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it("someone already in a team signs in as before: nothing is created", async () => {
+    um.authenticateWithPassword.mockResolvedValue(signedInNew);
+    expect(await run(actions.signInWithPassword({}, form({ email: NEWCOMER, password: "pw", returnTo: "/" })))).toEqual({ to: "/" });
+    expect(orgs.getOrganizationByExternalId).not.toHaveBeenCalled();
+    expect(orgs.createOrganization).not.toHaveBeenCalled();
+  });
+
+  it("a WorkOS failure while making the team never fails the sign-in; '/' offers the button", async () => {
+    noTeam();
+    orgs.createOrganization.mockRejectedValue(Object.assign(new Error("boom"), { status: 500 }));
+    orgs.getOrganizationByExternalId.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+    um.authenticateWithPassword.mockResolvedValue(signedInNew);
+    expect(await run(actions.signInWithPassword({}, form({ email: NEWCOMER, password: "pw", returnTo: "/" })))).toEqual({ to: "/" });
+    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "at" }), expect.any(String));
+  });
+
+  describe("'Create my team' on '/'", () => {
+    const press = () => run(actions.createMyTeam());
+
+    it("creates the team, scopes the session to it, and goes on to connect GitHub", async () => {
+      noTeam();
+      withAuth.mockResolvedValue({ user: newcomer });
+      expect(await press()).toEqual({ to: "/sams-team/connect" });
+      expect(switchToOrganization).toHaveBeenCalledWith("org_sam", { returnTo: "/sams-team/connect" });
+      expect(invalidateMemberships).toHaveBeenCalledWith("user_9");
+    });
+
+    it("is offered next to invitations too, so it ignores them", async () => {
+      noTeam();
+      um.listInvitations.mockResolvedValue(invitationsPage([{ ...invitation, email: NEWCOMER }]));
+      withAuth.mockResolvedValue({ user: newcomer });
+      expect(await press()).toEqual({ to: "/sams-team/connect" });
+      expect(orgs.createOrganization).toHaveBeenCalledTimes(1);
+    });
+
+    it("a second press (or a retry after a half-finished first) finds the same team instead of making another", async () => {
+      noTeam();
+      withAuth.mockResolvedValue({ user: newcomer });
+      orgs.getOrganizationByExternalId.mockResolvedValue({ id: "org_sam", name: "Sam's team" });
+      expect(await press()).toEqual({ to: "/sams-team/connect" });
+      expect(orgs.createOrganization).not.toHaveBeenCalled();
+      // Membership made by the first press: already in a team, so just open it.
+      um.listOrganizationMemberships.mockResolvedValue({ data: [{ organizationId: "org_sam" }] });
+      expect(await press()).toEqual({ to: "/" });
+      expect(orgs.createOrganization).not.toHaveBeenCalled();
+      expect(switchToOrganization).toHaveBeenLastCalledWith("org_sam", { returnTo: "/" });
+    });
+
+    it("says to try again when WorkOS fails, and creates nothing on a failed membership read", async () => {
+      withAuth.mockResolvedValue({ user: newcomer });
+      um.listOrganizationMemberships.mockRejectedValue(Object.assign(new Error("down"), { status: 503 }));
+      expect(await press()).toEqual({ state: { error: flow.TRY_AGAIN } });
+      expect(orgs.createOrganization).not.toHaveBeenCalled();
+    });
+
+    it("a signed-out press goes to sign-in", async () => {
+      withAuth.mockResolvedValue({ user: null });
+      expect(await press()).toEqual({ to: "/sign-in" });
+    });
   });
 });
