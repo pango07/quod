@@ -2107,6 +2107,16 @@ fn state(
         "envtool" => (env_all(true), None),
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
+        "rj" => (listing_of(&path(), true, true), None),
+        "pjf" => {
+            let (fp, fields) = p.split_once('\0').unwrap_or((p, "[]"));
+            let fp = if fp.starts_with('/') {
+                PathBuf::from(fp)
+            } else {
+                root.join(fp)
+            };
+            (pj_fields(&fp, fields), None)
+        }
         "r" => (listing(&path(), true), None),
         "rc" => (content_tree(&path()), None),
         "f" | "pj" | "p" => {
@@ -2455,6 +2465,14 @@ fn content_tree(p: &Path) -> String {
 
 /// A directory's names and types (recursively: every path under it).
 fn listing(p: &Path, recursive: bool) -> String {
+    listing_of(p, recursive, false)
+}
+
+/// A directory's listing; `json_only`: only its `.json` files, not under
+/// node_modules or .git (`rj:`, what tsconfck's walk for tsconfig files
+/// finds: it descends into directories but those, not through links, and
+/// keeps files by name).
+fn listing_of(p: &Path, recursive: bool, json_only: bool) -> String {
     if !p.is_dir() {
         return if p.exists() {
             "notdir".into()
@@ -2478,6 +2496,15 @@ fn listing(p: &Path, recursive: bool) -> String {
                 _ => 'o',
             };
             let r = rel.join(e.file_name());
+            if json_only {
+                let name = e.file_name();
+                if kind == 'd' && name != "node_modules" && name != ".git" {
+                    stack.push(r);
+                } else if kind == 'f' && name.to_string_lossy().ends_with(".json") {
+                    names.push(format!("{}\0f", r.display()));
+                }
+                continue;
+            }
             names.push(format!("{}\0{kind}", r.display()));
             if recursive && kind == 'd' {
                 stack.push(r);
@@ -2527,6 +2554,139 @@ fn pj_hash(bytes: &[u8]) -> String {
     }
     let canon = serde_json::to_vec(&kept).unwrap_or_default();
     format!("pj:{}", blake3::hash(&canon).to_hex())
+}
+
+/// A package.json the config parsed (`pjf:<path>\0<fields>`, record.mjs):
+/// its top-level names in order, and the raw text of each field it read
+/// (absent, or the file whole when it is not a JSON object).
+fn pj_fields(path: &Path, fields: &str) -> String {
+    let Ok(bytes) = fs::read(path) else {
+        return if path.exists() {
+            "unreadable".into()
+        } else {
+            "absent".into()
+        };
+    };
+    let wanted: Vec<String> = serde_json::from_str(fields).unwrap_or_default();
+    let Some(top) = top_fields(&bytes) else {
+        return blake3::hash(&bytes).to_hex().to_string();
+    };
+    let mut h = blake3::Hasher::new();
+    for (k, _) in &top {
+        h.update(k.as_bytes());
+        h.update(b"\0");
+    }
+    h.update(b"\n");
+    for w in &wanted {
+        h.update(w.as_bytes());
+        // the last of a repeated name, as JSON.parse keeps
+        match top.iter().rev().find(|(k, _)| k == w) {
+            Some((_, v)) => {
+                h.update(b"=");
+                h.update(v);
+            }
+            None => {
+                h.update(b"!absent");
+            }
+        }
+        h.update(b"\0");
+    }
+    format!("pjf:{}", h.finalize().to_hex())
+}
+
+/// A JSON object's top-level names and the raw text of their values, in
+/// order; None when the text is not one.
+fn top_fields(b: &[u8]) -> Option<Vec<(String, &[u8])>> {
+    let ws = |i: &mut usize| {
+        while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
+            *i += 1;
+        }
+    };
+    // the index just past a string starting at i (a quote)
+    let string_end = |mut i: usize| -> Option<usize> {
+        i += 1;
+        while i < b.len() {
+            match b[i] {
+                b'\\' => i += 2,
+                b'"' => return Some(i + 1),
+                _ => i += 1,
+            }
+        }
+        None
+    };
+    let value_end = |mut i: usize| -> Option<usize> {
+        match *b.get(i)? {
+            b'"' => string_end(i),
+            b'{' | b'[' => {
+                let mut depth = 0usize;
+                while i < b.len() {
+                    match b[i] {
+                        b'"' => {
+                            i = string_end(i)?;
+                            continue;
+                        }
+                        b'{' | b'[' => depth += 1,
+                        b'}' | b']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                return Some(i + 1);
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                None
+            }
+            _ => {
+                while i < b.len()
+                    && !matches!(b[i], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r')
+                {
+                    i += 1;
+                }
+                Some(i)
+            }
+        }
+    };
+    let mut i = 0;
+    ws(&mut i);
+    if b.get(i) != Some(&b'{') {
+        return None;
+    }
+    i += 1;
+    let mut out = Vec::new();
+    loop {
+        ws(&mut i);
+        match b.get(i)? {
+            b'}' => break,
+            b'"' => {}
+            _ => return None,
+        }
+        let ke = string_end(i)?;
+        let key: String = serde_json::from_slice(&b[i..ke]).ok()?;
+        i = ke;
+        ws(&mut i);
+        if b.get(i) != Some(&b':') {
+            return None;
+        }
+        i += 1;
+        ws(&mut i);
+        let ve = value_end(i)?;
+        if ve == i {
+            return None;
+        }
+        out.push((key, &b[i..ve]));
+        i = ve;
+        ws(&mut i);
+        match b.get(i)? {
+            b',' => i += 1,
+            b'}' => break,
+            _ => return None,
+        }
+    }
+    i += 1;
+    ws(&mut i);
+    (i == b.len()).then_some(out)
 }
 
 /// vitest's arguments that change only what is printed or written, not a
@@ -2611,8 +2771,21 @@ fn tool_env(name: &str) -> bool {
 
 /// A per-run or per-step CI variable, or Quod's own.
 fn volatile_env(name: &str) -> bool {
-    quod_key::unkeyed(name) || STEP_VOLATILE.contains(&name) || name.starts_with("QUOD_")
+    quod_key::unkeyed(name)
+        || STEP_VOLATILE.contains(&name)
+        || TASK_VOLATILE.contains(&name)
+        || name.starts_with("QUOD_")
 }
+
+/// What Nx sets per task run: the task's hash (another for any change to
+/// its inputs), the run's analytics session, the task's output log path.
+/// Not keyed by `envall:`; a test file that reads one by name is not
+/// recorded, as for the CI's per-run variables.
+const TASK_VOLATILE: &[&str] = &[
+    "NX_TASK_HASH",
+    "NX_ANALYTICS_SESSION_ID",
+    "NX_TERMINAL_OUTPUT_PATH",
+];
 
 fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let n = std::thread::available_parallelism()
@@ -2678,6 +2851,11 @@ fn plain_key(k: &str) -> String {
         Some(("env" | "envall", v)) => format!("the variable {v}"),
         Some(("envp", v)) => format!("whether the variable {v} is set"),
         Some(("d", p)) => format!("the directory listing of {p}"),
+        Some(("rj", p)) => format!("the .json files under {p}"),
+        Some(("pjf", p)) => {
+            let (f, fields) = p.split_once('\0').unwrap_or((p, ""));
+            format!("{f} (its names and {fields})")
+        }
         Some(("e", p)) => format!("whether {p} exists"),
         _ => k.to_string(),
     }
@@ -2789,6 +2967,99 @@ fn relativize_file(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pj_fields_keys_names_and_the_fields_read() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("package.json");
+        let st = |s: &str, fields: &str| {
+            fs::write(&p, s).unwrap();
+            pj_fields(&p, fields)
+        };
+        let deps = r#"["dependencies"]"#;
+        let a = st(
+            r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"}}"#,
+            deps,
+        );
+        // another version, other whitespace outside the field: the same
+        assert_eq!(
+            a,
+            st(
+                "{ \"name\": \"x\", \"version\": \"2\",\n \"dependencies\":{\"a\":\"1\",\"b\":\"2\"} }",
+                deps
+            )
+        );
+        // a field read changes, its order changes, a name is added: not
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"3"}}"#,
+                deps
+            )
+        );
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"b":"2","a":"1"}}"#,
+                deps
+            )
+        );
+        assert_ne!(
+            a,
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"},"c":1}"#,
+                deps
+            )
+        );
+        // not an object: the bytes
+        assert_ne!(a, st("[1]", deps));
+        assert_eq!(
+            st("{ broken", deps),
+            blake3::hash(b"{ broken").to_hex().to_string()
+        );
+        fs::remove_file(&p).unwrap();
+        assert_eq!(pj_fields(&p, deps), "absent");
+        assert_eq!(
+            top_fields(br#" {"a" : [1, {"}": "]"}], "b\"c":null,"d":-1.5e3} "#)
+                .unwrap()
+                .iter()
+                .map(|(k, v)| format!("{k}={}", String::from_utf8_lossy(v)))
+                .collect::<Vec<_>>(),
+            vec![r#"a=[1, {"}": "]"}]"#, r#"b"c=null"#, "d=-1.5e3"]
+        );
+    }
+
+    #[test]
+    fn a_json_tree_sees_only_json_files_outside_node_modules() {
+        let d = tempfile::tempdir().unwrap();
+        let rj = |p: &Path| listing_of(p, true, true);
+        let a = rj(d.path());
+        // other files, a new directory (a build's dist/), node_modules: no
+        fs::write(d.path().join("CHANGELOG.md"), "x").unwrap();
+        fs::create_dir_all(d.path().join("dist/esm")).unwrap();
+        fs::write(d.path().join("dist/esm/index.js"), "x").unwrap();
+        fs::create_dir_all(d.path().join("node_modules/x")).unwrap();
+        fs::write(d.path().join("node_modules/x/tsconfig.json"), "{}").unwrap();
+        assert_eq!(a, rj(d.path()));
+        // a tsconfig, at any depth: yes
+        fs::create_dir_all(d.path().join("packages/p")).unwrap();
+        fs::write(d.path().join("packages/p/tsconfig.json"), "{}").unwrap();
+        let b = rj(d.path());
+        assert_ne!(a, b);
+        fs::rename(
+            d.path().join("packages/p/tsconfig.json"),
+            d.path().join("packages/p/jsconfig.json"),
+        )
+        .unwrap();
+        assert_ne!(b, rj(d.path()));
+    }
+
+    #[test]
+    fn nx_task_variables_are_per_run() {
+        assert!(volatile_env("NX_TASK_HASH"));
+        assert!(volatile_env("NX_ANALYTICS_SESSION_ID"));
+        assert!(!volatile_env("NX_WORKSPACE_ROOT"));
+    }
 
     #[test]
     fn relativize_keeps_outside_paths_and_env() {
