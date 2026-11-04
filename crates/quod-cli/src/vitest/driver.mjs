@@ -20,6 +20,8 @@ import os from 'node:os'
 import path from 'node:path'
 import nodeModule from 'node:module'
 import { pathToFileURL } from 'node:url'
+import crypto from 'node:crypto'
+import zlib from 'node:zlib'
 
 const [planPath, outPath, ...vitestArgs] = process.argv.slice(2)
 const plan = JSON.parse(real.readFileSync(planPath, 'utf8'))
@@ -65,7 +67,7 @@ if (plan.record === false && process.env.QUOD_VITEST_COMPILE_CACHE === '1' && ty
 }
 // The critical path (`record: false`) runs the files plain: no hooks, no
 // setup file, no coverage; the shadow run (`record: true`) records them.
-const record = plan.record !== false
+let record = plan.record !== false
 const r = createRecorder({ stateDir, codeDir, mode: 'main' })
 r.on = record
 // QUOD_VITEST_DISABLE (read before the env is watched): main (no main
@@ -98,7 +100,7 @@ if (plan.expect && Object.keys(facts).some((k) => plan.expect[k] !== facts[k])) 
   log('the tools changed since the ledger was recorded; running every file')
   replay = {}
 }
-const audits = new Set(plan.audit ?? [])
+let audits = new Set(plan.audit ?? [])
 
 let args = vitestArgs
 if (args[0] === 'run') args = args.slice(1)
@@ -117,6 +119,225 @@ process.env.NODE_ENV ??= 'test'
 const setupPath = path.join(codeDir, 'setup.mjs')
 const ctx = await V.createVitest('test', options, {}, {})
 const tInit = performance.now()
+
+// A render (a standby beside a recording run) never renders coverage: a
+// report is made from fresh and recorded contributions every run. It stops
+// here, before it starts vitest, whose provider would clean the reports
+// directory the recording run writes.
+if (plan.render && ctx.config.coverage?.enabled) {
+  writeJson(outPath, { facts, exitCode: 0, interrupted: false, global: [], ran: [], replayed: [], allFiles: null, render: { ok: false, reason: 'coverage is on', outputs: [] }, auditMismatch: [] })
+  process.exit(0)
+}
+
+// Coverage (`--coverage` or `coverage.enabled` in the config). Each file
+// that runs hands its worker's coverage to the provider in the main process
+// (`onAfterSuiteRun`: V8's raw script coverage, or istanbul's per-file
+// counters); the provider merges them into the report and checks the
+// thresholds. A record keeps that hand-off per test file (results/<id>.cov.json.gz,
+// with the coverage configuration's fingerprint in results/<id>.covfp); a
+// replay hands the recorded one to the provider before it generates the
+// report, so vitest's own provider makes every report and threshold check
+// from the same contributions as a full run. A file without a recorded
+// contribution of this configuration runs. What Quod cannot carry (another
+// provider or version, thresholds that rewrite the config) runs every file
+// plain.
+const covCfg = ctx.config.coverage
+let covOn = !!covCfg?.enabled
+let covPlain = null
+if (covOn) {
+  // Quod's own early precise coverage (an experiment) would change V8's
+  // mode under the v8 provider: never with coverage on.
+  delete process.env.QUOD_VITEST_COV_EARLY
+  const name = covCfg.provider ?? 'v8'
+  const major = Number(vitestPkg.version.split('.')[0])
+  if (name !== 'v8' && name !== 'istanbul') covPlain = `coverage provider ${name}`
+  else if (!(major >= 3 && major <= 5)) covPlain = `coverage with vitest ${vitestPkg.version}`
+  else if (covCfg.thresholds?.autoUpdate) covPlain = 'coverage.thresholds.autoUpdate (it rewrites the config)'
+  else if (!codeDir.includes(`${path.sep}node_modules${path.sep}`)) covPlain = 'coverage with Quod outside node_modules'
+  else if (ctx.config.shard) covPlain = 'coverage with --shard'
+  if (covPlain) {
+    log(`${covPlain} is not supported: running every file plain`)
+    replay = {}
+    audits = new Set()
+    record = false
+    r.on = false
+    covOn = false
+  }
+}
+// The configuration's fingerprint, once the provider resolved it: its name,
+// version, every option (include, exclude, all, thresholds, reporters...),
+// vitest's version and the root.
+let covFp = null
+let covFpText = ''
+// The configuration a record was made under (diagnostics: what changed).
+const covConfigFile = path.join(stateDir, 'results', 'coverage-config.json')
+let covMismatchLogged = false
+const covMismatch = () => {
+  if (covMismatchLogged) return
+  covMismatchLogged = true
+  try {
+    const was = JSON.parse(real.readFileSync(covConfigFile, 'utf8'))
+    const now = JSON.parse(covFpText)
+    const diff = []
+    for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+      if (k === 'opts') {
+        for (const o of new Set([...Object.keys(was.opts ?? {}), ...Object.keys(now.opts ?? {})])) {
+          const x = was.opts?.[o]
+          const y = now.opts?.[o]
+          if (JSON.stringify(x) === JSON.stringify(y)) continue
+          if (Array.isArray(x) && Array.isArray(y)) {
+            const gone = x.filter((v) => !y.some((w) => JSON.stringify(w) === JSON.stringify(v)))
+            const added = y.filter((v) => !x.some((w) => JSON.stringify(w) === JSON.stringify(v)))
+            diff.push(`coverage.${o} (-${JSON.stringify(gone).slice(0, 300)} +${JSON.stringify(added).slice(0, 300)})`)
+          } else diff.push(`coverage.${o} (${JSON.stringify(x)?.slice(0, 200)} -> ${JSON.stringify(y)?.slice(0, 200)})`)
+        }
+      } else if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) diff.push(k)
+    }
+    if (diff.length) log(`coverage: the configuration changed since the record: ${diff.join(', ')}`)
+  } catch {}
+}
+const covFingerprint = () => {
+  if (covFp !== null) return covFp
+  try {
+    const p = ctx.coverageProvider
+    let ver = p?.version ?? null
+    try {
+      ver ??= JSON.parse(real.readFileSync(req.resolve(`@vitest/coverage-${p.name}/package.json`), 'utf8')).version
+    } catch {}
+    // processingConcurrency is the machine's CPU count: how fast the report
+    // is made, not what it says.
+    // The include and exclude globs as sets: vitest assembles exclude from
+    // the projects in an order that varies run to run (pinia), and a glob
+    // list's order does not change what it matches.
+    const { processingConcurrency, ...opts } = ctx.config.coverage ?? {}
+    for (const k of ['include', 'exclude']) {
+      if (Array.isArray(opts[k])) opts[k] = [...new Set(opts[k].map((x) => (typeof x === 'string' ? x : JSON.stringify(x))))].sort()
+    }
+    const text = JSON.stringify({ v: 1, provider: p?.name ?? null, ver, vitest: vitestPkg.version, root: ctx.config.root, opts }, (k, v) =>
+      typeof v === 'function' ? `fn:${v.toString()}` : v instanceof RegExp ? `re:${v}` : v,
+    )
+    covFp = p && ver ? crypto.createHash('sha256').update(text).digest('hex') : ''
+    covFpText = text
+  } catch {
+    covFp = ''
+  }
+  return covFp
+}
+let covConfigWritten = false
+const covPaths = (id) => [path.join(stateDir, 'results', `${id}.cov.json.gz`), path.join(stateDir, 'results', `${id}.covfp`)]
+// A replayed file's recorded contribution, or null (then it runs).
+const loadCov = (id) => {
+  const fp = covFingerprint()
+  if (!fp) return null
+  const [gz, fpFile] = covPaths(id)
+  try {
+    if (real.readFileSync(fpFile, 'utf8') !== fp) {
+      covMismatch()
+      return null
+    }
+    const meta = JSON.parse(zlib.gunzipSync(real.readFileSync(gz)).toString('utf8'))
+    // vitest 3 transforms a module the run did not load in ssr mode when it
+    // makes the report: a web-mode record would map onto other code.
+    if (meta.transformMode !== undefined && meta.transformMode !== 'ssr') return null
+    return meta
+  } catch {
+    return null
+  }
+}
+const replayCov = new Map() // id -> the recorded onAfterSuiteRun payload
+const covByFile = new Map() // `${project}\0${name}` -> task id, for the files that run
+const captured = new Map() // id -> payloads this run's workers handed over
+const covShared = new Set() // ids whose coverage came in one payload with other files
+let covWrapped = false
+let covTmp = null // the provider's temp directory, with a trailing separator
+const wrapProvider = (p) => {
+  if (!p || covWrapped || !covOn) return
+  covWrapped = true
+  if (typeof p.coverageFilesDirectory === 'string') covTmp = p.coverageFilesDirectory + path.sep
+  const after = p.onAfterSuiteRun.bind(p)
+  p.onAfterSuiteRun = (meta0) => {
+    let meta = meta0
+    // vitest 5 hands over a file the worker wrote (removed after the
+    // report): kept by content.
+    if (record && typeof meta?.coverage === 'string') {
+      try {
+        meta = { ...meta0, coverage: JSON.parse(real.readFileSync(meta0.coverage, 'utf8')), quodFile: true }
+      } catch {
+        meta = { ...meta0, coverage: null }
+      }
+    }
+    if (record && meta?.coverage) {
+      const ids = (meta.testFiles ?? []).map((f) => covByFile.get(`${meta.projectName ?? ''}\0${f}`))
+      for (const id of ids) {
+        if (!id) continue
+        if (ids.length !== 1) covShared.add(id)
+        const l = captured.get(id) ?? []
+        l.push(meta)
+        captured.set(id, l)
+      }
+    }
+    return after(meta0)
+  }
+  // The report is made fresh every run from every file's contribution: what
+  // the provider reads and writes then is not an input of any test file.
+  const gen = p.generateCoverage.bind(p)
+  p.generateCoverage = async (...a) => {
+    let n = 0
+    for (const meta of replayCov.values()) {
+      if (meta.quodFile) {
+        // as the worker would have: a file in the provider's directory
+        const { quodFile, ...m } = meta
+        const f = path.join(p.coverageFilesDirectory, `quod-replay-${n++}.json`)
+        real.writeFileSync(f, JSON.stringify(m.coverage))
+        after({ ...m, coverage: f })
+      } else after(meta)
+    }
+    if (replayCov.size) log(`coverage: the recorded coverage of ${replayCov.size} replayed files goes into the report`)
+    const was = r.on
+    r.on = false
+    try {
+      return await gen(...a)
+    } finally {
+      r.on = was
+    }
+  }
+  if (typeof p.clean === 'function') {
+    const clean = p.clean.bind(p)
+    p.clean = async (...a) => {
+      const was = r.on
+      r.on = false
+      try {
+        return await clean(...a)
+      } finally {
+        r.on = was
+      }
+    }
+  }
+}
+if (covOn) {
+  const init = ctx.initCoverageProvider.bind(ctx)
+  ctx.initCoverageProvider = async (...a) => {
+    const was = r.on
+    const res = await init(...a)
+    r.on = was
+    wrapProvider(ctx.coverageProvider)
+    // as resolved, before the run can touch it
+    if (ctx.coverageProvider) covFingerprint()
+    return res
+  }
+  wrapProvider(ctx.coverageProvider)
+  if (ctx.coverageProvider) covFingerprint()
+  const report = ctx.reportCoverage.bind(ctx)
+  ctx.reportCoverage = async (...a) => {
+    const was = r.on
+    r.on = false
+    try {
+      return await report(...a)
+    } finally {
+      r.on = was
+    }
+  }
+}
 
 process.env.QUOD_VITEST_ROOT = ctx.config.root
 // The repository the project is in (the nearest .git up from its root): in
@@ -211,14 +432,16 @@ if (plan.standby) {
 const recorded = new Set()
 for (const p of ctx.projects) {
   const c = p.config
-  const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.enabled
+  // With typecheck on, the type tests (pool `typescript`, tsc) always run;
+  // the project's other files are recorded as usual.
+  const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.only
   if (ok) {
     if (record && !offs.has('setup')) {
       c.setupFiles = [setupPath, ...c.setupFiles]
       if (!offs.has('preload')) c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
     }
     recorded.add(p.name)
-  } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck or not isolated): its files always run`)
+  } else log(`project "${p.name}" is not recorded (browser, vm pool, typecheck only or not isolated): its files always run`)
 }
 
 // Partition vitest's own list of test files.
@@ -232,16 +455,36 @@ specsApi.getRelevantTestSpecifications = async (f) => {
   const all = await origRelevant(f)
   r.on = record
   const run = []
+  let covMissing = 0
   for (const s of all) {
     const id = s.taskId
     const res = replay[id]
-    if (res && !audits.has(id) && recorded.has(s.project.name) && !s.testLines?.length && !s.testNamePattern) {
+    let ok = res && !audits.has(id) && recorded.has(s.project.name) && s.pool !== 'typescript' && !s.testLines?.length && !s.testNamePattern
+    if (ok && covOn) {
+      const c = loadCov(id)
+      if (c) replayCov.set(id, c)
+      else {
+        ok = false
+        covMissing++
+      }
+    } else if (ok && real.existsSync(covPaths(id)[1])) {
+      // recorded under coverage (instrumented), replayed without: it runs
+      ok = false
+      covMissing++
+    }
+    if (ok) {
       replayed.push({ spec: s, id, result: res })
     } else {
       run.push(s)
       ran.set(id, s)
+      if (covOn) {
+        const name = path.relative(s.project.config.root, s.moduleId).split(path.sep).join('/')
+        covByFile.set(`${s.project.name ?? ''}\0${name}`, id)
+        covByFile.set(`${s.project.name ?? ''}\0${s.moduleId}`, id)
+      }
     }
   }
+  if (covMissing) log(`coverage: ${covMissing} files were recorded under another coverage configuration (or none): they run`)
   allFiles = all.map((s) => s.taskId)
   log(`${all.length} test files: running ${run.length}, replaying ${replayed.length}${audits.size ? ` (auditing ${[...audits].filter((a) => ran.has(a)).length})` : ''}`)
   return run
@@ -403,12 +646,14 @@ for (const m of endModules) {
     for (const w of d.watches ?? []) ks.add(`rc:${w}`)
     keys = [...ks]
     unobservable = d.unobservable
-    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/'))
+    // vitest 5's worker writes its coverage to the provider's temp directory
+    // itself (handed over by name): vitest's file, not the test's output.
+    const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/') && !(covTmp && w.startsWith(covTmp)))
     if (ws.length) unobservable = [...unobservable, `writes the workspace (${path.relative(ctx.config.root, ws[0])})`]
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.
-    if (!d.cov) covWhy = d.usedToString ? 'reads function source (toString)' : 'no coverage'
+    if (!d.cov) covWhy = d.covOn ? 'coverage is on' : d.usedToString ? 'reads function source (toString)' : 'no coverage'
     if (d.cov) {
       cov = {}
       for (const [f, fns] of Object.entries(d.cov)) {
@@ -438,7 +683,27 @@ for (const m of endModules) {
     }
   }
   const resultRel = `results/${id}.json`
-  if (record && (state === 'pass' || state === 'skip')) real.writeFileSync(path.join(stateDir, resultRel), text())
+  if (record && (state === 'pass' || state === 'skip')) {
+    real.writeFileSync(path.join(stateDir, resultRel), text())
+    // Its coverage contribution goes with the result, or none does (a
+    // record without one never replays under coverage).
+    const [gz, fpFile] = covPaths(id)
+    for (const f of [fpFile, gz]) {
+      try {
+        fs.unlinkSync(f)
+      } catch {}
+    }
+    const metas = captured.get(id)
+    const fp = covOn ? covFingerprint() : ''
+    if (fp && metas?.length === 1 && !covShared.has(id)) {
+      real.writeFileSync(gz, zlib.gzipSync(JSON.stringify(metas[0]), { level: 6 }))
+      real.writeFileSync(fpFile, fp)
+      if (!covConfigWritten) {
+        covConfigWritten = true
+        real.writeFileSync(covConfigFile, covFpText)
+      }
+    } else if (covOn && dumps.get(id)) log(`coverage: ${file.filepath} handed over ${metas?.length ?? 0} coverage results${covShared.has(id) ? ' (with other files)' : ''}: not kept, it runs next time`)
+  }
   // The shadow's safety net: a file records only if it ran here as it did on
   // the critical path of the same commit (uninstrumented); else recording
   // changed its behaviour, and it is quarantined.
