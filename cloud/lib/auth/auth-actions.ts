@@ -364,6 +364,8 @@ export async function resendVerification(): Promise<FormState> {
     const userId = pending.userId ?? (await userIdForEmail(pending.email));
     if (!userId) return { error: TRY_AGAIN };
     await um.sendVerificationEmail({ userId });
+    // Re-sealing restarts the step's clock, as on the Magic Auth path.
+    await savePending(pending);
     return sent;
   } catch (e) {
     if (status(e) === 429) return { error: RATE_LIMITED };
