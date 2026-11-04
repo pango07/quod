@@ -128,3 +128,10 @@ describe("words and inputs", () => {
     ]);
   });
 });
+
+describe("parseRate rounding", () => {
+  it("rejects a rate that rounds to 0", () => {
+    expect(parseRate("0.0000001")).toBeNull();
+    expect(parseRate("0.006")).toBe(0.006);
+  });
+});

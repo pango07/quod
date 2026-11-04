@@ -52,7 +52,8 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
     testRuns.ok && testRuns.value?.some((r) => r.kind === "critical")
       ? testMinutesPerDay(testRuns.value, ov.days.length ? ov.days.map((d) => d.day) : lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf)))
       : null;
-  const hasSavings = (history.ok && !!history.value?.length) || (testRuns.ok && !!testRuns.value?.length);
+  // Same source rule as savingsRuns below: a served /test-history wins even when empty, so the two never disagree.
+  const hasSavings = history.ok && history.value ? history.value.length > 0 : testRuns.ok && !!testRuns.value?.length;
   const testsCard = testStats ? (
     <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} compact={hasSavings} />
   ) : filesLine ? (

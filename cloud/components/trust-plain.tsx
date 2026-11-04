@@ -63,7 +63,8 @@ function GroupRow({ g, team, asOf, recentRuns }: { g: StepGroup; team: string; a
           {v.seen && (v.seen.outcome === "ran" || v.seen.outcome === "replayed") ? "Last run: " : ""}
           {lastResult(v, asOf, formatAgo)}
         </span>
-        <span className={g.savedSeconds >= 1 && v.state.kind !== "recording" ? "step-saved" : ""}>{savedLine(v.state.kind, g.savedSeconds)}</span>
+        {g.savedSeconds >= 1 || g.couldSaveSeconds < 1 ? <span className={g.savedSeconds >= 1 ? "step-saved" : ""}>{savedLine("skipping", g.savedSeconds)}</span> : null}
+        {g.couldSaveSeconds >= 1 ? <span>{savedLine("recording", g.couldSaveSeconds)}</span> : null}
         {g.earlier.length ? (
           <button type="button" className="link-btn" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)}>
             {open ? "Hide earlier versions" : g.earlier.length === 1 ? "1 earlier version" : `${g.earlier.length} earlier versions`}

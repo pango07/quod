@@ -152,8 +152,10 @@ export interface StepGroup {
   earlier: Version[];
   /** Why a new version started: what the dashboard can tell. */
   reason: string;
-  /** The group's time saved, in seconds (all versions). */
+  /** The group's time saved, in seconds: versions that replayed (not "watching only"). */
   savedSeconds: number;
+  /** Time the group's watching-only versions could have saved, in seconds. Never counted as saved. */
+  couldSaveSeconds: number;
 }
 
 /**
@@ -194,7 +196,10 @@ export function groupSteps(steps: StepSummary[], seen: Map<string, Seen>): StepG
       .sort((a, b) => (b.v.seen?.at ?? "").localeCompare(a.v.seen?.at ?? "") || a.i - b.i)
       .map((x) => x.v);
     const [current, ...earlier] = ordered;
-    const savedSeconds = ordered.reduce((a, v) => a + Math.max(v.step.savedMinutes * 60, v.seen?.savedTotal ?? 0), 0);
+    const secs = (v: Version) => Math.max(v.step.savedMinutes * 60, v.seen?.savedTotal ?? 0);
+    // Each version's time goes under its own state's wording: watching-only time is never labelled saved.
+    const savedSeconds = ordered.filter((v) => v.state.kind !== "recording").reduce((a, v) => a + secs(v), 0);
+    const couldSaveSeconds = ordered.filter((v) => v.state.kind === "recording").reduce((a, v) => a + secs(v), 0);
     out.push({
       id,
       repoSlug: current.step.repoSlug,
@@ -204,6 +209,7 @@ export function groupSteps(steps: StepSummary[], seen: Map<string, Seen>): StepG
       earlier,
       reason: versionReason(),
       savedSeconds,
+      couldSaveSeconds,
     });
   }
   // Paused first, then the most recently seen.

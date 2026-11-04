@@ -375,5 +375,7 @@ export function changeText(withMs: number | null, withoutMs: number | null): str
 export function parseRate(v: unknown): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.trim().replace(/^\$/, "")) : NaN;
   if (!Number.isFinite(n) || n <= 0 || n > 1) return null;
-  return Math.round(n * 1e6) / 1e6;
+  const r = Math.round(n * 1e6) / 1e6;
+  // A rate that rounds to 0 would fail the database's > 0 check: reject it here with the form's own message.
+  return r > 0 ? r : null;
 }
