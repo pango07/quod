@@ -52,7 +52,7 @@ and lint alone 432 of them.
 | Event | What runs |
 |---|---|
 | `workflow_dispatch` (the milestone gate) | what `only` names (default all: every job), whatever changed |
-| `pull_request` to main, `opened`, `reopened`, `ready_for_review`, `synchronize`; not while a draft | lint, merge-gate and bench-lite if a Rust-relevant path changed, cloud if `cloud/` changed. Hooks and the corpus gates: dispatch only |
+| `pull_request` to main, `opened`, `reopened`, `ready_for_review`, `synchronize`; not while a draft | lint (unit tests only: `QUOD_LINT_TESTS=unit`; the integration tests under `tests/` wait for the milestone gate), merge-gate and bench-lite if a Rust-relevant path changed, cloud if `cloud/` changed. Hooks and the corpus gates: dispatch only |
 | `push` to main (a merge) that touched more than docs, `web/`, `cloud/` or Markdown | lint, merge-gate and bench-lite in cache mode: each restores main's Rust cache and stops there if it is current; on a miss (Cargo.lock, a Cargo.toml, the toolchain or the runner image changed) it runs its gate, which saves the cache |
 | a push to any other branch | nothing |
 

@@ -13,15 +13,20 @@ phase clippy
 cargo clippy -q --workspace --all-targets --all-features -- -D warnings
 phase clippy-all-features
 log=${QUOD_LINT_LOG:-target/lint-test.log}
+# QUOD_LINT_TESTS=unit: unit tests only (--lib --bins), as on pull requests. The
+# integration tests under tests/ are ~95% of lint's time; they run at milestones
+# (gate dispatch). clippy --all-targets above still compiles them.
+tests=(--workspace)
+if [ "${QUOD_LINT_TESTS:-all}" = unit ]; then tests+=(--lib --bins); fi
 mkdir -p "$(dirname "$log")"
 # Built first, then run: the same work as one `cargo test`, timed apart.
-if ! cargo test -q --workspace --no-run >"$log" 2>&1; then
+if ! cargo test -q "${tests[@]}" --no-run >"$log" 2>&1; then
   tail -40 "$log"
   echo "lint FAILED: building the tests (full output in $log)" >&2
   exit 1
 fi
 phase test-build
-if ! cargo test --workspace >>"$log" 2>&1; then
+if ! cargo test "${tests[@]}" >>"$log" 2>&1; then
   grep -E "^---- |panicked at|^test .* FAILED|^error: test failed" "$log" || tail -40 "$log"
   echo "lint FAILED: unit tests (full output in $log)" >&2
   exit 1
