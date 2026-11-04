@@ -399,17 +399,29 @@ fn a_config_reading_package_json_straight_is_keyed_by_the_fields_it_read() {
          export default { test: { env: { PKG_PRIVATE: String(pkg.private) } } }\n",
     )
     .unwrap();
+    // (its names count too: a version field from the start)
+    edit(
+        &p.dir,
+        "package.json",
+        "\"private\": true,",
+        "\"private\": true,\n  \"version\": \"1.0.0\",",
+    );
     let (plain, quod, s) = p.run(1);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["recorded_files"], 3, "{s}");
 
-    edit(&p.dir, "package.json", "\"private\": true,", "\"private\": true,\n  \"version\": \"1.0.1\",");
+    edit(&p.dir, "package.json", "\"1.0.0\"", "\"1.0.1\"");
     let (plain, quod, s) = p.run(2);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 0, "a version bump: {s}");
     assert_eq!(s["replayed"], 3, "{s}");
 
-    edit(&p.dir, "package.json", "\"private\": true,", "\"private\": false,");
+    edit(
+        &p.dir,
+        "package.json",
+        "\"private\": true,",
+        "\"private\": false,",
+    );
     let (plain, quod, s) = p.run(3);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 3, "the field the config read changed: {s}");

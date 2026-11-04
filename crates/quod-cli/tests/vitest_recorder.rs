@@ -414,7 +414,10 @@ console.log(JSON.stringify({ esbuild, plugin: env(r.keys), child: r.envChild.siz
         "env:npm_package_version",
     ] {
         assert!(!has("esbuild", k), "{k} keyed by esbuild's copy: {v}");
-        assert!(has("plugin", k), "{k} not keyed by another child's copy: {v}");
+        assert!(
+            has("plugin", k),
+            "{k} not keyed by another child's copy: {v}"
+        );
     }
     assert_eq!(v["child"], 1, "{v}");
 }
@@ -474,7 +477,10 @@ fn tsconfcks_walk_is_keyed_by_the_json_files_under_its_start() {
         &root.join("node_modules/tsconfck/dist/index.js"),
         "const fs = require('node:fs');\nconst ls = (d) => new Promise((res) => fs.readdir(d, { withFileTypes: true }, () => res()));\nmodule.exports = async (d) => { await ls(d); await ls(d + '/x') };\n",
     );
-    write(&root.join("plain.js"), "const fs = require('node:fs');\nmodule.exports = (d) => fs.readdirSync(d);\n");
+    write(
+        &root.join("plain.js"),
+        "const fs = require('node:fs');\nmodule.exports = (d) => fs.readdirSync(d);\n",
+    );
     let Some(v) = main_recorder(
         root,
         r#"
