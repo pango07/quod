@@ -277,7 +277,12 @@ directory, and node_modules is hoisted to the repository root.
 - **Every CPU for large runs** is off under a task runner (`TURBO_HASH`,
   `NX_TASK_*`, `LERNA_PACKAGE_NAME`) and with `QUOD_VITEST_ALL_CPUS=0`.
   turbo's five concurrent suites oversubscribed the runner, and a test with
-  a 5 s timeout timed out.
+  a 5 s timeout timed out. It is also off on the critical path
+  (`--no-record`): there vitest keeps its own worker count, the one the
+  project's timeouts were set under. On convex-helpers one more worker made
+  a 25 s CPU-bound test take 29-30 s, and it timed out at 30 s where plain
+  vitest passed (no gain in total time: 99.8 s plain, 101.6 s with it).
+  Only the recording run, which is diagnostics only, uses every CPU.
 
 The customer-facing setup is pango07/quod-action. Its README is the "Add
 Quod to your CI" page.
