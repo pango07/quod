@@ -1,8 +1,10 @@
-import { getWorkOS } from "@workos-inc/authkit-nextjs";
+import { getWorkOS, withAuth } from "@workos-inc/authkit-nextjs";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
-import { SignInFlow, SignUpForm } from "@/components/auth/flows";
+import { JoinTeamForm, SignInFlow, SignUpForm } from "@/components/auth/flows";
 import { AuthShell, AuthSkeleton, DemoNote } from "@/components/auth/shell";
+import { signOutAction } from "@/lib/actions";
 import { isDemo } from "@/lib/auth/pages";
 import { checkToken } from "@/lib/auth/validate";
 import { one } from "@/lib/params";
@@ -18,18 +20,19 @@ export default function InvitePage(props: PageProps<"/invite">) {
 }
 
 interface InviteInfo {
+  id: string;
   email: string;
   teamName: string;
   open: boolean;
 }
 
 async function lookUp(token: string): Promise<InviteInfo | null> {
-  if (isDemo()) return { email: "sam@example.com", teamName: "quodci", open: token !== "expired-preview" };
+  if (isDemo()) return { id: "invitation_demo0000000", email: "sam@example.com", teamName: "quodci", open: token !== "expired-preview" };
   try {
     const workos = getWorkOS();
     const inv = await workos.userManagement.findInvitationByToken(token);
     const org = inv.organizationId ? await workos.organizations.getOrganization(inv.organizationId) : null;
-    return { email: inv.email, teamName: org?.name ?? "Quod", open: inv.state === "pending" };
+    return { id: inv.id, email: inv.email, teamName: org?.name ?? "Quod", open: inv.state === "pending" && new Date(inv.expiresAt).getTime() > Date.now() };
   } catch (e) {
     console.warn("[quod-cloud] invitation lookup failed", { status: (e as { status?: number })?.status });
     return null;
@@ -38,6 +41,7 @@ async function lookUp(token: string): Promise<InviteInfo | null> {
 
 // The WorkOS "User invitation URL" points here: /invite?invitation_token=...
 async function Invite({ searchParams }: PageProps<"/invite">) {
+  await connection(); // reads the session and the invitation per request
   const sp = await searchParams;
   const raw = one(sp.invitation_token) ?? (isDemo() ? "invite-preview-000" : "");
   const token = checkToken(raw);
@@ -58,6 +62,33 @@ async function Invite({ searchParams }: PageProps<"/invite">) {
         <Link className="btn solid lg auth-btn" href="/sign-in">
           Sign in
         </Link>
+      </AuthShell>
+    );
+  }
+
+  // Already signed in: a sign-up form here would make a second account. Join directly, or say whose invitation it is.
+  const signedIn = isDemo() ? null : (await withAuth()).user;
+  if (signedIn) {
+    const mine = signedIn.email.toLowerCase() === info.email.toLowerCase();
+    return mine ? (
+      <AuthShell title={`Join ${info.teamName} on Quod`} lede={<>You are signed in as <strong style={{ color: "var(--text)" }}>{signedIn.email}</strong>.</>}>
+        <JoinTeamForm invitationId={info.id} teamName={info.teamName} />
+      </AuthShell>
+    ) : (
+      <AuthShell
+        title="This invitation is for someone else"
+        lede={
+          <>
+            You are signed in as <strong style={{ color: "var(--text)" }}>{signedIn.email}</strong>, and the invitation is for{" "}
+            <strong style={{ color: "var(--text)" }}>{info.email}</strong>. Sign out, then open the invitation link again.
+          </>
+        }
+      >
+        <form action={signOutAction} className="auth-form">
+          <button type="submit" className="btn solid lg auth-btn">
+            Sign out
+          </button>
+        </form>
       </AuthShell>
     );
   }

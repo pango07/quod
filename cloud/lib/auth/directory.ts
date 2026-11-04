@@ -38,6 +38,28 @@ export async function inviteMember(orgId: string, inviterUserId: string, email: 
   return { ok: true, message: `Invitation sent to ${email}.` };
 }
 
+/**
+ * Pending invitations addressed to this email, with their team names. For "/"
+ * when the viewer has no team yet: someone who signed in without their
+ * invitation link (an expired step, another browser) can still join. A failed
+ * read is an empty list; joinTeam checks each invitation again before accepting.
+ */
+export async function pendingInvitationsFor(email: string): Promise<{ id: string; teamName: string }[]> {
+  if (authMode() === "demo") return [];
+  try {
+    const workos = getWorkOS();
+    const page = await workos.userManagement.listInvitations({ email, limit: 20 });
+    const now = Date.now();
+    const open = page.data.filter((inv) => inv.state === "pending" && inv.organizationId && new Date(inv.expiresAt).getTime() > now && inv.email.toLowerCase() === email.toLowerCase());
+    return await Promise.all(
+      open.map(async (inv) => ({ id: inv.id, teamName: (await workos.organizations.getOrganization(inv.organizationId as string)).name })),
+    );
+  } catch (e) {
+    console.warn("[quod-cloud] pending invitations not read", { status: (e as { status?: number })?.status });
+    return [];
+  }
+}
+
 export type PortalIntent = "sso" | "dsync" | "domain_verification" | "audit_logs";
 
 /** A short-lived WorkOS Admin Portal link for the organization's IT admin. */

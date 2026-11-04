@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import QRCode from "qrcode";
 import { Suspense } from "react";
 import { StepExpired } from "@/components/auth/expired";
@@ -18,6 +19,7 @@ export default function MfaPage(props: PageProps<"/sign-in/mfa">) {
 
 // WorkOS answered "mfa_enrollment" (set up an authenticator app first) or "mfa_challenge".
 async function Mfa({ searchParams }: PageProps<"/sign-in/mfa">) {
+  await connection(); // reads the sealed pending cookie (and its clock): per request
   const sp = await searchParams;
   const preview = previewOf(sp.preview);
   const pending: Pick<Pending, "step" | "totp"> | null = isDemo()

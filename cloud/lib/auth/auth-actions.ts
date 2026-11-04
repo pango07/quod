@@ -5,7 +5,7 @@
 // an account exists, returnTo is always a same-origin path, and no password,
 // code or token is logged.
 
-import { getWorkOS } from "@workos-inc/authkit-nextjs";
+import { getWorkOS, switchToOrganization, withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 import { authMode } from "./config";
 import {
@@ -24,7 +24,9 @@ import {
   type Outcome,
   STEP_PATH,
 } from "./flow";
+import { invitationProvesEmail, mayAcceptInvitation } from "./invite";
 import { RateLimiter, TtlCache } from "./limits";
+import { invalidateMemberships } from "./session";
 import { checkCode, checkEmail, checkId, checkName, checkNewPassword, checkPassword, checkToken, sanitizeReturnTo } from "./validate";
 
 export interface FormState {
@@ -37,6 +39,8 @@ export interface FormState {
   email?: string;
   /** Non-secret values to put back in the form after an error (never passwords or codes). */
   values?: Record<string, string>;
+  /** The pending step is gone: the form offers a way back instead of a dead end. */
+  expired?: boolean;
 }
 
 const DEMO: FormState = { error: "Demo session: WorkOS is not configured here, so nothing was sent. Open the dashboard instead." };
@@ -62,6 +66,40 @@ function invitationFrom(form: FormData): string | undefined {
 }
 
 const codeSent = (email: string) => `We emailed a 6-digit code to ${email}. It works for 10 minutes.`;
+const CODE_FAILED = "That code didn't work. Check it, or send a new one.";
+
+// ---------------------------------------------------------------- Invitations as proof of the inbox
+
+/** The invitation behind a token, or null (a lookup failure only means no shortcut). */
+async function invitationFor(token: string | undefined) {
+  if (!token) return null;
+  try {
+    return await getWorkOS().userManagement.findInvitationByToken(token);
+  } catch (e) {
+    console.warn("[quod-cloud] invitation lookup failed", { status: status(e) });
+    return null;
+  }
+}
+
+/**
+ * Someone holding a live invitation for this email has read that inbox, so
+ * the email-code step is redundant for them (WorkOS's own rule for AuthKit
+ * invitations). When a correct password still lands on "verify your email"
+ * (an account made before the invitation, or by an earlier attempt), mark
+ * the email verified and sign in again. Anything unexpected keeps the code step.
+ */
+async function skipCodeForInvitee(first: Outcome, email: string, run: () => Promise<Outcome>): Promise<Outcome> {
+  if (first.kind !== "pending" || first.to !== STEP_PATH["verify-email"]) return first;
+  try {
+    const userId = (await readPending())?.userId ?? (await userIdForEmail(email));
+    if (!userId) return first;
+    await getWorkOS().userManagement.updateUser({ userId, emailVerified: true });
+  } catch (e) {
+    console.warn("[quod-cloud] invited email not marked verified", { status: status(e) });
+    return first;
+  }
+  return run();
+}
 
 // ---------------------------------------------------------------- Anonymous-traffic guards
 
@@ -125,11 +163,16 @@ export async function signInWithPassword(_prev: FormState, form: FormData): Prom
   const returnTo = sanitizeReturnTo(form.get("returnTo"));
   const invitationToken = invitationFrom(form);
   const info = await clientInfo();
-  const outcome = await attempt(
-    () => getWorkOS().userManagement.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info }),
-    { returnTo, email: email.value, invitationToken },
-    "That email and password don't match. Try again, or sign in with a code.",
-  );
+  const run = () =>
+    attempt(
+      () => getWorkOS().userManagement.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info }),
+      { returnTo, email: email.value, invitationToken },
+      "That email and password don't match. Try again, or sign in with a code.",
+    );
+  let outcome = await run();
+  if (invitationToken && outcome.kind === "pending" && invitationProvesEmail(await invitationFor(invitationToken), email.value)) {
+    outcome = await skipCodeForInvitee(outcome, email.value, run);
+  }
   return settle(outcome, { step: "password", email: email.value, field: "password" });
 }
 
@@ -226,6 +269,8 @@ export async function signUp(_prev: FormState, form: FormData): Promise<FormStat
   const um = getWorkOS().userManagement;
   const ctx = { returnTo, email: email.value, invitationToken };
   const signInNow = () => um.authenticateWithPassword({ clientId: clientId(), email: email.value, password: pw.value, invitationToken, ...info });
+  // Invited: the invitation email already proved the inbox, so no second code (see invite.ts).
+  const invited = invitationProvesEmail(await invitationFor(invitationToken), email.value);
 
   let exists: boolean;
   try {
@@ -237,7 +282,7 @@ export async function signUp(_prev: FormState, form: FormData): Promise<FormStat
 
   if (!exists) {
     try {
-      await um.createUser({ email: email.value, password: pw.value, firstName: first.value, lastName: last.value, ...info });
+      await um.createUser({ email: email.value, password: pw.value, firstName: first.value, lastName: last.value, ...(invited ? { emailVerified: true } : {}), ...info });
     } catch (e) {
       if (status(e) === 429) return { error: RATE_LIMITED, values };
       // Most often the password policy (WorkOS checks breached and weak passwords).
@@ -248,7 +293,8 @@ export async function signUp(_prev: FormState, form: FormData): Promise<FormStat
   }
 
   // Taken email. Their own password simply signs them in; anything else gets the neutral code page.
-  const tried = await attempt(signInNow, ctx);
+  let tried = await attempt(signInNow, ctx);
+  if (invited) tried = await skipCodeForInvitee(tried, email.value, () => attempt(signInNow, ctx));
   if (tried.kind !== "error") return settle(tried, { values });
   try {
     await um.createMagicAuth({ email: email.value, invitationToken, ...info });
@@ -261,8 +307,13 @@ export async function signUp(_prev: FormState, form: FormData): Promise<FormStat
 
 // ---------------------------------------------------------------- Pending steps
 
-const EXPIRED: FormState = { error: "This step expired. Sign in again." };
+const EXPIRED: FormState = { error: "This step expired, so that code can't be used here any more. Start again: sign in with your email, or open your invitation link again.", expired: true };
 
+/**
+ * The code from the email. The newest code is a Magic Auth code once "Send a
+ * new code" was used; the first email's verification code still works while
+ * WorkOS keeps its pending token, so both are tried, newest first.
+ */
 export async function verifyEmail(_prev: FormState, form: FormData): Promise<FormState> {
   const code = checkCode(form.get("code"));
   if (!code.ok) return { error: code.error, field: "code" };
@@ -272,34 +323,53 @@ export async function verifyEmail(_prev: FormState, form: FormData): Promise<For
   const info = await clientInfo();
   const um = getWorkOS().userManagement;
   const ctx = { returnTo: pending.returnTo, email: pending.email, invitationToken: pending.invitationToken };
-  const outcome =
-    pending.via === "magic"
-      ? await attempt(() => um.authenticateWithMagicAuth({ clientId: clientId(), email: pending.email ?? "", code: code.value, invitationToken: pending.invitationToken, ...info }), ctx, "That code didn't work. Check it, or send a new one.")
-      : await attempt(() => um.authenticateWithEmailVerification({ clientId: clientId(), code: code.value, pendingAuthenticationToken: pending.token, ...info }), ctx, "That code didn't work. Check it, or send a new one.");
+  const byMagic = () => attempt(() => um.authenticateWithMagicAuth({ clientId: clientId(), email: pending.email ?? "", code: code.value, invitationToken: pending.invitationToken, ...info }), ctx, CODE_FAILED);
+  const byVerification = () => attempt(() => um.authenticateWithEmailVerification({ clientId: clientId(), code: code.value, pendingAuthenticationToken: pending.token, ...info }), ctx, CODE_FAILED);
+  let outcome: Outcome;
+  if (pending.via === "magic") {
+    outcome = await byMagic();
+    // Only a plain "wrong code" falls back; a rate limit or a server error is reported as is.
+    if (outcome.kind === "error" && outcome.message === CODE_FAILED && pending.token) outcome = await byVerification();
+  } else {
+    outcome = await byVerification();
+  }
   return settle(outcome, { field: "code" });
 }
 
+/**
+ * "Send a new code". A Magic Auth code: it needs only the email (not WorkOS's
+ * pending token, which can expire before the person gets back from their
+ * inbox), it carries the invitation, and signing in with it verifies the email.
+ * If Magic Auth is refused, fall back to WorkOS's verification email.
+ */
 export async function resendVerification(): Promise<FormState> {
   if (isDemo()) return DEMO;
   const pending = await readPending();
-  if (!pending || pending.step !== "verify-email") return EXPIRED;
+  if (!pending?.email || pending.step !== "verify-email") return EXPIRED;
   if (!codeLimit.take(await ipKey())) return { error: RATE_LIMITED };
   const um = getWorkOS().userManagement;
+  const sent = { notice: `A new code is on its way to ${pending.email}. Use the newest one; it works for 10 minutes.` };
   try {
-    if (pending.via === "magic") {
-      await um.createMagicAuth({ email: pending.email ?? "", invitationToken: pending.invitationToken, ...(await clientInfo()) });
-    } else {
-      // WorkOS's email_verification_required answer does not always name the user; look it up by email.
-      const userId = pending.userId ?? (await userIdForEmail(pending.email));
-      if (!userId) return EXPIRED;
-      await um.sendVerificationEmail({ userId });
-    }
+    await um.createMagicAuth({ email: pending.email, invitationToken: pending.invitationToken, ...(await clientInfo()) });
+    // Re-sealing also restarts the step's clock (setSealed sets `purpose` again).
+    await savePending({ ...pending, via: "magic" });
+    return sent;
   } catch (e) {
     if (status(e) === 429) return { error: RATE_LIMITED };
-    console.warn("[quod-cloud] code not resent", { status: status(e) });
+    console.warn("[quod-cloud] magic auth code not sent for verification", { status: status(e) });
+  }
+  if (pending.via === "magic" || !pending.token) return { error: TRY_AGAIN };
+  try {
+    // WorkOS's email_verification_required answer does not always name the user; look it up by email.
+    const userId = pending.userId ?? (await userIdForEmail(pending.email));
+    if (!userId) return { error: TRY_AGAIN };
+    await um.sendVerificationEmail({ userId });
+    return sent;
+  } catch (e) {
+    if (status(e) === 429) return { error: RATE_LIMITED };
+    console.warn("[quod-cloud] verification email not resent", { status: status(e) });
     return { error: TRY_AGAIN };
   }
-  return { notice: "A new code is on its way." };
 }
 
 export async function chooseOrganization(_prev: FormState, form: FormData): Promise<FormState> {
@@ -338,9 +408,46 @@ export async function verifyTotp(_prev: FormState, form: FormData): Promise<Form
   return settle(outcome, { field: "code" });
 }
 
+/** Leaves a pending step. An invited person goes back to their invitation, not to a sign-in page that has forgotten it. */
 export async function startOver(): Promise<void> {
+  const invitation = (await readPending())?.invitationToken;
   await clearPending();
-  redirect("/sign-in");
+  const token = invitation ? checkToken(invitation) : null;
+  redirect(token?.ok ? `/invite?invitation_token=${encodeURIComponent(token.value)}` : "/sign-in");
+}
+
+// ---------------------------------------------------------------- Joining a team while signed in
+
+/**
+ * A signed-in person accepts an invitation addressed to their own verified
+ * email (the invite page while signed in, or "/" with no team yet). WorkOS
+ * asks custom flows to check that match before accepting; this does, from
+ * WorkOS's copy of the invitation, never from the form.
+ */
+export async function joinTeam(_prev: FormState, form: FormData): Promise<FormState> {
+  const id = checkId(form.get("invitationId"), "invitation");
+  if (!id.ok) return { error: "This invitation can't be used. Ask for a new one." };
+  if (isDemo()) return DEMO;
+  const { user } = await withAuth();
+  if (!user) redirect("/sign-in");
+  const um = getWorkOS().userManagement;
+  let organizationId: string;
+  try {
+    const inv = await um.getInvitation(id.value);
+    if (!mayAcceptInvitation(inv, user) || !inv.organizationId) {
+      return { error: "This invitation is for a different email, or it has expired or been used. Ask for a new one." };
+    }
+    organizationId = inv.organizationId;
+    await um.acceptInvitation(inv.id);
+  } catch (e) {
+    if (status(e) === 429) return { error: RATE_LIMITED };
+    console.warn("[quod-cloud] invitation not accepted", { status: status(e) });
+    return { error: TRY_AGAIN };
+  }
+  invalidateMemberships(user.id);
+  // Scope the session to the new team, then "/" opens it.
+  await switchToOrganization(organizationId, { returnTo: "/" });
+  redirect("/");
 }
 
 // ---------------------------------------------------------------- Password reset

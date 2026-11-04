@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import {
   chooseOrganization,
   continueWithProvider,
+  joinTeam,
   requestPasswordReset,
   resendVerification,
   resetPassword,
@@ -206,6 +207,19 @@ export function SignUpForm({ returnTo, invitationToken, email: fixedEmail, initi
 export function VerifyEmailForm({ initial = {} }: { initial?: FormState }) {
   const [state, action] = useActionState(verifyEmail, initial);
   const [resent, resend, resending] = useActionState(resendVerification, {});
+  if (state.expired || resent.expired) {
+    // The step is gone (another browser, or it timed out): a code can't be used here any more, so offer the way back.
+    return (
+      <>
+        <FormError message={state.error ?? resent.error} focus />
+        <form action={startOver} className="auth-form">
+          <button type="submit" className="btn solid lg auth-btn">
+            Start again
+          </button>
+        </form>
+      </>
+    );
+  }
   return (
     <>
       {resent.notice ? <Notice>{resent.notice}</Notice> : null}
@@ -218,6 +232,22 @@ export function VerifyEmailForm({ initial = {} }: { initial?: FormState }) {
         <button type="submit" className="btn lg auth-btn" disabled={resending}>
           {resending ? "Sending…" : "Send a new code"}
         </button>
+      </form>
+    </>
+  );
+}
+
+/** "Join <team>": a signed-in person accepts an invitation addressed to their own email. */
+export function JoinTeamForm({ invitationId, teamName, secondary }: { invitationId: string; teamName: string; secondary?: boolean }) {
+  const [state, action] = useActionState(joinTeam, {});
+  return (
+    <>
+      <FormError message={state.error} focus />
+      <form action={action} className="auth-form">
+        <input type="hidden" name="invitationId" value={invitationId} />
+        <Submit secondary={secondary} pending="Joining…">
+          Join {teamName}
+        </Submit>
       </form>
     </>
   );

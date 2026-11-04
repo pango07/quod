@@ -11,7 +11,15 @@ import { assertCookieFits, UNSUPPORTED_MESSAGE, UNSUPPORTED_STEPS } from "./limi
 
 const PENDING_COOKIE = "quod-auth-pending";
 const OAUTH_COOKIE = "quod-auth-oauth"; // suffixed with the flow's state id, one cookie per flow
-const TTL = 600; // seconds
+/**
+ * Seconds a sealed cookie lives. A pending step lasts 30 minutes: the code
+ * email can be slow, and on a phone people leave for their inbox and come back.
+ * WorkOS's own codes still expire after 10 minutes; "Send a new code" covers that.
+ * The OAuth round trip is a few seconds of redirects, so it keeps 10 minutes.
+ */
+export const PENDING_TTL = 1800;
+const OAUTH_TTL = 600;
+const TTL_OF: Record<"quod-pending" | "quod-oauth", number> = { "quod-pending": PENDING_TTL, "quod-oauth": OAUTH_TTL };
 
 const password = () => {
   const p = process.env.WORKOS_COOKIE_PASSWORD;
@@ -46,16 +54,17 @@ const log = (what: string, e: unknown) => {
 type Purpose = "quod-pending" | "quod-oauth";
 
 async function setSealed(name: string, purpose: Purpose, value: object) {
-  const sealed = await sealData({ ...value, purpose }, { password: password(), ttl: TTL });
+  const ttl = TTL_OF[purpose];
+  const sealed = await sealData({ ...value, purpose }, { password: password(), ttl });
   assertCookieFits(name, sealed);
-  (await cookies()).set(name, sealed, { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: TTL });
+  (await cookies()).set(name, sealed, { httpOnly: true, secure: secure(), sameSite: "lax", path: "/", maxAge: ttl });
 }
 
 async function readSealed<T extends object>(name: string, purpose: Purpose): Promise<T | null> {
   const raw = (await cookies()).get(name)?.value;
   if (!raw) return null;
   try {
-    const v = await unsealData<T & { purpose?: Purpose }>(raw, { password: password(), ttl: TTL });
+    const v = await unsealData<T & { purpose?: Purpose }>(raw, { password: password(), ttl: TTL_OF[purpose] });
     // A blob sealed for one purpose is never accepted as the other.
     return v && v.purpose === purpose ? v : null;
   } catch {
@@ -75,7 +84,11 @@ export interface Pending {
   returnTo: string;
   email?: string;
   userId?: string;
-  /** verify-email: "magic" means the code is a Magic Auth code (sign-up with a taken email). */
+  /**
+   * verify-email: "magic" means the newest code is a Magic Auth code (sign-up with a
+   * taken email, or after "Send a new code"). `token`, when set, still accepts the
+   * first email-verification code.
+   */
   via?: "verification" | "magic";
   invitationToken?: string;
   challengeId?: string;
