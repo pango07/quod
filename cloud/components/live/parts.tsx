@@ -110,7 +110,7 @@ export function LiveRefresh({ scope, types = FINISHED }: { scope: LiveScope; typ
 }
 
 /** "Now running": jobs in progress (elapsed ticking, current step) and queued jobs (waiting time). */
-export function NowRunning({ team, initial, repo }: { team: string; initial: Activity; repo?: string }) {
+export function NowRunning({ team, initial, repo, bare }: { team: string; initial: Activity; repo?: string; bare?: boolean }) {
   const live = useLive();
   const now = useNow(initial.asOf);
   const all = live.jobs ?? initial.jobs;
@@ -118,6 +118,30 @@ export function NowRunning({ team, initial, repo }: { team: string; initial: Act
   const running = jobs.filter((j) => j.status === "in_progress");
   const queued = jobs.filter((j) => j.status === "queued");
   const simulated = live.jobs ? live.simulated : initial.simulated;
+
+  if (bare) {
+    // Inside the Overview's fold, which already says "Now running" and the counts.
+    return (
+      <div>
+        {simulated ? (
+          <p style={{ padding: "0 20px 12px" }}>
+            <span className="chip amber">Sample data, simulated live</span>
+          </p>
+        ) : null}
+        {jobs.length === 0 ? (
+          <p className="trow muted" style={{ display: "block", fontSize: 13 }}>
+            Nothing running right now. Jobs show up here the moment GitHub queues them.
+          </p>
+        ) : (
+          <ul className="now-list" aria-live="off">
+            {[...running, ...queued].map((j) => (
+              <JobRow key={j.id} team={team} job={j} now={now} showRepo={!repo} />
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
 
   return (
     <section className="card" aria-labelledby="now-h" style={{ overflow: "hidden" }}>

@@ -14,6 +14,8 @@ import { adminPortalLink, inviteMember as sendInvite, type PortalIntent } from "
 import { invalidateMemberships } from "@/lib/auth/session";
 import { requireTeam } from "@/lib/dal";
 import { isSlug, parseRunNumber } from "@/lib/params";
+import { parseRate } from "@/lib/savings";
+import { saveRunnerRate as storeRunnerRate } from "@/lib/team-settings";
 
 export type ActionResult = { ok: boolean; message: string } | null;
 
@@ -114,4 +116,25 @@ export async function saveConnectChoice(slug: string, store: Store, host: Host):
     throw e;
   }
   return { ok: true, message: "Saved for the team." };
+}
+
+/**
+ * The runner price per minute the Overview estimates money saved with (admins).
+ * An empty field goes back to the default (GitHub's Linux 2-core price).
+ */
+export async function saveRunnerRate(slug: string, _prev: ActionResult, form: FormData): Promise<ActionResult> {
+  const { team, admin, viewer } = await requireTeam(slug);
+  if (!admin) return NOT_ADMIN;
+  const raw = String(form.get("rate") ?? "").trim();
+  const rate = raw === "" ? null : parseRate(raw);
+  if (raw !== "" && rate === null) return { ok: false, message: "Enter a price in dollars per minute, more than 0 and at most 1, like 0.006." };
+  try {
+    await storeRunnerRate(team.orgId, rate, viewer.id);
+  } catch (e) {
+    console.error("[quod-cloud] saving the runner price failed", e instanceof Error ? e.message : e);
+    return { ok: false, message: "The price could not be saved. Try again in a minute." };
+  }
+  revalidatePath(`/${team.slug}`);
+  revalidatePath(`/${team.slug}/settings`);
+  return { ok: true, message: rate === null ? "Back to GitHub's Linux 2-core price." : `Saved: $${rate} per runner minute.` };
 }

@@ -4,7 +4,7 @@
 // ("shadow"), which re-runs a few skipped files to check them. Shaped on
 // measured runs, not real. Times are measured back from now.
 
-import type { RanFile, TestFile, TestFileState, TestRunDetail, TestRunSummary, TestStats, TestSuite } from "./types";
+import type { RanFile, TestFile, TestFileState, TestRunDetail, TestRunLite, TestRunSummary, TestStats, TestSuite } from "./types";
 
 const REPO = { repoSlug: "web", repository: "quodci/web" } as const;
 const MIN = 60_000;
@@ -377,4 +377,64 @@ export function sampleTestSuites(now = Date.now()): TestSuite[] {
       ROOT_REPO,
     ),
   ];
+}
+
+/**
+ * The sample team's test history for the Overview's savings (GET
+ * /test-history): about four weeks of CI on quodci/web, from the day Quod
+ * was added. Each CI run checks both packages; pushes to main also record
+ * them in the background. Before Quod has a recording, every file runs; after, most are
+ * skipped. Deterministic for a given `now`; made up, shaped on measured runs.
+ */
+export function sampleTestHistory(now = Date.now(), days = 90): TestRunLite[] {
+  const DAY = 24 * 60 * MIN;
+  const adopted = 26;
+  const suites = [
+    { suite: "packages/backend", total: 184, wallMs: 128_000, fileMs: 118_900 },
+    { suite: "packages/web", total: 96, wallMs: 44_000, fileMs: 39_500 },
+  ];
+  // A tiny deterministic generator, so the sample looks the same on every render.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const out: TestRunLite[] = [];
+  let n = 9000;
+  for (let d = adopted; d >= 0; d--) {
+    const perDay = d % 7 === 5 || d % 7 === 6 ? 1 : 3 + Math.floor(rnd() * 3);
+    for (let k = 0; k < perDay; k++) {
+      const at = now - d * DAY - (k * 3 + 1) * 60 * MIN - Math.floor(rnd() * 50) * MIN;
+      if (at > now - 30 * MIN) continue;
+      const kind = k % 3;
+      const event = kind === 0 ? "pull_request" : "push";
+      const branch = kind === 0 ? `refs/pull/${300 + n % 97}/merge` : kind === 1 ? "feat/invoice-retries" : "main";
+      const runId = 17_000_000 + n;
+      const sha = (n * 2654435761).toString(16).padStart(8, "0").repeat(5);
+      const fresh = d >= adopted - 1;
+      for (const s of suites) {
+        const changed = fresh ? s.total : Math.max(1, Math.round(s.total * (0.02 + rnd() * (kind === 2 ? 0.25 : 0.12))));
+        const replayed = s.total - changed;
+        const share = changed / s.total;
+        const ranFileMs = s.fileMs * share;
+        const base = { repoSlug: "web", repository: "quodci/web", suite: s.suite, event, branch, runId, sha };
+        out.push({
+          ...base,
+          id: String(n++),
+          at: new Date(at).toISOString(),
+          kind: "critical",
+          files: { total: s.total, ran: changed, replayed },
+          timing: { wallMs: Math.round(fresh ? s.wallMs * (0.95 + rnd() * 0.1) : 2_500 + s.wallMs * share * 1.1), estPlainMs: s.fileMs, savedMs: Math.round(s.fileMs - ranFileMs) },
+        });
+        // Background recordings only on pushes to main (the writer branch), and on the first runs.
+        if (kind === 2 || fresh) out.push({
+          ...base,
+          id: String(n++),
+          at: new Date(at + 2 * MIN).toISOString(),
+          kind: "shadow",
+          files: { total: s.total, ran: s.total, replayed: 0 },
+          timing: { wallMs: Math.round(s.wallMs * (0.93 + rnd() * 0.14)), estPlainMs: s.fileMs, savedMs: 0 },
+        });
+      }
+    }
+  }
+  const since = now - days * DAY;
+  return out.filter((r) => Date.parse(r.at) >= since).sort((a, b) => b.at.localeCompare(a.at));
 }

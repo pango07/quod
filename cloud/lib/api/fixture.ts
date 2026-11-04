@@ -44,11 +44,12 @@ import type {
   TeamHealth,
   TestRunDetail,
   TestRunSummary,
+  TestRunLite,
   TestStats,
   TestSuite,
   TrustState,
 } from "./types";
-import { sampleTestRuns, sampleTestStats, sampleTestSuites, summaryOnly } from "./fixture-tests";
+import { sampleTestHistory, sampleTestRuns, sampleTestStats, sampleTestSuites, summaryOnly } from "./fixture-tests";
 
 type RepoSeed = (typeof REPOS)[number];
 type StepSeed = RepoSeed["steps"][number];
@@ -357,6 +358,13 @@ export class FixtureCloudApi implements CloudApi {
   async listTestSuites(team: string): Promise<TestSuite[] | null> {
     await this.tick();
     return (await this.isSample(team)) ? sampleTestSuites() : null;
+  }
+
+  /** The sample team's test history (about four weeks since Quod was added); every other team has none. */
+  async listTestHistory(team: string, opts: { days: number }): Promise<TestRunLite[] | null> {
+    await this.tick();
+    if (!(await this.isSample(team))) return null;
+    return sampleTestHistory(Date.now(), opts.days);
   }
 
   async getActivity(team: string, opts: { repo?: string } = {}): Promise<Activity> {

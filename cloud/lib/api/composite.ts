@@ -639,6 +639,16 @@ export class CompositeCloudApi implements CloudApi {
     return suites ? suites.map((s) => mapTestSuite(map, s)) : null;
   }
 
+  /** The savings' runs; null when quod-server does not serve /test-history (the Overview falls back to listTestRuns). */
+  async listTestHistory(team: string, opts: { days: number }) {
+    const c = await this.ctx(team);
+    if (c.simulated) return this.inner.listTestHistory(team, opts);
+    const map = await this.repoMap(team, c);
+    CompositeCloudApi.skipIfFailed(map);
+    const runs = await this.inner.listTestHistory(team, opts);
+    return runs ? runs.map((r) => mapTestRun(map, r)) : null;
+  }
+
   async getTestRun(team: string, id: string) {
     const c = await this.ctx(team);
     if (c.simulated) return this.inner.getTestRun(team, id);

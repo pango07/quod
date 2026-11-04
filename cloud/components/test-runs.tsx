@@ -87,7 +87,10 @@ export function TestStatsCard({
   filesLine,
   spotChecksWeek,
   skippedLast,
+  compact,
 }: {
+  /** Next to the Overview's savings panel: no time-saved tiles (the panel has them), and the card is about trust and the latest runs. */
+  compact?: boolean;
   team: string;
   stats: TestStats;
   filesLine?: string | null;
@@ -101,8 +104,12 @@ export function TestStatsCard({
   const recent = stats.recent.slice(0, 5);
   const why = "Skipped because nothing they depend on changed since a recorded run; their earlier result was reused.";
   const rows: [string, string, string?][] = [
-    ["Time saved today", formatSaved(stats.today.savedMs), SAVED_EXPLAINED],
-    ["Time saved this week", formatSaved(stats.week.savedMs), SAVED_EXPLAINED],
+    ...(compact
+      ? []
+      : ([
+          ["Time saved today", formatSaved(stats.today.savedMs), SAVED_EXPLAINED],
+          ["Time saved this week", formatSaved(stats.week.savedMs), SAVED_EXPLAINED],
+        ] as [string, string, string][])),
     skippedLast
       ? [`Test files skipped, last ${LAST_CHECKS} checks`, skippedLast.checks ? shareText(skippedLast) : "None yet", `${shareTitle(skippedLast)}. ${why}`]
       : ["Test files skipped this week", skipped ? `${skipped} (${formatCount(stats.week.filesSkipped)} of ${formatCount(stats.week.filesTotal)})` : "None yet", why],
@@ -124,11 +131,12 @@ export function TestStatsCard({
       <div className="card-head">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <h2 id="tests-h" className="h2">
-            Test files skipped when unchanged
+            {compact ? "Are the skips right?" : "Test files skipped when unchanged"}
           </h2>
           <p className="muted" style={{ fontSize: 13, lineHeight: 1.5, maxWidth: "72ch" }}>
-            Quod skips a test file when nothing it depends on changed since a recorded run, and reuses that result. A few skipped files are re-run in the background to
-            check.
+            {compact
+              ? "Quod re-runs a few skipped test files in the background and compares the results. A wrong result would show here."
+              : "Quod skips a test file when nothing it depends on changed since a recorded run, and reuses that result. A few skipped files are re-run in the background to check."}
           </p>
         </div>
       </div>
@@ -155,9 +163,11 @@ export function TestStatsCard({
           </span>
         </p>
       ) : null}
-      <p className="faint" style={{ fontSize: 12, padding: "0 20px 12px" }}>
-        {SAVED_EXPLAINED}
-      </p>
+      {compact ? null : (
+        <p className="faint" style={{ fontSize: 12, padding: "0 20px 12px" }}>
+          {SAVED_EXPLAINED}
+        </p>
+      )}
       {recent.length ? (
         <>
           <h3 className="sr-only">Recent test runs</h3>

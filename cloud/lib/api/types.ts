@@ -9,6 +9,9 @@
 // saved or spent time is whole minutes, shares are 0..1. Every value is plain
 // JSON so the HTTP adapter can return the server's body as is.
 
+import type { TestRunLite } from "@/lib/savings";
+export type { TestRunLite };
+
 export type Range = "7d" | "30d" | "90d";
 export const RANGES: readonly Range[] = ["7d", "30d", "90d"];
 
@@ -595,6 +598,13 @@ export interface CloudApi {
   getTestStats(team: string): Promise<TestStats | null>;
   /** Test files per suite and what Quod does with each (Trust); null when the server does not serve them (404/501). */
   listTestSuites(team: string): Promise<TestSuite[] | null>;
+  /**
+   * Every test run (check and background recording) of the last `days` days,
+   * cut to what the savings need (lib/savings.ts), newest first. null: this
+   * server does not serve GET /test-history (404/501); the Overview then
+   * prices the newest 200 runs from listTestRuns.
+   */
+  listTestHistory(team: string, opts: { days: number }): Promise<TestRunLite[] | null>;
 
   /** Jobs queued or running now (optionally one repo's). */
   getActivity(team: string, opts?: { repo?: string }): Promise<Activity>;

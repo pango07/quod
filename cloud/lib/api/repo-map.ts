@@ -92,7 +92,7 @@ export const mapStep = <S extends StepSummary | StepTrust>(m: RepoMap, s: S): S 
 /** A test run or suite's repo, by its full name first (quod-server's repo list may not have it), then by quod-server's slug. */
 const testRepoSlug = (m: RepoMap, r: { repoSlug: string; repository: string }) => m.dashByName?.get(lower(r.repository)) ?? m.toDash(r.repoSlug);
 
-export const mapTestRun = <T extends TestRunSummary>(m: RepoMap, r: T): T => (m.identity ? r : { ...r, repoSlug: testRepoSlug(m, r) });
+export const mapTestRun = <T extends Pick<TestRunSummary, "repoSlug" | "repository">>(m: RepoMap, r: T): T => (m.identity ? r : { ...r, repoSlug: testRepoSlug(m, r) });
 
 export const mapTestSuite = (m: RepoMap, s: TestSuite): TestSuite => (m.identity ? s : { ...s, repoSlug: testRepoSlug(m, s) });
 

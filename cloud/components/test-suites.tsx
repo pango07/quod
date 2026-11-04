@@ -22,6 +22,7 @@ import {
   MAX_FILES,
   type StateFilter,
   type SuiteRow,
+  suitesByRepo,
   type TrustModel,
   visibleFiles,
 } from "@/lib/test-suites";
@@ -161,8 +162,8 @@ function Suite({ s, asOf, files, active, open, onToggle, showAll, onShowAll }: {
     <div>
       <button type="button" className="suite-row suite-grid" aria-expanded={open} aria-controls={id} onClick={onToggle}>
         <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-          <span style={{ fontWeight: 500, fontSize: 14 }} className="ellipsis">
-            {s.heading}
+          <span style={{ fontWeight: 500, fontSize: 14 }} className="ellipsis mono" title={s.heading}>
+            {s.name}
           </span>
           {s.recorded ? null : (
             <span className="faint" style={{ fontSize: 12 }} title={s.ledger}>
@@ -276,45 +277,47 @@ export function TrustCompact({ model, asOf }: { model: TrustModel; asOf: string 
           </div>
         </div>
         <NeedsLook items={model.look} filter={filter} query={query} />
-        <section className="card" aria-labelledby="suites-h" style={{ overflow: "hidden" }}>
-          <div className="card-head" style={{ padding: "12px 20px" }}>
-            <h2 id="suites-h" className="h2" style={{ fontSize: 14 }}>
-              Suites <span className="faint" style={{ fontWeight: 400 }}>· {formatCount(model.suites.length)}</span>
-            </h2>
-          </div>
-          <div>
-            <div className="suite-head suite-grid" aria-hidden="true">
-              <span>Suite</span>
-              <span>Files</span>
-              <span title={`Share of test files skipped over the suite's last ${LAST_CHECKS} checks (files added up)`}>
-                Skipped
-              </span>
-              <span>Last run</span>
-              <span title={SAVED_EXPLAINED}>
-                Saved, 7d
-              </span>
-              <span />
-            </div>
-            {visible.map(({ s, files }) => (
-              <Suite
-                key={s.key}
-                s={s}
-                asOf={asOf}
-                files={files}
-                active={active}
-                open={opened[s.key] ?? searching}
-                onToggle={() => setOpened((o) => ({ ...o, [s.key]: !(o[s.key] ?? searching) }))}
-                showAll={!!all[s.key]}
-                onShowAll={(v) => setAll((a) => ({ ...a, [s.key]: v }))}
-              />
-            ))}
-            {visible.length === 0 ? (
-              <p className="look-row muted">
-                No test files match.
-              </p>
-            ) : null}
-          </div>
-        </section>
+        {visible.length === 0 ? <p className="muted">No test files match.</p> : null}
+        {suitesByRepo(visible.map((x) => x.s)).map((g) => {
+          const id = `repo-${g.repository.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+          return (
+            <section key={g.repository} className="card repo-suites" aria-labelledby={id} style={{ overflow: "hidden" }}>
+              <div className="repo-suites-head">
+                <h2 id={id} className="repo-suites-name">
+                  {g.name}
+                </h2>
+                <span className="faint" style={{ fontSize: 12 }}>
+                  {g.repository} · {g.suites.length === 1 ? "1 suite" : `${formatCount(g.suites.length)} suites`} · {formatCount(g.files)} test files
+                  {g.savedWeekMs > 0 ? ` · ${formatSaved(g.savedWeekMs)} saved in 7 days` : ""}
+                </span>
+              </div>
+              <div className="suite-head suite-grid" aria-hidden="true">
+                <span>Suite</span>
+                <span>Files</span>
+                <span title={`Share of test files skipped over the suite's last ${LAST_CHECKS} checks (files added up)`}>Skipped</span>
+                <span>Last run</span>
+                <span title={SAVED_EXPLAINED}>Saved, 7d</span>
+                <span />
+              </div>
+              {g.suites.map((row) => {
+                const { s, files } = visible.find((x) => x.s.key === row.key)!;
+                return (
+                  <Suite
+                    key={s.key}
+                    s={s}
+                    asOf={asOf}
+                    files={files}
+                    active={active}
+                    open={opened[s.key] ?? searching}
+                    onToggle={() => setOpened((o) => ({ ...o, [s.key]: !(o[s.key] ?? searching) }))}
+                    showAll={!!all[s.key]}
+                    onShowAll={(v) => setAll((a) => ({ ...a, [s.key]: v }))}
+                  />
+                );
+              })}
+            </section>
+          );
+        })}
       </div>
     </>
   );

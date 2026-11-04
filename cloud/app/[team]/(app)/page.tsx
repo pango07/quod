@@ -4,6 +4,7 @@ import { GitHubStatusCard } from "@/components/github-status";
 import { QuodNote } from "@/components/section";
 import { RangeToggle } from "@/components/range-toggle";
 import { RepoTable } from "@/components/repo-table";
+import { NowRunningFold, Savings } from "@/components/savings";
 import { TestFilesLine, TestStatsCard } from "@/components/test-runs";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -14,22 +15,28 @@ import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { plainUi } from "@/lib/ui";
+import { lite, type TestRunLite } from "@/lib/savings";
+import { runnerRate } from "@/lib/team-settings";
 
 export const metadata = { title: "Overview" };
 
 const RANGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 } as const;
+const RANGE_LABEL = { "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days" } as const;
 
 export default async function OverviewPage({ params, searchParams }: PageProps<"/[team]">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity, tests, suites, testRuns] = await Promise.all([
+  const [ov, activity, tests, suites, testRuns, history, rate] = await Promise.all([
     api().getOverview(team.slug, range),
     api().getActivity(team.slug),
     section(api().getTestStats(team.slug)),
     section(api().listTestSuites(team.slug)),
     // The Repositories card's test numbers (7 days per repo); null (404/501) or down: the step columns as before.
     section(api().listTestRuns(team.slug, { limit: 200 })),
+    // The savings: every test run of the range, plus two weeks before it for the suites' full-run times.
+    section(api().listTestHistory(team.slug, { days: RANGE_DAYS[range] + 14 })),
+    runnerRate(team.orgId),
   ]);
   const repoTests = testRuns.ok && testRuns.value?.length ? testsByRepo(testRuns.value, Date.parse(ov.asOf)) : undefined;
   // Test runs: null from a server without them (404/501) or one that is down; then the card is simply not there.
@@ -45,14 +52,35 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
     testRuns.ok && testRuns.value?.some((r) => r.kind === "critical")
       ? testMinutesPerDay(testRuns.value, ov.days.length ? ov.days.map((d) => d.day) : lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf)))
       : null;
+  // Same source rule as savingsRuns below: a served /test-history wins even when empty, so the two never disagree.
+  const hasSavings = history.ok && history.value ? history.value.length > 0 : testRuns.ok && !!testRuns.value?.length;
   const testsCard = testStats ? (
-    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} />
+    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} compact={hasSavings} />
   ) : filesLine ? (
     <section className="card" style={{ padding: 20 }}>
       <TestFilesLine team={team.slug} line={filesLine} />
     </section>
   ) : null;
   const base = `/${team.slug}`;
+
+  // What Quod saved: from /test-history when the server has it, else the newest 200 runs (an older server).
+  const savingsRuns: TestRunLite[] | null =
+    history.ok && history.value ? history.value.map(lite) : testRuns.ok && testRuns.value?.length ? testRuns.value.map(lite) : null;
+  const rangeDays = lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf));
+  const savings = savingsRuns?.length ? (
+    <Savings
+      key={range}
+      team={team.slug}
+      runs={savingsRuns}
+      from={Date.parse(`${rangeDays[0]}T00:00:00Z`)}
+      asOf={ov.asOf}
+      rangeLabel={RANGE_LABEL[range]}
+      usdPerMinute={rate.usdPerMinute}
+      rateSource={rate.source}
+      defaultBranches={Object.fromEntries(ov.repos.map((r) => [r.fullName.toLowerCase(), r.protection?.branch ?? null]))}
+      source={history.ok && history.value ? "history" : "recent"}
+    />
+  ) : null;
 
   const github = activity.github;
   if (ov.repos.length === 0) {
@@ -62,6 +90,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
         <QuodNote status={ov.quod} />
         {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
         {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
+        {savings}
         {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
         {testsCard ? <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} /> : null}
         {testsCard}
@@ -118,11 +147,16 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
 
       <QuodNote status={ov.quod} />
       {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
-      <NowRunning team={team.slug} initial={activity} />
       <LiveRefresh scope={{ kind: "team" }} />
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
 
-      {quod || testDays ? (
+      {savings}
+
+      <NowRunningFold initialCount={activity.jobs.filter((j) => j.status === "in_progress").length}>
+        <NowRunning team={team.slug} initial={activity} bare />
+      </NowRunningFold>
+
+      {savings ? null : quod || testDays ? (
         <LiveTotals
           key={range}
           totals={t}

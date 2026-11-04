@@ -14,7 +14,7 @@ describe("migrations (PGlite)", () => {
     expect(await migrate(db, all)).toEqual(all.map((m) => m.file));
     expect(await migrate(db, all)).toEqual([]);
     const tables = (await db.query<{ t: string }>("SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1")).map((r) => r.t);
-    expect(tables).toEqual(["deliveries", "installations", "reconcile_state", "repo_protection", "repos", "schema_migrations", "workflow_jobs", "workflow_runs"]);
+    expect(tables).toEqual(["deliveries", "installations", "reconcile_state", "repo_protection", "repos", "schema_migrations", "team_settings", "workflow_jobs", "workflow_runs"]);
     await db.close();
   });
 

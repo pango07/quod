@@ -32,16 +32,20 @@ describe("Trust, compact", () => {
   });
 
   it("needs a look lists only paused and always-runs files, paused first, one line each", () => {
-    const look = html.slice(html.indexOf('id="look-h"'), html.indexOf('id="suites-h"'));
+    const look = html.slice(html.indexOf('id="look-h"'), html.indexOf('class="card repo-suites"'));
     const files = [...look.matchAll(/class="file">([^<]+)</g)].map((m) => m[1]);
     expect(files).toEqual(["src/billing/discounts.test.ts", "src/api/routes/login.test.ts", "src/db/migrations.test.ts", "src/components/date-picker.test.tsx"]);
     expect(look).toContain("Latest run");
     expect(look).not.toContain("retry.test.ts");
   });
 
-  it("one collapsed row per suite: repo · package, mini bar, counts; no file lists until opened", () => {
-    expect(t).toContain("web · packages/backend");
-    expect(t).toContain("quod · repo root");
+  it("suites grouped under their repository, one collapsed row each: package, mini bar, counts; no file lists until opened", () => {
+    const heads = [...html.matchAll(/class="repo-suites-name">([^<]+)</g)].map((m) => m[1]);
+    expect(heads).toEqual(["web", "quod"]);
+    const web = text(html.slice(html.indexOf('class="repo-suites-name">web<'), html.indexOf('class="repo-suites-name">quod<')));
+    expect(web).toContain("quodci/web");
+    expect(web).toContain("packages/backend");
+    expect(t).toContain("repo root");
     expect(t).toContain("184 files · 170 skipping · 3 need a look");
     expect(t).toContain("7 files · 7 skipping");
     expect(html.match(/aria-expanded="false"/g)).toHaveLength(4);

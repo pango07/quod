@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Dot } from "@/components/ui";
 import { formatAgo } from "@/lib/format";
-import { LEGEND, lastResult, savedText, skippedText, type PlainKind, type PlainState, type StepGroup, type Version } from "@/lib/trust-plain";
+import { LEGEND, lastResult, savedLine, STATE_WORD, stepSentence, type PlainKind, type PlainState, type StepGroup } from "@/lib/trust-plain";
 
 type Filter = "all" | PlainKind;
 const FILTERS: [Filter, string][] = [
@@ -17,7 +17,7 @@ const FILTERS: [Filter, string][] = [
   ["ready", "Ready to skip"],
   ["skipping", "Skipping"],
   ["paused", "Paused"],
-  ["recording", "Recording only"],
+  ["recording", "Watching only"],
   ["always", "Always runs"],
 ];
 
@@ -38,101 +38,81 @@ export function PlainStateChip({ state, href }: { state: PlainState; href?: stri
   );
 }
 
-function VersionCells({ v, team, asOf }: { v: Version; team: string; asOf: string }) {
-  const href = `/${team}/${v.step.repoSlug}/steps/${v.step.key}`;
-  return (
-    <>
-      <span>
-        <span className="sr-only">State: </span>
-        <PlainStateChip state={v.state} href={v.state.kind === "paused" ? `${href}#diff` : undefined} />
-        {v.step.trustRef ? (
-          <span className="cell-sub" style={{ display: "block", marginTop: 4 }} title="The default branch has not recorded this step yet; this is what runs on that branch do.">
-            on {v.step.trustRef}
-          </span>
-        ) : null}
-      </span>
-      <span style={{ fontSize: 13 }}>
-        <span className="label-sm">Last result </span>
-        {lastResult(v, asOf, formatAgo)}
-      </span>
-      <span style={{ fontSize: 13 }}>
-        <span className="label-sm">Skipped </span>
-        {skippedText(v)}
-      </span>
-    </>
-  );
-}
-
-function GroupRow({ g, team, asOf, showRepo }: { g: StepGroup; team: string; asOf: string; showRepo?: boolean }) {
+function GroupRow({ g, team, asOf, recentRuns }: { g: StepGroup; team: string; asOf: string; recentRuns: number }) {
   const [open, setOpen] = useState(false);
   const v = g.current;
   const href = `/${team}/${v.step.repoSlug}/steps/${v.step.key}`;
   const listId = `v-${g.current.step.key.slice(0, 12)}`;
+  const tone = v.state.tone;
   return (
-    <div className="plain-group">
-      <div className="trow cols-plain">
-        <span className="cell-main">
-          <Link href={href} className={g.untitled ? "" : "mono"} style={{ fontSize: 13, color: "var(--text)" }} title="Open this step's history">
-            {g.title}
-          </Link>
-          <span className="cell-sub">
-            {[showRepo ? g.repoSlug : null, g.job || null].filter(Boolean).join(" · ") || " "}
-            {g.earlier.length ? (
-              <>
-                {" · "}
-                <button type="button" className="link-btn" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)}>
-                  {open ? "Hide" : ""} {g.earlier.length === 1 ? "1 earlier version" : `${g.earlier.length} earlier versions`}
-                </button>
-              </>
-            ) : null}
-          </span>
-        </span>
-        <VersionCells v={v} team={team} asOf={asOf} />
-        <span className="mono" style={{ fontSize: 13 }}>
-          <span className="label-sm" style={{ fontFamily: "var(--sans)" }}>
-            Time saved{" "}
-          </span>
-          {savedText(g.savedSeconds)}
+    <li className="step-item">
+      <div className="step-line1">
+        <Link href={v.state.kind === "paused" ? `${href}#diff` : href} className={`step-title ${g.untitled ? "" : "mono"}`} title="Open this step's history">
+          {g.title}
+        </Link>
+        <span className={`chip ${tone === "blue" || tone === "amber" ? tone : ""}`} title={v.state.help}>
+          <Dot tone={tone === "gray" ? "white" : tone} size="sm" />
+          {STATE_WORD[v.state.kind]}
         </span>
       </div>
+      <p className="step-says">{stepSentence(v, recentRuns)}</p>
+      <p className="step-meta">
+        {g.job ? <span>Job: {g.job}</span> : null}
+        {v.step.trustRef ? <span title="The default branch has not recorded this step yet; this is what runs on that branch do.">On {v.step.trustRef}</span> : null}
+        <span>
+          {v.seen && (v.seen.outcome === "ran" || v.seen.outcome === "replayed") ? "Last run: " : ""}
+          {lastResult(v, asOf, formatAgo)}
+        </span>
+        {g.savedSeconds >= 1 || g.couldSaveSeconds < 1 ? <span className={g.savedSeconds >= 1 ? "step-saved" : ""}>{savedLine("skipping", g.savedSeconds)}</span> : null}
+        {g.couldSaveSeconds >= 1 ? <span>{savedLine("recording", g.couldSaveSeconds)}</span> : null}
+        {g.earlier.length ? (
+          <button type="button" className="link-btn" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide earlier versions" : g.earlier.length === 1 ? "1 earlier version" : `${g.earlier.length} earlier versions`}
+          </button>
+        ) : null}
+      </p>
       {open ? (
-        <div id={listId} className="plain-versions">
-          <p className="cell-sub" style={{ padding: "8px 20px 4px 36px", lineHeight: 1.5 }}>
-            Why there are versions: {g.reason}
+        <div id={listId} className="step-versions">
+          <p className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
+            {g.reason}
           </p>
-          {g.earlier.map((e, i) => (
-            <div key={e.step.key} className="trow cols-plain plain-version">
-              <span className="cell-main">
-                <Link href={`/${team}/${e.step.repoSlug}/steps/${e.step.key}`} style={{ fontSize: 13 }}>
+          <ul>
+            {g.earlier.map((e, i) => (
+              <li key={e.step.key}>
+                <Link href={`/${team}/${e.step.repoSlug}/steps/${e.step.key}`}>
                   Version {g.earlier.length - i}
                   <span className="mono faint"> · {e.step.key.slice(0, 8)}</span>
                 </Link>
-                <span className="cell-sub">{e.seen ? "superseded" : "not in recent runs"}</span>
-              </span>
-              <VersionCells v={e} team={team} asOf={asOf} />
-              <span className="mono faint" style={{ fontSize: 13 }}>
-                {savedText(Math.max(e.step.savedMinutes * 60, e.seen?.savedTotal ?? 0))}
-              </span>
-            </div>
-          ))}
+                <span className="faint">
+                  {STATE_WORD[e.state.kind]} · {e.seen ? "replaced by a newer version" : "not in recent runs"} · {savedLine(e.state.kind, Math.max(e.step.savedMinutes * 60, e.seen?.savedTotal ?? 0))}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
-    </div>
+    </li>
   );
 }
 
-/** Trust (and a repo's Steps tab), plain: grouped rows, states in words, a legend. */
+/** Trust (and a repo's Steps tab), plain: one entry per step that says in words what Quod does with it, grouped by repository. */
 export function TrustList({ team, groups, asOf, showRepo, recentRuns }: { team: string; groups: StepGroup[]; asOf: string; showRepo?: boolean; recentRuns: number }) {
   const [filter, setFilter] = useState<Filter>("all");
   const present = new Set(groups.map((g) => g.current.state.kind));
   const filters = FILTERS.filter(([k]) => k === "all" || present.has(k as PlainKind));
   const rows = filter === "all" ? groups : groups.filter((g) => g.current.state.kind === filter);
+  const repos = showRepo ? [...new Set(rows.map((g) => g.repoSlug))] : [null];
   return (
     <section className="card" aria-labelledby="steps-h" style={{ overflow: "hidden" }}>
       <div className="card-head">
-        <h2 id="steps-h" className="h2">
-          Steps
-        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <h2 id="steps-h" className="h2">
+            CI steps
+          </h2>
+          <p className="faint" style={{ fontSize: 12, lineHeight: 1.5, maxWidth: "72ch" }}>
+            Whole commands in your workflows, like a lint or a build. Quod skips one when nothing it reads has changed since a run it trusts.
+          </p>
+        </div>
         {filters.length > 2 ? (
           <div className="pill-filters" role="group" aria-label="Filter steps">
             {filters.map(([k, label]) => (
@@ -143,13 +123,6 @@ export function TrustList({ team, groups, asOf, showRepo, recentRuns }: { team: 
           </div>
         ) : null}
       </div>
-      <div className="table-head cols-plain" aria-hidden="true">
-        <span>Step</span>
-        <span>State</span>
-        <span>Last result</span>
-        <span title={`Counted over the last ${recentRuns} runs`}>Skipped</span>
-        <span>Time saved</span>
-      </div>
       <p className="sr-only" aria-live="polite">
         {rows.length === 1 ? "1 step" : `${rows.length} steps`} shown
       </p>
@@ -158,8 +131,17 @@ export function TrustList({ team, groups, asOf, showRepo, recentRuns }: { team: 
           No steps here right now.
         </p>
       ) : null}
-      {rows.map((g) => (
-        <GroupRow key={g.id} g={g} team={team} asOf={asOf} showRepo={showRepo} />
+      {repos.map((repo) => (
+        <div key={repo ?? "all"}>
+          {repo ? <h3 className="step-repo">{repo}</h3> : null}
+          <ul className="step-list">
+            {rows
+              .filter((g) => repo === null || g.repoSlug === repo)
+              .map((g) => (
+                <GroupRow key={g.id} g={g} team={team} asOf={asOf} recentRuns={recentRuns} />
+              ))}
+          </ul>
+        </div>
       ))}
       <Legend />
     </section>

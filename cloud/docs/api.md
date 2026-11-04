@@ -138,6 +138,7 @@ WorkOS roles: `admin` and `member`. The server enforces these; the UI only mirro
 | `GET /v1/teams/:team/test-runs/:id` | | `TestRunDetail` \| 404 | in progress | test run page |
 | `GET /v1/teams/:team/test-stats` | | `TestStats` | in progress | Overview's test card; hidden on 404/501 |
 | `GET /v1/teams/:team/test-suites` | | `{ suites: TestSuite[] }` | in progress | Trust (test files per suite), Overview's "test files" line; hidden on 404/501 |
+| `GET /v1/teams/:team/test-history` | `?days=` (1..365, default 90) | `{ asOf, days, truncated, runs: TestRunLite[] }` newest first, at most 5000 | branch `cloud/test-history` (not deployed) | Overview's savings; on 404/501 the newest 200 from `/test-runs` |
 | `GET /v1/teams/:team/activity` | `?repo=` (ignored) | `Activity` (`jobs: []`, `cursor`) | yes | "Now running" with GitHub's jobs |
 | `GET /v1/teams/:team/events` | `?scope=`, `Last-Event-ID` | `text/event-stream` | yes | everything live |
 
@@ -248,6 +249,24 @@ The types are `lib/api/types.ts`; the recorded bodies in
   `pango07/quod-action`. 404/501 is `null` (treated as no suites); down is
   "unavailable". The Overview adds a line from the totals ("296 test files:
   265 skipping, 17 ready, ..."). Trust refreshes on `test.run`.
+- **Savings** (`TestRunLite` in `lib/savings.ts`; `GET /test-history`). The
+  Overview's "What Quod saved you" prices every test run of the range (plus
+  14 days before it, for the suites' full-run times). Each row is a test run
+  cut to `id, at, repoSlug, repository, suite, kind, event, branch, runId,
+  sha, files {total, ran, replayed}, timing {wallMs, estPlainMs, savedMs}`.
+  The method is `SAVINGS_METHOD` in `lib/savings.ts`: a check's plain time is
+  the median wall time of up to 5 recorded full runs of the same suite
+  (replayed 0; usually the background recording), nearest in time and scaled
+  to the check's file count; without one, the check's wall time plus its
+  skipped files' recorded time (`savedMs`). Time saved is plain minus actual;
+  money is runner minutes saved times the team's price (Settings, table
+  `team_settings`, migration 0006; default GitHub's Linux 2-core price,
+  $0.006/min), minus the background recordings' test time. Runs are split by
+  `event`/`branch` into pull requests, feature branches and the default
+  branch (GitHub's default branch when the App read it, else main/master).
+  A server without `/test-history` (404/501) is priced from the newest 200
+  runs of `/test-runs`, and the panel says so. New `test.run` events are
+  added in the browser and the numbers recomputed at once.
 - **Connect** (`ConnectSetup`): the setup action name, runner labels,
   install command, a self-hosted server example, the first repo (or null)
   and the saved choice.
@@ -400,6 +419,13 @@ what blocks what.
     relies on `protocol`, `unauthorized` and `not_implemented`.
 11. `overview.days`: one point per UTC day of the range, zeros included,
     oldest first (as the fixture and the chart have it).
+12. **`GET /test-history`** (written on branch `cloud/test-history`, not
+    compiled or deployed yet): the savings' runs for a whole range. Until it
+    is deployed the Overview prices only the newest 200 runs.
+13. For a truer cost picture, later: the whole job's runner time (checkout
+    and install included) per test run, e.g. the job's start time in the
+    report, so the savings can count setup and the background recording's
+    full job, not only vitest's wall time.
 
 ## The writer-trust warning (branch protection)
 

@@ -437,3 +437,124 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
   .tr-toolbar { top: 56px }
 }
 @media (prefers-reduced-motion: reduce) { .suite-row .caret { transition: none } }
+
+/* Overview: what Quod saved (components/savings.tsx). One big number, money; the rest in a quiet ledger beside it. */
+.savings { overflow: visible }
+.savings-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 18px 24px 4px }
+.savings-when { display: inline-flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted) }
+.savings-live { display: inline-flex; align-items: center; gap: 6px; color: var(--blue-text) }
+.savings-body { display: grid; grid-template-columns: 1fr; gap: 0; padding: 8px 0 0 }
+.savings-money { display: flex; flex-direction: column; gap: 10px; padding: 12px 24px 24px; border-bottom: 1px solid var(--rule) }
+.savings-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted) }
+.savings-big { font-size: clamp(44px, 6vw, 64px); font-weight: 600; letter-spacing: -0.035em; line-height: 1; color: var(--text) }
+.savings-big.neg, .money-last.neg { color: var(--amber-text) }
+.savings-note { font-size: 13px; line-height: 1.55; color: var(--faint); max-width: 46ch }
+.savings-warn { font-size: 13px; line-height: 1.5; color: var(--amber-text) }
+.savings-kpis { margin: 0; display: flex; flex-direction: column }
+.savings-kpis > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; padding: 14px 24px; border-top: 1px solid var(--rule) }
+.savings-kpis .savings-why { grid-column: 1 / -1 }
+@media (min-width: 1180px) {
+  .savings-body { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr) }
+  .savings-money { border-bottom: 0; border-right: 1px solid var(--rule) }
+  .savings-kpis > div { grid-template-columns: 140px 130px minmax(0, 1fr) }
+  .savings-kpis .savings-why { grid-column: auto }
+}
+.savings-kpis > div:first-child { border-top: 0 }
+.savings-kpis dt { font-size: 13px; color: var(--muted) }
+.savings-kpis dd { margin: 0 }
+.savings-kpis dd.tnum { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1 }
+.savings-why { font-size: 13px; line-height: 1.5; color: var(--faint) }
+.savings-latest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 12px 24px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--muted); border-radius: 0 0 12px 12px }
+.savings-latest strong { color: var(--text); font-weight: 500 }
+.savings-latest time { margin-left: auto; font-size: 12px }
+.savings-latest.flash { animation: landed 2.4s ease-out }
+@keyframes landed { 0% { background: color-mix(in srgb, var(--blue) 18%, transparent) } 100% { background: transparent } }
+.savings-foot { font-size: 12px; padding: 0 24px 14px }
+@media (max-width: 860px) {
+  .savings-money { padding: 8px 16px 20px }
+  .savings-head { padding: 16px 16px 4px }
+  .savings-kpis > div { padding: 12px 16px }
+  .savings-latest { padding: 12px 16px }
+  .savings-latest time { margin-left: 0 }
+  .savings-foot { padding: 0 16px 12px }
+}
+
+/* The (i) next to a number: opens the method in place, on click or keyboard. */
+.info { position: relative; display: inline-flex }
+.info summary { list-style: none; cursor: pointer; color: var(--faint); display: inline-flex; padding: 2px; border-radius: 50% }
+.info summary::-webkit-details-marker { display: none }
+.info summary:hover, .info[open] summary { color: var(--text) }
+.info-pop { position: absolute; z-index: 25; top: calc(100% + 6px); left: -8px; width: min(380px, 80vw); background: var(--text); color: #000; font-size: 12.5px; line-height: 1.5; padding: 10px 12px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .5) }
+
+/* Charts beside each other: CI time per run, money over time. */
+.savings-charts { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start }
+@media (max-width: 1020px) { .savings-charts { grid-template-columns: 1fr } }
+.chart-card { display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px }
+.chart-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 18px 20px 0 }
+.money-last { font-size: 24px; font-weight: 600; letter-spacing: -0.02em }
+.swatch.dashed { background: none; border-top: 2px dashed #777; height: 0; width: 14px; border-radius: 0 }
+.plot { position: relative; height: 180px; margin: 8px 20px 0 }
+.plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible }
+.plot-axis { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke }
+.plot-with { fill: none; stroke: var(--blue); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round }
+.plot-without { fill: none; stroke: #777; stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke }
+.plot-mark { stroke: var(--edge); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke }
+.plot-mark-label { position: absolute; top: -2px; transform: translateX(6px); font-size: 11px; color: var(--faint); white-space: nowrap; pointer-events: none }
+.plot-dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--blue); pointer-events: none }
+.plot-max { position: absolute; top: -4px; left: 0; font-size: 11px; color: var(--faint); transform: translateY(-100%) }
+.plot-area { fill: color-mix(in srgb, var(--blue) 16%, transparent) }
+.plot-area.neg { fill: color-mix(in srgb, var(--amber) 14%, transparent) }
+.plot-money { fill: none; stroke: var(--blue); stroke-width: 2; vector-effect: non-scaling-stroke }
+.plot-money.neg { stroke: var(--amber) }
+.plot-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; text-align: center; padding: 0 16px }
+.plot-hits { position: absolute; inset: 0; display: flex; margin: 0; padding: 0; list-style: none }
+.plot-hits li { flex: 1; position: relative }
+.plot-hits li:hover { background: color-mix(in srgb, var(--text) 5%, transparent) }
+.plot-hits .tip { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--text); color: #000; font-size: 12px; line-height: 1.4; padding: 6px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; display: none; z-index: 5 }
+.plot-hits li:hover .tip { display: block }
+.plot-hits li.edge-l .tip { left: 0; transform: none }
+.plot-hits li.edge-r .tip { left: auto; right: 0; transform: none }
+.class-table { width: calc(100% - 40px); margin: 4px 20px 0; border-collapse: collapse; font-size: 13px }
+.class-table th, .class-table td { padding: 8px 0; border-top: 1px solid var(--rule); text-align: right; font-weight: 400 }
+.class-table thead th { color: var(--faint); font-size: 12px; border-top: 0; padding-top: 0 }
+.class-table th:first-child { text-align: left }
+.class-table tbody th .link-btn { color: var(--text); text-decoration: none; font-weight: 500 }
+.class-table tbody th .link-btn:hover { text-decoration: underline }
+.class-table tr[aria-current="true"] th .link-btn { color: var(--blue-text) }
+.class-table td.change { color: var(--blue-text) }
+.chart-foot { font-size: 12px; line-height: 1.5; padding: 0 20px 14px }
+@media (max-width: 480px) {
+  .class-table thead th:nth-child(2), .class-table tbody td:nth-of-type(1) { display: none }
+}
+
+/* Now running, folded. */
+.fold > summary { display: flex; align-items: center; gap: 10px; padding: 14px 20px; cursor: pointer; list-style: none; border-radius: 12px }
+.fold > summary::-webkit-details-marker { display: none }
+.fold > summary:hover { background: var(--hover) }
+.fold-caret { color: var(--faint); font-size: 16px; line-height: 1; transition: transform .15s }
+.fold[open] .fold-caret { transform: rotate(90deg) }
+.fold-body { border-top: 1px solid var(--rule) }
+.fold-body .trow:first-child, .fold-body .now-list li:first-child .now-row { border-top: 0 }
+@media (prefers-reduced-motion: reduce) { .savings-latest.flash { animation: none } .fold-caret { transition: none } }
+
+/* Trust: suites under their repository. */
+.repo-suites-head { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; padding: 16px 20px 12px }
+.repo-suites-name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em }
+.repo-suites .suite-head { border-top: 1px solid var(--rule) }
+
+/* Trust: CI steps, one entry each, in sentences. */
+.step-repo { font-size: 13px; font-weight: 600; padding: 12px 20px 8px; border-top: 1px solid var(--rule); color: var(--muted) }
+.step-list { list-style: none; margin: 0; padding: 0 }
+.step-item { padding: 14px 20px 14px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 6px }
+.step-repo + .step-list .step-item:first-child { border-top: 0; padding-top: 4px }
+.step-line1 { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0 }
+.step-title { font-size: 13.5px; color: var(--text); overflow-wrap: anywhere; min-width: 0 }
+.step-title:hover { text-decoration: underline; text-underline-offset: 2px }
+.step-says { font-size: 13.5px; line-height: 1.55; color: var(--muted); max-width: 80ch }
+.step-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--faint) }
+.step-meta .step-saved { color: var(--blue-text) }
+.step-versions { margin-top: 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; font-size: 13px }
+.step-versions ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px }
+.step-versions li { display: flex; flex-wrap: wrap; gap: 4px 12px }
+@media (max-width: 720px) { .step-item, .step-repo { padding-left: 16px; padding-right: 16px } .step-line1 { align-items: flex-start } }
+.savings-sum { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--muted) }
