@@ -1,8 +1,12 @@
+# The original check: fmt, clippy, unit tests, then the integration tests as
+# root. gate.yml's lint job runs all of it (scripts/lint.sh, as root, with
+# QUOD_INTEGRATION=1) with cached dependencies, on every pull request to main,
+# so this workflow no longer runs by itself: it compiled the workspace twice,
+# uncached, on every pull request and every push to main. Dispatch only.
+#   gh workflow run ci.yml --ref <branch>
 name: ci
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -10,6 +14,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain
@@ -21,6 +26,7 @@ jobs:
   integration:
     # FUSE, overlayfs and bubblewrap need root or user namespaces.
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     needs: check
     steps:
       - uses: actions/checkout@v4

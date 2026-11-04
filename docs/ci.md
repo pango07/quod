@@ -8,7 +8,8 @@ box and on a runner; `ci-gate.sh` only wraps the scripts that own each gate
 the hooks suite) and adds corpus preparation, logs and the job summary.
 
 `ci.yml` (fmt, clippy, unit tests, and the integration tests as root) is
-unchanged and still runs on every pull request and every push to main.
+dispatch only: gate.yml's lint job runs the same checks, with cached
+dependencies, on every pull request to main.
 
 ## Running a gate on a branch
 
@@ -42,34 +43,61 @@ scripts/bench-lite.sh --against main     # re-runs itself as dev.sh 'flock /work
 
 ## Triggers
 
-The policy (2026-11-02, exp/bench-lite): every push gets lint, merge-gate and
-bench-lite; hooks runs before merge; the three corpus acceptance gates run
-once per batch (by dispatch) or nightly.
+The policy (2026-11-04, ci/milestone-gates): **gates run at milestones and on
+pull requests to main, never on a branch push.** The repository is private
+and its minutes are billed; per-push gates on `exp/**`, `fix/**`, `cloud/**`
+and `ci/**` billed about 1,230 minutes in a day and a half (2026-11-03/04),
+and lint alone 432 of them.
 
 | Event | What runs |
 |---|---|
-| `push` to `exp/**`, `fix/**`, `cloud/**`, `ci/**` | lint, merge-gate and bench-lite if anything outside `cloud/` changed (the push's diff; a new branch: its diff from main), cloud if `cloud/` changed |
-| `pull_request` to main, new commits (`synchronize`) | the same |
-| `pull_request` to main `opened`, `reopened`, `ready_for_review` | the same plus hooks (before merge) |
-| `schedule`, 04:17 UTC daily, on main | acceptance-cli, acceptance-node, acceptance-python, only if main received a commit in the last 24 h |
-| `workflow_dispatch` | what `only` names (default all: every job), whatever changed; a batch of merges is gated with `-f only=acceptance-cli,acceptance-node,acceptance-python` |
+| `workflow_dispatch` (the milestone gate) | what `only` names (default all: every job), whatever changed |
+| `pull_request` to main, `opened`, `reopened`, `ready_for_review`, `synchronize`; not while a draft | lint, merge-gate and bench-lite if a Rust-relevant path changed, cloud if `cloud/` changed. Hooks and the corpus gates: dispatch only |
+| `push` to main (a merge) that touched more than docs, `web/`, `cloud/` or Markdown | lint, merge-gate and bench-lite in cache mode: each restores main's Rust cache and stops there if it is current; on a miss (Cargo.lock, a Cargo.toml, the toolchain or the runner image changed) it runs its gate, which saves the cache |
+| a push to any other branch | nothing |
 
-Before this change a pull request opened or marked ready ran every gate
-(~205 min); now it runs the fast gate and hooks (~65 min), and the corpus gates (~150 min together) move to the nightly run on
-main and to batch dispatches. What that gives up: a branch can merge without
-having run the corpus suites itself. What keeps it honest: bench-lite runs
-on every push and fails on any wrong replay, hooks still runs before merge,
-the nightly run catches what slipped through within a day, and a branch that
-touches quod-fs, quod-manifest, quod-replay or quod-sandbox should still
-dispatch acceptance-cli before merging ("Spending it well" below).
+There is no nightly run. The corpus gates (hooks, acceptance-cli, -node,
+-python; about 195 minutes together) run when a milestone is dispatched:
 
-The `changes` job decides from the event and the diff, so a cloud-only push
-runs only the cloud job (npm ci, lint, `next typegen`, tsc, test, build).
-`concurrency` cancels a superseded run of the same ref or pull request (a
-dispatch with `-f ref=<sha>` gets its own group, so it runs beside the push
-run of its branch). A commit message with `[skip ci]` skips the push run.
-Before merging a branch whose last full gate predates its last code change,
-dispatch the corpus gates on it.
+```sh
+gh workflow run gate.yml --ref <branch>                                   # the milestone gate, every job
+gh workflow run gate.yml --ref <branch> -f only=lint,merge-gate,bench-lite   # the fast gate, before a PR exists
+```
+
+"Rust-relevant" is decided by the `changes` job from the pull request's
+diff: anything except `cloud/`, `web/`, `docs/`, Markdown, the other
+workflows (`ci.yml`, `quod-cloud.yml`, `quod-release.yml`, `bench-*.yml`) and
+the setup action. A pull request that touches only docs, `web/` or Markdown
+does not start the workflow at all (`paths-ignore`); a `cloud/`-only one runs
+only the cloud job. Open pull requests as drafts while iterating: a draft
+runs nothing, and marking it ready runs the fast gates once.
+
+Why main runs the cache mode: a branch, a pull request or a dispatch can
+restore caches saved on its own ref or on main, never on another branch.
+Before this policy nothing ran on main, so every new branch's lint compiled
+every dependency from nothing (25 min against 15 warm). Main's caches are
+now what every pull request and dispatch restores.
+
+Pushing a branch is free under this policy only once the branch carries
+this gate.yml: GitHub reads a push's triggers from the pushed commit, so a
+branch made before this change still runs its old per-push gates until it
+is rebased on main or merges main.
+
+`concurrency` cancels a superseded run of the same pull request or ref (a
+dispatch with `-f ref=<sha>` or another `only` gets its own group).
+
+The other workflows:
+
+| Workflow | Runs on |
+|---|---|
+| `ci.yml` | dispatch only (lint covers it) |
+| `quod-cloud.yml` | push to main and pull requests to main (not drafts) that change `cloud/`, the workflow or `.github/actions/setup/`; dispatch |
+| `quod-release.yml` | a `quod-client-v*` tag |
+| `gate-corpus.yml` | called by gate.yml only |
+| `bench-binary.yml` (branch `ci/bench-binary`) | dispatch only, by `scripts/publish-bench-binary.sh <ref>` (about 2 min a build); its push trigger only registers the workflow and its job is skipped |
+
+Every job has a `timeout-minutes` a little above its measured time, so a
+hung job cannot burn hours.
 
 ## The jobs
 
@@ -129,7 +157,7 @@ then hands `target/` and `~/.cargo` back to the runner user for the caches.
 
 | Cache | Contents | Why it is safe |
 |---|---|---|
-| `Swatinem/rust-cache` (keys `lint`, `merge-gate`, `release`) | `~/.cargo` registry and git, and the target directory's third-party dependency builds | It drops the workspace's own crates, so every job compiles Quod from the checkout under test. Dependencies are pinned by Cargo.lock and the key includes the toolchain and the lockfile. |
+| `Swatinem/rust-cache` (keys `lint`, `merge-gate`, `release`) | `~/.cargo` registry and git, and the target directory's third-party dependency builds | It drops the workspace's own crates, so every job compiles Quod from the checkout under test. Dependencies are pinned by Cargo.lock and the key includes the toolchain, the `CARGO_*` variables and the lockfile. Saved on main by a merge (cache mode, "Triggers"), restored by every pull request and dispatch. |
 | `corpus-<tc>-<commit>` | a full clone of the corpus repo (cli/cli, luxon, starlette) | Pinned by commit in versions.toml, which is in the key. Saved right after cloning, before any gate touches it; acceptance.sh checks the commit out again on a branch, and every suite works on a copy. |
 | `corpus-hooks-<commit>-go<version>` | the cli/cli clone plus `.quod/gomod`, the module cache the hooks test seeds its jobs from | The seed is an operator's input to the hooks path, not Quod output: `go mod download` against go.sum, which verifies every module's hash. Quod's own step A is not involved. |
 
@@ -145,6 +173,13 @@ Not cached, on purpose:
   state is a fresh temp dir; a carried-over ledger could replay what the test
   must execute.
 - The toolchains: downloaded at their pinned versions each run (seconds).
+
+Debug builds use `CARGO_PROFILE_DEV_DEBUG=line-tables-only` (gate.yml's
+`env`): backtraces keep file and line, and the debug builds and the ~20 test
+binaries link faster with smaller caches. Release builds are unaffected.
+`scripts/lint.sh` prints each phase's time (`lint: fmt 3s`, `clippy`,
+`clippy-all-features`, `test-build`, `test-run`); the lint job's summary
+shows them.
 
 ## GitHub's runners against the dev VM
 
@@ -174,34 +209,31 @@ GitHub bills each job rounded up to the minute, cancelled runs included.
 
 | | Minutes |
 |---|---|
-| full gate (every Rust job; `changes` 1, lint 5, merge-gate 5, bench-lite 8, hooks 46, acceptance-cli 102, node 24, python 21) | about 213 |
-| fast gate (`changes`, lint, merge-gate, bench-lite) | about 19 |
-| a pull request opened or ready (fast gate and hooks) | about 65 |
-| nightly corpus gates (acceptance-cli, node, python) | about 150 |
-| cloud job | about 2 |
-| `ci.yml` (check + integration), every pull request and push to main | about 10 |
+| full gate (every Rust job; `changes` 1, lint 15, merge-gate 6, bench-lite 7, hooks 46, acceptance-cli 102, node 24, python 21) | about 220 |
+| fast gate (`changes`, lint, merge-gate, bench-lite), warm caches | about 29 |
+| the same with cold caches (a new Cargo.lock) | about 40 |
+| a merge to main, caches current (cache mode) | about 6 |
+| cloud job | about 3 |
 
-A full gate is a tenth of the month. Under the policy above, a month of 50
-fast pushes (950), 6 pull requests opened (390), 15 `ci.yml` runs (150) and
-nightly corpus gates on the days main moves leaves room for about 3 nightly
-runs (450): 1,940. Daily merges would need about 4,500 minutes for the
-nightlies alone, so on the free plan the schedule only works if main moves
-on a few days a month, or with a public repository (free, 4 CPUs) or a
-self-hosted runner; otherwise dispatch the corpus gates once per batch and
-disable the schedule (delete the `schedule:` trigger). bench-lite adds 8
-minutes to every push (+400 a month at 50 pushes) in exchange for a
-per-branch number.
+Before 2026-11-04 every push to `exp/**`, `fix/**`, `cloud/**` or `ci/**`
+ran the fast gate, cold on a branch's first push: about 1,230 minutes from
+2026-11-03 to the morning of 2026-11-04. Under the milestone policy a month
+of, say, 20 pull requests with two pushes each (40 fast gates, about 1,200),
+20 merges (120) and two milestone dispatches (440) is about 1,750; fewer
+pull request pushes (draft until ready) is where the rest of the room is.
 
 Spending it well:
 
-- Dispatch only the corpus gates a change can affect: quod-hooks or
-  quod-trust → `only=hooks`; quod-fs, quod-manifest, quod-replay or
-  quod-sandbox → `only=acceptance-cli` first (it is half of a full gate),
-  then node and python before merging; docs-only changes need nothing.
-- Open pull requests as drafts while iterating; marking one ready runs the
-  full gate once.
+- Dispatch only the gates a change can affect: quod-hooks or quod-trust →
+  `only=hooks`; quod-fs, quod-manifest, quod-replay or quod-sandbox →
+  `only=acceptance-cli` first (it is half of a full gate), then node and
+  python before a milestone; docs-only changes need nothing.
+- Keep pull requests as drafts while iterating; each push to a ready pull
+  request runs the fast gate.
 - acceptance-cli's ten A7b samples are about 45 of its 102 minutes;
   `QUOD_A7B_SAMPLES=3` would save about 30, at the cost of parity with the
   dev box's gate. Not done.
+- Benchmarks go to the public pango07/ci-bench (free); this repository only
+  builds the binary (`bench-binary.yml`).
 - If the budget is still short: a public repository's runners are free (and
   4 CPUs), or a self-hosted runner on a Linux box with the ring.

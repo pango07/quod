@@ -5,18 +5,30 @@
 # what each job proves, how long it takes, what is cached and why, when each
 # runs (the trigger policy) and the minute budget.
 #
+# Gates run at milestones (a dispatch) and on pull requests to main, never on
+# a branch push: the private repository's minutes are billed.
+#
 #   gh workflow run gate.yml --ref <branch>                 # every job
+#   gh workflow run gate.yml --ref <branch> -f only=lint
 #   gh workflow run gate.yml --ref <branch> -f only=hooks,acceptance-cli
 #   gh run watch
 name: gate
 
 on:
+  # Pull requests to main, once they are ready (drafts skip): the fast gates
+  # whose paths changed. Docs, web/ and Markdown alone start nothing.
   pull_request:
     branches: [main]
     types: [opened, reopened, ready_for_review, synchronize]
+    paths-ignore: ['docs/**', 'web/**', '**/*.md']
+  # A merge to main that touched Rust: refreshes main's Rust caches, which
+  # every pull request and dispatch restores (a branch cannot read another
+  # branch's caches, only main's). A job whose cache is current stops after
+  # the restore; on a miss it runs its gate, which saves the cache.
   push:
-    branches: ['exp/**', 'fix/**', 'cloud/**', 'ci/**']
-  # Nightly, the corpus acceptance gates on main, when main moved that day.
+    branches: [main]
+    paths-ignore: ['docs/**', 'web/**', 'cloud/**', '**/*.md']
+  # The milestone gate.
   workflow_dispatch:
     inputs:
       ref:
@@ -34,7 +46,7 @@ on:
 
 concurrency:
   # A dispatch is grouped by what it runs too, so dispatching bench-real (or
-  # a corpus gate) neither cancels nor is cancelled by the push gates.
+  # a corpus gate) neither cancels nor is cancelled by another dispatch.
   group: gate-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.only || github.event_name }}
   cancel-in-progress: true
 
@@ -44,20 +56,27 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # File and line in backtraces, no full debuginfo: debug builds and the
+  # ~20 test binaries' links are faster and the caches smaller. Part of the
+  # rust-cache key (it hashes CARGO_* variables).
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
-  # Which jobs this event runs (docs/ci.md, "Triggers"). Rust gates run
-  # when anything outside cloud/ changed, the cloud job when cloud/ changed.
-  # A push, or a new commit on a pull request, runs lint, merge-gate and
-  # bench-lite (and cloud); a pull request opened, reopened or marked ready
-  # adds hooks (before merge); the nightly schedule runs the three corpus
-  # acceptance gates on main when main moved in the last 24 h; a dispatch
-  # runs what `only` names (default all), whatever changed.
+  # Which jobs this event runs (docs/ci.md, "Triggers"):
+  #   pull_request  lint, merge-gate and bench-lite if a Rust-relevant path
+  #                 changed (anything but cloud/, web/, docs/, Markdown and
+  #                 the other workflows), cloud if cloud/ changed. Hooks and
+  #                 the corpus gates only by dispatch, at milestones.
+  #   push (main)   lint, merge-gate and bench-lite in cache mode (seed=true):
+  #                 each stops after its cache restore when the cache is current.
+  #   dispatch      what `only` names (default all), whatever changed.
   changes:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      seed: ${{ steps.pick.outputs.seed }}
       lint: ${{ steps.pick.outputs.lint }}
       merge-gate: ${{ steps.pick.outputs.merge-gate }}
       bench-lite: ${{ steps.pick.outputs.bench-lite }}
@@ -78,36 +97,28 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          ACTION: ${{ github.event.action }}
           ONLY: ${{ inputs.only || 'all' }}
         run: |
-          core=false cloud=false
-          # The corpus gates cost ~2.5 h of runner time; see docs/ci.md.
-          if [ "$EVENT" = push ] || [ "$ACTION" = synchronize ]; then
-            ONLY=lint,merge-gate,bench-lite,cloud
-            echo "fast gates only ($EVENT${ACTION:+ $ACTION}); hooks runs on a pull request opened or ready, the corpus gates nightly or by dispatch"
-          elif [ "$EVENT" = pull_request ]; then
-            ONLY=lint,merge-gate,bench-lite,hooks,cloud
-            echo "pull request $ACTION: the fast gates and hooks; the corpus gates run nightly on main or by dispatch"
-          elif [ "$EVENT" = schedule ]; then
-            ONLY=acceptance-cli,acceptance-node,acceptance-python
-          fi
+          core=false cloud=false seed=false files=
           case "$EVENT" in
             workflow_dispatch) core=true cloud=true;;
-            schedule)
-              if [ -n "$(git log -1 --since='24 hours ago' --format=%H HEAD)" ]; then core=true
-              else echo "main has not moved in 24 h: nothing to run"; fi;;
-            pull_request) files=$(git diff --name-only "$BASE...$HEAD");;
+            pull_request)
+              ONLY=lint,merge-gate,bench-lite,cloud
+              files=$(git diff --name-only "$BASE...$HEAD");;
             push)
-              if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE
-              else base=$(git merge-base origin/main HEAD); fi
+              ONLY=lint,merge-gate,bench-lite seed=true
+              if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; else base=HEAD^; fi
               files=$(git diff --name-only "$base" HEAD);;
           esac
-          if [ "$EVENT" != workflow_dispatch ] && [ "$EVENT" != schedule ] && [ -n "${files:-}" ]; then
+          if [ "$EVENT" != workflow_dispatch ]; then
             printf 'changed:\n%s\n' "${files:-(none)}" | head -50
-            if grep -qv '^cloud/' <<<"$files"; then core=true; fi
-            if grep -q '^cloud/' <<<"$files"; then cloud=true; fi
+            # Paths that cannot change a Rust gate's result.
+            not_rust='^(cloud/|web/|docs/)|\.md$|^\.github/workflows/(ci|quod-cloud|quod-release|bench-[a-z-]+)\.yml$|^\.github/actions/setup/'
+            if [ -n "$files" ] && grep -qvE "$not_rust" <<<"$files"; then core=true; fi
+            if [ -n "$files" ] && grep -q '^cloud/' <<<"$files"; then cloud=true; fi
+            echo "Rust gates: $core, cloud: $cloud"
           fi
+          echo "seed=$seed" | tee -a "$GITHUB_OUTPUT"
           want() { [ "$ONLY" = all ] || [[ ",${ONLY// /}," == *",$1,"* ]]; }
           for j in lint merge-gate bench-lite hooks acceptance-cli acceptance-node acceptance-python; do
             r=false; [ "$core" = true ] && want "$j" && r=true
@@ -121,12 +132,12 @@ jobs:
 
   # fmt, clippy (default and all features), every workspace test with
   # QUOD_INTEGRATION=1 as root, with every corpus toolchain installed, as the
-  # dev container runs scripts/lint.sh.
+  # dev container runs scripts/lint.sh. Its log times each phase.
   lint:
     needs: changes
     if: needs.changes.outputs.lint == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     env:
       QUOD_INTEGRATION: 1
     steps:
@@ -136,12 +147,16 @@ jobs:
       - uses: ./.github/actions/quod-host
         with:
           toolchains: go node python
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - id: cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: lint
           cache-on-failure: true
-      - run: scripts/ci-gate.sh lint
-      - if: always()
+      # On a push to main, only when main's cache is not current.
+      - id: gate
+        if: needs.changes.outputs.seed != 'true' || steps.cache.outputs.cache-hit != 'true'
+        run: scripts/ci-gate.sh lint
+      - if: always() && steps.gate.outcome != 'skipped'
         run: scripts/ci-gate.sh summary lint >> "$GITHUB_STEP_SUMMARY"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -158,7 +173,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.merge-gate == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       QUOD_INTEGRATION: 1
       QUOD_GATE_SKIP_LINT: 1
@@ -170,12 +185,16 @@ jobs:
       - uses: ./.github/actions/quod-host
         with:
           toolchains: go
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - id: cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: merge-gate
           cache-on-failure: true
-      - run: scripts/ci-gate.sh merge-gate
-      - if: always()
+      # On a push to main, only when main's cache is not current.
+      - id: gate
+        if: needs.changes.outputs.seed != 'true' || steps.cache.outputs.cache-hit != 'true'
+        run: scripts/ci-gate.sh merge-gate
+      - if: always() && steps.gate.outcome != 'skipped'
         run: scripts/ci-gate.sh summary merge-gate >> "$GITHUB_STEP_SUMMARY"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -202,19 +221,23 @@ jobs:
       - uses: ./.github/actions/quod-host
         with:
           toolchains: go node python
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - id: cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: release
           cache-on-failure: true
-      - run: scripts/ci-gate.sh bench-lite --against main
-      - if: always()
+      # On a push to main, only when main's cache is not current.
+      - id: gate
+        if: needs.changes.outputs.seed != 'true' || steps.cache.outputs.cache-hit != 'true'
+        run: scripts/ci-gate.sh bench-lite --against main
+      - if: always() && steps.gate.outcome != 'skipped'
         run: |
           if [ -f .bench-lite/table.md ]; then
             { echo '### bench-lite'; echo; cat .bench-lite/table.md; } >> "$GITHUB_STEP_SUMMARY"
           else
             scripts/ci-gate.sh summary bench-lite >> "$GITHUB_STEP_SUMMARY"
           fi
-      - if: always()
+      - if: always() && steps.gate.outcome != 'skipped'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-lite
@@ -273,7 +296,7 @@ jobs:
       gate: hooks
       corpus: hooks
       toolchains: go
-      timeout: 120
+      timeout: 75
       ref: ${{ inputs.ref || '' }}
 
   # scripts/acceptance.sh per corpus: step A, A1-A7 (+A7b, W1-W4 where the
@@ -297,7 +320,7 @@ jobs:
       gate: acceptance
       corpus: node
       toolchains: go node
-      timeout: 75
+      timeout: 45
       ref: ${{ inputs.ref || '' }}
 
   acceptance-python:
@@ -308,7 +331,7 @@ jobs:
       gate: acceptance
       corpus: python
       toolchains: go python
-      timeout: 75
+      timeout: 45
       ref: ${{ inputs.ref || '' }}
 
   # cloud/ (the Next.js dashboard): its own checks, only when it changed.

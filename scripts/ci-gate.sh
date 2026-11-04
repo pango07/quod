@@ -215,7 +215,7 @@ summary() {
   t=$(grep -o '"transport":"[a-z-]*"' "$log" | sort | uniq -c | awk '{gsub(/"transport":|"/,"",$2); printf "%s%s x%s", sep, $2, $1; sep=", "}' || true)
   local fb; fb=$(grep -c '"uring_fallback":true' "$log" || true)
   [ -z "$t" ] || echo "observer transport: $t (uring fallbacks: $fb)"
-  grep -E '^(merge gate|ci-gate [a-z-]+: exit|lint (ok|FAILED)|== )|SKIPPED|^(step A|A[0-9]+b?|P[0-9]|W[0-9]|T[0-9]+|G[0-9]|S[0-9]|manifest:)[: ].*(ok|false hits|skipped|entries)' "$log" \
+  grep -E '^(merge gate|ci-gate [a-z-]+: exit|lint (ok|FAILED)|lint: [a-z-]+ [0-9]+s$|== )|SKIPPED|^(step A|A[0-9]+b?|P[0-9]|W[0-9]|T[0-9]+|G[0-9]|S[0-9]|manifest:)[: ].*(ok|false hits|skipped|entries)' "$log" \
     | grep -v -e '^== ' -e ' event: ' | cut -c1-240 | head -80 || true
   grep -E '^test result:' "$log" | awk '
     { for (i = 1; i <= NF; i++) { if ($i ~ /^passed/) p += $(i-1); if ($i ~ /^failed/) f += $(i-1); if ($i ~ /^ignored/) g += $(i-1) } }

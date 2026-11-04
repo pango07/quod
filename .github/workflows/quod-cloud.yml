@@ -7,11 +7,16 @@
 # group, and nothing here gates a merge.
 name: quod-cloud
 
+# Only when cloud/ (or this workflow, or the setup action it uses) changed;
+# draft pull requests skip until marked ready.
 on:
   push:
     branches: [main]
+    paths: ['cloud/**', '.github/workflows/quod-cloud.yml', '.github/actions/setup/**']
   pull_request:
     branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
+    paths: ['cloud/**', '.github/workflows/quod-cloud.yml', '.github/actions/setup/**']
   workflow_dispatch:
 
 concurrency:
@@ -25,6 +30,7 @@ permissions:
 jobs:
   cloud:
     name: cloud (through quod)
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
