@@ -81,6 +81,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/v1/teams/{team}/test-stats", get(crate::testreplay::stats))
         .route(
+            "/v1/teams/{team}/test-history",
+            get(crate::testreplay::history),
+        )
+        .route(
             "/v1/teams/{team}/test-suites",
             get(crate::testreplay::suites),
         )

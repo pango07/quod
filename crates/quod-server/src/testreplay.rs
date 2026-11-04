@@ -1456,6 +1456,71 @@ pub async fn stats(
     .await
 }
 
+#[derive(Deserialize)]
+pub struct HistoryQ {
+    days: Option<u64>,
+}
+
+/// The most rows one history answer carries (newest first): far more than
+/// 90 days of any team today; `truncated` says when it was reached.
+const HISTORY_MAX: usize = 5000;
+
+/// Every test run (check and background recording) of the last `days`
+/// days (default 90, 1..=365), newest first, cut to what the dashboard's
+/// savings estimate needs: no shadow lookups and no ledger details, so
+/// it stays one indexed query however many runs there are. Read-only.
+pub async fn history(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(team): UrlPath<String>,
+    Query(q): Query<HistoryQ>,
+) -> Result<Json<Value>, ApiError> {
+    blocking(move || {
+        let v = crate::dash::viewer(&app, &headers, &team)?;
+        let d = db(&app, &v.team)?;
+        let days = q.days.unwrap_or(90).clamp(1, 365);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let since = quod_ledger::format_rfc3339(now.saturating_sub(days * 86_400), 0);
+        let rows = runs_where(
+            &d,
+            &format!("team = $1 AND at >= $2 ORDER BY id DESC LIMIT {}", HISTORY_MAX + 1),
+            &[t(v.team.as_str()), t(since.as_str())],
+        )?;
+        let truncated = rows.len() > HISTORY_MAX;
+        let repos = repos_of(&app, &v.team, &rows)?;
+        let out: Vec<Value> = rows
+            .iter()
+            .take(HISTORY_MAX)
+            .map(|r| {
+                json!({
+                    "id": r.id.to_string(),
+                    "at": r.at,
+                    "repoSlug": crate::dash::slug(&r.repository, &repos),
+                    "repository": r.repository,
+                    "suite": r.suite,
+                    "kind": r.kind,
+                    "event": r.event,
+                    "branch": branch(r.git_ref.as_deref()),
+                    "runId": r.run_id.as_deref().and_then(|s| s.parse::<u64>().ok()),
+                    "sha": r.sha,
+                    "files": {"total": r.total, "ran": r.ran, "replayed": r.replayed},
+                    "timing": {"wallMs": r.wall_ms, "estPlainMs": r.est_plain_ms, "savedMs": r.saved_ms},
+                })
+            })
+            .collect();
+        Ok(Json(json!({
+            "asOf": now_rfc3339(),
+            "days": days,
+            "truncated": truncated,
+            "runs": out,
+        })))
+    })
+    .await
+}
+
 // ----- test files per suite (the Trust page) -----
 
 /// A recording's per-file records (path, record), parsed from its
