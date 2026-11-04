@@ -211,7 +211,7 @@ export function VerifyEmailForm({ initial = {} }: { initial?: FormState }) {
     // The step is gone (another browser, or it timed out): a code can't be used here any more, so offer the way back.
     return (
       <>
-        <FormError message={state.error ?? resent.error} focus />
+        <FormError message={state.expired ? state.error : resent.error} focus />
         <form action={startOver} className="auth-form">
           <button type="submit" className="btn solid lg auth-btn">
             Start again
