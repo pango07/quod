@@ -148,6 +148,7 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
 
     // The hit path: the newest record whose every key still holds.
     let mut matched = None;
+    let mut changed: Vec<String> = Vec::new();
     for (i, r) in ledger.records.iter().enumerate() {
         let ks: Vec<&(String, String)> = r.keys.iter().collect();
         let now = vitest::par_map(&ks, |(k, _)| key_state(&root, k));
@@ -155,6 +156,23 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             matched = Some(i);
             break;
         }
+        if i == 0 {
+            changed = ks
+                .iter()
+                .zip(&now)
+                .filter(|((_, s), n)| s != *n)
+                .map(|((k, _), _)| k.clone())
+                .collect();
+        }
+    }
+    if matched.is_none() && !changed.is_empty() {
+        let n = changed.len();
+        changed.truncate(6);
+        eprintln!(
+            "quod: {name} runs: {n} of its recorded inputs changed ({}{})",
+            changed.join(", "),
+            if n > 6 { ", ..." } else { "" }
+        );
     }
     let checked = t0.elapsed().as_secs_f64();
     if let Some(i) = matched
