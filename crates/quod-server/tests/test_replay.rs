@@ -11,6 +11,10 @@
 //! T7  saves are refused with missing blobs, bad paths or a wrong size; nothing is half-saved
 //! T8  run reports: the list, the detail (files that ran and why, spot-checks), stats, the live event
 //! T9  incremental: a second save uploads only what changed
+//! T10 checks count skips; record runs say why a file always runs
+//! T11 stats count checks: critical runs and inline recordings; a legacy pair once
+//! T12 test suites carry each record's witnesses and whether it is trusted
+//! T13 the optional recording fields are kept and read back; old reports read as before
 
 mod common;
 
@@ -22,6 +26,7 @@ use quod_wire::testreplay_client::TestReplayClient;
 const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const SHA_C: &str = "cccccccccccccccccccccccccccccccccccccccc";
+const SHA_D: &str = "dddddddddddddddddddddddddddddddddddddddd";
 
 /// A GitHub OIDC token for acme/app.
 fn oidc(event: &str, git_ref: &str, sha: &str) -> String {
@@ -595,4 +600,293 @@ fn t10_checks_count_skips_and_record_runs_say_why() {
         .unwrap()["why"]
         .clone();
     assert_eq!(why_b, "always runs: reads the per-run variable X_EVENT");
+}
+
+/// A dashboard read as acme's viewer.
+fn view(s: &Server, path: &str) -> serde_json::Value {
+    let (c, b) = s.get(path, ACME_VIEWER);
+    assert_eq!(c, 200, "{path}: {b}");
+    serde_json::from_str(&b).unwrap()
+}
+
+/// A run report: `kind`, `total` files of which `replayed` were reused,
+/// `saved_ms` of recorded time, `inline` as the client says (None: an
+/// older client).
+fn run(kind: &str, total: u64, replayed: u64, saved_ms: f64, inline: Option<bool>) -> TestReport {
+    TestReport {
+        tool: "vitest".into(),
+        kind: kind.into(),
+        total,
+        ran: total - replayed,
+        replayed,
+        saved_ms: Some(saved_ms),
+        inline,
+        ..Default::default()
+    }
+}
+
+/// Posts each (commit, report) for suite "." and returns /test-stats.
+fn stats_after(reports: &[(&str, TestReport)]) -> serde_json::Value {
+    let s = Server::start(1);
+    for (sha, r) in reports {
+        job(&s, "push", "refs/heads/main", sha)
+            .report(".", r)
+            .unwrap();
+    }
+    view(&s, "/v1/teams/acme/test-stats")
+}
+
+#[test]
+fn t11_stats_count_inline_recordings_and_a_legacy_pair_once() {
+    // Inline only: the developer's job recorded (an older client: no
+    // `inline`, and no critical run of its commit). It is a check.
+    let st = stats_after(&[(SHA_B, run("shadow", 8, 5, 200.0, None))]);
+    assert_eq!(st["today"]["runs"], 1, "{st}");
+    assert_eq!(st["week"]["runs"], 1);
+    assert_eq!(st["week"]["filesTotal"], 8);
+    assert_eq!(st["week"]["filesSkipped"], 5);
+    assert_eq!(st["today"]["savedMs"], 200.0);
+    assert_eq!(st["recent"].as_array().unwrap().len(), 1);
+    assert_eq!(st["recent"][0]["kind"], "shadow");
+
+    // A legacy pair: a check and its background recording, one commit.
+    // One check; the recording's files and time are not counted again.
+    let st = stats_after(&[
+        (SHA_A, run("critical", 20, 10, 1000.0, None)),
+        (SHA_A, run("shadow", 20, 10, 1000.0, None)),
+    ]);
+    assert_eq!(st["today"]["runs"], 1, "{st}");
+    assert_eq!(st["week"]["runs"], 1);
+    assert_eq!(st["week"]["filesTotal"], 20);
+    assert_eq!(st["week"]["filesSkipped"], 10);
+    assert_eq!(st["week"]["savedMs"], 1000.0);
+    let recent = st["recent"].as_array().unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0]["kind"], "critical");
+
+    // Mixed: a legacy pair (A), an older client's inline recording (B), a
+    // newer client's (C, `inline: true`), and a background recording that
+    // says so (D, `inline: false`, its check's report lost): three checks.
+    let st = stats_after(&[
+        (SHA_A, run("critical", 20, 10, 1000.0, None)),
+        (SHA_A, run("shadow", 20, 10, 1000.0, None)),
+        (SHA_B, run("shadow", 8, 5, 200.0, None)),
+        (SHA_C, run("shadow", 4, 3, 30.0, Some(true))),
+        (SHA_D, run("shadow", 100, 100, 99_999.0, Some(false))),
+    ]);
+    assert_eq!(st["today"]["runs"], 3, "{st}");
+    assert_eq!(st["week"]["runs"], 3);
+    assert_eq!(st["week"]["filesTotal"], 32);
+    assert_eq!(st["week"]["filesSkipped"], 18);
+    assert_eq!(st["week"]["savedMs"], 1230.0);
+    let recent = st["recent"].as_array().unwrap();
+    assert_eq!(recent.len(), 3);
+    let shas: Vec<&str> = recent.iter().map(|r| r["sha"].as_str().unwrap()).collect();
+    assert_eq!(shas, [SHA_C, SHA_B, SHA_A], "newest first, A's check only");
+    assert_eq!(recent[2]["kind"], "critical");
+    assert_eq!(recent[0]["inline"], true);
+    assert!(
+        recent[1]["inline"].is_null(),
+        "an older client's: {}",
+        recent[1]
+    );
+}
+
+#[test]
+fn t12_test_suites_carry_each_records_witnesses() {
+    let s = Server::start(1);
+    let j = job(&s, "push", "refs/heads/main", SHA_A);
+    let rec = |file: &str, w: serde_json::Value, quarantined: bool| {
+        let mut r = serde_json::json!({
+            "file": file, "project": "", "state": "pass", "duration": 10.0,
+            "quarantined": quarantined, "runs": 1, "replays": 0,
+        });
+        if !w.is_null() {
+            r["w"] = w;
+        }
+        r
+    };
+    let w =
+        |n: u32, d: u32| serde_json::json!({"n": n, "key": "k", "tests": "t", "disagreements": d});
+    // The default policy: two witnesses (three after a disagreement).
+    let ledger = serde_json::json!({
+        "version": 1,
+        "witnesses_needed": 2,
+        "files": {
+            "a": rec("a.test.ts", w(2, 0), false),
+            "b": rec("b.test.ts", w(1, 0), false),
+            "c": rec("c.test.ts", w(2, 1), false),
+            "d": rec("d.test.ts", serde_json::Value::Null, false),
+            "e": rec("e.test.ts", w(1, 1), true),
+        },
+    });
+    let d = ledger_dir(&[("ledger.json", &ledger.to_string())]);
+    j.save(".", d.path()).unwrap();
+    // A ledger that does not say (an older client): 2. One that trusts at
+    // once (QUOD_VITEST_WITNESSES=1): every record, with no count kept.
+    let old = serde_json::json!({"files": {"x": rec("x.test.ts", w(1, 0), false)}});
+    let d = ledger_dir(&[("ledger.json", &old.to_string())]);
+    j.save("old", d.path()).unwrap();
+    let one = serde_json::json!({"witnesses_needed": 1, "files": {"y": rec("y.test.ts", w(0, 0), false)}});
+    let d = ledger_dir(&[("ledger.json", &one.to_string())]);
+    j.save("one", d.path()).unwrap();
+
+    let su = view(&s, "/v1/teams/acme/test-suites");
+    let suite = |name: &str| {
+        su["suites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["suite"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("no suite {name}: {su}"))
+    };
+    let file = |suite: &serde_json::Value, f: &str| {
+        suite["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["file"] == f)
+            .cloned()
+            .unwrap()
+    };
+    let root = suite(".");
+    let got = |f: &str| {
+        let x = file(&root, f);
+        (
+            x["witnesses"].clone(),
+            x["witnessesNeeded"].clone(),
+            x["trusted"].clone(),
+        )
+    };
+    use serde_json::json;
+    assert_eq!(got("a.test.ts"), (json!(2), json!(2), json!(true)));
+    assert_eq!(got("b.test.ts"), (json!(1), json!(2), json!(false)));
+    assert_eq!(got("c.test.ts"), (json!(2), json!(3), json!(false)));
+    assert_eq!(
+        got("d.test.ts"),
+        (json!(null), json!(null), json!(null)),
+        "from before the witness policy"
+    );
+    assert_eq!(got("e.test.ts").2, json!(false), "quarantined");
+    // The states are as before; the witness fields are only added.
+    assert_eq!(file(&root, "b.test.ts")["state"], "ready");
+    assert_eq!(file(&root, "d.test.ts")["state"], "ready");
+    assert_eq!(file(&root, "e.test.ts")["state"], "always");
+    assert_eq!(root["totals"]["trusted"], 1, "{root}");
+    assert_eq!(
+        root["totals"]["awaitingWitness"], 2,
+        "b and c, not quarantined e"
+    );
+    assert_eq!(root["totals"]["ready"], 4);
+    let x = file(&suite("old"), "x.test.ts");
+    assert_eq!(
+        (x["witnessesNeeded"].clone(), x["trusted"].clone()),
+        (json!(2), json!(false))
+    );
+    let y = file(&suite("one"), "y.test.ts");
+    assert_eq!(
+        (y["witnessesNeeded"].clone(), y["trusted"].clone()),
+        (json!(1), json!(true))
+    );
+}
+
+#[test]
+fn t13_recording_fields_are_kept_and_old_reports_read_as_before() {
+    let s = Server::start(1);
+    let j = job(&s, "push", "refs/heads/main", SHA_A);
+    // A recording of a.test.ts, so the suite page lists its skips.
+    let ledger = serde_json::json!({"witnesses_needed": 2, "files": {"a": {
+        "file": "a.test.ts", "project": "", "state": "pass", "duration": 400.0,
+        "quarantined": false, "runs": 2, "replays": 0, "w": {"n": 2, "disagreements": 0},
+    }}});
+    let d = ledger_dir(&[("ledger.json", &ledger.to_string())]);
+    j.save(".", d.path()).unwrap();
+    let reused = vec![ReplayedFile {
+        file: "a.test.ts".into(),
+        duration_ms: Some(400.0),
+    }];
+    // An older client's recording (no new fields) of another commit.
+    let old = TestReport {
+        replayed_files: reused.clone(),
+        ..run("shadow", 3, 1, 400.0, None)
+    };
+    let old_id = job(&s, "push", "refs/heads/main", SHA_B)
+        .report(".", &old)
+        .unwrap()
+        .id;
+    // A newer client's inline recording.
+    let new = TestReport {
+        replayed_files: reused,
+        record_ms: Some(812.5),
+        witness: Some(WitnessCounts {
+            needed: 2,
+            promoted: 4,
+            awaiting: 7,
+            disagreed: 1,
+        }),
+        ..run("shadow", 3, 1, 400.0, Some(true))
+    };
+    let new_id = j.report(".", &new).unwrap().id;
+
+    let d = view(&s, &format!("/v1/teams/acme/test-runs/{new_id}"));
+    assert_eq!(d["inline"], true, "{d}");
+    assert_eq!(d["recordMs"], 812.5);
+    assert_eq!(
+        d["witness"],
+        serde_json::json!({"needed": 2, "promoted": 4, "awaiting": 7, "disagreed": 1})
+    );
+    let d = view(&s, &format!("/v1/teams/acme/test-runs/{old_id}"));
+    for k in ["inline", "recordMs", "witness"] {
+        assert!(d[k].is_null(), "{k}: {d}");
+    }
+    assert_eq!(d["files"]["replayed"], 1, "the rest reads as before");
+    let list = view(&s, "/v1/teams/acme/test-runs");
+    let row = |id: i64| {
+        list["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id.to_string())
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(row(new_id)["recordMs"], 812.5);
+    assert!(row(old_id)["inline"].is_null());
+    let h = view(&s, "/v1/teams/acme/test-history");
+    let hrow = |id: i64| {
+        h["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id.to_string())
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(hrow(new_id)["inline"], true);
+    assert_eq!(hrow(new_id)["recordMs"], 812.5);
+    assert!(hrow(old_id)["recordMs"].is_null());
+    // Per-file skips: the inline recording's reuse counts as a check's; the
+    // older client's shadow (no `inline`) does not.
+    let su = view(&s, "/v1/teams/acme/test-suites");
+    let a = su["suites"][0]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["file"] == "a.test.ts")
+        .cloned()
+        .unwrap();
+    assert_eq!(a["skipped"], 1, "{a}");
+    assert_eq!(a["savedMs"], 400.0);
+    assert_eq!(a["state"], "skipping");
+    assert_eq!(a["trusted"], true);
+    // Counts out of range are refused.
+    let bad = TestReport {
+        witness: Some(WitnessCounts {
+            needed: 5000,
+            ..Default::default()
+        }),
+        ..new.clone()
+    };
+    assert!(j.report(".", &bad).is_err());
 }

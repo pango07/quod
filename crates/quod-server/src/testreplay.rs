@@ -754,9 +754,12 @@ pub async fn report(
             return Err(ApiError::bad_request("too many files in the report"));
         }
         let max = 10_000_000u64;
+        let w = r.witness.clone().unwrap_or_default();
         if [r.total, r.ran, r.replayed, r.narrowed, r.audited]
             .iter()
+            .chain([w.promoted, w.awaiting, w.disagreed].iter())
             .any(|v| *v > max)
+            || w.needed > 1000
         {
             return Err(ApiError::bad_request("a count is out of range"));
         }
@@ -793,11 +796,37 @@ pub async fn report(
             scope: l.scope.as_deref().map(|s| capped(s, 200)),
             matched: l.matched.as_deref().map(|s| capped(s, 40)),
         });
-        let mut detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs });
+        // What a newer client says about its recording, kept in the detail
+        // (no new column): whether it recorded inline, the recording's own
+        // time, the witness counts. Left out when not sent.
+        let mut extra = serde_json::Map::new();
+        if let Some(b) = r.inline {
+            extra.insert("inline".into(), json!(b));
+        }
+        if let Some(ms) = finite(r.record_ms) {
+            extra.insert("recordMs".into(), json!(ms));
+        }
+        if let Some(w) = &r.witness {
+            extra.insert(
+                "witness".into(),
+                json!({"needed": w.needed, "promoted": w.promoted, "awaiting": w.awaiting, "disagreed": w.disagreed}),
+            );
+        }
+        let with_extra = |mut d: Value| {
+            if let Some(o) = d.as_object_mut() {
+                o.extend(extra.clone());
+            }
+            d
+        };
+        let mut detail = with_extra(
+            json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs }),
+        );
         while detail.to_string().len() > MAX_DETAIL && !ran_files.is_empty() {
             let keep = ran_files.len() / 2;
             ran_files.truncate(keep);
-            detail = json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs, "ranFilesTruncated": true });
+            detail = with_extra(
+                json!({ "ranFiles": ran_files, "auditFiles": audit_files, "ledger": ledger, "recordDiffers": record_differs, "ranFilesTruncated": true }),
+            );
         }
         if detail.to_string().len() > MAX_DETAIL {
             return Err(ApiError::bad_request("the report is too large"));
@@ -850,9 +879,11 @@ pub async fn report(
 type StatRow = (String, i64, f64, Option<String>, Option<String>, bool);
 
 /// Updates `test_file_stats` from a report: every file a check replayed
-/// counts one skip and its recorded time; a record run sets each file's
-/// reason it always runs (unrecordable, or its recording differed from the
-/// check), and clears it for a file it recorded.
+/// counts one skip and its recorded time (a check: a `critical` run, or a
+/// recording its client says ran inline, in the developer's own job); a
+/// record run sets each file's reason it always runs (unrecordable, or its
+/// recording differed from the check), and clears it for a file it
+/// recorded.
 fn file_stats(
     d: &Db,
     team: &str,
@@ -865,7 +896,7 @@ fn file_stats(
     let now = now_rfc3339();
     // (file, skipped, saved_ms, reason, reason_kind, set_reason)
     let mut rows: Vec<StatRow> = vec![];
-    if r.kind == "critical" {
+    if r.kind == "critical" || r.inline == Some(true) {
         for f in &r.replayed_files {
             rows.push((
                 capped(&f.file, 1024),
@@ -876,7 +907,8 @@ fn file_stats(
                 false,
             ));
         }
-    } else {
+    }
+    if r.kind != "critical" {
         for f in ran {
             if differs.contains(&f.file) {
                 continue;
@@ -1142,6 +1174,63 @@ fn all_repos(app: &App, team: &str, d: &Db) -> anyhow::Result<BTreeSet<String>> 
     Ok(s)
 }
 
+/// What a newer client said about a recording run (`report`), read back
+/// from its detail.
+#[derive(Deserialize, Default)]
+struct Extra {
+    #[serde(default)]
+    inline: Option<bool>,
+    #[serde(default, rename = "recordMs")]
+    record_ms: Option<f64>,
+}
+
+/// A run's `Extra`; the detail is parsed only when it has one.
+fn extra_of(r: &RunRow) -> Extra {
+    if r.kind != "shadow" || !(r.detail.contains("\"inline\"") || r.detail.contains("\"recordMs\""))
+    {
+        return Extra::default();
+    }
+    serde_json::from_str(&r.detail).unwrap_or_default()
+}
+
+/// Which runs are checks, the runs a developer waited for: every
+/// `critical` run, and every `shadow` recorded inside the developer's own
+/// test job (the second-witness model). A newer client says which a
+/// `shadow` is (`inline`). For an older one's, a `shadow` with a
+/// `critical` run of the same repository, suite and commit among the rows
+/// is a legacy background recording (its commit's check counts once); any
+/// other `shadow` recorded inline. Cloud's `legacyRecordingIds` pairs the
+/// same way.
+struct Checks<'a> {
+    critical: std::collections::HashSet<(&'a str, &'a str, &'a str)>,
+}
+
+impl<'a> Checks<'a> {
+    fn of(rows: &'a [RunRow]) -> Checks<'a> {
+        Checks {
+            critical: rows
+                .iter()
+                .filter(|r| r.kind == "critical")
+                .filter_map(|r| Some((r.repo_key.as_str(), r.suite.as_str(), r.sha.as_deref()?)))
+                .collect(),
+        }
+    }
+
+    fn is_check(&self, r: &RunRow) -> bool {
+        match r.kind.as_str() {
+            "critical" => true,
+            "shadow" => extra_of(r).inline.unwrap_or_else(|| {
+                r.sha.as_deref().is_none_or(|sha| {
+                    !self
+                        .critical
+                        .contains(&(r.repo_key.as_str(), r.suite.as_str(), sha))
+                })
+            }),
+            _ => false,
+        }
+    }
+}
+
 fn branch(r: Option<&str>) -> Option<String> {
     r.map(|r| {
         r.strip_prefix("refs/heads/")
@@ -1165,6 +1254,7 @@ fn base_summary(r: &RunRow, repos: &BTreeSet<String>) -> Value {
         });
     let detail: Value = serde_json::from_str(&r.detail).unwrap_or(Value::Null);
     let ledger = detail.get("ledger").cloned().unwrap_or(Value::Null);
+    let field = |k: &str| detail.get(k).cloned().unwrap_or(Value::Null);
     json!({
         "id": r.id.to_string(),
         "at": r.at,
@@ -1191,6 +1281,10 @@ fn base_summary(r: &RunRow, repos: &BTreeSet<String>) -> Value {
             "scope": ledger["scope"], "matched": ledger["matched"],
         }) },
         "audits": if r.kind == "shadow" { json!({"checked": r.audited, "mismatched": r.audit_mismatches}) } else { Value::Null },
+        // A newer client's recording facts (null from an older one).
+        "inline": field("inline"),
+        "recordMs": field("recordMs"),
+        "witness": field("witness"),
     })
 }
 
@@ -1417,10 +1511,13 @@ pub async fn stats(
         let rows = team_runs(&d, &v.team)?;
         let repos = repos_of(&app, &v.team, &rows)?;
         let shadows = Shadows::of(&rows);
+        // Checks: `critical` runs and inline recordings, not the legacy
+        // background recordings (`Checks`).
+        let checks = Checks::of(&rows);
         let sums = |from: &str| {
             let c: Vec<&RunRow> = rows
                 .iter()
-                .filter(|r| r.kind == "critical" && r.at.as_str() >= from)
+                .filter(|r| r.at.as_str() >= from && checks.is_check(r))
                 .collect();
             (
                 c.iter().filter_map(|r| r.saved_ms).sum::<f64>(),
@@ -1437,7 +1534,7 @@ pub async fn stats(
             .fold((0i64, 0i64), |(c, m), r| (c + r.audited, m + r.audit_mismatches));
         let recent: Vec<Value> = rows
             .iter()
-            .filter(|r| r.kind == "critical")
+            .filter(|r| checks.is_check(r))
             .take(10)
             .map(|r| shadows.summary(r, &repos))
             .collect();
@@ -1495,6 +1592,7 @@ pub async fn history(
             .iter()
             .take(HISTORY_MAX)
             .map(|r| {
+                let x = extra_of(r);
                 json!({
                     "id": r.id.to_string(),
                     "at": r.at,
@@ -1508,6 +1606,8 @@ pub async fn history(
                     "sha": r.sha,
                     "files": {"total": r.total, "ran": r.ran, "replayed": r.replayed},
                     "timing": {"wallMs": r.wall_ms, "estPlainMs": r.est_plain_ms, "savedMs": r.saved_ms},
+                    "inline": x.inline,
+                    "recordMs": x.record_ms,
                 })
             })
             .collect();
@@ -1545,13 +1645,23 @@ fn ledger_recs(app: &App, team: &str, id: i64, files_json: &str) -> anyhow::Resu
         && let Some(b) = app.store.cas(team)?.read_capped(&lf.hash, MAX_BUNDLE)?
     {
         let l: Value = serde_json::from_slice(&b)?;
+        // The witnesses a record needs: what the client recorded under
+        // (newer clients write it), else the default policy's 2.
+        let need = l["witnesses_needed"].as_u64().unwrap_or(2).max(1);
         for rec in l["files"].as_object().into_iter().flat_map(|m| m.values()) {
             if let Some(f) = rec["file"].as_str() {
+                // A record from before the witness policy has no `w`.
+                let w = if rec["w"].is_object() {
+                    json!({"n": rec["w"]["n"], "disagreements": rec["w"]["disagreements"], "need": need})
+                } else {
+                    Value::Null
+                };
                 recs.push((
                     f.to_string(),
                     json!({
                         "project": rec["project"], "state": rec["state"], "duration": rec["duration"],
                         "quarantined": rec["quarantined"], "runs": rec["runs"], "replays": rec["replays"],
+                        "w": w,
                     }),
                 ));
             }
@@ -1574,6 +1684,28 @@ struct Head {
     scope: String,
     git_ref: Option<String>,
     sha: Option<String>,
+}
+
+/// A record's second-witness state, as the client counts it (`witnessed`
+/// in quod-cli's vitest.rs): the agreeing runs that vouch for it, the
+/// number it needs (more after disagreements), and whether its result is
+/// reused (enough of them, and not quarantined). All null for a record from
+/// before the witness policy.
+fn witness_state(rec: &Value) -> (Value, Value, Value) {
+    let w = &rec["w"];
+    if !w.is_object() {
+        return (Value::Null, Value::Null, Value::Null);
+    }
+    let need = w["need"].as_u64().unwrap_or(2).max(1);
+    let n = w["n"].as_u64().unwrap_or(0);
+    let bar = if need <= 1 {
+        1
+    } else {
+        need + w["disagreements"].as_u64().unwrap_or(0).min(5)
+    };
+    let quarantined = rec["quarantined"].as_bool() == Some(true);
+    let trusted = !quarantined && (need <= 1 || n >= bar);
+    (json!(n), json!(bar), json!(trusted))
 }
 
 /// One suite's test files and their states, from its newest recording and
@@ -1665,11 +1797,13 @@ fn suite_files(
             Some(s) if s.1 > 0.0 => Some(s.1),
             _ => dur.map(|d| d * skipped as f64),
         };
+        let (witnesses, needed, trusted) = witness_state(rec);
         out.push(json!({
             "file": file, "project": rec["project"].as_str().unwrap_or(""),
             "state": state, "reason": reason, "lastResult": last,
             "skipped": skipped, "ran": ran, "durationMs": dur,
             "savedMs": saved, "recordDiffers": differs,
+            "witnesses": witnesses, "witnessesNeeded": needed, "trusted": trusted,
         }));
     }
     for (file, why) in &ran_why {
@@ -1703,6 +1837,7 @@ fn suite_files(
             "state": state, "reason": reason,
             "lastResult": Value::Null, "skipped": 0, "ran": 0, "durationMs": Value::Null, "savedMs": Value::Null,
             "recordDiffers": differs,
+            "witnesses": Value::Null, "witnessesNeeded": Value::Null, "trusted": Value::Null,
         }));
     }
     let rank = |s: &str| match s {
@@ -1836,6 +1971,13 @@ pub async fn suites(
                     "skipping": count("skipping"), "always": count("always"), "paused": count("paused"),
                     "recordDiffers": files.iter().filter(|f| f["recordDiffers"] == true).count(),
                     "savedMs": saved,
+                    // Second witness (files with a known witness count):
+                    // reused, and recorded but awaiting another agreeing run.
+                    "trusted": files.iter().filter(|f| f["trusted"] == true).count(),
+                    "awaitingWitness": files
+                        .iter()
+                        .filter(|f| f["trusted"] == false && matches!(f["state"].as_str(), Some("ready" | "skipping")))
+                        .count(),
                 },
                 "files": files,
             }));

@@ -137,6 +137,28 @@ same plus its spot-checks (`audit_files`); a critical run shows the
 spot-checks of the shadow of its own commit, suite and scope. "Wrong results"
 on the Overview is the number of spot-checks whose fresh result differed.
 
+Second witness (inline recording). The developer's own test job records
+and reports `kind: "shadow"`; a run with recording off reports `critical`.
+Newer clients add, all optional: `inline` (true: the developer's job
+recorded inline; false: a separate background recording job), `record_ms`
+(the recording's own time after the tests ran; not the instrumentation's
+slowdown of the tests, nor the upload) and `witness {needed, promoted,
+awaiting, disagreed}`. They are kept in the run's detail (no new column)
+and read back on every run summary as `inline`, `recordMs` and `witness`
+(null from older clients), and on `/test-history` rows as `inline` and
+`recordMs`. A **check** is a `critical` run or an inline `shadow`; without
+`inline`, a `shadow` with a `critical` of the same repository, suite and
+commit is a legacy background recording and any other `shadow` is inline.
+`/test-stats` adds up `today`, `week` and `recent` over checks, so a legacy
+pair counts once; spot-checks and wrong results are still every `shadow`'s.
+An inline recording's replayed files count as skips per file, as a
+`critical` run's do. `/test-suites` adds per file `witnesses` (agreeing runs
+so far), `witnessesNeeded` (the client's `witnesses_needed` in ledger.json,
+else 2, plus one per past disagreement up to 5) and `trusted` (enough, and
+not quarantined), null for a record from before the witness policy; and
+per suite `totals.trusted` and `totals.awaitingWitness` (ready or skipping,
+not trusted yet).
+
 ## Deployment (api.quodci.com)
 
 Railway service `quod-server` builds branch `cloud/test-replay` (the one
