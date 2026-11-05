@@ -2562,7 +2562,10 @@ pub(crate) fn state(
                 rustix::fs::AtFlags::empty()
             };
             let result = match rustix::fs::accessat(
-                rustix::fs::CWD, path(), rustix::fs::Access::from_bits_retain(mode), flags,
+                rustix::fs::CWD,
+                path(),
+                rustix::fs::Access::from_bits_retain(mode),
+                flags,
             ) {
                 Ok(()) => "ok".into(),
                 Err(e) => format!("errno:{}", e.raw_os_error()),
