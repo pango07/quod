@@ -588,13 +588,13 @@ jobs:
             ${{ runner.temp }}/names-proof-logs/*.log
 
   benchmark-profile:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller' || inputs.only == 'benchmark-profile-native')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ inputs.only == 'benchmark-profile-caller' && fromJSON('["caller"]') || inputs.only == 'benchmark-profile-full' && fromJSON('["full"]') || fromJSON('["all","preload","env"]') }}
+        mode: ${{ inputs.only == 'benchmark-profile-native' && fromJSON('["native"]') || inputs.only == 'benchmark-profile-caller' && fromJSON('["caller"]') || inputs.only == 'benchmark-profile-full' && fromJSON('["full"]') || fromJSON('["all","preload","env"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -612,6 +612,8 @@ jobs:
           node-version: '24.18.0'
       - run: npm ci
         working-directory: profile-project
+      - if: matrix.mode == 'native'
+        run: node --test scripts/bench-vitest/native-stack-probe.test.mjs
       - name: Profile plain and recording on the same runner
         env:
           PROFILE_MODE: ${{ matrix.mode }}
