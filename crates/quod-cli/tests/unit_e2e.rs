@@ -52,7 +52,11 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     // The action runs units as the runner's user; as root (the lint gate)
     // the traced run fails in a way not yet understood (TODO), so this
     // case is covered by ci-bench probe/runner's probe-strace instead.
-    if unsafe { libc::geteuid() } == 0 {
+    let root_user = Command::new("id")
+        .arg("-u")
+        .output()
+        .is_ok_and(|o| o.stdout.starts_with(b"0\n"));
+    if root_user {
         eprintln!("running as root: skipped (probe-strace covers the runner's user)");
         return;
     }
