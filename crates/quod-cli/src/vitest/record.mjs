@@ -256,7 +256,14 @@ export function resolverCaller(stack = new Error().stack) {
 // other frame (the config, a plugin, a test, a library) makes it theirs.
 // The whole stack, however deep. Returns the deciding frame, for the log.
 const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
-function toolCaller() {
+// npm and its CI detection, in a node child a test starts (`npx redocly`):
+// its reads of the CI's per-run variables and its copies of the whole
+// environment for the program it runs are a package manager's, as vite's
+// are a bundler's. Only for those names (ciVarying) and copies: any other
+// variable npm reads (its npm_config_*) is keyed as usual, and the program
+// it runs, traced, records its own reads.
+const NPM_HELPERS = ['/node_modules/npm/', '/node_modules/@npmcli/', '/node_modules/ci-info/']
+function toolCaller(npm = false) {
   const limit = Error.stackTraceLimit
   Error.stackTraceLimit = Infinity
   let stack
@@ -276,7 +283,7 @@ function toolCaller() {
     // node copying the environment for a child a known program spawned
     // (CHILDREN): the child's input, not this process's.
     if (spawn && !tool && CHILDREN.some((c) => l.includes(c))) return { tool: true, child: true, frame: l.trim() }
-    if (HELPERS.some((h) => l.includes(h)) || RESOLVERS.some((x) => l.includes(x))) {
+    if (HELPERS.some((h) => l.includes(h)) || RESOLVERS.some((x) => l.includes(x)) || (npm && NPM_HELPERS.some((h) => l.includes(h)))) {
       tool ??= l.trim()
       continue
     }
@@ -579,7 +586,7 @@ export function patchEnv(r) {
   const rec = (k) => {
     if (typeof k !== 'string' || seen.has(k)) return
     if (ciVarying(k) || !toolEnv(k)) {
-      const c = toolCaller()
+      const c = toolCaller(ciVarying(k))
       if (c.child && CHILD_ENV.test(k)) r.keys.add(`env:${k}`)
       if (c.tool) return
       if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
@@ -598,7 +605,7 @@ export function patchEnv(r) {
   const recPresence = (k) => {
     if (typeof k !== 'string' || seen.has(k) || seenP.has(k)) return
     if (ciVarying(k) || !toolEnv(k)) {
-      if (toolCaller().tool) return
+      if (toolCaller(ciVarying(k)).tool) return
     }
     seenP.add(k)
     r.keys.add(`envp:${k}`)
@@ -618,7 +625,7 @@ export function patchEnv(r) {
     },
     ownKeys(t) {
       if (r.on) {
-        const c = toolCaller()
+        const c = toolCaller(true)
         r.keys.add(c.tool ? 'envtool:' : 'envall:')
         if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
         if (c.child) {
