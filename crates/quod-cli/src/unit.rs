@@ -1419,7 +1419,7 @@ fn keyer(
     // Per path, its events in order.
     let mut by: BTreeMap<&str, Vec<&Ev>> = BTreeMap::new();
     for e in &t.evs {
-        if ignore.hit(&e.path) || ignore.scratch.iter().any(|s| e.path == *s) {
+        if ignore.hit(&e.path) || ignore.scratch.contains(&e.path) {
             continue;
         }
         by.entry(e.path.as_str()).or_default().push(e);
@@ -1433,7 +1433,7 @@ fn keyer(
     let mut mine: Vec<&str> = Vec::new();
     let mut foreign: Option<String> = None;
     by.retain(|p, evs| {
-        let p: &str = *p;
+        let p = *p;
         if under(p) || ignore.scratch_of(p).is_none() {
             return true;
         }
