@@ -308,3 +308,227 @@ of bookkeeping), not by design. The honest target is **floor + 2 s, with
 the floor at 12–16 s on this image**; state ≤ 20 s as the pass mark and
 report the floor beside it. Runner-seconds on hits ≈ 0.08x; the window
 needs misses at ≈ 1.0x (S6) or ≥ 56% hits to reach ≤ 0.5x.
+
+## Addendum B (2026-11-05, after S1–S4 on exp/whole-job-impl b13d8a0..c3c2fd1, run 41979901669): S5 without the import, the npm environment rule, the last 15 s
+
+Measured hit job 27 s: `test` 11 (test:release's `node --test` ~10 +
+render ~1), build 2, action main 2, setup-node 5, boot 1, post 1.
+runner-seconds 0.51x with timing-sensitive replay, wrong 0. The floor is
+~12 s. Three answers below; each is a decision, with the number it moves.
+
+### B1. S5: the wall is verification, not observation
+
+The 9.7 s the FUSE engine spends "importing" convex's 29,225 inputs is not
+a mounting cost. It is the hit path's input check: on a fresh runner there
+is no stat cache (every mtime is new after checkout and `npm ci`), so
+every input is re-hashed on every run. An in-place `quod-fs` backend
+(option a) removes the import from *recording*; on a hit the engine still
+has to decide whether 29,225 recorded hashes still hold, and that is the
+same seconds. A week plus `sudo` for `/etc/fuse.conf` buys nothing on the
+number that matters. **Decision: no FUSE for units on hosted runners.** The
+engine stays for self-hosted and dev where a warm stat cache exists.
+
+**Decision: split a unit's record into the trace (what was read) and the
+keyer (how a read is keyed), and give units vitest's keying.** The trace
+is a stream of path events; the keyer turns it into the keys `quod vitest`
+already hashes in ≤ 0.3 s on convex:
+
+| a path the unit read | key | hit-path cost |
+|---|---|---|
+| under the checkout, in git's index and unmodified | `f:` keyed by the index OID (`git ls-files -s`, racy-index rule for the stat check) | one `git` call, 0.1 s |
+| under the checkout, not in the index or modified (an earlier unit's output: `dist/`) | `f:` content hash | the few files that are |
+| under a `node_modules` package root | `p:<pkg>` (package.json name and version, plus the lockfile's `integrity` for that package); files with no package root `f:` | package.json reads for the packages touched (hundreds) |
+| outside the checkout (`/usr/bin/git`, `/bin/sh`, node, `/etc/*`, `/opt/hostedtoolcache/...`) | `f:` content hash | a few hundred small files; plus the image identity (`ImageOS`, `ImageVersion`, `/imagegeneration/imagedata.json`) as a shared input |
+| a name that did not exist, a directory listed | `e:`, `d:` | stat, readdir |
+
+**Record transport: strace, as the implementer proposed (b), with these
+changes.** Recording cost is paid once per unit key (first witness only;
+the second witness runs plain, S1's structure, and agreement of stdout,
+stderr, exit code and the output tree promotes), so it is amortized, and
+the spec's "too slow for the critical path" no longer applies to it.
+
+1. **`--seccomp-bpf`.** The probe (ci-bench probe/runner,
+   `probe-strace.yml:31-33`) ran `strace -f -qq -y -e trace=%file,...`
+   without it, so every syscall of every thread (futex, epoll_wait, read,
+   write: node's hot loop) stopped the tracee twice. That is the 2.7x. With
+   `-f --seccomp-bpf`, untraced syscalls run at full speed and only the
+   traced set stops. Expect 1.3–1.6x on `test:release`; **measure it on
+   probe/runner first (one hour), before writing the parser.**
+2. Trace set: `%file,%process,getdents64,%network,io_uring_setup,
+   io_uring_enter,io_uring_register`, with `-yy --decode-fds=path -s 4096`
+   so `*at` calls and `getdents64` carry the directory's path. The parser
+   tracks cwd per pid (`chdir`, `fchdir`, inherited across `clone`/`fork`,
+   kept across `execve`) to absolutize relative paths. `execve` keys the
+   binary (`f:`); a `#!` interpreter shows as the kernel's second open.
+3. **io_uring.** Quod sets `UV_USE_IO_URING=0` for the traced run only (a
+   libuv backend switch, no result changes; Quod's own variable, not keyed),
+   and any `io_uring_setup` in the trace makes the unit unobservable: fails
+   closed. The 920 setups the probe saw go to zero with the variable set.
+4. Both witnesses run in bubblewrap with `--unshare-net` (loopback only),
+   `--unshare-pid`, a private `/tmp`, the checkout bound at its real path
+   (unprivileged bwrap works on the runner, probe-runner.yml:23). A
+   `connect()` to a non-loopback address marks the unit "network: always
+   runs". `test:release`'s `git` runs in temp repos under the private
+   `/tmp`: scratch, no outputs.
+5. **Outputs** are writes under the checkout seen in the trace (`openat`
+   with `O_WRONLY|O_RDWR|O_CREAT|O_TRUNC`, `rename`, `unlink`, `mkdir`,
+   `symlink`, `truncate`): their content is snapshotted into the CAS after
+   the run and restored on a hit. `test:release`: none; `build`: `dist/`.
+6. The ptrace pointer race (a second thread swapping a path buffer between
+   strace's read and the kernel's) is a policy concern, not a recording one:
+   test code is not adversarial, and the JS hooks the vitest recorder relies
+   on are far easier to bypass. Same standard; say so in the code.
+
+**Rejected, with the reason that decides it.** *eBPF now*: the sound form
+reads the kernel's resolved `struct path` after lookup (`security_file_open`,
+`vfs_getattr`, `security_inode_permission`), which needs either BPF LSM
+(not in Ubuntu's `lsm=` boot list on the image) or kprobes + BTF with a
+per-image struct-layout risk, plus an io-wq worker attribution problem;
+3–5 days for a cost that lands only on first witnesses. The trace/keyer
+boundary makes it a drop-in transport later. *LD_PRELOAD for node only*:
+libc's own calls (`fopen`, `opendir`, `scandir`, `dlopen`, nss reading
+`/etc/passwd`) bypass the PLT, static Go binaries (esbuild) bypass
+everything, and the only detector (a seccomp filter on the instruction
+pointer) would then kill libc's internal opens. *seccomp-notify*,
+*fanotify*: as in section 1. *A coarser grain* (key `test:release` on
+`scripts/*.mjs` + package.json + node + git statically): unknown reads;
+the trace is cheap enough once per key.
+
+**Expected.** `test:release` answered in ≤ 0.3 s (keyer + print), `build`
+in ≤ 0.5 s (keyer + restore of `dist/`). The hit `test` step 11 → ~1 s
+(render), build 2 → 0.5. **Hit job 27 → 15–17 s.** Recording: once per
+unit key, +3–6 s on `test:release`'s 10 s with `--seccomp-bpf`, +1 s on
+build. Acceptance on convex over 12 commits: zero wrong units; an edit to
+`scripts/x.test.mjs` misses `test:release` and nothing else; a `src/`
+edit misses `build` and misses `test:release` only if the trace shows it
+reads `dist/` (let the trace say, not the spec).
+
+### B2. Soundness of the environment rule (5b7a5a4, 92bab3e, ff6ce1f)
+
+Read: `record.mjs` `toolCaller` (:266), `NPM_HELPERS` (:265), `patchEnv`
+`rec` (:586–595), `recPresence` (:605–612), `ownKeys` (:627–629),
+`ciVarying` (:574); `child.mjs` (:12–27); `vitest.rs` `VALUE_KEYED`
+(:129), the `env` hash (:2527), `volatile_env` (:3303);
+`quod-key/src/lib.rs` `DENYLIST`, `VOLATILE`, and :310–317.
+
+**Finding 1, wrong-capable: the npm allowance is by stack frame, not by
+process.** For every `ciVarying` name, `toolCaller(true)` treats a stack
+whose non-node frames are all under `/node_modules/npm/`,
+`/node_modules/@npmcli/` or `/node_modules/ci-info/` as a tool's read and
+records *nothing* (`if (c.tool) return`, before `env:` or `envp:`).
+`ci-info` is an ordinary dependency (`is-ci`, jest vendor it; repos import
+it directly). A test file that imports it evaluates it under node's ESM
+loader, whose frames `skipFrame` drops, so ci-info's module-init reads of
+`GITHUB_ACTIONS` and `GITHUB_EVENT_NAME` have only ci-info frames on the
+stack: tool, unkeyed. ci-info exports `isPR = (GITHUB_EVENT_NAME ===
+'pull_request')`. A file with `test.skipIf(ci.isPR)('needs secrets', ...)`
+recorded on a push (ran, passed) replays on the pull request as passed
+where plain prints skipped; recorded on a pull request as skipped, it
+replays on main as skipped where plain runs it and may fail. **Yes, this
+produces a wrong replay.** quod-key keys `GITHUB_EVENT_NAME` by value for
+exactly this reason (lib.rs:310–317, naming ci-info's `isPR`); record.mjs's
+`ciVarying` lumps it in with `GITHUB_*`, and 5b7a5a4 made the lump
+unkeyed through ci-info's frames. The same shape exists, dormant, for
+`std-env` in `HELPERS`: it exports `provider`, derived from
+`GITHUB_ACTIONS` presence, constant on hosted runners (its `isCI` reads
+`CI`, keyed regardless of caller). Not wrong today; the fix below covers it.
+
+Fix:
+
+a. **The allowance is a property of the process.** `child.mjs` sets
+   `r.npm = true` iff the real path of `process.argv[1]` ends in
+   `/npm/bin/npm-cli.js` or `/npm/bin/npx-cli.js` (the `#!` shims resolve
+   to these; `isNode`'s head check already reads them). `rec` and
+   `recPresence` call `toolCaller(r.npm && ciVarying(k))`; `ownKeys` calls
+   `toolCaller(r.npm)`, not `toolCaller(true)`. Drop the free-standing
+   `/node_modules/ci-info/` entry: npm's bundled copy lives under
+   `/node_modules/npm/node_modules/ci-info/`, which `/node_modules/npm/`
+   matches.
+b. **In npm's process nothing is unkeyed; it is presence-keyed.** npm's
+   reads of `ciVarying` names record `envp:<name>` (set or unset), never a
+   value. Audit of npm 10/11 (bundled with Node 20–24): its behaviour
+   depends on ci-info's `isCI` and `name` (the yes-prompt in libnpmexec,
+   update-notifier, the `user-agent` default's `ci/github-actions`), both
+   from the *presence* of `GITHUB_ACTIONS`, and on `CI`, which is keyed by
+   value for every caller; `isPR` is never consulted. Presence is constant
+   on hosted runners, so nothing stops replaying; a run without GitHub is a
+   miss. A future npm that reads `GITHUB_REF` by value gets `env:GITHUB_REF`
+   (keyed, a branch key) and one that reads `GITHUB_SHA` is refused as
+   per-run: fail safe, and the summary says why.
+c. npm's copy of the whole environment for the program it runs keys every
+   non-CI, non-tool name by value from npm frames today (`JAVA_HOME`,
+   `ImageVersion`, ...): over-keyed, a miss on each weekly image roll.
+   Acceptable, but the traced child records its own reads, so treat the
+   spawn-time copy as esbuild's is treated (`c.child`): with
+   `node:child_process` frames below npm frames, record `envtool:` only.
+   Only in a process where `traceChild` succeeded; otherwise the file is
+   unobservable anyway.
+d. Tests: a fixture test file `import ci from 'ci-info'; test.skipIf(ci.isPR)`
+   recorded with `GITHUB_EVENT_NAME=push` must carry `env:GITHUB_EVENT_NAME`
+   and not replay under `pull_request`; the `npx` fixture must still
+   record with `envp:GITHUB_ACTIONS` and no `env:GITHUB_*`.
+e. **Bump `VERSION` (`quod-vitest-1` → `-2`).** A record made under
+   5b7a5a4 for a file that imports ci-info carries no mark of the missing
+   key; every record re-proves once. One window on the bench.
+
+**Finding 2, not wrong on hosted runners, but the stated guarantee is
+false: `VALUE_KEYED` names are not keyed by value.** `vitest.rs:2527`
+hashes `"env" if volatile_env(p) => "volatile"` and all three names are
+volatile (`GITHUB_EVENT_PATH`, `GITHUB_ACTION_PATH` ∈ `VOLATILE`;
+`RUNNER_TEMP` ∈ `DENYLIST`), so `env:RUNNER_TEMP` hashes to a constant;
+`VALUE_KEYED` only lifts the refusal at :1334. A file that reads
+`RUNNER_TEMP` and writes or prints under it therefore replays on a runner
+whose `RUNNER_TEMP` differs (self-hosted, `/tmp/runner`), showing hosted
+paths: the "a runner where it differs is a miss" in the comment does not
+hold. The bench cannot show it because the path is fixed on hosted runners.
+Fix, one line: `"env" if volatile_env(p) && !VALUE_KEYED.contains(&p)`.
+`GITHUB_EVENT_PATH`'s content is sound as is: a read is
+`f:/home/runner/work/_temp/_github_workflow/event.json`, hashed from the
+file at key time; even a `schedule` payload carries `repository.pushed_at`.
+Only a native child reading it (`jq`) escapes, and that file is already
+unobservable.
+
+**Note 3, not a hole, write it down.** A traced child's `env:` keys are
+hashed in `quod vitest`'s own environment (`std::env::var_os`), so a name
+only npm sets for its child (`npm_lifecycle_event`, `npm_config_user_agent`,
+`INIT_CWD`) hashes as "unset" at record and at replay alike. Every such
+value derives from keyed inputs (the spawning test's code, `package.json`,
+npm's own files as `f:`, node's version), and `npm_config_user_agent`'s
+`ci/github-actions` is covered by fix 1b. Say so in record.mjs's header so
+nobody "fixes" it into a per-run key.
+
+Verdict: one wrong-capable rule (Finding 1) and one false comment with a
+dormant cross-runner hole (Finding 2). Half a day, before the next bench.
+
+### B3. The remaining 15 s above the floor
+
+| in the 27 s hit | s | cut | how | after |
+|---|---:|---:|---|---:|
+| `test:release` | 10 | −9.7 | B1 | 0.3 |
+| `build` | 2 | −1.5 | B1 (keyer + `dist/` restore) | 0.5 |
+| action main | 2 | −1.3 | S4: static quod in `dist/`, manifest GET by tree OID, no 3.5 MB ledger restore | 0.7 |
+| post | 1 | −0.7 | a hit saves nothing (section 5.3) | 0.3 |
+| render | ~1 | −0.5 | confirm it is a print, not a vitest boot; the 3.5 MB ledger parse goes with S3's content-addressed records | 0.5 |
+| setup-node 5, checkout 1–2, boot 1, bookkeeping 2–4 | ~10–12 | 0 | the customer's steps and GitHub's; no pipeline edits | — |
+
+**Hit job after B1 + S4 trims: 14–17 s.** The ≤ 20 s pass mark holds
+with ~3 s of GitHub's own variance to spare; report the floor beside it.
+
+Window runner-seconds, from the run's 0.51x with timing-sensitive replay
+on (plain window ≈ 12 × 140 s = 1680 s, Quod ≈ 860 s): six hits × −12 s
+≈ −72 s → 0.47x; first-witness strace on units, once or twice in the
+window at +4–8 s each → **≈ 0.48x**. Two conditions, both to be stated in
+the report rather than tuned around: timing-sensitive replay (A1 (b)) must
+be on, since with the default 0.5 margin `stream.property` runs 98 s on
+every hit and no unit work gets under 0.5x; and misses stay at ≈ 1.1x
+(S1's plain second witness). S6 (first-witness overhead) is what turns a
+0.48 into a comfortable 0.42.
+
+### B4. Order
+
+1. B2 fixes and the `VERSION` bump (half a day); one bench window,
+   wrong = 0 must hold before anything else lands on it.
+2. B1: measure `--seccomp-bpf` on probe/runner (one hour); then the trace
+   parser and keyer (3–4 days), `hook.cjs` unit recognition as in section
+   1, bwrap for both witnesses.
+3. S4 trims to action main and post if not already complete.
