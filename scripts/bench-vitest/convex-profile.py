@@ -12,15 +12,23 @@ out = base / 'evidence'
 out.mkdir(parents=True, exist_ok=True)
 files = subprocess.check_output(['git', 'ls-files', '*stream.property.test.ts'], cwd=project, text=True).splitlines()
 assert len(files) == 1, files
-disabled = {'all': '', 'preload': 'fs,env,loader,escapes,main', 'env': 'fs,loader,escapes,main,preload'}[mode]
+filters = [] if mode == 'full' else files
+disabled = {'full': '', 'all': '', 'preload': 'fs,env,loader,escapes,main', 'env': 'fs,loader,escapes,main,preload'}[mode]
 rows = []
+if mode == 'full':
+    import shlex
+    node = subprocess.check_output(['which', 'node'], text=True).strip()
+    (out / 'cpu').mkdir(exist_ok=True)
+    wrapper = base / 'profile-node'
+    wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(node) + ' --cpu-prof --cpu-prof-dir=' + shlex.quote(str(out / 'cpu')) + ' "$@"\n')
+    wrapper.chmod(0o755)
 for name in ['plain', mode]:
     env = dict(os.environ)
     if name == 'plain':
-        cmd = ['node', 'node_modules/vitest/vitest.mjs', 'run', files[0]]
+        cmd = ['node', 'node_modules/vitest/vitest.mjs', 'run', *filters]
     else:
         env['QUOD_VITEST_DISABLE'] = disabled
-        cmd = [str(base / 'quod'), 'vitest', '--dir', str(base / 'state'), '--full', '--', 'run', files[0]]
+        cmd = [str(base / 'quod'), 'vitest', *(['--node', str(wrapper)] if mode == 'full' else []), '--dir', str(base / 'state'), '--full', '--', 'run', *filters]
     start = time.monotonic()
     with (out / (name + '.log')).open('w') as log:
         result = subprocess.run(cmd, cwd=project, env=env, stdout=log, stderr=subprocess.STDOUT)

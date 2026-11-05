@@ -560,13 +560,13 @@ jobs:
             /tmp/lineage-*.log
 
   benchmark-profile:
-    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-profile'
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        mode: [all, preload, env]
+        mode: ${{ inputs.only == 'benchmark-profile-full' && fromJSON('["full"]') || fromJSON('["all","preload","env"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -591,6 +591,7 @@ jobs:
           mkdir -p /tmp/quod-profile
           tar -xzf profile-action/dist/quod/bin-8dc6916.tar.gz -C /tmp/quod-profile
           python3 scripts/bench-vitest/convex-profile.py "$PWD/profile-project" "$PROFILE_MODE"
+          if [ "$PROFILE_MODE" = full ]; then node scripts/bench-vitest/cpuprof-summary.mjs /tmp/quod-profile/evidence/cpu 20; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
