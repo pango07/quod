@@ -15,7 +15,7 @@ The defensible description is:
 | Workload | Current boundary |
 |---|---|
 | One-shot Vitest on Linux x64 | The principal test-replay target. Node must provide `module.registerHooks` (22.15+ on the 22 line); the latest complete benchmark uses Node 24.18.0 and Vitest 5.0.0. |
-| Vitest versions | Compatibility paths exist for 3.2, 4 and 5. The hook currently admits later majors too; that is not evidence of support for untested future releases. Publish exact tested combinations rather than an unbounded version promise. |
+| Vitest versions | Compatibility paths exist for 3.2, 4 and 5. The experimental action now admits only stable 3.2–3.x, 4.x and 5.x releases; future majors, prereleases and malformed versions stay plain. This bounds interception but does not certify every minor/configuration combination. Publish exact tested combinations. |
 | Monorepos and multi-project Vitest | Supported by the per-project/file model; shared config remains an input. This benchmark runs 120 file/project instances across nine projects. A shared input change can invalidate most of them. |
 | npm, pnpm, Yarn and Bun | npm can restore the installed dependency tree; other managers can reuse their stores. Dependency caching is distinct from test-result replay. Yarn Plug'n'Play stays plain. |
 | npm build and script commands | Experimental whole-job engine observes selected `npm run <script> [-- args]` commands. Workspace flags and arbitrary command forms do not become supported merely because ordinary npm scripts work. |
@@ -29,8 +29,15 @@ The defensible description is:
 The eligibility guards are in `quod-action/hook.cjs`, `src/main.js` and
 `quod`'s `crates/quod-cli/src/vitest/driver.mjs`. A fallback means the job
 executes normally, not that it receives the same acceleration. Existing
-README version and behavior descriptions lag the experimental branches;
-they should be reconciled before publishing a release support matrix.
+release documentation must be checked against the exact action pin. The
+experimental action's README and metadata have been updated to distinguish
+one-line installation from eligibility and guaranteed savings.
+
+The compatibility guard and passthrough regressions are in
+[action commit 5752bc0](https://github.com/pango07/quod-action/commit/5752bc0).
+They cover supported majors, future/malformed versions, prereleases,
+watch/browser/shard/update/changed modes and Yarn Plug'n'Play. These changes
+are on `exp/boolean-exports-codex`; they do not move any published release tag.
 
 ## Performance and correctness claims
 
