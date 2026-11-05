@@ -537,3 +537,41 @@ jobs:
           path: |
             /tmp/quod-action-dist.tgz
             /tmp/lineage-*.log
+
+  benchmark-profile:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-profile'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [all, preload, env]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 4caade9
+          path: profile-action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 6b17e1514f5222e9c019e177e36384df95a3ff25
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci
+        working-directory: profile-project
+      - name: Profile plain and recording on the same runner
+        env:
+          PROFILE_MODE: ${{ matrix.mode }}
+        run: |
+          mkdir -p /tmp/quod-profile
+          tar -xzf profile-action/dist/quod/bin-8dc6916.tar.gz -C /tmp/quod-profile
+          python3 scripts/bench-vitest/convex-profile.py "$PWD/profile-project" "$PROFILE_MODE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: convex-profile-${{ matrix.mode }}
+          path: /tmp/quod-profile/evidence
