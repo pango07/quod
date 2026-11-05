@@ -132,7 +132,12 @@ const STEP_VOLATILE: &[&str] = &[
 /// GITHUB_EVENT_PATH in every npx a test starts (convex-helpers'
 /// openApiSpec.test.ts, `npx redocly lint`); a file's content, if read, is
 /// keyed as a file.
-const VALUE_KEYED: &[&str] = &["GITHUB_EVENT_PATH", "RUNNER_TEMP", "GITHUB_ACTION_PATH"];
+const VALUE_KEYED: &[&str] = &[
+    "GITHUB_EVENT_PATH",
+    "RUNNER_TEMP",
+    "GITHUB_ACTION_PATH",
+    "QUOD_VITEST_NAMES_PROOF",
+];
 
 #[derive(clap::Args)]
 pub struct VitestArgs {

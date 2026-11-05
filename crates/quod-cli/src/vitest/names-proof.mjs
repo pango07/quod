@@ -163,11 +163,13 @@ export function createNamesProof() {
       try {
         session.post('Debugger.getScriptSource', {scriptId:f.scriptId}, (err, result) => {
           if (err || typeof result?.scriptSource !== 'string') return
-          const text = result.scriptSource
-          const certificates = certifyNamesOnly(text)
-          const lines = [0]
-          for (let i=0; i<text.length; i++) if (text[i] === '\n') lines.push(i+1)
-          sources.set(f.scriptId, { certificates, lines, length:text.length })
+          try {
+            const text = result.scriptSource
+            const certificates = certifyNamesOnly(text)
+            const lines = [0]
+            for (let i=0; i<text.length; i++) if (text[i] === '\n') lines.push(i+1)
+            sources.set(f.scriptId, { certificates, lines, length:text.length })
+          } catch { /* parser/resource limits retain the original inputs */ }
         })
       } catch {}
     }

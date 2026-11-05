@@ -605,6 +605,8 @@ function patchJsonParse(r) {
 const fieldKeys = Object.keys
 const fieldOwnKeys = Reflect.ownKeys
 const fieldDescriptor = Object.getOwnPropertyDescriptor
+const fieldPrototype = Object.getPrototypeOf
+const fieldObjectPrototype = Object.prototype
 const fieldDefine = Object.defineProperty
 const fieldStringify = JSON.stringify
 const fieldSetAdd = Function.prototype.call.bind(Set.prototype.add)
@@ -649,6 +651,10 @@ function watchFields(r, p, obj) {
   function pristine(fields) {
     for (const field of fields) {
       const s = shape.get(field)
+      // Spreading an absent field is harmless only when no inherited
+      // property/getter can supply it. Root property names are always keyed.
+      if (!s && !fieldDescriptor(obj, field) && fieldPrototype(obj) === fieldObjectPrototype &&
+          !fieldDescriptor(fieldObjectPrototype, field) && fieldPrototype(fieldObjectPrototype) === null) continue
       if (!s?.primitive || fieldDescriptor(obj, field)?.get !== s.get) return false
       const keys = fieldOwnKeys(s.val)
       if (keys.length !== s.leaves.length) return false

@@ -33,10 +33,10 @@ for (const [label, source] of [
   ['later second copy', parse + names + 'const x = Object.keys({...pkg.dependencies});'],
 ]) test(`retains values: ${label}`, () => assert.deepEqual(certifyNamesOnly(source), []))
 
-function run(source, { prelude = '', enabled = true, rewrite = false } = {}) {
+function run(source, { prelude = '', enabled = true, rewrite = false, manifest = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-names-proof-'))
   try {
-    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { 'zod-4.1': '1' }, devDependencies: { unloaded: '1' } }))
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest ?? { dependencies: { 'zod-4.1': '1' }, devDependencies: { unloaded: '1' } }))
     const cfg = path.join(dir, 'cfg.mjs')
     fs.writeFileSync(cfg, "import {readFileSync, writeFileSync} from 'node:fs';\n" + prelude + '\n' +
       (rewrite ? `writeFileSync(import.meta.filename, ${JSON.stringify(parse + names)});\n` : '') + source)
@@ -68,6 +68,24 @@ test('actual executed ESM copy drops only discarded primitive values', () => {
 test('disabled proof retains every copied value', () => {
   const result = run(parse + '\n' + names, {enabled:false})
   assert.deepEqual(result.keys, [[['dependencies','zod-4.1'], ['dependencies'], ['devDependencies','unloaded'], ['devDependencies']]])
+})
+
+test('absent spread field qualifies only when its prototype cannot supply a value', () => {
+  const manifest = { devDependencies: { 'zod-4.1':'1' } }
+  const result = run(parse + '\n' + names, {manifest})
+  assert.deepEqual(result.keys, [[['devDependencies']]])
+  assert.equal(result.stats.ignored, 1)
+  const inherited = run(parse + '\n' + names, {manifest,
+    prelude:"Object.defineProperty(Object.prototype, 'dependencies', {get() { return {extra:'1'}; }, configurable:true});"})
+  assert.equal(inherited.stats.ignored, 0)
+  assert.ok(inherited.keys[0].some(p => p.length === 2))
+})
+
+test('non-primitive spread data and changed parser intrinsics retain values', () => {
+  const object = run(parse + '\n' + names, {manifest:{dependencies:{nested:{}}, devDependencies:{unloaded:'1'}}})
+  assert.equal(object.stats.ignored, 0)
+  const changed = run(parse + '\n' + names, {prelude:'const prior = Array.prototype.map; Array.prototype.map = function(...args) { return prior.apply(this, args); };'})
+  assert.equal(changed.stats.ignored, 0)
 })
 
 test('value-dependent branch remains keyed, including with a misleading disk source', () => {
