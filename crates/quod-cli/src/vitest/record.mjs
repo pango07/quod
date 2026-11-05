@@ -45,7 +45,7 @@ const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
 const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null }) {
   const keys = new Set()
   // A made directory's other spelling (its real path, and back), when they differ.
   const alias = new Map()
@@ -63,6 +63,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
   const skip = (process.env.QUOD_VITEST_SKIP ?? '').split('\n').filter(Boolean).map((d) => (d.endsWith('/') ? d : `${d}/`))
   const r = {
     mode, // 'main' | 'worker'
+    namesProof,
     keys,
     writes: new Set(),
     // paths first written while absent (scratch() drops those gone again)
@@ -599,31 +600,70 @@ function patchJsonParse(r) {
   Object.defineProperty(w, '__quod', { value: true })
   JSON.parse = w
 }
+// Capture these before loading application configuration. The proof cannot
+// call application replacements while a spread is in progress.
+const fieldKeys = Object.keys
+const fieldOwnKeys = Reflect.ownKeys
+const fieldDescriptor = Object.getOwnPropertyDescriptor
+const fieldDefine = Object.defineProperty
+const fieldStringify = JSON.stringify
+const fieldSetAdd = Function.prototype.call.bind(Set.prototype.add)
+const dependencyFields = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
 function watchFields(r, p, obj) {
   let use = r.pjUse.get(p)
   if (!use) r.pjUse.set(p, (use = new Set()))
   r.pjParsed.set(p, (r.pjParsed.get(p) ?? 0) + 1)
+  const binding = r.namesProof?.bind()
+  const shape = binding ? new Map() : null
   function watch(target, path) {
-    for (const k of Object.keys(target)) {
+    for (const k of fieldKeys(target)) {
       const val = target[k]
       const next = [...path, k]
-      // Dependency names can be used without versions; watch each value
-      // separately so a config that reads versions cannot lose that input.
-      if (path.length === 0 && ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].includes(k) && val && typeof val === 'object' && !Array.isArray(val)) watch(val, next)
-      Object.defineProperty(target, k, {
+      const encoded = fieldStringify(next)
+      const dep = path.length === 0 && dependencyFields.includes(k) && val && typeof val === 'object' && !Array.isArray(val)
+      const primitive = binding && dep && fieldOwnKeys(val).every(key => {
+        const d = fieldDescriptor(val, key)
+        return d && 'value' in d && (d.value === null || typeof d.value !== 'object' && typeof d.value !== 'function')
+      })
+      if (dep) watch(val, next)
+      const get = () => {
+        if (!binding || !r.namesProof.ignores(binding, next, pristine)) fieldSetAdd(use, encoded)
+        return val
+      }
+      fieldDefine(target, k, {
         enumerable: true,
         configurable: true,
-        get() {
-          use.add(JSON.stringify(next))
-          return val
-        },
+        get,
         set(x) {
-          Object.defineProperty(target, k, { value: x, writable: true, enumerable: true, configurable: true })
+          fieldDefine(target, k, { value: x, writable: true, enumerable: true, configurable: true })
         },
       })
+      if (binding && dep) {
+        const leaves = fieldOwnKeys(val).map(key => [key, fieldDescriptor(val, key)?.get])
+        // JSON.parse without a reviver yields data; nested objects may have
+        // coercion behavior and are outside this bounded proof.
+        shape.set(k, { get, val, leaves, primitive })
+      }
     }
   }
+  function pristine(fields) {
+    for (const field of fields) {
+      const s = shape.get(field)
+      if (!s?.primitive || fieldDescriptor(obj, field)?.get !== s.get) return false
+      const keys = fieldOwnKeys(s.val)
+      if (keys.length !== s.leaves.length) return false
+      for (let i = 0; i < keys.length; i++) {
+        const [key, get] = s.leaves[i]
+        const d = fieldDescriptor(s.val, key)
+        if (keys[i] !== key || !get || d?.get !== get || !d.enumerable) return false
+      }
+    }
+    return true
+  }
   watch(obj, [])
+  // After this check the certified next operation is reading the native
+  // keys callee. No application code or asynchronous turn intervenes.
+  r.namesProof?.seal(binding, pristine)
   return obj
 }
 // The main process's keys, with each package.json every whole read of

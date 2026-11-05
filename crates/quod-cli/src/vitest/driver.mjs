@@ -77,7 +77,12 @@ const hooks = record && plan.hooks !== false
 const plainSet = new Set(record ? (plan.plain ?? []) : [])
 // A test past this fraction of its timeout is near it (plan.nearTimeout).
 const nearFactor = Number.isFinite(Number(plan.nearTimeout)) && Number(plan.nearTimeout) > 0 ? Number(plan.nearTimeout) : 0.5
-const r = createRecorder({ stateDir, codeDir, mode: 'main' })
+// Opt-in until real configuration and changed-commit gates establish both
+// correctness and benefit. The flag is an input even when disabled.
+const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'
+  ? (await import('./names-proof.mjs')).createNamesProof() : null
+const r = createRecorder({ stateDir, codeDir, mode: 'main', namesProof })
+r.keys.add('env:QUOD_VITEST_NAMES_PROOF')
 r.on = hooks
 // QUOD_VITEST_DISABLE (read before the env is watched): main (no main
 // process recorder), setup (no setup file: nothing recorded) or preload (no
@@ -634,6 +639,10 @@ try {
 }
 const tRun = performance.now()
 r.on = false
+if (namesProof) {
+  namesProof.close()
+  console.error(`[quod] config names proof ${JSON.stringify(namesProof.stats)}`)
+}
 
 // Results and records of the files that ran.
 const ranOut = []

@@ -459,6 +459,8 @@ jobs:
           git diff -- '*.rs' > /tmp/benchmark-fmt.patch
       - name: CLI unit tests and recorder regressions
         run: cargo test --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e
+      - name: config names proof adversarial regressions
+        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs
       - name: clippy
         run: cargo clippy --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e -- -D warnings
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -638,6 +640,12 @@ jobs:
         working-directory: profile-project
       - name: Measure configuration output across declaration changes
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe
+      - name: Config proof regression tests
+        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs
+      - name: Verify proof against actual Vite-loaded configuration
+        env:
+          QUOD_CONFIG_NAMES_PROOF: '1'
+        run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe/proof
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:

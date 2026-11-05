@@ -61,6 +61,9 @@ const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 const CHILD: &str = include_str!("vitest/child.mjs");
 const DENY: &str = include_str!("vitest/deny.mjs");
+const NAMES_PROOF: &str = include_str!("vitest/names-proof.mjs");
+const ACORN: &str = include_str!("vitest/acorn.mjs");
+const ACORN_LICENSE: &str = include_str!("vitest/acorn-LICENSE");
 
 /// The driver's files, as embedded; for development, a file of the same
 /// name in `QUOD_VITEST_JS_DIR` stands in for one (the bench iterates on
@@ -79,6 +82,9 @@ fn js() -> &'static [(&'static str, String)] {
             ("narrow.mjs", NARROW),
             ("child.mjs", CHILD),
             ("deny.mjs", DENY),
+            ("names-proof.mjs", NAMES_PROOF),
+            ("acorn.mjs", ACORN),
+            ("acorn-LICENSE", ACORN_LICENSE),
         ]
         .into_iter()
         .map(|(name, body)| {

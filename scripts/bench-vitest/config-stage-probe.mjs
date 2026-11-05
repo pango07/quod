@@ -49,6 +49,14 @@ if (mode) {
   const entry = vp.exports['./node']
   const rel = typeof entry === 'string' ? entry : entry.import ?? entry.default
   const V = await import(pathToFileURL(path.join(path.dirname(vitestPkgPath), rel)).href)
+  let recorder = null, namesProof = null, settledKeys = null
+  if (process.env.QUOD_CONFIG_NAMES_PROOF === '1') {
+    const R = await import('../../crates/quod-cli/src/vitest/record.mjs')
+    namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
+    recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof })
+    settledKeys = R.settledKeys
+    R.patchFs(recorder)
+  }
   const start = performance.now()
   // Hold Vitest's default timestamp-derived sequence seed constant only in
   // this diagnostic, so independent process starts are comparable.
@@ -68,12 +76,16 @@ if (mode) {
     })).sort((a,b) => a.name.localeCompare(b.name))
     const files = specs.map(s => [s.project.name, path.relative(project, s.moduleId), s.pool]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
     if (!files.length || !projects.length) throw Error('missing resolved projects or test selection')
-    const record = { mode, probeSeed, vitest: vp.version, configure_ms: configured-start, selection_ms: performance.now()-configured, projects, files,
+    const proof = recorder ? {
+      stats: namesProof.stats,
+      manifestKeys: [...settledKeys(recorder)].filter(k => k === `f:${pkgPath}` || k.startsWith(`pjf:${pkgPath}\0`)),
+    } : null
+    const record = { mode, probeSeed, vitest: vp.version, configure_ms: configured-start, selection_ms: performance.now()-configured, projects, files, proof,
       configHash: hash(projects.map(({name, workerConfig, context}) => ({name, workerConfig, context}))), filesHash: hash(files),
       replayEligible: false, unvalidated: ['plugin closures and outputs', 'transformed modules and resolution', 'global setup effects', 'runtime observations'] }
     fs.mkdirSync(out, { recursive: true })
     fs.writeFileSync(path.join(out, mode+'.json'), JSON.stringify(record, null, 2))
-  } finally { await ctx.close() }
+  } finally { await ctx.close(); namesProof?.close() }
 } else {
   const cases = [
     ['before-both', { chalk: '4.1.2', commander: '10.0.1' }],
@@ -90,6 +102,13 @@ if (mode) {
     }
   } finally { fs.writeFileSync(pkgPath, original) }
   const records = cases.map(([name]) => JSON.parse(fs.readFileSync(path.join(out, name+'.json'), 'utf8')))
-  console.log(JSON.stringify(records.map(r => ({ mode:r.mode, configure_ms:r.configure_ms, selection_ms:r.selection_ms, projects:r.projects.length, files:r.files.length, configHash:r.configHash, filesHash:r.filesHash, replayEligible:r.replayEligible })), null, 2))
+  console.log(JSON.stringify(records.map(r => ({ mode:r.mode, configure_ms:r.configure_ms, selection_ms:r.selection_ms, projects:r.projects.length, files:r.files.length, configHash:r.configHash, filesHash:r.filesHash, replayEligible:r.replayEligible, proof:r.proof })), null, 2))
+  if (process.env.QUOD_CONFIG_NAMES_PROOF === '1') {
+    for (const record of records) {
+      if (!record.proof?.stats.ignored) throw Error(`names proof did not recognize the actual loaded configuration: ${record.mode}`)
+      if (record.proof.manifestKeys.some(k => k.startsWith('f:'))) throw Error(`manifest still has a whole-file read: ${record.mode}`)
+      if (record.proof.manifestKeys.some(k => JSON.parse(k.split('\0')[1]).some(p => p.length > 1))) throw Error(`copied version values remain inputs: ${record.mode}`)
+    }
+  }
   console.log('Equal outputs are diagnostic evidence only; this probe never permits replay.')
 }
