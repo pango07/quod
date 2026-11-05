@@ -50,7 +50,10 @@ if (mode) {
   const rel = typeof entry === 'string' ? entry : entry.import ?? entry.default
   const V = await import(pathToFileURL(path.join(path.dirname(vitestPkgPath), rel)).href)
   const start = performance.now()
-  const ctx = await V.createVitest('test', { run: true, watch: false }, {}, {})
+  // Hold Vitest's default timestamp-derived sequence seed constant only in
+  // this diagnostic, so independent process starts are comparable.
+  const probeSeed = 12345
+  const ctx = await V.createVitest('test', { run: true, watch: false, sequence: { seed: probeSeed } }, {}, {})
   try {
     const configured = performance.now()
     const specs = await ctx.specifications.getRelevantTestSpecifications([])
@@ -65,7 +68,7 @@ if (mode) {
     })).sort((a,b) => a.name.localeCompare(b.name))
     const files = specs.map(s => [s.project.name, path.relative(project, s.moduleId), s.pool]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
     if (!files.length || !projects.length) throw Error('missing resolved projects or test selection')
-    const record = { mode, vitest: vp.version, configure_ms: configured-start, selection_ms: performance.now()-configured, projects, files,
+    const record = { mode, probeSeed, vitest: vp.version, configure_ms: configured-start, selection_ms: performance.now()-configured, projects, files,
       configHash: hash(projects.map(({name, workerConfig, context}) => ({name, workerConfig, context}))), filesHash: hash(files),
       replayEligible: false, unvalidated: ['plugin closures and outputs', 'transformed modules and resolution', 'global setup effects', 'runtime observations'] }
     fs.mkdirSync(out, { recursive: true })
