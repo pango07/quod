@@ -365,9 +365,11 @@ fn witnessed(need: u32, r: &Rec) -> bool {
 
 /// Timing-sensitive replay (`QUOD_VITEST_TIMING=replay`, off by default):
 /// a record whose plain runs came near a test's timeout replays anyway once
-/// two plain witnesses of its unchanged key passed, labelled with its
-/// margin. The timeout is then the machine's, not the code's: the inputs
-/// are the ones two plain runs passed on.
+/// its two witnesses of its unchanged key agree on a pass, at least one of
+/// them plain (the one that measured the margin), labelled with that
+/// margin (through-the-wall A1 (b)). The timeout is then the machine's, not
+/// the code's: the inputs are the ones the two witnesses passed on. A plain
+/// run after that buys nothing but the runner's load of the day.
 fn timing_replay() -> bool {
     std::env::var("QUOD_VITEST_TIMING").is_ok_and(|v| v == "replay")
 }
@@ -384,10 +386,13 @@ fn timing_audit() -> u32 {
 
 /// A near-timeout record that timing-sensitive replay lets replay.
 fn timing_ok(need: u32, r: &Rec) -> bool {
-    timing_replay()
-        && r.near_timeout
+    timing_ok_if(timing_replay(), need, r)
+}
+
+fn timing_ok_if(on: bool, need: u32, r: &Rec) -> bool {
+    on && r.near_timeout
         && !r.quarantined
-        && r.plain_n >= 2
+        && r.plain_n >= 1
         && (need <= 1 || r.w.n >= bar(need, &r.w))
 }
 
@@ -3090,7 +3095,7 @@ fn pj_fields(path: &Path, fields: &str) -> String {
 
 /// A JSON object's top-level names and the raw text of their values, in
 /// order; None when the text is not one.
-fn top_fields(b: &[u8]) -> Option<Vec<(String, &[u8])>> {
+pub(crate) fn top_fields(b: &[u8]) -> Option<Vec<(String, &[u8])>> {
     let ws = |i: &mut usize| {
         while *i < b.len() && matches!(b[*i], b' ' | b'\t' | b'\n' | b'\r') {
             *i += 1;
@@ -3858,6 +3863,54 @@ mod tests {
             vec![0]
         );
         assert_eq!(l.states, vec!["1".to_string(), "3".to_string()]);
+    }
+
+    /// through-the-wall A1 (b), bench run 42035026447: stream.property's
+    /// record (c0) and its plain witness (c1, 0.82 of the timeout) agreed;
+    /// c2 ran it plain again for 85 s. Two agreeing witnesses, one of them
+    /// plain, are enough with timing-sensitive replay on; the recording
+    /// alone never is, and off means near-timeout files always run.
+    #[test]
+    fn a_near_timeout_file_replays_once_its_two_witnesses_agree() {
+        let rec = |plain_n: u32, n: u32| Rec {
+            project: String::new(),
+            file: "stream.property.test.ts".into(),
+            state: "pass".into(),
+            duration: 85.0,
+            result: "results/x.json".into(),
+            deps: vec![0],
+            quarantined: false,
+            good: 0,
+            runs: 2,
+            replays: 0,
+            cov: BTreeMap::new(),
+            pinned: BTreeMap::new(),
+            w: Witness {
+                n,
+                key: "k".into(),
+                tests: "t".into(),
+                disagreements: 0,
+            },
+            near_timeout: true,
+            plain_n,
+            margin: 0.82,
+            net: false,
+        };
+        // c1 left it so: the recording and one plain witness, agreeing
+        let after_c1 = rec(1, 2);
+        assert!(timing_ok_if(true, 2, &after_c1), "c2 replays it");
+        assert!(!timing_ok_if(false, 2, &after_c1), "off: it runs");
+        assert!(!witnessed(2, &after_c1), "the witness policy alone keeps it running");
+        // the recording alone: no plain witness measured the margin
+        assert!(!timing_ok_if(true, 2, &rec(0, 1)));
+        // a plain witness, but the witnesses do not yet agree twice
+        assert!(!timing_ok_if(true, 2, &rec(1, 1)));
+        let mut q = rec(1, 2);
+        q.quarantined = true;
+        assert!(!timing_ok_if(true, 2, &q), "a timeout in an audit quarantines it");
+        let mut d = rec(1, 2);
+        d.w.disagreements = 1;
+        assert!(!timing_ok_if(true, 2, &d), "a disagreement raises the bar");
     }
 
     #[test]

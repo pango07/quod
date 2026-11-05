@@ -152,7 +152,8 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     let mut changed: Vec<String> = Vec::new();
     for (i, r) in ledger.records.iter().enumerate() {
         let ks: Vec<&(String, String)> = r.keys.iter().collect();
-        let now = vitest::par_map(&ks, |(k, _)| key_state(&root, k));
+        let loaded = Loaded::of(r.keys.iter().map(|(k, _)| k.as_str()));
+        let now = vitest::par_map(&ks, |(k, _)| key_state_in(&root, k, &loaded));
         if ks.iter().zip(&now).all(|((_, s), n)| s == n) {
             matched = Some(i);
             break;
@@ -284,10 +285,12 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             for w in &writes {
                 outputs.push(snapshot(&root, w, Some(&blobs)));
             }
+            let keys = manifest_keys(keys);
+            let loaded = Loaded::of(keys.iter().map(|(k, _)| k.as_str()));
             let mut ks: Vec<(String, String)> = keys
                 .into_iter()
                 .map(|(k, pre)| {
-                    let s = pre.unwrap_or_else(|| key_state(&root, &k));
+                    let s = pre.unwrap_or_else(|| key_state_in(&root, &k, &loaded));
                     (k, s)
                 })
                 .collect();
@@ -299,7 +302,7 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             }
             ks.sort();
             ks.dedup();
-            let rec = Rec {
+            let mut rec = Rec {
                 keys: ks,
                 witnesses: 1,
                 code,
@@ -313,6 +316,15 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
                 rec.outputs.len(),
                 t1.elapsed().as_secs_f64()
             );
+            match cross_env(&mut ledger.records, &mut rec, &blobs) {
+                Some(Ok(env)) => eprintln!(
+                    "quod: {name}: agrees with its record from another environment ({env} differ, every other input the same); both are trusted"
+                ),
+                Some(Err(what)) => eprintln!(
+                    "quod: {name}: differs from its record from another environment ({what}); a second witness here decides"
+                ),
+                None => {}
+            }
             ledger.records.insert(0, rec);
             ledger.records.truncate(KEEP);
         }
@@ -372,6 +384,192 @@ fn key_state(root: &Path, k: &str) -> String {
         "host" => host(),
         _ => vitest::state(root, k, None, 0, &std::sync::OnceLock::new(), None).0,
     }
+}
+
+/// A key's state now, `upj:` (a workspace package.json) included: those
+/// depend on the packages the record's keys touch.
+fn key_state_in(root: &Path, k: &str, loaded: &Loaded) -> String {
+    match k.strip_prefix("upj:") {
+        Some(p) => manifest_state(&abs(root, p), loaded),
+        None => key_state(root, k),
+    }
+}
+
+// ---- cross-environment witness (through-the-wall D2) ----
+
+/// The keys that name the environment rather than what the unit read:
+/// an image roll changes them and nothing else.
+fn env_key(k: &str) -> bool {
+    matches!(k, "envall:" | "host:" | "f:/etc/ld.so.cache")
+}
+
+/// A traced record `q`, just made, against the records of other
+/// environments (through-the-wall D2). A record `p` whose keys and states
+/// are `q`'s once the environment's keys are dropped read the same inputs
+/// under another environment; when it agrees with `q` (exit code, every
+/// output, stdout and stderr as two witnesses are compared) the two runs are
+/// two witnesses, on two VMs, every unseen input varied: both are trusted.
+/// When it does not, nothing changes: `q` waits for its own second witness,
+/// `p` stays as it was, and it is no disagreement of witnesses (an
+/// environment dependence is not flakiness). Only a traced run may be `q`:
+/// a plain run under a new environment could read inputs `p` never did.
+/// Some(Ok(the environment keys that differ)) on agreement.
+fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<String, String>> {
+    let reads = |r: &Rec| -> Vec<(String, String)> {
+        r.keys.iter().filter(|(k, _)| !env_key(k)).cloned().collect()
+    };
+    let mine = reads(q);
+    let p = records.iter_mut().find(|p| reads(p) == mine)?;
+    let what = if p.code != q.code {
+        Some(format!("exit {}, recorded {}", q.code, p.code))
+    } else if p.outputs.len() != q.outputs.len()
+        || !p.outputs.iter().zip(&q.outputs).all(|(a, b)| a.path == b.path && same_out(a, b))
+    {
+        Some("its outputs".to_string())
+    } else {
+        let blob = |h: &str| fs::read(blobs.join(h)).unwrap_or_default();
+        disagree(&blob(&p.stdout), &blob(&q.stdout))
+            .map(|d| format!("its stdout: {d}"))
+            .or_else(|| disagree(&blob(&p.stderr), &blob(&q.stderr)).map(|d| format!("its stderr: {d}")))
+    };
+    if let Some(w) = what {
+        return Some(Err(w));
+    }
+    let state = |r: &Rec, k: &str| r.keys.iter().find(|x| x.0 == k).map(|x| x.1.clone());
+    let differ: Vec<&str> = ["envall:", "host:", "f:/etc/ld.so.cache"]
+        .into_iter()
+        .filter(|k| state(p, k) != state(q, k))
+        .collect();
+    p.witnesses = 2;
+    q.witnesses = 2;
+    Some(Ok(differ.join(", ")))
+}
+
+// ---- package.json, keyed by what the unit loads (through-the-wall A2) ----
+
+/// The installed packages under the checkout a unit's keys touch, by name
+/// (a read, a lookup, a listing inside them). `all`: it listed a
+/// `node_modules` directory, and may have acted on every name there.
+#[derive(Default, Debug)]
+struct Loaded {
+    names: std::collections::HashSet<String>,
+    /// `@scope`: a lookup or listing of the scope's directory itself
+    scopes: std::collections::HashSet<String>,
+    all: bool,
+}
+
+impl Loaded {
+    fn of<'a>(keys: impl IntoIterator<Item = &'a str>) -> Loaded {
+        let mut l = Loaded::default();
+        for k in keys {
+            let Some((kind, p)) = k.split_once(':') else {
+                continue;
+            };
+            if p.starts_with('/') {
+                continue; // not the checkout's: npm's own packages, the image's
+            }
+            let segs: Vec<&str> = p.split('/').collect();
+            for (i, s) in segs.iter().enumerate() {
+                if *s != "node_modules" {
+                    continue;
+                }
+                match segs.get(i + 1) {
+                    None => l.all |= kind == "d",
+                    Some(n) if n.starts_with('@') => match segs.get(i + 2) {
+                        Some(m) => {
+                            l.names.insert(format!("{n}/{m}"));
+                        }
+                        None => {
+                            l.scopes.insert(n.to_string());
+                        }
+                    },
+                    Some(n) if n.starts_with('.') => {}
+                    Some(n) => {
+                        l.names.insert(n.to_string());
+                    }
+                }
+            }
+        }
+        l
+    }
+    fn has(&self, name: &str) -> bool {
+        self.all
+            || self.names.contains(name)
+            || name
+                .split_once('/')
+                .is_some_and(|(s, _)| self.scopes.contains(s))
+    }
+}
+
+/// `f:` keys of the checkout's own package.json files become `upj:`: the
+/// file keyed whole but for the versions of devDependencies the unit never
+/// loads (`manifest_state`). A package's own manifest under `node_modules`
+/// is part of its `p:` key already.
+fn manifest_keys(keys: Vec<(String, Option<String>)>) -> Vec<(String, Option<String>)> {
+    keys.into_iter()
+        .map(|(k, pre)| match k.strip_prefix("f:") {
+            Some(p)
+                if pre.is_none()
+                    && !p.starts_with('/')
+                    && (p == "package.json" || p.ends_with("/package.json"))
+                    && !p.split('/').any(|s| s == "node_modules") =>
+            {
+                (format!("upj:{p}"), None)
+            }
+            _ => (k, pre),
+        })
+        .collect()
+}
+
+/// A workspace package.json as a unit depends on it: its bytes as they are,
+/// but for the version of each devDependency whose package the unit never
+/// touched (`loaded`). A renovate bump of a tool the unit does not run then
+/// changes no key; everything else does (scripts, every other field, the
+/// names in every dependency list, the order, the formatting, and every
+/// version of `dependencies`, `peerDependencies` and
+/// `optionalDependencies`, which bundlers read to decide what stays
+/// external). Masks nothing whenever the shape is not the plain one: not a
+/// JSON object, devDependencies repeated or absent or on one line, a value
+/// that is not a string, a name repeated, or a `node_modules` listed.
+fn manifest_state(path: &Path, loaded: &Loaded) -> String {
+    let Ok(b) = fs::read(path) else {
+        return if path.exists() { "unreadable" } else { "absent" }.into();
+    };
+    let b = mask_dev_versions(&b, loaded).unwrap_or(b);
+    blake3::hash(&b).to_hex().to_string()
+}
+
+fn mask_dev_versions(b: &[u8], loaded: &Loaded) -> Option<Vec<u8>> {
+    if loaded.all {
+        return None;
+    }
+    let top = vitest::top_fields(b)?;
+    let mut dev = top.iter().filter(|(k, _)| k == "devDependencies");
+    let (_, v) = dev.next()?;
+    if dev.next().is_some() || !v.contains(&b'\n') {
+        return None;
+    }
+    let entries = vitest::top_fields(v)?;
+    let mut seen = std::collections::HashSet::new();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for (name, val) in &entries {
+        if !seen.insert(name.as_str()) || val.first() != Some(&b'"') {
+            return None;
+        }
+        if !loaded.has(name) {
+            let at = val.as_ptr() as usize - b.as_ptr() as usize;
+            spans.push((at, at + val.len()));
+        }
+    }
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    for (s, e) in spans {
+        out.extend_from_slice(&b[i..s]);
+        out.extend_from_slice(b"\"*\"");
+        i = e;
+    }
+    out.extend_from_slice(&b[i..]);
+    Some(out)
 }
 
 fn abs(root: &Path, p: &str) -> PathBuf {
@@ -1938,6 +2136,149 @@ mod tests {
             "at file:///tmp/helpers-release-VC2VLs/repo/scripts/release-plan.mjs:50"
         ));
         assert!(!agree("at x:///tmp/a", "at x:///tmp/b"));
+    }
+
+    /// through-the-wall D2, bench run 42035026447: the image roll at c1
+    /// re-traced `test:release`; that traced run agreeing with the record
+    /// of the other image is a second witness for both.
+    #[test]
+    fn a_traced_run_under_another_environment_is_a_second_witness() {
+        let t = tempfile::tempdir().unwrap();
+        let blobs = t.path().join("blobs");
+        let b = |s: &str| put_blob(&blobs, s.as_bytes()).unwrap();
+        let rec = |env: &str, src: &str, out: &str, w: u32| Rec {
+            keys: vec![
+                ("envall:".into(), format!("env-{env}")),
+                ("f:/etc/ld.so.cache".into(), format!("ld-{env}")),
+                ("f:scripts/a.mjs".into(), src.into()),
+                ("host:".into(), format!("6.8-{env}")),
+                ("p:node_modules/semver".into(), "s1".into()),
+            ],
+            witnesses: w,
+            code: 0,
+            stdout: b(out),
+            stderr: b(""),
+            outputs: vec![Out {
+                path: "dist/x.js".into(),
+                kind: "file".into(),
+                blob: Some("h1".into()),
+                mode: 0o644,
+                target: None,
+            }],
+        };
+        // Agree (durations and scratch paths compared as two witnesses are):
+        // both trusted.
+        let mut recs = vec![rec("old", "a1", "ok 3 (12ms) /tmp/r-AbC/x\n", 1)];
+        let mut q = rec("new", "a1", "ok 3 (9ms) /tmp/r-XyZ/x\n", 1);
+        let r = cross_env(&mut recs, &mut q, &blobs);
+        assert!(matches!(&r, Some(Ok(e)) if e == "envall:, host:, f:/etc/ld.so.cache"), "{r:?}");
+        assert_eq!((recs[0].witnesses, q.witnesses), (2, 2));
+        // A trusted record agreeing: the new one trusted at once.
+        let mut recs = vec![rec("old", "a1", "ok\n", 2)];
+        let mut q = rec("new", "a1", "ok\n", 1);
+        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Ok(_))));
+        assert_eq!(q.witnesses, 2);
+        // Disagree on the text: neither changes (and cross_env never
+        // touches the ledger's disagree count: it has none to touch).
+        let mut recs = vec![rec("old", "a1", "ok 3 tests\n", 1)];
+        let mut q = rec("new", "a1", "ok 4 tests\n", 1);
+        let r = cross_env(&mut recs, &mut q, &blobs);
+        assert!(matches!(&r, Some(Err(w)) if w.contains("stdout")), "{r:?}");
+        assert_eq!((recs[0].witnesses, q.witnesses), (1, 1));
+        // ... on an output, or the exit code
+        let mut recs = vec![rec("old", "a1", "ok\n", 2)];
+        let mut q = rec("new", "a1", "ok\n", 1);
+        q.outputs[0].blob = Some("h2".into());
+        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(w)) if w.contains("outputs")));
+        assert_eq!((recs[0].witnesses, q.witnesses), (2, 1));
+        let mut q = rec("new", "a1", "ok\n", 1);
+        q.code = 1;
+        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(w)) if w.contains("exit")));
+        assert_eq!(q.witnesses, 1);
+        // Any input other than the environment differs: no such record.
+        let mut recs = vec![rec("old", "a1", "ok\n", 2)];
+        let mut q = rec("new", "a2", "ok\n", 1);
+        assert!(cross_env(&mut recs, &mut q, &blobs).is_none());
+        assert_eq!(q.witnesses, 1);
+        // A read the other environment did not make: no such record either
+        // (why the cross-environment run is traced, never plain).
+        let mut q = rec("new", "a1", "ok\n", 1);
+        q.keys.push(("f:ci/x.json".into(), "c".into()));
+        assert!(cross_env(&mut recs, &mut q, &blobs).is_none());
+    }
+
+    /// through-the-wall A2 for units, bench run 42035026447: c4 and c5
+    /// (renovate's chalk and commander bumps) re-traced `test:release` on
+    /// `f:package.json` though it loads neither.
+    #[test]
+    fn a_dev_dependency_the_unit_never_loads_changes_no_key() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let pj = |chalk: &str, semver: &str, script: &str| {
+            format!(
+                "{{\n  \"name\": \"x\",\n  \"scripts\": {{ \"test:release\": \"{script}\" }},\n  \"dependencies\": {{ \"hono\": \"^4\" }},\n  \"devDependencies\": {{\n    \"@types/node\": \"24.1.0\",\n    \"chalk\": \"{chalk}\",\n    \"semver\": \"{semver}\"\n  }}\n}}\n"
+            )
+        };
+        let keys = manifest_keys(vec![
+            ("f:package.json".into(), None),
+            ("f:node_modules/.bin/x".into(), None),
+            ("f:/usr/lib/node_modules/npm/package.json".into(), None),
+            ("p:node_modules/semver".into(), None),
+            ("p:/usr/lib/node_modules/npm/node_modules/chalk".into(), None),
+            ("e:packages/a/node_modules/@types".into(), None),
+            ("f:scripts/a.mjs".into(), None),
+        ]);
+        let ks: Vec<&str> = keys.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(ks.contains(&"upj:package.json"), "{ks:?}");
+        assert!(ks.contains(&"f:/usr/lib/node_modules/npm/package.json"), "not the checkout's");
+        let loaded = Loaded::of(ks.iter().copied());
+        assert!(loaded.has("semver") && loaded.has("@types/node"));
+        assert!(!loaded.has("chalk"), "npm's own chalk is not the checkout's");
+        let st = |text: &str| {
+            fs::write(root.join("package.json"), text).unwrap();
+            key_state_in(root, "upj:package.json", &loaded)
+        };
+        let base = st(&pj("5.0.0", "7.8.5", "node --test"));
+        assert_eq!(base, st(&pj("6.0.1", "7.8.5", "node --test")), "the chalk bump");
+        assert_ne!(base, st(&pj("5.0.0", "7.8.6", "node --test")), "a package it loads");
+        assert_ne!(base, st(&pj("5.0.0", "7.8.5", "node --test x")), "a script");
+        assert_ne!(
+            base,
+            st(&pj("5.0.0", "7.8.5", "node --test").replace("\"^4\"", "\"^5\"")),
+            "dependencies stay keyed"
+        );
+        assert_ne!(
+            base,
+            st(&pj("5.0.0", "7.8.5", "node --test").replace("\"chalk\"", "\"kleur\"")),
+            "a name"
+        );
+        assert_ne!(
+            base,
+            st(&pj("5.0.0", "7.8.5", "node --test").replace("  \"name\"", "    \"name\"")),
+            "the formatting (a formatter checks it)"
+        );
+        // Masks nothing when unsure: devDependencies on one line, repeated,
+        // a value not a string, a node_modules listed.
+        let one = "{\"devDependencies\": {\"chalk\": \"5\"}}";
+        let one2 = "{\"devDependencies\": {\"chalk\": \"6\"}}";
+        assert_ne!(st(one), st(one2));
+        let rep = |v: &str| format!("{{\"devDependencies\": {{\n\"chalk\": \"{v}\"\n}},\n\"devDependencies\": {{\n}}\n}}");
+        assert_ne!(st(&rep("5")), st(&rep("6")));
+        let obj = |v: &str| format!("{{\"devDependencies\": {{\n\"chalk\": {{\"v\": \"{v}\"}}\n}}\n}}");
+        assert_ne!(st(&obj("5")), st(&obj("6")));
+        let listed = Loaded::of(["d:node_modules", "upj:package.json"]);
+        let lst = |text: &str| {
+            fs::write(root.join("package.json"), text).unwrap();
+            key_state_in(root, "upj:package.json", &listed)
+        };
+        assert_ne!(
+            lst(&pj("5.0.0", "7.8.5", "node --test")),
+            lst(&pj("6.0.1", "7.8.5", "node --test"))
+        );
+        // A scope's directory looked up: every name in it counts.
+        assert!(Loaded::of(["e:node_modules/@types"]).has("@types/react"));
+        // not JSON: the bytes
+        assert_ne!(st("{"), st("{ "));
     }
 
     #[test]
