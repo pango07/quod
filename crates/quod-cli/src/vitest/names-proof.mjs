@@ -25,7 +25,7 @@ const globalNames = ['Object', 'Array', 'String', 'Number', 'RegExp', 'Map', 'Se
 const globalValues = globalNames.map(name => descriptor(globalObject, name)?.value)
 const intrinsicShapes = intrinsics.map(object => ({object, keys:ownKeys(object),
   descriptors:ownKeys(object).map(key => descriptor(object, key))}))
-function unchangedIntrinsics() {
+export function unchangedIntrinsics() {
   for (let i = 0; i < globalNames.length; i++) {
     if (descriptor(globalObject, globalNames[i])?.value !== globalValues[i]) return false
   }

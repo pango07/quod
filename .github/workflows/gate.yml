@@ -627,7 +627,7 @@ jobs:
           path: /tmp/quod-profile/evidence
 
   benchmark-config:
-    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-config'
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -637,16 +637,25 @@ jobs:
           repository: get-convex/convex-helpers
           ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
           path: profile-project
+          fetch-depth: 12
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
       - run: npm ci
         working-directory: profile-project
       - name: Measure configuration output across declaration changes
+        env:
+          QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean') && '1' || '0' }}
+          QUOD_CONFIG_BOOLEAN_PROBE: ${{ inputs.only == 'benchmark-boolean' && '1' || '0' }}
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe
+      - name: Boolean-context proof adversarial regressions
+        if: inputs.only == 'benchmark-boolean'
+        run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: Config proof regression tests
+        if: inputs.only == 'benchmark-config'
         run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs
       - name: Verify proof against actual Vite-loaded configuration
+        if: inputs.only == 'benchmark-config'
         env:
           QUOD_CONFIG_NAMES_PROOF: '1'
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe/proof
