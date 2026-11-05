@@ -573,6 +573,9 @@ jobs:
             if(!a.length||JSON.stringify(a)!==JSON.stringify(b))throw Error("per-test benchmark evidence missing or different");
             console.log("Per-test benchmark evidence agrees",a.length);
           '
+      - name: Packaged configuration proof and switch regression
+        working-directory: test
+        run: node config-proof.mjs
       - name: Bundle artifact
         run: tar -czf /tmp/quod-action-dist.tgz dist/main dist/post
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -582,6 +585,7 @@ jobs:
           path: |
             /tmp/quod-action-dist.tgz
             /tmp/lineage-*.log
+            ${{ runner.temp }}/names-proof-logs/*.log
 
   benchmark-profile:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')

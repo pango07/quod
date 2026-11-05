@@ -45,3 +45,18 @@ Parser provenance: Acorn 8.15.0 from the official npm registry tarball,
 SHA-512 base64
 `NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==`.
 The unmodified `dist/acorn.mjs` and MIT license are embedded together.
+
+Validation at `b9e34fc`: [audit and Linux binary gate](https://github.com/pango07/quod/actions/runs/42098123727)
+passed Rust tests, existing recorder regressions, 26 focused JS regressions
+and clippy, with no formatting correction. [Actual config gate](https://github.com/pango07/quod/actions/runs/42098119329)
+proved one private parse and excluded 48 copied values in each of the three
+manifest declaration cases. Each retained only `devDependencies` names for
+that parsed read, selected the same 9 projects/120 files and preserved the
+controlled config/context hash. Config plus selection took 205–212 ms.
+The gate caught and drove a missing-field refinement: the real manifest has
+no `dependencies` field. Absence now qualifies only when the ordinary object
+prototype cannot supply an inherited property/getter.
+
+This is not a measured whole-job saving. Packaged replay checks and the
+changed-commit diagnostic must establish that separately. The previous
+12-commit result remains 1173/1905 runner-seconds for the best policy.
