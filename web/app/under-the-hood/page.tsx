@@ -52,6 +52,7 @@ export default function UnderTheHood() {
           <div className="reading">
             <p>The benchmark compares the same 12 commits with and without Quod. Total runner time includes installs, builds, tests, setup and post steps. The cold recording, confirmations and audits stay in the measured window.</p>
             <p>Runner time fell from 1,766 to 968 seconds: 45.2% less. Rounding each job up to a full minute gives 36 minutes plain and 21 with Quod: 41.7% less metered usage. At the same runner rate, that is the estimated reduction in usage charges. The actual public jobs were free.</p>
+            <p>The estimate follows <a href="https://docs.github.com/en/billing/reference/actions-runner-pricing">GitHub&rsquo;s per-job minute rounding</a>. It covers runner usage, before included allowances, storage charges or Quod pricing.</p>
             <p>All per-commit test outcomes matched. That is zero observed wrong replays in this window, not a claim about every repository. The experiment used Linux x64, Node 24.18.0, Vitest 5.0.0 and explicit experimental settings.</p>
             <p>Warm hits were measured separately at the final unchanged commit. The best job took 14 seconds against an 11-second empty job: <strong>floor + 3 seconds</strong>. Three warm probes had a median duration of 20 seconds. Their times do not reduce the 12-commit total.</p>
             <p className="evidence-links"><a href={benchmark.report}>Measurements, settings and code pins ↗</a><a href={benchmark.run}>Original GitHub runs ↗</a></p>

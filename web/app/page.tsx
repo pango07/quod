@@ -10,7 +10,7 @@ const FAQ: [string, string][] = [
   ["What does Quod actually skip?",
     "Eligible Vitest test files whose recorded inputs are unchanged and whose results have been verified. Files with changed inputs still run. Dependency caching can also avoid repeat installs; experimental command replay covers selected npm scripts."],
   ["Will my CI always be 40–50% cheaper?",
-    "That is the range we measured for runner time and estimated runner charges on convex-helpers, including its cold start. Your savings depend on what changes, test duration and how often results can be reused. First recordings, confirmations and audits add work. Individual jobs can be slower."],
+    "We measured 41.7% lower estimated runner charges and 45.2% less runner time on convex-helpers, including its cold start. Your savings depend on what changes, test duration and how often results can be reused. First recordings, confirmations and audits add work. Individual jobs can be slower."],
   ["What is supported?",
     "The benchmark covers one-shot Vitest on GitHub-hosted Linux x64, using Node 24.18.0 and Vitest 5.0.0, in a monorepo with multiple test projects. We are not claiming these savings for other test frameworks, operating systems or runner architectures. Watch mode, browser mode and other unsupported command modes run normally."],
   ["What does zero wrong replays mean?",
@@ -71,7 +71,7 @@ export default function Home() {
         <section className="sec split" id="setup">
           <div className="sec-head">
             <h2>Add one Action step.</h2>
-            <p className="lede">Keep your GitHub runner, install command and Vitest tests. Add Quod after Node setup.</p>
+            <p className="lede">Keep your GitHub runner, install command and Vitest tests. Connect your repository to Quod Cloud, enable the job&rsquo;s OIDC permission and add Quod after Node setup.</p>
             <p className="foot-note">This shows the released Action. The benchmark report documents the experimental settings behind the measured savings.</p>
             <a className="text-link" href="https://github.com/pango07/quod-action/tree/v2">Read the setup guide ↗</a>
           </div>

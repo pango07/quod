@@ -47,7 +47,9 @@ An audited file reports its fresh result, so an audit can't make a run wrong.
   Replays allowed by [function-level narrowing](/docs/how-it-works#function-level-narrowing) are audited first.
 </Note>
 
-## How we test "never wrong"
+## How we check correctness
+
+Zero wrong results in a benchmark means no differences were observed in that measured workload. It is not a guarantee for every possible test. An audit can detect a disagreement after a replay. See the [current observation risks and support boundaries](https://github.com/pango07/quod/blob/8fe1016/docs/bench/support-boundaries.md).
 
 Every benchmark run also runs plain vitest on the same commit and compares the two JSON reports, file by file and test by test. A difference in a file Quod replayed counts as a wrong replay and fails the benchmark. Across the published benchmark runs, the count of wrong replays is zero.
 

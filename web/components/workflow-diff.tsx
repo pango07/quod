@@ -10,11 +10,14 @@ export function WorkflowDiff() {
       className={`diff ${inView ? "applied" : ""}`}
       ref={ref}
       role="img"
-      aria-label="Add pango07/quod-action at v2 after setup-node. Keep ubuntu-latest, npm ci, and npm test."
+      aria-label="Give the job contents read and id-token write permissions for Quod Cloud. Add pango07/quod-action at v2 after setup-node. Keep ubuntu-latest, npm ci, and npm test."
     >
       <div className="ctx">jobs:</div>
       <div className="ctx">  test:</div>
       <div className="ctx">    runs-on: ubuntu-latest</div>
+      <div className="ctx">    permissions:</div>
+      <div className="ctx">      contents: read</div>
+      <div className="ctx">      id-token: write</div>
       <div className="ctx">    steps:</div>
       <div className="ctx">      - uses: actions/checkout@v7</div>
       <div className="ctx">      - uses: actions/setup-node@v7</div>

@@ -168,7 +168,7 @@ jobs:
 
 ### The first run
 
-There's no recording yet, so every test file runs at about plain vitest speed, and is recorded as it runs. The action's log says so:
+There's no recording yet, so test files execute while Quod records their inputs. Recording adds overhead and can make this job slower than plain Vitest. Later reuse has to earn back that cost; the benchmark totals include the cold start. The action's log says so:
 
 ```txt
 Quod: no recording yet; every test file runs and records
