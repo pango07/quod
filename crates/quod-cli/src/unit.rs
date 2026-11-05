@@ -545,7 +545,9 @@ fn tokens(s: &str) -> Vec<Tok<'_>> {
     let mut it = s.char_indices().peekable();
     let mut prev: Option<char> = None;
     while let Some((i, c)) = it.next() {
-        if c == '/' && prev.is_none_or(sep) && s[i..].starts_with("/tmp/") {
+        // a path's start: after a separator, or a file URL's `file://`
+        let start = prev.is_none_or(sep) || s[..i].ends_with("file://");
+        if c == '/' && start && s[i..].starts_with("/tmp/") {
             let mut last = c;
             while let Some(&(_, x)) = it.peek() {
                 if sep(x) {
@@ -1931,6 +1933,11 @@ mod tests {
         assert!(!agree("x/tmp/a", "x/tmp/b"));
         assert!(agree("dir=/tmp/a-1", "dir=/tmp/b-2"));
         assert!(!agree("/tmp/a b", "/tmp/a c"));
+        assert!(agree(
+            "at file:///tmp/helpers-release-S3x3XW/repo/scripts/release-plan.mjs:50",
+            "at file:///tmp/helpers-release-VC2VLs/repo/scripts/release-plan.mjs:50"
+        ));
+        assert!(!agree("at x:///tmp/a", "at x:///tmp/b"));
     }
 
     #[test]
