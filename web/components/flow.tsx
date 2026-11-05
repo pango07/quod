@@ -1,8 +1,3 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { sleep, useInView, useReducedMotion } from "@/lib/use-in-view";
-
 const STEPS = [
   {
     title: "Record",
@@ -18,28 +13,12 @@ const STEPS = [
   },
 ];
 
-/** The three stages, lit one after another while on screen. */
+/** Keep all three stages readable together without a client-side animation. */
 export function Flow() {
-  const [ref, inView] = useInView<HTMLOListElement>(0.4);
-  const reduce = useReducedMotion();
-  const [on, setOn] = useState(-1);
-
-  useEffect(() => {
-    if (!inView || reduce) return;
-    const ctl = new AbortController();
-    (async () => {
-      for (let i = 0; ; i = (i + 1) % STEPS.length) {
-        setOn(i);
-        await sleep(3200, ctl.signal);
-      }
-    })().catch(() => {});
-    return () => ctl.abort();
-  }, [inView, reduce]);
-
   return (
-    <ol className="flow" ref={ref}>
+    <ol className="flow">
       {STEPS.map((s, i) => (
-        <li key={s.title} className={on === -1 || on === i ? "lit" : ""} onMouseEnter={() => setOn(i)}>
+        <li key={s.title} className="lit">
           <span className="n">{i + 1}</span>
           <h3>{s.title}</h3>
           <p>{s.body}</p>

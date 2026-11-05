@@ -1,14 +1,8 @@
-"use client";
-
-import { useInView } from "@/lib/use-in-view";
-
-/** The one-line change, applied once it scrolls into view. */
+/** Show the Action in the job's existing Node workflow. */
 export function WorkflowDiff() {
-  const [ref, inView] = useInView<HTMLDivElement>(0.6);
   return (
     <div
-      className={`diff ${inView ? "applied" : ""}`}
-      ref={ref}
+      className="diff applied"
       role="img"
       aria-label="Give the job contents read and id-token write permissions for Quod Cloud. Add pango07/quod-action at v2 after setup-node. Keep ubuntu-latest, npm ci, and npm test."
     >

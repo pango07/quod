@@ -45,7 +45,7 @@ main > section { max-width: 1160px; margin-inline: auto }
 /* Hero */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; padding-block: clamp(56px, 9vw, 120px) clamp(48px, 7vw, 96px) }
 .hero-txt { display: grid; gap: 26px; align-content: center }
-.hero h1 { font-size: clamp(48px, 7.6vw, 104px); line-height: .95; letter-spacing: -0.058em }
+.hero h1 { font-size: clamp(48px, 6vw, 80px); line-height: .98; letter-spacing: -0.058em }
 .lede { color: var(--mute); font-size: clamp(16px, 1.6vw, 19px); max-width: 48ch }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; gap: 40px } }
 

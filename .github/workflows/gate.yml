@@ -437,14 +437,15 @@ jobs:
           for viewport in desktop mobile; do
             size=1440,1100
             if [ "$viewport" = mobile ]; then size=390,1000; fi
-            for section in home benchmarks setup under-the-hood; do
+            for section in home benchmarks setup under-the-hood docs; do
               route=
               case "$section" in
                 benchmarks|setup) route="#$section";;
-                under-the-hood) route=under-the-hood;;
+                under-the-hood|docs) route="$section";;
               esac
               google-chrome --headless --no-sandbox --disable-gpu --hide-scrollbars \
-                --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=3000 \
+                --force-device-scale-factor=1 --force-prefers-reduced-motion \
+                --run-all-compositor-stages-before-draw --window-size="$size" --virtual-time-budget=3000 \
                 --screenshot="/tmp/quod-landing-preview/$viewport-$section.png" \
                 "http://localhost:3000/$route" 2>/dev/null
             done
