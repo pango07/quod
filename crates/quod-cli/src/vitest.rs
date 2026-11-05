@@ -1050,8 +1050,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let mut cmd = if netns {
         eprintln!("quod vitest: the plain witnesses run in a network namespace (no network)");
         let mut c = Command::new("bwrap");
-        c.args(["--dev-bind", "/", "/", "--unshare-net", "--die-with-parent", "--"])
-            .arg(&a.node);
+        c.args([
+            "--dev-bind",
+            "/",
+            "/",
+            "--unshare-net",
+            "--die-with-parent",
+            "--",
+        ])
+        .arg(&a.node);
         c
     } else {
         Command::new(&a.node)
@@ -3552,7 +3559,10 @@ mod tests {
         // its order changes, a name is added or removed: not
         assert_ne!(
             a,
-            st(r#"{"name":"x","version":"1","dependencies":{"a":"1"}}"#, deps)
+            st(
+                r#"{"name":"x","version":"1","dependencies":{"a":"1"}}"#,
+                deps
+            )
         );
         assert_ne!(
             a,
