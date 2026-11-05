@@ -520,6 +520,18 @@ jobs:
         run: |
           set -eo pipefail
           npm test
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const root=process.env.RUNNER_TEMP+"/quod/vitest";
+            for(const d of fs.readdirSync(root)){const p=root+"/"+d+"/ledger.json";if(fs.existsSync(p)){const l=JSON.parse(fs.readFileSync(p));l.facts.vitest="stale-toolchain";fs.writeFileSync(p,JSON.stringify(l));}}
+          '
+          npm test
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const root=process.env.RUNNER_TEMP+"/quod/vitest";
+            for(const d of fs.readdirSync(root)){const p=root+"/"+d+"/ledger.json";if(fs.existsSync(p)&&Object.keys(JSON.parse(fs.readFileSync(p)).files).length)throw Error("stale plain witness survived a toolchain change");}
+          '
+          npm test
           npm test
           cp "$RUNNER_TEMP"/quod/vitest/*/ledger.json /tmp/lineage-before.json
           echo '// changed input, same tests' >> src/math.js

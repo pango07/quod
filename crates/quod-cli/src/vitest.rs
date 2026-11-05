@@ -1337,8 +1337,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 continue;
             };
             if !facts_held {
-                // The tools changed under it: no witness of this key.
-                ledger.files.insert(r.id.clone(), rec);
+                // A plain run cannot discover the changed tools' read set.
+                // Drop the old record: retaining it while updating facts
+                // below would pair old trust with the new toolchain.
+                unrec.insert(r.id.clone(), "tools changed: requires a fresh recording".into());
                 continue;
             }
             let ok = r.state == "pass" || r.state == "skip";
@@ -4053,7 +4055,8 @@ mod tests {
         assert_eq!(promoted.lineage.as_deref(), Some("batch"));
         // A shared input can force a new execution while the file's own
         // input states (and therefore its per-file witness key) stay equal.
-        let mut shared_change = q.clone(); shared_change.w.key = p.w.key.clone();
+        let mut shared_change = q.clone();
+        shared_change.w.key = p.w.key.clone();
         assert!(promote_lineage(2, &p, &mut shared_change, "shared"));
         // Consecutive changed commits cannot invent a plain predecessor.
         let mut next = q.clone();

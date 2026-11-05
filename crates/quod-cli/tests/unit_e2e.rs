@@ -167,7 +167,11 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     assert!(err(&o).contains("recorded (first witness"), "{}", err(&o));
     fs::write(root.join("in.txt"), "six\n").unwrap();
     let o = unit(&dir, &root, count);
-    assert!(err(&o).contains("agrees with another traced record"), "{}", err(&o));
+    assert!(
+        err(&o).contains("agrees with another traced record"),
+        "{}",
+        err(&o)
+    );
     let o = unit(&dir, &root, count);
     assert!(err(&o).contains("answered from its record"), "{}", err(&o));
     assert_eq!(out(&o).trim(), "4");
