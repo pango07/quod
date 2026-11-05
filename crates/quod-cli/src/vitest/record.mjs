@@ -80,6 +80,11 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     pjReads: new Map(),
     pjParsed: new Map(),
     pjUse: new Map(),
+    // main process: installed packages read only by vite's or vitest's
+    // resolvers (resolving a worker's import): the worker that loads one
+    // keys it (its module graph), so it is a shared input only when no
+    // worker of the run has it (the driver decides; vitest.md 3.2).
+    resolved: new Set(),
     // main process: where tsconfck's walks started (rj: keys)
     rjRoots: [],
     unobservable: new Set(),
@@ -152,6 +157,10 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         // keyed at the real path, as a read there would be, plus the link.
         const ws = workspaceLink(pkg)
         if (!ws) {
+          if (r.mode === 'main' && !keys.has(`p:${pkg}`) && resolverCaller()) {
+            r.resolved.add(pkg)
+            return
+          }
           if (memo) seen.add(memo)
           keys.add(`p:${pkg}`)
           return

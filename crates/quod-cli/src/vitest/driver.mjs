@@ -569,6 +569,7 @@ function nearTimeout(file) {
       const limit = t.timeout ?? dflt
       const took = t.result?.duration
       if (limit > 0 && Number.isFinite(limit) && took > limit * nearFactor) out.push(`${n.join(' > ')}: ${Math.round(took)} of ${limit} ms`)
+      if (limit > 0 && Number.isFinite(limit) && took > 0) out.ratio = Math.max(out.ratio ?? 0, took / limit)
     }
     for (const c of t.tasks ?? []) walk(c, n)
   }
@@ -797,7 +798,8 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nearTimeout(file), plain: plainSet.has(file.filepath) })
+  const nt = nearTimeout(file)
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nt, ratio: nt.ratio ?? 0, plain: plainSet.has(file.filepath) })
 }
 lap('files')
 
@@ -827,6 +829,20 @@ for (const k of settledKeys(r)) {
   const p = k.slice(i + 1)
   if (k.startsWith('f:') && transformed.has(p)) continue
   global.push(k)
+}
+// Packages the main process only resolved for the workers: per-file inputs
+// of the files that load them, shared only when no file of this run did
+// (a resolution whose worker never loaded the package, or no worker record).
+{
+  const inWorkers = new Set()
+  for (const d of dumps.values()) for (const k of d?.keys ?? []) if (k.startsWith('p:')) inWorkers.add(k.slice(2))
+  let kept = 0
+  for (const pkg of r.resolved) {
+    if (inWorkers.has(pkg)) continue
+    global.push(`p:${pkg}`)
+    kept++
+  }
+  if (r.resolved.size) log(`${r.resolved.size - kept} packages the main process resolved for the workers are keyed per file, ${kept} shared`)
 }
 for (const p of ctx.projects) {
   for (const f of [p.vite?.config?.configFile, ...(p.vite?.config?.configFileDependencies ?? [])]) {

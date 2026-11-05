@@ -303,6 +303,12 @@ struct Rec {
     /// until a run with every test within half its timeout.
     #[serde(default)]
     near_timeout: bool,
+    /// Plain witnesses (no recorder) that agreed with this record's key.
+    #[serde(default)]
+    plain_n: u32,
+    /// The largest fraction of its timeout any test took in a plain witness.
+    #[serde(default)]
+    margin: f64,
 }
 
 /// Second witness: who has vouched for a record.
@@ -341,6 +347,39 @@ fn bar(need: u32, w: &Witness) -> u32 {
 /// last run had a test near its timeout.
 fn witnessed(need: u32, r: &Rec) -> bool {
     !r.near_timeout && (need <= 1 || r.w.n >= bar(need, &r.w))
+}
+
+/// Timing-sensitive replay (`QUOD_VITEST_TIMING=replay`, off by default):
+/// a record whose plain runs came near a test's timeout replays anyway once
+/// two plain witnesses of its unchanged key passed, labelled with its
+/// margin. The timeout is then the machine's, not the code's: the inputs
+/// are the ones two plain runs passed on.
+fn timing_replay() -> bool {
+    std::env::var("QUOD_VITEST_TIMING").is_ok_and(|v| v == "replay")
+}
+
+/// With timing-sensitive replay: every Nth replay of such a file runs it
+/// plain instead (`QUOD_VITEST_TIMING_AUDIT=N`, 0 or unset: never); a
+/// failure there (a timeout) quarantines it.
+fn timing_audit() -> u32 {
+    std::env::var("QUOD_VITEST_TIMING_AUDIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+/// A near-timeout record that timing-sensitive replay lets replay.
+fn timing_ok(need: u32, r: &Rec) -> bool {
+    timing_replay()
+        && r.near_timeout
+        && !r.quarantined
+        && r.plain_n >= 2
+        && (need <= 1 || r.w.n >= bar(need, &r.w))
+}
+
+/// May this record replay, under the witness and timing policies?
+fn replayable(need: u32, r: &Rec) -> bool {
+    witnessed(need, r) || timing_ok(need, r)
 }
 
 /// The second witness runs plain (the default); `QUOD_VITEST_PLAIN_WITNESS=0`
@@ -403,6 +442,9 @@ struct Ran {
     /// Ran as a plain second witness (nothing recorded: no keys).
     #[serde(default)]
     plain: bool,
+    /// The largest fraction of its timeout a test took.
+    #[serde(default)]
+    ratio: f64,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -575,6 +617,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     let mut plain_files: Vec<PathBuf> = Vec::new();
     let mut plain_ids: HashSet<String> = HashSet::new();
+    let audit_n = timing_audit();
+    let mut timing_note: Vec<String> = Vec::new();
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
             if rec.quarantined && unchanged(rec) {
@@ -593,7 +637,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             affected.push(id.clone());
             continue;
         }
-        if rec.near_timeout {
+        let timed = timing_ok(need, rec);
+        if timed && audit_n > 0 && (rec.replays + 1) % audit_n == 0 && can_plain(rec) {
+            // The timing audit: this replay runs plain instead.
+            why.insert(id.clone(), "timing-sensitive: its audit run".into());
+            plain_files.push(root.join(&rec.file));
+            plain_ids.insert(id.clone());
+            affected.push(id.clone());
+            continue;
+        }
+        if rec.near_timeout && !timed {
             why.insert(
                 id.clone(),
                 "a test took more than half its timeout last run".into(),
@@ -605,7 +658,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             affected.push(id.clone());
             continue;
         }
-        if !witnessed(need, rec) {
+        if !replayable(need, rec) {
             // One witness so far: it runs again, and agreeing makes it two.
             provisional += 1;
             if can_plain(rec) {
@@ -630,6 +683,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             .map(|d| (*d, seen(*d)))
             .collect();
         if moved.is_empty() {
+            if timed {
+                timing_note.push(format!(
+                    "{} (passed at {:.2} of its timeout when recorded)",
+                    rec.file, rec.margin
+                ));
+            }
             replay.insert(id.clone(), rec.result.clone());
             continue;
         }
@@ -659,6 +718,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     for w in why_run.iter().take(12) {
         eprintln!("quod vitest:   runs: {w}");
+    }
+    for t in &timing_note {
+        eprintln!("quod vitest: timing-sensitive: {t} replays");
     }
     let mut narrowed: HashMap<String, Vec<(u32, String)>> = HashMap::new();
     let mut narrow_note = serde_json::Value::Null;
@@ -1125,9 +1187,16 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             rec.duration = r.duration;
             rec.result = r.result.clone();
             rec.near_timeout = !r.near_timeout.is_empty();
+            rec.plain_n += 1;
+            rec.margin = rec.margin.max(r.ratio);
             if let Some(t) = r.near_timeout.first() {
                 pw.3 += 1;
                 plain_near.push(format!("{} ({t})", r.file));
+                if timing_replay() {
+                    // A plain pass of the unchanged key is a witness of the
+                    // code; only the label keeps the margin.
+                    rec.w.n += 1;
+                }
             } else {
                 let was = rec.w.n >= bar(need, &rec.w);
                 rec.w.n += 1;
@@ -1249,6 +1318,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     ..Witness::default()
                 },
                 near_timeout: hooked_near,
+                plain_n: 0,
+                margin: 0.0,
             },
         );
     }
@@ -1482,6 +1553,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "driver": out.timings,
             "render": render_note,
             "phases": phases,
+            "timing_sensitive_replays": timing_note.len(),
             "witnesses_needed": need,
             "provisional": provisional,
             "promoted": promoted + pw.0,
@@ -1720,7 +1792,7 @@ fn plan(
         if rec.quarantined || !(rec.state == "pass" || rec.state == "skip") {
             return verdict(format!("{id} must run"));
         }
-        if !witnessed(need, rec) {
+        if !replayable(need, rec) {
             return verdict(format!("{id} has one witness"));
         }
         let moved = rec.deps.iter().find(|d| {
@@ -1791,7 +1863,7 @@ fn everything_recorded(l: &Ledger) -> bool {
             l.files.get(id).is_some_and(|r| {
                 !r.quarantined
                     && (r.state == "pass" || r.state == "skip")
-                    && witnessed(witnesses_needed(), r)
+                    && replayable(witnesses_needed(), r)
             })
         })
 }
@@ -2856,6 +2928,14 @@ fn pj_hash(bytes: &[u8]) -> String {
     format!("pj:{}", blake3::hash(&canon).to_hex())
 }
 
+/// The package.json fields that list dependencies (keyed by their names).
+const DEP_FIELDS: &[&str] = &[
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
+
 /// A package.json the config parsed (`pjf:<path>\0<fields>`, record.mjs):
 /// its top-level names in order, and the raw text of each field it read
 /// (absent, or the file whole when it is not a JSON object).
@@ -2881,6 +2961,17 @@ fn pj_fields(path: &Path, fields: &str) -> String {
         h.update(w.as_bytes());
         // the last of a repeated name, as JSON.parse keeps
         match top.iter().rev().find(|(k, _)| k == w) {
+            // A dependency list is keyed by its names: the version of an
+            // entry is an input of the files that load that package, which
+            // key it themselves (p:), so a bump of a package no test loads
+            // changes no key.
+            Some((_, v)) if DEP_FIELDS.contains(&w.as_str()) && top_fields(v).is_some() => {
+                h.update(b"=names:");
+                for (name, _) in top_fields(v).unwrap_or_default() {
+                    h.update(name.as_bytes());
+                    h.update(b"\0");
+                }
+            }
             Some((_, v)) => {
                 h.update(b"=");
                 h.update(v);
@@ -3349,13 +3440,25 @@ mod tests {
                 deps
             )
         );
-        // a field read changes, its order changes, a name is added: not
-        assert_ne!(
+        // a dependency's version changes: the same (dependency lists are
+        // keyed by their names; the files that load `b` key it themselves)
+        assert_eq!(
             a,
             st(
                 r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"3"}}"#,
                 deps
             )
+        );
+        // another field read changes: not
+        let scripts = r#"["scripts"]"#;
+        assert_ne!(
+            st(r#"{"scripts":{"t":"vitest"}}"#, scripts),
+            st(r#"{"scripts":{"t":"vitest run"}}"#, scripts)
+        );
+        // its order changes, a name is added or removed: not
+        assert_ne!(
+            a,
+            st(r#"{"name":"x","version":"1","dependencies":{"a":"1"}}"#, deps)
         );
         assert_ne!(
             a,
@@ -3631,6 +3734,8 @@ mod tests {
                 pinned: BTreeMap::from([(0, "old".to_string())]),
                 w: Witness::default(),
                 near_timeout: false,
+                plain_n: 0,
+                margin: 0.0,
             },
         );
         l.compact();
