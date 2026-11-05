@@ -529,3 +529,148 @@ console.log(JSON.stringify([...r.keys].filter((k) => k.startsWith('env'))))
     assert!(has("envall:"), "{v}");
     assert!(has("env:GITHUB_HEAD_REF"), "{v}");
 }
+
+/// Runs `main` (a script path) under child.mjs, the preload of a node child
+/// a recorded test file starts, with GitHub's variables of a push; returns
+/// the child's dump.
+fn child_dump(root: &Path, main: &Path) -> Option<serde_json::Value> {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return None;
+    }
+    let child = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/child.mjs");
+    let out = root.join("dump.json");
+    let st = Command::new("node")
+        .arg("--import")
+        .arg(&child)
+        .arg(main)
+        .current_dir(root)
+        .env("QUOD_VITEST_CHILD", &out)
+        .env("QUOD_VITEST_STATE", root)
+        .env("GITHUB_ACTIONS", "true")
+        .env("GITHUB_EVENT_NAME", "push")
+        .env("GITHUB_SHA", "abc")
+        .output()
+        .unwrap();
+    assert!(
+        st.status.success(),
+        "{}",
+        String::from_utf8_lossy(&st.stderr)
+    );
+    Some(serde_json::from_slice(&fs::read(&out).unwrap()).unwrap())
+}
+
+// A stand-in for ci-info: its module-init reads of GitHub's variables
+// (isPR is GITHUB_EVENT_NAME's value).
+const CI_INFO: &str = "const env = process.env;\n\
+exports.isCI = !!env.GITHUB_ACTIONS;\n\
+exports.isPR = env.GITHUB_EVENT_NAME === 'pull_request';\n";
+
+#[test]
+fn npms_allowance_is_by_process_and_presence_keyed() {
+    // In npm or npx itself (argv[1] is npm-cli.js or npx-cli.js), npm's
+    // reads of the CI's per-run variables, its bundled ci-info's included,
+    // are keyed by presence (envp:), never by value and never not at all.
+    // The same modules loaded by any other program are keyed by value: the
+    // allowance is the process's, not a stack frame's.
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    let npm = root.join("lib/node_modules/npm");
+    write(&npm.join("node_modules/ci-info/index.js"), CI_INFO);
+    let cli = "const ci = require('../node_modules/ci-info');\n\
+               const copy = { ...process.env };\n\
+               if (process.env.GITHUB_SHA === undefined) process.exit(3);\n\
+               module.exports = ci;\n";
+    write(&npm.join("bin/npx-cli.js"), cli);
+    write(&npm.join("bin/other.js"), cli);
+    let Some(v) = child_dump(root, &npm.join("bin/npx-cli.js")) else {
+        return;
+    };
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        v["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap().to_string())
+            .filter(|k| k.starts_with("env"))
+            .collect()
+    };
+    let k = keys(&v);
+    for n in ["GITHUB_ACTIONS", "GITHUB_EVENT_NAME", "GITHUB_SHA"] {
+        assert!(
+            k.contains(&format!("envp:{n}")),
+            "{n} not presence-keyed: {k:?}"
+        );
+        assert!(
+            !k.contains(&format!("env:{n}")),
+            "{n} keyed by value in npx: {k:?}"
+        );
+    }
+    assert!(k.contains(&"envtool:".to_string()), "{k:?}");
+    assert!(!k.contains(&"envall:".to_string()), "{k:?}");
+
+    // Not npm: the very same frames under /node_modules/npm/ key values.
+    let Some(v) = child_dump(root, &npm.join("bin/other.js")) else {
+        return;
+    };
+    let k = keys(&v);
+    for n in ["GITHUB_ACTIONS", "GITHUB_EVENT_NAME", "GITHUB_SHA"] {
+        assert!(
+            k.contains(&format!("env:{n}")),
+            "{n} not keyed outside npm: {k:?}"
+        );
+    }
+    assert!(k.contains(&"envall:".to_string()), "{k:?}");
+}
+
+#[test]
+fn ci_info_in_a_test_files_worker_keys_the_event_by_value() {
+    // A test file importing ci-info evaluates it with only ci-info's frames
+    // on the stack. Its isPR is GITHUB_EVENT_NAME's value: keyed by value,
+    // or a record made on a push replays on a pull request.
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(&root.join("node_modules/ci-info/index.js"), CI_INFO);
+    // Loaded the way a test runner loads an external module: nothing but
+    // ci-info's frames (and node's) on the stack, no await chain back to
+    // the importer.
+    write(
+        &root.join("node_modules/vitest/dist/load.mjs"),
+        "export default (p, done) => setImmediate(() => import(p).then((m) => setImmediate(() => done(m))))\n",
+    );
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(
+        r#"
+import {{ createRecorder, patchEnv }} from {record:?}
+const r = createRecorder({{ stateDir: '/nonexistent-state', mode: 'worker' }})
+patchEnv(r)
+const {{ default: load }} = await import('./node_modules/vitest/dist/load.mjs')
+const ci = await new Promise((done) => load(new URL('./node_modules/ci-info/index.js', import.meta.url).href, done))
+console.log(JSON.stringify({{ keys: [...r.keys], isPR: ci.default.isPR }}))
+"#,
+        record = record.display().to_string(),
+    );
+    let s = root.join("t.mjs");
+    fs::write(&s, script).unwrap();
+    let out = Command::new("node")
+        .arg(&s)
+        .current_dir(root)
+        .env("GITHUB_ACTIONS", "true")
+        .env("GITHUB_EVENT_NAME", "push")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let has = |k: &str| v["keys"].as_array().unwrap().iter().any(|x| x == k);
+    assert_eq!(v["isPR"], false, "{v}");
+    assert!(has("env:GITHUB_EVENT_NAME"), "{v}");
+    assert!(has("env:GITHUB_ACTIONS"), "{v}");
+}

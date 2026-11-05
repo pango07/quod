@@ -252,6 +252,55 @@ fn a_branch_variable_counts_only_for_the_test_that_reads_it() {
 }
 
 #[test]
+fn a_file_skipping_on_ci_infos_is_pr_misses_between_push_and_pull_request() {
+    // ci-info is an ordinary dependency; its isPR is GITHUB_EVENT_NAME's
+    // value, read at module init with only ci-info's frames on the stack.
+    // Recorded on a push (the test ran and passed), the file must run again
+    // on a pull request (plain skips it), never replay "passed".
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    let ci = p.dir.join("node_modules/ci-info");
+    fs::create_dir_all(&ci).unwrap();
+    fs::write(
+        ci.join("package.json"),
+        r#"{"name":"ci-info","version":"4.0.0","main":"index.js"}"#,
+    )
+    .unwrap();
+    fs::write(
+        ci.join("index.js"),
+        "const env = process.env;\n\
+         exports.isCI = !!env.GITHUB_ACTIONS;\n\
+         exports.isPR = env.GITHUB_EVENT_NAME === 'pull_request';\n",
+    )
+    .unwrap();
+    fs::write(
+        p.dir.join("test/secrets.test.ts"),
+        "import ci from 'ci-info'\n\
+         import { expect, test } from 'vitest'\n\
+         test.skipIf(ci.isPR)('needs secrets', () => {\n  expect(1).toBe(1)\n})\n",
+    )
+    .unwrap();
+    p.env = vec![("GITHUB_ACTIONS", "true"), ("GITHUB_EVENT_NAME", "push")];
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["recorded_files"], 4, "{s}");
+
+    p.env = vec![
+        ("GITHUB_ACTIONS", "true"),
+        ("GITHUB_EVENT_NAME", "pull_request"),
+    ];
+    let (plain, quod, s) = p.run(2);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(
+        s["ran"], 1,
+        "secrets.test.ts must run on the pull request: {s}"
+    );
+    assert_eq!(s["replayed"], 3, "{s}");
+}
+
+#[test]
 fn a_hidden_variable_read_through_an_env_copy_quarantines_the_file() {
     // A recording worker lists the environment without the per-run
     // variables (QUOD_VITEST_HIDE). Code that copies the environment and
