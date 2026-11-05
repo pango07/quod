@@ -2549,6 +2549,25 @@ pub(crate) fn state(
         ),
         "envall" => (envall.get_or_init(|| env_all(false)).clone(), None),
         "envtool" => (env_all(true), None),
+        k if k.strip_prefix("ae").or_else(|| k.strip_prefix('a'))
+            .is_some_and(|mode| mode.len() == 1 && matches!(mode.as_bytes()[0], b'0'..=b'7')) => {
+            let effective = k.starts_with("ae");
+            let mode = i32::from(k.as_bytes()[k.len() - 1] - b'0');
+            let p = path();
+            let result = match std::ffi::CString::new(p.as_os_str().as_encoded_bytes()) {
+                Ok(p) => {
+                    // SAFETY: p is a NUL-terminated path; the mode/flags
+                    // are validated constants. This only queries access.
+                    let rc = unsafe { libc::faccessat(libc::AT_FDCWD, p.as_ptr(), mode,
+                        if effective { libc::AT_EACCESS } else { 0 }) };
+                    if rc == 0 { "ok".into() } else {
+                        format!("errno:{}", std::io::Error::last_os_error().raw_os_error().unwrap_or(-1))
+                    }
+                }
+                Err(_) => "invalid-path".into(),
+            };
+            (result, None)
+        }
         "e" => (exists(&path()), None),
         "d" => (listing(&path(), false), None),
         "rj" => (listing_of(&path(), true, true), None),
@@ -3540,6 +3559,22 @@ fn relativize_file(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn access_keys_see_permission_changes_without_content_changes() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("tool");
+        fs::write(&p, b"same bytes").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o644)).unwrap();
+        let st = |key: &str| state(t.path(), key, None, 0, &std::sync::OnceLock::new(), None).0;
+        let before = st("a1:tool");
+        let content = st("f:tool");
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_ne!(before, st("a1:tool"));
+        assert_eq!(content, st("f:tool"));
+        assert_eq!(st("a1:tool"), "ok");
+    }
 
     #[test]
     fn pj_fields_keys_names_and_the_fields_read() {

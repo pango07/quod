@@ -1268,14 +1268,25 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 let kind = (op == Op::Stat && ok).then_some("dir");
                 push(p, op, ok, kind);
             }
-            "stat" | "lstat" | "stat64" | "lstat64" | "access" | "readlink" | "statfs"
+            "access" | "faccessat" | "faccessat2" => {
+                let (p, mode, flags) = if name == "access" {
+                    (path0().map(|p| join(&here, &p)), args.get(1), "0")
+                } else {
+                    (args.get(1).and_then(|p| unquote(p)).map(|p| at(&args[0], &p)),
+                     args.get(2), args.get(3).map_or("0", String::as_str))
+                };
+                let kind = access_kind(mode.map_or("", String::as_str), flags)?;
+                let p = p.ok_or("an access path was not decoded")?;
+                push(p, Op::Stat, ok, Some(kind));
+            }
+            "stat" | "lstat" | "stat64" | "lstat64" | "readlink" | "statfs"
             | "getxattr" | "lgetxattr" | "listxattr" | "llistxattr" => {
                 if let Some(p) = path0() {
                     let kind = stat_kind(&args);
                     push(join(&here, &p), Op::Stat, ok, kind);
                 }
             }
-            "newfstatat" | "fstatat64" | "statx" | "faccessat" | "faccessat2" | "readlinkat" => {
+            "newfstatat" | "fstatat64" | "statx" | "readlinkat" => {
                 let Some(p) = args.get(1).and_then(|a| unquote(a)) else {
                     continue;
                 };
@@ -1406,6 +1417,24 @@ fn ret_of(l: &str) -> Option<(usize, &str)> {
 }
 
 /// The type a successful stat showed, if it did.
+fn access_kind(mode: &str, flags: &str) -> Result<&'static str, String> {
+    let mut mask = 0usize;
+    for part in mode.split('|') {
+        mask |= match part.trim() {
+            "F_OK" | "0" => 0,
+            "X_OK" => 1,
+            "W_OK" => 2,
+            "R_OK" => 4,
+            _ => return Err("an access mode was not decoded".into()),
+        };
+    }
+    match flags {
+        "0" => Ok(["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"][mask]),
+        "AT_EACCESS" => Ok(["ae0", "ae1", "ae2", "ae3", "ae4", "ae5", "ae6", "ae7"][mask]),
+        _ => Err("access uses unsupported flags".into()),
+    }
+}
+
 fn stat_kind(args: &[String]) -> Option<&'static str> {
     for a in args {
         if a.contains("S_IFREG") {
@@ -1850,6 +1879,11 @@ fn keyer(
             }
             continue;
         }
+        for e in evs {
+            if let Some(kind) = e.kind.filter(|k| k.starts_with('a')) {
+                key(format!("{kind}:{}", rel(p)), None);
+            }
+        }
         if let Some(pkg) = package_root(p)
             && !written.keys().any(|w| w.starts_with(&format!("{pkg}/")))
         {
@@ -1951,6 +1985,17 @@ mod tests {
                 scratch: vec!["/tmp".into(), "/run/user".into()],
             },
         )
+    }
+
+    #[test]
+    fn native_access_queries_keep_their_permission_mode_even_inside_packages() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let text = format!("123 faccessat2(AT_FDCWD, \"{}/node_modules/tool/bin\", X_OK, AT_EACCESS) = 0\n", root.display());
+        let trace = parse(&text, root).unwrap();
+        let (keys, _) = keyer(root, &trace, &Ignore::new(root, &root.join(".quod"))).unwrap();
+        assert!(keys.iter().any(|(k, _)| k == "ae1:node_modules/tool/bin"));
+        assert!(access_kind("X_OK", "AT_SYMLINK_NOFOLLOW").is_err());
     }
 
     #[test]

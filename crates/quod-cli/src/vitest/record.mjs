@@ -144,6 +144,13 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       // to prune, and the update notifier's stamp. New every run; no
       // result depends on them.
       if (NPM_OWN && (p === NPM_OWN || p.startsWith(`${NPM_OWN}/`) || p === `${NPM_HOME}/_update-notifier-last-checked`)) return
+      // An access result depends on permissions/ACLs as well as content.
+      // Keep it at the actual path even inside an installed package.
+      if (/^a[0-7]$/.test(kind)) {
+        if (memo) seen.add(memo)
+        keys.add(`${kind}:${p}`)
+        return
+      }
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {
         if (SKIP_NM.some((s) => p.includes(s))) return
@@ -421,7 +428,11 @@ export function patchFs(r, { sync = true } = {}) {
     r.add('f', a[0])
     r.add('e', a[0])
   })
-  both(['access'], (a) => r.add('e', a[0]))
+  both(['access'], (a) => {
+    const mode = a[1] ?? 0
+    if (Number.isInteger(mode) && mode >= 0 && mode <= 7) r.add(`a${mode}`, a[0])
+    else r.unobs('access with an unsupported mode')
+  })
   wrap(fs, 'existsSync', (a) => r.add('e', a[0]))
   wrap(fs, 'exists', (a) => r.add('e', a[0]))
   both(['realpath', 'readlink'], (a) => r.add('e', a[0]))

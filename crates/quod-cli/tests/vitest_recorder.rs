@@ -470,6 +470,19 @@ console.log(JSON.stringify({ straight, variable: pj(settledKeys(r)), names: m.na
 }
 
 #[test]
+fn access_queries_keep_permissions_separate_from_package_identity() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(&root.join("node_modules/tool/bin"), "not executable");
+    let Some(v) = main_recorder(root, r#"
+const fs = req('node:fs')
+try { fs.accessSync('node_modules/tool/bin', fs.constants.X_OK) } catch {}
+console.log(JSON.stringify([...r.keys].filter(k => k.startsWith('a1:')).map(k => k.replace(process.cwd() + '/', ''))))
+"#) else { return; };
+    assert_eq!(v, serde_json::json!(["a1:node_modules/tool/bin"]));
+}
+
+#[test]
 fn dependency_values_are_inputs_even_when_the_package_is_not_loaded() {
     let t = tempfile::tempdir().unwrap();
     let root = t.path();
