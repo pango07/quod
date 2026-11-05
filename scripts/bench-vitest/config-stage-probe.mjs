@@ -58,6 +58,7 @@ if (mode) {
   let recorder = null, namesProof = null, settledKeys = null, booleanProof = null
   const booleanReads = new Map()
   const readSites = new Map()
+  const metadataSites = new Map()
   let asyncReads = null
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1' || resolverProbe) {
     let recorderUrl = new URL('../../crates/quod-cli/src/vitest/record.mjs', import.meta.url)
@@ -92,6 +93,11 @@ if (mode) {
     recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
     if (asyncSites) asyncReads = (await import('./async-read-probe.mjs')).observeAsyncReads(recorder, project, [pkgPath, workspacePkg], [recorderUrl.href])
     if (querySites) recorder.observeRead = (kind, p) => {
+      if (kind === 'sm' || kind === 'sl') {
+        const stack=new Error().stack.split('\n').slice(2,10).join('\n')
+        const key=JSON.stringify([kind,path.relative(project,p),stack])
+        metadataSites.set(key,(metadataSites.get(key) ?? 0)+1)
+      }
       if (p !== pkgPath && p !== workspacePkg) return
       const stack=new Error().stack.split('\n').slice(2,9).join('\n')
       const key=JSON.stringify([kind,path.relative(project,p),stack])
@@ -148,6 +154,7 @@ if (mode) {
       stats: namesProof?.stats,
       manifestKeys: [...settledKeys(recorder)].filter(k => [pkgPath,workspacePkg].some(p=>k.endsWith(`:${p}`) || k.includes(`:${p}\0`))),
       metadataKeys: querySites ? [...settledKeys(recorder)].filter(k => /^(sm|sl|st):/.test(k)).sort() : undefined,
+      metadataSites: querySites ? [...metadataSites].map(([key,count])=>({site:JSON.parse(key),count})) : undefined,
       readCounts: queryProbe ? [pkgPath,workspacePkg].map(p=>({path:path.relative(project,p),reads:recorder.pjReads.get(p),parsed:recorder.pjParsed.get(p)})) : undefined,
       readSites: querySites ? [...readSites].map(([key,count])=>({site:JSON.parse(key),count})) : undefined,
       resolverReads: resolverProbe ? [...recorder.pjUse].filter(([p]) => !p.includes('/node_modules/'))
