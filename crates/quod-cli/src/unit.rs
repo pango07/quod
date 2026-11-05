@@ -416,21 +416,31 @@ fn env_key(k: &str) -> bool {
 /// Some(Ok(the environment keys that differ)) on agreement.
 fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<String, String>> {
     let reads = |r: &Rec| -> Vec<(String, String)> {
-        r.keys.iter().filter(|(k, _)| !env_key(k)).cloned().collect()
+        r.keys
+            .iter()
+            .filter(|(k, _)| !env_key(k))
+            .cloned()
+            .collect()
     };
     let mine = reads(q);
     let p = records.iter_mut().find(|p| reads(p) == mine)?;
     let what = if p.code != q.code {
         Some(format!("exit {}, recorded {}", q.code, p.code))
     } else if p.outputs.len() != q.outputs.len()
-        || !p.outputs.iter().zip(&q.outputs).all(|(a, b)| a.path == b.path && same_out(a, b))
+        || !p
+            .outputs
+            .iter()
+            .zip(&q.outputs)
+            .all(|(a, b)| a.path == b.path && same_out(a, b))
     {
         Some("its outputs".to_string())
     } else {
         let blob = |h: &str| fs::read(blobs.join(h)).unwrap_or_default();
         disagree(&blob(&p.stdout), &blob(&q.stdout))
             .map(|d| format!("its stdout: {d}"))
-            .or_else(|| disagree(&blob(&p.stderr), &blob(&q.stderr)).map(|d| format!("its stderr: {d}")))
+            .or_else(|| {
+                disagree(&blob(&p.stderr), &blob(&q.stderr)).map(|d| format!("its stderr: {d}"))
+            })
     };
     if let Some(w) = what {
         return Some(Err(w));
@@ -533,7 +543,12 @@ fn manifest_keys(keys: Vec<(String, Option<String>)>) -> Vec<(String, Option<Str
 /// that is not a string, a name repeated, or a `node_modules` listed.
 fn manifest_state(path: &Path, loaded: &Loaded) -> String {
     let Ok(b) = fs::read(path) else {
-        return if path.exists() { "unreadable" } else { "absent" }.into();
+        return if path.exists() {
+            "unreadable"
+        } else {
+            "absent"
+        }
+        .into();
     };
     let b = mask_dev_versions(&b, loaded).unwrap_or(b);
     blake3::hash(&b).to_hex().to_string()
@@ -2171,7 +2186,10 @@ mod tests {
         let mut recs = vec![rec("old", "a1", "ok 3 (12ms) /tmp/r-AbC/x\n", 1)];
         let mut q = rec("new", "a1", "ok 3 (9ms) /tmp/r-XyZ/x\n", 1);
         let r = cross_env(&mut recs, &mut q, &blobs);
-        assert!(matches!(&r, Some(Ok(e)) if e == "envall:, host:, f:/etc/ld.so.cache"), "{r:?}");
+        assert!(
+            matches!(&r, Some(Ok(e)) if e == "envall:, host:, f:/etc/ld.so.cache"),
+            "{r:?}"
+        );
         assert_eq!((recs[0].witnesses, q.witnesses), (2, 2));
         // A trusted record agreeing: the new one trusted at once.
         let mut recs = vec![rec("old", "a1", "ok\n", 2)];
@@ -2189,7 +2207,9 @@ mod tests {
         let mut recs = vec![rec("old", "a1", "ok\n", 2)];
         let mut q = rec("new", "a1", "ok\n", 1);
         q.outputs[0].blob = Some("h2".into());
-        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(w)) if w.contains("outputs")));
+        assert!(
+            matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(w)) if w.contains("outputs"))
+        );
         assert_eq!((recs[0].witnesses, q.witnesses), (2, 1));
         let mut q = rec("new", "a1", "ok\n", 1);
         q.code = 1;
@@ -2224,23 +2244,40 @@ mod tests {
             ("f:node_modules/.bin/x".into(), None),
             ("f:/usr/lib/node_modules/npm/package.json".into(), None),
             ("p:node_modules/semver".into(), None),
-            ("p:/usr/lib/node_modules/npm/node_modules/chalk".into(), None),
+            (
+                "p:/usr/lib/node_modules/npm/node_modules/chalk".into(),
+                None,
+            ),
             ("e:packages/a/node_modules/@types".into(), None),
             ("f:scripts/a.mjs".into(), None),
         ]);
         let ks: Vec<&str> = keys.iter().map(|(k, _)| k.as_str()).collect();
         assert!(ks.contains(&"upj:package.json"), "{ks:?}");
-        assert!(ks.contains(&"f:/usr/lib/node_modules/npm/package.json"), "not the checkout's");
+        assert!(
+            ks.contains(&"f:/usr/lib/node_modules/npm/package.json"),
+            "not the checkout's"
+        );
         let loaded = Loaded::of(ks.iter().copied());
         assert!(loaded.has("semver") && loaded.has("@types/node"));
-        assert!(!loaded.has("chalk"), "npm's own chalk is not the checkout's");
+        assert!(
+            !loaded.has("chalk"),
+            "npm's own chalk is not the checkout's"
+        );
         let st = |text: &str| {
             fs::write(root.join("package.json"), text).unwrap();
             key_state_in(root, "upj:package.json", &loaded)
         };
         let base = st(&pj("5.0.0", "7.8.5", "node --test"));
-        assert_eq!(base, st(&pj("6.0.1", "7.8.5", "node --test")), "the chalk bump");
-        assert_ne!(base, st(&pj("5.0.0", "7.8.6", "node --test")), "a package it loads");
+        assert_eq!(
+            base,
+            st(&pj("6.0.1", "7.8.5", "node --test")),
+            "the chalk bump"
+        );
+        assert_ne!(
+            base,
+            st(&pj("5.0.0", "7.8.6", "node --test")),
+            "a package it loads"
+        );
         assert_ne!(base, st(&pj("5.0.0", "7.8.5", "node --test x")), "a script");
         assert_ne!(
             base,
@@ -2262,9 +2299,14 @@ mod tests {
         let one = "{\"devDependencies\": {\"chalk\": \"5\"}}";
         let one2 = "{\"devDependencies\": {\"chalk\": \"6\"}}";
         assert_ne!(st(one), st(one2));
-        let rep = |v: &str| format!("{{\"devDependencies\": {{\n\"chalk\": \"{v}\"\n}},\n\"devDependencies\": {{\n}}\n}}");
+        let rep = |v: &str| {
+            format!(
+                "{{\"devDependencies\": {{\n\"chalk\": \"{v}\"\n}},\n\"devDependencies\": {{\n}}\n}}"
+            )
+        };
         assert_ne!(st(&rep("5")), st(&rep("6")));
-        let obj = |v: &str| format!("{{\"devDependencies\": {{\n\"chalk\": {{\"v\": \"{v}\"}}\n}}\n}}");
+        let obj =
+            |v: &str| format!("{{\"devDependencies\": {{\n\"chalk\": {{\"v\": \"{v}\"}}\n}}\n}}");
         assert_ne!(st(&obj("5")), st(&obj("6")));
         let listed = Loaded::of(["d:node_modules", "upj:package.json"]);
         let lst = |text: &str| {

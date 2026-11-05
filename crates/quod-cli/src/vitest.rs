@@ -3900,14 +3900,20 @@ mod tests {
         let after_c1 = rec(1, 2);
         assert!(timing_ok_if(true, 2, &after_c1), "c2 replays it");
         assert!(!timing_ok_if(false, 2, &after_c1), "off: it runs");
-        assert!(!witnessed(2, &after_c1), "the witness policy alone keeps it running");
+        assert!(
+            !witnessed(2, &after_c1),
+            "the witness policy alone keeps it running"
+        );
         // the recording alone: no plain witness measured the margin
         assert!(!timing_ok_if(true, 2, &rec(0, 1)));
         // a plain witness, but the witnesses do not yet agree twice
         assert!(!timing_ok_if(true, 2, &rec(1, 1)));
         let mut q = rec(1, 2);
         q.quarantined = true;
-        assert!(!timing_ok_if(true, 2, &q), "a timeout in an audit quarantines it");
+        assert!(
+            !timing_ok_if(true, 2, &q),
+            "a timeout in an audit quarantines it"
+        );
         let mut d = rec(1, 2);
         d.w.disagreements = 1;
         assert!(!timing_ok_if(true, 2, &d), "a disagreement raises the bar");
