@@ -631,7 +631,7 @@ jobs:
           path: /tmp/quod-profile/evidence
 
   benchmark-config:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -649,9 +649,10 @@ jobs:
         working-directory: profile-project
       - name: Measure configuration output across declaration changes
         env:
-          QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query') && '1' || '0' }}
-          QUOD_CONFIG_BOOLEAN_PROBE: ${{ (inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query') && '1' || '0' }}
-          QUOD_CONFIG_QUERY_PROBE: ${{ inputs.only == 'benchmark-query' && '1' || '0' }}
+          QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')) && '1' || '0' }}
+          QUOD_CONFIG_BOOLEAN_PROBE: ${{ (inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')) && '1' || '0' }}
+          QUOD_CONFIG_QUERY_PROBE: ${{ startsWith(inputs.only, 'benchmark-query') && '1' || '0' }}
+          QUOD_CONFIG_QUERY_SITES: ${{ inputs.only == 'benchmark-query-sites' && '1' || '0' }}
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe
       - name: Boolean-context proof adversarial regressions
         if: inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query'

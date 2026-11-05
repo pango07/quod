@@ -18,6 +18,7 @@ const original = fs.readFileSync(pkgPath, 'utf8')
 const resolverProbe = process.env.QUOD_CONFIG_RESOLVER_PROBE === '1'
 const booleanProbe = process.env.QUOD_CONFIG_BOOLEAN_PROBE === '1'
 const queryProbe = process.env.QUOD_CONFIG_QUERY_PROBE === '1'
+const querySites = process.env.QUOD_CONFIG_QUERY_SITES === '1'
 const workspacePkg = path.join(project, 'packages/convex-helpers/package.json')
 const workspaceOriginal = fs.existsSync(workspacePkg) ? fs.readFileSync(workspacePkg, 'utf8') : null
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -56,6 +57,7 @@ if (mode) {
   const V = await import(pathToFileURL(path.join(path.dirname(vitestPkgPath), rel)).href)
   let recorder = null, namesProof = null, settledKeys = null, booleanProof = null
   const booleanReads = new Map()
+  const readSites = new Map()
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1' || resolverProbe) {
     let recorderUrl = new URL('../../crates/quod-cli/src/vitest/record.mjs', import.meta.url)
     if (resolverProbe && !queryProbe) {
@@ -80,6 +82,12 @@ if (mode) {
     if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
     if (queryProbe) booleanProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
     recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
+    if (querySites) recorder.observeRead = (kind, p) => {
+      if (p !== pkgPath && p !== workspacePkg) return
+      const stack=new Error().stack.split('\n').slice(2,9).join('\n')
+      const key=JSON.stringify([kind,path.relative(project,p),stack])
+      readSites.set(key,(readSites.get(key) ?? 0)+1)
+    }
     if (booleanProbe && !queryProbe) {
       const {createBooleanProof} = await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')
       booleanProof = createBooleanProof({internalFiles:[recorderUrl.href, import.meta.url]})
@@ -117,7 +125,7 @@ if (mode) {
     const files = specs.map(s => [s.project.name, path.relative(project, s.moduleId), s.pool]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
     if (!files.length || !projects.length) throw Error('missing resolved projects or test selection')
     const selected = performance.now()
-    if (booleanProbe) {
+    if (booleanProbe && !querySites) {
       // The complete suite, so deferred resolver/cache consumers also read
       // the watched objects. No test file is ever replayed in this probe.
       await ctx.start([])
@@ -127,6 +135,7 @@ if (mode) {
       stats: namesProof?.stats,
       manifestKeys: [...settledKeys(recorder)].filter(k => [pkgPath,workspacePkg].some(p=>k.endsWith(`:${p}`) || k.includes(`:${p}\0`))),
       readCounts: queryProbe ? [pkgPath,workspacePkg].map(p=>({path:path.relative(project,p),reads:recorder.pjReads.get(p),parsed:recorder.pjParsed.get(p)})) : undefined,
+      readSites: querySites ? [...readSites].map(([key,count])=>({site:JSON.parse(key),count})) : undefined,
       resolverReads: resolverProbe ? [...recorder.pjUse].filter(([p]) => !p.includes('/node_modules/'))
         .map(([p, fields]) => ({path:path.relative(project, p), fields:[...fields].sort().map(s => JSON.parse(s)), broadKeyRetained:recorder.keys.has(`pj:${p}`)})) : undefined,
       booleanReads: booleanProof ? [...booleanReads].map(([p, reads]) => ({path:path.relative(project,p), ...reads, wholeSites:[...reads.wholeSites]})) : undefined,
@@ -139,13 +148,14 @@ if (mode) {
     fs.writeFileSync(path.join(out, mode+'.json'), JSON.stringify(record, null, 2))
   } finally { await ctx.close(); namesProof?.close(); booleanProof?.close() }
 } else {
-  const cases = resolverProbe ? [
+  let cases = resolverProbe ? [
     ['c3-before-exports', '03ffe84ef'], ['c4-exports', '6b17e1514'], ['c5-workspace-removed', '49a82e544'],
   ] : [
     ['before-both', { chalk: '4.1.2', commander: '10.0.1' }],
     ['after-chalk', { chalk: '6.0.1', commander: '10.0.1' }],
     ['after-both', null],
   ]
+  if (querySites) cases=cases.slice(0,1)
   try {
     for (const [name, versions] of cases) {
       if (resolverProbe) {
@@ -180,7 +190,7 @@ if (mode) {
       if (record.proof.manifestKeys.some(k => JSON.parse(k.split('\0')[1]).some(p => p.length > 1))) throw Error(`copied version values remain inputs: ${record.mode}`)
     }
   }
-  if (booleanProbe) {
+  if (booleanProbe && !querySites) {
     const states = cases.map(([name]) => {
       const report = JSON.parse(fs.readFileSync(path.join(out, name+'-tests.json'), 'utf8'))
       if (!report.success || !report.testResults?.length) throw Error(`incomplete test evidence: ${name}`)
@@ -189,7 +199,7 @@ if (mode) {
     if (states.some(s => JSON.stringify(s) !== JSON.stringify(states[0]))) throw Error('manifest diagnostic per-test states differed')
     console.log(`Full-suite diagnostic: ${states[0].length} files agree across all three manifest states; no replay authorized.`)
   }
-  if (queryProbe) {
+  if (queryProbe && !querySites) {
     for (const record of records) {
       if (!record.proof?.booleanStats?.statType || !record.proof?.booleanStats?.boolean) throw Error(`actual resolver proof was not exercised: ${record.mode}`)
       const keys=record.proof.manifestKeys

@@ -3899,7 +3899,10 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let p = t.path().join("package.json");
         let valid = r#"{"name":"x","exports":{},"unused":1}"#;
-        for (schema, queries) in [(r#"[["name"]]"#, false), (r#"{"values":[["name"]],"truthy":["exports"]}"#, true)] {
+        for (schema, queries) in [
+            (r#"[["name"]]"#, false),
+            (r#"{"values":[["name"]],"truthy":["exports"]}"#, true),
+        ] {
             fs::write(&p, valid).unwrap();
             let before = pj_fields_query(&p, schema, queries);
             for invalid in [

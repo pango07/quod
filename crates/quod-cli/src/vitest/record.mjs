@@ -138,6 +138,9 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       }
       p = norm(p)
       if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
+      // Optional diagnostic observer. It cannot suppress a dependency if
+      // collecting diagnostic evidence itself fails.
+      try { r.observeRead?.(kind, p) } catch {}
       if (r.made.length && under(p)) return
       if (skip.length && skip.some((d) => p.startsWith(d))) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
