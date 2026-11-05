@@ -10,6 +10,8 @@
 //              names, and the values of the fields it read (JSON array)
 //   pjq:<path>\0<queries>  values and proven truthiness reads of a manifest
 //   st:<path>  a stat result proven to be used only as file/directory type
+//   sm:<path>  every field of stat, including timestamps and permissions
+//   sl:<path>  every field of lstat (the link's own metadata)
 //   d:<path>   a directory's listing        r:<path>  a recursive listing
 //   rj:<path>  the .json files under a directory, recursively, outside
 //              node_modules and .git (tsconfck's walk for tsconfig files)
@@ -155,7 +157,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       if (NPM_OWN && (p === NPM_OWN || p.startsWith(`${NPM_OWN}/`) || p === `${NPM_HOME}/_update-notifier-last-checked`)) return
       // An access result depends on permissions/ACLs as well as content.
       // Keep it at the actual path even inside an installed package.
-      if (/^a[0-7]$/.test(kind) || kind === 'st') {
+      if (/^a[0-7]$/.test(kind) || kind === 'st' || kind === 'sm' || kind === 'sl') {
         if (memo) seen.add(memo)
         keys.add(`${kind}:${p}`)
         return
@@ -475,14 +477,14 @@ export function patchFs(r, { sync = true } = {}) {
   both(['readFile'], file, r.mode === 'main' ? (a, v) => pjText(r, a[0], v) : undefined)
   if (r.mode === 'main') patchJsonParse(r)
   wrap(fs, 'createReadStream', file)
-  // stat-like calls see size: a content dependency; lstat also sees a link
-  wrap(fs, 'stat', file)
-  wrap(P, 'stat', file)
-  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.booleanProof?.statType(a) ? 'st' : 'f', a[0]))
-  both(['lstat'], (a) => {
-    r.add('f', a[0])
-    r.add('e', a[0])
-  })
+  // Content equality does not imply equal Stats: mode, inode and all four
+  // timestamps can change without changing bytes. Keep the native return
+  // object untouched and key the whole observation unless a source proof
+  // establishes that only its file/directory type is consumed.
+  wrap(fs, 'stat', (a) => r.add('sm', a[0]))
+  wrap(P, 'stat', (a) => r.add('sm', a[0]))
+  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.booleanProof?.statType(a) ? 'st' : 'sm', a[0]))
+  both(['lstat'], (a) => r.add('sl', a[0]))
   both(['access'], (a) => {
     const mode = a[1] ?? 0
     if (Number.isInteger(mode) && mode >= 0 && mode <= 7) r.add(`a${mode}`, a[0])

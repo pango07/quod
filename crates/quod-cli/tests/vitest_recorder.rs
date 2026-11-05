@@ -14,6 +14,52 @@ fn write(p: &Path, s: &str) {
 }
 
 #[test]
+fn stat_readers_keep_metadata_at_the_actual_path() {
+    if Command::new("node").arg("--version").output().is_err() {
+        eprintln!("no node: skipped");
+        return;
+    }
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    let input = root.join("input");
+    let dependency = root.join("node_modules/pkg/data");
+    write(&input, "same bytes");
+    write(&dependency, "installed bytes");
+    write(&root.join("node_modules/pkg/package.json"), r#"{"name":"pkg"}"#);
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(r#"
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {{ createRecorder, patchFs }} from {record:?};
+const r = createRecorder({{stateDir:'/not-state',mode:'worker'}});
+const input = {input:?}, dependency = {dependency:?};
+const before = fs.statSync(input);
+patchFs(r);
+assert.equal(fs.statSync(input).mtimeMs, before.mtimeMs);
+assert.equal((await fs.promises.stat(input)).mtimeMs, before.mtimeMs);
+await new Promise((resolve,reject)=>fs.stat(input,(e,s)=>{{
+  if(e) return reject(e); assert.equal(s.mtimeMs,before.mtimeMs); resolve();
+}}));
+fs.lstatSync(input);
+await fs.promises.lstat(dependency);
+fs.statSync(dependency, {{bigint:true}});
+r.on=false;
+console.log(JSON.stringify([...r.keys].sort()));
+"#,
+        record=record.display().to_string(), input=input.display().to_string(),
+        dependency=dependency.display().to_string());
+    let script_path = root.join("probe.mjs");
+    fs::write(&script_path, script).unwrap();
+    let out = Command::new("node").arg(script_path).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let keys: Vec<String> = serde_json::from_slice(&out.stdout).unwrap();
+    for (kind, p) in [("sm", &input), ("sl", &input), ("sm", &dependency), ("sl", &dependency)] {
+        assert!(keys.contains(&format!("{kind}:{}",p.display())), "{keys:?}");
+    }
+    assert!(!keys.iter().any(|k| k.starts_with("p:")), "metadata must not collapse to a package identity");
+}
+
+#[test]
 fn a_plugin_reading_package_json_keeps_it_whole() {
     if Command::new("node").arg("--version").output().is_err() {
         eprintln!("no node: skipped");

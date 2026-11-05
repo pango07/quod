@@ -2113,9 +2113,15 @@ fn replace_bytes(hay: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
 
 /// A key the install determines: a path under the workspace's node_modules.
 fn installed(key: &str) -> bool {
-    let Some((_, p)) = key.split_once(':') else {
+    let Some((kind, p)) = key.split_once(':') else {
         return false;
     };
+    // Restoring identical package bytes cannot recreate inode, timestamps
+    // or other metadata. These observations must be checked before a job
+    // skips installation; the lockfile is insufficient evidence for them.
+    if kind == "sm" || kind == "sl" {
+        return false;
+    }
     !p.starts_with('/')
         && (p == "node_modules"
             || p.starts_with("node_modules/")
@@ -2756,6 +2762,7 @@ pub(crate) fn state(
             (result, None)
         }
         "e" => (exists(&path()), None),
+        "sm" | "sl" => (stat_metadata(&path(), kind == "sl"), None),
         // A proven synchronous stat helper whose result is used only by
         // native isFile/isDirectory. Follow links exactly as stat does.
         "st" => (
@@ -3100,6 +3107,42 @@ fn ident(m: &fs::Metadata) -> [i64; 6] {
         m.ctime() * 1_000_000_000 + m.ctime_nsec(),
         i64::from(m.mode()),
     ]
+}
+
+/// The observable Linux Stats fields, without a content-only cache or
+/// package-level substitution. statx supplies birth time as well as the
+/// traditional stat fields. Unknown syscall support fails closed with an
+/// unrepeatable key, so it cannot authorize a replay.
+#[cfg(target_os = "linux")]
+fn stat_metadata(p: &Path, nofollow: bool) -> String {
+    use rustix::fs::{AtFlags, CWD, StatxFlags, statx};
+    let flags = if nofollow { AtFlags::SYMLINK_NOFOLLOW } else { AtFlags::empty() };
+    match statx(CWD, p, flags, StatxFlags::BASIC_STATS | StatxFlags::BTIME) {
+        Ok(m) if m.stx_mask & StatxFlags::BASIC_STATS.bits() == StatxFlags::BASIC_STATS.bits() => {
+            let fields: [i128; 21] = [
+                m.stx_mask.into(), m.stx_blksize.into(), m.stx_nlink.into(),
+                m.stx_uid.into(), m.stx_gid.into(), m.stx_mode.into(),
+                m.stx_ino.into(), m.stx_size.into(), m.stx_blocks.into(),
+                m.stx_dev_major.into(), m.stx_dev_minor.into(),
+                m.stx_rdev_major.into(), m.stx_rdev_minor.into(),
+                m.stx_atime.tv_sec.into(), m.stx_atime.tv_nsec.into(),
+                m.stx_mtime.tv_sec.into(), m.stx_mtime.tv_nsec.into(),
+                m.stx_ctime.tv_sec.into(), m.stx_ctime.tv_nsec.into(),
+                m.stx_btime.tv_sec.into(), m.stx_btime.tv_nsec.into(),
+            ];
+            let mut h = blake3::Hasher::new();
+            for field in fields { h.update(&field.to_le_bytes()); }
+            h.finalize().to_hex().to_string()
+        }
+        Err(rustix::io::Errno::NOENT) => "errno:ENOENT".into(),
+        Err(rustix::io::Errno::NOTDIR) => "errno:ENOTDIR".into(),
+        _ => format!("unobservable:stat:{}", ulid::Ulid::new()),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn stat_metadata(_p: &Path, _nofollow: bool) -> String {
+    format!("unobservable:stat:{}", ulid::Ulid::new())
 }
 
 fn wall_ns() -> i128 {
@@ -4304,6 +4347,40 @@ mod tests {
         other[2] += 1;
         let (s, _) = state(root, "f:a", Some((other, "cached")), wall_ns(), &env, None);
         assert_ne!(s, "cached");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stat_metadata_sees_permissions_timestamps_and_link_identity() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let input = root.join("input");
+        fs::write(&input, "unchanged bytes").unwrap();
+        fs::set_permissions(&input, fs::Permissions::from_mode(0o644)).unwrap();
+        std::os::unix::fs::symlink("input", root.join("link")).unwrap();
+        let env = std::sync::OnceLock::new();
+        let st = |k: &str| state(root, k, None, wall_ns(), &env, None).0;
+        let content = st("f:input");
+        let before = st("sm:input");
+        let link = st("sl:link");
+        assert_eq!(before, st("sm:input"), "unchanged metadata can replay");
+        assert_eq!(before, st("sm:link"), "stat follows the link");
+        fs::set_permissions(&input, fs::Permissions::from_mode(0o755)).unwrap();
+        let permissions = st("sm:input");
+        assert_ne!(before, permissions);
+        assert_eq!(content, st("f:input"), "permission edit preserves bytes");
+        assert_eq!(link, st("sl:link"), "lstat observes the link itself");
+        fs::File::options().write(true).open(&input).unwrap().set_times(
+            fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1_577_836_800))
+        ).unwrap();
+        assert_ne!(permissions, st("sm:input"));
+        assert_eq!(content, st("f:input"), "timestamp edit preserves bytes");
+        assert_eq!(st("sm:missing"), "errno:ENOENT");
+        assert_eq!(st("sm:input/child"), "errno:ENOTDIR");
+        assert!(!installed("sm:node_modules/pkg/index.js"));
+        assert!(!installed("sl:node_modules/pkg"));
+        assert!(installed("p:node_modules/pkg"));
     }
 
     #[test]

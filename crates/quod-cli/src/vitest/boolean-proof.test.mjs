@@ -103,8 +103,8 @@ test('an additional unparsed read keeps the conservative file input', () => {
 })
 test('a stat observation cannot silently be discarded by the JSON proof', () => {
   const result=recorded('!!pkg.exports',{extra:"export const size = fs.statSync('package.json').size;"})
-  assert.deepEqual(query(result),[])
-  assert.ok(result.keys.includes('pj:package.json'))
+  assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+  assert.ok(result.keys.includes('sm:package.json'), 'JSON refinement must retain the separate metadata observation')
 })
 test('disabled boolean proof keeps the existing resolver and config behavior', () => {
   assert.ok(recorded('!!pkg.exports',{enabled:false}).keys.includes('pj:package.json'))
