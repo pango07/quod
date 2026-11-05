@@ -471,6 +471,47 @@ pub struct TestReport {
     /// check's (quarantined at record time, not recorded).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub record_differs: Vec<String>,
+    /// A recording run (`shadow`): true when it is the developer's own test
+    /// job recording inline (the second-witness model), false when it is a
+    /// separate background recording job (Quod's retired setup, next to a
+    /// `critical` check of the same commit). Absent (older clients): the
+    /// server tells them apart by pairing a `shadow` with a `critical` run
+    /// of the same repository, suite and commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline: Option<bool>,
+    /// A recording run: the time Quod's recording took after the tests ran
+    /// (taking in the results, hashing new inputs, the witnesses, the
+    /// rendered replay, writing the ledger), in ms. Not the slowdown the
+    /// instrumentation adds to the tests themselves (only a plain run of
+    /// the same files could measure that), nor the upload. Absent: not
+    /// measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_ms: Option<f64>,
+    /// A recording run: what the second-witness policy did. Absent: not
+    /// reported (an older client).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub witness: Option<WitnessCounts>,
+}
+
+/// A recording run's witness counts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WitnessCounts {
+    /// Agreeing independent runs a record needs before its result is
+    /// reused (`QUOD_VITEST_WITNESSES`, 2 by default; 1 trusts at once).
+    #[serde(default)]
+    pub needed: u32,
+    /// Files whose record became trusted in this run (this run was the
+    /// witness it lacked).
+    #[serde(default)]
+    pub promoted: u64,
+    /// Files whose record still has fewer witnesses than it needs after
+    /// this run: they run again until another run agrees.
+    #[serde(default)]
+    pub awaiting: u64,
+    /// Files whose run disagreed with their record (quarantined until they
+    /// re-prove).
+    #[serde(default)]
+    pub disagreed: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -491,6 +532,49 @@ pub struct ReportResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_report_without_the_witness_fields_parses_and_stays_as_it_was() {
+        // An older client's report: the new fields are absent.
+        let old = r#"{"tool":"vitest","kind":"shadow","total":3,"ran":1,"replayed":2}"#;
+        let r: TestReport = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            (r.inline, r.record_ms, r.witness.clone()),
+            (None, None, None)
+        );
+        // Sent again, it carries none of them (an older server sees what it
+        // always saw).
+        let v = serde_json::to_value(&r).unwrap();
+        for k in ["inline", "record_ms", "witness"] {
+            assert!(v.get(k).is_none(), "{k} in {v}");
+        }
+    }
+
+    #[test]
+    fn a_report_with_the_witness_fields_round_trips() {
+        let new = r#"{"tool":"vitest","kind":"shadow","total":3,"ran":1,"replayed":2,
+            "inline":true,"record_ms":812.5,
+            "witness":{"needed":2,"promoted":4,"awaiting":7,"disagreed":1}}"#;
+        let r: TestReport = serde_json::from_str(new).unwrap();
+        assert_eq!(r.inline, Some(true));
+        assert_eq!(r.record_ms, Some(812.5));
+        assert_eq!(
+            r.witness,
+            Some(WitnessCounts {
+                needed: 2,
+                promoted: 4,
+                awaiting: 7,
+                disagreed: 1
+            })
+        );
+        let back: TestReport = serde_json::from_value(serde_json::to_value(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+        // A partial witness object parses (every count defaults to 0).
+        let r: TestReport =
+            serde_json::from_str(r#"{"tool":"vitest","kind":"shadow","total":0,"ran":0,"replayed":0,"witness":{"needed":2}}"#)
+                .unwrap();
+        assert_eq!(r.witness.unwrap().awaiting, 0);
+    }
 
     fn found(key: &SigningKey, nonce: &str) -> FoundLedger {
         let files = vec![
