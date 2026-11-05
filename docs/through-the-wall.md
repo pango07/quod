@@ -532,3 +532,210 @@ every hit and no unit work gets under 0.5x; and misses stay at ≈ 1.1x
    parser and keyer (3–4 days), `hook.cjs` unit recognition as in section
    1, bwrap for both witnesses.
 3. S4 trims to action main and post if not already complete.
+
+## Addendum C (2026-11-05, after B1 on exp/whole-job-impl b7a1c46..b9f97e9 and quod-action 744c27f, run 41997812367): four deviations ruled, and where the 17 s is
+
+Read: `unit.rs` `cli` (:112–316), `mask`/`mask_durations` (:503–588),
+`network` (:1078–1101), `parse` (:751–1043), `Ignore` (:1248–1283),
+`keyer` (:1309–1433); `hook.cjs` `npmUnit`; the logs of runs 41997831485,
+41998243833, 41998523661, 41998674380, 41998834314, 41999140532.
+
+Measured. `test:release` plain in bubblewrap (the second witness, commit 2)
+8.1 s; plain outside (commit 4) 8.4 s; traced first witness 18.6 / 16.2 /
+21.4 s (commits 0, 1, 5): **2.0–2.6x**. Hit: `test:release` answered in
+0.20 s from 555 keys; `build` keyed in 0.15 s from 664. wrong 0 across the
+window. Rulings below, each with its fix.
+
+### C1. Masked witness comparison: sound in kind, the hex mask is too wide
+
+What the second witness is for: it catches inputs the trace cannot see
+(clock, randomness, pids, hostname, scheduling order) when they vary
+between two runs. A mask is a declaration that a class of text may depend
+on them; the replay prints the first witness's text as is. Exit code and
+every output are compared exact (`same_out`), and masks never touch the
+record. That structure is right.
+
+What the masks match, exactly. *Durations*: a digit run (dots allowed) at
+a word start followed by `ms` or `s` and then a non-alphanumeric, and the
+number after `duration_ms `. */tmp*: the five characters `/tmp/` anywhere,
+replaced through the next separator (so `/var/tmp/x` and `=/tmp/x` too).
+*Hex*: a word-start run of ≥ 7 hex digits ending at a word end and holding
+at least one decimal digit. That last rule covers **every decimal integer
+of 7 or more digits**: `1048576 bytes`, an epoch in seconds or ms, a date
+`20261105`, a row count. A nondeterministic numeric result printed but not
+written to an output file hides under it. Durations, scratch commit ids and
+mkdtemp names are clock- or random-derived and the same standard as
+vitest's masked durations; a byte count is not.
+
+**Fix, pairwise instead of per-text.** Compare line by line; split each
+line into tokens at the separator set; two lines agree when their token
+counts match and every differing pair is of one class: (duration,
+duration); (`/tmp/…`, `/tmp/…`) with `/tmp/` at a path start (preceded by
+the line start or a separator); (hex, hex) of the same length in 7..=64,
+each with a digit, **and at least one side with a letter a–f**. A 7-char
+git abbreviation is all-decimal with p = (10/16)^7 = 3.7 %; both sides
+all-decimal is 0.14 %, a disagreement that costs one witness, never a wrong
+replay. Two byte counts are both decimal: a disagreement, as they should
+be. An epoch printed in the output then disagrees every time and the unit
+ends at `MAX_DISAGREE` as always-runs: honest; a project that prints the
+clock asks for a class, not a wider mask. Tests to add to
+`durations_are_masked_for_agreement`: `1048576 bytes` vs `2097152 bytes`
+disagree; `3f9a2b1c` vs `9e0d4c27` agree; `1234567` vs `9e0d4c2` agree;
+`/var/tmp/a` vs `/var/tmp/b` disagree.
+
+### C2. Ignored inputs: sound; two additions of the same shape
+
+`/etc/resolv.conf` (exact). Every effect of its content is a query, and a
+query is a socket call: glibc's `send_dg` connects the UDP socket before
+`send`/`sendmmsg`, c-ares connects too, and nss-resolve talks to
+systemd-resolved over an AF_UNIX path outside `/tmp`, which `network()`
+flags as a local service. Loopback :53 and any non-loopback address fail
+closed (:1097). `/etc/hosts`, `nsswitch.conf`, `gai.conf` stay `f:`. The
+parser keys the argument path, so the `stub-resolv.conf` target is not
+keyed either: consistent. The per-VM line is Azure's `search` domain.
+Sound.
+
+`~/.npm` (exact) and `~/.npm/_logs/` (prefix). Reads under
+`~/.npm/_cacache` and `~/.npm/_npx` are **not** ignored: an npx cache hit
+reads index entries and content, keyed `f:`, and `package_root` turns
+`_npx/<h>/node_modules/<pkg>` into `p:` with its lockfile entry. A rebuilt
+cache (cacache index entries carry `time`) is a miss, never a wrong
+replay; a cache miss reaches the registry, `connect`, closed; npx writing
+into `_npx` is a write outside the checkout, closed. The listing rule
+(54c610f) dropping `.npm` from `d:$HOME` is right: its presence is
+neither input nor output. Sound.
+
+Add, from reading `network()` (:1031, :1103): (a) `sendmmsg` is not in the
+match; glibc uses it after `connect`, so it is covered today by accident.
+One word. (b) Abstract AF_UNIX names (`@…`) are skipped by `unix_path`.
+With `--unshare-net` the sandbox has its own abstract namespace, so a host
+service reachable plain is unreachable in **both** witnesses; they agree on
+the offline behaviour and the replay shows it. Flag any `connect` to an
+abstract name, successful or not. Same reasoning as the network rule: the
+sandbox differs from plain, so the attempt must fail closed, not the
+outcome.
+
+### C3. First-witness cost: accept; B1's estimate was for the wrong workload
+
+Why 2.0–2.6x and not 1.3–1.6x. The estimate assumed node's hot loop
+(futex, epoll_wait, read, write) dominated and would run untraced under
+`--seccomp-bpf`. `test:release` is 11,245 execs: each is ~40 loader file
+calls plus git's config and repository reads, all in `%file`. For this
+workload the traced set *is* the hot set, and ratio ≈ 1 + stops × stop
+cost / plain time. Worse, strace is one thread: `node --test` runs three
+files at once on four vCPUs, so three streams of git stops serialise
+through one tracer on the critical path. `build` (tsc, few execs) traced at
+~1.0x (2 s against 2 s), as predicted.
+
+**The ENOSYS injection is sound and better than B1.3.** `UV_USE_IO_URING`
+is an environment variable; a test that spawns node with a clean
+environment drops it (the 903). The kernel-level refusal does not depend
+on propagation; libuv falls back to epoll; a ring is a backend, not a
+result, so the plain witness may use one. Endorsed.
+
+A cheaper sound transport at the ptrace level: none. Considered and
+rejected: detaching after `execve("/usr/bin/git")` (the inherited filter
+stays; `SECCOMP_RET_TRACE` with no tracer returns ENOSYS to git's file
+calls: it breaks); a model of git's reads from its arguments ("unknown
+reads", B1); fanotify (sudo is there, and it sees opens, writes and readdir
+without stops, but not negative lookups, and `e:` from node's resolution
+are the most numerous calls, so they would be traced anyway); eBPF remains
+the drop-in later (B1). One trim worth an hour on probe/runner before
+adopting: drop `-yy` and keep an fd → path table in the parser (`openat`
+return, `dup*`, `fcntl F_DUPFD*`, `close`, inherited across `clone`
+without `CLONE_FILES`, cloexec on `execve`); strace does a
+`readlink(/proc/pid/fd/N)` for every fd it prints, two per `openat`;
+expect 15–25 %, adopt at ≥ 15 %.
+
+Accept the rest: paid once per unit key, on the first witness only, +8–13 s
+on `test:release`; in this window three first witnesses (commits 0, 1, 5:
+the image flip twice and package.json once) ≈ +30 s against 529 runner-s,
+and each hit saves 8 s. B1's "+3–6 s" is corrected to +8–13 s for
+exec-heavy scripts.
+
+### C4. Runner image identity: redundant, not wrong; the miss is in `envall:` and the kernel, by design
+
+The keys always added are `envall:`, `host:` and
+`f:/imagegeneration/imagedata.json` (:291). The image is already keyed by
+content: every file read outside the checkout is `f:` (git, libc,
+`ld.so.cache`, `/etc/*`), the kernel is in `host:`. On the flip (commit 1)
+`test:release` missed on exactly `envall:`, `f:/etc/ld.so.cache`,
+`f:/imagegeneration/imagedata.json`, `host:`: the image key added nothing
+the others did not. **Drop the unconditional `imagedata.json` key** (a key
+that is not a read is a spec smell; B1's table row 4 is mine, correct it).
+Keep `host:` (the kernel is a real input the trace cannot see, and it did
+change with the image). Keep `ld.so.cache` by content: it decides which
+library path is opened, and a changed cache pointing at a new library while
+the old one still exists would pass every `f:` key.
+
+Could the environment be keyed by what was read? Not for units: `getenv`
+is a memory read; `sh`, git and esbuild read it natively; a per-binary
+model is "unknown reads". So `envall:` by value over non-volatile names
+stays, and an image roll (`ImageVersion`, version-bearing toolcache paths
+such as `GOROOT_1_21_X64`) is a miss by construction: sound, and exactly as
+coarse as soundness needs. What makes it cheap is already there: `KEEP = 3`
+holds both images' records through GitHub's rollout; commit 2 (image A)
+matched `records[1]` after `records[0]` (image B) missed, and got its
+second witness. Cost per roll per unit: two first witnesses (one per
+image), ≈ +20 s on `test:release`, then hits on both. Diagnostic only: the
+"N of its recorded inputs changed" line should name the variables when
+`envall:` differs (the vitest keyer's `env` naming), so a roll reads as
+`ImageVersion` rather than `envall:`.
+
+### C5. Where the 17 s is, and the 2–4 vitest files
+
+Best job (commit 3, run 41998674380): 39 s wall = queue 2 + boot 2 +
+setup 15 (checkout 1.5, setup-node 13) + action main 10 + install 0 +
+build 2 + test 4 + post 2. The floor variant: 22 (queue 2, boot 2, setup
+15, post 1). **The 17 s is action main 10, build 2 (a real miss: this
+commit changed `cors.ts`), test 4, post +1.** vitest is 3.3 s of the 4:
+init 0.5, run 2.8, of which `openApiSpec.test.ts` is 2.3; `test:release`
+answered in 0.2.
+
+The 2–4 files, from the logs. `--audits auto` fills the workers the
+affected files leave idle (four vCPUs → 4 − affected), chosen among
+replayable files no slower than the slowest affected one, so they add no
+wall time (vitest.rs:838–872): affected + audits = 4 every job. Commit 2:
+one provisional record's second witness + 3 audits. Commit 3:
+`cors.test.ts` (changed) + `openApiSpec.test.ts` (the network file's
+second witness, run with none) + 2 audits. Commit 5: `tsApiSpec`,
+`openApiSpec` via `p:node_modules/commander` (changed) + 1 provisional + 1
+audit. The audits re-record ("3 witnessed again") and feed the next job's
+"1 provisional records run again": a conveyor of one file per job at
+50–150 ms. The only one that costs is `openApiSpec.test.ts` at 2.3 s
+(`npx redocly lint`; the network), run in two of three unchanged jobs;
+"1 files without function-level data: no record" is that file. A1/B2
+territory, not units.
+
+Action main, 10 s: node_modules restore 3.2 s, the quod binary from GitHub
+Releases 5 s (08:59:35 → 08:59:40), ledger restore 2 s. Commit 4's job got
+HTTP 504 on that download and ran entirely plain (Quod off, units off); the
+post step still printed "nothing recorded in this job (every vitest run
+replayed in full)" and the table left its Quod column blank: mark such a
+job **off**, and the message must say Quod was off. S4 (static quod in
+`dist/`, manifest GET by tree OID, no ledger restore) takes the 17 to ~9: a
+hit job of floor + 9 with build 0.5, test 3.3, action ≤ 1, post 1. B3's
+"14–17 s hit job" assumed setup-node 5 s; here it is 13 s and the floor
+22, so the pass mark is stated against the floor: **floor + ≤ 8 s**.
+
+### C6. Seen in passing: `/tmp` is both private and ignored
+
+A unit that reads a path under `/tmp` (or `/run/user`) it did not make,
+left there by an earlier step of the same job, sees ENOENT in both
+witnesses, records the "missing" behaviour and replays it where plain reads
+the file. The sandbox differs from plain here just as for the network, and
+the keyer drops every `/tmp` event before the `Pre` analysis (:1334). Fix:
+run `/tmp` through `written`/`Pre` like the checkout. A path whose first
+event is a write (`Create`, `Trunc`, `mkdir`, mkdtemp) or that lies under a
+directory the unit made is its own, left out of keys and outputs; a path
+under `/tmp` whose first event is `Read`, `Stat` or `List`, successful or
+ENOENT, fails closed: "it reads /tmp/x it did not make". The test fixture's
+`/tmp/scratch` (first event `O_CREAT|O_TRUNC`) stays valid.
+
+### C7. Order
+
+1. C1 pairwise agreement, C2 (a)(b), C6, C4's dropped key, and `unit.rs`
+   `VERSION` 1 → 2 (the key set changes). One day. One window, wrong = 0.
+2. S4: action main 10 → ≤ 1 s; the 504 makes the release download a
+   liability as well as a cost.
+3. C3's `-yy` probe, one hour; adopt at ≥ 15 %.
