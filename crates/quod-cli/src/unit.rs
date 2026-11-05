@@ -198,9 +198,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     if a.no_record {
         return Ok(code_u8(run_direct(&a.argv)?));
     }
-    let Some(bwrap) = sandbox_ok() else {
+    fs::create_dir_all(&a.dir)?;
+    let Some(bwrap) = sandbox_ok(&cwd, &a.dir) else {
         eprintln!(
-            "quod: {name} runs plain (bubblewrap unusable here, or its sandbox lacks this user's capabilities: not recorded)"
+            "quod: {name} runs plain (bubblewrap unusable here, or its sandbox cannot reach the checkout as this user can: not recorded)"
         );
         return Ok(code_u8(run_direct(&a.argv)?));
     };
@@ -692,12 +693,15 @@ fn run_captured(cmd: &[String], env: &[(&str, &str)]) -> anyhow::Result<(i32, Ve
     Ok((exit_code(st), out, err))
 }
 
-/// The sandbox, when it works here and its processes hold the capabilities
-/// this one holds. Run by root, bubblewrap can leave the sandbox with none
-/// (seen on the hosted image even with `--cap-add ALL`): root then cannot
-/// enter the runner's home (0750) and the witnesses would not see what a
-/// plain run sees, so the unit runs plain and is not recorded.
-fn sandbox_ok() -> Option<String> {
+/// The sandbox, when it works here, its processes hold the capabilities
+/// this one holds, and it reaches what this user reaches: the working
+/// directory, and the units' directory (strace writes its trace there).
+/// Root on the hosted image (Ubuntu 26.04) keeps every capability in
+/// bubblewrap but AppArmor's `unpriv_bwrap` profile denies it
+/// dac_override and dac_read_search, so it cannot enter the runner's home
+/// (0750): the witnesses would not see what a plain run sees, and the unit
+/// runs plain, not recorded.
+fn sandbox_ok(cwd: &Path, dir: &Path) -> Option<String> {
     let caps = |status: &str| {
         status
             .lines()
@@ -706,7 +710,10 @@ fn sandbox_ok() -> Option<String> {
     };
     let out = Command::new("bwrap")
         .args(sandbox_args())
-        .args(["--", "cat", "/proc/self/status"])
+        .arg("--chdir")
+        .arg(cwd)
+        .args(["--", "sh", "-c", "test -w \"$0\" && cat /proc/self/status"])
+        .arg(dir)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()

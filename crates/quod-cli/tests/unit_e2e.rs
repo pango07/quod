@@ -123,13 +123,15 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     let o = unit(&dir, &root, script);
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "built\n");
-    if err(&o).contains("lacks this user's capabilities") {
-        // Root, where bubblewrap leaves the sandbox without root's
-        // capabilities (the hosted image): the unit ran plain, recorded
+    if err(&o).contains("cannot reach the checkout as this user can") {
+        // Root on the hosted image, where AppArmor denies root's DAC
+        // capabilities inside bubblewrap: the unit ran plain, recorded
         // nothing, and its output is the plain run's.
         assert!(!dir.join("recorded").exists());
         assert_eq!(fs::read_to_string(root.join("out/o.txt")).unwrap(), "one\n");
-        eprintln!("the sandbox lacks this user's capabilities: the unit ran plain, as it must");
+        eprintln!(
+            "the sandbox cannot reach the checkout as this user: the unit ran plain, as it must"
+        );
         return;
     }
     assert!(err(&o).contains("recorded (first witness"), "{}", err(&o));
