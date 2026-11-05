@@ -57,6 +57,10 @@ The gate caught and drove a missing-field refinement: the real manifest has
 no `dependencies` field. Absence now qualifies only when the ordinary object
 prototype cannot supply an inherited property/getter.
 
-This is not a measured whole-job saving. Packaged replay checks and the
-changed-commit diagnostic must establish that separately. The previous
-12-commit result remains 1173/1905 runner-seconds for the best policy.
+The packaged replay gate and a paired changed-commit diagnostic have now
+passed; [the measured results](config-names-proof-results.md) preserve every
+job, its runner image, the cold/confirmation costs and the narrower changed-
+commit comparison. Proof used 78/330 runner-seconds on the two dependency
+upgrades and 379/651 including cold recording and confirmation, with zero
+wrong test-state comparisons. This does not replace the previous 12-commit
+result: 1173/1905 runner-seconds for the best policy, still above 0.5x.
