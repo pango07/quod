@@ -54,7 +54,6 @@ if (mode) {
   const vp = JSON.parse(fs.readFileSync(vitestPkgPath, 'utf8'))
   const entry = vp.exports['./node']
   const rel = typeof entry === 'string' ? entry : entry.import ?? entry.default
-  const V = await import(pathToFileURL(path.join(path.dirname(vitestPkgPath), rel)).href)
   let recorder = null, namesProof = null, settledKeys = null, booleanProof = null
   const booleanReads = new Map()
   const readSites = new Map()
@@ -103,6 +102,10 @@ if (mode) {
     settledKeys = R.settledKeys
     R.patchFs(recorder)
   }
+  // Match the product driver: hook fs before importing Vitest/Vite. Vite
+  // captures fs.promises.readFile for its async configuration search during
+  // module initialization; hooking later silently misses that observation.
+  const V = await import(pathToFileURL(path.join(path.dirname(vitestPkgPath), rel)).href)
   const start = performance.now()
   // Hold Vitest's default timestamp-derived sequence seed constant only in
   // this diagnostic, so independent process starts are comparable.

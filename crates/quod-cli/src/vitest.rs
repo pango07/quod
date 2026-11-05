@@ -4114,9 +4114,8 @@ mod tests {
             ..Ledger::default()
         };
         let mut json = serde_json::to_value(&ledger).unwrap();
-        let decode = |v: &serde_json::Value| {
-            compatible_ledger(&serde_json::to_vec(v).unwrap(), &code)
-        };
+        let decode =
+            |v: &serde_json::Value| compatible_ledger(&serde_json::to_vec(v).unwrap(), &code);
         assert_eq!(decode(&json).unwrap().files["trusted"].plain_n, 2);
         json["code"] = "other-recorder".into();
         assert!(decode(&json).is_none());
@@ -4145,10 +4144,14 @@ mod tests {
                 version,
                 code,
                 ..Ledger::default()
-            }).unwrap();
+            })
+            .unwrap();
             fs::write(&ledger_path, &bytes).unwrap();
             let err = absorb(root, root, &root.join("code"), &manifest).unwrap_err();
-            assert!(err.to_string().contains("different recorder code or schema"));
+            assert!(
+                err.to_string()
+                    .contains("different recorder code or schema")
+            );
             assert_eq!(fs::read(&ledger_path).unwrap(), bytes);
         }
     }

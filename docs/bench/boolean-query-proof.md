@@ -49,6 +49,22 @@ Validation:
 - The deleted nested manifest in c5 remains an existence/type input. Its
   removal is not treated as equivalent to a present manifest.
 
+**Diagnostic limitation discovered afterward:** that probe imported Vitest
+before hooking the filesystem. Vite captures an async read function during
+import, so the probe missed PostCSS configuration-search reads. The packaged
+Action hooks before import and correctly retains the whole manifest: its
+[cold diagnostic](https://github.com/pango07/quod/actions/runs/42117490345)
+observed nine root-manifest reads but only eight watched parses. The extra
+read flows through an async configurable loader, which this proof cannot
+certify. The probe now uses the product's import order. The earlier matching
+test states remain valid observations, but the refined-key result does not
+prove full input coverage in the product.
+
+The packaged fixture explicitly separates a bounded positive case (inline
+PostCSS options, so no async search) from the default async-search negative
+case. The negative case must execute and agree with plain after a manifest
+change. This does not alter the convex-helpers benchmark or remove its reads.
+
 The packaged replay gate and a short paired real-job chain must pass before
 this can claim a performance improvement. The authoritative full-window
 result remains 0.548x plain runner-seconds; this document adds no savings
