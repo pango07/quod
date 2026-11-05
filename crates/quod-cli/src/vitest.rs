@@ -1340,7 +1340,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 // A plain run cannot discover the changed tools' read set.
                 // Drop the old record: retaining it while updating facts
                 // below would pair old trust with the new toolchain.
-                unrec.insert(r.id.clone(), "tools changed: requires a fresh recording".into());
+                unrec.insert(
+                    r.id.clone(),
+                    "tools changed: requires a fresh recording".into(),
+                );
                 continue;
             }
             let ok = r.state == "pass" || r.state == "skip";
