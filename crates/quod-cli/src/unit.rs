@@ -436,9 +436,7 @@ fn key_state_in(root: &Path, k: &str, loaded: &Loaded) -> String {
 /// each other even when input states differ. Exit, output bytes and
 /// pairwise-normalized text must agree; a changed read set never qualifies.
 fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<String, String>> {
-    let reads = |r: &Rec| -> Vec<String> {
-        r.keys.iter().map(|(k, _)| k.clone()).collect()
-    };
+    let reads = |r: &Rec| -> Vec<String> { r.keys.iter().map(|(k, _)| k.clone()).collect() };
     let mine = reads(q);
     let p = records.iter_mut().find(|p| reads(p) == mine)?;
     let what = if p.code != q.code {
@@ -471,8 +469,13 @@ fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<St
     if let Some(w) = what {
         return Some(Err(w));
     }
-    let differ: Vec<&str> = p.keys.iter().zip(&q.keys)
-        .filter(|(a, b)| a.1 != b.1).map(|(a, _)| a.0.as_str()).collect();
+    let differ: Vec<&str> = p
+        .keys
+        .iter()
+        .zip(&q.keys)
+        .filter(|(a, b)| a.1 != b.1)
+        .map(|(a, _)| a.0.as_str())
+        .collect();
     p.witnesses = 2;
     q.witnesses = 2;
     Some(Ok(differ.join(", ")))

@@ -492,3 +492,48 @@ jobs:
         with:
           name: benchmark-binary
           path: /tmp/quod-linux-x86_64.tar.gz
+
+  benchmark-action:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-action'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: exp/whole-job-e-codex
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm install --no-audit --no-fund && npm run build
+      - run: node --test src/*.test.js
+      - run: npm install --no-audit --no-fund
+        working-directory: test
+      - uses: ./
+        with:
+          dependencies: 'false'
+          cloud: 'false'
+          task-cache: 'false'
+          lineage-witness: 'true'
+      - name: Real vitest lineage and switch regression
+        working-directory: test
+        run: |
+          set -eo pipefail
+          npm test
+          npm test
+          echo '// changed input, same tests' >> src/math.js
+          npm test 2>&1 | tee /tmp/lineage-promote.log
+          grep -E 'lineage: [1-9][0-9]* promoted' /tmp/lineage-promote.log
+          npm test 2>&1 | tee /tmp/lineage-audit.log
+          grep -E 'lineage: [0-9]+ promoted, [1-9][0-9]* plain audits, 0 disagreed' /tmp/lineage-audit.log
+          QUOD_VITEST_LINEAGE=0 npm test 2>&1 | tee /tmp/lineage-off.log
+          grep -E 'plain:' /tmp/lineage-off.log
+      - name: Bundle artifact
+        run: tar -czf /tmp/quod-action-dist.tgz dist/main dist/post
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: benchmark-action
+          path: |
+            /tmp/quod-action-dist.tgz
+            /tmp/lineage-*.log
