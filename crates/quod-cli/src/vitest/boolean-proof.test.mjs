@@ -156,29 +156,32 @@ test('a native stat success check keeps type/existence without inventing a conte
   assert.equal(result.keys.includes('pj:package.json'),false)
   assert.equal(result.stats.statType,1)
 })
-test('escaping stats and metadata readers retain the conservative manifest input', () => {
+test('escaping stats and metadata readers retain complete metadata inputs', () => {
   for (const consumer of ['export const size=tryStatSync(file).size;',
     'export const time=tryStatSync(file).mtimeMs;',
     'const s=tryStatSync(file); export const type=s.isFile();',
     'const alias=tryStatSync; export const type=alias(file)?.isFile();',
     'export const type=eval("tryStatSync(file)?.isFile()")']) {
     const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nconst file='package.json'; ${consumer}`})
-    assert.deepEqual(query(result),[])
-    assert.ok(result.keys.includes('pj:package.json'),consumer)
+    assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+    assert.ok(result.keys.includes('sm:package.json'),consumer)
+    assert.equal(result.keys.includes('st:package.json'),false,consumer)
     assert.equal(result.stats.statType,0)
   }
 })
 test('modified Stats methods fail closed even at a certified source location', () => {
   const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfs.Stats.prototype.isFile=function(){return this.size>10};
 const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
-  assert.deepEqual(query(result),[])
-  assert.ok(result.keys.includes('pj:package.json'))
+  assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
   assert.equal(result.stats.statType,0)
 })
 test('replacing the Stats constructor prototype cannot retain a stale proof', () => {
   const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfs.Stats.prototype={isFile(){return this.size>10}};
 const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
-  assert.deepEqual(query(result),[])
-  assert.ok(result.keys.includes('pj:package.json'))
+  assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
   assert.equal(result.stats.statType,0)
 })
