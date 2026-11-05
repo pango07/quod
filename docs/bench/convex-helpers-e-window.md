@@ -122,3 +122,50 @@ Medians per project and variant. **fixed** = runner-seconds minus install, build
 
 </details>
 
+
+## Follow-up: configuration-boundary diagnostic
+
+The [first config probe](https://github.com/pango07/quod/actions/runs/42092847000)
+resolved nine projects and selected the same 120 files in about 0.2 s per
+case. The only difference in the recorded worker configurations was the
+per-process timestamp-derived `sequence.seed`.
+
+The [controlled probe](https://github.com/pango07/quod/actions/runs/42093325625),
+source `259062a`, supplied an explicit seed **only in the diagnostic**.
+It varied the Chalk/Commander declarations in a copy of the final commit,
+using a single fixed installed dependency tree:
+
+| declaration case | config + selection ms | projects | test files |
+|---|---:|---:|---:|
+| before both upgrades | 156 | 9 | 120 |
+| after Chalk | 141 | 9 | 120 |
+| after both | 153 | 9 | 120 |
+
+The canonical worker configs, provided context and selected files matched
+in all three controlled cases. No tests were skipped based on these
+results; the probe explicitly sets `replayEligible: false`. This is a
+measurement of declaration influence, **not** equivalence of the actual
+installed package versions. The real window above did install and test
+the actual commits.
+
+A compatible incremental engine is the recommended next direction.
+Rewriting the customer's tests in Rust would change the benchmark and
+lose the drop-in property; Quod's existing core already uses Rust.
+The useful boundary is between configuration/transform work and execution
+of the customer's existing JavaScript tests.
+
+The first shippable slice must have explicit proof/fallback rules. A
+bounded static proof for private JSON data used only by native
+`Object.keys({...deps, ...devDeps})` is one possible narrow route: actual
+version-dependent branches, escaped objects, reflection, custom getters,
+revivers, dynamic evaluation and overridden builtins must retain their
+value keys or full-file dependency. This would preserve the audited
+version-sensitive-config regression. A general stage cache additionally
+needs transformed module and resolution identity, plugin/closure effects,
+global setup effects, provided context, and runtime observations. It must
+not simply discard the default sequence seed or hash function source as
+if that captured closures. Unknown effects mean execution.
+
+Neither experimental lineage promotion nor timing replay has become the
+product default. The 50% window target and broader correctness audit remain
+open; no second 12-commit window has been run.
