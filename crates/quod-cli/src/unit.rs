@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::vitest;
 
 /// Bumped when a record made before would be read differently.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 /// Records kept per unit (newest first).
 const KEEP: usize = 3;
 /// Disagreeing second witnesses before a unit always runs.
@@ -1444,6 +1444,14 @@ fn keyer(
     // Per path, its events in order.
     let mut by: BTreeMap<&str, Vec<&Ev>> = BTreeMap::new();
     for e in &t.evs {
+        if ignore.scratch.contains(&e.path) && e.op == Op::List {
+            // its listing in the sandbox is the unit's own entries; plain,
+            // the job's
+            return Err(format!(
+                "it lists {}, which is not the job's in the sandbox",
+                e.path
+            ));
+        }
         if ignore.hit(&e.path) || ignore.scratch.contains(&e.path) {
             continue;
         }
@@ -1451,31 +1459,51 @@ fn keyer(
     }
     // Scratch paths (outside the checkout): the unit's own when their
     // first event made them (or they are under a directory it made), and
-    // then neither inputs nor outputs; anything else there fails closed.
-    // Parents sort before their children.
+    // then neither inputs nor outputs. A path it looked up first and did
+    // not find is absent in the sandbox's private /tmp; it is keyed `e:`
+    // against the job's own /tmp when that lacks it too (both witnesses
+    // saw what a plain run sees: prettier probing /tmp/.prettierrc above a
+    // scratch repository), and fails closed when the job's has it. Any
+    // other path there fails closed. Parents sort before their children.
     let inside =
         |p: &str, m: &str| p.len() > m.len() && p.starts_with(m) && p.as_bytes()[m.len()] == b'/';
     let mut mine: Vec<&str> = Vec::new();
+    let mut absent: Vec<String> = Vec::new();
     let mut foreign: Option<String> = None;
     by.retain(|p, evs| {
         let p = *p;
         if under(p) || ignore.scratch_of(p).is_none() {
             return true;
         }
-        if !mine.iter().copied().any(|m| inside(p, m)) {
-            match (evs[0].op, evs[0].ok) {
-                (Op::Create | Op::Trunc, true) => mine.push(p),
-                (op, _) => {
-                    let what = if matches!(op, Op::Read | Op::Stat | Op::List) {
-                        "reads"
-                    } else {
-                        "changes"
-                    };
-                    if foreign.is_none() {
-                        foreign = Some(format!("it {what} {p}, which it did not make"));
-                    }
-                }
+        if mine.iter().copied().any(|m| inside(p, m)) {
+            return false;
+        }
+        let first = (evs[0].op, evs[0].ok);
+        let made_later = evs
+            .iter()
+            .any(|e| matches!((e.op, e.ok), (Op::Create | Op::Trunc, true)));
+        let why = match first {
+            (Op::Create | Op::Trunc, true) => {
+                mine.push(p);
+                return false;
             }
+            (Op::Read | Op::Stat | Op::List, false) if fs::symlink_metadata(p).is_err() => {
+                absent.push(format!("e:{p}"));
+                if made_later {
+                    mine.push(p);
+                }
+                return false;
+            }
+            (Op::Read | Op::Stat | Op::List, false) => {
+                format!("it looks up {p}, which the job's /tmp has and the sandbox's does not")
+            }
+            (Op::Read | Op::Stat | Op::List, true) => {
+                format!("it reads {p}, which it did not make")
+            }
+            _ => format!("it changes {p}, which it did not make"),
+        };
+        if foreign.is_none() {
+            foreign = Some(why);
         }
         false
     });
@@ -1572,6 +1600,9 @@ fn keyer(
                 _ => key(format!("e:{}", rel(p)), None),
             }
         }
+    }
+    for k in absent {
+        key(k, None);
     }
     let mut outs: Vec<String> = written.keys().map(|p| rel(p)).collect();
     outs.sort();
@@ -1813,25 +1844,60 @@ mod tests {
         let (keys, outs) = keys_of(&root, mine).unwrap();
         assert!(keys.iter().all(|(k, _)| !k.contains("/tmp")), "{keys:?}");
         assert!(outs.is_empty(), "{outs:?}");
+        // Looked up and not found, in the sandbox and in the job's /tmp:
+        // keyed against the job's (prettier's config search above a
+        // scratch repository); found in the job's: fails closed.
+        let gone = format!("/tmp/quod-c6-absent-{}", std::process::id());
+        let text = format!(
+            "1 mkdir(\"/tmp/rel-Q\", 0700) = 0\n1 newfstatat(AT_FDCWD, \"{gone}\", 0x1, 0) = -1 ENOENT (No such file or directory)\n1 openat(AT_FDCWD, \"{gone}/.prettierrc\", O_RDONLY) = -1 ENOENT (No such file or directory)\n"
+        );
+        let (keys, _) = keys_of(&root, &text).unwrap();
+        let ks: Vec<&str> = keys.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(ks.contains(&format!("e:{gone}").as_str()), "{ks:?}");
+        assert!(
+            ks.contains(&format!("e:{gone}/.prettierrc").as_str()),
+            "{ks:?}"
+        );
+        let there = tempfile::Builder::new()
+            .prefix("quod-c6-there")
+            .tempfile_in("/tmp")
+            .unwrap();
+        let tp = there.path().display();
+        let e = keys_of(
+            &root,
+            &format!(
+                "1 newfstatat(AT_FDCWD, \"{tp}\", 0x1, 0) = -1 ENOENT (No such file or directory)\n"
+            ),
+        )
+        .unwrap_err();
+        assert!(e.contains("the job's /tmp has"), "{e}");
+        // looked up, missing, then made: keyed absent, and its own after
+        let text = format!(
+            "1 newfstatat(AT_FDCWD, \"{gone}\", 0x1, 0) = -1 ENOENT (No such file or directory)\n1 mkdir(\"{gone}\", 0777) = 0\n1 openat(AT_FDCWD, \"{gone}/f\", O_RDONLY) = 3\n"
+        );
+        let (keys, _) = keys_of(&root, &text).unwrap();
+        let ks: Vec<&str> = keys.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            ks.iter().filter(|k| k.contains(&gone.to_string())).count(),
+            1,
+            "{ks:?}"
+        );
         for (text, why) in [
             (
                 "1 openat(AT_FDCWD, \"/tmp/left-by-a-step\", O_RDONLY) = 3</tmp/left-by-a-step>\n",
                 "reads /tmp/left-by-a-step",
             ),
-            (
-                "1 newfstatat(AT_FDCWD, \"/tmp/cache\", 0x1, 0) = -1 ENOENT (No such file or directory)\n1 mkdir(\"/tmp/cache\", 0777) = 0\n",
-                "reads /tmp/cache",
-            ),
+            ("1 getdents64(3</tmp>, 0x1, 32768) = 96\n", "lists /tmp"),
             (
                 "1 openat(AT_FDCWD, \"/tmp/log\", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</tmp/log>\n",
                 "changes /tmp/log",
             ),
             (
-                "1 openat(AT_FDCWD, \"/run/user/1001/bus\", O_RDONLY) = -1 ENOENT (No such file or directory)\n",
+                "1 openat(AT_FDCWD, \"/run/user/1001/bus\", O_RDONLY) = 0\n",
                 "reads /run/user/1001/bus",
             ),
             (
-                "1 connect(3<UNIX:[1]>, {sa_family=AF_UNIX, sun_path=\"/tmp/agent.sock\"}, 110) = -1 ENOENT (No such file or directory)\n",
+                "1 connect(3<UNIX:[1]>, {sa_family=AF_UNIX, sun_path=\"/tmp/agent.sock\"}, 110) = 0\n",
                 "reads /tmp/agent.sock",
             ),
         ] {
