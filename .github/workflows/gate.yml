@@ -635,6 +635,45 @@ jobs:
           name: convex-profile-${{ matrix.mode }}
           path: /tmp/quod-profile/evidence
 
+  benchmark-heap:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-heap'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, recorded]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 8b0ad91b8b1019c1eb14334e771d0352bc011468
+          path: profile-action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 6b17e1514f5222e9c019e177e36384df95a3ff25
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci
+        working-directory: profile-project
+      - name: Compare default and larger young-generation heaps
+        env:
+          PROFILE_MODE: ${{ matrix.mode }}
+        run: |
+          mkdir -p /tmp/quod-heap-profile
+          echo '9cbb48d36f41f79ee9d3470285c803dddba7651e3992f39687aa6838869bb41a  profile-action/dist/quod/bin-ae52750.tar.gz' | sha256sum -c -
+          tar -xzf profile-action/dist/quod/bin-ae52750.tar.gz -C /tmp/quod-heap-profile
+          python3 scripts/bench-vitest/heap-profile.py "$PWD/profile-project" "$PROFILE_MODE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: convex-heap-${{ matrix.mode }}
+          path: /tmp/quod-heap-profile/${{ matrix.mode }}
+
   benchmark-harness:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-harness'
     runs-on: ubuntu-latest
