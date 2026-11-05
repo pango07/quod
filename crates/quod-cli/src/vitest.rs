@@ -120,6 +120,14 @@ const STEP_VOLATILE: &[&str] = &[
     "_",
 ];
 
+/// Per-run in general (quod_key's VOLATILE), but a fixed path on a hosted
+/// runner: a read is keyed by its value, as any variable's (a runner where
+/// it differs is a miss, never a wrong replay). npm reads
+/// GITHUB_EVENT_PATH in every npx a test starts (convex-helpers'
+/// openApiSpec.test.ts, `npx redocly lint`); the file's content, if read,
+/// is keyed as a file.
+const VALUE_KEYED: &[&str] = &["GITHUB_EVENT_PATH"];
+
 #[derive(clap::Args)]
 pub struct VitestArgs {
     /// Where the ledger, the recorded results and the driver live
@@ -1300,7 +1308,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // files from ever recording.
         if let Some(v) = keys.iter().find_map(|k| {
             k.strip_prefix("env:").filter(|n| {
-                volatile_env(n) && !STEP_VOLATILE.contains(n) && !n.starts_with("QUOD_")
+                volatile_env(n)
+                    && !STEP_VOLATILE.contains(n)
+                    && !VALUE_KEYED.contains(n)
+                    && !n.starts_with("QUOD_")
             })
         }) {
             *unobservable
