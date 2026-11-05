@@ -1419,7 +1419,14 @@ mod tests {
         keyer(
             root,
             &t,
-            &Ignore::new(root, Path::new("/nonexistent-quod-dir")),
+            // the test's root is under the OS temp dir, which a sandboxed
+            // run has to itself (Ignore::new): leave only these out
+            &Ignore {
+                prefixes: ["/proc", "/sys", "/dev", "/tmp/scratch"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
         )
     }
 
