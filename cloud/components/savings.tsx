@@ -53,7 +53,8 @@ function useLiveRuns(runs: TestRunLite[]): { all: TestRunLite[]; latestLive: { r
     if (e.type !== "test.run") return;
     const r = lite(e.run);
     setExtra((x) => mergeRuns(x, [r]));
-    if (r.kind === "critical") setLatestLive({ run: r, at: Date.now() });
+    // Flashes only when it is the model's newest check (a legacy background recording never is).
+    setLatestLive({ run: r, at: Date.now() });
   });
   const all = useMemo(() => mergeRuns(runs, extra), [runs, extra]);
   return { all, latestLive };
@@ -141,12 +142,12 @@ function SavingsHero({ p, m, live, latestLive, nowIso }: { p: SavingsProps; m: S
               {formatMoney(m.usd.net)}
             </span>
             {m.recordingMs > 0 ? (
-              <span className="savings-sum tnum" aria-label={`${formatMoney(m.usd.saved)} saved on checks, minus ${formatMoney(m.usd.recording)} for background recordings`}>
+              <span className="savings-sum tnum" aria-label={`${formatMoney(m.usd.saved)} saved on test runs, minus ${formatMoney(m.usd.recording)} for legacy background recordings`}>
                 <span>
-                  {formatMoney(m.usd.saved)} <span className="faint">saved on checks</span>
+                  {formatMoney(m.usd.saved)} <span className="faint">saved on test runs</span>
                 </span>
                 <span>
-                  − {formatMoney(m.usd.recording)} <span className="faint">background recordings</span>
+                  − {formatMoney(m.usd.recording)} <span className="faint">legacy background recordings</span>
                 </span>
               </span>
             ) : null}
@@ -156,8 +157,11 @@ function SavingsHero({ p, m, live, latestLive, nowIso }: { p: SavingsProps; m: S
                 Change the price
               </Link>
             </span>
+            {m.recordedChecks > 0 ? (
+              <span className="savings-note">Recording happens inside your test runs, so the time it adds is already counted in their run times.</span>
+            ) : null}
             {negative ? (
-              <span className="savings-warn">Background recordings used more runner time than the checks saved in this period.</span>
+              <span className="savings-warn">Legacy background recordings used more runner time than your test runs saved in this period.</span>
             ) : null}
           </div>
 
@@ -368,7 +372,7 @@ function MoneyCard({ m }: { m: SavingsModel }) {
             Money saved over time
           </h2>
           <p className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-            Added up day by day, after background recordings. At {rateText(m.usdPerMinute)}.
+            Added up day by day{m.recordingMs > 0 ? ", after legacy background recordings" : ""}. At {rateText(m.usdPerMinute)}.
           </p>
         </div>
         <span className={`money-last tnum ${last < 0 ? "neg" : ""}`}>{formatMoney(last)}</span>

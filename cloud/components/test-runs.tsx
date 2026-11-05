@@ -5,10 +5,11 @@ import Link from "next/link";
 import { Chip, Dot } from "@/components/ui";
 import type { TestRunSummary, TestStats } from "@/lib/api/types";
 import { formatAgo, formatCount, shortSha } from "@/lib/format";
-import { exitLabel, formatSaved, kindLabel, KIND_EXPLAINED, LAST_CHECKS, SAVED_EXPLAINED, shareText, shareTitle, type SkippedShare, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
+import { exitLabel, formatSaved, LAST_CHECKS, legacyRecordingIds, ROLE_EXPLAINED, roleLabel, roleTone, runRole, SAVED_EXPLAINED, shareText, shareTitle, type SkippedShare, suiteLabel, testRunHref, weekSkipped } from "@/lib/test-runs";
 
 /** One line per run: headline numbers, branch and commit, when. */
 export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; runs: TestRunSummary[]; asOf: string; showRepo?: boolean }) {
+  const legacy = legacyRecordingIds(runs);
   return (
     <div>
       <div className="table-head cols-tests" aria-hidden="true">
@@ -20,6 +21,7 @@ export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; ru
       </div>
       {runs.map((r) => {
         const exit = exitLabel(r.exit);
+        const role = runRole(r, legacy);
         return (
           <Link key={r.id} className="trow cols-tests" href={testRunHref(team, r)}>
             <span className="cell-main">
@@ -29,8 +31,8 @@ export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; ru
                 <span className="ellipsis">
                   {r.tool} · {suiteLabel(r)}
                 </span>
-                <span title={KIND_EXPLAINED[r.kind]}>
-                  <Chip tone={r.kind === "shadow" ? "gray" : "blue"}>{kindLabel(r.kind)}</Chip>
+                <span title={ROLE_EXPLAINED[role]}>
+                  <Chip tone={roleTone(role)}>{roleLabel(role)}</Chip>
                 </span>
               </span>
               <span className="mono cell-sub">
@@ -68,7 +70,7 @@ export function TestRunsTable({ team, runs, asOf, showRepo }: { team: string; ru
   );
 }
 
-/** "280 test files: 258 skipping, 17 ready, 3 always run" with a link to Trust, where each file's state is listed. */
+/** "280 test files: 258 trusted, 17 recorded, 3 always run" with a link to Trust, where each file's state is listed. */
 export function TestFilesLine({ team, line }: { team: string; line: string }) {
   return (
     <p style={{ fontSize: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
@@ -79,6 +81,8 @@ export function TestFilesLine({ team, line }: { team: string; line: string }) {
     </p>
   );
 }
+
+const SPOT_HELP = "When a test job has idle workers, Quod runs a few skipped files anyway and compares their results with the reused ones.";
 
 /** The Overview's test card: time saved today and this week, skips, wrong results, spot-checks, and the latest runs. */
 export function TestStatsCard({
@@ -102,7 +106,7 @@ export function TestStatsCard({
   const skipped = weekSkipped(stats);
   const wrong = stats.wrongResults;
   const recent = stats.recent.slice(0, 5);
-  const why = "Skipped because nothing they depend on changed since a recorded run; their earlier result was reused.";
+  const why = "Skipped because nothing they depend on changed since a recording two runs agreed on; that result was reused.";
   const rows: [string, string, string?][] = [
     ...(compact
       ? []
@@ -118,12 +122,12 @@ export function TestStatsCard({
       ? [
           "Spot-checks passed, last 7 days",
           spotChecksWeek.checked ? `${formatCount(spotChecksWeek.checked - spotChecksWeek.mismatched)} of ${formatCount(spotChecksWeek.checked)}` : "None this week",
-          "A few skipped files are re-run in the background and their results compared.",
+          SPOT_HELP,
         ]
       : [
           "Spot-checks passed, all time",
           stats.audits.checked ? `${formatCount(stats.audits.passed)} of ${formatCount(stats.audits.checked)}` : "None yet",
-          "A few skipped files are re-run in the background and their results compared.",
+          SPOT_HELP,
         ],
   ];
   return (
@@ -135,8 +139,8 @@ export function TestStatsCard({
           </h2>
           <p className="muted" style={{ fontSize: 13, lineHeight: 1.5, maxWidth: "72ch" }}>
             {compact
-              ? "Quod re-runs a few skipped test files in the background and compares the results. A wrong result would show here."
-              : "Quod skips a test file when nothing it depends on changed since a recorded run, and reuses that result. A few skipped files are re-run in the background to check."}
+              ? "Quod reuses a test file's result only after two runs of it agreed, and runs a few skipped files anyway, in the same job, to compare. A wrong result would show here."
+              : "Quod skips a test file when nothing it depends on changed since a recording that two runs agreed on, and reuses that result. A few skipped files run anyway, in the same job, to check."}
           </p>
         </div>
       </div>

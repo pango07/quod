@@ -8,7 +8,7 @@ import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
 import { formatAgo, formatCount, shortSha } from "@/lib/format";
 import { isSlug } from "@/lib/params";
-import { exitLabel, formatSaved, formatSavedMs, kindLabel, KIND_EXPLAINED, ledgerSentence, SAVED_EXPLAINED, showSpotChecks, spotCheckSentence, testRunHeadline, testRunHref } from "@/lib/test-runs";
+import { exitLabel, formatSaved, formatSavedMs, ledgerSentence, legacyRecordingIds, RECORDING_EXPLAINED, ROLE_EXPLAINED, roleLabel, roleTone, runRole, type RunRole, SAVED_EXPLAINED, showSpotChecks, spotCheckSentence, testRunHeadline, testRunHref } from "@/lib/test-runs";
 
 export const metadata = { title: "Test run" };
 
@@ -26,6 +26,13 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
   // The id is the team's; the repo in the URL is only for navigation. Keep one URL per run.
   if (run.repoSlug.toLowerCase() !== repo.toLowerCase()) redirect(testRunHref(team.slug, run));
 
+  // A "shadow" report is the developer's own test job, recorded inline, unless a "critical" report of the
+  // same commit and suite exists: then it is a legacy background recording (lib/test-runs.ts).
+  let role: RunRole = runRole(run, new Set());
+  if (run.kind === "shadow" && run.sha) {
+    const siblings = await section(api().listTestRuns(team.slug, { repo: run.repoSlug, limit: 200 }));
+    if (siblings.ok && siblings.value) role = runRole(run, legacyRecordingIds([run, ...siblings.value.filter((r) => r.id !== run.id)]));
+  }
   const asOf = new Date().toISOString();
   const exit = exitLabel(run.exit);
   const spot = spotCheckSentence(run);
@@ -41,8 +48,8 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
               <Dot tone={exit.tone} />
               {exit.text}
             </span>
-            <span title={KIND_EXPLAINED[run.kind]}>
-              <Chip tone={run.kind === "shadow" ? "gray" : "blue"}>{kindLabel(run.kind)}</Chip>
+            <span title={ROLE_EXPLAINED[role]}>
+              <Chip tone={roleTone(role)}>{roleLabel(role)}</Chip>
             </span>
             {run.branch || run.sha ? (
               <span className="mono">
@@ -87,6 +94,7 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
           <span className="label">Took</span>
           <span className="value">{ms(run.timing.wallMs)}</span>
           {run.timing.selectMs !== null ? <span className="note">Picking the files to run: {ms(run.timing.selectMs)}</span> : null}
+          {role === "recorded" ? <span className="note">Includes recording the files that ran.</span> : null}
         </div>
         <div className="card stat" title="The recorded time of every test file, added up across workers.">
           <span className="label">All files, as recorded</span>
@@ -137,17 +145,21 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
         )}
       </section>
 
+      {role !== "check" ? (
+        <section className="card" aria-labelledby="rec-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 8 }}>
+          <h2 id="rec-h" className="h2">
+            {role === "legacy-recording" ? "Legacy background recording" : "Recorded in this run"}
+          </h2>
+          <p style={{ fontSize: 14, maxWidth: "80ch" }}>{role === "legacy-recording" ? ROLE_EXPLAINED["legacy-recording"] : RECORDING_EXPLAINED}</p>
+        </section>
+      ) : null}
+
       {showSpotChecks(run) ? (
       <section className="card" aria-labelledby="spot-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
         <h2 id="spot-h" className="h2">
           Spot-checks
         </h2>
-        <p style={{ fontSize: 14 }}>
-          {spot ??
-            (run.kind === "critical" && !run.shadow
-              ? "None yet. The background recording for this commit has not reported; this page updates when it does."
-              : "None for this run.")}
-        </p>
+        <p style={{ fontSize: 14 }}>{spot}</p>
         {run.auditFiles.length ? (
           <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
             {run.auditFiles.map((f) => (
@@ -164,7 +176,7 @@ export default async function TestRunPage({ params }: PageProps<"/[team]/[repo]/
         {run.shadow ? (
           <p className="muted" style={{ fontSize: 13 }}>
             <Link href={testRunHref(team.slug, run.shadow)} style={{ textDecoration: "underline" }}>
-              The background recording for this commit
+              The legacy background recording for this commit
             </Link>{" "}
             ran them.
           </p>

@@ -26,6 +26,8 @@ function server(answer: (path: string) => Response) {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const sample = sampleTestRuns(Date.parse("2026-11-02T12:00:00Z"));
 const critical = sample.find((r) => r.id === "tr_4182c")!;
+// From before quod-action v2: a check whose commit also had a background recording job.
+const legacyCheck = sample.find((r) => r.kind === "critical" && r.shadow)!;
 
 describe("test runs over HTTP", () => {
   it("an older server (404 on every test endpoint) gives null: the UI hides test sections", async () => {
@@ -47,6 +49,24 @@ describe("test runs over HTTP", () => {
     await expect(api.listTestRuns("acme")).rejects.toBeInstanceOf(ApiUnavailableError);
   });
 
+  it("legacy: a check with its background recording still parses", async () => {
+    const { api } = server(() => json(legacyCheck));
+    const run = await api.getTestRun("acme", legacyCheck.id);
+    expect(run?.kind).toBe("critical");
+    expect(run?.shadow?.kind).toBe("shadow");
+    expect(run?.auditFiles.length).toBeGreaterThan(0);
+  });
+
+  it("a run without the legacy fields (auditFiles, shadow) still parses: none", async () => {
+    const body: Record<string, unknown> = { ...critical };
+    delete body.auditFiles;
+    delete body.shadow;
+    const { api } = server(() => json(body));
+    const run = await api.getTestRun("acme", critical.id);
+    expect(run?.auditFiles).toEqual([]);
+    expect(run?.shadow).toBeNull();
+  });
+
   it("reads runs, one run and the stats; sends repo and a clamped limit", async () => {
     const stats = { asOf: "2026-11-02T12:00:00Z", today: { savedMs: 79240, runs: 1 }, week: { savedMs: 300000, runs: 4, filesTotal: 700, filesSkipped: 640, skippedPct: 91.4 }, wrongResults: 0, audits: { checked: 4, passed: 4 }, recent: [summaryOnly(critical)] };
     const { api, seen } = server((p) => (p.startsWith("/v1/teams/acme/test-runs?") ? json({ runs: [summaryOnly(critical)] }) : p.startsWith("/v1/teams/acme/test-runs/") ? json(critical) : json(stats)));
@@ -54,7 +74,9 @@ describe("test runs over HTTP", () => {
     expect(seen[0]).toBe("/v1/teams/acme/test-runs?repo=web&limit=200");
     const run = await api.getTestRun("acme", "tr_4182c");
     expect(run?.ranFiles).toHaveLength(13);
-    expect(run?.shadow?.kind).toBe("shadow");
+    // Recorded inline (quod-action v2): reported as "shadow", with no background recording of its own.
+    expect(run?.kind).toBe("shadow");
+    expect(run?.shadow).toBeNull();
     expect((await api.getTestStats("acme"))?.recent).toHaveLength(1);
   });
 

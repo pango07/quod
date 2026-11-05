@@ -6,7 +6,7 @@ import type { TestRunSummary } from "@/lib/api/types";
 import { concernsTestRun } from "@/lib/test-runs";
 import { useLiveListener } from "./provider";
 
-/** A test run's page: re-read it when its report is sent again, or when the background recording of its commit arrives (with the spot-checks). */
+/** A test run's page: re-read it when its report is sent again, or (for a legacy check) when the background recording of its commit arrives with the spot-checks. */
 export function TestRunRefresh({ run }: { run: Pick<TestRunSummary, "id" | "repoSlug" | "sha" | "suite"> }) {
   const router = useRouter();
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);

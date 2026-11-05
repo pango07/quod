@@ -98,6 +98,7 @@ export const mapTestSuite = (m: RepoMap, s: TestSuite): TestSuite => (m.identity
 
 export function mapTestRunDetail(m: RepoMap, d: TestRunDetail): TestRunDetail {
   if (m.identity) return d;
+  // shadow: a legacy check's background recording (null for runs recorded inline).
   return { ...mapTestRun(m, d), shadow: d.shadow ? mapTestRun(m, d.shadow) : null };
 }
 

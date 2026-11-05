@@ -199,6 +199,9 @@ const shapes = {
   testRuns: (v: unknown) => list(has(v, "test-runs", { runs: "array" }).runs, "test-runs.runs", testRunSummary),
   testRun: (v: unknown): TestRunDetail => {
     const o = testRunSummary(v, "test-run") as unknown as Record<string, unknown>;
+    // Legacy fields (the retired background-recording design): a server that stops sending them still parses.
+    if (o.auditFiles === undefined) o.auditFiles = [];
+    if (o.shadow === undefined) o.shadow = null;
     has(o, "test-run", { ranFiles: "array", auditFiles: "array", shadow: "object|null" });
     list(o.ranFiles, "test-run.ranFiles", (f, fw) => has(f, fw, { file: "string", why: "string", durationMs: "number|null" }));
     list(o.auditFiles, "test-run.auditFiles", (f, fw) => has(f, fw, { file: "string", ok: "boolean" }));

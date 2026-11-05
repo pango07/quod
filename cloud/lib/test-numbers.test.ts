@@ -5,7 +5,7 @@ import { TestStatsCard } from "@/components/test-runs";
 import { sampleTestRuns, sampleTestStats, sampleTestSuites, summaryOnly } from "@/lib/api/fixture-tests";
 import type { TestRunDetail, TestRunSummary, TestSuite } from "@/lib/api/types";
 import { formatSaved, formatSavedMs, showSpotChecks, spotChecksWithinWeek } from "./test-runs";
-import { barSegments, lookReason, needLookCount, recordDiffers, suiteRowSummary, trustModel } from "./test-suites";
+import { barSegments, lookReason, needLookCount, recordDiffers, savedWithinWeek, suiteRowSummary, trustModel } from "./test-suites";
 
 // The audit's fixes: sub-second times, "≈" on estimates, spot-check windows,
 // "recording differed", reasons as sent, and no empty spot-check section.
@@ -58,14 +58,32 @@ describe("spot-checks", () => {
     expect(noRuns.summary.spotChecksWindow).toBe("all");
   });
 
+  it("Trust's week: quod-server's stats miss runs recorded inline, so with any among the runs the week is the runs' own", () => {
+    const runs = sampleTestRuns(NOW).map(summaryOnly);
+    const stats = sampleTestStats(NOW);
+    const m = trustModel({ team: "t", suites: sampleTestSuites(NOW), runs, stats, now: NOW, ago: () => "" });
+    const own = savedWithinWeek(runs, NOW);
+    expect(own.runs).toBeGreaterThan(stats.week.runs);
+    expect([m.summary.weekRuns, m.summary.savedWeekMs]).toEqual([own.runs, own.savedMs]);
+    // Legacy runs only: the server's week, as before.
+    const legacyOnly = runs.filter((r) => r.kind === "critical" || r.id.endsWith("s"));
+    expect(trustModel({ team: "t", suites: sampleTestSuites(NOW), runs: legacyOnly, stats, now: NOW, ago: () => "" }).summary.weekRuns).toBe(stats.week.runs);
+  });
+
+  it("the Overview card's copy: spot-checks run in the same job, never in the background", () => {
+    const html = text(renderToStaticMarkup(createElement(TestStatsCard, { team: "t", stats: sampleTestStats(NOW), compact: true })));
+    expect(html).toContain("in the same job");
+    expect(html).not.toMatch(/background/i);
+  });
+
   it("a run's page: no spot-check section when there is nothing to say", () => {
     const run = (over: Partial<TestRunDetail>) => ({ ...sampleTestRuns(NOW).find((x) => x.id === "tr_4182c")!, ...over });
     // Replayed nothing: nothing to check.
     expect(showSpotChecks(run({ files: { total: 9, ran: 9, replayed: 0, narrowed: 0 }, auditFiles: [], audits: null, shadow: null }))).toBe(false);
-    // The recording reported, without spot-checks.
+    // Reported, without spot-checks.
     expect(showSpotChecks(run({ auditFiles: [], audits: { checked: 0, mismatched: 0 } }))).toBe(false);
-    // Skipped files, the recording has not reported yet: "None yet".
-    expect(showSpotChecks(run({ auditFiles: [], audits: null, shadow: null }))).toBe(true);
+    // Skipped files and no spot-checks: they run in the same job now, so there is nothing to wait for.
+    expect(showSpotChecks(run({ auditFiles: [], audits: null, shadow: null }))).toBe(false);
     // Spot-checks: shown.
     expect(showSpotChecks(run({}))).toBe(true);
   });
@@ -77,7 +95,7 @@ describe("recording differed (totals.recordDiffers)", () => {
   it("absent or 0: as before", () => {
     expect(recordDiffers(t({}))).toEqual({ n: 0, inAlways: false });
     expect(barSegments(t({})).map((s) => s.state)).toEqual(["ready", "skipping", "always", "paused"]);
-    expect(suiteRowSummary(t({}))).toBe("10 files · 6 skipping · 3 need a look");
+    expect(suiteRowSummary(t({}))).toBe("10 files · 6 trusted · 3 need a look");
   });
 
   it("counted inside always (the states already add up to files): taken out of always, its own segment", () => {
@@ -91,22 +109,22 @@ describe("recording differed (totals.recordDiffers)", () => {
       ["paused", 1],
     ]);
     expect(needLookCount(x)).toBe(3);
-    expect(suiteRowSummary(x)).toBe("10 files · 6 skipping · 3 need a look (1 recording differed)");
+    expect(suiteRowSummary(x)).toBe("10 files · 6 trusted · 3 need a look (1 where runs disagreed)");
   });
 
   it("counted apart (files = states + recordDiffers): added, not folded into always", () => {
     const x = t({ files: 12, recordDiffers: 2 });
     expect(recordDiffers(x)).toEqual({ n: 2, inAlways: false });
     expect(barSegments(x).find((s) => s.state === "always")?.n).toBe(2);
-    expect(barSegments(x).find((s) => s.state === "recordDiffers")).toEqual({ state: "recordDiffers", n: 2, label: "recording differed" });
-    expect(suiteRowSummary(x)).toBe("12 files · 6 skipping · 5 need a look (2 recording differed)");
+    expect(barSegments(x).find((s) => s.state === "recordDiffers")).toEqual({ state: "recordDiffers", n: 2, label: "runs disagreed" });
+    expect(suiteRowSummary(x)).toBe("12 files · 6 trusted · 5 need a look (2 where runs disagreed)");
   });
 
   it("in the summary strip's legend", () => {
     const suites = sampleTestSuites(NOW).map((s, i) => (i === 0 ? { ...s, totals: { ...s.totals, recordDiffers: 1 } } : s));
     const m = trustModel({ team: "t", suites, runs: [], stats: null, now: NOW, ago: () => "" });
-    expect(m.summary.bar.map((b) => b.label)).toContain("recording differed");
-    expect(m.suites[0].summary).toContain("(1 recording differed)");
+    expect(m.summary.bar.map((b) => b.label)).toContain("runs disagreed");
+    expect(m.suites[0].summary).toContain("(1 where runs disagreed)");
   });
 });
 

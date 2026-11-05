@@ -10,7 +10,7 @@ import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
 import { requireTeam } from "@/lib/dal";
-import { hasTestActivity, lastUtcDays, skippedShare, spotChecksWithinWeek, testMinutesPerDay, testsByRepo } from "@/lib/test-runs";
+import { checkRuns, hasTestActivity, lastUtcDays, skippedShare, spotChecksWithinWeek, statsWithRuns, testMinutesPerDay, testsByRepo } from "@/lib/test-runs";
 import { testFilesLine } from "@/lib/test-suites";
 import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
@@ -40,7 +40,9 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   ]);
   const repoTests = testRuns.ok && testRuns.value?.length ? testsByRepo(testRuns.value, Date.parse(ov.asOf)) : undefined;
   // Test runs: null from a server without them (404/501) or one that is down; then the card is simply not there.
-  const testStats = tests.ok && hasTestActivity(tests.value) ? tests.value : null;
+  // The server's stats count only kind "critical" runs; runs recorded inline (quod-action v2) are added from the runs read.
+  const statsAll = tests.ok && tests.value ? statsWithRuns(tests.value, testRuns.ok ? testRuns.value : null, Date.parse(ov.asOf)) : null;
+  const testStats = hasTestActivity(statsAll) ? statsAll : null;
   const filesLine = suites.ok ? testFilesLine(suites.value) : null;
   // Shown whenever there are test runs, whatever the step-level data says (a team may run only `quod vitest`).
   // Spot-checks over the same 7 days as the rest, from the runs already read; without them, the stats' all-time count.
@@ -49,7 +51,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const hasTests = !!(testStats || repoTests || filesLine);
   // The per-day chart: from test check runs when the team has any (the runs already read); step-level only otherwise.
   const testDays =
-    testRuns.ok && testRuns.value?.some((r) => r.kind === "critical")
+    testRuns.ok && testRuns.value && checkRuns(testRuns.value).length > 0
       ? testMinutesPerDay(testRuns.value, ov.days.length ? ov.days.map((d) => d.day) : lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf)))
       : null;
   // Same source rule as savingsRuns below: a served /test-history wins even when empty, so the two never disagree.
