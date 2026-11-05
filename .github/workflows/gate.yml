@@ -635,6 +635,21 @@ jobs:
           name: convex-profile-${{ matrix.mode }}
           path: /tmp/quod-profile/evidence
 
+  benchmark-harness:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-harness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/ci-bench
+          ref: 2fd1f86e92e5747163a9ba08ad9fafa8801decf8
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - name: Verify benchmark evidence, reports and measured-job selection
+        run: node --test scripts/job/evidence.test.cjs scripts/job/report.test.mjs scripts/job/select-job.test.cjs
+
   benchmark-config:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query'))
     runs-on: ubuntu-latest

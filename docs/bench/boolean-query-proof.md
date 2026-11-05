@@ -98,3 +98,24 @@ before another full window is justified. The authoritative full-window
 result remains 0.548x plain runner-seconds; this document adds no savings
 to that result. The experimental Action also bounds Vitest interception to
 stable 3.2–3.x, 4.x and 5.x, leaving future majors and prereleases plain.
+
+## Async-consumer diagnostic
+
+[Run 42125166984](https://github.com/pango07/quod/actions/runs/42125166984)
+at `29f2188` selected all 120 file/project instances and reproduced the
+31/29 root and 41/33 nested read/parse counts. It did not execute the tests
+or create replayable records. All ten additional reads returned Buffers:
+two root and eight nested. Each Buffer was decoded once at Vite 8.2.0's
+`String(await fsReadFileAsync(filepath))` call, and matching-text parse
+candidates used its `jsonLoader` from the package-manifest branch of search.
+The diagnostic retains the broad keys and marks its recorder unobservable.
+Buffer identity proves which read was decoded; primitive-text equality does
+**not** prove which private value reached a parse.
+
+This narrows the remaining proof to one actual executed consumer shape. A
+production proof would have to bind the direct native String consumer, the
+private raw-text binding and every possible use, the actual pure JSON loader,
+and the matching parse invocation. It must reject escapes, custom loaders,
+mutable decoder behavior, intervening callbacks and unknown paths. Merely
+extending the synchronous pending-parse lifetime across an await is unsound.
+No async reader is currently granted a refined key.

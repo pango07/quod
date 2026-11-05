@@ -116,6 +116,21 @@ every reader and fall back on unknown effects; npm units keep whole-file
 version-sensitive keying. Neither failed experiments nor estimated savings
 count toward the remaining 85 seconds.
 
+## Harness follow-up: isolate baseline action preparation
+
+The plain c9 job's setup log also downloaded both conditional Quod action
+repositories, even though neither action executed. The Quod c9 job downloaded
+both too. The published totals above accurately include that setup work;
+its net effect on a real plain-versus-single-action comparison has not been
+isolated and is not subtracted from these measurements.
+
+Harness candidate `2fd1f86` separates plain/floor, experimental Quod and
+released Quod at the job boundary. Exactly one job allocates a runner, and
+the driver rejects zero, multiple, unfinished or incomplete measured jobs.
+The same checkout, Node setup, install, build, test and evidence steps remain
+in each applicable job. The next window must use this isolation and count
+all of its own setup time; this change is not credited as product savings.
+
 ## Validation and complete job inventory
 
 The exact binary passed [Rust/recorder/clippy gates](https://github.com/pango07/quod/actions/runs/42098123727),
