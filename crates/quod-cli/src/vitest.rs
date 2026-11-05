@@ -2503,7 +2503,7 @@ fn states(
     })
 }
 
-fn state(
+pub(crate) fn state(
     root: &Path,
     key: &str,
     cached: Option<([i64; 6], &str)>,
@@ -2878,7 +2878,7 @@ fn wall_ns() -> i128 {
         .map_or(0, |d| d.as_nanos() as i128)
 }
 
-fn exists(p: &Path) -> String {
+pub(crate) fn exists(p: &Path) -> String {
     match fs::symlink_metadata(p) {
         Err(_) => "absent".into(),
         Ok(m) if m.file_type().is_symlink() => format!(
@@ -3319,7 +3319,7 @@ const TASK_VOLATILE: &[&str] = &[
     "NX_TERMINAL_OUTPUT_PATH",
 ];
 
-fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let n = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
         .clamp(1, 16);

@@ -41,6 +41,7 @@ mod state;
 mod status;
 mod step;
 mod trust;
+mod unit;
 mod vitest;
 mod vitest_cloud;
 
@@ -127,6 +128,10 @@ enum Cmd {
     /// Run a vitest suite replaying, per test file, every file whose recorded
     /// inputs are unchanged: `quod vitest -- run --project unit`.
     Vitest(vitest::VitestArgs),
+    /// Run a package script, answering it from its record when every input
+    /// it read (traced on its first run) is unchanged:
+    /// `quod unit --dir D --root R -- node npm-cli.js run build`.
+    Unit(unit::UnitArgs),
 }
 
 fn main() -> ExitCode {
@@ -141,6 +146,9 @@ fn main() -> ExitCode {
             // vitest keeps its own ledger next to the project; no store.
             if let Cmd::Vitest(args) = cli.cmd {
                 return vitest::cli(args);
+            }
+            if let Cmd::Unit(args) = cli.cmd {
+                return unit::cli(args);
             }
             let state = state::State::resolve(cli.state.as_deref())?;
             match cli.cmd {
@@ -188,6 +196,7 @@ fn main() -> ExitCode {
                 }
                 Cmd::Profile(args) => profile::profile(args).map(|()| 0),
                 Cmd::Vitest(_) => unreachable!("handled before the state resolves"),
+                Cmd::Unit(_) => unreachable!("handled before the state resolves"),
             }
         }));
     // A panic anywhere is a Quod failure too: exit 2 with the banner,
