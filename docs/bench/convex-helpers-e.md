@@ -80,8 +80,10 @@ It records runner images, lineage counts, whole-window and post-cold-start
 cost, rounded minutes, and hit overhead beside the matching empty job.
 A Vitest replay with a unit still executing is labeled a partial hit.
 
-No new window result is claimed here until the shipped-action regression
-and the 12-commit measurement have completed.
+The shipped-action regression and the 12-commit measurement are complete.
+See [the measured window](convex-helpers-e-window.md) for all costs, per-job
+images, correctness evidence and separate warm-hit probes. The cost bar was
+not met; the separate best hit was floor + 4 s (median floor + 6 s).
 
 The [full-suite CPU profile](https://github.com/pango07/quod/actions/runs/42083296107)
 measured 77.44 seconds plain and 95.15 seconds recorded with CPU profiling
@@ -103,3 +105,5 @@ A separate full-suite cached/uncached pair compares every test name and
 state without the CPU profiler before this optimization can ship.
 
 The paired full-suite cache experiment ([42085242039](https://github.com/pango07/quod/actions/runs/42085242039)) measured 88.511 s uncached versus 82.298 s cached on one runner, a 6.213 s / 7.0% reduction. All individual test states agreed. One pair is directional evidence, not a population claim. The matching Rust regressions, unit integration test and clippy passed in [42085237197](https://github.com/pango07/quod/actions/runs/42085237197).
+
+The final packaged-action gate [42087029391](https://github.com/pango07/quod/actions/runs/42087029391) passed with the exact shipped binary, the lineage switch, plain-audit preservation, stale-toolchain rejection, and benchmark JSON-report evidence. The 12-commit result includes the audit's conservative package-field correction, so it must not be interpreted as an isolated A/B of E1/E2 versus the older unsound observer.
