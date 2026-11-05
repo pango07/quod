@@ -3,11 +3,11 @@ import { LiveRefresh, LiveTotals, NowRunning } from "@/components/live/parts";
 import { GitHubStatusCard } from "@/components/github-status";
 import { QuodNote } from "@/components/section";
 import { RangeToggle } from "@/components/range-toggle";
-import { RepoTable } from "@/components/repo-table";
+import { RecentCi } from "@/components/savings-summary";
+import { overviewCi } from "@/lib/overview-ci";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { requireTeam } from "@/lib/dal";
-import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { plainUi } from "@/lib/ui";
 
@@ -17,7 +17,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity] = await Promise.all([api().getOverview(team.slug, range), api().getActivity(team.slug)]);
+  const [ov, activity, ci] = await Promise.all([api().getOverview(team.slug, range), api().getActivity(team.slug), overviewCi(team, range)]);
   const base = `/${team.slug}`;
 
   const github = activity.github;
@@ -82,115 +82,19 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
 
       <QuodNote status={ov.quod} />
       {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
-      <NowRunning team={team.slug} initial={activity} />
       <LiveRefresh scope={{ kind: "team" }} />
-
-      {quod ? (
-        <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} />
-      ) : (
-        <section className="card" style={{ padding: 20 }}>
-          <h2 className="h2">{plain ? "Time saved and skips" : "Time saved and replays"}</h2>
-          <p className="muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.6 }}>
-            Appears once Quod runs in one of these repositories. Until then, this page shows their CI from GitHub as it runs.
-          </p>
-        </section>
-      )}
-
-      <div className="split">
-        <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>
-          <div className="card-head">
-            <h2 id="repos-h" className="h2">
-              Repositories
-            </h2>
-            <Link href={`${base}/repositories`} className="link-muted">
-              View all
-            </Link>
-          </div>
-          <RepoTable team={team.slug} repos={ov.repos} asOf={ov.asOf} />
-        </section>
-
-        {quod ? (
-        <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 16 }}>
-          <section className="card" aria-labelledby="trust-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div className="row-between">
-              <h2 id="trust-h" className="h2">
-                Trust
-              </h2>
-              <Link href={`${base}/trust`} className="link-muted">
-                Details
-              </Link>
-            </div>
-            <dl style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 14, margin: 0 }}>
-              {(plain
-                ? [
-                    ["Ready to skip or skipping", ov.trust.proven],
-                    ["Learning", ov.trust.proving],
-                    ["Re-checks with the same output", ov.trust.spotChecksPassed],
-                  ]
-                : [
-                    ["Proven steps", ov.trust.proven],
-                    ["Still proving", ov.trust.proving],
-                    ["Spot checks passed", ov.trust.spotChecksPassed],
-                  ]
-              ).map(([k, v]) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <dt className="muted">{k}</dt>
-                  <dd className="mono" style={{ margin: 0 }}>
-                    {formatCount(v as number)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {paused.length > 0 ? (
-              <Link href={`${base}/${paused[0].repoSlug}/steps/${paused[0].key}`} className="notice">
-                <Dot tone="amber" />
-                <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <span style={{ fontWeight: 500 }}>{paused.length === 1 ? "1 step paused" : `${paused.length} steps paused`}</span>
-                  <span className="soft">
-                    {paused[0].repoName} · {paused[0].job} / {paused[0].command.replace(/^npx /, "")} gave a different result on a re-check. Quod runs it every time until it is consistent
-                    again.
-                  </span>
-                </span>
-              </Link>
-            ) : (
-              <p className="muted" style={{ fontSize: 13 }}>
-                {plain ? "Nothing paused. Every re-check found the same output." : "No paused steps. Every spot check matched."}
-              </p>
-            )}
-          </section>
-          <section className="card" aria-labelledby="runners-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div className="row-between">
-              <h2 id="runners-h" className="h2">
-                Runners
-              </h2>
-              <Link href={`${base}/connect`} className="link-muted">
-                Add
-              </Link>
-            </div>
-            {ov.runners.length ? null : (
-              // quod-server does not list runners (they come from GitHub's jobs): point there.
-              <p className="muted" style={{ fontSize: 13 }}>
-                <Link href={`${base}/runners`} style={{ textDecoration: "underline" }}>
-                  Runners seen in your CI
-                </Link>
-              </p>
-            )}
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-              {ov.runners.map((r) => (
-                <li key={r.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <Dot tone={r.status === "running" ? "blue" : r.status === "offline" ? "dim" : "green"} />
-                    <span className="mono ellipsis">{r.name}</span>
-                  </span>
-                  <span className="faint" style={{ whiteSpace: "nowrap" }}>
-                    {r.kind === "github-hosted" ? "via quodci/setup" : `Self-hosted · ${r.status}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-        ) : null}
+      <LiveTotals key={range} totals={t} days={ov.days} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} ci={ci} hasQuodData={quod} />
+      {paused.length > 0 || t.wrongReplays > 0 ? (
+        <Link href={`${base}/trust`} className="notice">
+          <Dot tone="amber" />
+          <span>A result differed during verification. Affected work runs again. View details.</span>
+        </Link>
+      ) : null}
+      <NowRunning team={team.slug} initial={activity} hideWhenEmpty />
+      <RecentCi ci={ci} />
+      <div className="row-between" style={{fontSize:14}}>
+        <Link href={`${base}/runs`} className="link-muted">All CI runs</Link>
+        <Link href={`${base}/repositories`} className="link-muted">Repositories</Link>
       </div>
     </div>
   );

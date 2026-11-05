@@ -44,6 +44,22 @@ export interface TeamTotals {
   /** Replays re-run at random and compared (about 5%). */
   spotChecks: number;
   spotChecksIdentical: number;
+  /** Optional whole-job comparison. Legacy skipped-step totals cannot fill this. */
+  jobSavings?: JobSavings;
+}
+
+/** Same jobs/attempts and range on both sides; include cold runs, audits and all action/post overhead. */
+export interface JobSavings {
+  jobs: number;
+  baseline: "observed" | "estimated";
+  runnerSeconds: number;
+  baselineRunnerSeconds: number;
+  /** Sum of each job's rounded billable minutes, not rounded aggregate time. */
+  billedMinutes: number;
+  baselineBilledMinutes: number;
+  /** Null when runner rates/free allowances are unknown; zero for free runners. */
+  costUsd: number | null;
+  baselineCostUsd: number | null;
 }
 
 export interface DayMinutes {

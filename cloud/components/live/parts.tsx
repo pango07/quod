@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { MinutesChart } from "@/components/charts";
-import { Stat } from "@/components/ui";
+import { SavingsSummary } from "@/components/savings-summary";
+import type { OverviewCi } from "@/lib/overview-ci";
 import type { Activity, DayMinutes, LiveEventType, LiveJob, LiveScope, TeamTotals } from "@/lib/api/types";
-import { formatCount, formatDuration, formatMinutes, formatPercent, formatUsd, shortSha } from "@/lib/format";
+import { formatCount, formatDuration, formatPercent, shortSha } from "@/lib/format";
 import { applyToDays } from "@/lib/live/jobs";
 import { inScope } from "@/lib/live/scope";
 import { useLive, useLiveListener } from "./provider";
@@ -110,7 +111,7 @@ export function LiveRefresh({ scope, types = FINISHED }: { scope: LiveScope; typ
 }
 
 /** "Now running": jobs in progress (elapsed ticking, current step) and queued jobs (waiting time). */
-export function NowRunning({ team, initial, repo }: { team: string; initial: Activity; repo?: string }) {
+export function NowRunning({ team, initial, repo, hideWhenEmpty = false }: { team: string; initial: Activity; repo?: string; hideWhenEmpty?:boolean }) {
   const live = useLive();
   const now = useNow(initial.asOf);
   const all = live.jobs ?? initial.jobs;
@@ -118,6 +119,7 @@ export function NowRunning({ team, initial, repo }: { team: string; initial: Act
   const running = jobs.filter((j) => j.status === "in_progress");
   const queued = jobs.filter((j) => j.status === "queued");
   const simulated = live.jobs ? live.simulated : initial.simulated;
+  if (hideWhenEmpty && jobs.length === 0) return null;
 
   return (
     <section className="card" aria-labelledby="now-h" style={{ overflow: "hidden" }}>
@@ -208,7 +210,7 @@ function JobRow({ team, job, now, showRepo }: { team: string; job: LiveJob; now:
  * deltas by event a moment later, so re-seeding on each refresh would count
  * the in-flight ones twice.
  */
-export function LiveTotals({ totals, days, from, reseed = false, plain }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean }) {
+export function LiveTotals({ totals, days, from, reseed = false, plain, ci, hasQuodData = true }: { totals: TeamTotals; days: DayMinutes[]; from: string; reseed?: boolean; plain?: boolean; ci:OverviewCi; hasQuodData?:boolean }) {
   const [t, setT] = useState(totals);
   const [d, setD] = useState(days);
   const [seen, setSeen] = useState({ totals, days });
@@ -235,33 +237,24 @@ export function LiveTotals({ totals, days, from, reseed = false, plain }: { tota
 
   return (
     <>
-      <section aria-label="Totals" className="stats">
-        <Stat label="CI time saved" value={formatMinutes(t.savedMinutes)} note={`${formatCount(t.savedMinutes)} CI minutes you did not wait for`} />
-        <Stat label={plain ? "Steps skipped" : "Steps replayed"} value={formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)} note={`${formatCount(t.stepsReplayed)} of ${formatCount(t.stepsTotal)} steps`} />
-        <Stat label="Est. runner cost saved" value={formatUsd(t.costSavedUsd)} note={`at $${t.usdPerMinute} per Linux minute`} />
-        <Stat
-          label={plain ? "Wrong skips" : "Wrong replays"}
-          value={formatCount(t.wrongReplays)}
-          note={
-            plain
-              ? t.spotChecks === t.spotChecksIdentical
-                ? `${formatCount(t.spotChecks)} re-checks, all the same output`
-                : `${formatCount(t.spotChecks)} re-checks, ${formatCount(t.spotChecks - t.spotChecksIdentical)} different`
-              : t.spotChecks === t.spotChecksIdentical
-              ? `${formatCount(t.spotChecks)} spot checks, all identical`
-              : `${formatCount(t.spotChecks)} spot checks, ${formatCount(t.spotChecks - t.spotChecksIdentical)} different`
-          }
-        />
-      </section>
+      <SavingsSummary totals={t} ci={ci} hasQuodData={hasQuodData} />
+      {hasQuodData ? <details className="card" style={{padding:20}}>
+        <summary style={{cursor:"pointer", fontSize:14}}>Savings details</summary>
+        <p className="muted" style={{fontSize:13, marginTop:16, lineHeight:1.6}}>
+          {formatCount(t.stepsReplayed)} of {formatCount(t.stepsTotal)} steps {plain ? "skipped" : "replayed"} ({formatPercent(t.stepsTotal ? t.stepsReplayed / t.stepsTotal : 0)}).
+          {" "}{formatCount(t.spotChecks)} checks; {formatCount(t.spotChecks - t.spotChecksIdentical)} different results observed.
+          {" "}Skipped work is an estimate of execution avoided. Net savings include recording, audits, setup and cleanup.
+          {" "}Dollar estimates require each job’s billing rules and runner rate. Speed and cost percentages are not added together.
+        </p>
       <section className="card" aria-labelledby="minutes-h" style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="row-between">
           <h2 id="minutes-h" className="h2">
-            CI minutes per day
+            Execution minutes per day
           </h2>
           <div className="legend" aria-hidden="true">
             <span>
               <span className="swatch" style={{ background: "var(--blue)" }} />
-              {plain ? "Skipped (saved)" : "Replayed (saved)"}
+              {plain ? "Skipped" : "Replayed"}
             </span>
             <span>
               <span className="swatch" style={{ background: "var(--ran)" }} />
@@ -271,6 +264,7 @@ export function LiveTotals({ totals, days, from, reseed = false, plain }: { tota
         </div>
         <MinutesChart days={d.map((x) => ({ ...x, replayedMinutes: Math.round(x.replayedMinutes), ranMinutes: Math.round(x.ranMinutes) }))} from={from} />
       </section>
+      </details> : null}
     </>
   );
 }

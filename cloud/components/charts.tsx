@@ -13,15 +13,15 @@ export function MinutesChart({ days, from }: { days: DayMinutes[]; from: string 
   const pct = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <>
-      <ol className={`chart ${days.length > 40 ? "dense" : ""}`} aria-label="CI minutes per day, replayed and ran">
+      <ol className={`chart ${days.length > 40 ? "dense" : ""}`} aria-label="Execution minutes per day, replayed and ran">
         {days.map((d, i) => {
-          const label = `${formatDay(d.day)}: ${formatCount(d.replayedMinutes)} minutes replayed (saved), ${formatCount(d.ranMinutes)} minutes ran`;
+          const label = `${formatDay(d.day)}: ${formatCount(d.replayedMinutes)} minutes replayed, ${formatCount(d.ranMinutes)} minutes ran`;
           return (
             <li key={d.day} className={`bar ${edge(i, days.length)}`} tabIndex={0} aria-label={label}>
               <span className="tip" aria-hidden="true">
                 <strong>{formatDay(d.day)}</strong>
                 <br />
-                Saved {formatCount(d.replayedMinutes)} min, ran {formatCount(d.ranMinutes)} min
+                Replayed {formatCount(d.replayedMinutes)} min, ran {formatCount(d.ranMinutes)} min
               </span>
               <span className="seg-blue" style={{ height: pct(d.replayedMinutes) }} />
               <span className="seg-ran" style={{ height: pct(d.ranMinutes) }} />
@@ -37,11 +37,11 @@ export function MinutesChart({ days, from }: { days: DayMinutes[]; from: string 
         <summary>Show the numbers</summary>
         <div className="scroll">
           <table>
-            <caption className="sr-only">CI minutes per day</caption>
+            <caption className="sr-only">Execution minutes per day</caption>
             <thead>
               <tr>
                 <th scope="col">Day</th>
-                <th scope="col">Replayed (saved), min</th>
+                <th scope="col">Replayed, min</th>
                 <th scope="col">Ran, min</th>
               </tr>
             </thead>
