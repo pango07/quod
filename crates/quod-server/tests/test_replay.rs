@@ -847,7 +847,7 @@ fn t13_recording_fields_are_kept_and_old_reports_read_as_before() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r["id"] == id.to_string())
+            .find(|r| r["id"].as_str() == Some(id.to_string().as_str()))
             .cloned()
             .unwrap()
     };
@@ -859,7 +859,7 @@ fn t13_recording_fields_are_kept_and_old_reports_read_as_before() {
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r["id"] == id.to_string())
+            .find(|r| r["id"].as_str() == Some(id.to_string().as_str()))
             .cloned()
             .unwrap()
     };

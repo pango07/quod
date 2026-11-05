@@ -2478,6 +2478,7 @@ impl Reporting<'_> {
             ledger: self.used.clone(),
             replayed_files,
             record_differs,
+            ..Default::default()
         };
         c.report(&r);
     }
