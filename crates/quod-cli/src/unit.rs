@@ -228,7 +228,12 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             } else if !same_outs {
                 "its outputs".to_string()
             } else {
-                "its output text".to_string()
+                let (o1, o2) = (mask(&out), mask(&rec_out));
+                if o1 != o2 {
+                    format!("its stdout: {}", first_diff(&o2, &o1))
+                } else {
+                    format!("its stderr: {}", first_diff(&mask(&rec_err), &mask(&err)))
+                }
             };
             ledger.records.remove(i);
             ledger.disagree += 1;
@@ -477,9 +482,60 @@ fn restore(root: &Path, blobs: &Path, outs: &[Out]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Masks durations (`(12.3ms)`, `duration_ms 812.4`, `Done in 45ms`, `1.2s`)
-/// for comparing two witnesses' text; the replay prints the first's as is.
+/// What two witnesses' text must agree on: all of it but what differs
+/// from run to run by construction, durations (`(12.3ms)`, `duration_ms
+/// 812.4`, `Done in 45ms`), object ids (hex runs of 7 or more with a digit:
+/// the commits a test makes in a scratch repository carry its clock) and
+/// scratch paths under /tmp (mkdtemp's random suffix). The replay prints
+/// the first witness's text as is.
 fn mask(b: &[u8]) -> String {
+    let s = mask_durations(b);
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let sep = |x: char| x.is_whitespace() || "'\"`/:,;()[]{}<>".contains(x);
+    while i < c.len() {
+        if c[i..].starts_with(&['/', 't', 'm', 'p', '/']) {
+            out.push_str("/tmp/#");
+            i += 5;
+            while i < c.len() && !sep(c[i]) {
+                i += 1;
+            }
+            continue;
+        }
+        if c[i].is_ascii_hexdigit() && (i == 0 || !c[i - 1].is_alphanumeric()) {
+            let mut j = i;
+            while j < c.len() && c[j].is_ascii_hexdigit() {
+                j += 1;
+            }
+            let word_end = j == c.len() || !c[j].is_alphanumeric();
+            if j - i >= 7 && word_end && c[i..j].iter().any(|x| x.is_ascii_digit()) {
+                out.push('#');
+                i = j;
+                continue;
+            }
+            out.extend(&c[i..j]);
+            i = j;
+            continue;
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    out
+}
+
+/// The first line where two masked texts differ, for the log.
+fn first_diff(a: &str, b: &str) -> String {
+    let cut = |s: &str| s.chars().take(160).collect::<String>();
+    for (x, y) in a.lines().zip(b.lines()) {
+        if x != y {
+            return format!("{:?} vs {:?}", cut(x), cut(y));
+        }
+    }
+    format!("{} vs {} lines", a.lines().count(), b.lines().count())
+}
+
+fn mask_durations(b: &[u8]) -> String {
     let s = String::from_utf8_lossy(b);
     let mut out = String::with_capacity(s.len());
     let c: Vec<char> = s.chars().collect();
@@ -1541,6 +1597,11 @@ mod tests {
         let b = "✔ adds (0.9ms)\nℹ duration_ms 799\n⚡ Done in 51ms\nok 3 tests\n";
         assert_eq!(mask(a.as_bytes()), mask(b.as_bytes()));
         assert_ne!(mask(b"ok 3 tests"), mask(b"ok 4 tests"));
+        assert_eq!(
+            mask(b"tag v1 at 3f9a2b1c in /tmp/rel-AbC123/repo"),
+            mask(b"tag v1 at 9e0d4c27 in /tmp/rel-XyZ987/repo")
+        );
+        assert_ne!(mask(b"tag v1"), mask(b"tag v2"));
     }
 
     #[test]
