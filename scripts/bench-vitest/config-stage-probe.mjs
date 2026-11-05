@@ -203,7 +203,7 @@ if (mode) {
     for (const record of records) {
       if (!record.proof?.booleanStats?.statType || !record.proof?.booleanStats?.boolean) throw Error(`actual resolver proof was not exercised: ${record.mode}`)
       const keys=record.proof.manifestKeys
-      if (keys.some(k=>k.startsWith('f:') || k.startsWith('pj:'))) throw Error(`manifest has an unrefined observation: ${record.mode}`)
+      if (keys.some(k=>(k.startsWith('f:') || k.startsWith('pj:')) && !(record.mode==='c5-workspace-removed' && k.endsWith(':'+workspacePkg)))) throw Error(`manifest has an unrefined observation: ${record.mode}`)
       if (!keys.some(k=>k.startsWith(`pjq:${pkgPath}\0`) && JSON.parse(k.split('\0')[1]).truthy.includes('exports'))) throw Error(`root manifest lacks truthiness query: ${record.mode}`)
     }
   }

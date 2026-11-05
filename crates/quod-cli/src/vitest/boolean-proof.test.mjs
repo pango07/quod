@@ -120,13 +120,13 @@ test('the names proof remains conservative when the object has another use', () 
 
 const statHelper = 'function tryStatSync(file) { try { return fs.statSync(file, {throwIfNoEntry:false}); } catch {} }'
 test('only an immediate native file-type consumer qualifies for stat narrowing', () => {
-  for (const expression of ['tryStatSync(file)?.isFile()', 'tryStatSync(file).isDirectory()']) {
+  for (const expression of ['tryStatSync(file)?.isFile()', 'tryStatSync(file).isDirectory()', '!tryStatSync(file)', 'tryStatSync(file) ? 1 : 0']) {
     const proof=certifyStatTypeReads(`${statHelper}\nconst value=${expression}`)
     assert.equal(proof.helpers.length,1)
     assert.equal(proof.calls.length,1,expression)
   }
   for (const expression of ['tryStatSync(file).size', 'tryStatSync(file).mtimeMs',
-    'tryStatSync(file)', 'tryStatSync(file)?.isSymbolicLink()', 'tryStatSync(file)?.[method]()',
+    'tryStatSync(file)', 'tryStatSync(file) || {}', 'tryStatSync(file)?.isSymbolicLink()', 'tryStatSync(file)?.[method]()',
     'tryStatSync(file)?.isFile(arg)', 'tryStatSync(makeFile())?.isFile()',
     'tryStatSync(file)?.isFile?.()']) {
     assert.equal(certifyStatTypeReads(`${statHelper}\nconst value=${expression}`).calls.length,0,expression)
@@ -148,6 +148,13 @@ test('actual resolver stat type reads coexist with the boolean manifest query', 
     assert.equal(result.keys.includes('pj:package.json'),false)
     assert.equal(result.stats.statType,1)
   }
+})
+test('a native stat success check keeps type/existence without inventing a content read', () => {
+  const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nconst file='package.json'; export const missing=!tryStatSync(file);`})
+  assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+  assert.ok(result.keys.includes('st:package.json'))
+  assert.equal(result.keys.includes('pj:package.json'),false)
+  assert.equal(result.stats.statType,1)
 })
 test('escaping stats and metadata readers retain the conservative manifest input', () => {
   for (const consumer of ['export const size=tryStatSync(file).size;',

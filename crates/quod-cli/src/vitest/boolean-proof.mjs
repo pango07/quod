@@ -25,20 +25,30 @@ function pristineStats() {
     }))
 }
 
+function inBooleanContext(n, parents) {
+  const p = parents.get(n)
+  if (!p) return false
+  if (p.type === 'ChainExpression') return inBooleanContext(p, parents)
+  if (p.type === 'LogicalExpression' && (p.operator === '&&' || p.operator === '||')) return inBooleanContext(p, parents)
+  if (p.type === 'UnaryExpression' && p.operator === '!') return true
+  return ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(p.type) && p.test === n
+}
+
 // The only accepted helper returns native statSync directly through an
 // empty catch. The caller immediately consumes it through .isFile() or
-// .isDirectory(), without binding, exposing or inspecting the Stats object.
+// .isDirectory(), or tests whether stat succeeded in a boolean context,
+// without binding, exposing or inspecting the Stats object.
 export function certifyStatTypeReads(source) {
   if (typeof source !== 'string' || source.length > 2_000_000) return {helpers:[], calls:[]}
   let tree
   try {tree=parse(source,{ecmaVersion:'latest',sourceType:'module'})} catch {return {helpers:[],calls:[]}}
-  const nodes=[]
-  function visit(n) {
+  const nodes=[], parents=new Map()
+  function visit(n, parent=null) {
     if (!n || typeof n!=='object') return
-    if (n.type) nodes.push(n)
+    if (n.type) {nodes.push(n); parents.set(n,parent)}
     for (const v of Object.values(n)) {
-      if (Array.isArray(v)) for (const c of v) visit(c)
-      else if (v && typeof v==='object') visit(v)
+      if (Array.isArray(v)) for (const c of v) visit(c,n)
+      else if (v && typeof v==='object') visit(v,n)
     }
   }
   visit(tree)
@@ -55,6 +65,10 @@ export function certifyStatTypeReads(source) {
   }
   const calls=[]
   for (const n of nodes) {
+    if (n.type==='CallExpression' && !n.optional && n.callee.type==='Identifier' && n.arguments.length===1 && n.arguments[0].type==='Identifier' &&
+        helpers.some(h=>h.name===n.callee.name) && inBooleanContext(n,parents)) {
+      calls.push({name:n.callee.name,start:n.start,end:n.end})
+    }
     if (n.type!=='CallExpression' || n.optional || n.arguments.length || n.callee.type!=='MemberExpression' || n.callee.computed || !['isFile','isDirectory'].includes(n.callee.property.name)) continue
     const call=n.callee.object
     if (call.type!=='CallExpression' || call.optional || call.callee.type!=='Identifier' || call.arguments.length!==1 || call.arguments[0].type!=='Identifier') continue
@@ -86,16 +100,8 @@ export function certifyBooleanReads(source, property = 'exports') {
     return n.type === 'MemberExpression' && !n.computed &&
       n.property.name !== property && receiver(n.object)
   }
-  function booleanContext(n) {
-    const p = parents.get(n)
-    if (!p) return false
-    if (p.type === 'ChainExpression') return booleanContext(p)
-    if (p.type === 'LogicalExpression' && (p.operator === '&&' || p.operator === '||')) return booleanContext(p)
-    if (p.type === 'UnaryExpression' && p.operator === '!') return true
-    return ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(p.type) && p.test === n
-  }
   return nodes.filter(n => n.type === 'MemberExpression' && !n.computed &&
-    n.property.name === property && receiver(n.object) && booleanContext(n))
+    n.property.name === property && receiver(n.object) && inBooleanContext(n,parents))
     .map(n => ({start:n.start, end:n.end}))
 }
 
