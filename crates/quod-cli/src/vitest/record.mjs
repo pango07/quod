@@ -23,6 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
+import nodeUtil from 'node:util'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // The originals, for Quod's own I/O (never recorded).
@@ -289,7 +290,46 @@ const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_mod
 // code, package.json, npm's files as f:, node's version); not a hole, and
 // not to be "fixed" into a per-run key.
 const NPM_HELPERS = ['/node_modules/npm/', '/node_modules/@npmcli/']
+// Formatting Error.stack invokes Vite's source-map formatter. Repeated
+// environment reads at the same complete call stack need the same caller
+// attribution. Cache that decision, not environment values or input keys.
+// The native frame ids distinguish different evaluated scripts at the
+// same filename. A changed formatter, unknown API, or truncated stack
+// always takes the original full-stack path.
+const getCallSites = nodeUtil.getCallSites
+const callerCacheOn = process.env.QUOD_VITEST_CALLER_CACHE !== '0'
+const callerCache = new Map()
+const enqueueCallerReset = globalThis.queueMicrotask
+let callerResetPending = false
+let callerFormatter
+function callerCacheKey(npm) {
+  if (!callerCacheOn || typeof getCallSites !== 'function') return null
+  try {
+    const formatter = Error.prepareStackTrace
+    if (formatter !== callerFormatter) { callerCache.clear(); callerFormatter = formatter }
+    const frames = getCallSites(200, { sourceMap: false })
+    if (!frames.length || frames.length >= 200 || frames.some(f => typeof f.scriptId !== 'string')) return null
+    return `${npm}:` + frames.map(f => `${f.scriptId}:${f.scriptName}:${f.functionName}:${f.lineNumber}:${f.columnNumber}`).join('\n')
+  } catch { return null }
+}
 function toolCaller(npm = false) {
+  const key = callerCacheKey(npm)
+  if (key != null && callerCache.has(key)) return callerCache.get(key)
+  const result = toolCallerUncached(npm)
+  if (key != null) {
+    if (callerCache.size >= 1024) callerCache.clear()
+    callerCache.set(key, result)
+    // Native call sites need not include async causal parents. Never
+    // carry an attribution across a microtask boundary, where those
+    // parents or Vite's source-map registrations may have changed.
+    if (!callerResetPending) {
+      callerResetPending = true
+      enqueueCallerReset(() => { callerCache.clear(); callerResetPending = false })
+    }
+  }
+  return result
+}
+function toolCallerUncached(npm = false) {
   const limit = Error.stackTraceLimit
   Error.stackTraceLimit = Infinity
   let stack

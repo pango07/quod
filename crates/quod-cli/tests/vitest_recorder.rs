@@ -731,3 +731,46 @@ console.log(JSON.stringify({{ keys: [...r.keys], isPR: ci.default.isPR }}))
     assert!(has("env:GITHUB_EVENT_NAME"), "{v}");
     assert!(has("env:GITHUB_ACTIONS"), "{v}");
 }
+
+#[test]
+fn caller_attribution_cache_keeps_user_frames_and_resets_across_async_boundaries() {
+    if Command::new("node").arg("--version").output().is_err() { return; }
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path();
+    write(&root.join("node_modules/plugin/index.cjs"), "module.exports = fn => fn('PLUGIN_');");
+    let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
+    let script = format!(r#"
+const {{ getCallSites }} = require('node:util');
+(async () => {{
+  const {{ createRecorder, patchEnv }} = await import({record:?});
+  const r = createRecorder({{ stateDir: '/no-state', mode: 'main' }});
+  patchEnv(r);
+  let formatted = 0;
+  const formatter = () => (e, frames) => {{ formatted++; return 'Error\n' + frames.map(f => '    at ' + f.toString()).join('\n') }};
+  Error.prepareStackTrace = formatter();
+  function read(prefix) {{ for (let i=0; i<20; i++) void process.env[prefix+i]; }}
+  const counts=[];
+  for (let i=0; i<3; i++) {{
+    if (i===1) await Promise.resolve();
+    if (i===2) Error.prepareStackTrace=formatter();
+    const before=formatted; read('QUOD_CHECK_'+i+'_'); counts.push(formatted-before);
+  }}
+  require('../plugin/index.cjs')(read);
+  function deep(n) {{ if(n) deep(n-1); else read('QUOD_DEEP_'); }}
+  const before=formatted; deep(230); const deepCount=formatted-before;
+  console.log(JSON.stringify({{ native: typeof getCallSites==='function', counts, deepCount, user: r.keys.has('env:PLUGIN_0') }}));
+}})();
+"#, record = record.display().to_string());
+    let s = root.join("node_modules/vite/reader.cjs");
+    write(&s, &script);
+    let out = Command::new("node").arg(s).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["user"], true, "a plugin's reads must remain inputs: {v}");
+    if v["native"] == true {
+        for n in v["counts"].as_array().unwrap() {
+            assert!(n.as_u64().unwrap() > 0 && n.as_u64().unwrap() < 5, "{v}");
+        }
+    }
+    assert!(v["deepCount"].as_u64().unwrap() >= 20, "truncated native stacks must use the full path: {v}");
+}

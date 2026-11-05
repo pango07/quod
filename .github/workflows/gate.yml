@@ -565,13 +565,13 @@ jobs:
             /tmp/lineage-*.log
 
   benchmark-profile:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ inputs.only == 'benchmark-profile-full' && fromJSON('["full"]') || fromJSON('["all","preload","env"]') }}
+        mode: ${{ inputs.only == 'benchmark-profile-caller' && fromJSON('["caller"]') || inputs.only == 'benchmark-profile-full' && fromJSON('["full"]') || fromJSON('["all","preload","env"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
