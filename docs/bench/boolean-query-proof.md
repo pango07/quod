@@ -83,11 +83,18 @@ and the names proof. Its isolated boolean positive case replayed correctly,
 but the switch-off regression exposed a second omission: the flag was emitted
 as an input, then hashed as a constant volatile environment variable. It now
 uses the same value-keyed exemption as the names-proof switch, with an
-explicit regression independent of the exemption list. The combined packaged
-gate remains pending until that correction passes.
+explicit regression independent of the exemption list. The corrected [packaged gate](https://github.com/pango07/quod/actions/runs/42122296319)
+passed at engine `ae52750`, including the off/on cycle, async-loader fallback,
+export-value/shape changes and stat-size consumers. Every fixture's per-test
+states matched plain. The preceding [Rust/recorder/clippy gate](https://github.com/pango07/quod/actions/runs/42118675755)
+also passed (attempt 2, after rerunning the unrelated failed Go toolchain test).
+The shipped candidate is `bin-ae52750`, archive SHA-256
+`9cbb48d36f41f79ee9d3470285c803dddba7651e3992f39687aa6838869bb41a`,
+in action `8b0ad91`. Its `dist` bundle is the exact remote-gate artifact.
+These correctness regressions do not establish a new performance result.
 
-The packaged replay gate and a short paired real-job chain must pass before
-this can claim a performance improvement. The authoritative full-window
+A short paired real-job chain must still establish a performance improvement
+before another full window is justified. The authoritative full-window
 result remains 0.548x plain runner-seconds; this document adds no savings
 to that result. The experimental Action also bounds Vitest interception to
 stable 3.2–3.x, 4.x and 5.x, leaving future majors and prereleases plain.

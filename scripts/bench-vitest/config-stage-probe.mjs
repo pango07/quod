@@ -19,6 +19,7 @@ const resolverProbe = process.env.QUOD_CONFIG_RESOLVER_PROBE === '1'
 const booleanProbe = process.env.QUOD_CONFIG_BOOLEAN_PROBE === '1'
 const queryProbe = process.env.QUOD_CONFIG_QUERY_PROBE === '1'
 const querySites = process.env.QUOD_CONFIG_QUERY_SITES === '1'
+const asyncSites = process.env.QUOD_CONFIG_ASYNC_SITES === '1'
 const workspacePkg = path.join(project, 'packages/convex-helpers/package.json')
 const workspaceOriginal = fs.existsSync(workspacePkg) ? fs.readFileSync(workspacePkg, 'utf8') : null
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -57,6 +58,7 @@ if (mode) {
   let recorder = null, namesProof = null, settledKeys = null, booleanProof = null
   const booleanReads = new Map()
   const readSites = new Map()
+  let asyncReads = null
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1' || resolverProbe) {
     let recorderUrl = new URL('../../crates/quod-cli/src/vitest/record.mjs', import.meta.url)
     if (resolverProbe && !queryProbe) {
@@ -77,10 +79,18 @@ if (mode) {
       }
       fs.writeFileSync(recorderUrl, diagnostic)
     }
+    if (asyncSites) {
+      const { instrumentAsyncReads } = await import('./async-read-probe.mjs')
+      const source = fs.readFileSync(recorderUrl, 'utf8')
+      fs.mkdirSync(out, {recursive:true})
+      recorderUrl = pathToFileURL(path.join(out, 'async-observer-recorder.mjs'))
+      fs.writeFileSync(recorderUrl, instrumentAsyncReads(source))
+    }
     const R = await import(recorderUrl.href)
     if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
     if (queryProbe) booleanProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
     recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
+    if (asyncSites) asyncReads = (await import('./async-read-probe.mjs')).observeAsyncReads(recorder, project, [pkgPath, workspacePkg])
     if (querySites) recorder.observeRead = (kind, p) => {
       if (p !== pkgPath && p !== workspacePkg) return
       const stack=new Error().stack.split('\n').slice(2,9).join('\n')
@@ -143,13 +153,14 @@ if (mode) {
         .map(([p, fields]) => ({path:path.relative(project, p), fields:[...fields].sort().map(s => JSON.parse(s)), broadKeyRetained:recorder.keys.has(`pj:${p}`)})) : undefined,
       booleanReads: booleanProof ? [...booleanReads].map(([p, reads]) => ({path:path.relative(project,p), ...reads, wholeSites:[...reads.wholeSites]})) : undefined,
       booleanStats: booleanProof?.stats,
+      asyncReads: asyncReads?.report(),
     } : null
     const record = { mode, probeSeed, vitest: vp.version, configure_ms: configured-start, selection_ms: selected-configured, run_ms:performance.now()-selected, projects, files, proof,
       configHash: hash(projects.map(({name, workerConfig, context}) => ({name, workerConfig, context}))), filesHash: hash(files),
       replayEligible: false, unvalidated: ['plugin closures and outputs', 'transformed modules and resolution', 'global setup effects', 'runtime observations'] }
     fs.mkdirSync(out, { recursive: true })
     fs.writeFileSync(path.join(out, mode+'.json'), JSON.stringify(record, null, 2))
-  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close() }
+  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close(); asyncReads?.close() }
 } else {
   let cases = resolverProbe ? [
     ['c3-before-exports', '03ffe84ef'], ['c4-exports', '6b17e1514'], ['c5-workspace-removed', '49a82e544'],
