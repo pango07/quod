@@ -104,7 +104,7 @@ function NeedsLook({ items, filter, query }: { items: TrustModel["look"]; filter
           Needs a look <span className="faint" style={{ fontWeight: 400 }}>· {formatCount(items.length)}</span>
         </h2>
         <span className="faint" style={{ fontSize: 12 }}>
-          Everything else is skipping or learning as it should
+          Everything else is trusted, recorded or not recorded yet, as it should be
         </span>
       </div>
       {shown.length === 0 ? (

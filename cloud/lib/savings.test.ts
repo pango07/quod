@@ -37,7 +37,9 @@ describe("plainTime", () => {
     const full = run({ id: "1", hoursAfter: 0, kind: "shadow", timing: { wallMs: 100_000, estPlainMs: 90_000, savedMs: 0 } });
     const check = run({ id: "2", hoursAfter: 1, files: { total: 110, ran: 10, replayed: 100 }, timing: { wallMs: 12_000, estPlainMs: 99_000, savedMs: 90_000 } });
     const m = savingsModel([check, full], { from: T0, to: T0 + 2 * H, usdPerMinute: 0.006 });
-    expect(m.methods["full-run"]).toBe(1);
+    // The full run recorded inline: a test run of its own (it saved nothing), and the plain time of the check.
+    expect(m.methods["full-run"]).toBe(2);
+    expect(m.recordedChecks).toBe(1);
     // 100 s for 100 files -> 110 s for 110; saved 110 - 12 = 98 s.
     expect(m.savedMs).toBe(98_000);
   });
@@ -57,9 +59,10 @@ describe("plainTime", () => {
 });
 
 describe("savingsModel", () => {
-  it("subtracts the background recordings from the money, not from the time", () => {
-    const shadow = run({ id: "1", hoursAfter: 1, kind: "shadow", timing: { wallMs: 60_000, estPlainMs: 50_000, savedMs: 0 } });
-    const check = run({ id: "2", hoursAfter: 1, files: { total: 100, ran: 0, replayed: 100 }, timing: { wallMs: 0, estPlainMs: 50_000, savedMs: 50_000 } });
+  it("legacy: subtracts the background recordings from the money, not from the time", () => {
+    // A "shadow" next to a "critical" of the same commit and suite: Quod's retired background recording job.
+    const shadow = run({ id: "1", hoursAfter: 1, kind: "shadow", sha: "abc", timing: { wallMs: 60_000, estPlainMs: 50_000, savedMs: 0 } });
+    const check = run({ id: "2", hoursAfter: 1, sha: "abc", files: { total: 100, ran: 0, replayed: 100 }, timing: { wallMs: 0, estPlainMs: 50_000, savedMs: 50_000 } });
     const m = savingsModel([shadow, check], { from: T0, to: T0 + 2 * H, usdPerMinute: 0.01 });
     expect(m.savedMs).toBe(60_000);
     expect(m.recordingMs).toBe(60_000);
@@ -67,6 +70,31 @@ describe("savingsModel", () => {
     expect(m.usd.net).toBeCloseTo(0);
     expect(m.files).toEqual({ skipped: 100, total: 100 });
     expect(m.unchangedShare).toBe(1);
+    expect(m.recordedChecks).toBe(0);
+  });
+
+  it("inline recording (quod-action v2): a shadow without a critical of its commit is a test run, priced like a check; no recording cost is invented", () => {
+    // The first run records every file (its wall time includes recording); the next skips most of them.
+    const first = run({ id: "1", hoursAfter: 0, kind: "shadow", sha: "a", files: { total: 100, ran: 100, replayed: 0 }, timing: { wallMs: 60_000, estPlainMs: 50_000, savedMs: 0 } });
+    const next = run({ id: "2", hoursAfter: 1, kind: "shadow", sha: "b", files: { total: 100, ran: 10, replayed: 90 }, timing: { wallMs: 9_000, estPlainMs: 50_000, savedMs: 45_000 } });
+    const m = savingsModel([next, first], { from: T0, to: T0 + 2 * H, usdPerMinute: 0.01 });
+    expect(m.checks).toBe(2);
+    expect(m.recordedChecks).toBe(2);
+    // Recording is inside the runs' own times: nothing subtracted apart.
+    expect(m.recordingMs).toBe(0);
+    // Plain time from the full run: 60 s; saved 60 - 9 = 51 s.
+    expect(m.savedMs).toBe(51_000);
+    expect(m.netMs).toBe(51_000);
+    expect(m.files).toEqual({ skipped: 90, total: 200 });
+    expect(m.days.at(-1)?.cumulativeUsd).toBeCloseTo((51_000 / 60_000) * 0.01);
+  });
+
+  it("old data: a legacy shadow whose check is outside the range still counts as a recording, not as a check", () => {
+    const check = run({ id: "1", hoursAfter: -1, sha: "abc", files: { total: 100, ran: 0, replayed: 100 }, timing: { wallMs: 1_000, estPlainMs: 50_000, savedMs: 50_000 } });
+    const shadow = run({ id: "2", hoursAfter: 1, kind: "shadow", sha: "abc", timing: { wallMs: 60_000, estPlainMs: 50_000, savedMs: 0 } });
+    const m = savingsModel([shadow, check], { from: T0, to: T0 + 2 * H, usdPerMinute: 0.01 });
+    expect(m.checks).toBe(0);
+    expect(m.recordingMs).toBe(60_000);
   });
 
   it("only counts runs in the range, but uses older full runs for the plain time", () => {

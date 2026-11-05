@@ -43,7 +43,7 @@ export async function PlainTrust({ team }: { team: Team }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <h1 className="h1">Trust</h1>
         <p className="muted" style={{ maxWidth: "72ch" }}>
-          A test file is skipped only when nothing it depends on changed since it last passed. Spot-checks re-run skipped files at random to prove it.
+          Quod skips a test file only when nothing it depends on changed and two independent runs of it agreed on the result. Now and then it runs a skipped file anyway, in the same job, to check.
         </p>
       </div>
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />

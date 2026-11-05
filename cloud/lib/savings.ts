@@ -4,18 +4,24 @@
 // arrive, so both always agree.
 //
 // The method, in short (SAVINGS_METHOD says it in full, for the tooltip):
-// - Each check run (kind "critical") is compared with what the same suite
-//   takes when every test file runs. That plain time comes from recorded
-//   full runs of the suite (usually the background recording, which runs
-//   every file), scaled to the check's file count; when there is none, from
-//   the check's own time plus the skipped files' recorded times.
-// - Time saved is the plain time minus the check's own time.
+// - Each check run (the test job a developer waits for: kind "critical", or
+//   kind "shadow" recorded inline by quod-action v2) is compared with what
+//   the same suite takes when every test file runs. That plain time comes
+//   from runs of the suite where every file ran, scaled to the check's file
+//   count; when there is none, from the check's own time plus the skipped
+//   files' recorded times.
+// - Time saved is the plain time minus the check's own time. A check that
+//   recorded inline took longer for it, and that time is in its wall time,
+//   so the cost of recording is already subtracted. quod-server does not
+//   report how much of a run was recording, so it is not shown apart.
 // - Money is runner minutes saved times a per-minute rate (GitHub's
 //   published Linux 2-core rate unless the team set its own), minus the
-//   runner time the background recordings spent running tests.
+//   runner time legacy background recordings (Quod's retired setup: a
+//   separate job per commit) spent running tests.
 // Setup (checkout, install) is not in any of it: test runs do not report it.
 
 import type { TestRunSummary } from "@/lib/api/types";
+import { legacyRecordingIds } from "@/lib/test-runs";
 
 /** The fields of a test run this needs: what GET /test-history sends, and a subset of every TestRunSummary. */
 export type TestRunLite = Pick<TestRunSummary, "id" | "at" | "repoSlug" | "repository" | "suite" | "kind" | "event" | "branch" | "runId" | "sha"> & {
@@ -28,7 +34,7 @@ export const DEFAULT_USD_PER_MINUTE = 0.006;
 export const DEFAULT_RATE_NOTE = "GitHub's published price for a Linux 2-core runner";
 
 export const SAVINGS_METHOD =
-  "Estimates. For each check, Quod compares its test time with what the same suite takes when every test file runs: recorded full runs of that suite (usually the background recording), scaled to the number of files. Without one, it adds the skipped files' recorded times to the check's own time, as if they had run one after another. Money is the runner minutes saved times your per-minute rate, minus the time background recordings spent running tests. Checkout and install time are not counted.";
+  "Estimates. For each test run, Quod compares its time with what the same suite takes when every test file runs: runs of that suite where every file ran, scaled to the number of files. Without one, it adds the skipped files' recorded times to the run's own time, as if they had run one after another. Recording happens inside your test runs, so its extra time is already in their times. Money is the runner minutes saved times your per-minute rate, minus the time legacy background recordings (Quod's older setup) spent running tests. Checkout and install time are not counted.";
 
 export type RunClass = "pr" | "branch" | "default";
 export const RUN_CLASSES: RunClass[] = ["pr", "branch", "default"];
@@ -107,8 +113,10 @@ export interface SavingsModel {
   ciRuns: number;
   /** Wall time not waited for on checks (estimate). */
   savedMs: number;
-  /** Test time the background recordings spent (extra runner time Quod adds). */
+  /** Test time legacy background recordings spent (extra runner time Quod's retired setup added). Inline recording is in the checks' own times instead. */
   recordingMs: number;
+  /** Checks that recorded inline (quod-action v2): their own time includes recording, which quod-server does not report apart. */
+  recordedChecks: number;
   /** savedMs - recordingMs: runner time saved overall. May be negative. */
   netMs: number;
   usd: { saved: number; recording: number; net: number };
@@ -213,13 +221,18 @@ export function savingsModel(
   let filesSkipped = 0;
   let filesTotal = 0;
   let recordingMs = 0;
+  let recordedChecks = 0;
+  // A "shadow" report with a "critical" one of the same commit and suite is a legacy background recording;
+  // any other is the developer's own test job, recorded inline (lib/test-runs.ts).
+  const legacy = legacyRecordingIds(runs);
+  const legacyMs = (r: TestRunLite) => (finite(r.timing.wallMs) ? r.timing.wallMs : finite(r.timing.estPlainMs) ? r.timing.estPlainMs : 0);
   for (const r of inRange) {
-    if (r.kind === "shadow") {
-      const w = finite(r.timing.wallMs) ? r.timing.wallMs : finite(r.timing.estPlainMs) ? r.timing.estPlainMs : 0;
-      recordingMs += w;
+    if (legacy.has(r.id)) {
+      recordingMs += legacyMs(r);
       continue;
     }
-    if (r.kind !== "critical") continue;
+    if (r.kind !== "critical" && r.kind !== "shadow") continue;
+    if (r.kind === "shadow") recordedChecks++;
     filesSkipped += Math.min(r.files.replayed, r.files.total);
     filesTotal += r.files.total;
     const p = plainTime(r, full);
@@ -269,8 +282,7 @@ export function savingsModel(
   // Per day: the median CI run, per class and for all; and money saved so far.
   const savedByDay = new Map<string, number>();
   for (const c of checks) savedByDay.set(dayOf(c.at), (savedByDay.get(dayOf(c.at)) ?? 0) + c.savedMs);
-  for (const r of inRange)
-    if (r.kind === "shadow") savedByDay.set(dayOf(r.at), (savedByDay.get(dayOf(r.at)) ?? 0) - (finite(r.timing.wallMs) ? r.timing.wallMs : finite(r.timing.estPlainMs) ? r.timing.estPlainMs : 0));
+  for (const r of inRange) if (legacy.has(r.id)) savedByDay.set(dayOf(r.at), (savedByDay.get(dayOf(r.at)) ?? 0) - legacyMs(r));
   let running = 0;
   const days: DayPoint[] = daysBetween(from, to).map((day) => {
     const own = points.filter((p) => dayOf(p.at) === day);
@@ -296,6 +308,7 @@ export function savingsModel(
     ciRuns: points.length,
     savedMs,
     recordingMs,
+    recordedChecks,
     netMs,
     usd: { saved: usd(savedMs), recording: usd(recordingMs), net: usd(netMs) },
     files: { skipped: filesSkipped, total: filesTotal },

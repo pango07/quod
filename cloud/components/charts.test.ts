@@ -8,19 +8,23 @@ import { MinutesChart } from "./charts";
 // The Overview's per-day chart fed from test check runs.
 
 const NOW = Date.parse("2026-11-02T12:00:00Z");
-const run = (at: string, kind: TestRunSummary["kind"], timing: Partial<TestRunSummary["timing"]>) => ({
+const run = (at: string, kind: TestRunSummary["kind"], timing: Partial<TestRunSummary["timing"]>, sha?: string) => ({
+  id: `${at}/${kind}`,
   at,
   kind,
+  repository: "acme/web",
+  suite: ".",
+  sha: sha ?? null,
   timing: { wallMs: null, selectMs: null, estPlainMs: null, savedMs: null, ...timing },
 });
 
-// Two days, checks and background recordings mixed; one check without wallMs.
+// Two days, checks and legacy background recordings (a "shadow" next to a "critical" of its commit) mixed; one check without wallMs.
 const runs = [
-  run("2026-11-02T09:00:00Z", "critical", { wallMs: 21_000, savedMs: 79_000, estPlainMs: 119_000 }),
-  run("2026-11-02T09:02:00Z", "shadow", { wallMs: 30_000, savedMs: 0, estPlainMs: 119_000 }),
+  run("2026-11-02T09:00:00Z", "critical", { wallMs: 21_000, savedMs: 79_000, estPlainMs: 119_000 }, "a1"),
+  run("2026-11-02T09:02:00Z", "shadow", { wallMs: 30_000, savedMs: 0, estPlainMs: 119_000 }, "a1"),
   run("2026-11-02T10:00:00Z", "critical", { wallMs: null, savedMs: 38_000, estPlainMs: 39_000 }),
-  run("2026-11-01T23:59:00Z", "critical", { wallMs: 6_000, savedMs: 12_000 }),
-  run("2026-11-01T08:00:00Z", "shadow", { wallMs: 90_000, savedMs: 50_000 }),
+  run("2026-11-01T23:59:00Z", "critical", { wallMs: 6_000, savedMs: 12_000 }, "b2"),
+  run("2026-11-01T08:00:00Z", "shadow", { wallMs: 90_000, savedMs: 50_000 }, "b2"),
   // Outside the chart's days: left out.
   run("2026-10-20T08:00:00Z", "critical", { wallMs: 60_000, savedMs: 60_000 }),
 ];
@@ -36,7 +40,14 @@ describe("test time per day", () => {
     expect(ranMs(run("x", "critical", {}))).toBe(0);
   });
 
-  it("checks only, per UTC day: saved = sum of savedMs, ran = sum of ranMs; shadow rows change nothing", () => {
+  it("a run recorded inline (a shadow with no critical of its commit) is the developer's own test job: counted", () => {
+    const inline = run("2026-11-02T11:00:00Z", "shadow", { wallMs: 9_000, savedMs: 3_000 }, "c3");
+    const days = testMinutesPerDay([...runs, inline], lastUtcDays(3, NOW));
+    expect(days[2].replayedMinutes).toBeCloseTo((79_000 + 38_000 + 3_000) / 60_000);
+    expect(days[2].ranMinutes).toBeCloseTo((21_000 + 1_000 + 9_000) / 60_000);
+  });
+
+  it("checks only, per UTC day: saved = sum of savedMs, ran = sum of ranMs; legacy background recordings change nothing", () => {
     const days = testMinutesPerDay(runs, lastUtcDays(3, NOW));
     expect(days).toEqual([
       { day: "2026-10-31", replayedMinutes: 0, ranMinutes: 0 },

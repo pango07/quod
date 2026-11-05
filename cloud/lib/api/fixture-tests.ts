@@ -1,8 +1,11 @@
 // Sample test runs (test-level replay) for the fixture adapter: the sample
-// team's quodci/web runs vitest in two packages. Each commit has the
-// developer's check ("critical") and the background recording job
-// ("shadow"), which re-runs a few skipped files to check them. Shaped on
-// measured runs, not real. Times are measured back from now.
+// team's quodci/web runs vitest in two packages. Recent commits run on
+// quod-action v2: the developer's test job records inline (reported as kind
+// "shadow", with no "critical" partner) and runs a few skipped files anyway
+// to check them. Older commits, from before the upgrade, show Quod's retired
+// setup: a check ("critical") and, for the same commit, a background
+// recording job ("shadow"). Shaped on measured runs, not real. Times are
+// measured back from now.
 
 import type { RanFile, TestFile, TestFileState, TestRunDetail, TestRunLite, TestRunSummary, TestStats, TestSuite } from "./types";
 
@@ -28,8 +31,10 @@ interface Seed {
   wallMs: number;
   exit: number;
   ledger: TestRunSummary["ledger"];
-  /** Files the shadow re-ran to check (true: same result). */
+  /** Skipped files run anyway to check (true: same result). */
   audit: [string, boolean][];
+  /** From before quod-action v2: a check, plus a background recording job when it spot-checked. */
+  legacy?: boolean;
 }
 
 const f = (file: string, why: string, durationMs: number, state = "pass"): RanFile => ({ file, project: "", why, durationMs, state });
@@ -179,6 +184,8 @@ function history(): Seed[] {
         exit: 0,
         ledger,
         audit: i % 4 === 0 ? [[`src/lib/check-${i}.test.ts`, true], [`src/api/check-${i}.test.ts`, true]] : [],
+        // The oldest runs, from before the upgrade to quod-action v2.
+        legacy: i >= 14,
       });
     }
   }
@@ -207,72 +214,84 @@ function history(): Seed[] {
 
 const ALL_SEEDS: Seed[] = [...SEEDS, ...history()];
 
-function summaryOf(s: Seed, kind: "critical" | "shadow", now: number): TestRunSummary {
+/**
+ * One report. "check": the developer's test job (kind "shadow" when it
+ * recorded inline, "critical" for a legacy check). "recording": a legacy
+ * background recording job. Ids end in "c" for the developer's job, "s" for
+ * a background recording.
+ */
+function summaryOf(s: Seed, role: "check" | "recording", now: number): TestRunSummary {
   const replayed = s.total - s.ran.length;
-  const shadow = kind === "shadow";
+  const bg = role === "recording";
+  const kind = bg || !s.legacy ? "shadow" : "critical";
   const checked = s.audit.length;
+  const runId = 18_900_000_000 + s.n;
   return {
-    id: `tr_${s.n}${shadow ? "s" : "c"}`,
-    at: new Date(now - (s.minutesAgo - (shadow ? 2 : 0)) * MIN).toISOString(),
+    id: `tr_${s.n}${bg ? "s" : "c"}`,
+    at: new Date(now - (s.minutesAgo - (bg ? 2 : 0)) * MIN).toISOString(),
     ...(s.repo ?? REPO),
     suite: s.suite,
     kind,
     tool: "vitest",
-    workflow: shadow ? "quod-record" : "ci",
-    job: shadow ? "record" : "test",
-    runId: 18_900_000_000 + s.n * (shadow ? 3 : 1),
+    workflow: "ci",
+    job: bg ? "record" : "test",
+    runId,
     runAttempt: 1,
     runNumber: s.n,
-    githubUrl: `https://github.com/${(s.repo ?? REPO).repository}/actions/runs/${18_900_000_000 + s.n * (shadow ? 3 : 1)}`,
+    githubUrl: `https://github.com/${(s.repo ?? REPO).repository}/actions/runs/${runId}`,
     branch: s.branch,
     sha: s.sha,
     event: s.branch === "main" ? "push" : "pull_request",
     files: { total: s.total, ran: s.ran.length, replayed, narrowed: s.narrowed },
-    timing: { wallMs: s.wallMs + (shadow ? 9_000 : 0), selectMs: 340 + (s.n % 7) * 20, estPlainMs: s.estPlainMs, savedMs: s.savedMs },
+    // Inline recording adds a little to the job's own time; a background recording ran every file again.
+    timing: { wallMs: s.wallMs + (bg ? 9_000 : s.legacy ? 0 : 600), selectMs: 340 + (s.n % 7) * 20, estPlainMs: s.estPlainMs, savedMs: s.savedMs },
     exit: s.exit,
     ledger: s.ledger,
-    // The critical run carries its shadow's spot-checks once the shadow has reported.
+    // A legacy check carries its background recording's spot-checks once that has reported.
     audits: checked ? { checked, mismatched: s.audit.filter(([, ok]) => !ok).length } : null,
   };
 }
 
-function detailOf(s: Seed, kind: "critical" | "shadow", now: number): TestRunDetail {
-  const own = summaryOf(s, kind, now);
+function detailOf(s: Seed, role: "check" | "recording", now: number): TestRunDetail {
+  const own = summaryOf(s, role, now);
   return {
     ...own,
     ranFiles: s.ran,
     auditFiles: s.audit.map(([file, ok]) => ({ file, ok })),
-    shadow: kind === "critical" && s.audit.length ? summaryOf(s, "shadow", now) : null,
+    shadow: s.legacy && role === "check" && s.audit.length ? summaryOf(s, "recording", now) : null,
   };
 }
 
-/** Every sample test run, newest first. Only critical runs with spot-checks have a shadow. */
+/** Every sample test run, newest first. Only legacy checks with spot-checks have a background recording. */
 export function sampleTestRuns(now = Date.now()): TestRunDetail[] {
   const out: TestRunDetail[] = [];
   for (const s of ALL_SEEDS) {
-    if (s.audit.length) out.push(detailOf(s, "shadow", now));
-    out.push(detailOf(s, "critical", now));
+    if (s.legacy && s.audit.length) out.push(detailOf(s, "recording", now));
+    out.push(detailOf(s, "check", now));
   }
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
+/** As quod-server adds them up: time saved and recent runs from kind "critical" only, spot-checks from the "shadow" reports that ran them. */
 export function sampleTestStats(now = Date.now()): TestStats {
-  const runs = sampleTestRuns(now).filter((r) => r.kind === "critical");
+  const all = sampleTestRuns(now);
+  const runs = all.filter((r) => r.kind === "critical");
   const midnight = new Date(new Date(now).toISOString().slice(0, 10)).getTime();
   const today = runs.filter((r) => Date.parse(r.at) >= midnight);
   const week = runs.filter((r) => Date.parse(r.at) >= now - 7 * 24 * 60 * MIN);
   const sum = (xs: TestRunSummary[], f: (r: TestRunSummary) => number) => xs.reduce((a, r) => a + f(r), 0);
   const filesTotal = sum(week, (r) => r.files.total);
   const filesSkipped = sum(week, (r) => r.files.replayed);
-  const checked = sum(runs, (r) => r.audits?.checked ?? 0);
-  const wrong = sum(runs, (r) => r.audits?.mismatched ?? 0);
+  const recorders = all.filter((r) => r.kind === "shadow");
+  const checked = sum(recorders, (r) => r.audits?.checked ?? 0);
+  const wrong = sum(recorders, (r) => r.audits?.mismatched ?? 0);
   return {
     asOf: new Date(now).toISOString(),
     today: { savedMs: sum(today, (r) => r.timing.savedMs ?? 0), runs: today.length },
     week: { savedMs: sum(week, (r) => r.timing.savedMs ?? 0), runs: week.length, filesTotal, filesSkipped, skippedPct: filesTotal ? (filesSkipped / filesTotal) * 100 : null },
     wrongResults: wrong,
     audits: { checked, passed: checked - wrong },
-    recent: sampleTestRuns(now).slice(0, 10).map(summaryOnly),
+    recent: runs.slice(0, 10).map(summaryOnly),
   };
 }
 
@@ -344,7 +363,7 @@ export function sampleTestSuites(now = Date.now()): TestSuite[] {
       "packages/backend",
       ledger,
       [
-        { file: "src/billing/discounts.test.ts", state: "paused", reason: "a spot-check differed", lastResult: "pass", skipped: 6, ran: 3, durationMs: 2210 },
+        { file: "src/billing/discounts.test.ts", state: "paused", reason: "a check differed", lastResult: "pass", skipped: 6, ran: 3, durationMs: 2210 },
         { file: "src/api/routes/login.test.ts", state: "always", reason: "it failed last time", lastResult: "fail", skipped: 0, ran: 4, durationMs: 2650 },
         { file: "src/db/migrations.test.ts", state: "always", reason: "recording changed its behaviour", lastResult: "pass", skipped: 0, ran: 5, durationMs: 8740 },
         { file: "src/billing/retry.test.ts", state: "learning", reason: "not recorded yet", lastResult: null, skipped: 0, ran: 0, durationMs: null },
@@ -382,13 +401,19 @@ export function sampleTestSuites(now = Date.now()): TestSuite[] {
 /**
  * The sample team's test history for the Overview's savings (GET
  * /test-history): about four weeks of CI on quodci/web, from the day Quod
- * was added. Each CI run checks both packages; pushes to main also record
- * them in the background. Before Quod has a recording, every file runs; after, most are
- * skipped. Deterministic for a given `now`; made up, shaped on measured runs.
+ * was added. Each CI run checks both packages. For the first two weeks the
+ * team ran Quod's older setup: pushes to main also recorded them in a
+ * background job (kind "shadow" next to the check's "critical"). Since the
+ * upgrade to quod-action v2 every test job records inline and is reported
+ * as "shadow" alone. Before Quod has a recording, every file runs; after,
+ * most are skipped. Deterministic for a given `now`; made up, shaped on
+ * measured runs.
  */
 export function sampleTestHistory(now = Date.now(), days = 90): TestRunLite[] {
   const DAY = 24 * 60 * MIN;
   const adopted = 26;
+  /** Days ago the team moved to quod-action v2 (inline recording). */
+  const upgraded = 12;
   const suites = [
     { suite: "packages/backend", total: 184, wallMs: 128_000, fileMs: 118_900 },
     { suite: "packages/web", total: 96, wallMs: 44_000, fileMs: 39_500 },
@@ -409,22 +434,25 @@ export function sampleTestHistory(now = Date.now(), days = 90): TestRunLite[] {
       const runId = 17_000_000 + n;
       const sha = (n * 2654435761).toString(16).padStart(8, "0").repeat(5);
       const fresh = d >= adopted - 1;
+      const inline = d <= upgraded;
       for (const s of suites) {
         const changed = fresh ? s.total : Math.max(1, Math.round(s.total * (0.02 + rnd() * (kind === 2 ? 0.25 : 0.12))));
         const replayed = s.total - changed;
         const share = changed / s.total;
         const ranFileMs = s.fileMs * share;
         const base = { repoSlug: "web", repository: "quodci/web", suite: s.suite, event, branch, runId, sha };
+        const wallMs = fresh ? s.wallMs * (0.95 + rnd() * 0.1) : 2_500 + s.wallMs * share * 1.1;
         out.push({
           ...base,
           id: String(n++),
           at: new Date(at).toISOString(),
-          kind: "critical",
+          // Inline: the test job records the files it ran (a few per cent more time on them).
+          kind: inline ? "shadow" : "critical",
           files: { total: s.total, ran: changed, replayed },
-          timing: { wallMs: Math.round(fresh ? s.wallMs * (0.95 + rnd() * 0.1) : 2_500 + s.wallMs * share * 1.1), estPlainMs: s.fileMs, savedMs: Math.round(s.fileMs - ranFileMs) },
+          timing: { wallMs: Math.round(inline ? wallMs + ranFileMs * 0.06 : wallMs), estPlainMs: s.fileMs, savedMs: Math.round(s.fileMs - ranFileMs) },
         });
-        // Background recordings only on pushes to main (the writer branch), and on the first runs.
-        if (kind === 2 || fresh) out.push({
+        // Legacy background recordings only on pushes to main (the writer branch), and on the first runs.
+        if (!inline && (kind === 2 || fresh)) out.push({
           ...base,
           id: String(n++),
           at: new Date(at + 2 * MIN).toISOString(),

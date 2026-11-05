@@ -26,8 +26,10 @@ describe("Trust, compact", () => {
     expect(t).toContain("of test files skipped, last 20 checks");
     expect(html).toMatch(/title="[0-9,]+ of [0-9,]+ files across 20 checks"/);
     expect(t).toContain("296 test files");
-    expect(t).toContain("10 learning");
-    expect(t).toContain("265 skipping");
+    // The sample runs record inline (quod-action v2), which quod-server's stats do not count: the week comes from the runs.
+    expect(t).not.toMatch(/across 0 runs/);
+    expect(t).toContain("10 not recorded yet");
+    expect(t).toContain("265 trusted");
     expect(html.match(/class="statebar "/g)).toHaveLength(1);
   });
 
@@ -46,8 +48,8 @@ describe("Trust, compact", () => {
     expect(web).toContain("quodci/web");
     expect(web).toContain("packages/backend");
     expect(t).toContain("repo root");
-    expect(t).toContain("184 files · 170 skipping · 3 need a look");
-    expect(t).toContain("7 files · 7 skipping");
+    expect(t).toContain("184 files · 170 trusted · 3 need a look");
+    expect(t).toContain("7 files · 7 trusted");
     expect(html.match(/aria-expanded="false"/g)).toHaveLength(4);
     expect(html).not.toContain("module-01.test.ts");
     expect(t).toContain("No recording yet");
@@ -56,9 +58,9 @@ describe("Trust, compact", () => {
   it("filter pills with counts", () => {
     expect(t).toContain("All 296");
     expect(t).toContain("Needs a look 4");
-    expect(t).toContain("Skipping 265");
-    expect(t).toContain("Ready 17");
-    expect(t).toContain("Learning 10");
+    expect(t).toContain("Trusted 265");
+    expect(t).toContain("Recorded 17");
+    expect(t).toContain("Not recorded 10");
   });
 
   it("never says default branch", () => {

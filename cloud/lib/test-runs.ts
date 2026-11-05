@@ -51,14 +51,67 @@ export function testRunHeadline(r: Pick<TestRunSummary, "tool" | "suite" | "repo
 export const SAVED_EXPLAINED =
   "Saved is the time the skipped test files took when they were last recorded, added up across all workers. Tests run in parallel, so the wait you actually saved can be shorter.";
 
-export function kindLabel(kind: TestRunSummary["kind"]): string {
-  return kind === "shadow" ? "Background recording" : "Your check";
+// ---------------------------------------------------------------- What a run was
+//
+// quod-action v2 records inside the test job itself (the "second witness"
+// design): a file's recording is reused only after a second, independent run
+// of it agrees. Those runs reach Quod Cloud as kind "shadow", the name the
+// retired design gave its separate background recording job, because both
+// record. Quod's older setup paired every commit's check (kind "critical")
+// with such a background job. So a "shadow" report is told apart by its
+// neighbours: one with a "critical" report of the same repository, suite and
+// commit is a legacy background recording; one without is the developer's
+// own test job, recorded inline.
+
+/** check: a test job that recorded nothing. recorded: a test job that recorded inline (v2). legacy-recording: the retired background job. */
+export type RunRole = "check" | "recorded" | "legacy-recording";
+
+/** What pairing reads; a run without its commit (or repository) is never a legacy recording. */
+type PairFields = Pick<TestRunSummary, "id" | "kind"> & Partial<Pick<TestRunSummary, "repository" | "suite" | "sha">>;
+
+const normSuite = (s: string) => {
+  const t = s.trim().replace(/^\.\/+/, "").replace(/\/+$/, "");
+  return t === "" || t === "." ? "." : t;
+};
+const commitKey = (r: PairFields) => (r.sha && r.repository ? `${r.repository.toLowerCase()}\u0000${normSuite(r.suite ?? ".")}\u0000${r.sha}` : null);
+
+/** The ids of legacy background recordings among `runs`: "shadow" reports with a "critical" report of the same repository, suite and commit. */
+export function legacyRecordingIds(runs: readonly PairFields[]): Set<string> {
+  const checked = new Set(runs.filter((r) => r.kind === "critical").map(commitKey));
+  checked.delete(null);
+  return new Set(runs.filter((r) => r.kind === "shadow" && commitKey(r) !== null && checked.has(commitKey(r))).map((r) => r.id));
 }
 
-export const KIND_EXPLAINED: Record<TestRunSummary["kind"], string> = {
-  critical: "The test job your pull request or push waits for. It skips test files whose code did not change.",
-  shadow: "A job that runs in the background for the same commit. It records results for later runs and re-runs a few skipped files to check them.",
+/** A run's role; `legacy` is legacyRecordingIds of the runs it came with. */
+export function runRole(r: Pick<TestRunSummary, "id" | "kind">, legacy: ReadonlySet<string>): RunRole {
+  if (r.kind === "critical") return "check";
+  return legacy.has(r.id) ? "legacy-recording" : "recorded";
+}
+
+/** The runs a developer waited for: every run but the legacy background recordings. */
+export function checkRuns<T extends PairFields>(runs: readonly T[]): T[] {
+  const legacy = legacyRecordingIds(runs);
+  return runs.filter((r) => !legacy.has(r.id));
+}
+
+export function roleLabel(role: RunRole): string {
+  if (role === "legacy-recording") return "Legacy background recording";
+  return role === "recorded" ? "Your tests · recorded" : "Your tests";
+}
+
+export const ROLE_EXPLAINED: Record<RunRole, string> = {
+  check: "The test job your push or pull request waits for. It reused the results of test files whose code did not change, and recorded nothing new.",
+  recorded:
+    "The test job your push or pull request waits for. It reused the results of test files whose code did not change, and recorded the files it ran, in the same job. A new recording is reused only after a second run of that file agrees with it.",
+  "legacy-recording":
+    "Quod's older setup ran a separate background job for each commit to record results and re-run a few skipped files. Current versions record inside your test job instead. Kept here so older runs still read correctly.",
 };
+
+export const roleTone = (role: RunRole): "gray" | "blue" => (role === "legacy-recording" ? "gray" : "blue");
+
+/** What a recorded run means for its files, in one paragraph. */
+export const RECORDING_EXPLAINED =
+  "The files that ran were recorded in this job, so recording adds a little time to it. Quod reuses a new recording only after a second, independent run of the file gives the same results. Until then the file runs again, and a file that disagrees keeps running until runs agree.";
 
 /** "Tests passed", "Tests failed (exit code 1)", or "Result not reported". */
 export function exitLabel(exit: number | null): { text: string; tone: "green" | "red" | "dim" } {
@@ -66,32 +119,29 @@ export function exitLabel(exit: number | null): { text: string; tone: "green" | 
   return exit === 0 ? { text: "Tests passed", tone: "green" } : { text: `Tests failed (exit code ${exit})`, tone: "red" };
 }
 
-/** The spot-checks of a run, in one sentence; null when there were none (yet). */
+/** The spot-checks of a run, in one sentence; null when there were none. */
 export function spotCheckSentence(r: Pick<TestRunDetail, "audits" | "auditFiles">): string | null {
   const files = r.auditFiles ?? [];
   const checked = files.length || r.audits?.checked || 0;
   const bad = files.length ? files.filter((f) => !f.ok).length : (r.audits?.mismatched ?? 0);
   if (!checked) return null;
-  const head = checked === 1 ? "1 skipped file was re-run in the background to check" : `${formatCount(checked)} skipped files were re-run in the background to check`;
+  const head = checked === 1 ? "1 skipped file was run anyway, to check its reused result" : `${formatCount(checked)} skipped files were run anyway, to check their reused results`;
   if (bad === 0) return `${head}: ${checked === 1 ? "it matched" : "all matched"}.`;
   if (checked === 1) return `${head}: it gave a different result.`;
   return `${head}: ${formatCount(bad)} did not match.`;
 }
 
-/**
- * Does a run's page show a spot-check section? Not when there is nothing to
- * say: no spot-checks, and either nothing was skipped (nothing to check), or
- * the background recording already reported (or this is it) without any.
- * A check that skipped files and is still waiting for its recording keeps
- * the section ("None yet ...").
- */
-export function showSpotChecks(r: Pick<TestRunDetail, "audits" | "auditFiles" | "files" | "kind" | "shadow">): boolean {
-  if (spotCheckSentence(r) !== null) return true;
-  if (r.files.replayed === 0) return false;
-  return r.kind === "critical" && !r.shadow;
+/** Does a run's page show a spot-check section? Only when it had spot-checks: they run in the same job now, so there is nothing to wait for. */
+export function showSpotChecks(r: Pick<TestRunDetail, "audits" | "auditFiles">): boolean {
+  return spotCheckSentence(r) !== null;
 }
 
-/** Spot-checks over the 7 days before now, from the background recordings (shadow runs), so a check and its shadow count once. */
+/**
+ * Spot-checks over the 7 days before now. Counted from the runs that ran
+ * them ("shadow" reports: inline recordings, and legacy background
+ * recordings); a legacy check that carries its recording's numbers is not
+ * counted again.
+ */
 export function spotChecksWithinWeek(runs: Pick<TestRunSummary, "kind" | "at" | "audits">[], now: number): { checked: number; mismatched: number } {
   let checked = 0;
   let mismatched = 0;
@@ -122,6 +172,35 @@ export function weekSkipped(s: TestStats): string | null {
   return null;
 }
 
+/**
+ * The Overview's test numbers, with the runs' own numbers where the server's
+ * miss them. quod-server's /test-stats adds up only kind "critical" runs, so
+ * a team on inline recording (kind "shadow", no "critical" partner) would
+ * see no time saved and no recent runs. When `runs` has such runs, today,
+ * the week and the recent runs come from `runs` (the newest 200) instead;
+ * spot-checks and wrong results stay the server's (it counts them from every
+ * "shadow" report already).
+ */
+export function statsWithRuns(stats: TestStats, runs: TestRunSummary[] | null | undefined, now: number): TestStats {
+  if (!runs?.length) return stats;
+  const legacy = legacyRecordingIds(runs);
+  if (!runs.some((r) => runRole(r, legacy) === "recorded")) return stats;
+  const checks = runs.filter((r) => !legacy.has(r.id)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const midnight = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+  const since = (from: number) => checks.filter((r) => Date.parse(r.at) >= from && Date.parse(r.at) <= now);
+  const today = since(midnight);
+  const week = since(now - WEEK_MS);
+  const sum = (xs: TestRunSummary[], f: (r: TestRunSummary) => number) => xs.reduce((a, r) => a + f(r), 0);
+  const filesTotal = sum(week, (r) => r.files.total);
+  const filesSkipped = sum(week, (r) => Math.min(r.files.replayed, r.files.total));
+  return {
+    ...stats,
+    today: { savedMs: sum(today, (r) => r.timing.savedMs ?? 0), runs: today.length },
+    week: { savedMs: sum(week, (r) => r.timing.savedMs ?? 0), runs: week.length, filesTotal, filesSkipped, skippedPct: filesTotal > 0 ? (filesSkipped / filesTotal) * 100 : null },
+    recent: checks.slice(0, 10),
+  };
+}
+
 /** Does the Overview card have anything to say? A team that never ran tests through Quod sees nothing. */
 export function hasTestActivity(s: TestStats | null): s is TestStats {
   return !!s && (s.recent.length > 0 || s.week.runs > 0 || s.today.runs > 0 || s.audits.checked > 0);
@@ -129,8 +208,8 @@ export function hasTestActivity(s: TestStats | null): s is TestStats {
 
 /**
  * Should a run's page refresh for a `test.run` event? Its own id (a re-sent
- * report), or the background recording of the same commit and suite (its
- * spot-checks are merged into this run).
+ * report), or a "shadow" report of the same commit and suite (for a legacy
+ * check, its background recording, whose spot-checks are merged into it).
  */
 export function concernsTestRun(e: Pick<TestRunSummary, "id" | "kind" | "repoSlug" | "sha" | "suite">, page: Pick<TestRunSummary, "id" | "repoSlug" | "sha" | "suite">): boolean {
   if (e.id === page.id) return true;
@@ -155,15 +234,15 @@ export interface SkippedShare {
 }
 
 /**
- * The share of test files skipped over the newest `n` check runs (kind
- * "critical"; background recordings never count): sum(replayed) /
+ * The share of test files skipped over the newest `n` check runs (the test
+ * jobs developers waited for; legacy background recordings never count): sum(replayed) /
  * sum(total), so a small one-suite run or a first run after a rename moves
  * it by its size, not as one vote of n. Order-independent: the runs are
  * sorted newest first here (ties by id).
  */
-export function skippedShare(runs: Pick<TestRunSummary, "id" | "at" | "kind" | "files">[], n = LAST_CHECKS): SkippedShare {
-  const checks = runs
-    .filter((r) => r.kind === "critical" && r.files.total > 0)
+export function skippedShare(runs: (Pick<TestRunSummary, "id" | "at" | "kind" | "files"> & PairFields)[], n = LAST_CHECKS): SkippedShare {
+  const checks = checkRuns(runs)
+    .filter((r) => r.files.total > 0)
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, n);
   const replayed = checks.reduce((a, r) => a + Math.min(r.files.replayed, r.files.total), 0);
@@ -188,7 +267,7 @@ export interface RepoTests {
   savedMs: number;
   /** Check runs in the last 7 days. */
   runs: number;
-  /** The newest run (critical or not, any age). */
+  /** The newest run (of any kind and age). */
   last: Pick<TestRunSummary, "id" | "repoSlug" | "at" | "exit"> | null;
 }
 
@@ -205,6 +284,7 @@ export function testsByRepo(runs: TestRunSummary[], now: number): Record<string,
     byRepo.set(key, [...(byRepo.get(key) ?? []), r]);
   }
   const out: Record<string, RepoTests> = {};
+  const legacy = legacyRecordingIds(runs);
   for (const [key, own] of byRepo) {
     let last: RepoTests["last"] = null;
     let savedMs = 0;
@@ -212,7 +292,7 @@ export function testsByRepo(runs: TestRunSummary[], now: number): Record<string,
     for (const r of own) {
       const at = Date.parse(r.at);
       if (!last || at > Date.parse(last.at)) last = { id: r.id, repoSlug: r.repoSlug, at: r.at, exit: r.exit };
-      if (r.kind !== "critical" || !(at <= now && now - at <= WEEK_MS)) continue;
+      if (legacy.has(r.id) || !(at <= now && now - at <= WEEK_MS)) continue;
       savedMs += r.timing.savedMs ?? 0;
       week++;
     }
@@ -242,14 +322,13 @@ export function ranMs(r: Pick<TestRunSummary, "timing">): number {
 
 /**
  * The Overview's "CI minutes per day" from test runs: per UTC day of `days`,
- * check runs only (background recordings never count), saved = sum of
+ * check runs only (legacy background recordings never count), saved = sum of
  * timing.savedMs (an estimate, shown "≈ saved"), ran = ranMs. Minutes are not
  * rounded here: test runs are seconds, and the chart formats them.
  */
-export function testMinutesPerDay(runs: Pick<TestRunSummary, "kind" | "at" | "timing">[], days: string[]): DayMinutes[] {
+export function testMinutesPerDay(runs: (Pick<TestRunSummary, "kind" | "at" | "timing"> & Partial<Pick<TestRunSummary, "id" | "repository" | "suite" | "sha">>)[], days: string[]): DayMinutes[] {
   const by = new Map(days.map((d) => [d, { day: d, replayedMinutes: 0, ranMinutes: 0 }]));
-  for (const r of runs) {
-    if (r.kind !== "critical") continue;
+  for (const r of checkRuns(runs.map((r, i) => ({ ...r, id: r.id ?? `#${i}` })))) {
     const d = by.get(new Date(r.at).toISOString().slice(0, 10));
     if (!d) continue;
     d.replayedMinutes += (r.timing.savedMs ?? 0) / 60_000;

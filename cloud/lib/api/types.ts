@@ -370,7 +370,15 @@ export interface TestRunSummary {
   repository: string;
   /** The vitest project dir, e.g. "packages/backend", or "." for the repo root. */
   suite: string;
-  /** critical: the developer's check. shadow: the background recording job. */
+  /**
+   * What quod-server was told: "critical", a test job that recorded nothing;
+   * "shadow", a run that recorded. quod-action v2 records inside the
+   * developer's own test job (second witness), and reports it as "shadow";
+   * Quod's retired setup reported its separate background recording job as
+   * "shadow" too, next to a "critical" check of the same commit. Tell them
+   * apart with runRole / legacyRecordingIds (lib/test-runs.ts), never by
+   * kind alone.
+   */
   kind: "critical" | "shadow";
   tool: "vitest";
   workflow: string | null;
@@ -394,7 +402,7 @@ export interface TestRunSummary {
   exit: number | null;
   /** The earlier recording this run reused; null: not reported. */
   ledger: { found: boolean; sha: string | null; branch: string | null; scope: string | null } | null;
-  /** Spot-checks: the shadow job re-runs a few skipped files and compares. Merged into a critical run from its commit's shadow when available. */
+  /** Spot-checks: a few skipped files run anyway and are compared. On the "shadow" run that ran them; a legacy "critical" check carries its background recording's. */
   audits: { checked: number; mismatched: number } | null;
 }
 
@@ -411,7 +419,7 @@ export interface TestRunDetail extends TestRunSummary {
   ranFiles: RanFile[];
   /** Spot-check results (may be empty). */
   auditFiles: { file: string; ok: boolean }[];
-  /** The shadow job's report for the same commit and suite, if any. */
+  /** Legacy only: for a "critical" check, the background recording of the same commit and suite, if any. */
   shadow: TestRunSummary | null;
 }
 
@@ -419,7 +427,10 @@ export interface TestStats {
   asOf: string;
   today: { savedMs: number; runs: number };
   week: { savedMs: number; runs: number; filesTotal: number; filesSkipped: number; skippedPct: number | null };
-  /** Spot-checks that found a skipped file whose fresh result differed. Should be 0. */
+  /**
+   * Spot-checks that found a skipped file whose fresh result differed. Should be 0.
+   * today/week/recent: quod-server counts only kind "critical" runs here; statsWithRuns (lib/test-runs.ts) adds runs recorded inline.
+   */
   wrongResults: number;
   audits: { checked: number; passed: number };
   /** Up to 10, newest first. */
@@ -553,7 +564,7 @@ export type LiveEvent =
   | (EventBase & { type: "step.finished"; repoSlug: string; run: number; jobId: string; index: number; stepKey: string | null; step: RunStep })
   | (EventBase & { type: "trust.changed"; repoSlug: string; key: string; trust: TrustState; event: TrustEvent })
   | (EventBase & { type: "stats.updated"; repoSlug: string; day: string; delta: StatsDelta })
-  /** A test run's report arrived (a critical run, or the shadow of one). */
+  /** A test run's report arrived (any kind). */
   | (EventBase & { type: "test.run"; repoSlug: string; run: TestRunSummary });
 
 export type LiveEventType = LiveEvent["type"];
@@ -599,7 +610,7 @@ export interface CloudApi {
   /** Test files per suite and what Quod does with each (Trust); null when the server does not serve them (404/501). */
   listTestSuites(team: string): Promise<TestSuite[] | null>;
   /**
-   * Every test run (check and background recording) of the last `days` days,
+   * Every test run (any kind) of the last `days` days,
    * cut to what the savings need (lib/savings.ts), newest first. null: this
    * server does not serve GET /test-history (404/501); the Overview then
    * prices the newest 200 runs from listTestRuns.

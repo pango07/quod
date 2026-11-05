@@ -3,6 +3,7 @@ import { sampleTestRuns, sampleTestSuites, summaryOnly } from "@/lib/api/fixture
 import type { TestFile, TestRunSummary, TestSuite } from "@/lib/api/types";
 import { LAST_CHECKS, shareText, shareTitle, skippedShare } from "./test-runs";
 import {
+  FILE_LEGEND,
   fileStateLabel,
   filterCounts,
   lastResultText,
@@ -27,13 +28,21 @@ const file = (over: Partial<TestFile>): TestFile => ({ file: "src/a.test.ts", pr
 
 describe("test file states in words", () => {
   it("one label per state, with the counts and reasons the server sends", () => {
-    expect(fileStateLabel(file({ state: "learning", reason: "not recorded yet" })).label).toBe("Learning");
-    expect(fileStateLabel(file({ state: "ready" })).label).toBe("Ready to skip");
-    expect(fileStateLabel(file({ state: "skipping", skipped: 12 })).label).toBe("Skipping: skipped 12 times");
-    expect(fileStateLabel(file({ state: "skipping", skipped: 1 })).label).toBe("Skipping: skipped 1 time");
+    expect(fileStateLabel(file({ state: "learning", reason: "not recorded yet" })).label).toBe("Not recorded yet");
+    expect(fileStateLabel(file({ state: "ready" })).label).toBe("Recorded");
+    expect(fileStateLabel(file({ state: "skipping", skipped: 12 })).label).toBe("Trusted: skipped 12 times");
+    expect(fileStateLabel(file({ state: "skipping", skipped: 1 })).label).toBe("Trusted: skipped 1 time");
     expect(fileStateLabel(file({ state: "always", reason: "it failed last time" })).label).toBe("Always runs: it failed last time");
     expect(fileStateLabel(file({ state: "always", reason: null })).label).toBe("Always runs");
-    expect(fileStateLabel(file({ state: "paused", reason: "anything" })).label).toBe("Paused: a spot-check differed");
+    expect(fileStateLabel(file({ state: "paused", reason: "anything" })).label).toBe("Paused: a check differed");
+  });
+
+  it("second witness: a recorded file waits for a second agreeing run; always-runs names its reason; no background job anywhere", () => {
+    expect(fileStateLabel(file({ state: "ready" })).help).toMatch(/second, independent run of the file agrees/);
+    expect(fileStateLabel(file({ state: "skipping", skipped: 3 })).help).toMatch(/^Two runs agreed/);
+    expect(FILE_LEGEND.find((l) => l.state === "always")?.help).toMatch(/network.*environment variable.*GITHUB_EVENT_PATH/);
+    expect(fileStateLabel(file({ state: "always", reason: "it reads GITHUB_EVENT_PATH" })).label).toBe("Always runs: it reads GITHUB_EVENT_PATH");
+    for (const l of FILE_LEGEND) expect(`${l.label} ${l.help}`).not.toMatch(/background|shadow/i);
   });
 
   it("tones match the plain trust pages: paused amber, skipping and ready blue", () => {
@@ -71,19 +80,19 @@ describe("suites", () => {
   });
 
   it("totals: zeros left out, in a fixed order", () => {
-    expect(stateCounts({ skipping: 152, ready: 9, learning: 0, always: 3, paused: 0 })).toBe("152 skipping, 9 ready, 3 always run");
-    expect(suiteTotalsText({ files: 1, skipping: 0, ready: 0, learning: 1, always: 0, paused: 0, savedMs: 0 })).toBe("1 test file: 1 learning.");
-    expect(suiteTotalsText({ files: 10, skipping: 10, ready: 0, learning: 0, always: 0, paused: 0, savedMs: 90_000 })).toBe("10 test files: 10 skipping. Saved ≈ 2 min.");
+    expect(stateCounts({ skipping: 152, ready: 9, learning: 0, always: 3, paused: 0 })).toBe("152 trusted, 9 recorded, 3 always run");
+    expect(suiteTotalsText({ files: 1, skipping: 0, ready: 0, learning: 1, always: 0, paused: 0, savedMs: 0 })).toBe("1 test file: 1 not recorded yet.");
+    expect(suiteTotalsText({ files: 10, skipping: 10, ready: 0, learning: 0, always: 0, paused: 0, savedMs: 90_000 })).toBe("10 test files: 10 trusted. Saved ≈ 2 min.");
   });
 
   it("row summary: files, skipping, need a look", () => {
-    expect(suiteRowSummary({ files: 184, skipping: 170, ready: 10, learning: 1, always: 2, paused: 1, savedMs: 0 })).toBe("184 files · 170 skipping · 3 need a look");
+    expect(suiteRowSummary({ files: 184, skipping: 170, ready: 10, learning: 1, always: 2, paused: 1, savedMs: 0 })).toBe("184 files · 170 trusted · 3 need a look");
     expect(suiteRowSummary({ files: 9, skipping: 0, ready: 0, learning: 9, always: 0, paused: 0, savedMs: 0 })).toBe("9 files");
-    expect(suiteRowSummary({ files: 2, skipping: 1, ready: 0, learning: 0, always: 1, paused: 0, savedMs: 0 })).toBe("2 files · 1 skipping · 1 needs a look");
+    expect(suiteRowSummary({ files: 2, skipping: 1, ready: 0, learning: 0, always: 1, paused: 0, savedMs: 0 })).toBe("2 files · 1 trusted · 1 needs a look");
   });
 
   it("the Overview line adds every suite up; none: no line", () => {
-    expect(testFilesLine(sampleTestSuites(NOW))).toBe("296 test files: 265 skipping, 17 ready, 10 learning, 3 always run, 1 paused");
+    expect(testFilesLine(sampleTestSuites(NOW))).toBe("296 test files: 265 trusted, 17 recorded, 10 not recorded yet, 3 always run, 1 paused");
     expect(testFilesLine([])).toBeNull();
     expect(testFilesLine(null)).toBeNull();
   });
@@ -169,11 +178,14 @@ describe("compact Trust: % skipped is sum(replayed) / sum(total) over the last 2
     at: new Date(T0 - minutesAgo * 60_000).toISOString(),
     kind,
     suite,
+    repository: "acme/app",
+    // One commit per suite here: a "shadow" of a suite with a "critical" of it is a legacy background recording.
+    sha: `sha-${suite}`,
     files: { total, replayed, ran: total - replayed, narrowed: 0 },
   });
   // Mixed suites, as one team's runs: a big backend, a small web suite, and a first run after a rename (nothing skipped).
   const checks = [run(1, 170, 184), run(2, 6, 7, "critical", "apps/media"), run(3, 0, 12, "critical", "apps/renamed"), run(4, 171, 184), run(5, 88, 96, "critical", "packages/web")];
-  // Background recordings run every file, or replay all of them: they must change nothing.
+  // Legacy background recordings run every file, or replay all of them: they must change nothing.
   const shadows = [run(1, 0, 184, "shadow"), run(2, 7, 7, "shadow", "apps/media"), run(3, 0, 96, "shadow", "packages/web")];
 
   it("adds the files up: one small or first run moves it by its size, not as one vote", () => {
@@ -186,9 +198,14 @@ describe("compact Trust: % skipped is sum(replayed) / sum(total) over the last 2
     expect(Math.round(skippedShare(withFirsts).pct!)).toBe(88);
   });
 
-  it("does not depend on shadow runs", () => {
+  it("does not depend on legacy background recordings", () => {
     expect(skippedShare([...checks, ...shadows])).toEqual(skippedShare(checks));
-    expect(skippedShare(shadows)).toEqual({ replayed: 0, total: 0, checks: 0, pct: null });
+  });
+
+  it("counts runs recorded inline (a shadow with no critical of its commit): they are the developer's own test jobs", () => {
+    const inline = [run(0.1, 90, 100, "shadow", "apps/new"), run(0.2, 50, 100, "shadow", "apps/new")];
+    expect(skippedShare(inline)).toEqual({ replayed: 140, total: 200, checks: 2, pct: 70 });
+    expect(skippedShare([...checks, ...inline]).checks).toBe(7);
   });
 
   it("does not depend on row order", () => {

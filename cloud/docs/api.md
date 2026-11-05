@@ -186,8 +186,8 @@ The types are `lib/api/types.ts`; the recorded bodies in
   access).
 - **Test runs** (test-level replay; `TestRunSummary`, `TestRunDetail`,
   `TestStats` in `lib/api/types.ts`). One vitest run's report: `suite` (the
-  vitest project dir, `.` for the root), `kind` (`critical`: the developer's
-  check; `shadow`: the background recording job), GitHub run fields,
+  vitest project dir, `.` for the root), `kind` (see "What a run was"
+  below), GitHub run fields,
   `files {total, ran, replayed, narrowed}` (replayed = skipped because
   unchanged, results reused; narrowed = of those, the ones whose source
   changed but not the functions the file runs), `timing {wallMs, selectMs,
@@ -195,15 +195,36 @@ The types are `lib/api/types.ts`; the recorded bodies in
   the recorded per-file durations of the skipped files, summed across
   workers, so it is test-file time, not wall time), `exit`, `ledger` (the
   earlier recording reused, or null) and `audits {checked, mismatched}`
-  (spot-checks, merged into a critical run from its commit's shadow). The
-  detail adds `ranFiles [{file, project, why, durationMs, state}]`,
-  `auditFiles [{file, ok}]` and `shadow` (the same commit and suite's shadow
-  report, or null). `TestStats`: `today {savedMs, runs}`, `week {savedMs,
-  runs, filesTotal, filesSkipped, skippedPct}`, `wrongResults`, `audits
-  {checked, passed}`, `recent` (up to 10). The dashboard computes the week's
-  share from `filesSkipped / filesTotal`, so `skippedPct`'s scale does not
-  matter to it. Repo slugs in all of these are quod-server's and are mapped
-  like every other (`repo-map.ts`).
+  (spot-checks: skipped files run anyway and compared; on the run that ran
+  them, and on a legacy check, its background recording's). The detail adds
+  `ranFiles [{file, project, why, durationMs, state}]`, `auditFiles [{file,
+  ok}]` and `shadow` (legacy only: a critical check's background recording,
+  or null). A detail without `auditFiles` or `shadow` parses as `[]` and
+  null. `TestStats`: `today {savedMs, runs}`, `week {savedMs, runs,
+  filesTotal, filesSkipped, skippedPct}`, `wrongResults`, `audits {checked,
+  passed}`, `recent` (up to 10). The dashboard computes the week's share from
+  `filesSkipped / filesTotal`, so `skippedPct`'s scale does not matter to
+  it. Repo slugs in all of these are quod-server's and are mapped like every
+  other (`repo-map.ts`).
+  **What a run was** (`runRole`, `legacyRecordingIds` in
+  `lib/test-runs.ts`). quod-action v2 records inside the developer's own
+  test job (second witness: a file's recording is reused only after a
+  second, independent run of it agrees, `QUOD_VITEST_WITNESSES=2`) and
+  reports that run as `kind: "shadow"`. Quod's retired setup ran a separate
+  background job per commit that recorded and spot-checked, also reported
+  as `shadow`, next to the developer's `critical` check. quod-server sends
+  no field that tells the two `shadow`s apart, so the dashboard pairs them:
+  a `shadow` with a `critical` of the same repository (any case), suite and
+  commit is a **legacy background recording** (chip "Legacy background
+  recording", gray; never counted as a check, its time subtracted from the
+  money saved); any other `shadow` is **the developer's job, recorded
+  inline** ("Your tests · recorded"); `critical` is "Your tests". A run's
+  page asks for the repo's runs (`limit=200`) to pair a `shadow`.
+  quod-server's `/test-stats` adds up `today`, `week` and `recent` from
+  `critical` runs only, so when the runs include inline recordings the
+  Overview and Trust take those numbers from `/test-runs` instead
+  (`statsWithRuns`, `trustModel`); spot-checks and wrong results stay the
+  server's (it counts them from every `shadow`).
   Older servers: the HTTP adapter turns 404 and 501 on these endpoints into
   `null` (`listTestRuns`, `getTestRun`, `getTestStats`), and the UI hides the
   Overview card and shows an empty Tests tab; nothing is thrown. A server
@@ -227,15 +248,24 @@ The types are `lib/api/types.ts`; the recorded bodies in
   paused, savedMs}` and `files [{file, project, state, reason, lastResult,
   skipped, ran, durationMs, savedMs}]`, sorted paused, always, learning,
   skipping, ready, then by path. `state` is `learning` | `ready` |
-  `skipping` | `always` | `paused`; `reason` is plain words for always,
-  paused and learning ("it failed last time", "not recorded yet");
+  `skipping` | `always` | `paused`, shown as the second-witness model:
+  learning is "Not recorded yet", ready is "Recorded" (its result is reused
+  once a second run agrees), skipping is "Trusted" (runs agreed; skipped
+  when unchanged), always is "Always runs: <reason>" (the network, an
+  environment variable, `GITHUB_EVENT_PATH`, a failure ...), paused is
+  "Paused: a check differed". quod-server does not yet send a file's
+  witness count, so "Recorded" covers both a file awaiting its second
+  witness and one that has it but was not skipped yet. `reason` is plain
+  words for always, paused and learning ("it failed last time", "not
+  recorded yet");
   `lastResult` is vitest's state at the last recording (`pass` | `skip` |
   `fail` | null); `skipped` counts recorded runs that reused its result,
   `ran` the times it ran and was recorded; `savedMs = skipped * durationMs`.
   The Trust page (plain wording, the default) is test-first and compact
   (`trustModel` in `lib/test-suites.ts`): a summary strip (wrong results and
   spot-checks from `/test-stats`, time saved over 7 days, % of test files
-  skipped as the median of the last 20 critical runs from `/test-runs`
+  skipped over the last 20 checks (every run but legacy background
+  recordings) from `/test-runs`
   (`limit=200`), one stacked state bar), "Needs a look" (paused and always
   runs only), then one collapsed row per suite ("repo · package", mini bar,
   counts, % skipped, last run, saved over 7 days) that opens to at most 8
@@ -248,20 +278,27 @@ The types are `lib/api/types.ts`; the recorded bodies in
   latest runs. Nothing at all: one empty state pointing at
   `pango07/quod-action`. 404/501 is `null` (treated as no suites); down is
   "unavailable". The Overview adds a line from the totals ("296 test files:
-  265 skipping, 17 ready, ..."). Trust refreshes on `test.run`.
+  265 trusted, 17 recorded, ..."). Trust refreshes on `test.run`.
 - **Savings** (`TestRunLite` in `lib/savings.ts`; `GET /test-history`). The
   Overview's "What Quod saved you" prices every test run of the range (plus
   14 days before it, for the suites' full-run times). Each row is a test run
   cut to `id, at, repoSlug, repository, suite, kind, event, branch, runId,
   sha, files {total, ran, replayed}, timing {wallMs, estPlainMs, savedMs}`.
-  The method is `SAVINGS_METHOD` in `lib/savings.ts`: a check's plain time is
-  the median wall time of up to 5 recorded full runs of the same suite
-  (replayed 0; usually the background recording), nearest in time and scaled
-  to the check's file count; without one, the check's wall time plus its
-  skipped files' recorded time (`savedMs`). Time saved is plain minus actual;
-  money is runner minutes saved times the team's price (Settings, table
+  The method is `SAVINGS_METHOD` in `lib/savings.ts`. Every run but a
+  legacy background recording is a check: `critical`, and `shadow` recorded
+  inline. A check's plain time is the median wall time of up to 5 full runs
+  of the same suite (replayed 0), nearest in time and scaled to the check's
+  file count; without one, the check's wall time plus its skipped files'
+  recorded time (`savedMs`). Time saved is plain minus actual; money is
+  runner minutes saved times the team's price (Settings, table
   `team_settings`, migration 0006; default GitHub's Linux 2-core price,
-  $0.006/min), minus the background recordings' test time. Runs are split by
+  $0.006/min), minus the legacy background recordings' test time. Inline
+  recording's cost is the extra time it adds to the check's own wall time,
+  which is already in "actual"; quod-server does not report it apart (no
+  per-run recording time), so the dashboard does not show or estimate it
+  (`recordedChecks` counts the checks it applies to). Full runs used for the
+  plain time are themselves recording runs, so the plain time may be a
+  little high. Runs are split by
   `event`/`branch` into pull requests, feature branches and the default
   branch (GitHub's default branch when the App read it, else main/master).
   A server without `/test-history` (404/501) is priced from the newest 200
@@ -310,11 +347,12 @@ as an event.
 | `step.finished` | the `RunStep`, `jobId`, `index`, `stepKey` | Quod runner hooks | yes |
 | `trust.changed` | step key, new `TrustState`, the `TrustEvent` | quod-server's trust decisions | yes (`proven` and `paused` only) |
 | `stats.updated` | repo, day, a `StatsDelta` | quod-server, as steps finish | not yet |
-| `test.run` | `repoSlug`, `run` (a `TestRunSummary`) | quod-server, when a test run's report (critical or shadow) arrives | in progress |
+| `test.run` | `repoSlug`, `run` (a `TestRunSummary`) | quod-server, when a test run's report (any kind) arrives | in progress |
 
 On `test.run` the Overview, Trust and the repo's Tests tab refresh (debounced 4 s),
-and a test run's page refreshes when the event is its own run or the shadow
-of its commit and suite (`concernsTestRun` in `lib/test-runs.ts`). A
+and a test run's page refreshes when the event is its own run or a `shadow`
+of its commit and suite (for a legacy check, its background recording;
+`concernsTestRun` in `lib/test-runs.ts`). A
 `test.run` whose `run` is not a `TestRunSummary` is skipped.
 
 The dashboard re-serves the merged stream to the browser from

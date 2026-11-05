@@ -1,13 +1,20 @@
 // Words for test files on the Trust page (test-level replay): one place, so
 // Trust, the Overview's "Test files" line and the tests say the same thing.
-// Same vocabulary as the plain trust pages: learning, ready to skip,
-// skipping, always runs, paused. Pure; shared with tests.
+// The second-witness model (quod-action v2): a file is not recorded yet,
+// recorded (its result is reused once a second run agrees), trusted (runs
+// agreed: skipped when unchanged), always runs (for a reason), or paused (a
+// check differed). quod-server's states map onto those: learning, ready,
+// skipping, always, paused. Pure; shared with tests.
+//
+// quod-server does not yet say which recorded files have their second
+// witness: "ready" is every recorded, passing file not skipped yet, whether
+// it awaits a second run or already has one.
 
 import type { TestFile, TestFileState, TestRunSummary, TestStats, TestSuite } from "@/lib/api/types";
 import type { Section } from "@/lib/api/section";
 import type { Tone } from "@/lib/trust";
 import { formatCount } from "@/lib/format";
-import { formatSaved, type SkippedShare, skippedShare, spotChecksWithinWeek, testRunHref } from "@/lib/test-runs";
+import { checkRuns, formatSaved, legacyRecordingIds, type SkippedShare, skippedShare, spotChecksWithinWeek, testRunHref } from "@/lib/test-runs";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
@@ -19,11 +26,15 @@ export interface FileStateLabel {
 }
 
 export const FILE_LEGEND: { state: TestFileState; label: string; help: string }[] = [
-  { state: "learning", label: "Learning", help: "Not recorded yet. It runs every time until a run on a writer branch records it." },
-  { state: "ready", label: "Ready to skip", help: "Recorded. The next time nothing it depends on has changed, Quod reuses the recorded result instead of running it." },
-  { state: "skipping", label: "Skipping", help: "Quod skips it when nothing it depends on changed and reuses the recorded result. A few skipped files are re-run in the background to check." },
-  { state: "always", label: "Always runs", help: "Quod runs it every time, for the reason shown." },
-  { state: "paused", label: "Paused", help: "A background re-run gave a different result from the recorded one. It runs every time until it is consistent again." },
+  { state: "learning", label: "Not recorded yet", help: "It runs every time until a test run on a writer branch records it." },
+  {
+    state: "ready",
+    label: "Recorded",
+    help: "Recorded and passing. Quod reuses a recorded result only after a second, independent run of the file agrees with it, so it may run once more before it is skipped.",
+  },
+  { state: "skipping", label: "Trusted", help: "Two runs agreed, so Quod skips it whenever nothing it depends on changed and reuses the result. Now and then it runs anyway, in the same job, to check." },
+  { state: "always", label: "Always runs", help: "Quod runs it every time, for the reason shown: for example it uses the network, reads an environment variable or GITHUB_EVENT_PATH, or failed last time." },
+  { state: "paused", label: "Paused", help: "A check ran it and got a different result from the reused one. It runs every time until runs agree again." },
 ];
 
 const HELP = Object.fromEntries(FILE_LEGEND.map((l) => [l.state, l.help])) as Record<TestFileState, string>;
@@ -33,15 +44,15 @@ export function fileStateLabel(f: Pick<TestFile, "state" | "reason" | "skipped">
   const reason = f.reason?.trim() || null;
   switch (f.state) {
     case "learning":
-      return { label: "Learning", help: reason ? `${HELP.learning} (${reason})` : HELP.learning, tone: "gray" };
+      return { label: "Not recorded yet", help: reason ? `${HELP.learning} (${reason})` : HELP.learning, tone: "gray" };
     case "ready":
-      return { label: "Ready to skip", help: HELP.ready, tone: "blue" };
+      return { label: "Recorded", help: HELP.ready, tone: "blue" };
     case "skipping":
-      return { label: f.skipped > 0 ? `Skipping: skipped ${plural(f.skipped, "time")}` : "Skipping", help: HELP.skipping, tone: "blue" };
+      return { label: f.skipped > 0 ? `Trusted: skipped ${plural(f.skipped, "time")}` : "Trusted", help: HELP.skipping, tone: "blue" };
     case "always":
       return { label: reason ? `Always runs: ${reason}` : "Always runs", help: HELP.always, tone: "dim" };
     case "paused":
-      return { label: "Paused: a spot-check differed", help: HELP.paused, tone: "amber" };
+      return { label: "Paused: a check differed", help: HELP.paused, tone: "amber" };
     default:
       // A state a newer server added: show it as it is rather than guess.
       return { label: String(f.state), help: "", tone: "gray" };
@@ -78,12 +89,12 @@ export function suiteLedgerText(l: TestSuite["ledger"], ago: (iso: string) => st
   return `Reads the latest recording, ${at}.`;
 }
 
-/** The counts that matter, in order, zeros left out: "152 skipping, 9 ready, 3 always run". */
+/** The counts that matter, in order, zeros left out: "152 trusted, 9 recorded, 3 always run". */
 export function stateCounts(t: Pick<TestSuite["totals"], "learning" | "ready" | "skipping" | "always" | "paused">): string {
   const parts: [number, string][] = [
-    [t.skipping, "skipping"],
-    [t.ready, "ready"],
-    [t.learning, "learning"],
+    [t.skipping, "trusted"],
+    [t.ready, "recorded"],
+    [t.learning, "not recorded yet"],
     [t.always, "always run"],
     [t.paused, "paused"],
   ];
@@ -93,14 +104,14 @@ export function stateCounts(t: Pick<TestSuite["totals"], "learning" | "ready" | 
     .join(", ");
 }
 
-/** A suite's totals in one line: "184 test files: 170 skipping, 10 ready, 1 learning, 2 always run, 1 paused. Saved 3.4 h." */
+/** A suite's totals in one line: "184 test files: 170 trusted, 10 recorded, 1 not recorded yet, 2 always run, 1 paused. Saved 3.4 h." */
 export function suiteTotalsText(t: TestSuite["totals"]): string {
   const counts = stateCounts(t);
   const saved = t.savedMs > 0 ? ` Saved ${formatSaved(t.savedMs)}.` : "";
   return `${plural(t.files, "test file")}${counts ? `: ${counts}` : ""}.${saved}`;
 }
 
-/** Every suite added up, for the Overview: "280 test files: 258 skipping, 17 ready, 3 always run"; null when there are none. */
+/** Every suite added up, for the Overview: "280 test files: 258 trusted, 17 recorded, 3 always run"; null when there are none. */
 export function testFilesLine(suites: TestSuite[] | null): string | null {
   if (!suites?.length) return null;
   const t = suites.reduce(
@@ -165,7 +176,7 @@ export function trustSections(p: { suites: TestSuite[] | null; testRuns: number;
 // suite. Built on the server from /test-suites, /test-runs and /test-stats;
 // the client only filters and expands (components/test-suites.tsx).
 
-/** States that need a look: paused (a spot-check differed) and always runs. */
+/** States that need a look: paused (a check differed) and always runs. */
 export const NEEDS_LOOK: readonly TestFileState[] = ["paused", "always"];
 export const needsLook = (f: Pick<TestFile, "state">) => NEEDS_LOOK.includes(f.state);
 
@@ -194,9 +205,9 @@ export type StateFilter = "all" | "look" | "skipping" | "ready" | "learning";
 export const FILTERS: { key: StateFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "look", label: "Needs a look" },
-  { key: "skipping", label: "Skipping" },
-  { key: "ready", label: "Ready" },
-  { key: "learning", label: "Learning" },
+  { key: "skipping", label: "Trusted" },
+  { key: "ready", label: "Recorded" },
+  { key: "learning", label: "Not recorded" },
 ];
 
 /** Does a file pass the state filter and the search (case-insensitive, on its path)? */
@@ -227,11 +238,11 @@ export function runsOfSuite<T extends Pick<TestRunSummary, "repository" | "suite
   return runs.filter((r) => r.repository.toLowerCase() === repo && normSuite(r.suite) === dir);
 }
 
-/** Time saved by critical runs in the 7 days before now. */
-export function savedWithinWeek(runs: Pick<TestRunSummary, "kind" | "at" | "timing">[], now: number): { savedMs: number; runs: number } {
-  const week = runs.filter((r) => {
+/** Time saved by check runs (every run but legacy background recordings) in the 7 days before now. */
+export function savedWithinWeek(runs: (Pick<TestRunSummary, "id" | "kind" | "at" | "timing"> & Partial<Pick<TestRunSummary, "repository" | "suite" | "sha">>)[], now: number): { savedMs: number; runs: number } {
+  const week = checkRuns(runs).filter((r) => {
     const at = Date.parse(r.at);
-    return r.kind === "critical" && at <= now && now - at <= WEEK_MS;
+    return at <= now && now - at <= WEEK_MS;
   });
   return { savedMs: week.reduce((a, r) => a + (r.timing.savedMs ?? 0), 0), runs: week.length };
 }
@@ -247,7 +258,7 @@ export interface BarSegment {
   label: string;
 }
 
-const BAR_WORDS: Record<BarKey, string> = { learning: "learning", ready: "ready", skipping: "skipping", always: "always run", recordDiffers: "recording differed", paused: "paused" };
+const BAR_WORDS: Record<BarKey, string> = { learning: "not recorded yet", ready: "recorded", skipping: "trusted", always: "always run", recordDiffers: "runs disagreed", paused: "paused" };
 
 /**
  * "Recording differed" files (`totals.recordDiffers`, from newer servers;
@@ -277,19 +288,19 @@ export function needLookCount(t: FileCounts & { files: number }): number {
   return t.paused + t.always + (rd.inAlways ? 0 : rd.n);
 }
 
-/** "184 files · 170 skipping · 3 need a look (1 recording differed)" (zero counts left out). */
+/** "184 files · 170 trusted · 3 need a look (1 runs disagreed)" (zero counts left out). */
 export function suiteRowSummary(t: TestSuite["totals"]): string {
   const look = needLookCount(t);
   const rd = recordDiffers(t).n;
   const parts = [plural(t.files, "file")];
-  if (t.skipping > 0) parts.push(`${formatCount(t.skipping)} skipping`);
-  if (look > 0) parts.push(`${formatCount(look)} need${look === 1 ? "s" : ""} a look${rd > 0 ? ` (${formatCount(rd)} recording differed)` : ""}`);
+  if (t.skipping > 0) parts.push(`${formatCount(t.skipping)} trusted`);
+  if (look > 0) parts.push(`${formatCount(look)} need${look === 1 ? "s" : ""} a look${rd > 0 ? ` (${formatCount(rd)} where runs disagreed)` : ""}`);
   return parts.join(" · ");
 }
 
 /** Why a file needs a look, in plain words. An always-runs reason (which may be the recording's own, "uses the network") is shown as it is. */
 export function lookReason(f: Pick<TestFile, "state" | "reason">): string {
-  if (f.state === "paused") return "A spot-check got a different result. It runs every time until it matches again.";
+  if (f.state === "paused") return "A check got a different result from the reused one. It runs every time until runs agree again.";
   const r = f.reason?.trim();
   return r || "Quod runs it every time.";
 }
@@ -361,17 +372,21 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
     totals.recordDiffers += s.totals.recordDiffers ?? 0;
   }
   const week = savedWithinWeek(runs, now);
-  const critical = runs.filter((r) => r.kind === "critical");
-  const wrong = critical.reduce((a, r) => a + (r.audits?.mismatched ?? 0), 0);
-  // Spot-checks of the last 7 days, from the background recordings among the runs (already fetched); the stats' count is all time.
+  const legacy = legacyRecordingIds(runs);
+  // Spot-checks are counted on the runs that ran them ("shadow" reports: inline or legacy recordings).
+  const wrong = runs.filter((r) => r.kind === "shadow").reduce((a, r) => a + (r.audits?.mismatched ?? 0), 0);
+  // Spot-checks of the last 7 days, from the runs (already fetched); the stats' count is all time.
   const spot = spotChecksWithinWeek(runs, now);
   const spotFromRuns = runs.length > 0 || !stats;
+  // quod-server's week counts only kind "critical" runs: with runs recorded inline among them, the runs' own week.
+  const inline = runs.some((r) => r.kind === "shadow" && !legacy.has(r.id));
+  const weekFromStats = !!stats && !inline;
   const summary: TrustSummary = {
     wrongResults: stats ? stats.wrongResults : wrong,
     spotChecksPassed: spotFromRuns ? spot.checked - spot.mismatched : stats.audits.passed,
     spotChecksWindow: spotFromRuns ? "week" : "all",
-    savedWeekMs: stats ? stats.week.savedMs : week.savedMs,
-    weekRuns: stats ? stats.week.runs : week.runs,
+    savedWeekMs: weekFromStats ? stats.week.savedMs : week.savedMs,
+    weekRuns: weekFromStats ? stats.week.runs : week.runs,
     skipped: skippedShare(runs),
     totals,
     bar: barSegments(totals),
@@ -383,9 +398,9 @@ export function trustModel(p: { team: string; suites: TestSuite[]; runs: TestRun
     const testsHref = `/${team}/${s.repoSlug}/tests`;
     const files = sortFiles(s.files);
     for (const f of files.filter(needsLook)) {
-      // Paused: the run whose spot-check differed, when it is still among the runs; otherwise the suite's latest run.
+      // Paused: the run whose spot-check differed, when it is still among the runs; otherwise the suite's latest check.
       const differed = f.state === "paused" ? own.find((r) => (r.audits?.mismatched ?? 0) > 0) : undefined;
-      const run = differed ?? own.find((r) => r.kind === "critical") ?? own[0];
+      const run = differed ?? own.find((r) => !legacy.has(r.id)) ?? own[0];
       look.push({
         file: f.file,
         state: f.state,
