@@ -552,20 +552,27 @@ function watchFields(r, p, obj) {
   let use = r.pjUse.get(p)
   if (!use) r.pjUse.set(p, (use = new Set()))
   r.pjParsed.set(p, (r.pjParsed.get(p) ?? 0) + 1)
-  for (const k of Object.keys(obj)) {
-    const val = obj[k]
-    Object.defineProperty(obj, k, {
-      enumerable: true,
-      configurable: true,
-      get() {
-        use.add(k)
-        return val
-      },
-      set(x) {
-        Object.defineProperty(obj, k, { value: x, writable: true, enumerable: true, configurable: true })
-      },
-    })
+  function watch(target, path) {
+    for (const k of Object.keys(target)) {
+      const val = target[k]
+      const next = [...path, k]
+      // Dependency names can be used without versions; watch each value
+      // separately so a config that reads versions cannot lose that input.
+      if (path.length === 0 && ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].includes(k) && val && typeof val === 'object' && !Array.isArray(val)) watch(val, next)
+      Object.defineProperty(target, k, {
+        enumerable: true,
+        configurable: true,
+        get() {
+          use.add(JSON.stringify(next))
+          return val
+        },
+        set(x) {
+          Object.defineProperty(target, k, { value: x, writable: true, enumerable: true, configurable: true })
+        },
+      })
+    }
   }
+  watch(obj, [])
   return obj
 }
 // The main process's keys, with each package.json every whole read of
@@ -575,7 +582,7 @@ export function settledKeys(r) {
   for (const [p, n] of r.pjReads) {
     if (r.pjParsed.get(p) !== n || !keys.has(`f:${p}`)) continue
     keys.delete(`f:${p}`)
-    keys.add(`pjf:${p}\0${JSON.stringify([...r.pjUse.get(p)].sort())}`)
+    keys.add(`pjf:${p}\0${JSON.stringify([...r.pjUse.get(p)].sort().map((s) => JSON.parse(s)))}`)
     r.pjWhole.delete(p)
   }
   return keys

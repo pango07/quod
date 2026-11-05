@@ -438,7 +438,7 @@ fn a_package_json_parsed_straight_is_keyed_by_the_fields_read() {
         &root.join("cfg/straight.mjs"),
         "import { readFileSync } from 'node:fs'\n\
          const pkg = JSON.parse(\n  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),\n)\n\
-         export const names = Object.keys({ ...pkg.dependencies })\n\
+         export const names = Object.keys(pkg.dependencies)\n\
          export const clone = structuredClone({ deps: pkg.dependencies })\n",
     );
     write(
@@ -462,7 +462,7 @@ console.log(JSON.stringify({ straight, variable: pj(settledKeys(r)), names: m.na
     };
     assert_eq!(
         v["straight"],
-        serde_json::json!(["pjf:package.json\u{0}[\"dependencies\"]"]),
+        serde_json::json!(["pjf:package.json\u{0}[[\"dependencies\",\"zod-4.1\"],[\"dependencies\"]]"]),
         "{v}"
     );
     assert_eq!(v["variable"], serde_json::json!(["f:package.json"]), "{v}");

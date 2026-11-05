@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::vitest;
 
 /// Bumped when a record made before would be read differently.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 /// Records kept per unit (newest first).
 const KEEP: usize = 3;
 /// Disagreeing second witnesses before a unit always runs.
@@ -155,6 +155,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
         let loaded = Loaded::of(r.keys.iter().map(|(k, _)| k.as_str()));
         let now = vitest::par_map(&ks, |(k, _)| key_state_in(&root, k, &loaded));
         if ks.iter().zip(&now).all(|((_, s), n)| s == n) {
+            if let Err(why) = validate_blobs(r, &blobs) {
+                eprintln!("quod: {name}: unusable record ({why}); running again");
+                continue;
+            }
             matched = Some(i);
             break;
         }
@@ -182,8 +186,8 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     {
         let r = &ledger.records[i];
         restore(&root, &blobs, &r.outputs)?;
-        let out = fs::read(blobs.join(&r.stdout)).unwrap_or_default();
-        let err = fs::read(blobs.join(&r.stderr)).unwrap_or_default();
+        let out = read_blob(&blobs, &r.stdout)?;
+        let err = read_blob(&blobs, &r.stderr)?;
         std::io::stdout().write_all(&out)?;
         std::io::stdout().flush()?;
         std::io::stderr().write_all(&err)?;
@@ -218,8 +222,8 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             .collect();
         let same_outs = now.len() == rec.outputs.len()
             && now.iter().zip(&rec.outputs).all(|(a, b)| same_out(a, b));
-        let rec_out = fs::read(blobs.join(&rec.stdout)).unwrap_or_default();
-        let rec_err = fs::read(blobs.join(&rec.stderr)).unwrap_or_default();
+        let rec_out = read_blob(&blobs, &rec.stdout)?;
+        let rec_err = read_blob(&blobs, &rec.stderr)?;
         let text = disagree(&rec_out, &out)
             .map(|d| format!("its stdout: {d}"))
             .or_else(|| disagree(&rec_err, &err).map(|d| format!("its stderr: {d}")));
@@ -270,10 +274,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
         eprintln!("quod: {name} failed while recorded (exit {code}); it runs again plain");
         return Ok(code_u8(run_direct(&a.argv)?));
     }
-    let text = fs::read(&trace).unwrap_or_default();
+    let text = fs::read_to_string(&trace).map_err(|e| format!("its trace is unreadable: {e}"));
     let _ = fs::remove_file(&trace);
     let ignore = IGNORE.get_or_init(|| Ignore::new(&root, &a.dir));
-    let made = parse(&String::from_utf8_lossy(&text), &cwd).and_then(|t| keyer(&root, &t, ignore));
+    let made = text.and_then(|text| parse(&text, &cwd)).and_then(|t| keyer(&root, &t, ignore));
     match made {
         Err(why) => {
             eprintln!("quod: {name} always runs from now on: {why}");
@@ -363,6 +367,24 @@ fn save(p: &Path, l: &Ledger, mark: Option<&Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A missing or corrupt blob is unavailable evidence, never empty output.
+fn read_blob(dir: &Path, hash: &str) -> anyhow::Result<Vec<u8>> {
+    let bytes = fs::read(dir.join(hash)).context("missing recorded blob")?;
+    anyhow::ensure!(blake3::hash(&bytes).to_hex().as_str() == hash, "corrupt recorded blob");
+    Ok(bytes)
+}
+
+fn validate_blobs(rec: &Rec, blobs: &Path) -> anyhow::Result<()> {
+    read_blob(blobs, &rec.stdout)?;
+    read_blob(blobs, &rec.stderr)?;
+    for out in &rec.outputs {
+        if out.kind == "file" {
+            read_blob(blobs, out.blob.as_deref().context("output without a blob")?)?;
+        }
+    }
+    Ok(())
+}
+
 fn put_blob(dir: &Path, b: &[u8]) -> anyhow::Result<String> {
     let h = blake3::hash(b).to_hex().to_string();
     let p = dir.join(&h);
@@ -435,7 +457,13 @@ fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<St
     {
         Some("its outputs".to_string())
     } else {
-        let blob = |h: &str| fs::read(blobs.join(h)).unwrap_or_default();
+        if let Err(why) = read_blob(blobs, &p.stdout)
+            .and_then(|_| read_blob(blobs, &p.stderr))
+            .and_then(|_| read_blob(blobs, &q.stdout))
+            .and_then(|_| read_blob(blobs, &q.stderr)) {
+            return Some(Err(format!("unusable witness: {why}")));
+        }
+        let blob = |h: &str| read_blob(blobs, h).expect("validated above");
         disagree(&blob(&p.stdout), &blob(&q.stdout))
             .map(|d| format!("its stdout: {d}"))
             .or_else(|| {
@@ -1047,6 +1075,9 @@ struct Trace {
 /// Parses `strace -f -yy -s 4096 -o` output into path events, absolute,
 /// with each process's working directory followed across chdir and clone.
 fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
+    if text.trim().is_empty() {
+        return Err("its trace is empty".into());
+    }
     // Join `<unfinished ...>` with its `<... resumed>`.
     let mut pending: HashMap<u32, String> = HashMap::new();
     let mut lines: Vec<(u32, String)> = Vec::new();
@@ -1075,6 +1106,13 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
             continue;
         }
         lines.push((pid, rest.to_string()));
+    }
+
+    if !pending.is_empty() {
+        return Err("its trace has unfinished syscalls".into());
+    }
+    if lines.is_empty() {
+        return Err("its trace contains no syscalls".into());
     }
 
     // Who cloned whom (a child's first line can come before its parent's
@@ -1902,6 +1940,28 @@ mod tests {
                 scratch: vec!["/tmp".into(), "/run/user".into()],
             },
         )
+    }
+
+    #[test]
+    fn missing_and_corrupt_blobs_are_not_empty_witnesses() {
+        let t = tempfile::tempdir().unwrap();
+        let hash = put_blob(t.path(), b"original output").unwrap();
+        assert_eq!(read_blob(t.path(), &hash).unwrap(), b"original output");
+        fs::write(t.path().join(&hash), b"changed output").unwrap();
+        assert!(read_blob(t.path(), &hash).is_err());
+        fs::remove_file(t.path().join(&hash)).unwrap();
+        assert!(read_blob(t.path(), &hash).is_err());
+        let empty = put_blob(t.path(), b"").unwrap();
+        assert!(read_blob(t.path(), &empty).unwrap().is_empty());
+    }
+
+    #[test]
+    fn empty_or_incomplete_traces_cannot_prove_an_input_set() {
+        let cwd = Path::new("/work");
+        assert!(parse("", cwd).is_err());
+        assert!(parse("strace: write error", cwd).is_err());
+        assert!(parse("123 openat(AT_FDCWD, \"input\", O_RDONLY <unfinished ...>\n", cwd).is_err());
+        assert!(parse("123 +++ exited with 0 +++\n", cwd).is_err());
     }
 
     #[test]

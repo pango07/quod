@@ -94,7 +94,7 @@ fn js() -> &'static [(&'static str, String)] {
 /// Bumped when what a key means or what is recorded changes: a ledger of
 /// another version is dropped (every file runs once). v2: function-level
 /// coverage and pinned states.
-const LEDGER_VERSION: u32 = 2;
+const LEDGER_VERSION: u32 = 3;
 
 /// How old a file's times must be for its hash to be cached by identity
 /// (git's racy-index rule, as `quod_cas`'s import stat cache).
@@ -3055,7 +3055,10 @@ fn pj_fields(path: &Path, fields: &str) -> String {
             "absent".into()
         };
     };
-    let wanted: Vec<String> = serde_json::from_str(fields).unwrap_or_default();
+    let Ok(wanted) = serde_json::from_str::<Vec<Vec<String>>>(fields) else {
+        // Unknown schemas cannot safely narrow a whole-file read.
+        return blake3::hash(&bytes).to_hex().to_string();
+    };
     let Some(top) = top_fields(&bytes) else {
         return blake3::hash(&bytes).to_hex().to_string();
     };
@@ -3065,28 +3068,39 @@ fn pj_fields(path: &Path, fields: &str) -> String {
         h.update(b"\0");
     }
     h.update(b"\n");
-    for w in &wanted {
-        h.update(w.as_bytes());
-        // the last of a repeated name, as JSON.parse keeps
-        match top.iter().rev().find(|(k, _)| k == w) {
-            // A dependency list is keyed by its names: the version of an
-            // entry is an input of the files that load that package, which
-            // key it themselves (p:), so a bump of a package no test loads
-            // changes no key.
-            Some((_, v)) if DEP_FIELDS.contains(&w.as_str()) && top_fields(v).is_some() => {
+    for path in &wanted {
+        h.update(&serde_json::to_vec(path).unwrap_or_default());
+        let mut value = bytes.as_slice();
+        let mut found = true;
+        for name in path {
+            let next = top_fields(value).and_then(|fields| {
+                fields.into_iter().rev().find(|(k, _)| k == name).map(|(_, v)| v)
+            });
+            match next {
+                Some(v) => value = v,
+                None => {
+                    found = false;
+                    break;
+                }
+            }
+        }
+        if !found {
+            h.update(b"!absent");
+        } else if path.len() == 1 && DEP_FIELDS.contains(&path[0].as_str()) {
+            // The top-level getter observes names; nested getters record
+            // every version value actually read (including spread/clone).
+            if let Some(fields) = top_fields(value) {
                 h.update(b"=names:");
-                for (name, _) in top_fields(v).unwrap_or_default() {
+                for (name, _) in fields {
                     h.update(name.as_bytes());
                     h.update(b"\0");
                 }
+            } else {
+                h.update(value);
             }
-            Some((_, v)) => {
-                h.update(b"=");
-                h.update(v);
-            }
-            None => {
-                h.update(b"!absent");
-            }
+        } else {
+            h.update(b"=");
+            h.update(value);
         }
         h.update(b"\0");
     }
@@ -3535,7 +3549,7 @@ mod tests {
             fs::write(&p, s).unwrap();
             pj_fields(&p, fields)
         };
-        let deps = r#"["dependencies"]"#;
+        let deps = r#"[["dependencies"]]"#;
         let a = st(
             r#"{"name":"x","version":"1","dependencies":{"a":"1","b":"2"}}"#,
             deps,
@@ -3557,8 +3571,19 @@ mod tests {
                 deps
             )
         );
+        // Config code may branch on a dependency version without ever
+        // loading that package. Such a value must be keyed, too.
+        let values = r#"[["dependencies"],["dependencies","b"]]"#;
+        assert_ne!(
+            st(r#"{"dependencies":{"a":"1","b":"2"}}"#, values),
+            st(r#"{"dependencies":{"a":"1","b":"3"}}"#, values)
+        );
+        assert_eq!(
+            st(r#"{"dependencies":{"a":"1","b":"2"}}"#, values),
+            st(r#"{"dependencies":{"a":"9","b":"2"}}"#, values)
+        );
         // another field read changes: not
-        let scripts = r#"["scripts"]"#;
+        let scripts = r#"[["scripts"]]"#;
         assert_ne!(
             st(r#"{"scripts":{"t":"vitest"}}"#, scripts),
             st(r#"{"scripts":{"t":"vitest run"}}"#, scripts)
