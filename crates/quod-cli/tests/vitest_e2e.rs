@@ -330,8 +330,13 @@ fn two_witnesses_by_default_inline() {
          expect(env.GITHUB_RUN_ID).toBeTruthy()\n})\n",
     )
     .unwrap();
-    // "" is no number: the default policy.
-    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "41")];
+    // "" is no number: the default policy; the second witness recorded (as
+    // before plain witnesses), so it takes the coverage narrowing uses.
+    p.env = vec![
+        ("QUOD_VITEST_WITNESSES", ""),
+        ("QUOD_VITEST_PLAIN_WITNESS", "0"),
+        ("GITHUB_RUN_ID", "41"),
+    ];
     let (plain, quod, s) = p.run(1);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 4, "{s}");
@@ -345,14 +350,22 @@ fn two_witnesses_by_default_inline() {
 
     // A second run (another run id): every record is provisional, so every
     // file runs again; agreeing makes it trusted.
-    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "42")];
+    p.env = vec![
+        ("QUOD_VITEST_WITNESSES", ""),
+        ("QUOD_VITEST_PLAIN_WITNESS", "0"),
+        ("GITHUB_RUN_ID", "42"),
+    ];
     let (plain, quod, s) = p.run(2);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 4, "{s}");
     assert_eq!(s["promoted"], 3, "{s}");
 
     // Now they replay.
-    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "43")];
+    p.env = vec![
+        ("QUOD_VITEST_WITNESSES", ""),
+        ("QUOD_VITEST_PLAIN_WITNESS", "0"),
+        ("GITHUB_RUN_ID", "43"),
+    ];
     let (plain, quod, s) = p.run(3);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 1, "{s}");
@@ -361,7 +374,11 @@ fn two_witnesses_by_default_inline() {
     // The second witness took the coverage: a change inside `sub` narrows
     // add.test.ts as with one witness.
     edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");
-    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "44")];
+    p.env = vec![
+        ("QUOD_VITEST_WITNESSES", ""),
+        ("QUOD_VITEST_PLAIN_WITNESS", "0"),
+        ("GITHUB_RUN_ID", "44"),
+    ];
     let (plain, quod, s) = p.run(4);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["narrowed"], 1, "{s}");
@@ -574,20 +591,16 @@ fn a_test_past_half_its_timeout_never_replays_until_two_runs_within_it() {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
-    // 3. Fast (0.3x): it runs (its last run was near the timeout), and is
-    //    a first witness again, not a second.
+    // 3. Fast (0.3x): it runs again as a plain witness of its unchanged
+    //    key (its last plain run was near the timeout); within the margin
+    //    now, its results agree: trusted. Only plain durations decide.
     let (plain, quod, s) = p.run(3);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 1, "{s}");
     assert_eq!(s["replayed"], 3, "{s}");
-    assert_eq!(s["promoted"], 0, "a near-timeout run is no witness: {s}");
-    // 4. A second run within it: trusted.
+    assert_eq!(s["promoted"], 1, "a plain run within the margin: {s}");
+    // 4. Every file replays.
     let (plain, quod, s) = p.run(4);
-    assert_eq!(outcomes(&plain), outcomes(&quod));
-    assert_eq!(s["ran"], 1, "{s}");
-    assert_eq!(s["promoted"], 1, "{s}");
-    // 5. Every file replays.
-    let (plain, quod, s) = p.run(5);
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 0, "{s}");
     assert_eq!(s["replayed"], 4, "{s}");

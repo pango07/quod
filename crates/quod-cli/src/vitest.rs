@@ -1484,9 +1484,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "phases": phases,
             "witnesses_needed": need,
             "provisional": provisional,
-            "promoted": promoted,
-            "witnessed_again": witnessed_again,
-            "witness_disagreed": disagreed,
+            "promoted": promoted + pw.0,
+            "witnessed_again": witnessed_again + pw.1,
+            "witness_disagreed": disagreed + pw.2,
             "exit": code,
         });
         fs::write(p, serde_json::to_vec(&s)?)?;
