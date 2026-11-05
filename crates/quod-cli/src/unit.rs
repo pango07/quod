@@ -1235,6 +1235,8 @@ fn join(base: &str, p: &str) -> String {
 /// /tmp, npm's own logs, Quod's own state.
 struct Ignore {
     prefixes: Vec<String>,
+    /// these paths themselves, not what is under them
+    exact: Vec<String>,
 }
 
 impl Ignore {
@@ -1243,18 +1245,26 @@ impl Ignore {
             .iter()
             .map(|s| s.to_string())
             .collect();
+        // npm makes ~/.npm for its logs when no install made it before.
+        // /etc/resolv.conf names the VM's own search domain: only a
+        // name lookup reads it to some effect, and that needs the network,
+        // which fails closed.
+        let mut exact = vec!["/etc/resolv.conf".to_string()];
         if let Some(h) = std::env::var_os("HOME") {
             prefixes.push(Path::new(&h).join(".npm/_logs").display().to_string());
+            exact.push(Path::new(&h).join(".npm").display().to_string());
         }
         let d = fs::canonicalize(dir).unwrap_or(dir.to_path_buf());
         prefixes.push(d.display().to_string());
         let _ = root;
-        Ignore { prefixes }
+        Ignore { prefixes, exact }
     }
     fn hit(&self, p: &str) -> bool {
-        self.prefixes
-            .iter()
-            .any(|x| p == x || p.starts_with(&format!("{x}/")))
+        self.exact.iter().any(|x| p == x)
+            || self
+                .prefixes
+                .iter()
+                .any(|x| p == x || p.starts_with(&format!("{x}/")))
     }
 }
 
@@ -1482,6 +1492,7 @@ mod tests {
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),
+                exact: Vec::new(),
             },
         )
     }
