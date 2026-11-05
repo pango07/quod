@@ -332,10 +332,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             );
             match cross_env(&mut ledger.records, &mut rec, &blobs) {
                 Some(Ok(env)) => eprintln!(
-                    "quod: {name}: agrees with its record from another environment ({env} differ, every other input the same); both are trusted"
+                    "quod: {name}: agrees with another traced record ({env} changed, identical input names); both are trusted"
                 ),
                 Some(Err(what)) => eprintln!(
-                    "quod: {name}: differs from its record from another environment ({what}); a second witness here decides"
+                    "quod: {name}: differs from another traced record ({what}); a second witness here decides"
                 ),
                 None => {}
             }
@@ -430,32 +430,14 @@ fn key_state_in(root: &Path, k: &str, loaded: &Loaded) -> String {
     }
 }
 
-// ---- cross-environment witness (through-the-wall D2) ----
+// ---- cross-record witness (through-the-wall E2) ----
 
-/// The keys that name the environment rather than what the unit read:
-/// an image roll changes them and nothing else.
-fn env_key(k: &str) -> bool {
-    matches!(k, "envall:" | "host:" | "f:/etc/ld.so.cache")
-}
-
-/// A traced record `q`, just made, against the records of other
-/// environments (through-the-wall D2). A record `p` whose keys and states
-/// are `q`'s once the environment's keys are dropped read the same inputs
-/// under another environment; when it agrees with `q` (exit code, every
-/// output, stdout and stderr as two witnesses are compared) the two runs are
-/// two witnesses, on two VMs, every unseen input varied: both are trusted.
-/// When it does not, nothing changes: `q` waits for its own second witness,
-/// `p` stays as it was, and it is no disagreement of witnesses (an
-/// environment dependence is not flakiness). Only a traced run may be `q`:
-/// a plain run under a new environment could read inputs `p` never did.
-/// Some(Ok(the environment keys that differ)) on agreement.
+/// Two traced executions with exactly the same input names may confirm
+/// each other even when input states differ. Exit, output bytes and
+/// pairwise-normalized text must agree; a changed read set never qualifies.
 fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<String, String>> {
-    let reads = |r: &Rec| -> Vec<(String, String)> {
-        r.keys
-            .iter()
-            .filter(|(k, _)| !env_key(k))
-            .cloned()
-            .collect()
+    let reads = |r: &Rec| -> Vec<String> {
+        r.keys.iter().map(|(k, _)| k.clone()).collect()
     };
     let mine = reads(q);
     let p = records.iter_mut().find(|p| reads(p) == mine)?;
@@ -489,11 +471,8 @@ fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<St
     if let Some(w) = what {
         return Some(Err(w));
     }
-    let state = |r: &Rec, k: &str| r.keys.iter().find(|x| x.0 == k).map(|x| x.1.clone());
-    let differ: Vec<&str> = ["envall:", "host:", "f:/etc/ld.so.cache"]
-        .into_iter()
-        .filter(|k| state(p, k) != state(q, k))
-        .collect();
+    let differ: Vec<&str> = p.keys.iter().zip(&q.keys)
+        .filter(|(a, b)| a.1 != b.1).map(|(a, _)| a.0.as_str()).collect();
     p.witnesses = 2;
     q.witnesses = 2;
     Some(Ok(differ.join(", ")))
@@ -2334,7 +2313,7 @@ mod tests {
         let mut q = rec("new", "a1", "ok 3 (9ms) /tmp/r-XyZ/x\n", 1);
         let r = cross_env(&mut recs, &mut q, &blobs);
         assert!(
-            matches!(&r, Some(Ok(e)) if e == "envall:, host:, f:/etc/ld.so.cache"),
+            matches!(&r, Some(Ok(e)) if e == "envall:, f:/etc/ld.so.cache, host:"),
             "{r:?}"
         );
         assert_eq!((recs[0].witnesses, q.witnesses), (2, 2));
@@ -2362,10 +2341,15 @@ mod tests {
         q.code = 1;
         assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(w)) if w.contains("exit")));
         assert_eq!(q.witnesses, 1);
-        // Any input other than the environment differs: no such record.
+        // E2: source contents may differ too; the read set and results agree.
         let mut recs = vec![rec("old", "a1", "ok\n", 2)];
         let mut q = rec("new", "a2", "ok\n", 1);
-        assert!(cross_env(&mut recs, &mut q, &blobs).is_none());
+        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Ok(_))));
+        assert_eq!(q.witnesses, 2);
+        // npm's version banner is observable; a manifest bump is not masked.
+        let mut recs = vec![rec("old", "a1", "> package@1.0.0 build\n", 2)];
+        let mut q = rec("new", "a2", "> package@1.0.1 build\n", 1);
+        assert!(matches!(cross_env(&mut recs, &mut q, &blobs), Some(Err(_))));
         assert_eq!(q.witnesses, 1);
         // A read the other environment did not make: no such record either
         // (why the cross-environment run is traced, never plain).

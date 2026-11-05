@@ -277,7 +277,7 @@ struct RenderOut {
     env: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 struct Rec {
     project: String,
     file: String,
@@ -316,6 +316,12 @@ struct Rec {
     /// Plain witnesses (no recorder) that agreed with this record's key.
     #[serde(default)]
     plain_n: u32,
+    /// Pending plain audit of an E1 promotion. Kept separate from the
+    /// original stamp so one bad audit revokes even already-audited peers.
+    #[serde(default)]
+    lineage: Option<String>,
+    #[serde(default)]
+    promotion_stamp: Option<String>,
     /// The largest fraction of its timeout any test took in a plain witness.
     #[serde(default)]
     margin: f64,
@@ -360,7 +366,59 @@ fn bar(need: u32, w: &Witness) -> u32 {
 /// May this record replay under the witness policy? Never while its
 /// last run had a test near its timeout.
 fn witnessed(need: u32, r: &Rec) -> bool {
-    !r.near_timeout && (need <= 1 || r.w.n >= bar(need, &r.w))
+    !r.near_timeout
+        && (r.lineage.is_none() || lineage_enabled())
+        && (need <= 1 || r.w.n >= bar(need, &r.w))
+}
+
+fn lineage_enabled() -> bool {
+    std::env::var("QUOD_VITEST_LINEAGE").is_ok_and(|v| v == "1")
+}
+
+/// A changed input is still executed and recorded. Only the extra plain
+/// confirmation can be inherited, from a predecessor confirmed plain.
+fn promote_lineage(need: u32, p: &Rec, q: &mut Rec, stamp: &str) -> bool {
+    if need != 2 || p.w.n < bar(need, &p.w) || p.plain_n == 0
+        || p.quarantined || q.quarantined || q.near_timeout || q.net
+        || !matches!(q.state.as_str(), "pass" | "skip")
+        || p.deps != q.deps || p.w.tests.is_empty() || p.w.tests != q.w.tests
+        || p.w.key.is_empty() || p.w.key == q.w.key
+        || p.w.disagreements != 0 || !q.pinned.is_empty()
+    {
+        return false;
+    }
+    q.w.n = 2;
+    q.plain_n = 0;
+    q.lineage = Some(stamp.to_string());
+    q.promotion_stamp = q.lineage.clone();
+    true
+}
+
+/// Stable sample, rounded up. Each agreeing audit leaves the pending set,
+/// so subsequent jobs progress through the rest rather than repeat it.
+fn lineage_sample<'a>(records: impl Iterator<Item = (&'a String, &'a Rec)>) -> Vec<String> {
+    let mut pending: Vec<_> = records.filter_map(|(id, r)| {
+        r.lineage.as_ref().map(|stamp| {
+            (blake3::hash(format!("{id}\0{stamp}").as_bytes()).to_hex().to_string(), id.clone())
+        })
+    }).collect();
+    pending.sort();
+    let n = pending.len().div_ceil(8);
+    pending.into_iter().take(n).map(|(_, id)| id).collect()
+}
+
+fn revoke_lineage(files: &mut BTreeMap<String, Rec>, stamps: &HashSet<String>) -> usize {
+    let mut revoked = 0;
+    for r in files.values_mut() {
+        if r.promotion_stamp.as_ref().is_some_and(|s| stamps.contains(s)) {
+            r.w.n = 1;
+            r.plain_n = 0;
+            r.lineage = None;
+            r.promotion_stamp = None;
+            revoked += 1;
+        }
+    }
+    revoked
 }
 
 /// Timing-sensitive replay (`QUOD_VITEST_TIMING=replay`, off by default):
@@ -741,6 +799,19 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             );
             affected.push(id.clone());
         }
+    }
+    let lineage_audits: HashSet<String> = if plain_mode {
+        lineage_sample(replay.keys().filter_map(|id| {
+            let r = &ledger.files[id];
+            can_plain(r).then_some((id, r))
+        })).into_iter().collect()
+    } else { HashSet::new() };
+    for id in &lineage_audits {
+        replay.remove(id);
+        plain_ids.insert(id.clone());
+        plain_files.push(root.join(&ledger.files[id].file));
+        affected.push(id.clone());
+        why.insert(id.clone(), "lineage witness: sampled plain audit".into());
     }
     for w in why_run.iter().take(12) {
         eprintln!("quod vitest:   runs: {w}");
@@ -1198,6 +1269,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     global.sort_unstable();
     global.dedup();
+    let lineage_context = ledger.global == global && ledger.args == keyed_args(&a.args);
     ledger.global = global;
     // Under the witness policy the previous record of a file that runs is
     // what this run's result is witnessed against.
@@ -1211,7 +1283,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     // (file, its previous witness state, an audit mismatched, the previous
     // run had a test near its timeout)
-    let mut witness_todo: Vec<(String, Option<Witness>, bool, bool)> = Vec::new();
+    let mut witness_todo: Vec<(String, Option<Rec>, bool, bool)> = Vec::new();
+    let stamp = format!("{}-{}", wall_ns(), std::process::id());
+    let mut lineage_promoted = 0;
+    let mut lineage_disagreed = 0;
+    let mut revoked_stamps = HashSet::new();
     let mut near: Vec<String> = Vec::new();
     let mismatched: HashSet<&String> = out.audit_mismatch.iter().collect();
     let mut unobservable: BTreeMap<String, usize> = BTreeMap::new();
@@ -1256,6 +1332,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 continue;
             }
             if !ok || tests != rec.w.tests {
+                if let Some(stamp) = &rec.promotion_stamp {
+                    revoked_stamps.insert(stamp.clone());
+                    lineage_disagreed += 1;
+                }
                 rec.w.disagreements += 1;
                 rec.w.n = 1;
                 rec.quarantined = true;
@@ -1271,6 +1351,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             rec.result = r.result.clone();
             rec.near_timeout = !r.near_timeout.is_empty();
             rec.plain_n += 1;
+            rec.lineage = None;
             rec.margin = rec.margin.max(r.ratio);
             if let Some(t) = r.near_timeout.first() {
                 pw.3 += 1;
@@ -1298,6 +1379,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // A mismatch starts the count over.
         let was = old.as_ref().is_some_and(|o| o.quarantined);
         let bad = mismatched.contains(&r.id);
+        if bad && let Some(stamp) = old.as_ref().and_then(|r| r.promotion_stamp.as_ref()) {
+            revoked_stamps.insert(stamp.clone());
+            lineage_disagreed += 1;
+        }
         let good = match (bad, was) {
             (true, _) => 0,
             (false, true) => old.as_ref().map_or(0, |o| o.good) + 1,
@@ -1376,9 +1461,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if need > 1 {
             witness_todo.push((
                 r.id.clone(),
-                old.as_ref().map(|o| o.w.clone()),
+                old.clone(),
                 mismatched.contains(&r.id),
-                old.as_ref().is_some_and(|o| o.near_timeout),
+                !r.near_timeout.is_empty(),
             ));
         }
         ledger.files.insert(
@@ -1410,6 +1495,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 },
                 near_timeout: hooked_near,
                 plain_n: 0,
+                lineage: None,
+                promotion_stamp: None,
                 margin: 0.0,
                 net: r.net,
             },
@@ -1479,7 +1566,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             plain_near[0]
         );
     }
-    for (id, old, mismatch, was_near) in witness_todo {
+    for (id, predecessor, mismatch, hooked_near) in witness_todo {
         let key = {
             let r = &ledger.files[&id];
             let mut h = blake3::Hasher::new();
@@ -1501,8 +1588,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         };
         let r = ledger.files.get_mut(&id).expect("recorded above");
         r.w.key = key;
-        let mut old = old.unwrap_or_default();
-        if was_near && !plain_mode {
+        let mut old = predecessor.as_ref().map(|p| p.w.clone()).unwrap_or_default();
+        if predecessor.as_ref().is_some_and(|p| p.near_timeout) && !plain_mode {
             // A run near a timeout is no witness: the count starts over
             // from the first run within it.
             old.key.clear();
@@ -1533,10 +1620,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 }
             }
         } else {
-            // A new key: its first witness.
             r.w.n = 1;
+            if lineage_enabled() && facts_held && lineage_context && !hooked_near
+                && let Some(p) = &predecessor
+                && promote_lineage(need, p, r, &stamp)
+            {
+                lineage_promoted += 1;
+            }
         }
     }
+    let lineage_revoked = revoke_lineage(&mut ledger.files, &revoked_stamps);
+    eprintln!("quod vitest: lineage: {lineage_promoted} promoted, {} plain audits, {lineage_disagreed} disagreed, {lineage_revoked} revoked", lineage_audits.len());
     lap("witness", &mut phases);
     // After the witnesses: a run that makes every record trusted renders.
     if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
@@ -1648,6 +1742,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             "render": render_note,
             "phases": phases,
             "timing_sensitive_replays": timing_note.len(),
+            "lineage_promoted": lineage_promoted,
+            "lineage_audits": lineage_audits.len(),
+            "lineage_disagreed": lineage_disagreed,
+            "lineage_revoked": lineage_revoked,
             "witnesses_needed": need,
             "provisional": provisional,
             "promoted": promoted + pw.0,
@@ -2366,6 +2464,9 @@ fn emit_render(
     node: &str,
     tree: &str,
 ) -> std::result::Result<u8, String> {
+    if ledger.files.values().any(|r| r.lineage.is_some()) {
+        return Err("pending lineage audits require selection".into());
+    }
     let r = ledger.render.as_ref().ok_or("the recording has none")?;
     if r.sig != render_sig(ledger) {
         return Err("it is of other results".into());
@@ -3888,6 +3989,59 @@ mod tests {
     }
 
     #[test]
+    fn lineage_requires_plain_predecessor_same_reads_and_safe_matching_results() {
+        let p = Rec { state: "pass".into(), deps: vec![0, 1], plain_n: 1,
+            w: Witness { n: 2, key: "old".into(), tests: "test names and states".into(), disagreements: 0 },
+            ..Rec::default() };
+        let q = Rec { plain_n: 0, w: Witness { n: 1, key: "changed".into(), ..p.w.clone() }, ..p.clone() };
+        let mut promoted = q.clone();
+        assert!(promote_lineage(2, &p, &mut promoted, "batch"));
+        assert_eq!(promoted.w.n, 2);
+        assert_eq!(promoted.plain_n, 0);
+        assert_eq!(promoted.lineage.as_deref(), Some("batch"));
+        // Consecutive changed commits cannot invent a plain predecessor.
+        let mut next = q.clone(); next.w.key = "changed again".into();
+        assert!(!promote_lineage(2, &promoted, &mut next, "next batch"));
+        let mut no_plain = p.clone(); no_plain.plain_n = 0;
+        assert!(!promote_lineage(2, &no_plain, &mut q.clone(), "x"));
+        for case in 0..8 {
+            let mut unsafe_q = q.clone();
+            match case {
+                0 => unsafe_q.deps.push(2),
+                1 => unsafe_q.w.tests = "changed test state".into(),
+                2 => unsafe_q.state = "fail".into(),
+                3 => unsafe_q.near_timeout = true,
+                4 => unsafe_q.net = true,
+                5 => unsafe_q.quarantined = true,
+                6 => unsafe_q.w.key = p.w.key.clone(),
+                _ => { unsafe_q.pinned.insert(0, "old state".into()); }
+            }
+            assert!(!promote_lineage(2, &p, &mut unsafe_q, "x"), "case {case}");
+        }
+        assert!(!promote_lineage(3, &p, &mut q.clone(), "x"));
+    }
+
+    #[test]
+    fn lineage_audits_are_stable_and_revoke_the_whole_batch() {
+        let rec = Rec { lineage: Some("batch".into()), promotion_stamp: Some("batch".into()),
+            plain_n: 0, w: Witness { n: 2, ..Witness::default() }, ..Rec::default() };
+        let mut files: BTreeMap<_, _> = (0..17).map(|i| (format!("file-{i}"), rec.clone())).collect();
+        let sampled = lineage_sample(files.iter());
+        assert_eq!(sampled.len(), 3);
+        assert_eq!(sampled, lineage_sample(files.iter().rev()));
+        // An earlier agreeing audit clears pending status, not provenance.
+        files.get_mut(&sampled[0]).unwrap().lineage = None;
+        files.get_mut(&sampled[0]).unwrap().plain_n = 1;
+        files.get_mut(&sampled[1]).unwrap().quarantined = true;
+        files.insert("other".into(), Rec { promotion_stamp: Some("other".into()), ..rec });
+        assert_eq!(revoke_lineage(&mut files, &HashSet::from(["batch".into()])), 17);
+        assert!(files[&sampled[1]].quarantined);
+        assert_eq!(files[&sampled[0]].plain_n, 0);
+        assert_eq!(files[&sampled[0]].w.n, 1);
+        assert_eq!(files["other"].w.n, 2);
+    }
+
+    #[test]
     fn compact_remaps_and_drops_dead_keys() {
         let mut l = Ledger {
             keys: vec!["f:a".into(), "f:dead".into(), "f:b".into()],
@@ -3914,6 +4068,8 @@ mod tests {
                 w: Witness::default(),
                 near_timeout: false,
                 plain_n: 0,
+                lineage: None,
+                promotion_stamp: None,
                 margin: 0.0,
                 net: false,
             },
@@ -3961,6 +4117,8 @@ mod tests {
             },
             near_timeout: true,
             plain_n,
+            lineage: None,
+            promotion_stamp: None,
             margin: 0.82,
             net: false,
         };

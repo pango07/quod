@@ -466,3 +466,29 @@ jobs:
         with:
           name: benchmark-audit-format
           path: /tmp/benchmark-fmt.patch
+
+  benchmark-binary:
+    needs: benchmark-audit
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - run: sudo apt-get update -qq && sudo apt-get install -y libfuse3-dev pkg-config
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: release
+          cache-on-failure: true
+      - run: |
+          cargo build --release --locked -p quod-cli
+          mkdir -p /tmp/benchmark-binary
+          cp target/release/quod /tmp/benchmark-binary/quod
+          strip /tmp/benchmark-binary/quod
+          tar -C /tmp/benchmark-binary -czf /tmp/quod-linux-x86_64.tar.gz quod
+          sha256sum /tmp/quod-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: benchmark-binary
+          path: /tmp/quod-linux-x86_64.tar.gz
