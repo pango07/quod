@@ -1165,7 +1165,22 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         intern.insert(k, i);
         i
     };
-    let mut global: Vec<u32> = out.global.iter().map(|k| key(&mut ledger, k)).collect();
+    // A plain witness writes no record of its own module graph, so the
+    // main process's reads on its behalf (the sources vite transformed for
+    // it, the packages it resolved) look like the main process's own. They
+    // are that file's inputs, keyed in its record already: not shared.
+    let plain_keys: HashSet<String> = plain_ids
+        .iter()
+        .filter_map(|id| ledger.files.get(id))
+        .flat_map(|r| r.deps.iter().map(|d| ledger.keys[*d as usize].clone()))
+        .filter(|k| k.starts_with("f:") || k.starts_with("p:"))
+        .collect();
+    let mut global: Vec<u32> = out
+        .global
+        .iter()
+        .filter(|k| !plain_keys.contains(&relativize(&root, k)))
+        .map(|k| key(&mut ledger, k))
+        .collect();
     if !out.replayed.is_empty() || out.main_recorded == Some(false) {
         global.extend(ledger.global.iter().copied());
     }
