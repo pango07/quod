@@ -200,6 +200,11 @@ struct Ledger {
     /// A full replay of this ledger as vitest printed and wrote it.
     #[serde(default)]
     render: Option<Render>,
+    /// The witnesses a record needed when this ledger was last recorded
+    /// (`witnesses_needed`); Quod Cloud reads it to say which records are
+    /// trusted. 0: not written (an older quod).
+    #[serde(default)]
+    witnesses_needed: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -278,6 +283,11 @@ struct Witness {
     #[serde(default)]
     disagreements: u32,
 }
+
+/// Why a file whose record has fewer witnesses than it needs runs (the run
+/// report): it runs again until another run agrees.
+const AWAITING_WITNESS: &str =
+    "awaiting second witness (recorded once; reused once another run agrees)";
 
 /// Witnesses a record needs before it replays: 2 (the default, the
 /// second-witness policy); `QUOD_VITEST_WITNESSES=1` trusts a record at once.
@@ -506,6 +516,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if !witnessed(need, rec) {
             // One witness so far: it runs again, and agreeing makes it two.
             provisional += 1;
+            why.insert(id.clone(), AWAITING_WITNESS.into());
             affected.push(id.clone());
             continue;
         }
@@ -781,6 +792,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                     &HashSet::new(),
                     &HashMap::new(),
                     Some(code),
+                    None,
                 );
                 if let Some(p) = &a.summary {
                     let s = serde_json::json!({
@@ -864,6 +876,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             &HashSet::new(),
             &HashMap::new(),
             Some(code),
+            None,
         );
         eprintln!(
             "quod vitest: ran {} files plain, replayed {} ({} function-level); quod {} ms (select); not recorded (the shadow run records)",
@@ -1149,6 +1162,13 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             r.w.n = 1;
         }
     }
+    // Records still short of witnesses (not the quarantined: they re-prove).
+    let awaiting = ledger
+        .files
+        .values()
+        .filter(|r| !r.quarantined && !witnessed(need, r))
+        .count();
+    ledger.witnesses_needed = need;
     lap("witness", &mut phases);
     // After the witnesses: a run that makes every record trusted renders.
     if let Some(sb) = standby.filter(|_| everything_recorded(&ledger)) {
@@ -1213,6 +1233,18 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest:   {n} files without function-level data: {u}");
     }
     let mism: HashSet<String> = out.audit_mismatch.iter().cloned().collect();
+    let recording = Recording {
+        // A background recording job (the retired setup) checks itself
+        // against the check's report; the developer's own job does not.
+        inline: a.expect_report.is_none(),
+        record_ms: (t_done - t_run).as_secs_f64() * 1e3,
+        witness: quod_wire::testreplay::WitnessCounts {
+            needed: need,
+            promoted: promoted as u64,
+            awaiting: awaiting as u64,
+            disagreed: disagreed as u64,
+        },
+    };
     report_base.with_select(t_select).send(
         "shadow",
         &ran_facts,
@@ -1221,6 +1253,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         &mism,
         &unrec,
         Some(code),
+        Some(&recording),
     );
     if let Some(c) = &cloud
         && !a.cloud_no_save
@@ -2972,6 +3005,15 @@ fn plain_key(k: &str) -> String {
     }
 }
 
+/// What a recording run adds to its report.
+struct Recording {
+    /// The developer's own test job recorded (not a background job).
+    inline: bool,
+    /// Quod's recording work after the tests ran (ms).
+    record_ms: f64,
+    witness: quod_wire::testreplay::WitnessCounts,
+}
+
 /// What a run report needs from the selection, gathered before the record
 /// changes the ledger.
 #[derive(Clone)]
@@ -2994,9 +3036,7 @@ impl Reporting<'_> {
         r
     }
 
-    /// Sends the report, if --cloud: `ran` is (id, file, state, duration)
-    /// per file that ran, `replayed` the ids reused, `audit` the ids the
-    /// shadow checked and `mismatched` those whose fresh result differed.
+    /// Sends the report, if --cloud (`build`).
     #[allow(clippy::too_many_arguments)]
     fn send(
         &self,
@@ -3007,8 +3047,37 @@ impl Reporting<'_> {
         mismatched: &HashSet<String>,
         unrecordable: &HashMap<String, String>,
         exit: Option<u8>,
+        recording: Option<&Recording>,
     ) {
         let Some(c) = self.cloud else { return };
+        c.report(&self.build(
+            kind,
+            ran,
+            replayed,
+            audit,
+            mismatched,
+            unrecordable,
+            exit,
+            recording,
+        ));
+    }
+
+    /// The report: `ran` is (id, file, state, duration) per file that ran,
+    /// `replayed` the ids reused, `audit` the ids the shadow checked,
+    /// `mismatched` those whose fresh result differed and `recording` what
+    /// a recording run adds.
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        &self,
+        kind: &str,
+        ran: &[(String, String, String, f64)],
+        replayed: &[&String],
+        audit: &[String],
+        mismatched: &HashSet<String>,
+        unrecordable: &HashMap<String, String>,
+        exit: Option<u8>,
+        recording: Option<&Recording>,
+    ) -> quod_wire::testreplay::TestReport {
         let saved: f64 = replayed
             .iter()
             .filter_map(|id| self.recorded.get(*id).map(|r| r.1))
@@ -3065,7 +3134,7 @@ impl Reporting<'_> {
                 ok: !mismatched.contains(id),
             })
             .collect();
-        let r = quod_wire::testreplay::TestReport {
+        quod_wire::testreplay::TestReport {
             tool: "vitest".into(),
             kind: kind.into(),
             total: (ran.len() + replayed.len()) as u64,
@@ -3083,8 +3152,10 @@ impl Reporting<'_> {
             ledger: self.used.clone(),
             replayed_files,
             record_differs,
-        };
-        c.report(&r);
+            inline: recording.map(|r| r.inline),
+            record_ms: recording.map(|r| r.record_ms),
+            witness: recording.map(|r| r.witness.clone()),
+        }
     }
 }
 
@@ -3100,6 +3171,105 @@ fn relativize_file(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_report_says_why_a_file_awaits_its_second_witness() {
+        let recorded: HashMap<String, (String, f64)> = [
+            ("p".to_string(), ("p.test.ts".to_string(), 10.0)),
+            ("c".to_string(), ("c.test.ts".to_string(), 20.0)),
+            ("r".to_string(), ("r.test.ts".to_string(), 30.0)),
+        ]
+        .into();
+        // The selection's reasons: p is provisional (one witness), c's
+        // input changed.
+        let why: HashMap<String, String> = [
+            ("p".to_string(), AWAITING_WITNESS.to_string()),
+            ("c".to_string(), "changed: src/c.ts".to_string()),
+        ]
+        .into();
+        let rep = Reporting {
+            cloud: None,
+            used: None,
+            recorded: &recorded,
+            why: &why,
+            first_run: false,
+            narrowed: 0,
+            t0: Instant::now(),
+            select_ms: 0.0,
+        };
+        let ran = vec![
+            (
+                "p".to_string(),
+                "p.test.ts".to_string(),
+                "pass".to_string(),
+                11.0,
+            ),
+            (
+                "c".to_string(),
+                "c.test.ts".to_string(),
+                "pass".to_string(),
+                21.0,
+            ),
+        ];
+        let r_id = "r".to_string();
+        let why_of = |r: &quod_wire::testreplay::TestReport, f: &str| {
+            r.ran_files
+                .iter()
+                .find(|x| x.file == f)
+                .unwrap()
+                .why
+                .clone()
+        };
+        // A check (recording off): no recording fields.
+        let check = rep.build(
+            "critical",
+            &ran,
+            &[&r_id],
+            &[],
+            &HashSet::new(),
+            &HashMap::new(),
+            Some(0),
+            None,
+        );
+        assert_eq!(why_of(&check, "p.test.ts"), AWAITING_WITNESS);
+        assert_ne!(why_of(&check, "p.test.ts"), "changed");
+        assert_eq!(why_of(&check, "c.test.ts"), "changed: src/c.ts");
+        assert_eq!(
+            (check.inline, check.record_ms, check.witness),
+            (None, None, None)
+        );
+        assert_eq!((check.total, check.ran, check.replayed), (3, 2, 1));
+        // An inline recording: the recording's time and witness counts.
+        let w = quod_wire::testreplay::WitnessCounts {
+            needed: 2,
+            promoted: 1,
+            awaiting: 3,
+            disagreed: 0,
+        };
+        let recording = Recording {
+            inline: true,
+            record_ms: 42.0,
+            witness: w.clone(),
+        };
+        let shadow = rep.build(
+            "shadow",
+            &ran,
+            &[&r_id],
+            &[],
+            &HashSet::new(),
+            &HashMap::new(),
+            Some(0),
+            Some(&recording),
+        );
+        assert_eq!(why_of(&shadow, "p.test.ts"), AWAITING_WITNESS);
+        assert_eq!(shadow.inline, Some(true));
+        assert_eq!(shadow.record_ms, Some(42.0));
+        assert_eq!(shadow.witness, Some(w));
+        // On the wire: the fields an older server ignores.
+        let v = serde_json::to_value(&shadow).unwrap();
+        assert_eq!(v["inline"], true);
+        assert_eq!(v["witness"]["awaiting"], 3);
+    }
 
     #[test]
     fn pj_fields_keys_names_and_the_fields_read() {
