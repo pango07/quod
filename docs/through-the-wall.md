@@ -739,3 +739,50 @@ ENOENT, fails closed: "it reads /tmp/x it did not make". The test fixture's
 2. S4: action main 10 → ≤ 1 s; the 504 makes the release download a
    liability as well as a cost.
 3. C3's `-yy` probe, one hour; adopt at ≥ 15 %.
+
+## Addendum D (2026-11-05, after exp/whole-job-impl 89af1de, run 42035026447): an image roll re-traces once per image, and is trusted at once
+
+Read: `unit.rs` `cli` (:112–330), `host` (:388), `TRACE_SET` (:765); the
+six quod-ts job logs (42035049415 … 42036835937).
+
+Measured. quod-ts 594 runner-s against plain 880 (0.68x); c1–c5 424
+against 770 (0.55x). `test:release` traced 22–29 s, plain 11, hit 0.15.
+The roll re-traced it image-only at c1 (+16 s) and took its second
+witness at c2 (a hit otherwise: 11 s). c4 and c5 missed on
+`f:package.json` (chalk and commander bumps the unit never read: no `p:`
+of its changed) with the roll a passenger. The roll is 27 s of the 39 s
+to 0.50x; c4/c5's re-traces are +30 s (A2 for units), and c2's
+`stream.property.test.ts` ran plain again (85 s) and bought nothing: it
+replays as timing-sensitive from c3 regardless (A1).
+
+### D1. Rulings
+
+(a) Per-name environment keys: unsound. libuv, OpenSSL and glibc read
+names no JS hook sees; `sh`, `git` and esbuild read natively; an execve
+envp under inheritance is the whole environment.
+
+(b) plain: wrong-capable. A new environment can change the read set: the
+workflow adds `CONFIG=ci/x.json`, the plain run agrees, the record for
+that environment carries the old reads, the next edit of `ci/x.json`
+replays. The cross-environment run is traced.
+
+`host:` stays: the kernel is no file, `/proc` is ignored, and libuv calls
+`uname` at loop init, so a `uname`-conditioned key fires anyway.
+`f:/etc/ld.so.cache` stays (C4); a per-soname key is sound and saves
+nothing on a roll, where `envall:` misses by construction.
+
+### D2. Decision: an agreeing traced run under another environment is a second witness, both ways
+
+After the first witness makes record Q, find P whose keys and states are
+the same once `envall:`, `host:` and `f:/etc/ld.so.cache` are dropped,
+with the same exit code, outputs and text (C1's comparison). Agree: both
+`witnesses = 2`. Disagree: Q stays at 1, P untouched, `disagree`
+unchanged (an environment dependence is not flakiness). Same standard as
+the second witness: two runs of one read set on two VMs, every unseen
+input varied, the environment among them. `VERSION` stays 3.
+
+**Expected.** A roll costs one traced run per unit per image (+16 s
+`test:release`, +1 s build), then hits on either image. This window: c2
+hits; 413/770 = 0.54x steady, 583/880 = 0.66x. The two traced runs
+remain; only eBPF (B1) makes them cheap. 0.50x is A2-for-units and A1,
+not the image.
