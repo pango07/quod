@@ -1,5 +1,7 @@
 # Convex-helpers: measured Addendum E window
 
+Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+
 Run: [42087297690](https://github.com/pango07/ci-bench/actions/runs/42087297690), 27 minutes 19 seconds.
 
 Immutable measured versions: Quod binary `a026fea` (source gate/report harness `b01a116`), action `98ebac2bb98158c0026bcc591645e9dec48062de`, ci-bench `1aec15fe48a07e7309747d37cab5a7ea5816d2bc`. The later harness commit `615262c` prevents failed downloads from retaining an older job's log; it was not used by the running driver. All 48 job IDs, timestamps, images, signatures, and per-test fingerprints were independently downloaded and checked against the driver artifact.

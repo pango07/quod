@@ -1,5 +1,7 @@
 # Configuration names proof: paired changed-commit jobs
 
+Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+
 [Driver 42099468869](https://github.com/pango07/ci-bench/actions/runs/42099468869)
 completed all 16 jobs. This is a short diagnostic, separate from the
 [original 12-commit window](convex-helpers-e-window.md). It does not establish

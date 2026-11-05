@@ -1,5 +1,7 @@
 # Convex-helpers: Addendum E implementation and evidence
 
+Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+
 Experimental work on `exp/whole-job-e-codex`, starting from `c0f55ad` and
 including the fail-closed audit fixes described in `convex-helpers-audit.md`.
 The real 12-commit window remains pinned at

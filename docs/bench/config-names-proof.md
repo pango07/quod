@@ -1,5 +1,7 @@
 # Bounded configuration names proof
 
+Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+
 Experimental, disabled unless `QUOD_VITEST_NAMES_PROOF=1`. This flag is
 explicitly keyed, and the embedded proof/parser are included in `code_hash`.
 This does not narrow npm script unit keys or change application source.
