@@ -117,6 +117,11 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       if (r.made.length && under(p)) return
       if (skip.length && skip.some((d) => p.startsWith(d))) return
       if (p.startsWith('/proc/') || p.startsWith('/dev/') || p.startsWith('/sys/')) return
+      // vitest 5's API token (the UI/API server's auth: a random id it
+      // creates under the user data dir the first time, so new on every
+      // fresh CI runner). vitest's main process reads it; no test result
+      // depends on it. Keyed, it made every real job a miss.
+      if (r.mode === 'main' && p.endsWith('/vitest/.vitest-secret-token')) return
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {
         if (SKIP_NM.some((s) => p.includes(s))) return

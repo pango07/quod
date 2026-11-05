@@ -51,6 +51,33 @@ const COVERAGE: &str = include_str!("vitest/coverage.mjs");
 const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 
+/// The driver's files, as embedded; for development, a file of the same
+/// name in `QUOD_VITEST_JS_DIR` stands in for one (the bench iterates on
+/// them without a build). Either way `code_hash` is of what runs, so a
+/// ledger never pairs with other code.
+fn js() -> &'static [(&'static str, String)] {
+    static JS: std::sync::OnceLock<Vec<(&'static str, String)>> = std::sync::OnceLock::new();
+    JS.get_or_init(|| {
+        let over = std::env::var_os("QUOD_VITEST_JS_DIR").map(PathBuf::from);
+        [
+            ("driver.mjs", DRIVER),
+            ("setup.mjs", SETUP),
+            ("record.mjs", RECORD),
+            ("coverage.mjs", COVERAGE),
+            ("preload.cjs", PRELOAD),
+            ("narrow.mjs", NARROW),
+        ]
+        .into_iter()
+        .map(|(name, body)| {
+            let o = over
+                .as_ref()
+                .and_then(|d| fs::read_to_string(d.join(name)).ok());
+            (name, o.unwrap_or_else(|| body.to_string()))
+        })
+        .collect()
+    })
+}
+
 /// Bumped when what a key means or what is recorded changes: a ledger of
 /// another version is dropped (every file runs once). v2: function-level
 /// coverage and pinned states.
@@ -365,16 +392,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .find(|d| d.is_dir())
         .map_or_else(|| dir.join("code"), |d| d.join(".quod-vitest"));
     fs::create_dir_all(&code)?;
-    for (name, body) in [
-        ("driver.mjs", DRIVER),
-        ("setup.mjs", SETUP),
-        ("record.mjs", RECORD),
-        ("coverage.mjs", COVERAGE),
-        ("preload.cjs", PRELOAD),
-        ("narrow.mjs", NARROW),
-    ] {
+    for (name, body) in js() {
         let p = code.join(name);
-        if fs::read_to_string(&p).ok().as_deref() != Some(body) {
+        if fs::read_to_string(&p).ok().as_deref() != Some(body.as_str()) {
             // Atomically: the packages of a workspace may run at once and
             // share this directory.
             let tmp = code.join(format!("{name}.{}.tmp", std::process::id()));
@@ -1654,18 +1674,12 @@ fn render_sig(l: &Ledger) -> String {
 /// This quod's driver code and version.
 fn code_hash() -> String {
     let mut h = blake3::Hasher::new();
-    for s in [
-        DRIVER,
-        SETUP,
-        RECORD,
-        COVERAGE,
-        NARROW,
-        PRELOAD,
-        env!("CARGO_PKG_VERSION"),
-    ] {
+    for (_, s) in js() {
         h.update(s.as_bytes());
         h.update(b"\0");
     }
+    h.update(env!("CARGO_PKG_VERSION").as_bytes());
+    h.update(b"\0");
     h.finalize().to_hex()[..16].to_string()
 }
 
