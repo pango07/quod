@@ -215,13 +215,15 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
         // The second witness: plain (no trace), same inputs by construction.
         let (code, out, err) = run_captured(&sandboxed(&bwrap, &cwd, &a.argv, None), &[])?;
         let rec = &ledger.records[i];
-        let now: Vec<Out> = rec
+        let now = rec
             .outputs
             .iter()
             .map(|o| snapshot(&root, &o.path, None))
-            .collect();
-        let same_outs = now.len() == rec.outputs.len()
-            && now.iter().zip(&rec.outputs).all(|(a, b)| same_out(a, b));
+            .collect::<anyhow::Result<Vec<_>>>();
+        let same_outs = now.as_ref().is_ok_and(|now| {
+            now.len() == rec.outputs.len()
+                && now.iter().zip(&rec.outputs).all(|(a, b)| same_out(a, b))
+        });
         let rec_out = read_blob(&blobs, &rec.stdout)?;
         let rec_err = read_blob(&blobs, &rec.stderr)?;
         let text = disagree(&rec_out, &out)
@@ -287,7 +289,13 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
         Ok((keys, writes)) => {
             let mut outputs = Vec::new();
             for w in &writes {
-                outputs.push(snapshot(&root, w, Some(&blobs)));
+                match snapshot(&root, w, Some(&blobs)) {
+                    Ok(out) => outputs.push(out),
+                    Err(why) => {
+                        eprintln!("quod: {name}: output could not be recorded ({why}); not saved");
+                        return Ok(code_u8(code));
+                    }
+                }
             }
             let keys = manifest_keys(keys);
             let loaded = Loaded::of(keys.iter().map(|(k, _)| k.as_str()));
@@ -388,7 +396,7 @@ fn validate_blobs(rec: &Rec, blobs: &Path) -> anyhow::Result<()> {
 fn put_blob(dir: &Path, b: &[u8]) -> anyhow::Result<String> {
     let h = blake3::hash(b).to_hex().to_string();
     let p = dir.join(&h);
-    if !p.exists() {
+    if read_blob(dir, &h).is_err() {
         fs::create_dir_all(dir)?;
         let tmp = dir.join(format!("{h}.tmp"));
         fs::write(&tmp, b)?;
@@ -457,18 +465,17 @@ fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<St
     {
         Some("its outputs".to_string())
     } else {
-        if let Err(why) = read_blob(blobs, &p.stdout)
-            .and_then(|_| read_blob(blobs, &p.stderr))
-            .and_then(|_| read_blob(blobs, &q.stdout))
-            .and_then(|_| read_blob(blobs, &q.stderr)) {
-            return Some(Err(format!("unusable witness: {why}")));
-        }
-        let blob = |h: &str| read_blob(blobs, h).expect("validated above");
-        disagree(&blob(&p.stdout), &blob(&q.stdout))
+        let text = (|| -> anyhow::Result<_> {
+            Ok((read_blob(blobs, &p.stdout)?, read_blob(blobs, &p.stderr)?,
+                read_blob(blobs, &q.stdout)?, read_blob(blobs, &q.stderr)?))
+        })();
+        let (po, pe, qo, qe) = match text {
+            Ok(text) => text,
+            Err(why) => return Some(Err(format!("unusable witness: {why}"))),
+        };
+        disagree(&po, &qo)
             .map(|d| format!("its stdout: {d}"))
-            .or_else(|| {
-                disagree(&blob(&p.stderr), &blob(&q.stderr)).map(|d| format!("its stderr: {d}"))
-            })
+            .or_else(|| disagree(&pe, &qe).map(|d| format!("its stderr: {d}")))
     };
     if let Some(w) = what {
         return Some(Err(w));
@@ -666,7 +673,7 @@ fn listing(p: &Path, add: &[(String, char)], drop: &[String]) -> String {
     blake3::hash(names.join("\n").as_bytes()).to_hex()[..32].to_string()
 }
 
-fn snapshot(root: &Path, rel: &str, blobs: Option<&Path>) -> Out {
+fn snapshot(root: &Path, rel: &str, blobs: Option<&Path>) -> anyhow::Result<Out> {
     let p = root.join(rel);
     let mut o = Out {
         path: rel.to_string(),
@@ -675,26 +682,28 @@ fn snapshot(root: &Path, rel: &str, blobs: Option<&Path>) -> Out {
         mode: 0,
         target: None,
     };
-    let Ok(m) = fs::symlink_metadata(&p) else {
-        return o;
+    let m = match fs::symlink_metadata(&p) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(o),
+        Err(e) => return Err(e.into()),
     };
     o.mode = m.permissions().mode() & 0o7777;
     if m.file_type().is_symlink() {
         o.kind = "link".into();
-        o.target = fs::read_link(&p).ok().map(|t| t.display().to_string());
+        o.target = Some(fs::read_link(&p)?.display().to_string());
     } else if m.is_dir() {
         o.kind = "dir".into();
     } else if m.is_file() {
         o.kind = "file".into();
-        let b = fs::read(&p).unwrap_or_default();
+        let b = fs::read(&p)?;
         o.blob = Some(match blobs {
-            Some(d) => put_blob(d, &b).unwrap_or_default(),
+            Some(d) => put_blob(d, &b)?,
             None => blake3::hash(&b).to_hex().to_string(),
         });
     } else {
         o.kind = "other".into();
     }
-    o
+    Ok(o)
 }
 
 fn same_out(a: &Out, b: &Out) -> bool {
@@ -1101,7 +1110,9 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 continue;
             };
             let tail = &rest[at + " resumed>".len()..];
-            let head = pending.remove(&pid).unwrap_or_default();
+            let Some(head) = pending.remove(&pid) else {
+                return Err("its trace resumes an unknown syscall".into());
+            };
             lines.push((pid, format!("{head}{tail}")));
             continue;
         }
@@ -1953,6 +1964,14 @@ mod tests {
         assert!(read_blob(t.path(), &hash).is_err());
         let empty = put_blob(t.path(), b"").unwrap();
         assert!(read_blob(t.path(), &empty).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_output_snapshot_error_is_not_an_empty_file() {
+        let t = tempfile::tempdir().unwrap();
+        fs::write(t.path().join("parent"), b"file, not a directory").unwrap();
+        assert!(snapshot(t.path(), "parent/output", None).is_err());
+        assert_eq!(snapshot(t.path(), "missing", None).unwrap().kind, "absent");
     }
 
     #[test]
