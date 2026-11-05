@@ -2,11 +2,15 @@
 //! run is traced and recorded, the second (plain) agrees, the third is
 //! answered from the record (its output printed, its files restored), and
 //! a changed input runs it again. Skipped where strace or an unprivileged
-//! bubblewrap is missing (asserted present on CI).
+//! bubblewrap is missing (asserted present on CI). Runs as the runner's
+//! user and as root (the lint gate): each step has a deadline, so a hang
+//! fails with what the step printed instead of holding the gate.
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 fn usable(prog: &str, args: &[&str]) -> bool {
     Command::new(prog)
@@ -16,7 +20,7 @@ fn usable(prog: &str, args: &[&str]) -> bool {
 }
 
 fn unit(dir: &Path, root: &Path, script: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_quod"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_quod"))
         .current_dir(root)
         .arg("unit")
         .arg("--dir")
@@ -26,12 +30,59 @@ fn unit(dir: &Path, root: &Path, script: &str) -> Output {
         .arg("--mark")
         .arg(dir.join("recorded"))
         .args(["--", "sh", "-c", script])
-        .output()
-        .unwrap()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Read on threads that hand their bytes over a channel: a process the
+    // step started that outlives it (holding the pipe) is a failure here,
+    // not a hang.
+    let pipe = |mut r: Box<dyn Read + Send>| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut b = Vec::new();
+            let _ = r.read_to_end(&mut b);
+            let _ = tx.send(b);
+        });
+        rx
+    };
+    let o = pipe(Box::new(child.stdout.take().unwrap()));
+    let e = pipe(Box::new(child.stderr.take().unwrap()));
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let err = e.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+            panic!(
+                "`quod unit -- sh -c {script:?}` still running after 120 s; stderr:\n{}",
+                String::from_utf8_lossy(&err)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let left = || deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(5);
+    let stderr = e.recv_timeout(left()).unwrap_or_else(|_| {
+        panic!("`sh -c {script:?}`: quod exited ({status}) but its stderr is still open: a process it started outlives it")
+    });
+    let stdout = o.recv_timeout(left()).unwrap_or_else(|_| {
+        panic!(
+            "`sh -c {script:?}`: quod exited ({status}) but its stdout is still open; stderr:\n{}",
+            String::from_utf8_lossy(&stderr)
+        )
+    });
+    Output {
+        status,
+        stdout,
+        stderr,
+    }
 }
 
 #[test]
-#[ignore = "lint at 28d311c timed out after it; run by hand or see probe-strace"]
 fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     let ok = usable("strace", &["-V"])
         && usable(
@@ -50,17 +101,6 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
                 "true",
             ],
         );
-    // The action runs units as the runner's user; as root (the lint gate)
-    // the traced run fails in a way not yet understood (TODO), so this
-    // case is covered by ci-bench probe/runner's probe-strace instead.
-    let root_user = Command::new("id")
-        .arg("-u")
-        .output()
-        .is_ok_and(|o| o.stdout.starts_with(b"0\n"));
-    if root_user {
-        eprintln!("running as root: skipped (probe-strace covers the runner's user)");
-        return;
-    }
     if !ok {
         assert!(
             std::env::var("CI").as_deref() != Ok("true"),

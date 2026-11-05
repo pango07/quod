@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::vitest;
 
 /// Bumped when a record made before would be read differently.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// Records kept per unit (newest first).
 const KEEP: usize = 3;
 /// Disagreeing second witnesses before a unit always runs.
@@ -216,10 +216,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             && now.iter().zip(&rec.outputs).all(|(a, b)| same_out(a, b));
         let rec_out = fs::read(blobs.join(&rec.stdout)).unwrap_or_default();
         let rec_err = fs::read(blobs.join(&rec.stderr)).unwrap_or_default();
-        let agree = code == rec.code
-            && same_outs
-            && mask(&out) == mask(&rec_out)
-            && mask(&err) == mask(&rec_err);
+        let text = disagree(&rec_out, &out)
+            .map(|d| format!("its stdout: {d}"))
+            .or_else(|| disagree(&rec_err, &err).map(|d| format!("its stderr: {d}")));
+        let agree = code == rec.code && same_outs && text.is_none();
         if agree {
             ledger.records[i].witnesses = 2;
             eprintln!("quod: {name}: the second witness agrees; its record is trusted");
@@ -229,12 +229,7 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
             } else if !same_outs {
                 "its outputs".to_string()
             } else {
-                let (o1, o2) = (mask(&out), mask(&rec_out));
-                if o1 != o2 {
-                    format!("its stdout: {}", first_diff(&o2, &o1))
-                } else {
-                    format!("its stderr: {}", first_diff(&mask(&rec_err), &mask(&err)))
-                }
+                text.unwrap_or_default()
             };
             ledger.records.remove(i);
             ledger.disagree += 1;
@@ -288,7 +283,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
                     (k, s)
                 })
                 .collect();
-            for k in ["envall:", "host:", "f:/imagegeneration/imagedata.json"] {
+            // The environment and the kernel are inputs the trace cannot
+            // see. The image is not a key of its own: every file the unit
+            // read outside the checkout is keyed by content already.
+            for k in ["envall:", "host:"] {
                 ks.push((k.to_string(), key_state(&root, k)));
             }
             ks.sort();
@@ -377,7 +375,8 @@ fn abs(root: &Path, p: &str) -> PathBuf {
 }
 
 /// The kernel, the architecture and the CPU count (the image is keyed by
-/// ImageOS, ImageVersion (envall:) and /imagegeneration/imagedata.json).
+/// what the unit read of it, `f:`, and by ImageOS and ImageVersion in
+/// `envall:`).
 fn host() -> String {
     let rel = fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
     let n = std::thread::available_parallelism().map_or(0, |n| n.get());
@@ -494,57 +493,102 @@ fn restore(root: &Path, blobs: &Path, outs: &[Out]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What two witnesses' text must agree on: all of it but what differs
-/// from run to run by construction, durations (`(12.3ms)`, `duration_ms
-/// 812.4`, `Done in 45ms`), object ids (hex runs of 7 or more with a digit:
-/// the commits a test makes in a scratch repository carry its clock) and
-/// scratch paths under /tmp (mkdtemp's random suffix). The replay prints
-/// the first witness's text as is.
-fn mask(b: &[u8]) -> String {
-    let s = mask_durations(b);
-    let c: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len());
-    let mut i = 0;
-    let sep = |x: char| x.is_whitespace() || "'\"`/:,;()[]{}<>".contains(x);
-    while i < c.len() {
-        if c[i..].starts_with(&['/', 't', 'm', 'p', '/']) {
-            out.push_str("/tmp/#");
-            i += 5;
-            while i < c.len() && !sep(c[i]) {
-                i += 1;
-            }
-            continue;
+/// Whether two witnesses' text agrees, and if not, the first line where it
+/// does not. They agree when they have the same lines and, line by line,
+/// the same tokens but for pairs that differ from run to run by
+/// construction, compared pairwise (never one text masked on its own):
+///
+/// - (duration, duration): `(12.3ms)`, `duration_ms 812.4`, `Done in 45ms`;
+/// - (`/tmp/…`, `/tmp/…`) with `/tmp/` at a path's start (mkdtemp's random
+///   suffix; `/var/tmp/x` is not scratch);
+/// - (hex, hex) of the same length in 7..=64, each with a decimal digit and
+///   at least one with a letter a–f: object ids (the commits a test makes
+///   in a scratch repository carry its clock). Two all-decimal runs are
+///   numbers, a byte count or a row count, and must be equal; an
+///   abbreviated object id that happens to be all-decimal on both sides
+///   (0.14 %) costs a witness, never a wrong replay.
+///
+/// The replay prints the first witness's text as is.
+fn disagree(a: &[u8], b: &[u8]) -> Option<String> {
+    let (a, b) = (mask_durations(a), mask_durations(b));
+    let cut = |s: &str| s.chars().take(160).collect::<String>();
+    let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    for (x, y) in la.iter().zip(&lb) {
+        if x != y && !line_agrees(x, y) {
+            return Some(format!("{:?} vs {:?}", cut(x), cut(y)));
         }
-        if c[i].is_ascii_hexdigit() && (i == 0 || !c[i - 1].is_alphanumeric()) {
-            let mut j = i;
-            while j < c.len() && c[j].is_ascii_hexdigit() {
-                j += 1;
-            }
-            let word_end = j == c.len() || !c[j].is_alphanumeric();
-            if j - i >= 7 && word_end && c[i..j].iter().any(|x| x.is_ascii_digit()) {
-                out.push('#');
-                i = j;
-                continue;
-            }
-            out.extend(&c[i..j]);
-            i = j;
-            continue;
-        }
-        out.push(c[i]);
-        i += 1;
     }
-    out
+    (la.len() != lb.len()).then(|| format!("{} vs {} lines", la.len(), lb.len()))
 }
 
-/// The first line where two masked texts differ, for the log.
-fn first_diff(a: &str, b: &str) -> String {
-    let cut = |s: &str| s.chars().take(160).collect::<String>();
-    for (x, y) in a.lines().zip(b.lines()) {
-        if x != y {
-            return format!("{:?} vs {:?}", cut(x), cut(y));
+#[derive(PartialEq, Debug)]
+enum Tok<'a> {
+    /// a path starting `/tmp/`, to the next separator
+    Tmp,
+    /// a run of letters and digits
+    Word(&'a str),
+    /// any other character
+    Other(char),
+}
+
+fn tokens(s: &str) -> Vec<Tok<'_>> {
+    let sep = |x: char| x.is_whitespace() || "'\"`:,;()[]{}<>=".contains(x);
+    let mut v = Vec::new();
+    let mut it = s.char_indices().peekable();
+    let mut prev: Option<char> = None;
+    while let Some((i, c)) = it.next() {
+        if c == '/' && prev.is_none_or(sep) && s[i..].starts_with("/tmp/") {
+            let mut last = c;
+            while let Some(&(_, x)) = it.peek() {
+                if sep(x) {
+                    break;
+                }
+                last = x;
+                it.next();
+            }
+            v.push(Tok::Tmp);
+            prev = Some(last);
+            continue;
         }
+        if c.is_alphanumeric() {
+            let mut j = i + c.len_utf8();
+            let mut last = c;
+            while let Some(&(k, x)) = it.peek() {
+                if !x.is_alphanumeric() {
+                    break;
+                }
+                j = k + x.len_utf8();
+                last = x;
+                it.next();
+            }
+            v.push(Tok::Word(&s[i..j]));
+            prev = Some(last);
+            continue;
+        }
+        v.push(Tok::Other(c));
+        prev = Some(c);
     }
-    format!("{} vs {} lines", a.lines().count(), b.lines().count())
+    v
+}
+
+fn line_agrees(a: &str, b: &str) -> bool {
+    let (ta, tb) = (tokens(a), tokens(b));
+    ta.len() == tb.len()
+        && ta.iter().zip(&tb).all(|(x, y)| match (x, y) {
+            (Tok::Word(x), Tok::Word(y)) => x == y || object_ids(x, y),
+            _ => x == y,
+        })
+}
+
+/// Two differing words that are both object ids (see `disagree`).
+fn object_ids(a: &str, b: &str) -> bool {
+    let hex = |s: &str| {
+        (7..=64).contains(&s.len())
+            && s.chars().all(|c| c.is_ascii_hexdigit())
+            && s.chars().any(|c| c.is_ascii_digit())
+    };
+    let letter = |s: &str| s.chars().any(|c| c.is_ascii_alphabetic());
+    a.len() == b.len() && hex(a) && hex(b) && (letter(a) || letter(b))
 }
 
 fn mask_durations(b: &[u8]) -> String {
@@ -643,7 +687,7 @@ fn run_captured(cmd: &[String], env: &[(&str, &str)]) -> anyhow::Result<(i32, Ve
 
 fn sandbox_ok() -> Option<String> {
     let ok = Command::new("bwrap")
-        .args(SANDBOX)
+        .args(sandbox_args())
         .args(["--", "true"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -660,6 +704,20 @@ fn strace_ok() -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+/// The sandbox's arguments. Run by root, bubblewrap drops every capability
+/// inside unless told otherwise, and a root without CAP_DAC_OVERRIDE
+/// cannot even enter the runner's home (0750, the runner's): every unit
+/// under a root job's checkout would fail to start. Root keeps its
+/// capabilities, as it has them plain.
+fn sandbox_args() -> Vec<&'static str> {
+    use std::os::unix::fs::MetadataExt;
+    let mut v = SANDBOX.to_vec();
+    if fs::metadata("/proc/self").is_ok_and(|m| m.uid() == 0) {
+        v.extend(["--cap-add", "ALL"]);
+    }
+    v
 }
 
 /// No network but loopback, a pid namespace, a private /tmp; the rest of
@@ -681,7 +739,7 @@ const TRACE_SET: &str = "trace=%file,%process,getdents64,getdents,%network,io_ur
 
 fn sandboxed(bwrap: &str, cwd: &Path, argv: &[String], trace: Option<&Path>) -> Vec<String> {
     let mut v: Vec<String> = vec![bwrap.into()];
-    v.extend(SANDBOX.iter().map(|s| s.to_string()));
+    v.extend(sandbox_args().iter().map(|s| s.to_string()));
     v.extend(["--chdir".into(), cwd.display().to_string(), "--".into()]);
     if let Some(t) = trace {
         v.extend(
@@ -1028,7 +1086,9 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 }
                 push(at(&args[0], &p), Op::Modify, ok, None);
             }
-            "connect" | "sendto" | "sendmsg" | "bind" => {
+            // sendmmsg: glibc's resolver sends a connected UDP socket's
+            // queries with it (the connect is the one that names the peer).
+            "connect" | "sendto" | "sendmsg" | "sendmmsg" | "bind" => {
                 if let Some(why) = network(name, args_s, ok) {
                     return Err(why);
                 }
@@ -1078,6 +1138,14 @@ fn stat_kind(args: &[String]) -> Option<&'static str> {
 fn network(name: &str, args: &str, ok: bool) -> Option<String> {
     if name == "bind" {
         return None;
+    }
+    // An abstract socket name (`@…`) is per network namespace: a service
+    // the job reaches plain is out of the sandbox's reach in both witnesses,
+    // which would agree on the offline behaviour. The attempt fails closed,
+    // whatever its outcome, as for the network.
+    if args.contains("sa_family=AF_UNIX") && args.contains("sun_path=@") {
+        let name = between(args, "sun_path=@\"", "\"").unwrap_or_default();
+        return Some(format!("it talks to an abstract socket (@{name})"));
     }
     let inet = args.contains("sa_family=AF_INET");
     if !inet {
@@ -1243,19 +1311,26 @@ fn join(base: &str, p: &str) -> String {
 
 // ---- the keyer ----
 
-/// What is neither an input nor an output: the kernel's views, the private
-/// /tmp, npm's own logs, Quod's own state.
+/// What is neither an input nor an output: the kernel's views, npm's own
+/// logs, Quod's own state; and the scratch places (the private /tmp,
+/// /run/user), whose paths are the unit's own when it made them.
 static IGNORE: std::sync::OnceLock<Ignore> = std::sync::OnceLock::new();
 
 struct Ignore {
     prefixes: Vec<String>,
     /// these paths themselves, not what is under them
     exact: Vec<String>,
+    /// Scratch: a path under one is the unit's own if its first event made
+    /// it (or it is under a directory the unit made), neither input nor
+    /// output; any other path there fails closed (the sandbox's /tmp is
+    /// not the job's: a file an earlier step left there is missing in both
+    /// witnesses and there when plain runs).
+    scratch: Vec<String>,
 }
 
 impl Ignore {
     fn new(root: &Path, dir: &Path) -> Self {
-        let mut prefixes: Vec<String> = ["/proc", "/sys", "/dev", "/tmp", "/run/user"]
+        let mut prefixes: Vec<String> = ["/proc", "/sys", "/dev"]
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -1271,7 +1346,20 @@ impl Ignore {
         let d = fs::canonicalize(dir).unwrap_or(dir.to_path_buf());
         prefixes.push(d.display().to_string());
         let _ = root;
-        Ignore { prefixes, exact }
+        Ignore {
+            prefixes,
+            exact,
+            scratch: vec!["/tmp".into(), "/run/user".into()],
+        }
+    }
+    /// The scratch place `p` is in (not the place itself).
+    fn scratch_of(&self, p: &str) -> Option<&str> {
+        self.scratch
+            .iter()
+            .find(|x| {
+                p.len() > x.len() && p.starts_with(x.as_str()) && p.as_bytes()[x.len()] == b'/'
+            })
+            .map(String::as_str)
     }
     fn hit(&self, p: &str) -> bool {
         self.exact.iter().any(|x| p == x)
@@ -1331,10 +1419,43 @@ fn keyer(
     // Per path, its events in order.
     let mut by: BTreeMap<&str, Vec<&Ev>> = BTreeMap::new();
     for e in &t.evs {
-        if ignore.hit(&e.path) {
+        if ignore.hit(&e.path) || ignore.scratch.iter().any(|s| e.path == *s) {
             continue;
         }
         by.entry(e.path.as_str()).or_default().push(e);
+    }
+    // Scratch paths (outside the checkout): the unit's own when their
+    // first event made them (or they are under a directory it made), and
+    // then neither inputs nor outputs; anything else there fails closed.
+    // Parents sort before their children.
+    let inside =
+        |p: &str, m: &str| p.len() > m.len() && p.starts_with(m) && p.as_bytes()[m.len()] == b'/';
+    let mut mine: Vec<&str> = Vec::new();
+    let mut foreign: Option<String> = None;
+    by.retain(|p, evs| {
+        let p: &str = *p;
+        if under(p) || ignore.scratch_of(p).is_none() {
+            return true;
+        }
+        if !mine.iter().copied().any(|m| inside(p, m)) {
+            match (evs[0].op, evs[0].ok) {
+                (Op::Create | Op::Trunc, true) => mine.push(p),
+                (op, _) => {
+                    let what = if matches!(op, Op::Read | Op::Stat | Op::List) {
+                        "reads"
+                    } else {
+                        "changes"
+                    };
+                    if foreign.is_none() {
+                        foreign = Some(format!("it {what} {p}, which it did not make"));
+                    }
+                }
+            }
+        }
+        false
+    });
+    if let Some(why) = foreign {
+        return Err(why);
     }
     // Paths the unit changed, and what they were before.
     let mut written: BTreeMap<&str, Pre> = BTreeMap::new();
@@ -1499,14 +1620,15 @@ mod tests {
         keyer(
             root,
             &t,
-            // the test's root is under the OS temp dir, which a sandboxed
-            // run has to itself (Ignore::new): leave only these out
+            // the test's root is under the OS temp dir: the checkout comes
+            // first, the rest of /tmp is scratch as in Ignore::new
             &Ignore {
-                prefixes: ["/proc", "/sys", "/dev", "/tmp/scratch"]
+                prefixes: ["/proc", "/sys", "/dev"]
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),
                 exact: Vec::new(),
+                scratch: vec!["/tmp".into(), "/run/user".into()],
             },
         )
     }
@@ -1616,17 +1738,108 @@ mod tests {
         assert!(keys_of(&root, ok).is_ok());
     }
 
+    /// through-the-wall C2: a datagram sent with sendmmsg is checked like
+    /// sendto's; an abstract socket name fails closed, reached or not.
+    #[test]
+    fn sendmmsg_and_abstract_sockets_fail_closed() {
+        let t = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(t.path()).unwrap();
+        for (text, why) in [
+            (
+                "1 sendmmsg(3<UDP:[1]>, [{msg_hdr={msg_name={sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(\"8.8.8.8\")}, msg_namelen=16, msg_iov=[{iov_base=\"x\", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=1}], 1, MSG_NOSIGNAL) = 1\n",
+                "network",
+            ),
+            (
+                "1 connect(3<UNIX:[1]>, {sa_family=AF_UNIX, sun_path=@\"/tmp/.X11-unix/X0\"}, 20) = -1 ECONNREFUSED (Connection refused)\n",
+                "abstract socket (@/tmp/.X11-unix/X0)",
+            ),
+            (
+                "1 connect(3<UNIX:[1]>, {sa_family=AF_UNIX, sun_path=@\"svc\"}, 6) = 0\n",
+                "abstract",
+            ),
+            (
+                "1 sendto(3<UNIX:[1]>, \"x\", 1, 0, {sa_family=AF_UNIX, sun_path=@\"svc\"}, 6) = 1\n",
+                "abstract",
+            ),
+        ] {
+            let e = keys_of(&root, text).unwrap_err();
+            assert!(e.contains(why), "{why}: {e}");
+        }
+        // a connected socket's sendmmsg names no peer: the connect did
+        let ok = "1 sendmmsg(3<UDP:[1]>, [{msg_hdr={msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base=\"x\", iov_len=1}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=1}], 1, MSG_NOSIGNAL) = 1\n";
+        assert!(keys_of(&root, ok).is_ok());
+    }
+
+    /// through-the-wall C6: the sandbox's /tmp is not the job's, so a path
+    /// there is either the unit's own (made by its first event, or under a
+    /// directory it made) or the unit fails closed.
+    #[test]
+    fn scratch_paths_are_the_units_own_or_fail_closed() {
+        let t = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(t.path()).unwrap();
+        let mine = "1 stat(\"/tmp\", {st_mode=S_IFDIR|01777, st_size=40}) = 0
+1 mkdir(\"/tmp/rel-AbC123\", 0700) = 0
+1 openat(AT_FDCWD, \"/tmp/rel-AbC123/repo/.git/HEAD\", O_RDONLY) = 3</tmp/rel-AbC123/repo/.git/HEAD>
+1 getdents64(3</tmp/rel-AbC123>, 0x1, 32768) = 48
+1 openat(AT_FDCWD, \"/tmp/scratch\", O_WRONLY|O_CREAT|O_TRUNC, 0644) = 3</tmp/scratch>
+1 openat(AT_FDCWD, \"/tmp/scratch\", O_RDONLY) = 3</tmp/scratch>
+1 unlink(\"/tmp/scratch\") = 0
+";
+        let (keys, outs) = keys_of(&root, mine).unwrap();
+        assert!(keys.iter().all(|(k, _)| !k.contains("/tmp")), "{keys:?}");
+        assert!(outs.is_empty(), "{outs:?}");
+        for (text, why) in [
+            (
+                "1 openat(AT_FDCWD, \"/tmp/left-by-a-step\", O_RDONLY) = 3</tmp/left-by-a-step>\n",
+                "reads /tmp/left-by-a-step",
+            ),
+            (
+                "1 newfstatat(AT_FDCWD, \"/tmp/cache\", 0x1, 0) = -1 ENOENT (No such file or directory)\n1 mkdir(\"/tmp/cache\", 0777) = 0\n",
+                "reads /tmp/cache",
+            ),
+            (
+                "1 openat(AT_FDCWD, \"/tmp/log\", O_WRONLY|O_CREAT|O_APPEND, 0644) = 3</tmp/log>\n",
+                "changes /tmp/log",
+            ),
+            (
+                "1 openat(AT_FDCWD, \"/run/user/1001/bus\", O_RDONLY) = -1 ENOENT (No such file or directory)\n",
+                "reads /run/user/1001/bus",
+            ),
+            (
+                "1 connect(3<UNIX:[1]>, {sa_family=AF_UNIX, sun_path=\"/tmp/agent.sock\"}, 110) = -1 ENOENT (No such file or directory)\n",
+                "reads /tmp/agent.sock",
+            ),
+        ] {
+            let e = keys_of(&root, text).unwrap_err();
+            assert!(e.contains(why), "{why}: {e}");
+        }
+    }
+
     #[test]
     fn durations_are_masked_for_agreement() {
+        let agree = |a: &str, b: &str| disagree(a.as_bytes(), b.as_bytes()).is_none();
         let a = "✔ adds (1.234ms)\nℹ duration_ms 812.5\n⚡ Done in 45ms\nok 3 tests\n";
         let b = "✔ adds (0.9ms)\nℹ duration_ms 799\n⚡ Done in 51ms\nok 3 tests\n";
-        assert_eq!(mask(a.as_bytes()), mask(b.as_bytes()));
-        assert_ne!(mask(b"ok 3 tests"), mask(b"ok 4 tests"));
-        assert_eq!(
-            mask(b"tag v1 at 3f9a2b1c in /tmp/rel-AbC123/repo"),
-            mask(b"tag v1 at 9e0d4c27 in /tmp/rel-XyZ987/repo")
-        );
-        assert_ne!(mask(b"tag v1"), mask(b"tag v2"));
+        assert!(agree(a, b));
+        assert!(!agree("ok 3 tests", "ok 4 tests"));
+        assert!(agree(
+            "tag v1 at 3f9a2b1c in /tmp/rel-AbC123/repo",
+            "tag v1 at 9e0d4c27 in /tmp/rel-XyZ987/repo"
+        ));
+        assert!(!agree("tag v1", "tag v2"));
+        assert!(!agree("a\nb\n", "a\n"));
+        // through-the-wall C1: object ids pairwise, numbers are numbers
+        assert!(!agree("1048576 bytes", "2097152 bytes"), "byte counts");
+        assert!(agree("3f9a2b1c", "9e0d4c27"));
+        assert!(agree("commit 1234567", "commit 9e0d4c2"));
+        assert!(!agree("at 20261105", "at 20261106"), "a date");
+        assert!(!agree("id 3f9a2b1c", "id 9e0d4c2"), "not the same length");
+        assert!(!agree("id deadbeef", "id cafebabe"), "no digit: words");
+        // /tmp only at a path's start
+        assert!(!agree("/var/tmp/a", "/var/tmp/b"));
+        assert!(!agree("x/tmp/a", "x/tmp/b"));
+        assert!(agree("dir=/tmp/a-1", "dir=/tmp/b-2"));
+        assert!(!agree("/tmp/a b", "/tmp/a c"));
     }
 
     #[test]
