@@ -36,7 +36,9 @@ export const real = {
   readdirSync: fs.readdirSync,
 }
 
-export const VERSION = 'quod-vitest-1'
+// 2: npm's allowance is by process (child.mjs r.npm), not by stack frame;
+// a record made under -1 for a file importing ci-info lacks its env: keys.
+export const VERSION = 'quod-vitest-2'
 
 const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
 const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
@@ -73,6 +75,9 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     pjWhole: new Map(),
     // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
     envKept: new Map(),
+    // this process is npm or npx itself (child.mjs, by argv[1]): its reads
+    // of the CI's per-run variables are presence-keyed (envp:)
+    npm: false,
     // The environment copied for a known child process (esbuild's service), by who spawned it
     envChild: new Map(),
     // main process, package.json files read whole: path -> reads, and the
@@ -257,12 +262,26 @@ export function resolverCaller(stack = new Error().stack) {
 // The whole stack, however deep. Returns the deciding frame, for the log.
 const HELPERS = ['/node_modules/std-env/', '/node_modules/tinyexec/', '/node_modules/tinyrainbow/', '/node_modules/obug/', '/node_modules/debug/', '/node_modules/picocolors/', '/node_modules/supports-color/']
 // npm and its CI detection, in a node child a test starts (`npx redocly`):
-// its reads of the CI's per-run variables and its copies of the whole
-// environment for the program it runs are a package manager's, as vite's
-// are a bundler's. Only for those names (ciVarying) and copies: any other
-// variable npm reads (its npm_config_*) is keyed as usual, and the program
-// it runs, traced, records its own reads.
-const NPM_HELPERS = ['/node_modules/npm/', '/node_modules/@npmcli/', '/node_modules/ci-info/']
+// its reads of the CI's per-run variables are keyed by presence (envp:),
+// never by value, and its copies of the whole environment for the program
+// it runs are a package manager's (envtool:). Only in a process that IS npm
+// or npx (r.npm, set by child.mjs from argv[1]), never by stack frame alone:
+// ci-info is an ordinary dependency, and a test file importing it evaluates
+// it with only ci-info's frames on the stack; its `isPR` is
+// GITHUB_EVENT_NAME's value, so it must be keyed by value there (a record
+// made on a push replayed on a pull request otherwise). npm's own copy of
+// ci-info is under /node_modules/npm/. npm 10/11 behave on ci-info's isCI
+// and name (GITHUB_ACTIONS' presence) and on CI (keyed by value for every
+// caller), never isPR. Any other variable npm reads (npm_config_*) is
+// keyed as usual, and the program it runs, traced, records its own reads.
+//
+// A traced child's env: keys are hashed in quod vitest's own environment,
+// so a name only npm sets for its child (npm_lifecycle_event,
+// npm_config_user_agent, INIT_CWD) hashes "unset" at record and replay
+// alike. Each such value derives from keyed inputs (the spawning test's
+// code, package.json, npm's files as f:, node's version); not a hole, and
+// not to be "fixed" into a per-run key.
+const NPM_HELPERS = ['/node_modules/npm/', '/node_modules/@npmcli/']
 function toolCaller(npm = false) {
   const limit = Error.stackTraceLimit
   Error.stackTraceLimit = Infinity
@@ -586,9 +605,14 @@ export function patchEnv(r) {
   const rec = (k) => {
     if (typeof k !== 'string' || seen.has(k)) return
     if (ciVarying(k) || !toolEnv(k)) {
-      const c = toolCaller(ciVarying(k))
+      const npm = r.npm && ciVarying(k)
+      const c = toolCaller(npm)
       if (c.child && CHILD_ENV.test(k)) r.keys.add(`env:${k}`)
-      if (c.tool) return
+      if (c.tool) {
+        // npm's read: set or unset, never the value (B2 1b)
+        if (npm) r.keys.add(`envp:${k}`)
+        return
+      }
       if (ciVarying(k) && !r.envKept.has(k)) r.envKept.set(k, c.frame)
     }
     seen.add(k)
@@ -604,8 +628,10 @@ export function patchEnv(r) {
   const seenP = new Set()
   const recPresence = (k) => {
     if (typeof k !== 'string' || seen.has(k) || seenP.has(k)) return
-    if (ciVarying(k) || !toolEnv(k)) {
-      if (toolCaller(ciVarying(k)).tool) return
+    // npm's presence reads of the CI's variables are keyed as presence
+    // like anyone's; only the tools' (vite's) go unkeyed.
+    if ((ciVarying(k) || !toolEnv(k)) && !(r.npm && ciVarying(k))) {
+      if (toolCaller(false).tool) return
     }
     seenP.add(k)
     r.keys.add(`envp:${k}`)
@@ -625,7 +651,7 @@ export function patchEnv(r) {
     },
     ownKeys(t) {
       if (r.on) {
-        const c = toolCaller(true)
+        const c = toolCaller(r.npm)
         r.keys.add(c.tool ? 'envtool:' : 'envall:')
         if (!c.tool && !r.envKept.has('*')) r.envKept.set('*', c.frame)
         if (c.child) {

@@ -2523,7 +2523,9 @@ fn state(
         // The tools enumerate the environment (vitest copies it to its
         // workers), reading every name: a per-run name is not an input of the
         // main process. A test file that reads one is not recorded (ingest).
-        "env" if volatile_env(p) => ("volatile".into(), None),
+        // VALUE_KEYED names are per-run in general but keyed by value (a
+        // runner where the value differs is a miss): not the constant.
+        "env" if volatile_env(p) && !VALUE_KEYED.contains(&p) => ("volatile".into(), None),
         "env" => (
             std::env::var_os(p).map_or("unset".into(), |v| {
                 let v = yarn_stable(&v.to_string_lossy());
@@ -3966,5 +3968,28 @@ mod tests {
             par_map(&v, |x| x * 2),
             v.iter().map(|x| x * 2).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn value_keyed_names_hash_their_value_not_a_constant() {
+        // RUNNER_TEMP, GITHUB_EVENT_PATH and GITHUB_ACTION_PATH are per-run
+        // in general (VOLATILE, DENYLIST) but a fixed path on a hosted
+        // runner: a read keys the value, so a runner where it differs is a
+        // miss. They hashed to the constant "volatile" before the
+        // exemption; a truly per-run name still does.
+        let none = std::sync::OnceLock::new();
+        let t = tempfile::tempdir().unwrap();
+        for n in VALUE_KEYED {
+            assert!(volatile_env(n), "{n} is no longer per-run in general");
+            let want = std::env::var_os(n).map_or("unset".to_string(), |v| {
+                let v = yarn_stable(&v.to_string_lossy());
+                blake3::hash(v.as_bytes()).to_hex()[..32].to_string()
+            });
+            let got = state(t.path(), &format!("env:{n}"), None, 0, &none, None).0;
+            assert_ne!(got, "volatile", "{n}");
+            assert_eq!(got, want, "{n}");
+        }
+        let got = state(t.path(), "env:GITHUB_SHA", None, 0, &none, None).0;
+        assert_eq!(got, "volatile");
     }
 }
