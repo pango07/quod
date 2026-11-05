@@ -23,6 +23,8 @@ if mode == 'native':
     probe = pathlib.Path(__file__).with_name('native-stack-probe.mjs').read_text().replace('export function nativeCaller', 'function nativeCaller')
     recorder = native_js / 'record.mjs'
     text = recorder.read_text()
+    assert text.count('function toolCaller(npm = false) {') == 1
+    assert text.count('export function patchEnv(r) {') == 1
     text = text.replace('function toolCaller(npm = false) {', 'function toolCaller(npm = false) {\n  return nativeCaller(npm, SELF, HELPERS, RESOLVERS, CHILDREN, NPM_HELPERS);\n')
     text = text.replace('export function patchEnv(r) {', "export function patchEnv(r) {\n  r.unobservable.add('native-stack attribution diagnostic');")
     recorder.write_text(probe + '\n' + text)
