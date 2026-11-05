@@ -529,7 +529,7 @@ jobs:
             import fs from "node:fs";
             const p=JSON.parse(fs.readFileSync("/tmp/lineage-before.json")), q=JSON.parse(fs.readFileSync("/tmp/lineage-after.json"));
             const names=(l,ds)=>ds.map(i=>l.keys[i]).sort();
-            console.log("context",JSON.stringify({facts:[p.facts,q.facts],args:[p.args,q.args],global:[names(p,p.global),names(q,q.global)]}));
+            console.log("context",JSON.stringify({facts:[p.facts,q.facts],args:[p.args,q.args],globalAdded:names(q,q.global).filter(k=>!names(p,p.global).includes(k)),globalRemoved:names(p,p.global).filter(k=>!names(q,q.global).includes(k))}));
             for(const [id,r] of Object.entries(q.files)) { const old=p.files[id]; console.log("record",JSON.stringify({file:r.file,plain_n:old?.plain_n,w:[old?.w,r.w],near:r.near_timeout,net:r.net,added:names(q,r.deps).filter(k=>!names(p,old.deps).includes(k)),removed:names(p,old.deps).filter(k=>!names(q,r.deps).includes(k))})); }
           '
           grep -E 'lineage: [1-9][0-9]* promoted' /tmp/lineage-promote.log
