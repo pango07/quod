@@ -68,13 +68,22 @@ if (plan.record === false && process.env.QUOD_VITEST_COMPILE_CACHE === '1' && ty
 // The critical path (`record: false`) runs the files plain: no hooks, no
 // setup file, no coverage; the shadow run (`record: true`) records them.
 let record = plan.record !== false
+// A run whose every file to run is a second witness (plan.plain) records
+// nothing new: vitest runs plain (no hooks in the main process, no setup
+// file, no preload), and only the per-test results and durations are kept.
+const hooks = record && plan.hooks !== false
+// The files that run as plain second witnesses (their record's key is
+// unchanged by construction): their workers record nothing (setup.mjs).
+const plainSet = new Set(record ? (plan.plain ?? []) : [])
+// A test past this fraction of its timeout is near it (plan.nearTimeout).
+const nearFactor = Number.isFinite(Number(plan.nearTimeout)) && Number(plan.nearTimeout) > 0 ? Number(plan.nearTimeout) : 0.5
 const r = createRecorder({ stateDir, codeDir, mode: 'main' })
-r.on = record
+r.on = hooks
 // QUOD_VITEST_DISABLE (read before the env is watched): main (no main
 // process recorder), setup (no setup file: nothing recorded) or preload (no
 // toString wrapper): measuring the recorder's cost only.
 const offs = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(','))
-if (record && !offs.has('main')) {
+if (hooks && !offs.has('main')) {
   patchFs(r)
   patchEnv(r)
   patchLoader(r)
@@ -88,6 +97,11 @@ if (record && Array.isArray(plan.cov)) {
   real.writeFileSync(list, JSON.stringify(plan.cov))
   process.env.QUOD_VITEST_COV_FILES = list
 } else delete process.env.QUOD_VITEST_COV_FILES
+if (hooks && plainSet.size) {
+  const list = path.join(dumpDir, '.plain-files.json')
+  real.writeFileSync(list, JSON.stringify([...plainSet]))
+  process.env.QUOD_VITEST_PLAIN_FILES = list
+} else delete process.env.QUOD_VITEST_PLAIN_FILES
 const log = (...a) => process.env.QUOD_VITEST_QUIET || console.error('quod vitest:', ...a)
 
 // vitest, from the project
@@ -453,7 +467,7 @@ for (const p of ctx.projects) {
   // the project's other files are recorded as usual.
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.only
   if (ok) {
-    if (record && !offs.has('setup')) {
+    if (hooks && !offs.has('setup')) {
       c.setupFiles = [setupPath, ...c.setupFiles]
       if (!offs.has('preload')) c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
     }
@@ -470,7 +484,7 @@ const origRelevant = specsApi.getRelevantTestSpecifications.bind(specsApi)
 specsApi.getRelevantTestSpecifications = async (f) => {
   r.on = false // the glob's directory walk is vitest's choice of files, decided here exactly
   const all = await origRelevant(f)
-  r.on = record
+  r.on = hooks
   const run = []
   let covMissing = 0
   for (const s of all) {
@@ -554,7 +568,7 @@ function nearTimeout(file) {
     if (t.type === 'test') {
       const limit = t.timeout ?? dflt
       const took = t.result?.duration
-      if (limit > 0 && Number.isFinite(limit) && took > limit / 2) out.push(`${n.join(' > ')}: ${Math.round(took)} of ${limit} ms`)
+      if (limit > 0 && Number.isFinite(limit) && took > limit * nearFactor) out.push(`${n.join(' > ')}: ${Math.round(took)} of ${limit} ms`)
     }
     for (const c of t.tasks ?? []) walk(c, n)
   }
@@ -783,7 +797,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nearTimeout(file) })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nearTimeout(file), plain: plainSet.has(file.filepath) })
 }
 lap('files')
 
@@ -822,7 +836,7 @@ for (const p of ctx.projects) {
 // vitest and its dependencies run in every worker before Quod's setup file
 // can watch: the packages, transitively.
 const pkgs = new Set()
-const stack = record ? [real.realpathSync(vitestDir)] : []
+const stack = hooks ? [real.realpathSync(vitestDir)] : []
 for (const p of ctx.projects) {
   const env = p.config.environment
   if (env && env !== 'node') {
@@ -864,6 +878,7 @@ writeJson(outPath, {
   exitCode: process.exitCode ?? 0,
   interrupted,
   global: [...new Set(global)],
+  mainRecorded: hooks,
   ran: ranOut,
   replayed: replayed.map((x) => x.id),
   allFiles,

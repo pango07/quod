@@ -64,7 +64,21 @@ function moduleGraph(ws) {
 const post = (s, method, params) =>
   new Promise((resolve, reject) => s.post(method, params, (err, res) => (err ? reject(err) : resolve(res))))
 
-if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
+// A plain second witness (the driver's plan.plain): this file's record
+// exists with the very key it would record now, so it runs as without Quod;
+// only its per-test results and durations count (the driver has them).
+const plainFiles = (() => {
+  const f = process.env.QUOD_VITEST_PLAIN_FILES
+  if (!f) return null
+  try {
+    return new Set(JSON.parse(real.readFileSync(f, 'utf8')))
+  } catch {
+    return null
+  }
+})()
+const isPlain = !!plainFiles?.has((ws?.current?.file ?? ws?.current)?.filepath)
+
+if (dumpDir && stateDir && ws && !isPlain && !globalThis.__quod_vitest__) {
   const t0 = performance.now()
   const steps = {}
   let ts = t0

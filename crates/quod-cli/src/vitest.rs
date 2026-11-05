@@ -31,6 +31,15 @@
 //! disagreement, as the trust ledger's proofs). With it the job that runs
 //! the tests records inline and no shadow job is needed.
 //!
+//! The second witness runs plain (`QUOD_VITEST_PLAIN_WITNESS=0`: recorded,
+//! as before): when a provisional record's key still holds at selection
+//! (every input in the state it recorded, the shared inputs unchanged), the
+//! file runs as without Quod (no setup file, no hooks, no coverage), and its
+//! per-test results promote the record when they agree. Its durations are
+//! plain ones, and only they decide the near-timeout margin
+//! (`QUOD_VITEST_NEAR_TIMEOUT`, a fraction of each test's timeout, 0.5 by
+//! default): a duration measured under the recorder never does.
+//!
 //! See docs/vitest.md for the design and the measurements.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -334,6 +343,22 @@ fn witnessed(need: u32, r: &Rec) -> bool {
     !r.near_timeout && (need <= 1 || r.w.n >= bar(need, &r.w))
 }
 
+/// The second witness runs plain (the default); `QUOD_VITEST_PLAIN_WITNESS=0`
+/// records it, as before.
+fn plain_witness() -> bool {
+    std::env::var("QUOD_VITEST_PLAIN_WITNESS").map_or(true, |v| v != "0")
+}
+
+/// The near-timeout margin: a test whose plain duration is past this
+/// fraction of its timeout keeps its record from replaying (0.5 by default).
+fn near_timeout_factor() -> f64 {
+    std::env::var("QUOD_VITEST_NEAR_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|f| *f > 0.0 && *f <= 1.0)
+        .unwrap_or(0.5)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Out {
@@ -349,6 +374,10 @@ struct Out {
     all_files: Option<Vec<String>>,
     #[serde(default)]
     render: Option<serde_json::Value>,
+    /// The main process recorded (false: every file that ran was a plain
+    /// second witness, so `global` is empty and the ledger's stands).
+    #[serde(default, rename = "mainRecorded")]
+    main_recorded: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -371,6 +400,9 @@ struct Ran {
     /// Tests that took more than half their timeout ("name: 1200 of 2000 ms").
     #[serde(default, rename = "nearTimeout")]
     near_timeout: Vec<String>,
+    /// Ran as a plain second witness (nothing recorded: no keys).
+    #[serde(default)]
+    plain: bool,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -529,6 +561,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         global_ok && rec.deps.iter().all(same)
     };
     let mut witness_files: Vec<PathBuf> = Vec::new();
+    // Plain second witnesses: a provisional record (or one whose last plain
+    // run was near a timeout) whose key holds now runs as without Quod.
+    let plain_mode = plain_witness() && need > 1 && !a.no_record && a.expect_report.is_none();
+    let can_plain = |rec: &Rec| {
+        plain_mode
+            && !rec.quarantined
+            && (rec.state == "pass" || rec.state == "skip")
+            && !rec.w.key.is_empty()
+            && !rec.w.tests.is_empty()
+            && rec.w.n >= 1
+            && unchanged(rec)
+    };
+    let mut plain_files: Vec<PathBuf> = Vec::new();
+    let mut plain_ids: HashSet<String> = HashSet::new();
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
             if rec.quarantined && unchanged(rec) {
@@ -552,13 +598,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 id.clone(),
                 "a test took more than half its timeout last run".into(),
             );
+            if can_plain(rec) {
+                plain_files.push(root.join(&rec.file));
+                plain_ids.insert(id.clone());
+            }
             affected.push(id.clone());
             continue;
         }
         if !witnessed(need, rec) {
             // One witness so far: it runs again, and agreeing makes it two.
             provisional += 1;
-            if unchanged(rec) {
+            if can_plain(rec) {
+                plain_files.push(root.join(&rec.file));
+                plain_ids.insert(id.clone());
+            } else if unchanged(rec) {
                 witness_files.push(root.join(&rec.file));
             }
             affected.push(id.clone());
@@ -763,6 +816,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // at 30 s, the job red where plain vitest was green). With inline
         // recording (no shadow) the critical path records, so recording
         // alone does not lift the count.
+        // Plain second witnesses, and whether anything records at all (no:
+        // every file that runs is one, so vitest runs entirely plain).
+        "plain": plain_files,
+        "hooks": a.no_record || !(audit.is_empty() && !affected.is_empty() && affected.iter().all(|id| plain_ids.contains(id))),
+        "nearTimeout": near_timeout_factor(),
         "workers": if !a.no_record && a.expect_report.is_some() && affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
         "expectReport": a.expect_report.as_ref().map(std::path::absolute).transpose()?,
         "report": a.report.as_ref().map(std::path::absolute).transpose()?,
@@ -780,8 +838,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest:   shared input changed: {k}");
     }
     if need > 1 {
+        let all_plain = plan["hooks"] == serde_json::json!(false);
+        let plain_note = match (plain_ids.len(), all_plain) {
+            (0, _) => String::new(),
+            (n, false) => format!("; {n} of them plain (their keys hold)"),
+            (n, true) => format!("; {n} of them plain: nothing records, vitest runs plain"),
+        };
         eprintln!(
-            "quod vitest: second witness: {provisional} provisional records run again ({need} witnesses needed)"
+            "quod vitest: second witness: {provisional} provisional records run again ({need} witnesses needed){plain_note}"
         );
     }
     eprintln!(
@@ -989,7 +1053,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         i
     };
     let mut global: Vec<u32> = out.global.iter().map(|k| key(&mut ledger, k)).collect();
-    if !out.replayed.is_empty() {
+    if !out.replayed.is_empty() || out.main_recorded == Some(false) {
         global.extend(ledger.global.iter().copied());
     }
     global.sort_unstable();
@@ -1020,7 +1084,61 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     let (mut recorded, mut failed) = (0usize, 0usize);
     // Why each file that ran was not recorded (for the run report).
     let mut unrec: HashMap<String, String> = HashMap::new();
+    // Plain second witnesses: (promoted, agreed, disagreed, near a timeout).
+    let mut pw = (0usize, 0usize, 0usize, 0usize);
+    let mut plain_near: Vec<String> = Vec::new();
+    let facts_held = out.facts == ledger.facts;
     for r in &out.ran {
+        if r.plain && plain_ids.contains(&r.id) {
+            let old = ledger.files.remove(&r.id).or_else(|| prev.remove(&r.id));
+            let Some(mut rec) = old else {
+                continue;
+            };
+            if !facts_held {
+                // The tools changed under it: no witness of this key.
+                ledger.files.insert(r.id.clone(), rec);
+                continue;
+            }
+            let ok = r.state == "pass" || r.state == "skip";
+            let tests = r
+                .tests
+                .as_ref()
+                .map(|t| {
+                    blake3::hash(format!("{}\n{t}", r.state).as_bytes())
+                        .to_hex()
+                        .to_string()
+                })
+                .unwrap_or_default();
+            rec.runs += 1;
+            if !ok || tests != rec.w.tests {
+                rec.w.disagreements += 1;
+                rec.w.n = 1;
+                rec.quarantined = true;
+                pw.2 += 1;
+                eprintln!(
+                    "quod vitest: second witness DISAGREES (plain): {} (quarantined until it re-proves)",
+                    rec.file
+                );
+                ledger.files.insert(r.id.clone(), rec);
+                continue;
+            }
+            rec.duration = r.duration;
+            rec.result = r.result.clone();
+            rec.near_timeout = !r.near_timeout.is_empty();
+            if let Some(t) = r.near_timeout.first() {
+                pw.3 += 1;
+                plain_near.push(format!("{} ({t})", r.file));
+            } else {
+                let was = rec.w.n >= bar(need, &rec.w);
+                rec.w.n += 1;
+                pw.1 += 1;
+                if !was && rec.w.n >= bar(need, &rec.w) {
+                    pw.0 += 1;
+                }
+            }
+            ledger.files.insert(r.id.clone(), rec);
+            continue;
+        }
         let old = ledger.files.remove(&r.id).or_else(|| prev.remove(&r.id));
         // Quarantine is re-proved, not permanent: a quarantined file runs
         // every time, and once `reprove()` recordings in a row matched (a
@@ -1092,6 +1210,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         if let Some(t) = r.near_timeout.first() {
             near.push(format!("{} ({t})", r.file));
         }
+        // Under plain witnessing a duration measured while recording never
+        // decides the margin: the plain witness's does.
+        let hooked_near = !r.near_timeout.is_empty() && !plain_mode;
         if need > 1 {
             witness_todo.push((
                 r.id.clone(),
@@ -1127,7 +1248,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                         .unwrap_or_default(),
                     ..Witness::default()
                 },
-                near_timeout: !r.near_timeout.is_empty(),
+                near_timeout: hooked_near,
             },
         );
     }
@@ -1172,11 +1293,27 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     lap("states", &mut phases);
     let (mut promoted, mut disagreed, mut witnessed_again) = (0usize, 0usize, 0usize);
+    let factor = near_timeout_factor();
     if !near.is_empty() {
+        if plain_mode {
+            eprintln!(
+                "quod vitest: {} files had a test past {factor} of its timeout while recording (the plain second witness decides; e.g. {})",
+                near.len(),
+                near[0]
+            );
+        } else {
+            eprintln!(
+                "quod vitest: {} files had a test past {factor} of its timeout: recorded, not replayed until a run within it (e.g. {})",
+                near.len(),
+                near[0]
+            );
+        }
+    }
+    if !plain_near.is_empty() {
         eprintln!(
-            "quod vitest: {} files had a test past half its timeout: recorded, not replayed until a run within it (e.g. {})",
-            near.len(),
-            near[0]
+            "quod vitest: {} files had a test past {factor} of its timeout run plain: not replayed until a plain run within it (e.g. {})",
+            plain_near.len(),
+            plain_near[0]
         );
     }
     for (id, old, mismatch, was_near) in witness_todo {
@@ -1202,7 +1339,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         let r = ledger.files.get_mut(&id).expect("recorded above");
         r.w.key = key;
         let mut old = old.unwrap_or_default();
-        if was_near {
+        if was_near && !plain_mode {
             // A run near a timeout is no witness: the count starts over
             // from the first run within it.
             old.key.clear();
@@ -1262,8 +1399,18 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
 
     let quod_ms = (t_select + (t_done - t_run)).as_millis();
     if need > 1 {
+        let plain_note = if plain_ids.is_empty() {
+            String::new()
+        } else {
+            let (p, g, d, n) = pw;
+            let all = plain_ids.len();
+            format!(" ({all} plain: {p} trusted, {g} agreed, {d} disagreed, {n} near a timeout)")
+        };
         eprintln!(
-            "quod vitest: second witness: {promoted} records now trusted, {witnessed_again} witnessed again, {disagreed} disagreed"
+            "quod vitest: second witness: {} records now trusted, {} witnessed again, {} disagreed{plain_note}",
+            promoted + pw.0,
+            witnessed_again + pw.1,
+            disagreed + pw.2,
         );
     }
     // Failed as vitest counts it (any file whose state is not a pass or a
