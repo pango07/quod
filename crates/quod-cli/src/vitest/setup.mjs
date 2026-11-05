@@ -32,6 +32,19 @@ const off = new Set((process.env.QUOD_VITEST_DISABLE ?? '').split(',').filter(Bo
 // Read before the env is watched (Quod's own settings are not inputs).
 const tickMs = Number(process.env.QUOD_VITEST_COV_TICK ?? 0)
 const covCache = process.env.QUOD_VITEST_COVCACHE !== '0'
+// The files that take coverage this run (the driver's plan.cov), or every
+// file when unset. A file's first witness never replays, so its coverage
+// would never be used: V8's precise mode, the costliest part of recording,
+// is left off for it.
+const covFiles = (() => {
+  const f = process.env.QUOD_VITEST_COV_FILES
+  if (!f) return null
+  try {
+    return new Set(JSON.parse(real.readFileSync(f, 'utf8')))
+  } catch {
+    return null
+  }
+})()
 
 // The worker's module graph in vitest 4's shape (evaluatedModules: id ->
 // { id, file, meta.code }). vitest 3 (vite-node) keeps it in moduleCache:
@@ -87,7 +100,8 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   // v8 provider sees. No function-level data then (the file runs whenever
   // any source it loaded changes: its recorded coverage is of that source).
   const covOn = !!ws.config?.coverage?.enabled
-  if (!off.has('cov') && root && !covOn) {
+  const covWanted = !covFiles || covFiles.has(file?.filepath)
+  if (!off.has('cov') && root && !covOn && covWanted) {
     try {
       if (globalThis.__quod_cov) session = globalThis.__quod_cov
       else {
@@ -203,6 +217,7 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         unobservable: [...r.unobservable],
         cov,
         covOn,
+        covSkipped: !covWanted,
         usedToString,
         unmapped,
         unmappedSample: Object.entries(unmappedSample).slice(0, 1),

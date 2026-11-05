@@ -337,6 +337,11 @@ fn two_witnesses_by_default_inline() {
     assert_eq!(s["ran"], 4, "{s}");
     assert_eq!(s["recorded_files"], 3, "copy.test.ts reads the run id: {s}");
     assert_eq!(s["witnesses_needed"], 2, "{s}");
+    // A first witness never replays: no V8 coverage taken for it.
+    assert_eq!(
+        s["no_function_level"]["a first witness (coverage not taken)"], 4,
+        "{s}"
+    );
 
     // A second run (another run id): every record is provisional, so every
     // file runs again; agreeing makes it trusted.
@@ -352,6 +357,14 @@ fn two_witnesses_by_default_inline() {
     assert_eq!(outcomes(&plain), outcomes(&quod));
     assert_eq!(s["ran"], 1, "{s}");
     assert_eq!(s["replayed"], 3, "{s}");
+
+    // The second witness took the coverage: a change inside `sub` narrows
+    // add.test.ts as with one witness.
+    edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");
+    p.env = vec![("QUOD_VITEST_WITNESSES", ""), ("GITHUB_RUN_ID", "44")];
+    let (plain, quod, s) = p.run(4);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["narrowed"], 1, "{s}");
 }
 
 #[test]
@@ -465,7 +478,11 @@ fn render_runs(p: &Project, t: &Path) -> (serde_json::Value, serde_json::Value, 
         let read = |p: &Path| -> serde_json::Value {
             serde_json::from_slice(&fs::read(p).unwrap()).unwrap()
         };
-        assert_eq!(outcomes(&read(&plain)), outcomes(&read(&report)), "run {n}:\n{err}");
+        assert_eq!(
+            outcomes(&read(&plain)),
+            outcomes(&read(&report)),
+            "run {n}:\n{err}"
+        );
         runs.push((read(&summary), err));
     }
     let (s2, err) = runs.pop().unwrap();
@@ -480,7 +497,10 @@ fn a_full_hit_emits_the_render_with_a_relative_test_dir_or_root() {
     // for 13 replayed files). Resolved, the second run emits.
     let configs = [
         ("dir", "export default { test: { dir: 'test' } }\n"),
-        ("root", "export default { root: '.', test: { dir: './test' } }\n"),
+        (
+            "root",
+            "export default { root: '.', test: { dir: './test' } }\n",
+        ),
     ];
     for (what, config) in configs {
         let t = tempfile::tempdir().unwrap();
@@ -495,9 +515,82 @@ fn a_full_hit_emits_the_render_with_a_relative_test_dir_or_root() {
             "{what}: the recording run did not render: {s1}"
         );
         assert_eq!(s2["replayed"], 3, "{what}: {s2}");
-        assert_eq!(s2["fast"], true, "{what}: a full hit started vitest: {s2}\n{err}");
+        assert_eq!(
+            s2["fast"], true,
+            "{what}: a full hit started vitest: {s2}\n{err}"
+        );
         assert!(err.contains("emitted the recorded full replay"), "{err}");
     }
+}
+
+#[test]
+fn a_test_past_half_its_timeout_never_replays_until_two_runs_within_it() {
+    // A pass at 0.6x the timeout can be a timeout on a loaded runner (the
+    // one wrong replay: mistral-transcription-stream, 2.3 s of 5 s, then a
+    // timeout; Quod replayed "passed"). It is recorded, never replayed; a
+    // run at 0.3x clears it and starts the witness count over. The test
+    // is slow until a deadline (the clock is no input), then fast.
+    let t = tempfile::tempdir().unwrap();
+    let Some(mut p) = project(&t) else {
+        return;
+    };
+    let deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(45);
+    let ms = deadline
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    fs::write(
+        p.dir.join("vitest.config.mjs"),
+        "export default { test: { testTimeout: 2000 } }\n",
+    )
+    .unwrap();
+    fs::write(
+        p.dir.join("test/slow.test.ts"),
+        format!(
+            "import {{ test }} from 'vitest'\n\
+             const slowUntil = {ms}\n\
+             test('waits', async () => {{\n  \
+             await new Promise((r) => setTimeout(r, Date.now() < slowUntil ? 1200 : 600))\n}})\n"
+        ),
+    )
+    .unwrap();
+    p.env = vec![("QUOD_VITEST_WITNESSES", "")];
+
+    // 1-2. Slow: the other files are witnessed twice and trusted; the slow
+    //    one is recorded but not trusted.
+    let (plain, quod, s) = p.run(1);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 4, "{s}");
+    assert_eq!(s["recorded_files"], 4, "{s}");
+    let (plain, quod, s) = p.run(2);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 4, "{s}");
+    assert_eq!(s["promoted"], 3, "the slow file is not trusted: {s}");
+    assert!(
+        std::time::SystemTime::now() < deadline,
+        "runs 1-2 took past the deadline: the slow file was not slow throughout"
+    );
+    while std::time::SystemTime::now() < deadline + std::time::Duration::from_secs(1) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    // 3. Fast (0.3x): it runs (its last run was near the timeout), and is
+    //    a first witness again, not a second.
+    let (plain, quod, s) = p.run(3);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 1, "{s}");
+    assert_eq!(s["replayed"], 3, "{s}");
+    assert_eq!(s["promoted"], 0, "a near-timeout run is no witness: {s}");
+    // 4. A second run within it: trusted.
+    let (plain, quod, s) = p.run(4);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 1, "{s}");
+    assert_eq!(s["promoted"], 1, "{s}");
+    // 5. Every file replays.
+    let (plain, quod, s) = p.run(5);
+    assert_eq!(outcomes(&plain), outcomes(&quod));
+    assert_eq!(s["ran"], 0, "{s}");
+    assert_eq!(s["replayed"], 4, "{s}");
 }
 
 /// The coverage outputs a CI job depends on, as written: coverage-final.json
@@ -612,7 +705,10 @@ fn coverage_reports_and_thresholds_match_plain_with_replays() {
         assert!(pl && q, "{provider}: {s}");
         assert_eq!(s["replayed"], 4, "{provider}: {s}");
         // Never the rendered full replay: coverage is made fresh each run.
-        assert_ne!(s["fast"], true, "{provider}: coverage emitted a render: {s}");
+        assert_ne!(
+            s["fast"], true,
+            "{provider}: coverage emitted a render: {s}"
+        );
         // 3. math.ts changes: its three test files run (coverage: no
         //    function-level narrowing), other.test.ts replays.
         edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");

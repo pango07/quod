@@ -81,6 +81,13 @@ if (record && !offs.has('main')) {
 }
 process.env.QUOD_VITEST_DUMP = dumpDir
 process.env.QUOD_VITEST_STATE = stateDir
+// The files whose workers take V8 coverage (plan.cov; null: every file):
+// only a run that can witness a record again needs it (setup.mjs).
+if (record && Array.isArray(plan.cov)) {
+  const list = path.join(dumpDir, '.cov-files.json')
+  real.writeFileSync(list, JSON.stringify(plan.cov))
+  process.env.QUOD_VITEST_COV_FILES = list
+} else delete process.env.QUOD_VITEST_COV_FILES
 const log = (...a) => process.env.QUOD_VITEST_QUIET || console.error('quod vitest:', ...a)
 
 // vitest, from the project
@@ -533,6 +540,28 @@ function testStates(file) {
   return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
 }
 
+// Tests that took more than half their timeout: a pass a loaded runner can
+// turn into a timeout (mistral-transcription-stream: 2.3 s of 5 s here,
+// timed out later under load). The record is kept, never replayed, until
+// a run with every test within half (the ledger's `near_timeout`). The
+// timeout in force: the test's own, else its project's testTimeout.
+function nearTimeout(file) {
+  const proj = ctx.projects.find((p) => (p.name ?? p.config?.name ?? '') === (file.projectName ?? ''))
+  const dflt = proj?.config?.testTimeout ?? ctx.config.testTimeout ?? 5000
+  const out = []
+  const walk = (t, names) => {
+    const n = [...names, t.name]
+    if (t.type === 'test') {
+      const limit = t.timeout ?? dflt
+      const took = t.result?.duration
+      if (limit > 0 && Number.isFinite(limit) && took > limit / 2) out.push(`${n.join(' > ')}: ${Math.round(took)} of ${limit} ms`)
+    }
+    for (const c of t.tasks ?? []) walk(c, n)
+  }
+  for (const c of file.tasks ?? []) walk(c, [])
+  return out
+}
+
 // Replays reported just before the run's end.
 const testRun = ctx._testRun
 const origEnd = testRun.end.bind(testRun)
@@ -673,7 +702,7 @@ for (const m of endModules) {
     // Function-level data only for source the file reached as modules (a
     // file it also read, or loaded natively, counts whole), not itself;
     // a file with a function that maps nowhere gets none.
-    if (!d.cov) covWhy = d.covOn ? 'coverage is on' : d.usedToString ? 'reads function source (toString)' : 'no coverage'
+    if (!d.cov) covWhy = d.covOn ? 'coverage is on' : d.covSkipped ? 'a first witness (coverage not taken)' : d.usedToString ? 'reads function source (toString)' : 'no coverage'
     if (d.cov) {
       cov = {}
       for (const [f, fns] of Object.entries(d.cov)) {
@@ -754,7 +783,7 @@ for (const m of endModules) {
       }
     } catch {}
   }
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)) })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nearTimeout(file) })
 }
 lap('files')
 

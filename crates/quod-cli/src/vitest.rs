@@ -260,6 +260,11 @@ struct Rec {
     /// The second-witness policy's state of this record.
     #[serde(default)]
     w: Witness,
+    /// A test of this run took more than half its timeout: a pass that a
+    /// loaded runner can turn into a timeout. Recorded, never replayed,
+    /// until a run with every test within half its timeout.
+    #[serde(default)]
+    near_timeout: bool,
 }
 
 /// Second witness: who has vouched for a record.
@@ -294,9 +299,10 @@ fn bar(need: u32, w: &Witness) -> u32 {
     need + w.disagreements.min(5)
 }
 
-/// May this record replay under the witness policy?
+/// May this record replay under the witness policy? Never while its
+/// last run had a test near its timeout.
 fn witnessed(need: u32, r: &Rec) -> bool {
-    need <= 1 || r.w.n >= bar(need, &r.w)
+    !r.near_timeout && (need <= 1 || r.w.n >= bar(need, &r.w))
 }
 
 #[derive(Deserialize)]
@@ -333,6 +339,9 @@ struct Ran {
     /// Per-test names and states (the second witness compares these).
     #[serde(default)]
     tests: Option<String>,
+    /// Tests that took more than half their timeout ("name: 1200 of 2000 ms").
+    #[serde(default, rename = "nearTimeout")]
+    near_timeout: Vec<String>,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -488,8 +497,21 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     let need = witnesses_needed();
     let mut provisional = 0usize;
+    // The files this run can witness again (a record of these very inputs
+    // exists): the only ones whose V8 coverage (function-level narrowing)
+    // a trusted record can come to hold. A first witness never replays, so
+    // its coverage is never used: not taken (setup.mjs), the costliest part
+    // of recording (doc 4.2).
+    let unchanged = |rec: &Rec| {
+        let same = |d: &u32| now[d].0 == ledger.states[*d as usize];
+        global_ok && rec.deps.iter().all(same)
+    };
+    let mut witness_files: Vec<PathBuf> = Vec::new();
     for (id, rec) in &ledger.files {
         if !(global_ok && !rec.quarantined && (rec.state == "pass" || rec.state == "skip")) {
+            if rec.quarantined && unchanged(rec) {
+                witness_files.push(root.join(&rec.file));
+            }
             why.insert(
                 id.clone(),
                 if !global_ok {
@@ -503,9 +525,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             affected.push(id.clone());
             continue;
         }
+        if rec.near_timeout {
+            why.insert(
+                id.clone(),
+                "a test took more than half its timeout last run".into(),
+            );
+            affected.push(id.clone());
+            continue;
+        }
         if !witnessed(need, rec) {
             // One witness so far: it runs again, and agreeing makes it two.
             provisional += 1;
+            if unchanged(rec) {
+                witness_files.push(root.join(&rec.file));
+            }
             affected.push(id.clone());
             continue;
         }
@@ -690,6 +723,17 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         "replay": replay,
         "audit": audit,
         "record": !a.no_record,
+        // Where workers take V8 coverage: every file (null) when one witness
+        // trusts a record, else the witness runs and the audits.
+        "cov": if need > 1 {
+            serde_json::json!(witness_files
+                .iter()
+                .cloned()
+                .chain(audit.iter().map(|id| root.join(&ledger.files[id].file)))
+                .collect::<Vec<_>>())
+        } else {
+            serde_json::Value::Null
+        },
         // Every CPU only in a shadow (`--expect-report`, diagnostics only):
         // the critical path keeps vitest's own worker count, the one the
         // project's timeouts were set under (convex-helpers: a 25 s
@@ -939,7 +983,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             prev.insert(id.clone(), r);
         }
     }
-    let mut witness_todo: Vec<(String, Option<Witness>, bool)> = Vec::new();
+    // (file, its previous witness state, an audit mismatched, the previous
+    // run had a test near its timeout)
+    let mut witness_todo: Vec<(String, Option<Witness>, bool, bool)> = Vec::new();
+    let mut near: Vec<String> = Vec::new();
     let mismatched: HashSet<&String> = out.audit_mismatch.iter().collect();
     let mut unobservable: BTreeMap<String, usize> = BTreeMap::new();
     let mut no_fn_level: BTreeMap<String, usize> = BTreeMap::new();
@@ -1020,11 +1067,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
             }
         }
         recorded += 1;
+        if let Some(t) = r.near_timeout.first() {
+            near.push(format!("{} ({t})", r.file));
+        }
         if need > 1 {
             witness_todo.push((
                 r.id.clone(),
                 old.as_ref().map(|o| o.w.clone()),
                 mismatched.contains(&r.id),
+                old.as_ref().is_some_and(|o| o.near_timeout),
             ));
         }
         ledger.files.insert(
@@ -1054,6 +1105,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                         .unwrap_or_default(),
                     ..Witness::default()
                 },
+                near_timeout: !r.near_timeout.is_empty(),
             },
         );
     }
@@ -1098,7 +1150,14 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     lap("states", &mut phases);
     let (mut promoted, mut disagreed, mut witnessed_again) = (0usize, 0usize, 0usize);
-    for (id, old, mismatch) in witness_todo {
+    if !near.is_empty() {
+        eprintln!(
+            "quod vitest: {} files had a test past half its timeout: recorded, not replayed until a run within it (e.g. {})",
+            near.len(),
+            near[0]
+        );
+    }
+    for (id, old, mismatch, was_near) in witness_todo {
         let key = {
             let r = &ledger.files[&id];
             let mut h = blake3::Hasher::new();
@@ -1120,7 +1179,12 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         };
         let r = ledger.files.get_mut(&id).expect("recorded above");
         r.w.key = key;
-        let old = old.unwrap_or_default();
+        let mut old = old.unwrap_or_default();
+        if was_near {
+            // A run near a timeout is no witness: the count starts over
+            // from the first run within it.
+            old.key.clear();
+        }
         r.w.disagreements = old.disagreements;
         let same_key = global_ok && !old.key.is_empty() && old.key == r.w.key;
         let agrees = same_key && !old.tests.is_empty() && old.tests == r.w.tests;
@@ -3403,6 +3467,7 @@ mod tests {
                 cov: BTreeMap::from([(2, vec![[1, 0, 3, 0]])]),
                 pinned: BTreeMap::from([(0, "old".to_string())]),
                 w: Witness::default(),
+                near_timeout: false,
             },
         );
         l.compact();
