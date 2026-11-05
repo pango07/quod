@@ -521,8 +521,17 @@ jobs:
           set -eo pipefail
           npm test
           npm test
+          cp "$RUNNER_TEMP"/quod/vitest/*/ledger.json /tmp/lineage-before.json
           echo '// changed input, same tests' >> src/math.js
           npm test 2>&1 | tee /tmp/lineage-promote.log
+          cp "$RUNNER_TEMP"/quod/vitest/*/ledger.json /tmp/lineage-after.json
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const p=JSON.parse(fs.readFileSync("/tmp/lineage-before.json")), q=JSON.parse(fs.readFileSync("/tmp/lineage-after.json"));
+            const names=(l,ds)=>ds.map(i=>l.keys[i]).sort();
+            console.log("context",JSON.stringify({facts:[p.facts,q.facts],args:[p.args,q.args],global:[names(p,p.global),names(q,q.global)]}));
+            for(const [id,r] of Object.entries(q.files)) { const old=p.files[id]; console.log("record",JSON.stringify({file:r.file,plain_n:old?.plain_n,w:[old?.w,r.w],near:r.near_timeout,net:r.net,added:names(q,r.deps).filter(k=>!names(p,old.deps).includes(k)),removed:names(p,old.deps).filter(k=>!names(q,r.deps).includes(k))})); }
+          '
           grep -E 'lineage: [1-9][0-9]* promoted' /tmp/lineage-promote.log
           npm test 2>&1 | tee /tmp/lineage-audit.log
           grep -E 'lineage: [0-9]+ promoted, [1-9][0-9]* plain audits, 0 disagreed' /tmp/lineage-audit.log
