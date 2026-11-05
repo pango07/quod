@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Flow } from "@/components/flow";
+import { RunSequence } from "@/components/run-sequence";
+import { Receipt } from "@/components/receipt";
+import { ManifestDemo } from "@/components/manifest-demo";
+import { TrustMeter } from "@/components/trust-meter";
 import { SiteFooter, SiteNav } from "@/components/site-nav";
 import { benchmark } from "@/lib/benchmark";
 
@@ -23,7 +26,7 @@ export default function UnderTheHood() {
         </section>
         <section className="sec" id="sequence">
           <div className="sec-head"><h2>Record. Verify. Reuse.</h2></div>
-          <Flow />
+          <RunSequence />
         </section>
         <section className="sec" id="inputs">
           <div className="sec-head"><h2>What counts as an input?</h2></div>
@@ -34,6 +37,7 @@ export default function UnderTheHood() {
             <p>The experimental benchmark also uses a bounded proof for configuration code that reads dependency names. It keeps value dependencies when code uses those values. It does not simply ignore edits to package.json.</p>
           </div>
         </section>
+        <section className="sec"><div className="sec-head"><h2>Try an input change.</h2><p className="lede">An illustrative record. Choose a change to see what becomes invalid.</p></div><ManifestDemo /></section>
         <section className="sec" id="verification">
           <div className="sec-head"><h2>How a result earns reuse.</h2></div>
           <div className="reading">
@@ -47,8 +51,10 @@ export default function UnderTheHood() {
             <p><a href={benchmark.support}>Read the current support and correctness boundaries ↗</a></p>
           </div>
         </section>
+        <section className="sec split"><div className="sec-head"><h2>Put verification to work.</h2><p className="lede">Step through the example, then make an audit disagree.</p></div><TrustMeter /></section>
         <section className="sec" id="cost">
           <div className="sec-head"><h2>Count the whole job.</h2></div>
+          <Receipt />
           <div className="reading">
             <p>The benchmark compares the same 12 commits with and without Quod. Total runner time includes installs, builds, tests, setup and post steps. The cold recording, confirmations and audits stay in the measured window.</p>
             <p>Runner time fell from 1,766 to 968 seconds: 45.2% less. Rounding each job up to a full minute gives 36 minutes plain and 21 with Quod: 41.7% less metered usage. At the same runner rate, that is the estimated reduction in usage charges. The actual public jobs were free.</p>

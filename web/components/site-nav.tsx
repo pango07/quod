@@ -11,6 +11,7 @@ export function SiteNav() {
         <nav aria-label="Main">
           <Link href="/#how">How it works</Link>
           <Link href="/#benchmarks">Benchmarks</Link>
+          <Link href="/#try">Try it</Link>
           <Link href="/#faq">FAQ</Link>
           <Link href="/docs">Docs</Link>
           <Link className="btn small" href="/#join">

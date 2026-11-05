@@ -269,3 +269,27 @@ main > section { max-width: 1160px; margin-inline: auto }
 @media (prefers-reduced-motion: reduce) {
   .seq-bar { animation: none }
 }
+
+/* Interactive product examples */
+.job-controls { margin: 18px 26px 0; width: fit-content }
+.comparison-track span { transition: width .45s ease }
+.flow-demo, .workflow-demo, .playground { display: grid; gap: 20px; min-width: 0 }
+.flow li, .flow p { color: var(--mute) }
+.flow button { display: grid; gap: 10px; text-align: left; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0; font: inherit }
+.flow-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em }
+.flow-detail { border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 88px; color: var(--mute); font-size: 14px }
+.demo-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap }
+.demo-control { font: 500 12px var(--sans); border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--paper); padding: 7px 12px; cursor: pointer; white-space: nowrap }
+.demo-control:hover { border-color: var(--mute) }
+button:disabled { opacity: .45; cursor: default }
+.playground-switch { width: fit-content; flex-wrap: wrap; border-radius: 16px; gap: 4px }
+.playground-switch button { padding: 10px 15px }
+.playground > [hidden] { display: none }
+.demo-note { padding: 12px 16px; font-size: 13px; color: var(--mute) }
+.mf-scroll { overflow-x: auto }
+.meter .chips { padding: 0; border: 0 }
+.sequence-example { padding: 20px; border: 1px solid var(--line); border-radius: 12px; font-size: 14px }
+.seq-detail { display: grid; align-content: start; gap: 18px }
+.workflow-demo .diff { min-height: 300px }
+@media (max-width: 640px) { .flow-detail { align-items: start; flex-direction: column } .playground-switch button { padding: 9px 10px } }
+@media (prefers-reduced-motion: reduce) { .comparison-track span { transition: none } }

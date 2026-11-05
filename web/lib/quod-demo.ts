@@ -1,14 +1,11 @@
-// The in-browser `quod` demo. It behaves like the real tool on a tiny Go
-// project: it records what `go test ./...` reads (files, directory listings
-// and a path it probes for), replays when every one of those is unchanged,
-// and names the first input that moved when it isn't.
+// Illustrative browser model, not the Quod recorder or a Vitest runtime.
+// Shell edits are real in-memory edits; test outcomes and input reads are modeled.
 
 export const REPO: Record<string, string> = {
-  "go.mod": "module example.com/tiny\n\ngo 1.27\n",
+  "package.json": '{"name":"tiny","scripts":{"test":"vitest run"}}\n',
   "README.md": "# tiny\n\nA small calculator.\n",
-  "calc/calc.go": "package calc\n\nfunc Add(a, b int) int { return a + b }\n",
-  "calc/calc_test.go":
-    'package calc\n\nimport "testing"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatal("Add(2, 3) != 5")\n\t}\n}\n',
+  "calc/calc.ts": "export function add(a: number, b: number) { return a + b; }\n",
+  "calc/calc.test.ts": 'import { expect, test } from "vitest";\nimport { add } from "./calc";\ntest("adds", () => expect(add(2, 3)).toBe(5));\n',
   "calc/testdata/fixture.txt": "hello\n",
   "calc/testdata/cases/a.txt": "a\n",
   "calc/testdata/cases/b.txt": "b\n",
@@ -18,10 +15,10 @@ export const REPO: Record<string, string> = {
 type Kind = "f" | "d" | "a";
 const READS: [Kind, string][] = [
   ["d", "."],
-  ["f", "go.mod"],
+  ["f", "package.json"],
   ["d", "calc"],
-  ["f", "calc/calc.go"],
-  ["f", "calc/calc_test.go"],
+  ["f", "calc/calc.ts"],
+  ["f", "calc/calc.test.ts"],
   ["d", "calc/testdata"],
   ["f", "calc/testdata/fixture.txt"],
   ["d", "calc/testdata/cases"],
@@ -66,9 +63,10 @@ interface Manifest {
   run: string;
   out: string;
   exit: number;
+  confirmations: number;
 }
 
-export const QUOD_HELP = `quod run go test ./...   run the step, or replay it if nothing it read changed
+export const QUOD_HELP = `npm test                 simulate recording, confirmation or reuse
 quod inspect             show what the last run read
 `;
 
@@ -98,18 +96,18 @@ export function createQuod(fs: DemoFs) {
   }
 
   async function test(): Promise<{ out: string; exit: number }> {
-    const code = await fs.readFile("/repo/calc/calc.go").catch(() => "");
+    const code = await fs.readFile("/repo/calc/calc.ts").catch(() => "");
     const fixture = await fs.readFile("/repo/calc/testdata/fixture.txt").catch(() => "");
     const override = await fs.exists("/repo/calc/testdata/override.json");
     if (!fixture.includes("hello"))
-      return { out: "--- FAIL: TestFixture (0.00s)\nFAIL\texample.com/tiny/calc\t0.412s\nFAIL\n", exit: 1 };
+      return { out: "FAIL calc/calc.test.ts — fixture must contain hello\n", exit: 1 };
     if (!/return\s+a\s*\+\s*b/.test(code))
       return {
-        out: "--- FAIL: TestAdd (0.00s)\n    calc_test.go:7: Add(2, 3) != 5\nFAIL\nFAIL\texample.com/tiny/calc\t0.412s\nFAIL\n",
+        out: "FAIL calc/calc.test.ts — expected add(2, 3) to be 5\n",
         exit: 1,
       };
     return {
-      out: (override ? "    using testdata/override.json\n" : "") + "ok  \texample.com/tiny/calc\t0.412s\n",
+      out: (override ? "    using testdata/override.json\n" : "") + "PASS calc/calc.test.ts — modeled test outcomes agree\n",
       exit: 0,
     };
   }
@@ -120,29 +118,32 @@ export function createQuod(fs: DemoFs) {
   return {
     async run(args: string[]): Promise<ExecResult> {
       const cmd = args.join(" ").replace(/^--\s*/, "");
-      if (!/^go test(\s|$)/.test(cmd))
-        return { stdout: "", stderr: "quod: this demo runs one step: quod run go test ./...\n", exitCode: 2 };
+      if (cmd !== "npm test")
+        return { stdout: "", stderr: "This demo models npm test; it does not execute Vitest.\n", exitCode: 2 };
       const now = await snapshot();
       const key = hash("step:" + cmd).slice(0, 8);
       let closest: [Kind, string, string] | null = null;
       for (const m of [...ledger].reverse()) {
         const diff = m.entries.find((e, i) => e[2] !== now[i][2]);
-        if (!diff) {
+        if (!diff && m.exit === 0) {
+          if (m.confirmations < 2) {
+            m.confirmations += 1;
+            return { stdout: `${HEAD}QUOD  CONFIRMED\n${DIM}  Another modeled execution agrees. This record is eligible for reuse.\n${m.out}`, stderr: "", exitCode: 0 };
+          }
           return {
             stdout:
-              `${HEAD}QUOD  REPLAYED\n${DIM}  proved by run ${m.run.slice(0, 8)}\n` +
+              `${HEAD}QUOD  REPLAYED\n${DIM}  modeled record ${m.run.slice(0, 8)}\n` +
               `${DIM}  step ${key}  manifest ${m.id.slice(0, 8)}  ${now.length} inputs matched\n` +
-              `${DIM}  recorded 17.0s  replay 0.2s  saved 16.8s\n` +
               m.out,
             stderr: "",
             exitCode: m.exit,
           };
         }
-        closest ??= diff;
+        closest ??= diff ?? null;
       }
       const res = await test();
       const id = hash(JSON.stringify(now));
-      ledger.push({ entries: now, id, run: runId(), out: res.out, exit: res.exit });
+      ledger.push({ entries: now, id, run: runId(), out: res.out, exit: res.exit, confirmations: 1 });
       const reason = closest
         ? `${DIM}  closest manifest differed at ${closest[1]}\n${DIM}    ${why(closest[0], closest[1])}\n`
         : `${DIM}  no manifests for this step key\n`;
@@ -150,7 +151,7 @@ export function createQuod(fs: DemoFs) {
         stdout:
           `${HEAD}QUOD  EXECUTED\n${DIM}  step ${key}  manifest ${id.slice(0, 8)}  ${now.length} inputs recorded\n` +
           reason +
-          `${DIM}  ran 17.0s\n` +
+          `${DIM}  Illustrative execution; no timing measurement.\n` +
           res.out,
         stderr: "",
         exitCode: res.exit,
@@ -158,7 +159,7 @@ export function createQuod(fs: DemoFs) {
     },
     async inspect(): Promise<string> {
       const m = ledger.at(-1);
-      if (!m) return "no runs yet. Try: quod run go test ./...\n";
+      if (!m) return "no runs yet. Try: npm test\n";
       return (
         `manifest ${m.id.slice(0, 8)}, newest of ${ledger.length}:\n` +
         m.entries.map(([k, p, h]) => `  ${k}  ${p.padEnd(30)} ${h.length > 12 ? h.slice(0, 8) : h}`).join("\n") +
@@ -243,6 +244,11 @@ export class MiniShell implements DemoFs {
         }
         const re = new RegExp(m[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), m[3] ? "g" : "");
         this.files.set(file, (await this.readFile(file).catch(() => "")).replace(re, m[2]));
+        break;
+      }
+      case "npm": {
+        const r = await this.quod.run(["npm", ...args]);
+        out = r.stdout + r.stderr;
         break;
       }
       case "quod": {

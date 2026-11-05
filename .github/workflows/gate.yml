@@ -414,13 +414,15 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       # Full-site lint currently flags existing effects in docs/theme-toggle,
-      # docs/toc and the unused terminal. Keep this copy/layout gate scoped;
+      # docs/toc. Keep this landing gate scoped;
       # type checking and the production build below still cover the whole site.
       - name: Lint landing source
         run: >-
           npx eslint app/page.tsx app/under-the-hood/page.tsx app/layout.tsx app/actions.ts
           components/ci-job.tsx components/flow.tsx components/site-nav.tsx
-          components/workflow-diff.tsx lib/benchmark.ts
+          components/workflow-diff.tsx components/playground.tsx components/terminal.tsx
+          components/manifest-demo.tsx components/trust-meter.tsx components/run-sequence.tsx
+          components/receipt.tsx lib/benchmark.ts lib/quod-demo.ts
       - run: npx next typegen && npx tsc --noEmit
       - run: npm run build
       - run: npm install --prefix /tmp/quod-landing-browser --ignore-scripts --no-package-lock playwright-core@1.65.0

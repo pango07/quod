@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CiJob } from "@/components/ci-job";
 import { Flow } from "@/components/flow";
+import { Playground } from "@/components/playground";
 import { JoinForm } from "@/components/join-form";
 import { SiteFooter, SiteNav } from "@/components/site-nav";
 import { WorkflowDiff } from "@/components/workflow-diff";
@@ -67,6 +68,10 @@ export default function Home() {
           <div className="sec-head"><h2>Record. Verify. Reuse.</h2></div>
           <Flow />
           <p className="more"><Link href="/under-the-hood">How inputs, confirmations and audits work →</Link></p>
+        </section>
+        <section className="sec" id="try">
+          <div className="sec-head"><p className="eyebrow">Interactive playground</p><h2>Make a change. See what runs.</h2><p className="lede">Explore how inputs and verification affect reuse, one change at a time.</p></div>
+          <Playground />
         </section>
         <section className="sec split" id="setup">
           <div className="sec-head">
