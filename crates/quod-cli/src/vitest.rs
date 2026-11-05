@@ -3116,33 +3116,51 @@ fn ident(m: &fs::Metadata) -> [i64; 6] {
 #[cfg(target_os = "linux")]
 fn stat_metadata(p: &Path, nofollow: bool) -> String {
     use rustix::fs::{AtFlags, CWD, StatxFlags, statx};
-    let flags = if nofollow { AtFlags::SYMLINK_NOFOLLOW } else { AtFlags::empty() };
+    let flags = if nofollow {
+        AtFlags::SYMLINK_NOFOLLOW
+    } else {
+        AtFlags::empty()
+    };
     match statx(CWD, p, flags, StatxFlags::BASIC_STATS | StatxFlags::BTIME) {
         Ok(m) if m.stx_mask & StatxFlags::BASIC_STATS.bits() == StatxFlags::BASIC_STATS.bits() => {
             let fields: [i128; 21] = [
-                m.stx_mask.into(), m.stx_blksize.into(), m.stx_nlink.into(),
-                m.stx_uid.into(), m.stx_gid.into(), m.stx_mode.into(),
-                m.stx_ino.into(), m.stx_size.into(), m.stx_blocks.into(),
-                m.stx_dev_major.into(), m.stx_dev_minor.into(),
-                m.stx_rdev_major.into(), m.stx_rdev_minor.into(),
-                m.stx_atime.tv_sec.into(), m.stx_atime.tv_nsec.into(),
-                m.stx_mtime.tv_sec.into(), m.stx_mtime.tv_nsec.into(),
-                m.stx_ctime.tv_sec.into(), m.stx_ctime.tv_nsec.into(),
-                m.stx_btime.tv_sec.into(), m.stx_btime.tv_nsec.into(),
+                m.stx_mask.into(),
+                m.stx_blksize.into(),
+                m.stx_nlink.into(),
+                m.stx_uid.into(),
+                m.stx_gid.into(),
+                m.stx_mode.into(),
+                m.stx_ino.into(),
+                m.stx_size.into(),
+                m.stx_blocks.into(),
+                m.stx_dev_major.into(),
+                m.stx_dev_minor.into(),
+                m.stx_rdev_major.into(),
+                m.stx_rdev_minor.into(),
+                m.stx_atime.tv_sec.into(),
+                m.stx_atime.tv_nsec.into(),
+                m.stx_mtime.tv_sec.into(),
+                m.stx_mtime.tv_nsec.into(),
+                m.stx_ctime.tv_sec.into(),
+                m.stx_ctime.tv_nsec.into(),
+                m.stx_btime.tv_sec.into(),
+                m.stx_btime.tv_nsec.into(),
             ];
             let mut h = blake3::Hasher::new();
-            for field in fields { h.update(&field.to_le_bytes()); }
+            for field in fields {
+                h.update(&field.to_le_bytes());
+            }
             h.finalize().to_hex().to_string()
         }
         Err(rustix::io::Errno::NOENT) => "errno:ENOENT".into(),
         Err(rustix::io::Errno::NOTDIR) => "errno:ENOTDIR".into(),
-        _ => format!("unobservable:stat:{}", ulid::Ulid::new()),
+        _ => format!("unobservable:stat:{}", ulid::Ulid::generate()),
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn stat_metadata(_p: &Path, _nofollow: bool) -> String {
-    format!("unobservable:stat:{}", ulid::Ulid::new())
+    format!("unobservable:stat:{}", ulid::Ulid::generate())
 }
 
 fn wall_ns() -> i128 {
@@ -4363,17 +4381,23 @@ mod tests {
         let st = |k: &str| state(root, k, None, wall_ns(), &env, None).0;
         let content = st("f:input");
         let before = st("sm:input");
-        let link = st("sl:link");
         assert_eq!(before, st("sm:input"), "unchanged metadata can replay");
         assert_eq!(before, st("sm:link"), "stat follows the link");
+        let link = st("sl:link");
         fs::set_permissions(&input, fs::Permissions::from_mode(0o755)).unwrap();
         let permissions = st("sm:input");
         assert_ne!(before, permissions);
         assert_eq!(content, st("f:input"), "permission edit preserves bytes");
         assert_eq!(link, st("sl:link"), "lstat observes the link itself");
-        fs::File::options().write(true).open(&input).unwrap().set_times(
-            fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1_577_836_800))
-        ).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&input)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1_577_836_800)),
+            )
+            .unwrap();
         assert_ne!(permissions, st("sm:input"));
         assert_eq!(content, st("f:input"), "timestamp edit preserves bytes");
         assert_eq!(st("sm:missing"), "errno:ENOENT");
@@ -4707,10 +4731,11 @@ mod tests {
         // Explicit proof controls must participate even if an exemption is
         // accidentally omitted from VALUE_KEYED (the packaged off-switch
         // regression exposed exactly that omission for BOOLEAN_PROOF).
-        for n in VALUE_KEYED.iter().copied().chain([
-            "QUOD_VITEST_NAMES_PROOF",
-            "QUOD_VITEST_BOOLEAN_PROOF",
-        ]) {
+        for n in VALUE_KEYED
+            .iter()
+            .copied()
+            .chain(["QUOD_VITEST_NAMES_PROOF", "QUOD_VITEST_BOOLEAN_PROOF"])
+        {
             assert!(volatile_env(n), "{n} is no longer per-run in general");
             let want = std::env::var_os(n).map_or("unset".to_string(), |v| {
                 let v = yarn_stable(&v.to_string_lossy());

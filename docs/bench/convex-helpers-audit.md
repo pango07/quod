@@ -69,6 +69,11 @@ unconditionally exited 0. Five lightweight report regressions pass.
 
 ## Limits and next work
 
+Follow-up: the [metadata-only regression](stat-metadata-regression.md)
+now reproduces five stale passing results in packaged binary `ae52750`.
+The correction is under remote validation; the historical convex-helpers
+agreement does not cover this failing case.
+
 The accepted witness model is an empirical check of recorder coverage.
 D2 and E1 cannot mathematically establish that all unseen inputs varied.
 Source review still warrants adversarial tests of general stat-metadata

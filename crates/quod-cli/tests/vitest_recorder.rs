@@ -25,9 +25,13 @@ fn stat_readers_keep_metadata_at_the_actual_path() {
     let dependency = root.join("node_modules/pkg/data");
     write(&input, "same bytes");
     write(&dependency, "installed bytes");
-    write(&root.join("node_modules/pkg/package.json"), r#"{"name":"pkg"}"#);
+    write(
+        &root.join("node_modules/pkg/package.json"),
+        r#"{"name":"pkg"}"#,
+    );
     let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
-    let script = format!(r#"
+    let script = format!(
+        r#"
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {{ createRecorder, patchFs }} from {record:?};
@@ -46,17 +50,34 @@ fs.statSync(dependency, {{bigint:true}});
 r.on=false;
 console.log(JSON.stringify([...r.keys].sort()));
 "#,
-        record=record.display().to_string(), input=input.display().to_string(),
-        dependency=dependency.display().to_string());
+        record = record.display().to_string(),
+        input = input.display().to_string(),
+        dependency = dependency.display().to_string()
+    );
     let script_path = root.join("probe.mjs");
     fs::write(&script_path, script).unwrap();
     let out = Command::new("node").arg(script_path).output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let keys: Vec<String> = serde_json::from_slice(&out.stdout).unwrap();
-    for (kind, p) in [("sm", &input), ("sl", &input), ("sm", &dependency), ("sl", &dependency)] {
-        assert!(keys.contains(&format!("{kind}:{}",p.display())), "{keys:?}");
+    for (kind, p) in [
+        ("sm", &input),
+        ("sl", &input),
+        ("sm", &dependency),
+        ("sl", &dependency),
+    ] {
+        assert!(
+            keys.contains(&format!("{kind}:{}", p.display())),
+            "{keys:?}"
+        );
     }
-    assert!(!keys.iter().any(|k| k.starts_with("p:")), "metadata must not collapse to a package identity");
+    assert!(
+        !keys.iter().any(|k| k.starts_with("p:")),
+        "metadata must not collapse to a package identity"
+    );
 }
 
 #[test]
