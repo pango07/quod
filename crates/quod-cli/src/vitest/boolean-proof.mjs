@@ -1,4 +1,4 @@
-// Diagnostic prototype. A field read may depend only on ToBoolean(value)
+// Opt-in bounded proof. A field read may depend only on ToBoolean(value)
 // when its actual executed expression feeds a boolean language context.
 // No filenames, source maps, source-on-disk or matching outputs grant proof.
 import { parse } from './acorn.mjs'
@@ -6,9 +6,59 @@ import { Session } from 'node:inspector'
 import { getCallSites } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { unchangedIntrinsics } from './names-proof.mjs'
+import fs from 'node:fs'
 
 const ownFile = fileURLToPath(import.meta.url)
 const plainFile = name => name?.startsWith('file:') ? fileURLToPath(name) : name
+const statPrototypes = []
+for (let p = fs.Stats.prototype; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+  statPrototypes.push({object:p, parent:Object.getPrototypeOf(p), descriptors:Object.getOwnPropertyDescriptors(p)})
+}
+function pristineStats() {
+  return statPrototypes.every(({object,parent,descriptors}) => Object.getPrototypeOf(object) === parent &&
+    Reflect.ownKeys(object).length === Reflect.ownKeys(descriptors).length && Reflect.ownKeys(descriptors).every(k => {
+      const a=descriptors[k], b=Object.getOwnPropertyDescriptor(object,k)
+      return b && a.value===b.value && a.get===b.get && a.set===b.set && a.writable===b.writable && a.configurable===b.configurable && a.enumerable===b.enumerable
+    }))
+}
+
+// The only accepted helper returns native statSync directly through an
+// empty catch. The caller immediately consumes it through .isFile() or
+// .isDirectory(), without binding, exposing or inspecting the Stats object.
+export function certifyStatTypeReads(source) {
+  if (typeof source !== 'string' || source.length > 2_000_000) return {helpers:[], calls:[]}
+  let tree
+  try {tree=parse(source,{ecmaVersion:'latest',sourceType:'module'})} catch {return {helpers:[],calls:[]}}
+  const nodes=[]
+  function visit(n) {
+    if (!n || typeof n!=='object') return
+    if (n.type) nodes.push(n)
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) for (const c of v) visit(c)
+      else if (v && typeof v==='object') visit(v)
+    }
+  }
+  visit(tree)
+  const helpers=[]
+  for (const f of nodes) {
+    if (f.type!=='FunctionDeclaration' || !f.id || f.async || f.generator || f.params.length!==1 || f.params[0].type!=='Identifier' || f.body.body.length!==1) continue
+    const t=f.body.body[0], ret=t.block?.body?.[0], c=ret?.argument
+    if (t.type!=='TryStatement' || t.finalizer || !t.handler || t.handler.param || t.handler.body.body.length || t.block.body.length!==1 || ret.type!=='ReturnStatement') continue
+    if (c?.type!=='CallExpression' || c.optional || c.callee.type!=='MemberExpression' || c.callee.computed || c.callee.optional || c.callee.object.type!=='Identifier' || c.callee.property.name!=='statSync') continue
+    const [arg,opts]=c.arguments
+    const opt=opts?.properties?.[0]
+    if (c.arguments.length!==2 || arg.type!=='Identifier' || arg.name!==f.params[0].name || opts.type!=='ObjectExpression' || opts.properties.length!==1 || opt.type!=='Property' || opt.computed || opt.method || opt.kind!=='init' || opt.key.type!=='Identifier' || opt.key.name!=='throwIfNoEntry' || opt.value.type!=='Literal' || opt.value.value!==false) continue
+    helpers.push({name:f.id.name,start:c.start,end:c.end})
+  }
+  const calls=[]
+  for (const n of nodes) {
+    if (n.type!=='CallExpression' || n.optional || n.arguments.length || n.callee.type!=='MemberExpression' || n.callee.computed || !['isFile','isDirectory'].includes(n.callee.property.name)) continue
+    const call=n.callee.object
+    if (call.type!=='CallExpression' || call.optional || call.callee.type!=='Identifier' || call.arguments.length!==1 || call.arguments[0].type!=='Identifier') continue
+    if (helpers.some(h=>h.name===call.callee.name)) calls.push({name:call.callee.name,start:call.start,end:call.end})
+  }
+  return {helpers,calls}
+}
 
 export function certifyBooleanReads(source, property = 'exports') {
   if (typeof source !== 'string' || source.length > 2_000_000) return []
@@ -49,7 +99,7 @@ export function certifyBooleanReads(source, property = 'exports') {
 export function createBooleanProof({ internalFiles = [] } = {}) {
   const skip = new Set([ownFile, ...internalFiles.map(plainFile)])
   const parsed = new Map(), sources = new Map()
-  const stats = {boolean:0, whole:0, sources:0}
+  const stats = {boolean:0, whole:0, sources:0, statType:0, statWhole:0}
   let session = null, post = null, disabled = false
   try {
     session = new Session()
@@ -60,34 +110,44 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
     })
     post('Debugger.enable', {}, err => { if (err) disabled = true })
   } catch { disabled = true }
-  function check(property) {
-    if (disabled || typeof getCallSites !== 'function' || !unchangedIntrinsics()) return false
-    let frame
+  function frames() {
+    if (disabled || typeof getCallSites !== 'function' || !unchangedIntrinsics()) return []
     try {
-      frame = getCallSites(32, {sourceMap:false}).find(f => {
+      return getCallSites(32, {sourceMap:false}).filter(f => {
         const name = plainFile(f.scriptName)
         return name && !name.startsWith('node:') && !skip.has(name)
       })
-    } catch { return false }
-    if (!frame || !parsed.get(frame.scriptId)) return false
+    } catch {return []}
+  }
+  function load(frame, property) {
+    if (!frame || !parsed.get(frame.scriptId)) return null
     const key = `${frame.scriptId}:${property}`
     if (!sources.has(key)) {
-      if (sources.size >= 128) return false
+      if (sources.size >= 128) return null
       sources.set(key, null)
       try {
         post('Debugger.getScriptSource', {scriptId:frame.scriptId}, (err, result) => {
           if (err || typeof result?.scriptSource !== 'string') return
           try {
             const source = result.scriptSource
-            const sites = certifyBooleanReads(source, property)
+            const sites = property==='@stat' ? certifyStatTypeReads(source) : certifyBooleanReads(source, property)
             const lines = [0]
             for (let i=0; i<source.length; i++) if (source[i] === '\n') lines.push(i+1)
             sources.set(key, {sites, lines}); stats.sources++
           } catch { /* Unproved, including parser resource limits. */ }
         })
-      } catch { return false }
+      } catch { return null }
     }
-    const source = sources.get(key), line = source?.lines[frame.lineNumber-1]
+    return sources.get(key)
+  }
+  function offset(frame, source) {
+    const line=source?.lines[frame.lineNumber-1]
+    return line===undefined || frame.columnNumber<1 ? -1 : line+frame.columnNumber-1
+  }
+  function check(property) {
+    const frame=frames()[0], source=load(frame,property)
+    if (!frame || !source) return false
+    const line = source.lines[frame.lineNumber-1]
     if (line === undefined || frame.columnNumber < 1) return false
     const at = line + frame.columnNumber-1
     return source.sites.some(s => s.start <= at && at < s.end)
@@ -97,6 +157,20 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
     test(property) {
       const proved = check(property)
       stats[proved ? 'boolean' : 'whole']++
+      return proved
+    },
+    statType(args) {
+      let proved=false
+      if (typeof args[0]==='string' && args.length===2 && unchangedIntrinsics() && pristineStats()) {
+        const [helper,caller]=frames()
+        const source=load(helper,'@stat')
+        if (helper && caller && source && helper.scriptId===caller.scriptId) {
+          const at=offset(helper,source), calledAt=offset(caller,source)
+          const h=source.sites.helpers.find(h=>h.start<=at && at<h.end)
+          proved=!!h && source.sites.calls.some(c=>c.name===h.name && c.start<=calledAt && calledAt<c.end)
+        }
+      }
+      stats[proved ? 'statType' : 'statWhole']++
       return proved
     },
     close() { disabled = true; try { session?.disconnect() } catch {} },

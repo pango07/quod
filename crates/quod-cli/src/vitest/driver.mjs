@@ -81,8 +81,11 @@ const nearFactor = Number.isFinite(Number(plan.nearTimeout)) && Number(plan.near
 // correctness and benefit. The flag is an input even when disabled.
 const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'
   ? (await import('./names-proof.mjs')).createNamesProof() : null
-const r = createRecorder({ stateDir, codeDir, mode: 'main', namesProof })
+const booleanProof = hooks && process.env.QUOD_VITEST_BOOLEAN_PROOF === '1'
+  ? (await import('./boolean-proof.mjs')).createBooleanProof({internalFiles:[new URL('./record.mjs', import.meta.url).href]}) : null
+const r = createRecorder({ stateDir, codeDir, mode: 'main', namesProof, booleanProof })
 r.keys.add('env:QUOD_VITEST_NAMES_PROOF')
+r.keys.add('env:QUOD_VITEST_BOOLEAN_PROOF')
 r.on = hooks
 // QUOD_VITEST_DISABLE (read before the env is watched): main (no main
 // process recorder), setup (no setup file: nothing recorded) or preload (no
@@ -642,6 +645,10 @@ r.on = false
 if (namesProof) {
   namesProof.close()
   console.error(`[quod] config names proof ${JSON.stringify(namesProof.stats)}`)
+}
+if (booleanProof) {
+  booleanProof.close()
+  console.error(`[quod] config boolean proof ${JSON.stringify(booleanProof.stats)}`)
 }
 
 // Results and records of the files that ran.

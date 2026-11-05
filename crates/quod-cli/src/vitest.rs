@@ -62,6 +62,7 @@ const NARROW: &str = include_str!("vitest/narrow.mjs");
 const CHILD: &str = include_str!("vitest/child.mjs");
 const DENY: &str = include_str!("vitest/deny.mjs");
 const NAMES_PROOF: &str = include_str!("vitest/names-proof.mjs");
+const BOOLEAN_PROOF: &str = include_str!("vitest/boolean-proof.mjs");
 const ACORN: &str = include_str!("vitest/acorn.mjs");
 const ACORN_LICENSE: &str = include_str!("vitest/acorn-LICENSE");
 
@@ -83,6 +84,7 @@ fn js() -> &'static [(&'static str, String)] {
             ("child.mjs", CHILD),
             ("deny.mjs", DENY),
             ("names-proof.mjs", NAMES_PROOF),
+            ("boolean-proof.mjs", BOOLEAN_PROOF),
             ("acorn.mjs", ACORN),
             ("acorn-LICENSE", ACORN_LICENSE),
         ]
@@ -2731,16 +2733,24 @@ pub(crate) fn state(
             (result, None)
         }
         "e" => (exists(&path()), None),
+        // A proven synchronous stat helper whose result is used only by
+        // native isFile/isDirectory. Follow links exactly as stat does.
+        "st" => (match fs::metadata(path()) {
+            Ok(m) if m.is_file() => "file",
+            Ok(m) if m.is_dir() => "directory",
+            Ok(_) => "other",
+            Err(_) => "unavailable",
+        }.into(), None),
         "d" => (listing(&path(), false), None),
         "rj" => (listing_of(&path(), true, true), None),
-        "pjf" => {
+        "pjf" | "pjq" => {
             let (fp, fields) = p.split_once('\0').unwrap_or((p, "[]"));
             let fp = if fp.starts_with('/') {
                 PathBuf::from(fp)
             } else {
                 root.join(fp)
             };
-            (pj_fields(&fp, fields), None)
+            (if kind == "pjq" { pj_fields_query(&fp, fields, true) } else { pj_fields(&fp, fields) }, None)
         }
         "r" => (listing(&path(), true), None),
         "rc" => (content_tree(&path()), None),
@@ -3229,6 +3239,12 @@ const DEP_FIELDS: &[&str] = &[
 /// its top-level names in order, and the raw text of each field it read
 /// (absent, or the file whole when it is not a JSON object).
 fn pj_fields(path: &Path, fields: &str) -> String {
+    pj_fields_query(path, fields, false)
+}
+
+/// The observed values plus language-level truthiness queries. Every raw
+/// read remains in `values`; an additional boolean query never weakens it.
+fn pj_fields_query(path: &Path, fields: &str, queries: bool) -> String {
     let Ok(bytes) = fs::read(path) else {
         return if path.exists() {
             "unreadable".into()
@@ -3236,7 +3252,18 @@ fn pj_fields(path: &Path, fields: &str) -> String {
             "absent".into()
         };
     };
-    let Ok(wanted) = serde_json::from_str::<Vec<Vec<String>>>(fields) else {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Queries {
+        values: Vec<Vec<String>>,
+        truthy: Vec<String>,
+    }
+    let parsed = if queries {
+        serde_json::from_str::<Queries>(fields).map(|q| (q.values, q.truthy))
+    } else {
+        serde_json::from_str::<Vec<Vec<String>>>(fields).map(|q| (q, Vec::new()))
+    };
+    let Ok((wanted, truthy)) = parsed else {
         // Unknown schemas cannot safely narrow a whole-file read.
         return blake3::hash(&bytes).to_hex().to_string();
     };
@@ -3289,7 +3316,29 @@ fn pj_fields(path: &Path, fields: &str) -> String {
         }
         h.update(b"\0");
     }
-    format!("pjf:{}", h.finalize().to_hex())
+    for name in &truthy {
+        h.update(b"?truthy:");
+        h.update(name.as_bytes());
+        h.update(b"\0");
+        let value = top.iter().rev().find(|(k, _)| k == name);
+        if let Some((_, field_bytes)) = value {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(field_bytes) else {
+                return blake3::hash(&bytes).to_hex().to_string();
+            };
+            let yes = match value {
+                serde_json::Value::Null => false,
+                serde_json::Value::Bool(v) => v,
+                serde_json::Value::Number(v) => v.as_f64().is_some_and(|n| n != 0.0),
+                serde_json::Value::String(v) => !v.is_empty(),
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+            };
+            h.update(if yes { b"true" } else { b"false" });
+        } else {
+            h.update(b"absent");
+        }
+        h.update(b"\0");
+    }
+    format!("{}:{}", if queries { "pjq" } else { "pjf" }, h.finalize().to_hex())
 }
 
 /// A JSON object's top-level names and the raw text of their values, in
@@ -3588,7 +3637,7 @@ fn plain_key(k: &str) -> String {
         Some(("envp", v)) => format!("whether the variable {v} is set"),
         Some(("d", p)) => format!("the directory listing of {p}"),
         Some(("rj", p)) => format!("the .json files under {p}"),
-        Some(("pjf", p)) => {
+        Some(("pjf" | "pjq", p)) => {
             let (f, fields) = p.split_once('\0').unwrap_or((p, ""));
             format!("{f} (its names and {fields})")
         }
@@ -3740,6 +3789,66 @@ mod tests {
         assert_ne!(before, st("a1:tool"));
         assert_eq!(content, st("f:tool"));
         assert_eq!(st("a1:tool"), "ok");
+    }
+
+    #[test]
+    fn stat_type_queries_follow_links_and_preserve_missing_and_directory_states() {
+        let t = tempfile::tempdir().unwrap();
+        let file = t.path().join("file");
+        let dir = t.path().join("dir");
+        fs::write(&file, "one").unwrap();
+        fs::create_dir(&dir).unwrap();
+        let st = |key: &str| state(t.path(), key, None, 0, &std::sync::OnceLock::new(), None).0;
+        assert_eq!(st("st:file"), "file");
+        fs::write(&file, "different bytes and size").unwrap();
+        assert_eq!(st("st:file"), "file");
+        assert_eq!(st("st:dir"), "directory");
+        assert_eq!(st("st:missing"), "unavailable");
+        #[cfg(unix)]
+        {
+            let link = t.path().join("link");
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            assert_eq!(st("st:link"), "file");
+            fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&dir, &link).unwrap();
+            assert_eq!(st("st:link"), "directory");
+            fs::remove_dir(&dir).unwrap();
+            assert_eq!(st("st:link"), "unavailable");
+        }
+    }
+
+    #[test]
+    fn boolean_manifest_queries_keep_value_readers_and_fall_back_on_unknown_schemas() {
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("package.json");
+        let state = |text: &str, schema: &str| {
+            fs::write(&p, text).unwrap();
+            pj_fields_query(&p, schema, true)
+        };
+        let truth = r#"{"values":[["name"]],"truthy":["exports"]}"#;
+        let a = r#"{"name":"x","exports":{".":"./a.js","./unused":"./old.js"}}"#;
+        let b = r#"{"name":"x","exports":{".":"./b.js"}}"#;
+        assert_eq!(state(a, truth), state(b, truth));
+        let values = r#"{"values":[["name"],["exports"]],"truthy":["exports"]}"#;
+        assert_ne!(state(a, values), state(b, values));
+        assert_ne!(state(a, truth), state(r#"{"name":"y","exports":{}}"#, truth));
+        assert_ne!(state(a, truth), state(r#"{"name":"x","exports":null}"#, truth));
+        assert_ne!(state(a, truth), state(r#"{"name":"x"}"#, truth));
+        // JavaScript's ToBoolean, including empty objects/arrays and -0.
+        for value in ["{}", "[]", "true", "1", "-1", r#""x""#] {
+            assert_eq!(state(a, truth), state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth));
+        }
+        let no = state(r#"{"name":"x","exports":null}"#, truth);
+        for value in ["null", "false", "0", "-0", r#""""#] {
+            assert_eq!(no, state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth));
+        }
+        for schema in ["[]", r#"{"values":[],"unknown":[]}"#, r#"{"values":[],"truthy":{},"extra":0}"#] {
+            assert_eq!(state(a, schema), blake3::hash(a.as_bytes()).to_hex().to_string());
+        }
+        // A field outside serde_json's number range must retain the whole
+        // manifest, including unrelated value inputs and property names.
+        let huge = r#"{"name":"x","exports":1e999}"#;
+        assert_eq!(state(huge, truth), blake3::hash(huge.as_bytes()).to_hex().to_string());
     }
 
     #[test]

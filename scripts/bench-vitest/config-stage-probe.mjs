@@ -17,6 +17,7 @@ const pkgPath = path.join(project, 'package.json')
 const original = fs.readFileSync(pkgPath, 'utf8')
 const resolverProbe = process.env.QUOD_CONFIG_RESOLVER_PROBE === '1'
 const booleanProbe = process.env.QUOD_CONFIG_BOOLEAN_PROBE === '1'
+const queryProbe = process.env.QUOD_CONFIG_QUERY_PROBE === '1'
 const workspacePkg = path.join(project, 'packages/convex-helpers/package.json')
 const workspaceOriginal = fs.existsSync(workspacePkg) ? fs.readFileSync(workspacePkg, 'utf8') : null
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -57,9 +58,11 @@ if (mode) {
   const booleanReads = new Map()
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1' || resolverProbe) {
     let recorderUrl = new URL('../../crates/quod-cli/src/vitest/record.mjs', import.meta.url)
-    if (resolverProbe) {
+    if (resolverProbe && !queryProbe) {
       const source = fs.readFileSync(recorderUrl, 'utf8')
-      const guard = "if (p == null || !p.endsWith('/package.json') || resolverCaller()) return"
+      const guard = source.includes("if (p == null || !p.endsWith('/package.json') || resolverCaller()) return")
+        ? "if (p == null || !p.endsWith('/package.json') || resolverCaller()) return"
+        : "if (resolverCaller() && (!r.booleanProof || !r.pjReads.has(p))) return"
       if (!source.includes(guard)) throw Error('resolver diagnostic guard changed')
       fs.mkdirSync(out, {recursive:true})
       recorderUrl = pathToFileURL(path.join(out, 'resolver-recorder.mjs'))
@@ -74,9 +77,10 @@ if (mode) {
       fs.writeFileSync(recorderUrl, diagnostic)
     }
     const R = await import(recorderUrl.href)
-    if (!resolverProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
-    recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof })
-    if (booleanProbe) {
+    if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
+    if (queryProbe) booleanProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
+    recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
+    if (booleanProbe && !queryProbe) {
       const {createBooleanProof} = await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')
       booleanProof = createBooleanProof({internalFiles:[recorderUrl.href, import.meta.url]})
       recorder.observeBoolean = (p, field) => {
@@ -121,7 +125,8 @@ if (mode) {
     }
     const proof = recorder ? {
       stats: namesProof?.stats,
-      manifestKeys: [...settledKeys(recorder)].filter(k => k === `f:${pkgPath}` || k.startsWith(`pjf:${pkgPath}\0`)),
+      manifestKeys: [...settledKeys(recorder)].filter(k => [pkgPath,workspacePkg].some(p=>k.endsWith(`:${p}`) || k.includes(`:${p}\0`))),
+      readCounts: queryProbe ? [pkgPath,workspacePkg].map(p=>({path:path.relative(project,p),reads:recorder.pjReads.get(p),parsed:recorder.pjParsed.get(p)})) : undefined,
       resolverReads: resolverProbe ? [...recorder.pjUse].filter(([p]) => !p.includes('/node_modules/'))
         .map(([p, fields]) => ({path:path.relative(project, p), fields:[...fields].sort().map(s => JSON.parse(s)), broadKeyRetained:recorder.keys.has(`pj:${p}`)})) : undefined,
       booleanReads: booleanProof ? [...booleanReads].map(([p, reads]) => ({path:path.relative(project,p), ...reads, wholeSites:[...reads.wholeSites]})) : undefined,
@@ -183,6 +188,14 @@ if (mode) {
     })
     if (states.some(s => JSON.stringify(s) !== JSON.stringify(states[0]))) throw Error('manifest diagnostic per-test states differed')
     console.log(`Full-suite diagnostic: ${states[0].length} files agree across all three manifest states; no replay authorized.`)
+  }
+  if (queryProbe) {
+    for (const record of records) {
+      if (!record.proof?.booleanStats?.statType || !record.proof?.booleanStats?.boolean) throw Error(`actual resolver proof was not exercised: ${record.mode}`)
+      const keys=record.proof.manifestKeys
+      if (keys.some(k=>k.startsWith('f:') || k.startsWith('pj:'))) throw Error(`manifest has an unrefined observation: ${record.mode}`)
+      if (!keys.some(k=>k.startsWith(`pjq:${pkgPath}\0`) && JSON.parse(k.split('\0')[1]).truthy.includes('exports'))) throw Error(`root manifest lacks truthiness query: ${record.mode}`)
+    }
   }
   console.log('Equal outputs are diagnostic evidence only; this probe never permits replay.')
 }

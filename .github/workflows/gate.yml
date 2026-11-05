@@ -460,7 +460,7 @@ jobs:
       - name: CLI unit tests and recorder regressions
         run: cargo test --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e
       - name: config names proof adversarial regressions
-        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs
+        run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: clippy
         run: cargo clippy --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e -- -D warnings
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -627,7 +627,7 @@ jobs:
           path: /tmp/quod-profile/evidence
 
   benchmark-config:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -645,11 +645,12 @@ jobs:
         working-directory: profile-project
       - name: Measure configuration output across declaration changes
         env:
-          QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean') && '1' || '0' }}
-          QUOD_CONFIG_BOOLEAN_PROBE: ${{ inputs.only == 'benchmark-boolean' && '1' || '0' }}
+          QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query') && '1' || '0' }}
+          QUOD_CONFIG_BOOLEAN_PROBE: ${{ (inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query') && '1' || '0' }}
+          QUOD_CONFIG_QUERY_PROBE: ${{ inputs.only == 'benchmark-query' && '1' || '0' }}
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe
       - name: Boolean-context proof adversarial regressions
-        if: inputs.only == 'benchmark-boolean'
+        if: inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query'
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: Config proof regression tests
         if: inputs.only == 'benchmark-config'

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { certifyBooleanReads } from './boolean-proof.mjs'
+import { certifyBooleanReads, certifyStatTypeReads } from './boolean-proof.mjs'
 
 test('accepts only reads consumed by language truthiness', () => {
   for (const expression of ['if (pkg.exports) x()', 'const x = !pkg.exports',
@@ -53,4 +53,118 @@ test('a second non-boolean read is separately retained', () => {
 })
 test('modified parser intrinsics fail closed', () => {
   assert.deepEqual(run('globalThis.pkg.exports ? 1 : 0', {prelude:'const prior=Object.values; Object.values=function(x){return prior(x)};'}).reads, [false])
+})
+
+function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false} = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-boolean-recorder-'))
+  try {
+    fs.writeFileSync(path.join(dir,'package.json'), JSON.stringify({name:'x', exports:{'.':'./a.js'}, devDependencies:{unused:'1'}}))
+    const config = path.join(dir, resolver ? 'node_modules/vite/reader.mjs' : 'config.mjs')
+    fs.mkdirSync(path.dirname(config), {recursive:true})
+    fs.writeFileSync(config, `import fs, {readFileSync} from 'node:fs';
+${prelude}
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+${names ? 'const keys = Object.keys({...pkg.devDependencies});' : ''}
+export const value = ${expression};
+${extra}`)
+    const recordUrl = new URL('./record.mjs', import.meta.url).href
+    const runner = path.join(dir, 'runner.mjs')
+    fs.writeFileSync(runner, `import {createRecorder, patchFs, settledKeys} from ${JSON.stringify(recordUrl)};
+import {createBooleanProof} from ${JSON.stringify(new URL('./boolean-proof.mjs', import.meta.url).href)};
+import {createNamesProof} from ${JSON.stringify(new URL('./names-proof.mjs', import.meta.url).href)};
+const booleanProof = ${enabled} ? createBooleanProof({internalFiles:[${JSON.stringify(recordUrl)}]}) : null;
+const namesProof = ${names} ? createNamesProof() : null;
+const r=createRecorder({stateDir:'/nonexistent-state',mode:'main',booleanProof,namesProof}); patchFs(r);
+const m=await import(${JSON.stringify(config)});
+const keys=[...settledKeys(r)].filter(k=>k.includes('/package.json')).map(k=>k.replace(process.cwd()+'/', ''));
+booleanProof?.close(); namesProof?.close(); console.log(JSON.stringify({keys,value:m.value,stats:booleanProof?.stats}));`)
+    const result=spawnSync(process.execPath,[runner],{cwd:dir,encoding:'utf8',timeout:10000})
+    assert.equal(result.status,0,result.stderr || String(result.error))
+    return JSON.parse(result.stdout)
+  } finally {fs.rmSync(dir,{recursive:true,force:true})}
+}
+const query = result => result.keys.filter(k=>k.startsWith('pjq:')).map(k=>JSON.parse(k.split('\0')[1]))
+test('resolver boolean reads replace the broad key only after a watched parse', () => {
+  const result=recorded('pkg.exports && pkg.name === "x" ? true : false')
+  assert.equal(result.value,true)
+  assert.deepEqual(query(result),[{values:[['name']],truthy:['exports']}])
+  assert.equal(result.keys.some(k=>/^(f|pj):/.test(k)),false)
+})
+test('ordinary value readers retain full exports alongside boolean queries', () => {
+  const result=recorded('pkg.exports ? Object.keys(pkg.exports) : []')
+  assert.deepEqual(query(result),[{values:[['exports']],truthy:['exports']}])
+})
+test('an additional unparsed read keeps the conservative file input', () => {
+  for (const resolver of [false,true]) {
+    const result=recorded('!!pkg.exports',{resolver,extra:"export const raw = readFileSync('package.json','utf8');"})
+    assert.deepEqual(query(result),[])
+    assert.ok(result.keys.some(k=>k === `${resolver ? 'pj' : 'f'}:package.json`))
+  }
+})
+test('a stat observation cannot silently be discarded by the JSON proof', () => {
+  const result=recorded('!!pkg.exports',{extra:"export const size = fs.statSync('package.json').size;"})
+  assert.deepEqual(query(result),[])
+  assert.ok(result.keys.includes('pj:package.json'))
+})
+test('disabled boolean proof keeps the existing resolver and config behavior', () => {
+  assert.ok(recorded('!!pkg.exports',{enabled:false}).keys.includes('pj:package.json'))
+  const result=recorded('!!pkg.exports',{enabled:false,resolver:false})
+  assert.ok(result.keys.some(k=>k.startsWith('pjf:') && k.includes('exports')))
+})
+test('the names proof remains conservative when the object has another use', () => {
+  const result=recorded('!!pkg.exports',{resolver:false,names:true})
+  const values=query(result)[0].values
+  assert.ok(values.some(p=>p.join('.')==='devDependencies.unused'))
+  assert.deepEqual(query(result)[0].truthy,['exports'])
+})
+
+const statHelper = 'function tryStatSync(file) { try { return fs.statSync(file, {throwIfNoEntry:false}); } catch {} }'
+test('only an immediate native file-type consumer qualifies for stat narrowing', () => {
+  for (const expression of ['tryStatSync(file)?.isFile()', 'tryStatSync(file).isDirectory()']) {
+    const proof=certifyStatTypeReads(`${statHelper}\nconst value=${expression}`)
+    assert.equal(proof.helpers.length,1)
+    assert.equal(proof.calls.length,1,expression)
+  }
+  for (const expression of ['tryStatSync(file).size', 'tryStatSync(file).mtimeMs',
+    'tryStatSync(file)', 'tryStatSync(file)?.isSymbolicLink()', 'tryStatSync(file)?.[method]()',
+    'tryStatSync(file)?.isFile(arg)', 'tryStatSync(makeFile())?.isFile()',
+    'tryStatSync(file)?.isFile?.()']) {
+    assert.equal(certifyStatTypeReads(`${statHelper}\nconst value=${expression}`).calls.length,0,expression)
+  }
+  for (const helper of [
+    statHelper.replace('catch {}','catch (err) {}'),
+    statHelper.replace('catch {}','catch {} finally { effect() }'),
+    statHelper.replace('return fs.statSync(file, {throwIfNoEntry:false});','const s=fs.statSync(file, {throwIfNoEntry:false}); return s;'),
+    statHelper.replace('false','true'), statHelper.replace('{throwIfNoEntry:false}','opts'),
+    statHelper.replace('function tryStatSync','async function tryStatSync'),
+    'export default function(file) { try { return fs.statSync(file, {throwIfNoEntry:false}); } catch {} }',
+  ]) assert.equal(certifyStatTypeReads(helper+'\ntryStatSync(file)?.isFile()').helpers.length,0,helper)
+})
+test('actual resolver stat type reads coexist with the boolean manifest query', () => {
+  for (const method of ['isFile','isDirectory']) {
+    const result=recorded('!!pkg.exports', {prelude:`${statHelper}\nconst file='package.json'; export const type=tryStatSync(file)?.${method}();`})
+    assert.deepEqual(query(result),[{values:[],truthy:['exports']}])
+    assert.ok(result.keys.includes('st:package.json'),JSON.stringify(result))
+    assert.equal(result.keys.includes('pj:package.json'),false)
+    assert.equal(result.stats.statType,1)
+  }
+})
+test('escaping stats and metadata readers retain the conservative manifest input', () => {
+  for (const consumer of ['export const size=tryStatSync(file).size;',
+    'export const time=tryStatSync(file).mtimeMs;',
+    'const s=tryStatSync(file); export const type=s.isFile();',
+    'const alias=tryStatSync; export const type=alias(file)?.isFile();',
+    'export const type=eval("tryStatSync(file)?.isFile()")']) {
+    const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nconst file='package.json'; ${consumer}`})
+    assert.deepEqual(query(result),[])
+    assert.ok(result.keys.includes('pj:package.json'),consumer)
+    assert.equal(result.stats.statType,0)
+  }
+})
+test('modified Stats methods fail closed even at a certified source location', () => {
+  const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfs.Stats.prototype.isFile=function(){return this.size>10};
+const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
+  assert.deepEqual(query(result),[])
+  assert.ok(result.keys.includes('pj:package.json'))
+  assert.equal(result.stats.statType,0)
 })

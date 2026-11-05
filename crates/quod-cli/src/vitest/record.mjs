@@ -8,6 +8,8 @@
 //              blanked (the installed versions are p: keys)
 //   pjf:<path>\0<fields>  a package.json the config parsed: its top-level
 //              names, and the values of the fields it read (JSON array)
+//   pjq:<path>\0<queries>  values and proven truthiness reads of a manifest
+//   st:<path>  a stat result proven to be used only as file/directory type
 //   d:<path>   a directory's listing        r:<path>  a recursive listing
 //   rj:<path>  the .json files under a directory, recursively, outside
 //              node_modules and .git (tsconfck's walk for tsconfig files)
@@ -45,7 +47,7 @@ const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
 const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null, booleanProof = null }) {
   const keys = new Set()
   // A made directory's other spelling (its real path, and back), when they differ.
   const alias = new Map()
@@ -64,6 +66,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
   const r = {
     mode, // 'main' | 'worker'
     namesProof,
+    booleanProof,
     keys,
     writes: new Set(),
     // paths first written while absent (scratch() drops those gone again)
@@ -87,6 +90,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     pjReads: new Map(),
     pjParsed: new Map(),
     pjUse: new Map(),
+    pjBool: new Map(),
     // main process: installed packages read only by vite's or vitest's
     // resolvers (resolving a worker's import): the worker that loads one
     // keys it (its module graph), so it is a shared input only when no
@@ -148,7 +152,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       if (NPM_OWN && (p === NPM_OWN || p.startsWith(`${NPM_OWN}/`) || p === `${NPM_HOME}/_update-notifier-last-checked`)) return
       // An access result depends on permissions/ACLs as well as content.
       // Keep it at the actual path even inside an installed package.
-      if (/^a[0-7]$/.test(kind)) {
+      if (/^a[0-7]$/.test(kind) || kind === 'st') {
         if (memo) seen.add(memo)
         keys.add(`${kind}:${p}`)
         return
@@ -184,7 +188,12 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         if (p.includes('/node_modules/')) return r.add(kind, p)
       }
       if (kind === 'f' && r.mode === 'main' && p.endsWith('/package.json')) {
-        if (resolverCaller()) kind = 'pj'
+        if (resolverCaller()) {
+          kind = 'pj'
+          // A resolver's broad key can be refined only if every read was
+          // observed through the same straight JSON parse as other readers.
+          if (r.booleanProof) r.pjReads.set(p, (r.pjReads.get(p) ?? 0) + 1)
+        }
         else {
           if (!r.pjWhole.has(p)) r.pjWhole.set(p, callerFrame())
           r.pjReads.set(p, (r.pjReads.get(p) ?? 0) + 1)
@@ -464,7 +473,9 @@ export function patchFs(r, { sync = true } = {}) {
   if (r.mode === 'main') patchJsonParse(r)
   wrap(fs, 'createReadStream', file)
   // stat-like calls see size: a content dependency; lstat also sees a link
-  both(['stat'], file)
+  wrap(fs, 'stat', file)
+  wrap(P, 'stat', file)
+  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.booleanProof?.statType(a) ? 'st' : 'f', a[0]))
   both(['lstat'], (a) => {
     r.add('f', a[0])
     r.add('e', a[0])
@@ -567,7 +578,8 @@ function pjText(r, p0, v) {
   pending.text = pending.buf = null
   if (!r.on || p0 == null) return
   const p = norm(p0)
-  if (p == null || !p.endsWith('/package.json') || resolverCaller()) return
+  if (p == null || !p.endsWith('/package.json')) return
+  if (resolverCaller() && (!r.booleanProof || !r.pjReads.has(p))) return
   const at = callerAt()
   if (!at) return
   if (typeof v === 'string') pending.text = v
@@ -615,7 +627,7 @@ function watchFields(r, p, obj) {
   let use = r.pjUse.get(p)
   if (!use) r.pjUse.set(p, (use = new Set()))
   r.pjParsed.set(p, (r.pjParsed.get(p) ?? 0) + 1)
-  const binding = r.namesProof?.bind()
+  const binding = resolverCaller() ? null : r.namesProof?.bind()
   const shape = binding ? new Map() : null
   function watch(target, path) {
     for (const k of fieldKeys(target)) {
@@ -629,7 +641,11 @@ function watchFields(r, p, obj) {
       })
       if (dep) watch(val, next)
       const get = () => {
-        if (!binding || !r.namesProof.ignores(binding, next, pristine)) fieldSetAdd(use, encoded)
+        if (next.length === 1 && k === 'exports' && r.booleanProof?.test(k)) {
+          let truthy = r.pjBool.get(p)
+          if (!truthy) r.pjBool.set(p, (truthy = new Set()))
+          fieldSetAdd(truthy, k)
+        } else if (!binding || !r.namesProof.ignores(binding, next, pristine)) fieldSetAdd(use, encoded)
         return val
       }
       fieldDefine(target, k, {
@@ -677,9 +693,13 @@ function watchFields(r, p, obj) {
 export function settledKeys(r) {
   const keys = new Set(r.keys)
   for (const [p, n] of r.pjReads) {
-    if (r.pjParsed.get(p) !== n || !keys.has(`f:${p}`)) continue
+    if (r.pjParsed.get(p) !== n || !(keys.has(`f:${p}`) || r.booleanProof && keys.has(`pj:${p}`))) continue
     keys.delete(`f:${p}`)
-    keys.add(`pjf:${p}\0${JSON.stringify([...r.pjUse.get(p)].sort().map((s) => JSON.parse(s)))}`)
+    const values = [...r.pjUse.get(p)].sort().map((s) => JSON.parse(s))
+    if (r.booleanProof) {
+      keys.delete(`pj:${p}`)
+      keys.add(`pjq:${p}\0${JSON.stringify({values, truthy:[...(r.pjBool.get(p) ?? [])].sort()})}`)
+    } else keys.add(`pjf:${p}\0${JSON.stringify(values)}`)
     r.pjWhole.delete(p)
   }
   return keys
