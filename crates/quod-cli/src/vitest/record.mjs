@@ -673,6 +673,11 @@ export function patchLoader(r) {
 // thread. Workers only (the main process's own are the tools'). A builtin
 // already loaded is patched now; any other when first resolved (loading
 // them all up front cost ~30 ms per test file).
+// The egress-denied witness (vitest.rs, deny.mjs): with it, using the
+// network is noted (the record needs a second witness with no network)
+// instead of making the file unobservable. Read before the env is watched.
+const NET_WITNESS = process.env.QUOD_VITEST_NET_WITNESS === '1'
+const netUse = (r) => (NET_WITNESS ? (r.net = true) : r.unobs('network'))
 const ESCAPES = {
   child_process: (m, r) => {
     for (const n of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
@@ -680,16 +685,16 @@ const ESCAPES = {
     }
   },
   net: (m, r) => {
-    wrap(m, 'connect', () => r.unobs('network'))
-    wrap(m, 'createConnection', () => r.unobs('network'))
-    wrap(m.Socket?.prototype, 'connect', () => r.unobs('network'))
+    wrap(m, 'connect', () => netUse(r))
+    wrap(m, 'createConnection', () => netUse(r))
+    wrap(m.Socket?.prototype, 'connect', () => netUse(r))
   },
-  tls: (m, r) => wrap(m, 'connect', () => r.unobs('network')),
-  http: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
-  https: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
-  http2: (m, r) => wrap(m, 'connect', () => r.unobs('network')),
-  dgram: (m, r) => wrap(m, 'createSocket', () => r.unobs('network')),
-  dns: (m, r) => ['lookup', 'resolve'].forEach((n) => wrap(m, n, () => r.unobs('network'))),
+  tls: (m, r) => wrap(m, 'connect', () => netUse(r)),
+  http: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => netUse(r))),
+  https: (m, r) => ['request', 'get'].forEach((n) => wrap(m, n, () => netUse(r))),
+  http2: (m, r) => wrap(m, 'connect', () => netUse(r)),
+  dgram: (m, r) => wrap(m, 'createSocket', () => netUse(r)),
+  dns: (m, r) => ['lookup', 'resolve'].forEach((n) => wrap(m, n, () => netUse(r))),
   worker_threads: (m, r) => wrap(m, 'Worker', () => r.unobs('worker_threads')),
   cluster: (m, r) => wrap(m, 'fork', () => r.unobs('child_process')),
 }
@@ -723,7 +728,7 @@ export function patchEscapes(r, { sync = true } = {}) {
       },
     })
   } else for (const name of Object.keys(ESCAPES)) patch(name)
-  wrap(globalThis, 'fetch', () => r.unobs('network'))
+  wrap(globalThis, 'fetch', () => netUse(r))
 }
 
 // The environment itself (not process.env, which the recorder replaces
@@ -879,6 +884,7 @@ export function takeChildren(r, files = r.children, depth = 0) {
     for (const k of d.keys) r.keys.add(k)
     for (const w of d.writes) r.writes.add(w)
     for (const u of d.unobservable) r.unobservable.add(u)
+    if (d.net) r.net = true
     if (depth > 20) {
       r.unobservable.add('child_process: too deep')
       return false

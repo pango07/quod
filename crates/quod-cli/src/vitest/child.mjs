@@ -27,7 +27,7 @@ if (out && !globalThis.__quod_vitest__) {
   process.on('exit', () => {
     r.on = false
     try {
-      writeJson(out, { keys: [...r.keys], writes: scratch(r), unobservable: [...r.unobservable], children: r.children })
+      writeJson(out, { keys: [...r.keys], writes: scratch(r), unobservable: [...r.unobservable], children: r.children, net: !!r.net })
     } catch {}
   })
 }

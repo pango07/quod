@@ -60,6 +60,7 @@ const COVERAGE: &str = include_str!("vitest/coverage.mjs");
 const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
 const CHILD: &str = include_str!("vitest/child.mjs");
+const DENY: &str = include_str!("vitest/deny.mjs");
 
 /// The driver's files, as embedded; for development, a file of the same
 /// name in `QUOD_VITEST_JS_DIR` stands in for one (the bench iterates on
@@ -77,6 +78,7 @@ fn js() -> &'static [(&'static str, String)] {
             ("preload.cjs", PRELOAD),
             ("narrow.mjs", NARROW),
             ("child.mjs", CHILD),
+            ("deny.mjs", DENY),
         ]
         .into_iter()
         .map(|(name, body)| {
@@ -309,6 +311,10 @@ struct Rec {
     /// The largest fraction of its timeout any test took in a plain witness.
     #[serde(default)]
     margin: f64,
+    /// The recording used the network: only a plain witness with no network
+    /// (deny.mjs) can vouch for it.
+    #[serde(default)]
+    net: bool,
 }
 
 /// Second witness: who has vouched for a record.
@@ -445,6 +451,12 @@ struct Ran {
     /// The largest fraction of its timeout a test took.
     #[serde(default)]
     ratio: f64,
+    /// Its recording used the network.
+    #[serde(default)]
+    net: bool,
+    /// Ran with the network denied (a plain witness of a networked record).
+    #[serde(default)]
+    denied: bool,
 }
 
 pub fn cli(a: VitestArgs) -> Result<u8> {
@@ -617,6 +629,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     };
     let mut plain_files: Vec<PathBuf> = Vec::new();
     let mut plain_ids: HashSet<String> = HashSet::new();
+    let mut deny_files: Vec<PathBuf> = Vec::new();
     let audit_n = timing_audit();
     let mut timing_note: Vec<String> = Vec::new();
     for (id, rec) in &ledger.files {
@@ -721,6 +734,18 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     for t in &timing_note {
         eprintln!("quod vitest: timing-sensitive: {t} replays");
+    }
+    for id in &plain_ids {
+        let rec = &ledger.files[id];
+        if rec.net {
+            deny_files.push(root.join(&rec.file));
+        }
+    }
+    if !deny_files.is_empty() {
+        eprintln!(
+            "quod vitest: {} files that used the network run their second witness with none",
+            deny_files.len()
+        );
     }
     let mut narrowed: HashMap<String, Vec<(u32, String)>> = HashMap::new();
     let mut narrow_note = serde_json::Value::Null;
@@ -881,6 +906,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // Plain second witnesses, and whether anything records at all (no:
         // every file that runs is one, so vitest runs entirely plain).
         "plain": plain_files,
+        "deny": deny_files,
+        "netWitness": plain_mode,
         "hooks": a.no_record || !(audit.is_empty() && !affected.is_empty() && affected.iter().all(|id| plain_ids.contains(id))),
         "nearTimeout": near_timeout_factor(),
         "workers": if !a.no_record && a.expect_report.is_some() && affected.len() > 4 * workers && alone() { serde_json::json!(workers) } else { serde_json::Value::Null },
@@ -1172,6 +1199,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 })
                 .unwrap_or_default();
             rec.runs += 1;
+            if rec.net && !r.denied {
+                // A networked record's witness must run without network.
+                ledger.files.insert(r.id.clone(), rec);
+                continue;
+            }
             if !ok || tests != rec.w.tests {
                 rec.w.disagreements += 1;
                 rec.w.n = 1;
@@ -1320,6 +1352,7 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 near_timeout: hooked_near,
                 plain_n: 0,
                 margin: 0.0,
+                net: r.net,
             },
         );
     }
@@ -1417,7 +1450,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         }
         r.w.disagreements = old.disagreements;
         let same_key = global_ok && !old.key.is_empty() && old.key == r.w.key;
-        let agrees = same_key && !old.tests.is_empty() && old.tests == r.w.tests;
+        // A networked record is vouched for only by a witness with no
+        // network (the plain one), never by another networked run.
+        let agrees = same_key && !old.tests.is_empty() && old.tests == r.w.tests && !r.net;
         if mismatch || (same_key && !agrees) {
             // A second run of the same key disagreed (or an audit did).
             r.w.disagreements += 1;
@@ -3736,6 +3771,7 @@ mod tests {
                 near_timeout: false,
                 plain_n: 0,
                 margin: 0.0,
+                net: false,
             },
         );
         l.compact();

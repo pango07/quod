@@ -97,6 +97,17 @@ if (record && Array.isArray(plan.cov)) {
   real.writeFileSync(list, JSON.stringify(plan.cov))
   process.env.QUOD_VITEST_COV_FILES = list
 } else delete process.env.QUOD_VITEST_COV_FILES
+// Plain witnesses that run with no network (their record used it).
+const denySet = new Set(record ? (plan.deny ?? []) : [])
+if (denySet.size) {
+  const list = path.join(dumpDir, '.deny-files.json')
+  real.writeFileSync(list, JSON.stringify([...denySet]))
+  process.env.QUOD_VITEST_DENY_FILES = list
+} else delete process.env.QUOD_VITEST_DENY_FILES
+delete process.env.QUOD_VITEST_DENY_ALL
+// Workers note network use instead of giving up (the witness decides).
+if (plan.netWitness) process.env.QUOD_VITEST_NET_WITNESS = '1'
+else delete process.env.QUOD_VITEST_NET_WITNESS
 if (hooks && plainSet.size) {
   const list = path.join(dumpDir, '.plain-files.json')
   real.writeFileSync(list, JSON.stringify([...plainSet]))
@@ -467,6 +478,7 @@ for (const p of ctx.projects) {
   // the project's other files are recorded as usual.
   const ok = !c.browser?.enabled && c.isolate !== false && !String(c.pool).startsWith('vm') && !c.typecheck?.only
   if (ok) {
+    if (denySet.size) c.setupFiles = [path.join(codeDir, 'deny.mjs'), ...c.setupFiles]
     if (hooks && !offs.has('setup')) {
       c.setupFiles = [setupPath, ...c.setupFiles]
       if (!offs.has('preload')) c.execArgv = [...(c.execArgv ?? []), '--require', path.join(codeDir, 'preload.cjs')]
@@ -710,6 +722,9 @@ for (const m of endModules) {
     for (const w of d.watches ?? []) ks.add(`rc:${w}`)
     keys = [...ks]
     unobservable = d.unobservable
+    // A networked file that loads native code could open sockets the
+    // denied witness cannot see: not recordable.
+    if (d.net && keys.some((k) => k.endsWith('.node'))) unobservable = [...unobservable, 'network, with a native addon loaded']
     // vitest 5's worker writes its coverage to the provider's temp directory
     // itself (handed over by name): vitest's file, not the test's output.
     const ws = d.writes.filter((w) => w.startsWith(wsRoot) && !w.includes('/node_modules/') && !(covTmp && w.startsWith(covTmp)))
@@ -799,7 +814,7 @@ for (const m of endModules) {
     } catch {}
   }
   const nt = nearTimeout(file)
-  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nt, ratio: nt.ratio ?? 0, plain: plainSet.has(file.filepath) })
+  ranOut.push({ id, project: file.projectName ?? '', file: file.filepath, state, duration: fileTime(file), keys, unobservable, result: resultRel, cov, covWhy, tests: JSON.stringify(testStates(file)), nearTimeout: nt, ratio: nt.ratio ?? 0, plain: plainSet.has(file.filepath), net: !!d?.net, denied: denySet.has(file.filepath) })
 }
 lap('files')
 

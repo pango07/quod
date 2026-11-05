@@ -233,6 +233,7 @@ if (dumpDir && stateDir && ws && !isPlain && !globalThis.__quod_vitest__) {
         watches: [...r.watches],
         envKept: [...r.envKept],
         unobservable: [...r.unobservable],
+        net: !!r.net,
         cov,
         covOn,
         covSkipped: !covWanted,
