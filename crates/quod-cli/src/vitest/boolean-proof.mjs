@@ -10,11 +10,14 @@ import fs from 'node:fs'
 
 const ownFile = fileURLToPath(import.meta.url)
 const plainFile = name => name?.startsWith('file:') ? fileURLToPath(name) : name
+const nativeStats = fs.Stats
+const nativeStatsPrototype = nativeStats.prototype
 const statPrototypes = []
-for (let p = fs.Stats.prototype; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+for (let p = nativeStatsPrototype; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
   statPrototypes.push({object:p, parent:Object.getPrototypeOf(p), descriptors:Object.getOwnPropertyDescriptors(p)})
 }
 function pristineStats() {
+  if (fs.Stats !== nativeStats || nativeStats.prototype !== nativeStatsPrototype) return false
   return statPrototypes.every(({object,parent,descriptors}) => Object.getPrototypeOf(object) === parent &&
     Reflect.ownKeys(object).length === Reflect.ownKeys(descriptors).length && Reflect.ownKeys(descriptors).every(k => {
       const a=descriptors[k], b=Object.getOwnPropertyDescriptor(object,k)

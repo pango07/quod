@@ -168,3 +168,10 @@ const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
   assert.ok(result.keys.includes('pj:package.json'))
   assert.equal(result.stats.statType,0)
 })
+test('replacing the Stats constructor prototype cannot retain a stale proof', () => {
+  const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfs.Stats.prototype={isFile(){return this.size>10}};
+const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
+  assert.deepEqual(query(result),[])
+  assert.ok(result.keys.includes('pj:package.json'))
+  assert.equal(result.stats.statType,0)
+})

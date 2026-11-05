@@ -2735,12 +2735,16 @@ pub(crate) fn state(
         "e" => (exists(&path()), None),
         // A proven synchronous stat helper whose result is used only by
         // native isFile/isDirectory. Follow links exactly as stat does.
-        "st" => (match fs::metadata(path()) {
-            Ok(m) if m.is_file() => "file",
-            Ok(m) if m.is_dir() => "directory",
-            Ok(_) => "other",
-            Err(_) => "unavailable",
-        }.into(), None),
+        "st" => (
+            match fs::metadata(path()) {
+                Ok(m) if m.is_file() => "file",
+                Ok(m) if m.is_dir() => "directory",
+                Ok(_) => "other",
+                Err(_) => "unavailable",
+            }
+            .into(),
+            None,
+        ),
         "d" => (listing(&path(), false), None),
         "rj" => (listing_of(&path(), true, true), None),
         "pjf" | "pjq" => {
@@ -2750,7 +2754,14 @@ pub(crate) fn state(
             } else {
                 root.join(fp)
             };
-            (if kind == "pjq" { pj_fields_query(&fp, fields, true) } else { pj_fields(&fp, fields) }, None)
+            (
+                if kind == "pjq" {
+                    pj_fields_query(&fp, fields, true)
+                } else {
+                    pj_fields(&fp, fields)
+                },
+                None,
+            )
         }
         "r" => (listing(&path(), true), None),
         "rc" => (content_tree(&path()), None),
@@ -3267,6 +3278,12 @@ fn pj_fields_query(path: &Path, fields: &str, queries: bool) -> String {
         // Unknown schemas cannot safely narrow a whole-file read.
         return blake3::hash(&bytes).to_hex().to_string();
     };
+    // JSON.parse observes syntax errors even in fields the application
+    // never subsequently reads. The raw-field scanner preserves spelling
+    // and order, but is not itself a complete JSON grammar validator.
+    if serde_json::from_slice::<serde_json::Value>(&bytes).is_err() {
+        return blake3::hash(&bytes).to_hex().to_string();
+    }
     let Some(top) = top_fields(&bytes) else {
         return blake3::hash(&bytes).to_hex().to_string();
     };
@@ -3338,7 +3355,11 @@ fn pj_fields_query(path: &Path, fields: &str, queries: bool) -> String {
         }
         h.update(b"\0");
     }
-    format!("{}:{}", if queries { "pjq" } else { "pjf" }, h.finalize().to_hex())
+    format!(
+        "{}:{}",
+        if queries { "pjq" } else { "pjf" },
+        h.finalize().to_hex()
+    )
 }
 
 /// A JSON object's top-level names and the raw text of their values, in
@@ -3831,24 +3852,68 @@ mod tests {
         assert_eq!(state(a, truth), state(b, truth));
         let values = r#"{"values":[["name"],["exports"]],"truthy":["exports"]}"#;
         assert_ne!(state(a, values), state(b, values));
-        assert_ne!(state(a, truth), state(r#"{"name":"y","exports":{}}"#, truth));
-        assert_ne!(state(a, truth), state(r#"{"name":"x","exports":null}"#, truth));
+        assert_ne!(
+            state(a, truth),
+            state(r#"{"name":"y","exports":{}}"#, truth)
+        );
+        assert_ne!(
+            state(a, truth),
+            state(r#"{"name":"x","exports":null}"#, truth)
+        );
         assert_ne!(state(a, truth), state(r#"{"name":"x"}"#, truth));
         // JavaScript's ToBoolean, including empty objects/arrays and -0.
         for value in ["{}", "[]", "true", "1", "-1", r#""x""#] {
-            assert_eq!(state(a, truth), state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth));
+            assert_eq!(
+                state(a, truth),
+                state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth)
+            );
         }
         let no = state(r#"{"name":"x","exports":null}"#, truth);
         for value in ["null", "false", "0", "-0", r#""""#] {
-            assert_eq!(no, state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth));
+            assert_eq!(
+                no,
+                state(&format!(r#"{{"name":"x","exports":{value}}}"#), truth)
+            );
         }
-        for schema in ["[]", r#"{"values":[],"unknown":[]}"#, r#"{"values":[],"truthy":{},"extra":0}"#] {
-            assert_eq!(state(a, schema), blake3::hash(a.as_bytes()).to_hex().to_string());
+        for schema in [
+            "[]",
+            r#"{"values":[],"unknown":[]}"#,
+            r#"{"values":[],"truthy":{},"extra":0}"#,
+        ] {
+            assert_eq!(
+                state(a, schema),
+                blake3::hash(a.as_bytes()).to_hex().to_string()
+            );
         }
         // A field outside serde_json's number range must retain the whole
         // manifest, including unrelated value inputs and property names.
         let huge = r#"{"name":"x","exports":1e999}"#;
-        assert_eq!(state(huge, truth), blake3::hash(huge.as_bytes()).to_hex().to_string());
+        assert_eq!(
+            state(huge, truth),
+            blake3::hash(huge.as_bytes()).to_hex().to_string()
+        );
+    }
+
+    #[test]
+    fn manifest_queries_cannot_hide_invalid_json_in_unread_fields() {
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("package.json");
+        let valid = r#"{"name":"x","exports":{},"unused":1}"#;
+        for (schema, queries) in [(r#"[["name"]]"#, false), (r#"{"values":[["name"]],"truthy":["exports"]}"#, true)] {
+            fs::write(&p, valid).unwrap();
+            let before = pj_fields_query(&p, schema, queries);
+            for invalid in [
+                r#"{"name":"x","exports":{},"unused":undefined}"#,
+                r#"{"name":"x","exports":{},"unused":1,}"#,
+                r#"{"name":"x","exports":{},"unused":[1,]}"#,
+                r#"{"name":"x","exports":{},"unused":"\q"}"#,
+            ] {
+                fs::write(&p, invalid).unwrap();
+                let after = pj_fields_query(&p, schema, queries);
+                assert_ne!(before, after);
+                assert_eq!(after, blake3::hash(invalid.as_bytes()).to_hex().to_string());
+            }
+        }
     }
 
     #[test]
