@@ -558,3 +558,5 @@ dialog.cmdk::backdrop { background: rgba(0,0,0,.6) }
 .step-versions li { display: flex; flex-wrap: wrap; gap: 4px 12px }
 @media (max-width: 720px) { .step-item, .step-repo { padding-left: 16px; padding-right: 16px } .step-line1 { align-items: flex-start } }
 .savings-sum { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--muted) }
+
+@media (max-width: 600px) { .stats.savings-stats { grid-template-columns: 1fr } }

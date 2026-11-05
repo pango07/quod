@@ -34,8 +34,10 @@ export type RunnerKind = "self-hosted" | "github-hosted";
 // ---------------------------------------------------------------- Overview
 
 export interface TeamTotals {
+  /** Whole-job comparison for the same attempts and range, including overhead. */
+  jobSavings?: JobSavings;
   range: Range;
-  /** CI minutes not waited for, because steps were replayed. */
+  /** Estimated step execution avoided before overhead, not elapsed CI time. */
   savedMinutes: number;
   stepsReplayed: number;
   stepsTotal: number;
@@ -47,6 +49,19 @@ export interface TeamTotals {
   /** Replays re-run at random and compared (about 5%). */
   spotChecks: number;
   spotChecksIdentical: number;
+}
+
+export interface JobSavings {
+  jobs: number;
+  baseline: "observed" | "estimated";
+  runnerSeconds: number;
+  baselineRunnerSeconds: number;
+  /** Sum of each job's rounded billable minutes, not rounded aggregate time. */
+  billedMinutes: number;
+  baselineBilledMinutes: number;
+  /** Null when runner rates/free allowances are unknown; zero for free runners. */
+  costUsd: number | null;
+  baselineCostUsd: number | null;
 }
 
 export interface DayMinutes {

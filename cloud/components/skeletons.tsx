@@ -2,9 +2,9 @@ import { Sk } from "@/components/ui";
 
 // Loading states that keep the shape of each screen, so nothing jumps when data lands.
 
-function StatRow({ n = 4, small }: { n?: number; small?: boolean }) {
+function StatRow({ n = 4, small, savings }: { n?: number; small?: boolean; savings?: boolean }) {
   return (
-    <div className={`stats ${small ? "sm" : ""}`}>
+    <div className={`stats ${small ? "sm" : ""} ${savings ? "savings-stats" : ""}`}>
       {Array.from({ length: n }, (_, i) => (
         <div key={i} className="card stat">
           <Sk w={110} h={13} />
@@ -56,16 +56,9 @@ export function OverviewSkeleton() {
         <Sk w={150} h={32} />
         <Sk w={300} h={36} r={8} />
       </div>
-      <StatRow />
-      <Chart />
-      <div className="split">
-        <div style={{ flex: "999 1 560px" }}>
-          <CardRows />
-        </div>
-        <div style={{ flex: "1 1 300px" }}>
-          <CardRows rows={3} h={14} />
-        </div>
-      </div>
+      <StatRow n={3} savings />
+      <div className="card" style={{padding:20}}><Sk w={120} h={16} /></div>
+      <CardRows rows={6} />
     </Busy>
   );
 }

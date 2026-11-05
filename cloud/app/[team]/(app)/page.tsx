@@ -3,100 +3,48 @@ import { LiveRefresh, LiveTotals, NowRunning } from "@/components/live/parts";
 import { GitHubStatusCard } from "@/components/github-status";
 import { QuodNote } from "@/components/section";
 import { RangeToggle } from "@/components/range-toggle";
-import { RepoTable } from "@/components/repo-table";
-import { NowRunningFold, Savings } from "@/components/savings";
-import { TestFilesLine, TestStatsCard } from "@/components/test-runs";
+import { RecentCi } from "@/components/savings-summary";
+import { overviewCi } from "@/lib/overview-ci";
 import { Dot, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { section } from "@/lib/api/section";
+import { lite } from "@/lib/savings";
+import { skippedExecution } from "@/lib/job-savings";
+import { lastUtcDays, testMinutesPerDay } from "@/lib/test-runs";
 import { requireTeam } from "@/lib/dal";
-import { checkRuns, hasTestActivity, lastUtcDays, skippedShare, spotChecksWithinWeek, statsWithRuns, testMinutesPerDay, testsByRepo } from "@/lib/test-runs";
-import { testFilesLine } from "@/lib/test-suites";
-import { formatCount } from "@/lib/format";
 import { parseRange, RANGE_FROM } from "@/lib/params";
 import { plainUi } from "@/lib/ui";
-import { lite, type TestRunLite } from "@/lib/savings";
-import { runnerRate } from "@/lib/team-settings";
 
 export const metadata = { title: "Overview" };
-
-const RANGE_DAYS = { "7d": 7, "30d": 30, "90d": 90 } as const;
-const RANGE_LABEL = { "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days" } as const;
 
 export default async function OverviewPage({ params, searchParams }: PageProps<"/[team]">) {
   const [{ team: slug }, sp] = await Promise.all([params, searchParams]);
   const range = parseRange(sp.range);
   const { team, admin } = await requireTeam(slug);
-  const [ov, activity, tests, suites, testRuns, history, rate] = await Promise.all([
-    api().getOverview(team.slug, range),
-    api().getActivity(team.slug),
-    section(api().getTestStats(team.slug)),
-    section(api().listTestSuites(team.slug)),
-    // The Repositories card's test numbers (7 days per repo); null (404/501) or down: the step columns as before.
-    section(api().listTestRuns(team.slug, { limit: 200 })),
-    // The savings: every test run of the range, plus two weeks before it for the suites' full-run times.
-    section(api().listTestHistory(team.slug, { days: RANGE_DAYS[range] + 14 })),
-    runnerRate(team.orgId),
+  const [ov, activity, ci, history, recent, testStats] = await Promise.all([
+    api().getOverview(team.slug, range), api().getActivity(team.slug), overviewCi(team, range),
+    section(api().listTestHistory(team.slug, {days:Number(range.slice(0,-1))})),
+    section(api().listTestRuns(team.slug, {limit:200})), section(api().getTestStats(team.slug)),
   ]);
-  const repoTests = testRuns.ok && testRuns.value?.length ? testsByRepo(testRuns.value, Date.parse(ov.asOf)) : undefined;
-  // Test runs: null from a server without them (404/501) or one that is down; then the card is simply not there.
-  // The server's stats count only kind "critical" runs; runs recorded inline (quod-action v2) are added from the runs read.
-  const statsAll = tests.ok && tests.value ? statsWithRuns(tests.value, testRuns.ok ? testRuns.value : null, Date.parse(ov.asOf)) : null;
-  const testStats = hasTestActivity(statsAll) ? statsAll : null;
-  const filesLine = suites.ok ? testFilesLine(suites.value) : null;
-  // Shown whenever there are test runs, whatever the step-level data says (a team may run only `quod vitest`).
-  // Spot-checks over the same 7 days as the rest, from the runs already read; without them, the stats' all-time count.
-  const spotWeek = testRuns.ok && testRuns.value?.length ? spotChecksWithinWeek(testRuns.value, Date.parse(ov.asOf)) : null;
-  // A team with test data sees test numbers; the step-level tiles stay only for teams with step data and no test data.
-  const hasTests = !!(testStats || repoTests || filesLine);
-  // The per-day chart: from test check runs when the team has any (the runs already read); step-level only otherwise.
-  const testDays =
-    testRuns.ok && testRuns.value && checkRuns(testRuns.value).length > 0
-      ? testMinutesPerDay(testRuns.value, ov.days.length ? ov.days.map((d) => d.day) : lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf)))
-      : null;
-  // Same source rule as savingsRuns below: a served /test-history wins even when empty, so the two never disagree.
-  const hasSavings = history.ok && history.value ? history.value.length > 0 : testRuns.ok && !!testRuns.value?.length;
-  const testsCard = testStats ? (
-    <TestStatsCard team={team.slug} stats={testStats} filesLine={filesLine} spotChecksWeek={spotWeek} skippedLast={testRuns.ok && testRuns.value?.length ? skippedShare(testRuns.value) : null} compact={hasSavings} />
-  ) : filesLine ? (
-    <section className="card" style={{ padding: 20 }}>
-      <TestFilesLine team={team.slug} line={filesLine} />
-    </section>
-  ) : null;
+  // A served, empty history is authoritative; fallback only for older/unavailable servers.
+  const testRuns = history.ok && history.value !== null ? history.value : recent.ok && recent.value ? recent.value.map(lite) : null;
+  const days = lastUtcDays(Number(range.slice(0,-1)), Date.parse(ov.asOf));
+  const from = Date.parse(`${days[0]}T00:00:00Z`);
+  const skipped = skippedExecution(testRuns, from, Date.parse(ov.asOf));
+  const testDays = skipped && testRuns ? testMinutesPerDay(testRuns.map(r => ({...r, timing:{...r.timing, selectMs:null}})), days) : null;
+  const execution = skipped ? {minutes:skipped.minutes, note:`Estimated skipped work, before overhead · ${skipped.measured}/${skipped.runs} test runs${history.ok && history.value !== null ? "" : " · recent 200 only"}`} : undefined;
   const base = `/${team.slug}`;
 
-  // What Quod saved: from /test-history when the server has it, else the newest 200 runs (an older server).
-  const savingsRuns: TestRunLite[] | null =
-    history.ok && history.value ? history.value.map(lite) : testRuns.ok && testRuns.value?.length ? testRuns.value.map(lite) : null;
-  const rangeDays = lastUtcDays(RANGE_DAYS[range], Date.parse(ov.asOf));
-  const savings = savingsRuns?.length ? (
-    <Savings
-      key={range}
-      team={team.slug}
-      runs={savingsRuns}
-      from={Date.parse(`${rangeDays[0]}T00:00:00Z`)}
-      asOf={ov.asOf}
-      rangeLabel={RANGE_LABEL[range]}
-      usdPerMinute={rate.usdPerMinute}
-      rateSource={rate.source}
-      defaultBranches={Object.fromEntries(ov.repos.map((r) => [r.fullName.toLowerCase(), r.protection?.branch ?? null]))}
-      source={history.ok && history.value ? "history" : "recent"}
-    />
-  ) : null;
-
   const github = activity.github;
-  if (ov.repos.length === 0) {
+  if (ov.repos.length === 0 && !skipped) {
     return (
       <div className="page">
         <h1 className="h1">Overview</h1>
         <QuodNote status={ov.quod} />
         {/* No repos yet: say how CI gets here (GitHub App), not a dead dashboard. */}
         {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
-        {savings}
         {github?.state === "linked" ? <NowRunning team={team.slug} initial={activity} /> : null}
-        {testsCard ? <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} /> : null}
-        {testsCard}
-        {testsCard ? null : github?.state === "linked" ? (
+        {github?.state === "linked" ? (
           <section className="card">
             <EmptyState
               title="No repositories yet"
@@ -131,7 +79,7 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
   const plain = await plainUi(sp);
   const paused = ov.trust.paused;
   // Repos known only from GitHub have no Quod numbers yet.
-  const quod = ov.repos.some((r) => r.hasQuodData !== false);
+  const quod = ov.repos.some((r) => r.hasQuodData !== false) || skipped !== null;
   return (
     <div className="page">
       <div className="row-between" style={{ gap: 16 }}>
@@ -151,130 +99,18 @@ export default async function OverviewPage({ params, searchParams }: PageProps<"
       {github && github.state !== "linked" ? <GitHubStatusCard link={github} admin={admin} /> : null}
       <LiveRefresh scope={{ kind: "team" }} />
       <LiveRefresh scope={{ kind: "team" }} types={["test.run"]} />
-
-      {savings}
-
-      <NowRunningFold initialCount={activity.jobs.filter((j) => j.status === "in_progress").length}>
-        <NowRunning team={team.slug} initial={activity} bare />
-      </NowRunningFold>
-
-      {savings ? null : quod || testDays ? (
-        <LiveTotals
-          key={range}
-          totals={t}
-          days={testDays ?? ov.days}
-          daysFrom={testDays ? "tests" : "steps"}
-          from={RANGE_FROM[range]}
-          reseed={!activity.simulated}
-          plain={plain}
-          tiles={!hasTests}
-        />
-      ) : hasTests ? null : (
-        <section className="card" style={{ padding: 20 }}>
-          <h2 className="h2">{plain ? "Time saved and skips" : "Time saved and replays"}</h2>
-          <p className="muted" style={{ fontSize: 14, marginTop: 6, lineHeight: 1.6 }}>
-            Appears once Quod runs in one of these repositories. Until then, this page shows their CI from GitHub as it runs.
-          </p>
-        </section>
-      )}
-
-      {testsCard}
-
-      <div className="split">
-        <section className="card" aria-labelledby="repos-h" style={{ flex: "999 1 560px", overflow: "hidden" }}>
-          <div className="card-head">
-            <h2 id="repos-h" className="h2">
-              Repositories
-            </h2>
-            <Link href={`${base}/repositories`} className="link-muted">
-              View all
-            </Link>
-          </div>
-          <RepoTable team={team.slug} repos={ov.repos} asOf={ov.asOf} tests={repoTests} />
-        </section>
-
-        {quod ? (
-        <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 16 }}>
-          <section className="card" aria-labelledby="trust-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div className="row-between">
-              <h2 id="trust-h" className="h2">
-                Trust
-              </h2>
-              <Link href={`${base}/trust`} className="link-muted">
-                Details
-              </Link>
-            </div>
-            <dl style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 14, margin: 0 }}>
-              {(plain
-                ? [
-                    ["Ready to skip or skipping", ov.trust.proven],
-                    ["Learning", ov.trust.proving],
-                    ["Re-checks with the same output", ov.trust.spotChecksPassed],
-                  ]
-                : [
-                    ["Proven steps", ov.trust.proven],
-                    ["Still proving", ov.trust.proving],
-                    ["Spot checks passed", ov.trust.spotChecksPassed],
-                  ]
-              ).map(([k, v]) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <dt className="muted">{k}</dt>
-                  <dd className="mono" style={{ margin: 0 }}>
-                    {formatCount(v as number)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {paused.length > 0 ? (
-              <Link href={`${base}/${paused[0].repoSlug}/steps/${paused[0].key}`} className="notice">
-                <Dot tone="amber" />
-                <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <span style={{ fontWeight: 500 }}>{paused.length === 1 ? "1 step paused" : `${paused.length} steps paused`}</span>
-                  <span className="soft">
-                    {paused[0].repoName} · {paused[0].job} / {paused[0].command.replace(/^npx /, "")} gave a different result on a re-check. Quod runs it every time until it is consistent
-                    again.
-                  </span>
-                </span>
-              </Link>
-            ) : (
-              <p className="muted" style={{ fontSize: 13 }}>
-                {plain ? "Nothing paused. Every re-check found the same output." : "No paused steps. Every spot check matched."}
-              </p>
-            )}
-          </section>
-          <section className="card" aria-labelledby="runners-h" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div className="row-between">
-              <h2 id="runners-h" className="h2">
-                Runners
-              </h2>
-              <Link href={`${base}/connect`} className="link-muted">
-                Add
-              </Link>
-            </div>
-            {ov.runners.length ? null : (
-              // quod-server does not list runners (they come from GitHub's jobs): point there.
-              <p className="muted" style={{ fontSize: 13 }}>
-                <Link href={`${base}/runners`} style={{ textDecoration: "underline" }}>
-                  Runners seen in your CI
-                </Link>
-              </p>
-            )}
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-              {ov.runners.map((r) => (
-                <li key={r.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <Dot tone={r.status === "running" ? "blue" : r.status === "offline" ? "dim" : "green"} />
-                    <span className="mono ellipsis">{r.name}</span>
-                  </span>
-                  <span className="faint" style={{ whiteSpace: "nowrap" }}>
-                    {r.kind === "github-hosted" ? "via quodci/setup" : `Self-hosted · ${r.status}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-        ) : null}
+      <LiveTotals key={range} totals={t} days={testDays ?? ov.days} daysFrom={testDays ? "tests" : "steps"} from={RANGE_FROM[range]} reseed={!activity.simulated} plain={plain} ci={ci} hasQuodData={quod} execution={execution} />
+      {paused.length > 0 || t.wrongReplays > 0 || (testStats.ok && (testStats.value?.wrongResults ?? 0) > 0) ? (
+        <Link href={`${base}/trust`} className="notice">
+          <Dot tone="amber" />
+          <span>A result differed during verification. Affected work runs again. View details.</span>
+        </Link>
+      ) : null}
+      <NowRunning team={team.slug} initial={activity} hideWhenEmpty />
+      <RecentCi ci={ci} />
+      <div className="row-between" style={{fontSize:14}}>
+        <Link href={`${base}/runs`} className="link-muted">All CI runs</Link>
+        <Link href={`${base}/repositories`} className="link-muted">Repositories</Link>
       </div>
     </div>
   );
