@@ -233,6 +233,10 @@ pub struct VitestArgs {
 #[derive(Serialize, Deserialize, Default)]
 struct Ledger {
     version: u32,
+    /// Recorder and key semantics that observed these dependencies. Older
+    /// records cannot supply witnesses for code that may observe more inputs.
+    #[serde(default)]
+    code: String,
     /// Dependency keys, interned: `kind:path`, paths under the root relative.
     keys: Vec<String>,
     /// Each key's state when recorded (parallel to `keys`).
@@ -261,6 +265,12 @@ struct Ledger {
     /// A full replay of this ledger as vitest printed and wrote it.
     #[serde(default)]
     render: Option<Render>,
+}
+
+fn compatible_ledger(bytes: &[u8], code: &str) -> Option<Ledger> {
+    serde_json::from_slice(bytes)
+        .ok()
+        .filter(|l: &Ledger| l.version == LEDGER_VERSION && !code.is_empty() && l.code == code)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -647,12 +657,15 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     fs::create_dir_all(&blobs)?;
     let full = a.full || std::env::var("QUOD_VITEST_FULL").is_ok_and(|v| v == "1");
     let ledger_path = dir.join("ledger.json");
-    let mut ledger: Ledger = fs::read(&ledger_path)
+    let recorder_code = code_hash();
+    let mut ledger = fs::read(&ledger_path)
         .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .filter(|l: &Ledger| l.version == LEDGER_VERSION)
-        .unwrap_or_default();
-    ledger.version = LEDGER_VERSION;
+        .and_then(|b| compatible_ledger(&b, &recorder_code))
+        .unwrap_or_else(|| Ledger {
+            version: LEDGER_VERSION,
+            code: recorder_code,
+            ..Ledger::default()
+        });
     let t_load = t0.elapsed();
     if let Some(pf) = &a.plan {
         return plan(&a, pf, &root, &dir, &ledger, full);
@@ -1826,8 +1839,11 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
 /// files, whose result Quod takes from vitest itself.
 fn absorb(root: &Path, dir: &Path, code: &Path, manifest: &Path) -> Result<u8> {
     let ledger_path = dir.join("ledger.json");
-    let mut ledger: Ledger =
-        serde_json::from_slice(&fs::read(&ledger_path).context("no ledger to absorb into")?)?;
+    let mut ledger = compatible_ledger(
+        &fs::read(&ledger_path).context("no ledger to absorb into")?,
+        &code_hash(),
+    )
+    .context("cannot absorb into a ledger from different recorder code or schema; record again")?;
     let text = fs::read_to_string(manifest)?;
     let json = &text[text.find('{').context("not a manifest")?..];
     let m: serde_json::Value = serde_json::from_str(json)?;
@@ -2143,9 +2159,15 @@ fn render_sig(l: &Ledger) -> String {
     h.finalize().to_hex().to_string()
 }
 
-/// This quod's driver code and version.
+/// The actual JS, Rust key/trust semantics, dependency versions and package
+/// version. A changed recorder must collect its own dependencies before any
+/// witness, lineage promotion or replay can trust an earlier observation.
 fn code_hash() -> String {
     let mut h = blake3::Hasher::new();
+    h.update(include_bytes!("vitest.rs"));
+    h.update(include_bytes!("../../quod-key/src/lib.rs"));
+    h.update(include_bytes!("../../../Cargo.lock"));
+    h.update(b"\0");
     for (_, s) in js() {
         h.update(s.as_bytes());
         h.update(b"\0");
@@ -4075,6 +4097,63 @@ mod tests {
     }
 
     #[test]
+    fn recorder_changes_invalidate_records_before_selection_or_witnessing() {
+        let code = code_hash();
+        let ledger = Ledger {
+            version: LEDGER_VERSION,
+            code: code.clone(),
+            files: BTreeMap::from([(
+                "trusted".into(),
+                Rec {
+                    state: "pass".into(),
+                    plain_n: 2,
+                    promotion_stamp: Some("old-recorder".into()),
+                    ..Rec::default()
+                },
+            )]),
+            ..Ledger::default()
+        };
+        let mut json = serde_json::to_value(&ledger).unwrap();
+        let decode = |v: &serde_json::Value| {
+            compatible_ledger(&serde_json::to_vec(v).unwrap(), &code)
+        };
+        assert_eq!(decode(&json).unwrap().files["trusted"].plain_n, 2);
+        json["code"] = "other-recorder".into();
+        assert!(decode(&json).is_none());
+        json.as_object_mut().unwrap().remove("code");
+        assert!(decode(&json).is_none(), "legacy ledgers must record anew");
+        json["code"] = code.clone().into();
+        json["version"] = (LEDGER_VERSION + 1).into();
+        assert!(decode(&json).is_none());
+        assert!(compatible_ledger(b"not json", "code").is_none());
+        assert!(compatible_ledger(&serde_json::to_vec(&Ledger::default()).unwrap(), "").is_none());
+    }
+
+    #[test]
+    fn absorb_rejects_incompatible_recorder_without_mutating_the_ledger() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let manifest = root.join("manifest.json");
+        fs::write(&manifest, r#"{"entries":[]}"#).unwrap();
+        let ledger_path = root.join("ledger.json");
+        for (version, code) in [
+            (LEDGER_VERSION, String::new()),
+            (LEDGER_VERSION, "old-recorder".to_string()),
+            (LEDGER_VERSION + 1, code_hash()),
+        ] {
+            let bytes = serde_json::to_vec(&Ledger {
+                version,
+                code,
+                ..Ledger::default()
+            }).unwrap();
+            fs::write(&ledger_path, &bytes).unwrap();
+            let err = absorb(root, root, &root.join("code"), &manifest).unwrap_err();
+            assert!(err.to_string().contains("different recorder code or schema"));
+            assert_eq!(fs::read(&ledger_path).unwrap(), bytes);
+        }
+    }
+
+    #[test]
     fn absorb_counts_a_resolver_package_json_as_covered() {
         // The tools read package.json field-level (`pj:`); the observer
         // sees the same file read: not a new whole-file shared input.
@@ -4086,6 +4165,7 @@ mod tests {
         fs::write(root.join("other.json"), "{}").unwrap();
         let l = Ledger {
             version: LEDGER_VERSION,
+            code: code_hash(),
             keys: vec!["pj:package.json".into()],
             states: vec![String::new()],
             idents: vec![None],
