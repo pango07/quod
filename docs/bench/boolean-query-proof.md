@@ -11,7 +11,11 @@ The packaged diagnostic exposed a compatibility gap: the old code hash
 invalidated saved full-output renders, but did not invalidate ledger records
 before witness selection. A fix now binds the whole ledger to the actual
 recorder and key semantics. It requires fresh observation after a code change;
-its remote regression gate is pending. The `ba0f05a` binary does not have this fix.
+its [remote regression gate](https://github.com/pango07/quod/actions/runs/42117764717)
+passed at `9f50dbf`: 97 CLI tests, 1 unit integration test, 15 recorder tests,
+44 proof tests and clippy. The `ba0f05a` binary does not have this fix. The
+replacement is `bin-9f50dbf`, SHA-256
+`3fda1ab2288fd56eba076aef37a825d1120f161d683aa975a8545c1c54b7f544`.
 
 The proof reads actual executed ESM source from V8 and certifies a bounded
 set of boolean language contexts. Any ordinary value reader remains keyed.
@@ -60,10 +64,27 @@ certify. The probe now uses the product's import order. The earlier matching
 test states remain valid observations, but the refined-key result does not
 prove full input coverage in the product.
 
+The [corrected short probe](https://github.com/pango07/quod/actions/runs/42118232412)
+confirms this on the unchanged convex-helpers workload: 31 root reads versus
+29 watched parses, and 41 nested-manifest reads versus 33 watched parses.
+Both manifests retain broad dependencies. This candidate therefore does not
+yet remove the c4 invalidation. No new full-window benchmark is justified by
+the current proof; the async consumer needs its own sound proof or another
+optimization must supply the remaining savings.
+
 The packaged fixture explicitly separates a bounded positive case (inline
 PostCSS options, so no async search) from the default async-search negative
 case. The negative case must execute and agree with plain after a manifest
 change. This does not alter the convex-helpers benchmark or remove its reads.
+
+The [packaged upgrade gate](https://github.com/pango07/quod/actions/runs/42118349818)
+passed recorder upgrade/downgrade/legacy-record invalidation, lineage audits
+and the names proof. Its isolated boolean positive case replayed correctly,
+but the switch-off regression exposed a second omission: the flag was emitted
+as an input, then hashed as a constant volatile environment variable. It now
+uses the same value-keyed exemption as the names-proof switch, with an
+explicit regression independent of the exemption list. The combined packaged
+gate remains pending until that correction passes.
 
 The packaged replay gate and a short paired real-job chain must pass before
 this can claim a performance improvement. The authoritative full-window

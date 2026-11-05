@@ -28,6 +28,26 @@ The after-cold-start runner-seconds bar is met. Minutes are summed after
 rounding each job upward; these public jobs actually cost $0. Time and cost
 percentages must not be added.
 
+### Runner-charge scenario at the founder's supplied rates
+
+Pricing the measured 36 plain and 21 Quod rounded minutes at the rates
+supplied on 2026-11-05 gives the following estimates for this 12-job window:
+
+| Rate scenario | Plain | Quod | Saved |
+|---|---:|---:|---:|
+| Linux 1-core x64, $0.002/min | $0.072 | $0.042 | $0.030 |
+| Linux 2-core x64, $0.006/min | $0.216 | $0.126 | $0.090 |
+| Linux 2-core arm64, $0.005/min | $0.180 | $0.105 | $0.075 |
+| Windows 2-core x64 or arm64, $0.010/min | $0.360 | $0.210 | $0.150 |
+
+Each scenario saves 41.7% of metered runner charges before credits. These
+are rate substitutions, not measurements or compatibility claims on other
+runner sizes, operating systems or architectures. The actual public jobs
+cost $0. A 45% threshold is met for runner-seconds (45.2%), but not rounded
+minutes/charges (41.7%). Do not display those two percentages as additive.
+
+### Result agreement
+
 Wrong = **0 on every c0–c11 for both variants**. All 24 comparisons matched
 their paired plain job's per-test names/states, normalized file/count
 signatures (including multiplicity), and conclusion. c0–c6 had 4,129 test

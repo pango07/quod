@@ -139,6 +139,7 @@ const VALUE_KEYED: &[&str] = &[
     "RUNNER_TEMP",
     "GITHUB_ACTION_PATH",
     "QUOD_VITEST_NAMES_PROOF",
+    "QUOD_VITEST_BOOLEAN_PROOF",
 ];
 
 #[derive(clap::Args)]
@@ -4626,7 +4627,13 @@ mod tests {
         // exemption; a truly per-run name still does.
         let none = std::sync::OnceLock::new();
         let t = tempfile::tempdir().unwrap();
-        for n in VALUE_KEYED {
+        // Explicit proof controls must participate even if an exemption is
+        // accidentally omitted from VALUE_KEYED (the packaged off-switch
+        // regression exposed exactly that omission for BOOLEAN_PROOF).
+        for n in VALUE_KEYED.iter().copied().chain([
+            "QUOD_VITEST_NAMES_PROOF",
+            "QUOD_VITEST_BOOLEAN_PROOF",
+        ]) {
             assert!(volatile_env(n), "{n} is no longer per-run in general");
             let want = std::env::var_os(n).map_or("unset".to_string(), |v| {
                 let v = yarn_stable(&v.to_string_lossy());
