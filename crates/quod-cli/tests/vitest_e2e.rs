@@ -427,6 +427,79 @@ fn a_config_reading_package_json_straight_is_keyed_by_the_fields_it_read() {
     assert_eq!(s["ran"], 3, "the field the config read changed: {s}");
 }
 
+/// Two runs with the same arguments (a render is for the same command
+/// line), every output outside the project (a new path in it is a new tree,
+/// which a render refuses): the first records and renders, the second
+/// replays every file. Returns both summaries and the second's stderr; each
+/// run's outcomes are plain vitest's.
+fn render_runs(p: &Project, t: &Path) -> (serde_json::Value, serde_json::Value, String) {
+    let report = t.join("quod.json");
+    let ledger = t.join("ledger");
+    let mut runs = Vec::new();
+    for n in 1..=2 {
+        let plain = t.join(format!("plain-{n}.json"));
+        let st = p
+            .cmd(&p.dir.join("node_modules/.bin/vitest"))
+            .args(["run", "--reporter=json"])
+            .arg(format!("--outputFile={}", plain.display()))
+            .status()
+            .unwrap();
+        assert!(st.success(), "plain vitest failed");
+        let _ = fs::remove_file(&report);
+        let summary = t.join(format!("summary-{n}.json"));
+        let out = p
+            .cmd(Path::new(env!("CARGO_BIN_EXE_quod")))
+            .arg("vitest")
+            .arg("--dir")
+            .arg(&ledger)
+            .arg("--node")
+            .arg(p.node.join("node"))
+            .arg("--summary")
+            .arg(&summary)
+            .args(["--audits", "0", "--", "run", "--reporter=json"])
+            .arg(format!("--outputFile={}", report.display()))
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(out.status.success(), "quod vitest failed:\n{err}");
+        let read = |p: &Path| -> serde_json::Value {
+            serde_json::from_slice(&fs::read(p).unwrap()).unwrap()
+        };
+        assert_eq!(outcomes(&read(&plain)), outcomes(&read(&report)), "run {n}:\n{err}");
+        runs.push((read(&summary), err));
+    }
+    let (s2, err) = runs.pop().unwrap();
+    (runs.pop().unwrap().0, s2, err)
+}
+
+#[test]
+fn a_full_hit_emits_the_render_with_a_relative_test_dir_or_root() {
+    // vitest keeps `test.dir` as written (`test`), relative to the root;
+    // the render compared it with the absolute cwd and declined ("test dir
+    // test is outside ..."), so a full hit started vitest (zustand: 1.7 s
+    // for 13 replayed files). Resolved, the second run emits.
+    let configs = [
+        ("dir", "export default { test: { dir: 'test' } }\n"),
+        ("root", "export default { root: '.', test: { dir: './test' } }\n"),
+    ];
+    for (what, config) in configs {
+        let t = tempfile::tempdir().unwrap();
+        let Some(p) = project(&t) else {
+            return;
+        };
+        fs::write(p.dir.join("vitest.config.mjs"), config).unwrap();
+        let (s1, s2, err) = render_runs(&p, t.path());
+        assert_eq!(s1["ran"], 3, "{what}: {s1}");
+        assert!(
+            s1["render"]["ms"].is_number() && s1["render"]["why"].is_null(),
+            "{what}: the recording run did not render: {s1}"
+        );
+        assert_eq!(s2["replayed"], 3, "{what}: {s2}");
+        assert_eq!(s2["fast"], true, "{what}: a full hit started vitest: {s2}\n{err}");
+        assert!(err.contains("emitted the recorded full replay"), "{err}");
+    }
+}
+
 /// The coverage outputs a CI job depends on, as written: coverage-final.json
 /// (parsed: istanbul's per-file statement, branch and function counters),
 /// lcov.info and coverage-summary.json (bytes). None when absent.
@@ -538,6 +611,8 @@ fn coverage_reports_and_thresholds_match_plain_with_replays() {
         let (pl, q, s) = run(2, &[], "1");
         assert!(pl && q, "{provider}: {s}");
         assert_eq!(s["replayed"], 4, "{provider}: {s}");
+        // Never the rendered full replay: coverage is made fresh each run.
+        assert_ne!(s["fast"], true, "{provider}: coverage emitted a render: {s}");
         // 3. math.ts changes: its three test files run (coverage: no
         //    function-level narrowing), other.test.ts replays.
         edit(&p.dir, "src/math.ts", "return a - b", "return a - b + 0");

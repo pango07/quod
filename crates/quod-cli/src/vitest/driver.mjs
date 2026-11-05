@@ -378,10 +378,17 @@ if (plan.render) {
   }
   const known = new Set(['DefaultReporter', 'VerboseReporter', 'DotReporter', 'TreeReporter', 'JsonReporter', 'JUnitReporter', 'TapReporter', 'TapFlatReporter', 'GithubActionsReporter'])
   const fileOf = { JsonReporter: 'json', JUnitReporter: 'junit' }
-  const cwdSlash = cwd.endsWith('/') ? cwd : `${cwd}/`
+  // A project's root and test dir as vitest resolves them: `dir` may be
+  // kept as written (`tests`), relative to the project's root, and a
+  // relative root is relative to the cwd.
+  const here = path.resolve(cwd)
+  const cwdSlash = here.endsWith('/') ? here : `${here}/`
+  const inside = (p) => p === here || p.startsWith(cwdSlash)
   for (const p of ctx.projects) {
-    if (p.config.root !== cwd && !p.config.root.startsWith(cwdSlash)) no(`project root ${p.config.root} is outside ${cwd}`)
-    if (p.config.dir && p.config.dir !== cwd && !p.config.dir.startsWith(cwdSlash)) no(`test dir ${p.config.dir} is outside ${cwd}`)
+    const root = path.resolve(here, p.config.root)
+    if (!inside(root)) no(`project root ${root} is outside ${here}`)
+    const dir = p.config.dir ? path.resolve(root, p.config.dir) : ''
+    if (dir && !inside(dir)) no(`test dir ${dir} is outside ${here}`)
   }
   if (ctx.config.coverage?.enabled) no('coverage is on')
   const of = ctx.config.outputFile
