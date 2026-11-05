@@ -717,7 +717,7 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
     for (pid, l) in &lines {
         let name = l.split('(').next().unwrap_or("");
         if matches!(name, "clone" | "clone3" | "fork" | "vfork")
-            && let Some(ret) = ret_of(l)
+            && let Some((_, ret)) = ret_of(l)
             && let Ok(child) = ret.trim().parse::<u32>()
         {
             parent.insert(child, (*pid, l.contains("CLONE_FS")));
@@ -764,10 +764,13 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
             continue;
         };
         let name = &l[..open];
-        let Some(ret) = ret_of(l) else {
+        let Some((end, ret)) = ret_of(l) else {
             continue;
         };
-        let args_s = &l[open + 1..l.len() - ret.len() - 4];
+        if end <= open {
+            continue;
+        }
+        let args_s = &l[open + 1..end];
         let args = split_args(args_s);
         let ok = !ret.starts_with('-') && !ret.starts_with('?');
         let ok = ok || (name == "execve" && ret.starts_with('?'));
@@ -972,9 +975,17 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
 }
 
 /// ` = <ret>` at the end of a complete line.
-fn ret_of(l: &str) -> Option<&str> {
-    let at = l.rfind(") = ")?;
-    Some(&l[at + 4..])
+fn ret_of(l: &str) -> Option<(usize, &str)> {
+    // strace pads the return value into a column: `)              = 18`.
+    let mut upto = l.len();
+    while let Some(eq) = l[..upto].rfind(" = ") {
+        let before = l[..eq].trim_end_matches(' ');
+        if before.ends_with(')') {
+            return Some((before.len() - 1, &l[eq + 3..]));
+        }
+        upto = eq;
+    }
+    None
 }
 
 /// The type a successful stat showed, if it did.
@@ -1438,8 +1449,8 @@ mod tests {
 100 getdents64(4<{r}/src>, 0x5 /* 3 entries */, 32768) = 80
 100 clone3({{flags=CLONE_VFORK|CLONE_VM, exit_signal=SIGCHLD}}, 88 <unfinished ...>
 101 chdir("sub") = 0
-101 openat(AT_FDCWD, "x.txt", O_RDONLY) = 3<{r}/sub/x.txt>
-100 <... clone3 resumed>) = 101
+101   openat(AT_FDCWD<{r}/sub>, "x.txt", O_RDONLY)  = 3<{r}/sub/x.txt>
+100   <... clone3 resumed>)              = 101
 101 execve("/usr/bin/git", ["git"], 0x1 /* 3 vars */) = 0
 100 openat(AT_FDCWD, "/usr/lib/libz.so", O_RDONLY|O_CLOEXEC) = 3</usr/lib/libz.so>
 100 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY) = 3</proc/self/maps>
