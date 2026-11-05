@@ -14,7 +14,7 @@
 //
 // What it cannot see it says: no record (or an `unobservable` reason) and
 // the file always runs.
-import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, real, syncESM, writeJson } from './record.mjs'
+import { createRecorder, patchEnv, patchEscapes, patchFs, patchLoader, real, scratch, syncESM, takeChildren, writeJson } from './record.mjs'
 import { executedFunctions, io, unmapped, unmappedSample } from './coverage.mjs'
 import nodeModule from 'node:module'
 import inspector from 'node:inspector'
@@ -79,6 +79,9 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
   const wsRoot = process.env.QUOD_VITEST_WS || null
   const r = createRecorder({ stateDir, codeDir: import.meta.dirname, mode: 'worker', wsRoot })
   globalThis.__quod_vitest__ = r
+  // A node child process this file starts is traced (child.mjs), its
+  // dumps beside this file's (QUOD_VITEST_TRACE=0: unobservable, as before).
+  if (process.env.QUOD_VITEST_TRACE !== '0' && file?.id) r.trace = { codeDir: import.meta.dirname, base: `${dumpDir}/${file.id}`, n: 0 }
   if (!off.has('fs')) patchFs(r, { sync: false })
   step('fs')
   if (!off.has('env')) patchEnv(r)
@@ -205,13 +208,14 @@ if (dumpDir && stateDir && ws && !globalThis.__quod_vitest__) {
         }
       }
       const tw = performance.now()
+      if (r.children.length) takeChildren(r)
       writeJson(`${dumpDir}/${file.id}.json`, {
         id: file.id,
         file: file.filepath,
         project: ws.ctx?.projectName ?? '',
         modules,
         keys: [...r.keys],
-        writes: [...r.writes],
+        writes: scratch(r),
         watches: [...r.watches],
         envKept: [...r.envKept],
         unobservable: [...r.unobservable],

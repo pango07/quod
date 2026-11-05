@@ -23,7 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import nodeModule from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // The originals, for Quod's own I/O (never recorded).
 export const real = {
@@ -38,6 +38,8 @@ export const real = {
 
 export const VERSION = 'quod-vitest-1'
 
+const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
+const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
 export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null }) {
@@ -60,7 +62,13 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     mode, // 'main' | 'worker'
     keys,
     writes: new Set(),
+    // paths first written while absent (scratch() drops those gone again)
+    fresh: new Set(),
     watches: new Set(),
+    // child processes traced (traceChild): the dump each must leave
+    children: [],
+    // set to trace node child processes instead of giving up on them
+    trace: null,
     // package.json files kept whole in the main process, and who read them
     pjWhole: new Map(),
     // CI-provider variables (and `*`: all of them) keyed by a read outside the tools, and who read them
@@ -122,6 +130,10 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
       // fresh CI runner). vitest's main process reads it; no test result
       // depends on it. Keyed, it made every real job a miss.
       if (r.mode === 'main' && p.endsWith('/vitest/.vitest-secret-token')) return
+      // npm's own bookkeeping (a traced npx): its debug logs, which it lists
+      // to prune, and the update notifier's stamp. New every run; no
+      // result depends on them.
+      if (NPM_OWN && (p === NPM_OWN || p.startsWith(`${NPM_OWN}/`) || p === `${NPM_HOME}/_update-notifier-last-checked`)) return
       const nm = p.lastIndexOf('/node_modules/')
       if (nm >= 0) {
         if (SKIP_NM.some((s) => p.includes(s))) return
@@ -173,7 +185,11 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     write(p) {
       if (!r.on || p == null) return
       p = norm(p)
-      if (p != null && !p.startsWith(stateDir) && !p.startsWith(codeDir)) r.writes.add(p)
+      if (p == null || p.startsWith(stateDir) || p.startsWith(codeDir)) return
+      // A path that did not exist at its first write: if it is gone again
+      // at the end, it was the process's scratch file (scratch()).
+      if (!r.writes.has(p) && !real.existsSync(p)) r.fresh.add(p)
+      r.writes.add(p)
     },
     unobs(reason) {
       if (r.on) r.unobservable.add(reason)
@@ -651,7 +667,7 @@ export function patchLoader(r) {
 const ESCAPES = {
   child_process: (m, r) => {
     for (const n of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
-      wrap(m, n, () => r.unobs('child_process'))
+      wrap(m, n, (a) => (r.trace ? traceChild(r, n, a) : r.unobs('child_process')))
     }
   },
   net: (m, r) => {
@@ -699,6 +715,168 @@ export function patchEscapes(r, { sync = true } = {}) {
     })
   } else for (const name of Object.keys(ESCAPES)) patch(name)
   wrap(globalThis, 'fetch', () => r.unobs('network'))
+}
+
+// The environment itself (not process.env, which the recorder replaces
+// with a watching proxy): what a traced child is handed.
+const realEnv = process.env
+
+// The writes that remain: a path the process created and removed again
+// (a test writing a spec file for a child to lint, then deleting it) was
+// its own scratch, not an output.
+export function scratch(r) {
+  return [...r.writes].filter((p) => !(r.fresh.has(p) && !real.existsSync(p)))
+}
+
+// A child process, traced instead of making the file unobservable when it
+// is node (a node binary, Quod's node shim, or a script whose #! line runs
+// node), started directly or by a shell from a simple command (words and
+// quotes only: no expansion, redirection or chaining). What decides which
+// program runs is keyed: the shell's binary, PATH and each directory
+// tried, the program file. The child runs with child.mjs preloaded
+// (NODE_OPTIONS), which records what it reads, as this process does, into
+// a dump of its own that this file's record takes in (setup.mjs). Anything
+// else (a native program, a shell line Quod cannot read) is unobservable,
+// as before.
+const SHELL_SAFE = /^[A-Za-z0-9_@%+=:,./'"\s-]*$/
+function words(cmd) {
+  if (!SHELL_SAFE.test(cmd)) return null
+  const out = []
+  let cur = null
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]
+    if (c === "'" || c === '"') {
+      const j = cmd.indexOf(c, i + 1)
+      if (j < 0) return null
+      cur = (cur ?? '') + cmd.slice(i + 1, j)
+      i = j
+    } else if (c === '\\') return null
+    else if (/\s/.test(c)) {
+      if (cur != null) out.push(cur)
+      cur = null
+    } else cur = (cur ?? '') + c
+  }
+  if (cur != null) out.push(cur)
+  return out.length ? out : null
+}
+function resolveProgram(r, prog, env, cwd) {
+  if (prog.includes('/')) {
+    const p = path.resolve(cwd, prog)
+    r.add('e', p)
+    return real.existsSync(p) ? p : null
+  }
+  for (const d of String(env.PATH ?? '').split(':')) {
+    if (!d) continue
+    const p = path.join(path.resolve(cwd, d), prog)
+    r.add('e', p)
+    try {
+      fs.accessSync(p, fs.constants.X_OK)
+      if (!fs.statSync(p).isDirectory()) return p
+    } catch {}
+  }
+  return null
+}
+function isNode(r, file, env, cwd) {
+  let rp
+  try {
+    rp = real.realpathSync(file)
+  } catch {
+    return false
+  }
+  r.add('f', rp)
+  if (rp === real.realpathSync(process.execPath)) return true
+  let head = ''
+  try {
+    head = real.readFileSync(rp, 'utf8').slice(0, 512)
+  } catch {
+    return false
+  }
+  if (head.includes("Quod's node shim")) return true
+  const m = /^#!\s*(\S+)(?:[ \t]+(.*))?/.exec(head)
+  if (!m) return false
+  const [interp, rest = ''] = [m[1], m[2]?.trim()]
+  if (interp.endsWith('/node')) return true
+  if (interp.endsWith('/env')) {
+    r.add('f', interp)
+    const args = rest.split(/\s+/).filter((x) => x && x !== '-S')
+    if (args[0] !== 'node') return false
+    const n = resolveProgram(r, 'node', env, cwd)
+    return n != null && isNode(r, n, env, cwd)
+  }
+  return false
+}
+function traceChild(r, name, a) {
+  if (!r.on) return
+  const fail = (why) => r.unobs(`child_process${why ? `: ${why}` : ''}`)
+  const shellCall = name === 'exec' || name === 'execSync'
+  let oi = shellCall ? 1 : Array.isArray(a[1]) ? 2 : 1
+  if (a[oi] != null && (typeof a[oi] !== 'object' || Array.isArray(a[oi]))) {
+    if (typeof a[oi] === 'function') a.splice(oi, 0, undefined)
+    else return fail('unusual arguments')
+  }
+  const opts = a[oi] ?? {}
+  const env = opts.env ?? realEnv
+  // what this process passes on: PATH decides the program
+  const PATH = opts.env ? opts.env.PATH : process.env.PATH
+  const cwd = opts.cwd ? path.resolve(String(opts.cwd)) : process.cwd()
+  let prog
+  if (name === 'fork') prog = opts.execPath ?? process.execPath
+  else {
+    let argv
+    let shell = shellCall ? (typeof opts.shell === 'string' ? opts.shell : '/bin/sh') : opts.shell ? (typeof opts.shell === 'string' ? opts.shell : '/bin/sh') : null
+    let cmd = shell ? (shellCall ? String(a[0]) : [a[0], ...(Array.isArray(a[1]) ? a[1] : [])].join(' ')) : null
+    // `sh -c <line>` spelled out (npm runs scripts and bins so)
+    const args = Array.isArray(a[1]) ? a[1] : []
+    if (!shell && /^(\/(usr\/)?bin\/)?(sh|bash|dash)$/.test(String(a[0])) && args[0] === '-c' && args.length === 2) {
+      shell = String(a[0])
+      cmd = String(args[1])
+    }
+    if (shell) {
+      argv = words(cmd)
+      if (!argv) return fail('a shell line Quod cannot read')
+      const sh = shell.includes('/') ? shell : resolveProgram(r, shell, { PATH }, cwd)
+      if (!sh) return fail('no shell')
+      try {
+        r.add('f', real.realpathSync(sh))
+      } catch {
+        return fail('no shell')
+      }
+    } else argv = [String(a[0])]
+    prog = resolveProgram(r, argv[0], { PATH }, cwd)
+    if (!prog) return fail(`${argv[0]} not found`)
+  }
+  if (!isNode(r, prog, { PATH }, cwd)) return fail(`${path.basename(prog)} is not node`)
+  const t = r.trace
+  const code = path.join(t.codeDir, 'child.mjs')
+  if (/\s/.test(code)) return fail('a space in the path of child.mjs')
+  const out = `${t.base}.c${t.n++}.json`
+  r.children.push(out)
+  const add = `--import=${pathToFileURL(code).href}`
+  a[oi] = { ...opts, env: { ...env, NODE_OPTIONS: env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ${add}` : add, QUOD_VITEST_CHILD: out } }
+}
+
+// A traced child's dump and its own children's, merged into r; false when
+// one is missing (a child still running or killed: nothing proves what it
+// read).
+export function takeChildren(r, files = r.children, depth = 0) {
+  for (const f of files) {
+    let d
+    try {
+      d = JSON.parse(real.readFileSync(f, 'utf8'))
+    } catch {
+      r.unobservable.add('child_process: a child left no record (still running, or killed)')
+      return false
+    }
+    for (const k of d.keys) r.keys.add(k)
+    for (const w of d.writes) r.writes.add(w)
+    for (const u of d.unobservable) r.unobservable.add(u)
+    if (depth > 20) {
+      r.unobservable.add('child_process: too deep')
+      return false
+    }
+    if (!takeChildren(r, d.children ?? [], depth + 1)) return false
+  }
+  return true
 }
 
 // Write JSON atomically with the unrecorded fs.

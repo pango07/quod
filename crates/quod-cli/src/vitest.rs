@@ -50,6 +50,7 @@ const RECORD: &str = include_str!("vitest/record.mjs");
 const COVERAGE: &str = include_str!("vitest/coverage.mjs");
 const PRELOAD: &str = include_str!("vitest/preload.cjs");
 const NARROW: &str = include_str!("vitest/narrow.mjs");
+const CHILD: &str = include_str!("vitest/child.mjs");
 
 /// The driver's files, as embedded; for development, a file of the same
 /// name in `QUOD_VITEST_JS_DIR` stands in for one (the bench iterates on
@@ -66,6 +67,7 @@ fn js() -> &'static [(&'static str, String)] {
             ("coverage.mjs", COVERAGE),
             ("preload.cjs", PRELOAD),
             ("narrow.mjs", NARROW),
+            ("child.mjs", CHILD),
         ]
         .into_iter()
         .map(|(name, body)| {
