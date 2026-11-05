@@ -36,7 +36,7 @@ on:
         required: false
         default: ''
       only:
-        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; bench-real only when named"
+        description: "Comma-separated jobs, or all: lint, merge-gate, bench-lite, hooks, acceptance-cli, acceptance-node, acceptance-python, cloud; bench-real and landing only when named"
         required: false
         default: all
       bench_real:
@@ -391,3 +391,60 @@ jobs:
         with:
           name: cloud-overview-preview
           path: /tmp/quod-overview-preview
+
+  # Validate and render the public site without deploying or calling its form.
+  landing:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'landing'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_CONVEX_URL: https://preview.convex.cloud
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx next typegen && npx tsc --noEmit
+      - run: npm run build
+      - name: Render desktop and mobile pages
+        run: |
+          mkdir -p /tmp/quod-landing-preview
+          npm start -- --port 3000 > /tmp/quod-landing-preview/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/ > /tmp/quod-landing-preview/home.html; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3000/under-the-hood > /tmp/quod-landing-preview/under-the-hood.html
+          for viewport in desktop mobile; do
+            size=1440,1100
+            if [ "$viewport" = mobile ]; then size=390,1000; fi
+            for section in home benchmarks setup under-the-hood; do
+              route=
+              case "$section" in
+                benchmarks|setup) route="#$section";;
+                under-the-hood) route=under-the-hood;;
+              esac
+              google-chrome --headless --no-sandbox --disable-gpu --hide-scrollbars \
+                --force-device-scale-factor=1 --window-size="$size" --virtual-time-budget=3000 \
+                --screenshot="/tmp/quod-landing-preview/$viewport-$section.png" \
+                "http://localhost:3000/$route" 2>/dev/null
+            done
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: landing-preview
+          path: /tmp/quod-landing-preview
+          retention-days: 14

@@ -1,91 +1,31 @@
-"use client";
+import { benchmark, duration } from "@/lib/benchmark";
 
-import { useEffect, useState } from "react";
-import { sleep, useInView, useReducedMotion } from "@/lib/use-in-view";
-
-type Push = "first" | "next";
-
-// A go job's steps, timed from a cli/cli run: first push executes, next push replays.
-const STEPS: { name: string; first: number; next: number; tag?: string }[] = [
-  { name: "Set up job", first: 3.1, next: 0.3 },
-  { name: "Checkout", first: 2.4, next: 0.1, tag: "reused" },
-  { name: "Set up Go", first: 14.0, next: 0.2, tag: "reused" },
-  { name: "Download modules", first: 9.6, next: 0.2, tag: "reused" },
-  { name: "Build", first: 21.4, next: 0.3, tag: "reused" },
-  { name: "go test ./...", first: 17.0, next: 0.25, tag: "reused" },
-];
-
-const fmt = (s: number) => (s < 1 ? s.toFixed(2) : s.toFixed(1)) + "s";
-
+/** Actual cumulative runner time, not an animation of hypothetical jobs. */
 export function CiJob() {
-  const [ref, inView] = useInView<HTMLDivElement>(0.4);
-  const reduce = useReducedMotion();
-  const [push, setPush] = useState<Push>("first");
-  const [done, setDone] = useState(STEPS.length);
-  const [pinned, setPinned] = useState(false);
-
-  // While in view and not pinned by a click, loop: first push, then next push.
-  useEffect(() => {
-    if (!inView || pinned || reduce) return;
-    const ctl = new AbortController();
-    (async () => {
-      for (;;) {
-        for (const p of ["first", "next"] as Push[]) {
-          setPush(p);
-          for (let i = 0; i <= STEPS.length; i++) {
-            setDone(i);
-            await sleep(p === "first" ? 620 : 170, ctl.signal);
-          }
-          await sleep(p === "first" ? 1400 : 2800, ctl.signal);
-        }
-      }
-    })().catch(() => {});
-    return () => ctl.abort();
-  }, [inView, pinned, reduce]);
-
-  const choose = (p: Push) => {
-    setPinned(true);
-    setPush(p);
-    setDone(STEPS.length);
-  };
-
-  const total = STEPS.slice(0, done).reduce((s, x) => s + (push === "first" ? x.first : x.next), 0);
   return (
-    <div className="job" ref={ref}>
-      <div className="job-head">
-        <span className="job-title">
-          test <span className="faint">/</span> go test ./...
-        </span>
-        <div className="seg" role="group" aria-label="Which push to show">
-          {(["first", "next"] as Push[]).map((p) => (
-            <button key={p} type="button" aria-pressed={push === p} onClick={() => choose(p)}>
-              {p === "first" ? "First run" : "Next run"}
-            </button>
-          ))}
+    <figure className="job benchmark-job" aria-labelledby="job-caption">
+      <figcaption className="job-head" id="job-caption">
+        <span className="job-title">convex-helpers · 12 commits</span>
+        <span className="job-label">Measured on GitHub Actions</span>
+      </figcaption>
+      <div className="comparison">
+        <p className="job-label">Total runner time, including the cold start</p>
+        <div className="comparison-row">
+          <div><span>Plain CI</span><strong>{duration(benchmark.plainSeconds)}</strong></div>
+          <div className="comparison-track" aria-hidden="true"><span style={{ width: "100%" }} /></div>
         </div>
+        <div className="comparison-row quod-row">
+          <div><span>With Quod</span><strong>{duration(benchmark.quodSeconds)}</strong></div>
+          <div className="comparison-track" aria-hidden="true">
+            <span style={{ width: `${benchmark.quodSeconds / benchmark.plainSeconds * 100}%` }} />
+          </div>
+        </div>
+        <p className="job-label">Same commits. Same test outcomes. Less repeated work.</p>
       </div>
-      <ol className="steps">
-        {STEPS.map((s, i) => {
-          const t = push === "first" ? s.first : s.next;
-          const state = i < done ? (push === "next" && s.tag ? "rep" : "done") : i === done ? "run" : "";
-          return (
-            <li key={s.name}>
-              <span className={`dot ${state}`} aria-hidden />
-              <span>
-                {s.name}
-                {i < done && push === "next" && s.tag ? <span className="tag">{s.tag}</span> : null}
-              </span>
-              <span className="t">{i < done ? fmt(t) : ""}</span>
-            </li>
-          );
-        })}
-      </ol>
       <div className="job-foot">
-        <span>
-          total <b>{fmt(total)}</b>
-        </span>
-        <span>{push === "first" ? "everything runs, Quod takes notes" : "nothing changed, results reused"}</span>
+        <span><b>{duration(benchmark.plainSeconds - benchmark.quodSeconds)}</b> of runner time saved</span>
+        <a href={benchmark.run}>View the runs ↗</a>
       </div>
-    </div>
+    </figure>
   );
 }

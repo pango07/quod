@@ -2,160 +2,106 @@ import Link from "next/link";
 import { CiJob } from "@/components/ci-job";
 import { Flow } from "@/components/flow";
 import { JoinForm } from "@/components/join-form";
-import { ManifestDemo } from "@/components/manifest-demo";
-import { Receipt } from "@/components/receipt";
-import { RunSequence } from "@/components/run-sequence";
 import { SiteFooter, SiteNav } from "@/components/site-nav";
-import { Terminal } from "@/components/terminal";
-import { TrustMeter } from "@/components/trust-meter";
 import { WorkflowDiff } from "@/components/workflow-diff";
+import { benchmark, costSaved, timeSaved } from "@/lib/benchmark";
 
 const FAQ: [string, string][] = [
-  [
-    "Is this just caching?",
-    "A cache saves files you pick. Quod skips whole steps, like your test run, and it decides by looking at every file the step actually read. You don't configure anything.",
-  ],
-  [
-    "What if it reuses a result it shouldn't?",
-    "It only reuses a result when every file the step read is exactly the same. Steps that use the network are never reused, and Quod keeps re-running a few reused steps to double-check.",
-  ],
-  [
-    "Which languages?",
-    "Go, Node and Python today. Quod watches files, not code, so more are coming.",
-  ],
-  [
-    "Where does it run?",
-    "On your own Linux machines, with your existing GitHub Actions workflows.",
-  ],
+  ["What does Quod actually skip?",
+    "Eligible Vitest test files whose recorded inputs are unchanged and whose results have been verified. Files with changed inputs still run. Dependency caching can also avoid repeat installs; experimental command replay covers selected npm scripts."],
+  ["Will my CI always be 40–50% cheaper?",
+    "That is the range we measured for runner time and estimated runner charges on convex-helpers, including its cold start. Your savings depend on what changes, test duration and how often results can be reused. First recordings, confirmations and audits add work. Individual jobs can be slower."],
+  ["What is supported?",
+    "The benchmark covers one-shot Vitest on GitHub-hosted Linux x64, using Node 24.18.0 and Vitest 5.0.0, in a monorepo with multiple test projects. We are not claiming these savings for other test frameworks, operating systems or runner architectures. Watch mode, browser mode and other unsupported command modes run normally."],
+  ["What does zero wrong replays mean?",
+    "On every commit in this benchmark, Quod matched the plain job’s per-test names and pass/fail states, test counts and job conclusion. That is zero observed differences in this window, not proof that every possible test behavior is covered. Quod also audits reused results and stops reusing records that disagree."],
+  ["Why are time savings and cost savings different?",
+    "We measured runner-seconds for time. For estimated usage cost, we rounded each job up to a full minute, as GitHub does, then compared the totals at the same per-minute rate. The public benchmark jobs were free. These are two views of the same saved work; the percentages do not add together."],
+  ["Are these the released Action’s default results?",
+    "The reported window uses an experimental Action revision with lineage witnesses and a configuration-input proof enabled. The report pins the code, settings and every job. The released v2 Action has different defaults; these numbers describe the benchmark configuration."],
 ];
 
 export default function Home() {
   return (
     <>
       <SiteNav />
-
       <main id="top">
         <section className="hero">
           <div className="hero-txt">
-            <h1>Skip the CI work you already did.</h1>
+            <p className="eyebrow">Vitest CI, with less repeated work</p>
+            <h1>Faster checks. Fewer runner minutes.</h1>
             <p className="lede">
-              If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again. Your
-              checks finish in seconds, not minutes.
+              Quod records the inputs each test file uses. When those inputs stay the same and its result is verified,
+              Quod reuses that result. Changed files still run.
             </p>
             <JoinForm source="hero" />
+            <a className="text-link" href="#benchmarks">See the measured savings ↓</a>
           </div>
           <CiJob />
         </section>
-
-        <section className="sec" id="how">
+        <section className="sec" id="benchmarks">
           <div className="sec-head">
-            <h2>How it works</h2>
-          </div>
-          <Flow />
-          <p className="more">
-            <a href="#hood">See it under the hood, in Rust</a>
-          </p>
-        </section>
-
-        <section className="sec" id="try">
-          <div className="sec-head">
-            <h2>Try it</h2>
-            <p className="lede">Change a file, run the tests, and see what Quod reuses.</p>
-          </div>
-          <Terminal id="term-try" />
-        </section>
-
-        <section className="sec" id="hood">
-          <div className="sec-head">
-            <h2>Under the hood.</h2>
+            <p className="eyebrow">Observed results · November 5, 2026</p>
+            <h2>Real jobs. Measured savings.</h2>
             <p className="lede">
-              Quod is written in Rust. Here&rsquo;s what happens on every run, with the real code. Click a stage to stop
-              and read.
+              We compared Quod with plain CI across the same 12 commits of convex-helpers.
+              The window includes the cold start, installs, builds, tests and action overhead.
             </p>
           </div>
-          <RunSequence />
-        </section>
-
-        <section className="sec split">
-          <div className="sec-head">
-            <h2>It records what your step reads.</h2>
-            <p className="lede">
-              Nobody writes down a step&rsquo;s inputs. Quod records them while it runs: every file read, every folder
-              listed, and every file it looked for and didn&rsquo;t find. Try a change and see what Quod decides.
-            </p>
-            <p className="more">
-              <Link href="/under-the-hood">Read the deep dive: the hard parts and the code</Link>
-            </p>
-          </div>
-          <ManifestDemo />
-        </section>
-
-        <section className="sec split">
-          <div className="sec-head">
-            <h2>Every skip shows its proof.</h2>
-            <p className="lede">You always see which run a result came from and which files matched.</p>
-          </div>
-          <Receipt />
-        </section>
-
-        <section className="sec split" id="safe">
-          <div className="sec-head">
-            <h2>Safe by default.</h2>
-            <ul className="points">
-              <li>It starts by only watching. Nothing is skipped until you turn it on.</li>
-              <li>A result is reused only after the step has produced it twice.</li>
-              <li>It keeps re-running a few skipped steps to make sure.</li>
-            </ul>
-          </div>
-          <TrustMeter />
-        </section>
-
-        <section className="sec" id="proof">
           <div className="proof">
-            <div>
-              <span className="big">0.25s</span>
-              <p>instead of 17s for a test step that didn&rsquo;t need to run</p>
-            </div>
-            <div>
-              <span className="big">0</span>
-              <p>wrong skips when we changed each of 29,879 files one at a time</p>
-            </div>
-            <div>
-              <span className="big">3</span>
-              <p>languages tested end to end: Go, Node and Python</p>
-            </div>
+            <div><span className="big">{timeSaved}%</span><p>less total runner time</p><p>1,766 → 968 runner-seconds</p></div>
+            <div><span className="big">{costSaved}%</span><p>lower estimated runner charges</p><p>36 → 21 rounded runner-minutes</p></div>
+            <div><span className="big">floor + {benchmark.bestHitSeconds - benchmark.bestFloorSeconds}s</span><p>best separate warm-hit job</p><p>{benchmark.bestHitSeconds}s total, against an {benchmark.bestFloorSeconds}s empty job</p></div>
+          </div>
+          <div className="benchmark-notes">
+            <p><strong>0 wrong replays observed.</strong> Every commit matched the paired plain job&rsquo;s test outcomes.</p>
+            <p>Three separate warm-hit probes had a median job duration of {benchmark.medianHitSeconds}s. They are excluded from the 12-commit totals.</p>
+            <p className="foot-note">
+              Experimental settings, one repository. Savings vary. Cost is estimated from rounded minutes at the same
+              runner rate; these public jobs cost $0. The report includes the code pins, settings and runner images.
+            </p>
+            <p className="evidence-links"><a href={benchmark.report}>Read the benchmark report ↗</a><a href={benchmark.run}>Inspect the GitHub jobs ↗</a></p>
           </div>
         </section>
-
-        <section className="sec split">
+        <section className="sec" id="how">
+          <div className="sec-head"><h2>Record. Verify. Reuse.</h2></div>
+          <Flow />
+          <p className="more"><Link href="/under-the-hood">How inputs, confirmations and audits work →</Link></p>
+        </section>
+        <section className="sec split" id="setup">
           <div className="sec-head">
-            <h2>One line to set up.</h2>
-            <p className="lede">Point your GitHub Actions job at Quod. Everything else stays the same.</p>
+            <h2>Add one Action step.</h2>
+            <p className="lede">Keep your GitHub runner, install command and Vitest tests. Add Quod after Node setup.</p>
+            <p className="foot-note">This shows the released Action. The benchmark report documents the experimental settings behind the measured savings.</p>
+            <a className="text-link" href="https://github.com/pango07/quod-action/tree/v2">Read the setup guide ↗</a>
           </div>
           <WorkflowDiff />
         </section>
-
-        <section className="sec" id="faq">
+        <section className="sec split" id="scope">
           <div className="sec-head">
-            <h2>Questions</h2>
+            <h2>Built for supported Vitest jobs.</h2>
+            <p className="lede">Start with Linux x64 on GitHub Actions. Monorepos and multiple Vitest projects are part of the measured workload.</p>
           </div>
-          <div className="faq">
-            {FAQ.map(([q, a]) => (
-              <details key={q}>
-                <summary>{q}</summary>
-                <p>{a}</p>
-              </details>
-            ))}
+          <div className="sec-head">
+            <ul className="points">
+              <li>Fresh records need verification before reuse.</li>
+              <li>Changed inputs and ineligible test files execute again.</li>
+              <li>Audits compare reused results with another execution.</li>
+              <li>Cold starts and shared configuration changes can cost more.</li>
+            </ul>
+            <a className="text-link" href={benchmark.support}>See the tested setup and current limits ↗</a>
           </div>
         </section>
-
+        <section className="sec" id="faq">
+          <div className="sec-head"><h2>Questions</h2></div>
+          <div className="faq">{FAQ.map(([q, a]) => <details key={q}><summary>{q}</summary><p>{a}</p></details>)}</div>
+        </section>
         <section className="cta" id="join">
-          <h2>Push. Prove. Done.</h2>
-          <p className="lede">We&rsquo;re letting teams in a few at a time. Join the waitlist.</p>
+          <h2>Make less work of CI.</h2>
+          <p className="lede">Join the waitlist to try Quod with your team&rsquo;s Vitest workflow.</p>
           <JoinForm source="footer" />
         </section>
       </main>
-
       <SiteFooter />
     </>
   );

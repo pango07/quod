@@ -6,12 +6,12 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Quod: Skip the CI work you already did",
+  title: "Quod: Faster Vitest CI. Fewer runner minutes.",
   description:
-    "If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again. Join the waitlist.",
+    "Reuse verified Vitest results when their inputs are unchanged. See measured savings of 45.2% in runner time and 41.7% in estimated runner charges on convex-helpers.",
   openGraph: {
-    title: "Quod: Skip the CI work you already did",
-    description: "If nothing a CI step depends on has changed, Quod reuses its last result instead of running it again.",
+    title: "Quod: Faster Vitest CI. Fewer runner minutes.",
+    description: "Measured on convex-helpers: 45.2% less runner time and 41.7% lower estimated runner charges across 12 commits, including the cold start.",
     images: ["/quod-logo.png"],
   },
 };

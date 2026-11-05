@@ -40,10 +40,10 @@ export async function joinWaitlist(_prev: JoinState, form: FormData): Promise<Jo
           subject: "You're on the Quod waitlist",
           text:
             "Thanks for joining the Quod waitlist.\n\n" +
-            "Quod skips the CI work you already did: if nothing a step depends on has changed, " +
-            "it reuses the last result instead of running it again.\n\n" +
+            "Quod reuses verified Vitest results when their recorded inputs are unchanged. " +
+            "Changed and ineligible test files still run.\n\n" +
             "We're letting teams in a few at a time and will email you when there's a spot for yours.\n\n" +
-            "See how it works: https://www.quodci.com/#hood\n",
+            "See how it works: https://www.quodci.com/#how\n",
         })
         .catch(() => undefined);
     }

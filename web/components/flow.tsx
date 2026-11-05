@@ -5,16 +5,16 @@ import { sleep, useInView, useReducedMotion } from "@/lib/use-in-view";
 
 const STEPS = [
   {
-    title: "Watch",
-    body: "Quod runs your CI step and notes every file it reads.",
+    title: "Record",
+    body: "Quod runs your tests and records the inputs used by each file, including shared configuration and loaded dependencies.",
   },
   {
-    title: "Compare",
-    body: "On your next push, it checks whether any of those files changed.",
+    title: "Verify",
+    body: "A fresh result needs confirmation before reuse. Quod compares test outcomes and checks the recorded inputs on later runs.",
   },
   {
     title: "Reuse",
-    body: "Nothing changed? You get the last result in under a second. Something changed? The step runs as usual.",
+    body: "Eligible files with unchanged inputs reuse their results. Changed and ineligible files run. Audits keep checking reused results.",
   },
 ];
 

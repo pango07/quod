@@ -127,6 +127,27 @@ main > section { max-width: 1160px; margin-inline: auto }
 .proof p { color: var(--mute); font-size: 14px }
 .foot-note { color: var(--faint); font-size: 13px; max-width: 72ch }
 
+/* Measured benchmark evidence */
+.eyebrow { color: var(--mute); font: 12px/1.5 var(--mono); letter-spacing: .025em }
+.text-link { color: var(--paper); font-size: 14px; text-underline-offset: 4px }
+.benchmark-job { margin: 0 }
+.job-label { color: var(--mute); font-size: 13px }
+.comparison { padding: 26px; display: grid; gap: 25px }
+.comparison-row { display: grid; gap: 10px }
+.comparison-row > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 16px }
+.comparison-row strong { font: 500 26px/1.2 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums }
+.comparison-track { height: 9px; border-radius: 8px; overflow: hidden; background: var(--line) }
+.comparison-track span { display: block; height: 100%; background: var(--mute) }
+.quod-row .comparison-track span { background: var(--paper) }
+.benchmark-notes { display: grid; gap: 12px; color: var(--mute); max-width: 82ch }
+.benchmark-notes strong { color: var(--paper); font-weight: 500 }
+.benchmark-notes .foot-note, .sec-head > .foot-note { color: var(--mute) }
+.evidence-links { display: flex; flex-wrap: wrap; gap: 12px 24px; color: var(--paper); font-size: 14px; text-underline-offset: 4px }
+.reading { max-width: 72ch; display: grid; gap: 18px; color: var(--mute) }
+.reading h3 { color: var(--paper); font-size: 23px; margin-top: 12px }
+.reading strong { color: var(--paper); font-weight: 500 }
+.hero.hood-hero { grid-template-columns: 1fr }
+
 /* Trust */
 .trust { margin: 8px 0 0; display: grid; gap: 20px }
 .trust dt { font-weight: 600 }
