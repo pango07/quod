@@ -90,7 +90,7 @@ if (mode) {
     if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
     if (queryProbe) booleanProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
     recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
-    if (asyncSites) asyncReads = (await import('./async-read-probe.mjs')).observeAsyncReads(recorder, project, [pkgPath, workspacePkg])
+    if (asyncSites) asyncReads = (await import('./async-read-probe.mjs')).observeAsyncReads(recorder, project, [pkgPath, workspacePkg], [recorderUrl.href])
     if (querySites) recorder.observeRead = (kind, p) => {
       if (p !== pkgPath && p !== workspacePkg) return
       const stack=new Error().stack.split('\n').slice(2,9).join('\n')
