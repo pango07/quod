@@ -8,7 +8,7 @@ export function SavingsSummary({totals, ci, hasQuodData = true}: {totals:TeamTot
   const savings = savingsSummary(totals.jobSavings);
   const timeLabel = savings ? savings.seconds < 0 ? "Extra runner time" : "Runner time saved" : hasQuodData ? "Execution avoided" : "Time saved";
   return (
-    <section aria-label="CI duration and savings" className="stats">
+    <section aria-label="CI duration and savings" className="stats savings-stats">
       <Stat label="Median CI duration" value={ci.medianSeconds === null ? "—" : formatDuration(ci.medianSeconds)}
         note={ci.measuredRuns ? `${ci.sample ? "Sample: " : ""}${formatCount(ci.measuredRuns)} recent completed workflows` : "Waiting for completed workflows"} />
       <Stat label={timeLabel} value={savings ? formatDuration(Math.abs(savings.seconds)) : hasQuodData ? formatMinutes(totals.savedMinutes) : "Measuring"}

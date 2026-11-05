@@ -33,3 +33,9 @@ with coverage and provenance, before claiming customer net savings.
 
 Changes are prepared on an experimental branch. No Cloud deployment or
 production branch update is authorized by this work.
+
+Validation: [Cloud gate](https://github.com/pango07/quod/actions/runs/42101203984)
+passed lint, Next type generation, TypeScript, the full Cloud test suite
+and production build. The separate preview gate renders the real summary
+component with illustrative data at desktop and mobile sizes; it does not
+claim to exercise an authenticated production session.

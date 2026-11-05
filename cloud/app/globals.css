@@ -160,6 +160,7 @@ p { margin: 0; text-wrap: pretty }
 
 /* Stat cards */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px }
+@media (max-width: 600px) { .stats.savings-stats { grid-template-columns: 1fr } }
 .stats.sm { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) }
 .stat { padding: 18px; display: flex; flex-direction: column; gap: 6px }
 .stat .label { font-size: 13px; color: var(--muted) }
