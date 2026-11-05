@@ -519,7 +519,17 @@ jobs:
         working-directory: test
         run: |
           set -eo pipefail
+          rm -rf "$RUNNER_TEMP/quod/vitest"
+          cat > "$RUNNER_TEMP/bench-vitest-report.cjs" <<'JS'
+          const entry = process.argv[1] || ''
+          if (/(?:^|[\/])vitest(?:\.m?js)?$/.test(entry) && process.argv.includes('run')) {
+            process.argv.push('--reporter=default', '--reporter=json', '--outputFile.json=' + process.env.BENCH_VITEST_REPORT)
+          }
+          JS
+          export NODE_OPTIONS="--require=$RUNNER_TEMP/bench-vitest-report.cjs"
+          export BENCH_VITEST_REPORT="$RUNNER_TEMP/bench-vitest-report.json"
           npm test
+          cp "$BENCH_VITEST_REPORT" /tmp/lineage-initial-report.json
           node --input-type=module -e '
             import fs from "node:fs";
             const root=process.env.RUNNER_TEMP+"/quod/vitest";
@@ -554,6 +564,13 @@ jobs:
           '
           QUOD_VITEST_LINEAGE=0 npm test 2>&1 | tee /tmp/lineage-off.log
           grep -E 'plain:' /tmp/lineage-off.log
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const states=p=>JSON.parse(fs.readFileSync(p)).testResults.flatMap(f=>f.assertionResults.map(a=>[f.name,a.fullName,a.status])).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+            const a=states("/tmp/lineage-initial-report.json"), b=states(process.env.BENCH_VITEST_REPORT);
+            if(!a.length||JSON.stringify(a)!==JSON.stringify(b))throw Error("per-test benchmark evidence missing or different");
+            console.log("Per-test benchmark evidence agrees",a.length);
+          '
       - name: Bundle artifact
         run: tar -czf /tmp/quod-action-dist.tgz dist/main dist/post
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

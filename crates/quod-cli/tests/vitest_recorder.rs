@@ -734,12 +734,18 @@ console.log(JSON.stringify({{ keys: [...r.keys], isPR: ci.default.isPR }}))
 
 #[test]
 fn caller_attribution_cache_keeps_user_frames_and_resets_across_async_boundaries() {
-    if Command::new("node").arg("--version").output().is_err() { return; }
+    if Command::new("node").arg("--version").output().is_err() {
+        return;
+    }
     let t = tempfile::tempdir().unwrap();
     let root = t.path();
-    write(&root.join("node_modules/plugin/index.cjs"), "module.exports = fn => fn('PLUGIN_');");
+    write(
+        &root.join("node_modules/plugin/index.cjs"),
+        "module.exports = fn => fn('PLUGIN_');",
+    );
     let record = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/vitest/record.mjs");
-    let script = format!(r#"
+    let script = format!(
+        r#"
 const {{ getCallSites }} = require('node:util');
 (async () => {{
   const {{ createRecorder, patchEnv }} = await import({record:?});
@@ -760,11 +766,17 @@ const {{ getCallSites }} = require('node:util');
   const before=formatted; deep(230); const deepCount=formatted-before;
   console.log(JSON.stringify({{ native: typeof getCallSites==='function', counts, deepCount, user: r.keys.has('env:PLUGIN_0') }}));
 }})();
-"#, record = record.display().to_string());
+"#,
+        record = record.display().to_string()
+    );
     let s = root.join("node_modules/vite/reader.cjs");
     write(&s, &script);
     let out = Command::new("node").arg(s).output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["user"], true, "a plugin's reads must remain inputs: {v}");
     if v["native"] == true {
@@ -772,5 +784,8 @@ const {{ getCallSites }} = require('node:util');
             assert!(n.as_u64().unwrap() > 0 && n.as_u64().unwrap() < 5, "{v}");
         }
     }
-    assert!(v["deepCount"].as_u64().unwrap() >= 20, "truncated native stacks must use the full path: {v}");
+    assert!(
+        v["deepCount"].as_u64().unwrap() >= 20,
+        "truncated native stacks must use the full path: {v}"
+    );
 }

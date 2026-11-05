@@ -82,3 +82,24 @@ A Vitest replay with a unit still executing is labeled a partial hit.
 
 No new window result is claimed here until the shipped-action regression
 and the 12-commit measurement have completed.
+
+The [full-suite CPU profile](https://github.com/pango07/quod/actions/runs/42083296107)
+measured 77.44 seconds plain and 95.15 seconds recorded with CPU profiling
+active on the recorded side. That ratio includes profiler cost. Across
+all profiled processes, Vite's `wrapCallSite`, `prepareStackTrace`, and
+`cloneCallSite` consumed 20.94 sampled CPU-seconds; Quod's `toolCaller`
+consumed another 3.98 seconds.
+
+The resulting experiment memoizes caller attribution for a complete raw
+stack within a synchronous turn. It retains the existing source-mapped
+classification on the first encounter; it does not cache environment
+values or drop observations. Script identity, location, formatter identity,
+and npm context participate. A microtask boundary clears the cache.
+Missing native frame support or a truncated stack takes the old full-stack
+path. [Node's native call-site API](https://nodejs.org/api/util.html#utilgetcallsitesframecount-options)
+provides script identities without invoking `Error.prepareStackTrace`, with
+a maximum of 200 frames; hitting that limit deliberately disables caching.
+A separate full-suite cached/uncached pair compares every test name and
+state without the CPU profiler before this optimization can ship.
+
+The paired full-suite cache experiment ([42085242039](https://github.com/pango07/quod/actions/runs/42085242039)) measured 88.511 s uncached versus 82.298 s cached on one runner, a 6.213 s / 7.0% reduction. All individual test states agreed. One pair is directional evidence, not a population claim. The matching Rust regressions, unit integration test and clippy passed in [42085237197](https://github.com/pango07/quod/actions/runs/42085237197).
