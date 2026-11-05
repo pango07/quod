@@ -279,7 +279,9 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     let text = fs::read_to_string(&trace).map_err(|e| format!("its trace is unreadable: {e}"));
     let _ = fs::remove_file(&trace);
     let ignore = IGNORE.get_or_init(|| Ignore::new(&root, &a.dir));
-    let made = text.and_then(|text| parse(&text, &cwd)).and_then(|t| keyer(&root, &t, ignore));
+    let made = text
+        .and_then(|text| parse(&text, &cwd))
+        .and_then(|t| keyer(&root, &t, ignore));
     match made {
         Err(why) => {
             eprintln!("quod: {name} always runs from now on: {why}");
@@ -378,7 +380,10 @@ fn save(p: &Path, l: &Ledger, mark: Option<&Path>) -> anyhow::Result<()> {
 /// A missing or corrupt blob is unavailable evidence, never empty output.
 fn read_blob(dir: &Path, hash: &str) -> anyhow::Result<Vec<u8>> {
     let bytes = fs::read(dir.join(hash)).context("missing recorded blob")?;
-    anyhow::ensure!(blake3::hash(&bytes).to_hex().as_str() == hash, "corrupt recorded blob");
+    anyhow::ensure!(
+        blake3::hash(&bytes).to_hex().as_str() == hash,
+        "corrupt recorded blob"
+    );
     Ok(bytes)
 }
 
@@ -466,8 +471,12 @@ fn cross_env(records: &mut [Rec], q: &mut Rec, blobs: &Path) -> Option<Result<St
         Some("its outputs".to_string())
     } else {
         let text = (|| -> anyhow::Result<_> {
-            Ok((read_blob(blobs, &p.stdout)?, read_blob(blobs, &p.stderr)?,
-                read_blob(blobs, &q.stdout)?, read_blob(blobs, &q.stderr)?))
+            Ok((
+                read_blob(blobs, &p.stdout)?,
+                read_blob(blobs, &p.stderr)?,
+                read_blob(blobs, &q.stdout)?,
+                read_blob(blobs, &q.stderr)?,
+            ))
         })();
         let (po, pe, qo, qe) = match text {
             Ok(text) => text,
@@ -1272,15 +1281,20 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 let (p, mode, flags) = if name == "access" {
                     (path0().map(|p| join(&here, &p)), args.get(1), "0")
                 } else {
-                    (args.get(1).and_then(|p| unquote(p)).map(|p| at(&args[0], &p)),
-                     args.get(2), args.get(3).map_or("0", String::as_str))
+                    (
+                        args.get(1)
+                            .and_then(|p| unquote(p))
+                            .map(|p| at(&args[0], &p)),
+                        args.get(2),
+                        args.get(3).map_or("0", String::as_str),
+                    )
                 };
                 let kind = access_kind(mode.map_or("", String::as_str), flags)?;
                 let p = p.ok_or("an access path was not decoded")?;
                 push(p, Op::Stat, ok, Some(kind));
             }
-            "stat" | "lstat" | "stat64" | "lstat64" | "readlink" | "statfs"
-            | "getxattr" | "lgetxattr" | "listxattr" | "llistxattr" => {
+            "stat" | "lstat" | "stat64" | "lstat64" | "readlink" | "statfs" | "getxattr"
+            | "lgetxattr" | "listxattr" | "llistxattr" => {
                 if let Some(p) = path0() {
                     let kind = stat_kind(&args);
                     push(join(&here, &p), Op::Stat, ok, kind);
@@ -1991,7 +2005,10 @@ mod tests {
     fn native_access_queries_keep_their_permission_mode_even_inside_packages() {
         let t = tempfile::tempdir().unwrap();
         let root = t.path();
-        let text = format!("123 faccessat2(AT_FDCWD, \"{}/node_modules/tool/bin\", X_OK, AT_EACCESS) = 0\n", root.display());
+        let text = format!(
+            "123 faccessat2(AT_FDCWD, \"{}/node_modules/tool/bin\", X_OK, AT_EACCESS) = 0\n",
+            root.display()
+        );
         let trace = parse(&text, root).unwrap();
         let (keys, _) = keyer(root, &trace, &Ignore::new(root, &root.join(".quod"))).unwrap();
         assert!(keys.iter().any(|(k, _)| k == "ae1:node_modules/tool/bin"));
@@ -2024,7 +2041,13 @@ mod tests {
         let cwd = Path::new("/work");
         assert!(parse("", cwd).is_err());
         assert!(parse("strace: write error", cwd).is_err());
-        assert!(parse("123 openat(AT_FDCWD, \"input\", O_RDONLY <unfinished ...>\n", cwd).is_err());
+        assert!(
+            parse(
+                "123 openat(AT_FDCWD, \"input\", O_RDONLY <unfinished ...>\n",
+                cwd
+            )
+            .is_err()
+        );
         assert!(parse("123 +++ exited with 0 +++\n", cwd).is_err());
     }
 

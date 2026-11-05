@@ -2549,22 +2549,23 @@ pub(crate) fn state(
         ),
         "envall" => (envall.get_or_init(|| env_all(false)).clone(), None),
         "envtool" => (env_all(true), None),
-        k if k.strip_prefix("ae").or_else(|| k.strip_prefix('a'))
-            .is_some_and(|mode| mode.len() == 1 && matches!(mode.as_bytes()[0], b'0'..=b'7')) => {
+        k if k
+            .strip_prefix("ae")
+            .or_else(|| k.strip_prefix('a'))
+            .is_some_and(|mode| mode.len() == 1 && matches!(mode.as_bytes()[0], b'0'..=b'7')) =>
+        {
             let effective = k.starts_with("ae");
-            let mode = i32::from(k.as_bytes()[k.len() - 1] - b'0');
-            let p = path();
-            let result = match std::ffi::CString::new(p.as_os_str().as_encoded_bytes()) {
-                Ok(p) => {
-                    // SAFETY: p is a NUL-terminated path; the mode/flags
-                    // are validated constants. This only queries access.
-                    let rc = unsafe { libc::faccessat(libc::AT_FDCWD, p.as_ptr(), mode,
-                        if effective { libc::AT_EACCESS } else { 0 }) };
-                    if rc == 0 { "ok".into() } else {
-                        format!("errno:{}", std::io::Error::last_os_error().raw_os_error().unwrap_or(-1))
-                    }
-                }
-                Err(_) => "invalid-path".into(),
+            let mode = u32::from(k.as_bytes()[k.len() - 1] - b'0');
+            let flags = if effective {
+                rustix::fs::AtFlags::EACCESS
+            } else {
+                rustix::fs::AtFlags::empty()
+            };
+            let result = match rustix::fs::accessat(
+                rustix::fs::CWD, path(), rustix::fs::Access::from_bits_retain(mode), flags,
+            ) {
+                Ok(()) => "ok".into(),
+                Err(e) => format!("errno:{}", e.raw_os_error()),
             };
             (result, None)
         }
@@ -3093,7 +3094,11 @@ fn pj_fields(path: &Path, fields: &str) -> String {
         let mut found = true;
         for name in path {
             let next = top_fields(value).and_then(|fields| {
-                fields.into_iter().rev().find(|(k, _)| k == name).map(|(_, v)| v)
+                fields
+                    .into_iter()
+                    .rev()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v)
             });
             match next {
                 Some(v) => value = v,

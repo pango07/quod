@@ -26,6 +26,8 @@ blake3.workspace = true
 clap.workspace = true
 # umount2, for the sweep of what a killed run left mounted (state.rs).
 libc.workspace = true
+# Safe permission/ACL queries for replay input keys (vitest.rs).
+rustix.workspace = true
 # The rootfs document and import record are serde types (rootfs.rs).
 serde.workspace = true
 serde_json.workspace = true

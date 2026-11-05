@@ -462,7 +462,9 @@ console.log(JSON.stringify({ straight, variable: pj(settledKeys(r)), names: m.na
     };
     assert_eq!(
         v["straight"],
-        serde_json::json!(["pjf:package.json\u{0}[[\"dependencies\",\"zod-4.1\"],[\"dependencies\"]]"]),
+        serde_json::json!([
+            "pjf:package.json\u{0}[[\"dependencies\",\"zod-4.1\"],[\"dependencies\"]]"
+        ]),
         "{v}"
     );
     assert_eq!(v["variable"], serde_json::json!(["f:package.json"]), "{v}");
@@ -474,11 +476,16 @@ fn access_queries_keep_permissions_separate_from_package_identity() {
     let t = tempfile::tempdir().unwrap();
     let root = t.path();
     write(&root.join("node_modules/tool/bin"), "not executable");
-    let Some(v) = main_recorder(root, r#"
+    let Some(v) = main_recorder(
+        root,
+        r#"
 const fs = req('node:fs')
 try { fs.accessSync('node_modules/tool/bin', fs.constants.X_OK) } catch {}
 console.log(JSON.stringify([...r.keys].filter(k => k.startsWith('a1:')).map(k => k.replace(process.cwd() + '/', ''))))
-"#) else { return; };
+"#,
+    ) else {
+        return;
+    };
     assert_eq!(v, serde_json::json!(["a1:node_modules/tool/bin"]));
 }
 
@@ -486,21 +493,36 @@ console.log(JSON.stringify([...r.keys].filter(k => k.startsWith('a1:')).map(k =>
 fn dependency_values_are_inputs_even_when_the_package_is_not_loaded() {
     let t = tempfile::tempdir().unwrap();
     let root = t.path();
-    write(&root.join("package.json"), r#"{"devDependencies":{"unloaded":"1"}}"#);
-    write(&root.join("cfg/names.mjs"),
-        "import {readFileSync} from 'node:fs'\nconst pkg = JSON.parse(readFileSync('package.json', 'utf8'))\nexport const value = Object.keys(pkg.devDependencies)\n");
-    write(&root.join("cfg/value.mjs"),
-        "import {readFileSync} from 'node:fs'\nconst pkg = JSON.parse(readFileSync('package.json', 'utf8'))\nexport const value = pkg.devDependencies.unloaded === '1' ? 'suite-a' : 'suite-b'\n");
-    let Some(v) = main_recorder(root, r#"
+    write(
+        &root.join("package.json"),
+        r#"{"devDependencies":{"unloaded":"1"}}"#,
+    );
+    write(
+        &root.join("cfg/names.mjs"),
+        "import {readFileSync} from 'node:fs'\nconst pkg = JSON.parse(readFileSync('package.json', 'utf8'))\nexport const value = Object.keys(pkg.devDependencies)\n",
+    );
+    write(
+        &root.join("cfg/value.mjs"),
+        "import {readFileSync} from 'node:fs'\nconst pkg = JSON.parse(readFileSync('package.json', 'utf8'))\nexport const value = pkg.devDependencies.unloaded === '1' ? 'suite-a' : 'suite-b'\n",
+    );
+    let Some(v) = main_recorder(
+        root,
+        r#"
 const fields = () => [...settledKeys(r)].filter(k => k.startsWith('pjf:')).map(k => JSON.parse(k.split('\0')[1]))
 await import('./cfg/names.mjs')
 const names = fields()
 r.keys.clear(); r.pjReads.clear(); r.pjParsed.clear(); r.pjUse.clear()
 const m = await import('./cfg/value.mjs')
 console.log(JSON.stringify({names, values: fields(), choice: m.value}))
-"#) else { return; };
+"#,
+    ) else {
+        return;
+    };
     assert_eq!(v["names"], serde_json::json!([[["devDependencies"]]]));
-    assert_eq!(v["values"], serde_json::json!([[["devDependencies", "unloaded"], ["devDependencies"]]]));
+    assert_eq!(
+        v["values"],
+        serde_json::json!([[["devDependencies", "unloaded"], ["devDependencies"]]])
+    );
     assert_eq!(v["choice"], "suite-a");
 }
 

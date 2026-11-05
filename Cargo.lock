@@ -1496,6 +1496,7 @@ dependencies = [
  "quod-server",
  "quod-trust",
  "quod-wire",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
