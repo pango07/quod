@@ -120,13 +120,13 @@ const STEP_VOLATILE: &[&str] = &[
     "_",
 ];
 
-/// Per-run in general (quod_key's VOLATILE), but a fixed path on a hosted
-/// runner: a read is keyed by its value, as any variable's (a runner where
-/// it differs is a miss, never a wrong replay). npm reads
+/// Per-run in general (quod_key's VOLATILE and DENYLIST), but a fixed path
+/// on a hosted runner: a read is keyed by its value, as any variable's (a
+/// runner where it differs is a miss, never a wrong replay). npm reads
 /// GITHUB_EVENT_PATH in every npx a test starts (convex-helpers'
-/// openApiSpec.test.ts, `npx redocly lint`); the file's content, if read,
-/// is keyed as a file.
-const VALUE_KEYED: &[&str] = &["GITHUB_EVENT_PATH"];
+/// openApiSpec.test.ts, `npx redocly lint`); a file's content, if read, is
+/// keyed as a file.
+const VALUE_KEYED: &[&str] = &["GITHUB_EVENT_PATH", "RUNNER_TEMP", "GITHUB_ACTION_PATH"];
 
 #[derive(clap::Args)]
 pub struct VitestArgs {
@@ -1306,14 +1306,19 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         // that copies the whole environment into its context (edge-runtime)
         // reads them all, and that kept 88 of class-management's backend
         // files from ever recording.
-        if let Some(v) = keys.iter().find_map(|k| {
-            k.strip_prefix("env:").filter(|n| {
-                volatile_env(n)
-                    && !STEP_VOLATILE.contains(n)
-                    && !VALUE_KEYED.contains(n)
-                    && !n.starts_with("QUOD_")
+        let per_run: Vec<&str> = keys
+            .iter()
+            .filter_map(|k| {
+                k.strip_prefix("env:").filter(|n| {
+                    volatile_env(n)
+                        && !STEP_VOLATILE.contains(n)
+                        && !VALUE_KEYED.contains(n)
+                        && !n.starts_with("QUOD_")
+                })
             })
-        }) {
+            .collect();
+        if !per_run.is_empty() {
+            let v = per_run.join(", ");
             *unobservable
                 .entry(format!("reads the per-run variable {v}"))
                 .or_default() += 1;
