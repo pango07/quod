@@ -147,6 +147,7 @@ if (mode) {
     const proof = recorder ? {
       stats: namesProof?.stats,
       manifestKeys: [...settledKeys(recorder)].filter(k => [pkgPath,workspacePkg].some(p=>k.endsWith(`:${p}`) || k.includes(`:${p}\0`))),
+      metadataKeys: querySites ? [...settledKeys(recorder)].filter(k => /^(sm|sl|st):/.test(k)).sort() : undefined,
       readCounts: queryProbe ? [pkgPath,workspacePkg].map(p=>({path:path.relative(project,p),reads:recorder.pjReads.get(p),parsed:recorder.pjParsed.get(p)})) : undefined,
       readSites: querySites ? [...readSites].map(([key,count])=>({site:JSON.parse(key),count})) : undefined,
       resolverReads: resolverProbe ? [...recorder.pjUse].filter(([p]) => !p.includes('/node_modules/'))
