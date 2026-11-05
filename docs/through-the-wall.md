@@ -786,3 +786,116 @@ input varied, the environment among them. `VERSION` stays 3.
 hits; 413/770 = 0.54x steady, 583/880 = 0.66x. The two traced runs
 remain; only eBPF (B1) makes them cheap. 0.50x is A2-for-units and A1,
 not the image.
+
+## Addendum E (2026-11-05, after exp/whole-job-d2 c0f55ad, run 42048941374): a miss cluster's second witness is the predecessor it agrees with
+
+Read: `vitest.rs` `can_plain` (:634), the provisional branch (:686–697),
+`prev` (:1204), the plain-witness branch (:1232–1292), the record made
+(:1386–1416), the witness settled (:1484–1533); `unit.rs` `cross_env`
+(:398–456) and its call (:319); the quod-ts job logs of c0–c8; the twelve
+commits in get-convex/convex-helpers.
+
+Measured. quod-ts 1103 runner-s against plain 1777 (0.62x); c1–c11 910
+against 1606 (0.57x); c2–c11 786 against 1509 (0.52x). The commits: c0 a
+zod4 fix, c1 CHANGELOG, c2 the release scripts (`test:release` is born),
+c3 version, c4 `exports`, c5 a workspace package.json deleted, c6 version
+and lockfile, c7–c8 openApiSpec, c9 cors, c10–c11 chalk and commander.
+Where the runner-seconds above a hit job (32–42 s) went:
+
+| | runner-s | what |
+|---|---|---|
+| c0 | 193 | the first run; recorded 112 s against plain 101 |
+| c1 | 124 | 120 plain second witnesses (99 s): the cold start, once per repo |
+| c4, c5 | 177, 173 | two full misses; recorded 110 and 111 s against plain 86 and 49 (plain's median of 12: 85) |
+| c6 | 118 | 119 plain second witnesses of c5's records (69 s), `test:release` re-traced (22 s) |
+| c2, c3, c4, c6 | 4 × 11 | `test:release` traced at 22 s against 11 plain (C3) |
+| 12 jobs | 77 | the action step (30) and post (47; 7–9 s after a miss) above plain's fixed 15 |
+
+The cluster's witness cost is c6: 69 s. Of the 215 s to 0.50x it is a
+third; the rest is named in E4.
+
+### E1. Decision: the lineage witness (vitest)
+
+Q is the record this run made of file F; P is the record it replaces
+(`prev`, :1204). When P is trusted by a plain run (`P.w.n ≥ bar`,
+`P.plain_n ≥ 1`), `Q.deps == P.deps` (one read set: every path, package,
+listing and variable name; only states differ), `Q.w.tests == P.w.tests`,
+the facts held, Q passed or skipped, no test near its timeout, not
+quarantined, not networked: `Q.w.n = 2`, `Q.lineage = stamp` (this
+run's), `Q.plain_n = 0`. Where :1529 now says "a new key: its first witness".
+
+The standard is D2's: three runs of one read set on two or more VMs,
+every unseen input varied; the input whose state differs is a seen one,
+and its change reached no test name, state or read. A flake gets one draw
+fewer, as D2 accepted. A near-timeout Q waits for a plain run as today.
+
+Given up: the plain run at the new state was also Quod's only
+in-production check of its recorder on a changed input (a stale `pjf:`
+accessor). Keep a sample: of the `lineage` records that would replay,
+ceil(n/8) by hash of (id, stamp) run plain (`plain_files`, the :680
+shape). Agreeing clears `lineage`. Disagreeing quarantines the file, as
+today, and sets every record with that stamp back to `n = 1`: a recorder
+fault hits many files and is caught with 1 − (7/8)^k.
+
+Expected this window: c4's and c5's records trusted as made; c6's 119
+plain runs become 15 (69 → ~10 s), the job 118 → ~60: −58 runner-s.
+
+### E2. Decision: units, D2 over any input
+
+`cross_env` compares the key set with the environment's three names
+dropped. Drop nothing: P is any kept record whose key *names* are Q's
+(`keys.iter().map(|k| &k.0)`), the comparison as it is (exit, every
+output, stdout and stderr through `disagree`), both `witnesses = 2`, the
+report naming the keys whose states differ. D2's sentence holds word for
+word: two traced runs on two VMs, one read set, every unseen input varied,
+now a seen one among them.
+
+The text decides what the trace cannot. `npm run` prints
+`> convex-helpers@0.1.132 test:release` into the unit's stdout (job
+42050387361, line 450), so c3's and c6's version bumps are not
+lineage-trusted and must not be: the output changed. c4's `exports` change
+is (the banner is the same), so c5's plain witness of `test:release`
+(11 s) is a hit. −11 this window.
+
+Seen in passing: `build`'s `d:node_modules` state differs between the two
+images (c3, c6: `npm ci skipped`, the tree restored), which keeps D2 from
+firing for `build` on a pure roll (c8's `test:release` fired). Find the
+name that differs.
+
+### E3. Rulings on the candidates
+
+**(a) A concurrent plain run in the miss job: rejected twice.** The
+recorded run is 110 s on four vCPUs vitest already fills; a plain run is
+50–100 s of the same cores, so the job grows by most of it, +60–90 s at
+each of c4 and c5, to save 58 at c6. And the same VM varies none of the
+ignored inputs (`/tmp`, the API token, the per-run variables), which is
+what the second VM audits: weaker and dearer. The second form (witness
+only when the file needed to run anyway) is "never promote": a file that
+must run has a changed input, so a different key, so it cannot witness
+the old record.
+
+**(b) Field-level package.json for units: unsound, and shown so by this
+window.** A hook can refine the state of a key the trace saw only if it
+accounts for every reader of the file in that process; npm reads
+package.json whole and prints `version` (E2), node's resolver reads
+`type` and `exports` in C++, `node --run` reads `scripts` there. A field
+key that masked `version` would replay `0.1.132` at `0.1.133`. A2's mask
+stands because its exclusion (the package was never loaded) is in the
+trace. c3's and c6's re-traces are right; only their price (22 s against
+11) is not, and that is (c).
+
+**(c) eBPF: third, not now.** 44 s this window; 3–5 days with the BTF
+risk B1 named. The trace/keyer boundary keeps it a drop-in.
+
+### E4. The ledger after E, and the order
+
+E1 and E2: 1103 → ~1034 (0.58x); c1–c11 0.52x; c2–c11 717/1509 = 0.48x.
+Left above the floor, each with its number: the cold start (c1, 100 s,
+once per repo, no predecessor to agree with); the fixed 77 s (post 7–9 s
+after a miss is the ledger upload: ≤ 2 s per job is −50); recording at
+110–112 s against plain's 85 on c0, c4, c5 (section 2's ≤ 1.05x is worth
+~60; measure first: Quod's own plain-mode runs took 99 s at c1 and 69 s at
+c6 on the same inputs); strace, 44. Order: E1, E2 (a day together), the
+fixed seconds, section 2, then (c). ≤ 0.50x on a window that holds a cold
+start and two full misses needs all four (~880/1777); the steady state
+reaches 0.48x on E alone and ~0.40x with the next two.
