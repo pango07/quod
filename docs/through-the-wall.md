@@ -230,3 +230,81 @@ tuning the window.
   file (ENOTFOUND instead of a hang); a test that *passes* only because of
   the fast failure still passes plain, and a test that fails is
   unrecordable: the asymmetry is safe.
+
+## Addendum (2026-11-05, after S1, run 41968463523): timing-dependent tests, devDependency bumps, the honest floor
+
+### A1. Tests whose plain outcome is timing-dependent
+
+`stream.property.test.ts`'s slowest test runs 11.3–25.6 s of a 30 s timeout
+in plain vitest (median 0.69, one run 0.91). Plain itself cannot reproduce
+its own result; "wrong against plain" is then a comparison with a random
+variable. The options:
+
+- **(a) keep 0.5; the file always runs.** Convex hit job ≥ 60–120 s;
+  the product does not exist on this repo. No risk.
+- **(b) the timeout is environment.** With every input unchanged the test's
+  computation is identical; only the machine differs. Two plain witnesses
+  proved the code passes; replay the pass and print
+  `timing-sensitive: passed at 0.69 of its timeout when recorded`.
+  Convex: the file replays on every hit (test step → render). Risk, the
+  mistral case (0.46, later timed out under load): plain would have been red
+  that day, Quod green with a label. Nothing about the code changed, so the
+  green is the answer the code deserves; what is hidden is the runner's load.
+- **(c) re-run plain only when inputs change.** That is (b): any changed
+  input already runs the file.
+- **(d) (b) plus a fixed audit.** Timing-sensitive files are replayed, and one
+  in N hits (N = 5) runs the file plain as an audit (the existing audit
+  path, `--audits`, today only when workers are idle); a timeout in the
+  audit quarantines the file until it re-proves. Convex: 4 of 5 hits replay,
+  1 of 5 pays 98 s. Window runner-seconds at 6/12 hits ≈ 0.55x against
+  0.49x for (b).
+
+**Recommendation: (b), with (d)'s audit as a per-repo switch, off by
+default**, and the label in the report and the check summary. The founder
+decides one sentence: *is Quod's contract "the result these inputs
+deserve, proven twice" or "what plain would have printed on this run"?*
+The second is not computable (0.38–0.91 on identical inputs), and choosing
+it means (a). The timing-sensitive label keeps the first honest: the user
+sees which green results rest on a run that was once near its timeout.
+
+### A2. A devDependency bump must not invalidate every file
+
+Two shared inputs do it today: `p:node_modules/chalk` (in vitest's package
+closure, docs/vitest.md:56-60) and the `devDependencies` field of
+`package.json` (read by tool code, keyed as a field). The sound line:
+
+1. **Split vitest's closure into main-process and worker.** Reporters, the
+   CLI and their dependencies (chalk, commander, cac, tinyrainbow) load only
+   in vitest's main process and shape output, not results. A package in the
+   closure is a shared input only if a worker loads it before the setup
+   file: compute that set statically from vitest's worker entries
+   (`node_modules/vitest/dist/workers/*.js`, their import graph, plus the
+   environment package: jsdom) and key those packages for every file; the
+   rest are keyed only through the render (the printed text they produced).
+   A chalk bump re-renders nothing wrong: the recorded output is the old
+   output, and vitest's own version is keyed.
+2. **A manifest entry is an input of a file iff that package is in the
+   file's graph or in the worker set.** Key `dependencies`/`devDependencies`
+   per entry, joined with the module graph (`p:` keys), not as a whole field.
+   A bump of a package no file imports changes no key.
+3. The lockfile stays out (docs/vitest.md:55-63); the install still runs
+   (`npm ci`, 12–18 s), because the tree really changed. Later (S7, weeks):
+   materialize the new tree from the lockfile out of the CAS (every blob of
+   the previous tree is in the store) in ~2 s instead of `npm ci`.
+
+Convex: the two renovate commits go from full re-runs to install-only
+misses; the window's miss cost drops by ~2 × 100 s of test time.
+
+### A3. Is ≤ 16 s reachable on convex?
+
+Per step on a hosted runner, hit job, after S2–S5 (measured ranges from the
+jobs API, not targets): queue 2–3 (wall only), Set up job 1–3, checkout 1–2,
+`setup-node` 4–5 (Node 24.18 download; a customer step), action main
+0.5–1, `npm ci` answered 0.3, build answered 0.3, test (npm start + render)
+0.5, `test:release` answered 0.3, post 0.3, runner bookkeeping between
+steps 2–4. **Sum: 13–19 s wall from job start, 1 billed minute.** ≤ 16 s
+happens on the low side of GitHub's own variance (a 4 s `setup-node`, 2 s
+of bookkeeping), not by design. The honest target is **floor + 2 s, with
+the floor at 12–16 s on this image**; state ≤ 20 s as the pass mark and
+report the floor beside it. Runner-seconds on hits ≈ 0.08x; the window
+needs misses at ≈ 1.0x (S6) or ≥ 56% hits to reach ≤ 0.5x.
