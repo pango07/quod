@@ -254,6 +254,10 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     fs::create_dir_all(&udir)?;
     let trace = udir.join("trace.log");
     let _ = fs::remove_file(&trace);
+    // Made here, writable by anyone: as root, bubblewrap maps the sandbox's
+    // user to another, which could not create a file in a root-owned dir.
+    fs::write(&trace, b"")?;
+    fs::set_permissions(&trace, fs::Permissions::from_mode(0o666))?;
     let cmd = sandboxed(&bwrap, &cwd, &a.argv, Some(&trace));
     let (code, out, err) = run_captured(&cmd, &[("UV_USE_IO_URING", "0")])?;
     let t1 = Instant::now();
