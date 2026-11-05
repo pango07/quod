@@ -1032,7 +1032,23 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     } else {
         None
     };
-    let status = without_credentials(&mut Command::new(&a.node))
+    // A run that is all plain witnesses, some of which must run with no
+    // network: in a network namespace of its own (loopback only), so the
+    // denial holds for native code too. Else the denial is in-process
+    // (deny.mjs) for those files and their node children.
+    let netns = plan["hooks"] == serde_json::json!(false)
+        && plan["deny"].as_array().is_some_and(|d| !d.is_empty())
+        && bwrap_net_ok();
+    let mut cmd = if netns {
+        eprintln!("quod vitest: the plain witnesses run in a network namespace (no network)");
+        let mut c = Command::new("bwrap");
+        c.args(["--dev-bind", "/", "/", "--unshare-net", "--die-with-parent", "--"])
+            .arg(&a.node);
+        c
+    } else {
+        Command::new(&a.node)
+    };
+    let status = without_credentials(&mut cmd)
         .env("QUOD_VITEST_HIDE", hidden_env(&a))
         .arg(code.join("driver.mjs"))
         .arg(&plan_path)
@@ -2671,6 +2687,18 @@ const CREDENTIALS: &[&str] = &[
     "ACTIONS_RESULTS_URL",
     "QUOD_SERVER_TOKEN",
 ];
+
+/// Whether bubblewrap can give a process a network namespace of its own
+/// here (unprivileged; hosted Ubuntu runners allow it).
+fn bwrap_net_ok() -> bool {
+    std::env::var("QUOD_VITEST_NETNS").map_or(true, |v| v != "0")
+        && Command::new("bwrap")
+            .args(["--dev-bind", "/", "/", "--unshare-net", "--", "true"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+}
 
 fn without_credentials(c: &mut Command) -> &mut Command {
     for k in CREDENTIALS {
