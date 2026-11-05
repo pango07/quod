@@ -1321,11 +1321,11 @@ fn keyer(
             }
             continue;
         }
-        if let Some(pkg) = package_root(p) {
-            if !written.keys().any(|w| w.starts_with(&format!("{pkg}/"))) {
-                key(format!("p:{}", rel(&pkg)), None);
-                continue;
-            }
+        if let Some(pkg) = package_root(p)
+            && !written.keys().any(|w| w.starts_with(&format!("{pkg}/")))
+        {
+            key(format!("p:{}", rel(&pkg)), None);
+            continue;
         }
         for e in evs {
             match (e.op, e.ok) {
@@ -1501,7 +1501,7 @@ mod tests {
 
         for (text, why) in [
             (format!("1 openat(AT_FDCWD, \"{r}/keep.txt\", O_RDONLY) = 3\n1 openat(AT_FDCWD, \"{r}/keep.txt\", O_WRONLY|O_TRUNC) = 3\n"), "rewrites"),
-            (format!("1 openat(AT_FDCWD, \"/home/x\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3\n"), "outside the checkout"),
+            ("1 openat(AT_FDCWD, \"/home/x\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3\n".to_string(), "outside the checkout"),
             (format!("1 openat(AT_FDCWD, \"{r}/.git/index\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3\n"), ".git"),
             ("1 io_uring_setup(64, 0x1) = 7<anon_inode:[io_uring]>\n".to_string(), "io_uring"),
             ("1 connect(3<TCP:[1]>, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr(\"140.82.112.3\")}, 16) = -1 ENETUNREACH (Network is unreachable)\n".to_string(), "network"),
