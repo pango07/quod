@@ -390,7 +390,7 @@ fn promote_lineage(need: u32, p: &Rec, q: &mut Rec, stamp: &str) -> bool {
         || p.w.tests.is_empty()
         || p.w.tests != q.w.tests
         || p.w.key.is_empty()
-        || p.w.key == q.w.key
+        || q.w.key.is_empty()
         || p.w.disagreements != 0
         || !q.pinned.is_empty()
     {
@@ -1292,7 +1292,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     }
     global.sort_unstable();
     global.dedup();
-    let lineage_context = ledger.global == global && ledger.args == keyed_args(&a.args);
+    // E1 compares the file's own read set. Shared inputs already forced
+    // this fresh recorded execution; their tool bookkeeping can differ
+    // (temporary transform paths) without changing the file's reads.
+    let lineage_context = ledger.args == keyed_args(&a.args);
     ledger.global = global;
     // Under the witness policy the previous record of a file that runs is
     // what this run's result is witnessed against.
@@ -4048,6 +4051,10 @@ mod tests {
         assert_eq!(promoted.w.n, 2);
         assert_eq!(promoted.plain_n, 0);
         assert_eq!(promoted.lineage.as_deref(), Some("batch"));
+        // A shared input can force a new execution while the file's own
+        // input states (and therefore its per-file witness key) stay equal.
+        let mut shared_change = q.clone(); shared_change.w.key = p.w.key.clone();
+        assert!(promote_lineage(2, &p, &mut shared_change, "shared"));
         // Consecutive changed commits cannot invent a plain predecessor.
         let mut next = q.clone();
         next.w.key = "changed again".into();
@@ -4064,7 +4071,7 @@ mod tests {
                 3 => unsafe_q.near_timeout = true,
                 4 => unsafe_q.net = true,
                 5 => unsafe_q.quarantined = true,
-                6 => unsafe_q.w.key = p.w.key.clone(),
+                6 => unsafe_q.w.key.clear(),
                 _ => {
                     unsafe_q.pinned.insert(0, "old state".into());
                 }
