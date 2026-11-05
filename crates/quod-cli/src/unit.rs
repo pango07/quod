@@ -199,7 +199,9 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
         return Ok(code_u8(run_direct(&a.argv)?));
     }
     let Some(bwrap) = sandbox_ok() else {
-        eprintln!("quod: {name} runs plain (bubblewrap unusable here: not recorded)");
+        eprintln!(
+            "quod: {name} runs plain (bubblewrap unusable here, or its sandbox lacks this user's capabilities: not recorded)"
+        );
         return Ok(code_u8(run_direct(&a.argv)?));
     };
 
@@ -258,8 +260,13 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     let (code, out, err) = run_captured(&cmd, &[("UV_USE_IO_URING", "0")])?;
     let t1 = Instant::now();
     if code != 0 {
+        // Recorded only from a run that passed. A traced run that failed
+        // may have failed for the trace or the sandbox (strace unable to
+        // write its file, a path the sandbox hides): the plain run decides,
+        // so a unit never turns a green job red.
         let _ = fs::remove_file(&trace);
-        return Ok(code_u8(code));
+        eprintln!("quod: {name} failed while recorded (exit {code}); it runs again plain");
+        return Ok(code_u8(run_direct(&a.argv)?));
     }
     let text = fs::read(&trace).unwrap_or_default();
     let _ = fs::remove_file(&trace);
@@ -685,16 +692,29 @@ fn run_captured(cmd: &[String], env: &[(&str, &str)]) -> anyhow::Result<(i32, Ve
     Ok((exit_code(st), out, err))
 }
 
+/// The sandbox, when it works here and its processes hold the capabilities
+/// this one holds. Run by root, bubblewrap can leave the sandbox with none
+/// (seen on the hosted image even with `--cap-add ALL`): root then cannot
+/// enter the runner's home (0750) and the witnesses would not see what a
+/// plain run sees, so the unit runs plain and is not recorded.
 fn sandbox_ok() -> Option<String> {
-    let ok = Command::new("bwrap")
+    let caps = |status: &str| {
+        status
+            .lines()
+            .find(|l| l.starts_with("CapEff:"))
+            .map(|l| l.trim().to_string())
+    };
+    let out = Command::new("bwrap")
         .args(sandbox_args())
-        .args(["--", "true"])
+        .args(["--", "cat", "/proc/self/status"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
-    ok.then(|| "bwrap".to_string())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let inside = caps(&String::from_utf8_lossy(&out.stdout));
+    let here = caps(&fs::read_to_string("/proc/self/status").unwrap_or_default());
+    (inside.is_some() && inside == here).then(|| "bwrap".to_string())
 }
 
 fn strace_ok() -> bool {
@@ -707,10 +727,8 @@ fn strace_ok() -> bool {
 }
 
 /// The sandbox's arguments. Run by root, bubblewrap drops every capability
-/// inside unless told otherwise, and a root without CAP_DAC_OVERRIDE
-/// cannot even enter the runner's home (0750, the runner's): every unit
-/// under a root job's checkout would fail to start. Root keeps its
-/// capabilities, as it has them plain.
+/// inside unless told otherwise: root asks to keep them, as it has them
+/// plain (`sandbox_ok` checks that it got them).
 fn sandbox_args() -> Vec<&'static str> {
     use std::os::unix::fs::MetadataExt;
     let mut v = SANDBOX.to_vec();
