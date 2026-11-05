@@ -119,3 +119,25 @@ and the matching parse invocation. It must reject escapes, custom loaders,
 mutable decoder behavior, intervening callbacks and unknown paths. Merely
 extending the synchronous pending-parse lifetime across an await is unsound.
 No async reader is currently granted a refined key.
+
+### Constraints for the next implementation
+
+The observed read, decode and parse sites are respectively Vite 8.2.0
+`node.js:21668:36`, `:21668:23`, and `jsonLoader :21553:42` called from
+`search :21672:26`. Those locations locate evidence; they must not become
+an allowlist. Certification must use the actual V8 script identity and AST.
+The private `content` binding also appears in a later `trim`/loader branch.
+A successful parse at the first package branch is insufficient unless that
+branch's unconditional `continue`/`break` makes all later raw uses unreachable.
+A custom loader must fail the proof even when it calls JSON.parse eventually.
+
+Decoder integrity must be checked at the conversion itself, not merely
+before and after the async read: a custom prototype getter can leak bytes
+and restore itself before the later check. The same applies to callbacks,
+raw-buffer aliases and primitive-text collisions. A possible bounded handoff
+would observe only the fresh Buffer consumed by a certified native String
+call, preserving the original receiver and property-get/call semantics.
+Such instrumentation is not implemented or accepted yet: observable identity,
+promise/debugger hooks, getters, coercion failures and unknown source paths
+must be addressed before it can replace a broad dependency. Fallback must
+retain the whole input and preserve execution behavior, not just test totals.

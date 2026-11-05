@@ -131,6 +131,16 @@ The same checkout, Node setup, install, build, test and evidence steps remain
 in each applicable job. The next window must use this isolation and count
 all of its own setup time; this change is not credited as product savings.
 
+[Harness gate 42125955233](https://github.com/pango07/quod/actions/runs/42125955233)
+passed all 16 evidence, report and job-selection regressions. A real
+[isolated floor job](https://github.com/pango07/ci-bench/actions/runs/42125959486)
+completed in 10 runner-seconds on `ubuntu-26.04/20261028.624`; its setup log
+prepared checkout, pnpm, bun and setup-node, and no Quod action repository.
+The jobs API contained one successful job and two skipped definitions; the
+selector returned the successful job (`127590112415`) regardless of order.
+This floor validates harness isolation only. It is not a matched floor for
+any previously reported warm hit and does not change the floor + 3 s result.
+
 ## Validation and complete job inventory
 
 The exact binary passed [Rust/recorder/clippy gates](https://github.com/pango07/quod/actions/runs/42098123727),
