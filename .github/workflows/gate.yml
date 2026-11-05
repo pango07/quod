@@ -547,6 +547,11 @@ jobs:
           grep -E 'lineage: [1-9][0-9]* promoted' /tmp/lineage-promote.log
           npm test 2>&1 | tee /tmp/lineage-audit.log
           grep -E 'lineage: [0-9]+ promoted, [1-9][0-9]* plain audits, 0 disagreed' /tmp/lineage-audit.log
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const root=process.env.RUNNER_TEMP+"/quod/vitest";
+            for(const d of fs.readdirSync(root)){const p=root+"/"+d+"/ledger.json";if(fs.existsSync(p)&&Object.values(JSON.parse(fs.readFileSync(p)).files).filter(r=>r.lineage).length!==1)throw Error("opportunistic audit consumed a pending plain lineage audit");}
+          '
           QUOD_VITEST_LINEAGE=0 npm test 2>&1 | tee /tmp/lineage-off.log
           grep -E 'plain:' /tmp/lineage-off.log
       - name: Bundle artifact

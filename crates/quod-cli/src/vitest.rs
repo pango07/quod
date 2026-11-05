@@ -949,7 +949,9 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
         .fold(250.0, f64::max);
     let mut candidates: Vec<&String> = replay
         .keys()
-        .filter(|id| ledger.files[*id].duration <= slowest)
+        // E1 records await their dedicated plain audit. Recording them
+        // as opportunistic audits must not consume that pending obligation.
+        .filter(|id| ledger.files[*id].lineage.is_none() && ledger.files[*id].duration <= slowest)
         .collect();
     let mut rng = Rng::new();
     let mut audit = Vec::new();
@@ -1644,6 +1646,10 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
                 r.file
             );
         } else if agrees {
+            // Keep batch provenance until the record's inputs change, so
+            // a later bad plain audit still revokes its audited peers.
+            r.promotion_stamp = predecessor.as_ref().and_then(|p| p.promotion_stamp.clone());
+            r.lineage = predecessor.as_ref().and_then(|p| p.lineage.clone());
             let was = old.n >= bar(need, &old);
             r.w.n = old.n + 1;
             witnessed_again += 1;
