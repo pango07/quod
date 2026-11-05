@@ -129,6 +129,7 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     let name = label(&a.argv);
     let udir = a.dir.join(&id);
     let lpath = udir.join("ledger.json");
+    IGNORE.get_or_init(|| Ignore::new(&root, &a.dir));
     let blobs = a.dir.join("blobs");
     let mut ledger: Ledger = fs::read(&lpath)
         .ok()
@@ -267,8 +268,8 @@ pub fn cli(a: UnitArgs) -> anyhow::Result<u8> {
     }
     let text = fs::read(&trace).unwrap_or_default();
     let _ = fs::remove_file(&trace);
-    let ignore = Ignore::new(&root, &a.dir);
-    let made = parse(&String::from_utf8_lossy(&text), &cwd).and_then(|t| keyer(&root, &t, &ignore));
+    let ignore = IGNORE.get_or_init(|| Ignore::new(&root, &a.dir));
+    let made = parse(&String::from_utf8_lossy(&text), &cwd).and_then(|t| keyer(&root, &t, ignore));
     match made {
         Err(why) => {
             eprintln!("quod: {name} always runs from now on: {why}");
@@ -392,6 +393,13 @@ fn listing(p: &Path, add: &[(String, char)], drop: &[String]) -> String {
     let mut names: Vec<String> = rd
         .flatten()
         .filter(|e| !drop.iter().any(|d| e.file_name().to_string_lossy() == *d))
+        // what is neither input nor output is not in a listing either
+        // (npm makes ~/.npm during the run; checked before it, it is not there)
+        .filter(|e| {
+            IGNORE
+                .get()
+                .is_none_or(|ig| !ig.hit(&e.path().display().to_string()))
+        })
         .map(|e| {
             let kind = match e.file_type() {
                 Ok(t) if t.is_dir() => 'd',
@@ -1237,6 +1245,8 @@ fn join(base: &str, p: &str) -> String {
 
 /// What is neither an input nor an output: the kernel's views, the private
 /// /tmp, npm's own logs, Quod's own state.
+static IGNORE: std::sync::OnceLock<Ignore> = std::sync::OnceLock::new();
+
 struct Ignore {
     prefixes: Vec<String>,
     /// these paths themselves, not what is under them
