@@ -43,8 +43,9 @@ function run(label, plain = false) {
   assert.equal(result.error, undefined)
   assert.ok(result.status === 0 || result.status === 1, `Unexpected exit: ${result.status}`)
   const data = JSON.parse(fs.readFileSync(report, 'utf8'))
-  const states = data.testResults.flatMap(f => f.assertionResults.map(a => [a.fullName, a.status])).sort()
+  const states = data.testResults.flatMap(f => f.assertionResults.map(a => [a.fullName ?? a.title, a.status])).sort()
   assert.equal(states.length, 5, 'Missing test evidence')
+  assert.ok(states.every(([name]) => typeof name === 'string' && name.length), 'Missing test names')
   const row = { label, exit: result.status, states,
     summary: plain ? null : JSON.parse(fs.readFileSync(summary, 'utf8')) }
   runs.push(row)
