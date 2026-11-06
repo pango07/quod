@@ -1480,3 +1480,40 @@ each. Descriptor validation takes 721.42 / 567.43 ms; direct data validation
 takes 409.21 / 532.67 ms. These measure the native helper alone, excluding
 Inspector transport and full-workload time. The extended full run above used
 the earlier helper. No production savings or replay authority changes.
+
+
+## Lossless compression beyond the observed log capacity
+
+`4b584f2` stores repeated blocks of compilation records once, retaining an
+ordered block-run index and the exact unfinished tail. The four-million-pair
+limit now bounds stored data; repeated occurrences do not consume an entry
+each. Physical capacity exhaustion still makes the report incomplete.
+Every serialized record field, count and sequence position remains present.
+[Gate 42257945410](https://github.com/pango07/quod/actions/runs/42257945410)
+passes 210 regressions, including reconstruction of 12 million alternating
+compilation events, interruptions in repeated patterns, corrupt references,
+count overflow and sequence reorderings with equal totals.
+
+`199e978` also stores consecutive numeric script IDs with identical metadata
+as exact intervals. Gaps, noncanonical string IDs and overwritten metadata
+remain distinct. The index bounds intervals and sparse entries at 65,536
+each. Captured native operations and typed temporary storage keep inherited
+array setters out of the commit path. Existing nested insertion, immutable
+metadata and changed-intrinsic regressions run against both storage modes.
+[Combined gate 42258901740](https://github.com/pango07/quod/actions/runs/42258901740)
+passes 224 regressions. All 12 million ID lookups match expected metadata;
+20,000 irregular range updates also agree with an independent Map.
+
+In that gate, the 12-million-event fixture serializes to 2,249 bytes and
+uses 513 stored pairs; appending takes 2.00 seconds. The 12-million-ID fixture
+uses one interval and 98,304 bytes of allocated range storage; insertion
+takes 6.63 seconds. These isolated storage measurements do not establish
+full-workload speed or CI savings.
+
+The [full diagnostic 42259109908](https://github.com/pango07/quod/actions/runs/42259109908)
+is running at `199e978`, including the earlier `5750e67` native data-field
+helper. It preserves all 120 file/project instances, 4,131 test states,
+39 metadata-only edits, original test timeouts and the 900-second observed
+collection limit. No production replay is authorized.
+[Machine-readable evidence](worker-compressed-diagnostic-storage.json)
+records the gates, storage limits, measurements and remaining proof gaps.

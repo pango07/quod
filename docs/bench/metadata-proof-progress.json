@@ -1002,6 +1002,18 @@
     "extendedBoundaryFullGateConclusion": "failure",
     "extendedBoundaryFullGateTests": 236,
     "extendedBoundaryFullGateAvailableWorkers": 119,
-    "extendedBoundaryStreamCompilationOverflow": true
+    "extendedBoundaryStreamCompilationOverflow": true,
+    "losslessBlockCommit": "4b584f2",
+    "losslessBlockFixtureGate": 42257945410,
+    "losslessBlockFixtureConclusion": "success",
+    "losslessBlockFixtureTests": 210,
+    "rangeIndexCommit": "199e978",
+    "rangeIndexFixtureGate": 42258901740,
+    "rangeIndexFixtureConclusion": "success",
+    "rangeIndexFixtureTests": 224,
+    "compressedStorageEvidence": "worker-compressed-diagnostic-storage.json",
+    "compressedStorageFullGate": 42259109908,
+    "compressedStorageFullGateStatus": "in_progress",
+    "compressedStorageFullGateCommit": "199e978"
   }
 }

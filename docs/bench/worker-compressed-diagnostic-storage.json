@@ -1,0 +1,108 @@
+{
+  "blockCommit": "4b584f23c02427aa205f6d395edb557e6e439fdd",
+  "rangeCommit": "199e9782d349fad4f746fa5be30e09551b74f97d",
+  "blockFixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42257945410",
+    "job": 128030033487,
+    "conclusion": "success",
+    "regressionsPassed": 210
+  },
+  "combinedFixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42258901740",
+    "job": 128033355973,
+    "conclusion": "success",
+    "regressionsPassed": 224
+  },
+  "measurements": [
+    {
+      "compilationBlockMeasurement": {
+        "events": 12000000,
+        "matches": 12000000,
+        "appendMs": 1998.29974,
+        "heapDelta": 148168,
+        "arrayBufferDelta": 69632,
+        "serializedBytes": 2249,
+        "counts": {
+          "events": 12000000,
+          "runs": 12000000,
+          "records": 2,
+          "overflow": false,
+          "runStorage": "block-dictionary-f64",
+          "blocks": 1,
+          "blockRuns": 1,
+          "storedPairs": 513,
+          "pairLimit": 4000000,
+          "runStorageBytes": 73728
+        }
+      },
+      "scope": "isolated lossless log storage; not CI savings"
+    },
+    {
+      "scriptRangeMeasurement": {
+        "matches": 12000000,
+        "insertMs": 6628.781261,
+        "heapDelta": 155840,
+        "arrayBufferDelta": 98304,
+        "counts": {
+          "events": 12000000,
+          "entries": 12000000,
+          "metadata": 1,
+          "storage": "ranges",
+          "ranges": 1,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        }
+      },
+      "scope": "isolated exact metadata-ID storage; not CI savings"
+    }
+  ],
+  "semantics": [
+    "Compilation records retain all serialized fields; exact repeated blocks retain every event, count and ordered position.",
+    "The compilation log bounds stored ID/count pairs at 4,000,000; exceeding that bound still reports overflow.",
+    "Numeric script IDs retain exact metadata through contiguous ranges, preserving gaps, noncanonical IDs and overwrites.",
+    "The range index bounds stored ranges and sparse entries at 65,536 each; every compilation event remains separately counted.",
+    "The original dense index remains covered, alongside range-mode nested-insertion and intrinsic-mutation regressions."
+  ],
+  "regressions": [
+    "Interrupted repeated patterns and complete field changes round-trip exactly.",
+    "Report mutation does not change retained compilation blocks or records.",
+    "Corrupt references, counts, arithmetic overflow and physical capacity exhaustion fail validation.",
+    "A sequence reordering with matching totals remains distinguishable.",
+    "Twelve million alternating compilation occurrences are reconstructed and checked.",
+    "Twelve million script IDs have every metadata lookup checked.",
+    "Range splits, merges, gaps, reverse insertions and sparse/noncanonical identities match independent expectations.",
+    "Twenty thousand irregular interval updates match a Map.",
+    "Inherited numeric array setters cannot run during range commits."
+  ],
+  "fullDiagnostic": {
+    "commit": "199e9782d349fad4f746fa5be30e09551b74f97d",
+    "run": "https://github.com/pango07/quod/actions/runs/42259109908",
+    "job": 128034080087,
+    "status": "in_progress",
+    "observedPhaseLimitSeconds": 900,
+    "expectedWorkers": 120,
+    "expectedStatesPerPhase": 4131,
+    "expectedMetadataOnlyChangedPaths": 39,
+    "testTimeoutsChanged": false,
+    "productTargetsChanged": false,
+    "replayEligible": false
+  },
+  "replayEligible": false,
+  "limitations": [
+    "Storage measurements are isolated fixtures, not product CI savings.",
+    "No complete observed full-workload comparison has passed this diagnostic yet.",
+    "Initial runtime integrity, complete native coverage and complete worker-input ownership remain unproven.",
+    "Production engine, Action pin and performance claims remain unchanged."
+  ]
+}

@@ -3175,5 +3175,14 @@
     "unfinishedStreamCompilationOverflow": true,
     "failure": "before phase 900-second timeout; unfinished stream worker exceeded compilation-run capacity; no complete observed test-state report or after phase",
     "evidence": "worker-compiled-source-cache.json#extendedFullDiagnostic"
+  },
+  "pendingFullDiagnostic": {
+    "commit": "199e9782d349fad4f746fa5be30e09551b74f97d",
+    "run": "https://github.com/pango07/quod/actions/runs/42259109908",
+    "job": 128034080087,
+    "status": "in_progress",
+    "evidence": "worker-compressed-diagnostic-storage.json",
+    "nativeDataFieldHelperIncluded": true,
+    "replayEligible": false
   }
 }
