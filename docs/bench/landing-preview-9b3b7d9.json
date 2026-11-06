@@ -1,0 +1,26 @@
+{
+  "commit": "9b3b7d9d8aee42f38c285d33198e7b1e04491ca6",
+  "project": "jvaught01s-projects/quod",
+  "target": "preview",
+  "deploymentId": "dpl_5wYMFgMjRCtjo2ihZDdjcAVczE12",
+  "url": "https://quod-jadr10pzz-jvaught01s-projects.vercel.app",
+  "status": "READY",
+  "framework": "Next.js 16.4.3",
+  "buildSecondsReported": 12,
+  "uploadedFilesMatchingCommit": 59,
+  "environmentFilesExcluded": true,
+  "authenticatedHomeHttpStatus": 200,
+  "renderedSectionsConfirmed": [
+    "Try the terminal",
+    "Change an input",
+    "Test an audit",
+    "Historical engine",
+    "Current-engine savings are still being validated"
+  ],
+  "sameCommitInteractionGate": "https://github.com/pango07/quod/actions/runs/42144339185",
+  "liveBrowserClicksVerified": false,
+  "liveBrowserLimitation": "The browser's signed-in Vercel account did not have access to the protected preview. The authenticated CLI could fetch the preview. No access request was sent and protection was not changed.",
+  "productionDeploymentPerformed": false,
+  "quodCloudDeploymentPerformed": false,
+  "authorization": "User explicitly approved publishing landing commit 9b3b7d9 as a Vercel preview."
+}

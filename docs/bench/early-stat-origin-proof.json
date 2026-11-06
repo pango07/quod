@@ -1,0 +1,65 @@
+{
+  "scope": "Diagnostic only; no size-key authorization and no new savings measurement",
+  "regression": {
+    "run": "https://github.com/pango07/quod/actions/runs/42159121050",
+    "commit": "b7f6d07",
+    "startupTests": 13,
+    "observerTestsIncludingStartup": 28,
+    "productionProofTests": 58,
+    "failed": 0
+  },
+  "driver": {
+    "run": "https://github.com/pango07/quod/actions/runs/42158549345",
+    "commit": "2ca4880",
+    "diagnosticBinaryEngine": "4d99319",
+    "result": {
+      "measurementScope": "Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay",
+      "files": 120,
+      "states": 4131,
+      "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "replayed": 0,
+      "metadata": {
+        "sm": 299,
+        "sl": 257,
+        "st": 104
+      },
+      "calls": 354,
+      "sizeConsumers": 120,
+      "consumersWithSizeOutcome": 120,
+      "consumersWithOnlyOwnedHooks": 120,
+      "consumersWithNativeUnchanged": 120,
+      "consumersWithConstructionFieldsAbsent": 120,
+      "consumersWithStartupNativeUnchanged": 120,
+      "startupAtAttach": {
+        "startup": {
+          "firstPreload": true,
+          "prefixed": true,
+          "supportedOptions": true,
+          "available": true,
+          "replayEligible": false
+        },
+        "nativeBindingUnchanged": true,
+        "publicSyncUnchanged": true,
+        "publicAsyncUnchanged": true,
+        "prototypeUnchanged": true,
+        "replayEligible": false
+      },
+      "replayEligible": false
+    }
+  },
+  "observedNewNativeConnections": 2,
+  "observedConnectionCallers": [
+    "createBooleanProof",
+    "names-proof.start"
+  ],
+  "startupCensusClassified": false,
+  "productionAsyncSizeKeyEnabled": false,
+  "packagedEngine": "7ff2b2f",
+  "remaining": [
+    "production launcher and immutable origin interface",
+    "unsupported observer channels including workers and native addons",
+    "all consumers and result lifetime",
+    "size/error query equivalence",
+    "fresh-runner hit and full 12-commit window"
+  ]
+}

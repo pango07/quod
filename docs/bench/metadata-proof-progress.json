@@ -427,5 +427,18 @@
     "replayed": 0,
     "replayEligible": false,
     "startupCensusClassified": false
+  },
+  "earlyStartupOriginDiagnostic": {
+    "evidence": "early-stat-origin-proof.json",
+    "regressionRun": 42159121050,
+    "driverRun": 42158549345,
+    "regressionCommit": "b7f6d07",
+    "driverCommit": "2ca4880",
+    "observerTests": 28,
+    "productionProofTests": 58,
+    "consumersWithStartupNativeUnchanged": 120,
+    "states": 4131,
+    "replayed": 0,
+    "replayEligible": false
   }
 }
