@@ -1,0 +1,15 @@
+{
+  "commit": "66d5b78",
+  "run": "https://github.com/pango07/quod/actions/runs/42225425259",
+  "job": 127917572031,
+  "conclusion": "success",
+  "testsPassed": 142,
+  "logSha256": "7c6dba5441025e0cfe59caef1f49300a296148ca83c8122f5b1444286b03d56a",
+  "scope": "Native descriptor call stacks whose targets have watched own accessors retain actual V8 script identity and UTF-16 source digests. A VM script with a forged diagnostic filename keeps its own source hash.",
+  "limitations": [
+    "Fixture evidence only; this commit has not completed the full observed workload.",
+    "Pinned source identity is necessary evidence, not proof that the program cannot observe a metadata field through another channel."
+  ],
+  "replayEligible": false,
+  "productionSavingsChanged": false
+}

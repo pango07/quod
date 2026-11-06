@@ -997,3 +997,55 @@ time changes from 226 to 218 ms; wide-target time changes from 316 to
 [Measurements and log digest](worker-native-direct-arguments.json) retain
 the exact samples. The next step is integration into the combined observer,
 with explicit mode assertions, followed by the full 120-worker measurement.
+
+Commit `56deee7` enables the direct format in the combined diagnostic and
+requires it in the integration assertions. Full workload gate
+[42224978054](https://github.com/pango07/quod/actions/runs/42224978054)
+passed 177 regression tests, then hit the 420-second `before` phase limit.
+It completed 104 worker reports, up from 87 in the preceding run. Across
+those completed reports, all 985,778 descriptor calls and 51,615 proxy
+calls are retained, all 1,037,393 exception wrappers are cleared, and the
+independent artifact check finds no overflow, capture error, count mismatch
+or empty captured stack. The baseline completes all 120 instances and
+4,131 states, but there is no complete observed phase or `after` comparison.
+
+The unfinished stream property worker reaches 850,000 descriptor calls
+(previously 680,000) with 2,871 distinct records and 1,817 frames. It has no
+reported overflow. Its checkpoint is taken inside the current event, so
+one not-yet-cleared wrapper there does not imply a cleanup failure.
+
+The completed reports contain 10,727,435 enumerated accessor properties.
+The largest target has 2,247 own accessors, with a caller named `__export`
+in TypeScript. The observer makes 2,038,354 property requests
+and 17,378,027 individual handle releases. Their aggregate inclusive
+timings are 181 and 128 seconds respectively; these can overlap and omit
+the unfinished worker, so they are not job elapsed times or product savings.
+[Counts, checkpoints and artifact digests](worker-native-direct-overhead.json)
+retain the partial evidence.
+
+The next experiment should inspect only the three watched names (`seed`,
+`tmp`, `invalidate`) using captured intrinsics and actual native arguments,
+while preserving proxy and getter protections, wrapper cleanup and complete
+compilation accounting. The current all-accessor scan is doing substantial
+work unrelated to the watched fields. A narrower inspection must explicitly
+report its scope, preserve the same watched-field evidence, and pass narrow
+and accessor-heavy regression measurements before another full run. This
+does not authorize dropping any production input or replay check.
+
+## Actual source evidence for watched descriptor callers
+
+The prior 87-worker partial trace has 35,551 descriptor calls on objects
+with watched own accessors. All their apparent immediate callers use
+diagnostic filenames. This is an observation of reported names, not an
+identity proof: code can impersonate a filename.
+
+Commit `66d5b78` resolves the V8 script IDs of every retained stack frame
+for those calls and stores the actual source digest in UTF-16, using the
+existing source reader and cache. It makes no filename-based exemption.
+[Fixture gate 42225425259](https://github.com/pango07/quod/actions/runs/42225425259)
+passes 142 tests, including foreign VM code named as our scalar observer:
+the report records the foreign code's hash and actual script ID. The full
+driver requires source evidence for every relevant frame. This closes an
+attribution gap in the diagnostic; other unobserved channels still prevent
+a replay certificate. [Evidence](worker-native-caller-sources.json) records
+the gate and its scope separately from the full workload.
