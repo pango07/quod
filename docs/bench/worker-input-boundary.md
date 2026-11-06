@@ -961,7 +961,7 @@ exception/handle and collection checks. No full rerun is justified until
 that path is gated and its complete-logging cost is measured. Production
 replay eligibility and the 12-commit savings result remain unchanged.
 
-## Private summary rejected; direct argument transport under test
+## Private summary rejected; direct argument fixture passed
 
 The private summary helper at `f9d1ef3` passed all 140 fixture tests in
 [gate 42222713382](https://github.com/pango07/quod/actions/runs/42222713382),
@@ -981,5 +981,19 @@ the argument count. Receiver-based APIs carry the actual receiver instead.
 It retains Inspector accessor inspection and avoids a separate request
 for the synthetic arguments array. Zero-argument calls avoid reading an
 inherited array element. The existing array format remains the default;
-the direct format is an opt-in diagnostic pending its remote gate.
+the direct format remains an opt-in diagnostic.
 Neither format establishes input ownership or authorizes production replay.
+
+Direct transport at `2af69c7` passes all 141 tests in
+[gate 42224572165](https://github.com/pango07/quod/actions/runs/42224572165),
+including absent versus explicit undefined arguments, receiver-based calls,
+replacing bound callees, accessor preservation, proxy traps, queued work,
+foreign exceptions, modified public intrinsics and garbage collection.
+For each 300-call measurement, property requests fall from 900 to 600 and
+individual handle releases from 2,400 to 900. Both modes retain all 609
+compilation events, all 300 arguments and cleared wrappers. Narrow-target
+time changes from 226 to 218 ms; wide-target time changes from 316 to
+255 ms. These are single fixture samples, not CI savings.
+[Measurements and log digest](worker-native-direct-arguments.json) retain
+the exact samples. The next step is integration into the combined observer,
+with explicit mode assertions, followed by the full 120-worker measurement.

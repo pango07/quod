@@ -1,0 +1,146 @@
+{
+  "commit": "2af69c702180940b02a682d2ea37a000cb2d5fcc",
+  "run": "https://github.com/pango07/quod/actions/runs/42224572165",
+  "job": 127914716292,
+  "conclusion": "success",
+  "testsPassed": 141,
+  "logSha256": "c3fa8942e7d850287228b02a0d8198ac7f2a6294241d46a4a3f7580a03aef61c",
+  "measurements": [
+    {
+      "width": 0,
+      "directArguments": false,
+      "calls": 300,
+      "elapsedMs": 225.71238500000004,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 900,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 2400,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 2400,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "argumentMode": "array",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 0,
+      "directArguments": true,
+      "calls": 300,
+      "elapsedMs": 218.04638699999998,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 600,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 900,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 900,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "argumentMode": "direct",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 80,
+      "directArguments": false,
+      "calls": 300,
+      "elapsedMs": 315.524336,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 900,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 2400,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 2400,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "argumentMode": "array",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 80,
+      "directArguments": true,
+      "calls": 300,
+      "elapsedMs": 254.849842,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 600,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 900,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 900,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "argumentMode": "direct",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    }
+  ],
+  "scope": "300 native calls per case, complete compilation logging; fixture only. No complete workload or production savings result.",
+  "nextStep": "Enable directArguments in the combined diagnostic and enforce the mode in integration assertions before measuring the full 120-worker workload.",
+  "replayEligible": false,
+  "productionSavingsChanged": false
+}
