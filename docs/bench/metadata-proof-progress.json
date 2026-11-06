@@ -795,6 +795,18 @@
     "optimizationFixtureConclusion": "success",
     "optimizationFixtureTests": 69,
     "optimizedFullGate": 42197790745,
-    "optimizedFullGateStatus": "in_progress"
+    "optimizedFullGateStatus": "completed",
+    "optimizedFullGateConclusion": "failure",
+    "optimizedFullGateFailure": "before phase 420-second timeout",
+    "optimizedFullGateCompletedWorkers": 15,
+    "literalRecoveryCommit": "7392bcd",
+    "literalRecoveryFixtureGate": 42198435527,
+    "literalRecoveryFixtureConclusion": "success",
+    "syntaxCacheCommit": "122ae5c",
+    "syntaxCacheFixtureGate": 42198746560,
+    "syntaxCacheFixtureConclusion": "success",
+    "progressCheckpointCommit": "1e14732",
+    "latestFullGate": 42199994352,
+    "latestFullGateStatus": "in_progress"
   }
 }

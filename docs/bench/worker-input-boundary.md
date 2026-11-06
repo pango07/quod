@@ -575,8 +575,30 @@ resolving any bindings, with the same unknown classification.
 passes **69 regressions**, including a new lifetime check: all temporary
 argument-property handles become invalid after resume, while the watched
 intrinsic remains valid. It makes no full-workload speed claim.
-The optimized full comparison is
-[42197790745](https://github.com/pango07/quod/actions/runs/42197790745);
-its result is pending at this evidence revision. No action pin, production
-key, or savings claim changes. [Partial evidence and artifact digests](worker-metadata-accessors.json)
-retain the failed run and the successful fixture gate separately.
+The optimized full comparison,
+[42197790745](https://github.com/pango07/quod/actions/runs/42197790745),
+passes 105 regressions but also reaches the 420-second limit in its first
+observed phase. Again only 15 workers finish. Their 145,443 descriptor
+calls and 676 metadata scalars have no reported observation errors or
+overflows. The cleanup optimization alone did not make full coverage
+practical; the incomplete result must not be promoted to a corpus pass.
+
+Commit `7392bcd` recognizes later argument construction that cannot replace
+an earlier target binding: bounded object/array literals, function creation,
+and unary operations without user conversion hooks. Computed effects,
+spreads, property reads and calls remain unknown. Ten regressions include
+self-changing bindings, getter side effects, conversion hooks and default
+parameters that must not execute. [42198435527](https://github.com/pango07/quod/actions/runs/42198435527)
+passes 79 fixture tests. Commit `122ae5c` caches syntax lookup by call
+location, while re-reading current runtime targets. Its same-location,
+alternating-target regression and the other 78 fixtures pass in
+[42198746560](https://github.com/pango07/quod/actions/runs/42198746560).
+
+Commit `1e14732` also writes bounded progress checkpoints for unfinished
+workers, so a timeout can identify the APIs and callers still consuming
+time. Checkpoints retain cumulative counts; no native events are skipped.
+The combined [42199994352](https://github.com/pango07/quod/actions/runs/42199994352)
+is pending at this evidence revision. No timeout was increased, and no
+action pin, production key, or savings claim changes.
+[Partial evidence and artifact digests](worker-metadata-accessors.json)
+retain full-run failures and passing fixture gates separately.
