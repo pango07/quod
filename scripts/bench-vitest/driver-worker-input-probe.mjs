@@ -256,6 +256,9 @@ if(phase) {
           assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
+          assert(x.boundary.compilation.scriptMetadataIndex&&!x.boundary.compilation.scriptMetadataIndex.overflow)
+          assert.equal(x.boundary.compilation.scriptMetadataIndex.events+x.boundary.compilation.failedToParse,
+            x.boundary.compilation.events,'every parsed script must reach the exact metadata index')
           checkCompilationCounts(x.boundary.compilation)
           assert(x.boundary.config&&!x.boundary.config.overflow)
           assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,

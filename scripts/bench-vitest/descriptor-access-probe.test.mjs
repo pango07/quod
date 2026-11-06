@@ -72,6 +72,9 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
     e.argument.target.watchedAccessorKeys.includes('tmp')&&e.argument.target.inspectionScope==='watched-properties'&&
     !Object.hasOwn(e.argument.target,'ownAccessorCount')))
   assert.equal(data.compilation.encoding,'dictionary-v1');assert.deepEqual(data.compilation.errors,[])
+  assert.equal(data.compilation.scriptMetadataIndex.overflow,false)
+  assert.equal(data.compilation.scriptMetadataIndex.events+data.compilation.failedToParse,data.compilation.events)
+  assert(data.compilation.scriptMetadataIndex.entries>data.compilation.scriptMetadataIndex.metadata)
   validateCompilationCounts(data.compilation)
 })
 

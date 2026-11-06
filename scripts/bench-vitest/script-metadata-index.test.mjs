@@ -17,7 +17,7 @@ test('script metadata index preserves dense, sparse and noncanonical IDs and ove
 
 test('metadata interning preserves every field and owns immutable copies',()=>{
   const index=scriptMetadataIndex(),a=metadata(0),variants=[a,{...a,url:'\ud800'},{...a,url:'\ufffd'},
-    {...a,isModule:true},{...a,hasSourceURL:true},{...a,language:'WebAssembly'}]
+    {...a,isModule:true},{...a,hasSourceURL:true},{...a,language:'WebAssembly'},{...a,url:undefined},{...a,url:''}]
   for(let i=0;i<variants.length;i++)assert(index.set(String(i),variants[i]))
   assert(index.set('42',{...a}));assert.equal(index.get('0'),index.get('42'))
   const original={...a};a.url='changed';assert.deepEqual(index.get('0'),original)

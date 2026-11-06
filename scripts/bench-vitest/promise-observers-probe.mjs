@@ -9,6 +9,7 @@ import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
 import {nativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
+import {scriptMetadataIndex} from './script-metadata-index.mjs'
 const monotonicNow=process.hrtime.bigint
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
@@ -26,7 +27,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false,nativeEntries=false}={}) {
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
-  const scripts=new Map(),scriptEvidence=new Map()
+  const scripts=nativeEntries?scriptMetadataIndex():new Map(),scriptEvidence=new Map()
   // The prior 420-second partial run already observed 861,284 events in
   // one worker. Leave room for the faster complete run without dropping
   // condition/cleanup compilations; both dictionary dimensions stay bounded.
@@ -38,9 +39,14 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     try{compilationLog.append(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
     catch(e){compilationErrors.push(e.message)}
   }
-  session.on('Debugger.scriptParsed',({params})=>{scripts.set(params.scriptId,{
-    url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,
-    language:params.scriptLanguage??'JavaScript'});compiledEvent(params,false)})
+  session.on('Debugger.scriptParsed',({params})=>{
+    try {
+      if(scripts.set(params.scriptId,{url:params.url,isModule:params.isModule===true,
+        hasSourceURL:params.hasSourceURL===true,language:params.scriptLanguage??'JavaScript'})===false)
+        throw Error('script metadata capacity exceeded')
+    }catch {if(compilationErrors.length<20)compilationErrors.push('script metadata indexing failed')}
+    compiledEvent(params,false)
+  })
   session.on('Debugger.scriptFailedToParse',({params})=>compiledEvent(params,true))
   let failure=null, closed=false
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
@@ -457,6 +463,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
         ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
+        ...(nativeEntries?{scriptMetadataIndex:scripts.counts()}:{}),
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },
     sourceForScript,

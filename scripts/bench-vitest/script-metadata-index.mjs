@@ -18,13 +18,13 @@ export function scriptMetadataIndex({entryLimit=4000000,metadataLimit=20000,dens
       if(events===Number.MAX_SAFE_INTEGER){overflow=true;return false}
       events++
       if(overflow)return false
-      if(typeof id!=='string'||!metadata||typeof metadata.url!=='string'||typeof metadata.language!=='string'||
+      if(typeof id!=='string'||!metadata||(metadata.url!==undefined&&typeof metadata.url!=='string')||typeof metadata.language!=='string'||
         typeof metadata.isModule!=='boolean'||typeof metadata.hasSourceURL!=='boolean'||
         Reflect.ownKeys(metadata).length!==4||!['url','language','isModule','hasSourceURL'].every(key=>Object.hasOwn(metadata,key)))
         throw Error('invalid script metadata')
       const exists=!!lookup(id)
       if(!exists&&entries>=entryLimit){overflow=true;return false}
-      const key=JSON.stringify([metadata.url,metadata.isModule,metadata.hasSourceURL,metadata.language])
+      const key=JSON.stringify([metadata.url===undefined?0:1,metadata.url??'',metadata.isModule,metadata.hasSourceURL,metadata.language])
       let value=dictionary.get(key)
       if(value===undefined) {
         if(dictionary.size>=metadataLimit){overflow=true;return false}
