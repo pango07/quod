@@ -15,7 +15,7 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending message limit')
   const group='quod-message-dispatch-'+randomBytes(16).toString('hex')
   const breakpoints=new Map(),pending=[],wrapperPending=[],errors=[],failureCounts=new Map()
-  let receiver,observer,reflectNamespace,reflectApply,listenerApply,emittingSymbol,installed=false,closed=false,sequence=0
+  let receiver,observer,reflectNamespace,reflectApply,ownDescriptor,listenerApply,emittingSymbol,installed=false,closed=false,sequence=0
   let dispatches=0,callbacks=0,paired=0,ignoredReceivers=0,groupsCreated=0,groupsReleased=0
   let wrapperEntries=0,wrapperForwarded=0,wrapperChecks=0,singleListenerChecks=0,arrayListenerChecks=0
   let source=null,wrapperSource=null
@@ -114,13 +114,15 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     if(frame.scopeChain?.some(s=>s.type==='with'))throw Error('warning wrapper has an unexpected with scope')
     const globals=frame.scopeChain?.filter(s=>s.type==='global')??[]
     if(globals.length!==1)throw Error('warning wrapper global scope unavailable')
-    // Descriptor reads inherit the root handle's group. Clone the borrowed
-    // debugger global into this event's group so no per-event values are
-    // retained by a lifetime/baseline handle after the pause ends.
-    const cloned=post('Runtime.callFunctionOn',{objectId:globals[0].object.objectId,
-      functionDeclaration:'function(){return this}',objectGroup:eventGroup,silent:true})
-    if(cloned.exceptionDetails||!cloned.result?.objectId)throw Error('warning wrapper global handle unavailable')
-    const globalReflect=data(fields(cloned.result),'Reflect')
+    // Enumerating the entire global with Runtime.getProperties initializes
+    // Node's lazy web globals (including Undici). Query only this descriptor
+    // through the captured builtin, without invoking its getter. The returned
+    // descriptor and its descendants belong to the transient event group.
+    const described=post('Runtime.callFunctionOn',{objectId:ownDescriptor.objectId,
+      functionDeclaration:'function(object){return this(object,"Reflect")}',
+      arguments:[{objectId:globals[0].object.objectId}],objectGroup:eventGroup,silent:true})
+    if(described.exceptionDetails||!described.result?.objectId)throw Error('warning wrapper global descriptor unavailable')
+    const globalReflect=data(fields(described.result),'value')
     if(!same(globalReflect,reflectNamespace))throw Error('warning wrapper global Reflect changed')
     // An own data property excludes a global getter. The real lexical lookup
     // also catches a later Script-scope `let Reflect`, without invoking
@@ -154,6 +156,9 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     emittingSymbol=binding(emit,'kEmitting')
     if(reflectApply.type!=='function'||emittingSymbol.type!=='symbol')throw Error('Node dispatch invocation bindings unavailable')
     if(wrapper) {
+      const d=post('Runtime.evaluate',{expression:'Object.getOwnPropertyDescriptor',objectGroup:group,silent:true})
+      if(d.exceptionDetails||d.result?.type!=='function'||!d.result.objectId)throw Error('global descriptor builtin unavailable')
+      ownDescriptor=d.result
       const r=post('Runtime.evaluate',{expression:'Reflect',objectGroup:group,silent:true})
       if(r.exceptionDetails||!r.result?.objectId)throw Error('warning wrapper Reflect unavailable')
       reflectNamespace=r.result

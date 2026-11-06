@@ -18,6 +18,7 @@ process.prependListener('message',observer);
 const emit=process.emit;
 if(kind==='wrong-function')process.emit=EventEmitter.prototype.removeAllListeners;
 const initial=p.captureMessageObserver();process.emit=emit;
+const undiciBefore=process.moduleLoadList.includes('NativeModule internal/deps/undici/undici');
 let getterCalls=0,traps=0,mid=null;
 const reflectAccessSites=[];
 function noteReflectAccess(){if(reflectAccessSites.length<4)reflectAccessSites.push(new Error('Reflect access').stack)}
@@ -25,6 +26,8 @@ const originalReflect=Reflect,originalReflectApply=Reflect.apply;
 const reflectDescriptor=Object.getOwnPropertyDescriptor(globalThis,'Reflect');
 const applyDescriptor=Object.getOwnPropertyDescriptor(originalReflect,'apply');
 const functionApplyDescriptor=Object.getOwnPropertyDescriptor(Function.prototype,'apply');
+const originalOwnDescriptor=Object.getOwnPropertyDescriptor;
+let descriptorCalls=0;
 function thief(value){copied.push([value.seed,value.tmp]);process.removeListener('message',thief)}
 function copyThenApply(target,receiver,args){
   if(target===EventEmitter.prototype.emit&&args[0]==='message'){
@@ -37,6 +40,7 @@ if(kind==='vitest-wrapper-precopy')originalReflect.apply=copyThenApply;
 if(kind==='vitest-wrapper-apply-getter')Object.defineProperty(originalReflect,'apply',{configurable:true,get(){getterCalls++;return originalReflectApply}});
 if(kind==='vitest-wrapper-global-getter')Object.defineProperty(globalThis,'Reflect',{configurable:true,get(){getterCalls++;noteReflectAccess();return originalReflect}});
 if(kind==='vitest-wrapper-global-proxy')globalThis.Reflect=new Proxy(originalReflect,{get(target,key,receiver){traps++;noteReflectAccess();return originalReflect.get(target,key,receiver)}});
+if(kind==='vitest-wrapper-descriptor-replaced')Object.getOwnPropertyDescriptor=function(){descriptorCalls++;throw Error('application descriptor replacement')};
 if(kind==='vitest-wrapper-lexical') {
   globalThis.quodFixtureReflect={apply:copyThenApply};
   vm.runInThisContext('let Reflect = globalThis.quodFixtureReflect');
@@ -97,17 +101,19 @@ else {
 Object.defineProperty(globalThis,'Reflect',reflectDescriptor);
 Object.defineProperty(originalReflect,'apply',applyDescriptor);
 Object.defineProperty(Function.prototype,'apply',functionApplyDescriptor);
+Object.getOwnPropertyDescriptor=originalOwnDescriptor;
 delete observer.apply;
+const undiciAfter=process.moduleLoadList.includes('NativeModule internal/deps/undici/undici');
 const report=p.messageDispatch(),compilation=p.compiledScriptReport(),listeners=process.rawListeners('message');
 p.close();process.removeAllListeners('message');
-console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,traps,reflectAccessSites,observerFirst:listeners[0]===observer,
+console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,traps,reflectAccessSites,descriptorCalls,undiciBefore,undiciAfter,observerFirst:listeners[0]===observer,
   compilationErrors:compilation.errors,closed:p.messageDispatch()}));`
   const result=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
   assert.equal(result.status,0,result.stderr||String(result.error))
   return JSON.parse(result.stdout)
 }
 for(const kind of ['normal','self-removing','once','same-source','nested','unpaired','other-receiver','removed','overflow','alternate-dispatch','getter','proxy','primitive','close','wrong-function','vitest-wrapper','vitest-wrapper-thief',
-  'vitest-wrapper-precopy','vitest-wrapper-apply-getter','vitest-wrapper-global-getter','vitest-wrapper-global-proxy','vitest-wrapper-lexical','vitest-wrapper-bypass',
+  'vitest-wrapper-precopy','vitest-wrapper-apply-getter','vitest-wrapper-global-getter','vitest-wrapper-global-proxy','vitest-wrapper-lexical','vitest-wrapper-bypass','vitest-wrapper-descriptor-replaced',
   'single-apply','single-apply-getter','prototype-apply','array-counter-getter','array-counter-lookalike']) {
   test('message dispatch entry: '+kind,()=>{
     const r=run(kind),report=r.report
@@ -119,16 +125,19 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
     assert.equal(r.closed.closed,true)
     assert.equal(r.closed.groupsCreated,r.closed.groupsReleased)
     if(kind.startsWith('vitest-wrapper')) {
+      assert.equal(r.undiciBefore,false,'fixture begins with lazy web globals uninitialized')
+      assert.equal(r.undiciAfter,false,'the global Reflect check must not initialize unrelated web globals')
+      assert.equal(r.descriptorCalls,0,'the descriptor check uses its captured builtin')
       assert.equal(report.wrapperSource.sha256,'a5012da3d2027007781baecda154d343d8c7ad2327b79bec65b1b60a41f42dd1')
       assert.deepEqual(report.source,{sha256:'113b0cd4b1c81c909022c572525ae844136a746dd26e2b7e4a3161841e744281',line:455,column:43})
     }
-    if(kind==='normal'||kind==='primitive'||kind==='vitest-wrapper') {
+    if(kind==='normal'||kind==='primitive'||kind==='vitest-wrapper'||kind==='vitest-wrapper-descriptor-replaced') {
       assert.equal(report.available,true,JSON.stringify(report))
       assert.equal(report.dispatches,kind==='primitive'?2:1)
       assert.equal(report.paired,report.dispatches)
       assert.equal(r.observerFirst,true,'diagnostic did not replace the listener')
       assert.equal(report.invocation.singleListenerChecks,report.dispatches)
-      if(kind==='vitest-wrapper') {
+      if(kind==='vitest-wrapper'||kind==='vitest-wrapper-descriptor-replaced') {
         assert.equal(report.invocation.wrapperEntries,1);assert.equal(report.invocation.wrapperForwarded,1)
         assert.equal(report.invocation.wrapperChecks,1);assert.equal(report.invocation.wrapperPending,0)
       }
