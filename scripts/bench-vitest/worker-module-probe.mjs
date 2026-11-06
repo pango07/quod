@@ -1,6 +1,7 @@
 // Diagnostic only: observe evaluator inputs and debugger-reported source bytes.
 // Unbound vm.Script compilations may be absent; neither observation permits replay.
 import {Session} from 'node:inspector'
+import {compiledScriptLog} from './compiled-script-log.mjs'
 import {createHash} from 'node:crypto'
 import {types} from 'node:util'
 import {fingerprint} from './worker-input-probe.mjs'
@@ -89,8 +90,8 @@ export function compiledScriptRecord(params,source,failedParse=false) {
 }
 
 export function observeCompiledScripts() {
-  const session=new Session(),scripts=[],errors=[]
-  let overflow=false,failedToParse=0
+  const session=new Session(),log=compiledScriptLog(),errors=[]
+  let failedToParse=0
   function post(method,params={}) {
     let done=false,error,value
     session.post(method,params,(e,r)=>{done=true;error=e;value=r})
@@ -99,16 +100,15 @@ export function observeCompiledScripts() {
   }
   function observe(params,failedParse) {
     if(failedParse)failedToParse++
-    if(scripts.length>=20000){overflow=true;return}
     try {
       const source=post('Debugger.getScriptSource',{scriptId:params.scriptId})
-      scripts.push(compiledScriptRecord(params,source,failedParse))
+      log.append(compiledScriptRecord(params,source,failedParse))
     }catch(e){errors.push(e.message)}
   }
   session.on('Debugger.scriptParsed',({params})=>observe(params,false))
   session.on('Debugger.scriptFailedToParse',({params})=>observe(params,true))
   try{session.connect();post('Debugger.enable')}catch(e){errors.push(e.message)}
-  return {report:()=>({replayEligible:false,completeCompilationCoverage:false,scripts,errors,overflow,failedToParse,
+  return {report:()=>({replayEligible:false,completeCompilationCoverage:false,...log.report(),errors,failedToParse,
     limitation:'Debugger-reported scripts can omit unbound vm.Script compilations; this is neither an execution trace nor a complete module dependency certificate'}),
     close(){try{session.disconnect()}catch{}}}
 }

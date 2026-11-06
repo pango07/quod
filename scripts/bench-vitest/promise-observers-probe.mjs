@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto'
 import {observeNativeCallArguments} from './native-call-argument.mjs'
 import {compiledScriptRecord} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
+import {compiledScriptLog} from './compiled-script-log.mjs'
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -23,13 +24,12 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
-  const compiled=[],compilationErrors=[]
-  let compilationOverflow=false,failedToParse=0
+  const compilationLog=compiledScriptLog(),compilationErrors=[]
+  let failedToParse=0
   function compiledEvent(params,failedParse) {
     if(!compiledScripts)return
     if(failedParse)failedToParse++
-    if(compiled.length>=20000){compilationOverflow=true;return}
-    try{compiled.push(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
+    try{compilationLog.append(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
     catch(e){compilationErrors.push(e.message)}
   }
   session.on('Debugger.scriptParsed',({params})=>{scripts.set(params.scriptId,{
@@ -199,7 +199,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
           if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
             onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
               arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,
-              compilation:{events:compiled.length,overflow:compilationOverflow,failedToParse},
+              compilation:{...compilationLog.counts(),failedToParse},
               argumentDiagnostics:nativeArgument.diagnostics(),
               identity:heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
           }catch{descriptorFailure='descriptor progress checkpoint failed'}
@@ -361,7 +361,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   return {
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
-        scripts:[...compiled],errors:[...compilationErrors],overflow:compilationOverflow,failedToParse,
+        ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },
     sourceForScript(scriptId) {

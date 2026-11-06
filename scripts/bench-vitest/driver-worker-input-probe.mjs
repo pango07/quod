@@ -17,6 +17,13 @@ const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
 const boundaryProbe=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
 const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'||boundaryProbe
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
+function checkCompilationCounts(report) {
+  assert.equal(report.encoding,'rle-v1')
+  assert(Number.isSafeInteger(report.events)&&report.events>=0)
+  assert(report.scripts.every(s=>Number.isSafeInteger(s.count)&&s.count>0))
+  assert.equal(report.scripts.reduce((n,s)=>n+s.count,0),report.events,
+    'the compressed trace must retain every observed compilation')
+}
 function states(file) {
   const report=JSON.parse(fs.readFileSync(file))
   const rows=report.testResults.map(f=>[path.relative(project,f.name),f.status,
@@ -221,6 +228,7 @@ if(phase) {
           assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
+          checkCompilationCounts(x.boundary.compilation)
           assert(x.boundary.config&&!x.boundary.config.overflow)
           assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,
             'scalar seed observation must remain installed and complete within its declared scope')
@@ -257,6 +265,7 @@ if(phase) {
       assert(reports.every(r=>!r.replayEligible&&!r.unknown.length&&r.files.length===1))
       assert(reports.every(r=>!r.evaluation.errors.length&&!r.compilation.errors.length&&!r.evaluation.overflow&&!r.compilation.overflow))
       assert(reports.every(r=>r.evaluation.events.length>0&&r.compilation.scripts.length>0))
+      reports.forEach(r=>checkCompilationCounts(r.compilation))
       return new Map(entries)
     }
     const left=loadModules('before'),right=loadModules('after'),comparisons=[]
@@ -264,8 +273,12 @@ if(phase) {
       const groups=new Map()
       for(const row of rows) {
         assert.equal(row.identity.available,true)
-        const k=row.identity.hash,list=groups.get(k)??[]
-        list.push(row.code.sha256);groups.set(k,list)
+        const count=row.count??1
+        assert(Number.isSafeInteger(count)&&count>0)
+        const k=row.identity.hash,group=groups.get(k)??{total:0,bodies:new Map()}
+        group.total+=count
+        group.bodies.set(row.code.sha256,(group.bodies.get(row.code.sha256)??0)+count)
+        groups.set(k,group)
       }
       return groups
     }
@@ -275,9 +288,9 @@ if(phase) {
         const a=left.get(key),b=right.get(key)
         if(!a||!b){result.unpaired++;continue}
         result.paired++
-        if(a.length!==b.length)result.differentMultiplicity++
-        if(JSON.stringify([...a].sort())!==JSON.stringify([...b].sort()))result.differentBodyMultisets++
-        if(JSON.stringify([...new Set(a)].sort())!==JSON.stringify([...new Set(b)].sort()))result.differentBodies++
+        if(a.total!==b.total)result.differentMultiplicity++
+        if(JSON.stringify([...a.bodies].sort())!==JSON.stringify([...b.bodies].sort()))result.differentBodyMultisets++
+        if(JSON.stringify([...a.bodies.keys()].sort())!==JSON.stringify([...b.bodies.keys()].sort()))result.differentBodies++
       }
       return result
     }
@@ -300,8 +313,8 @@ if(phase) {
           if(JSON.stringify(l)!==JSON.stringify(r))metadataFieldChanges[name]=(metadataFieldChanges[name]??0)+1
         }
       }
-      comparisons.push({key,before:{evaluations:a.evaluation.events.length,scripts:a.compilation.scripts.length},
-        after:{evaluations:b.evaluation.events.length,scripts:b.compilation.scripts.length},
+      comparisons.push({key,before:{evaluations:a.evaluation.events.length,scripts:a.compilation.events},
+        after:{evaluations:b.evaluation.events.length,scripts:b.compilation.events},
         metadataComparable,metadataFieldChanges,unknownMetadataFields,
         evaluatorSequenceEqual:metadataComparable?JSON.stringify(a.evaluation.events)===JSON.stringify(b.evaluation.events):null,
         codeSequenceEqual:JSON.stringify(body(a))===JSON.stringify(body(b)),
@@ -316,8 +329,8 @@ if(phase) {
       equalCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
       equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,totals,comparisons,
       unknownMetadataWorkers:comparisons.filter(c=>!c.metadataComparable).length,
-      wasmBefore:[...left.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').length,0),
-      wasmAfter:[...right.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').length,0),
+      wasmBefore:[...left.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').reduce((m,s)=>m+s.count,0),0),
+      wasmAfter:[...right.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').reduce((m,s)=>m+s.count,0),0),
       limitation:'Debugger coverage can omit unbound scripts; module code observations do not prove configuration, non-code data, Wasm imports, external inputs, parent RPC state or side effects'}
     write(path.join(out,'worker-module-result.json'),moduleResult)
     console.log(JSON.stringify({...moduleResult,comparisons:comparisons.length},null,2))

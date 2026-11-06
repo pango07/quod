@@ -4,8 +4,34 @@ import vm from 'node:vm'
 import {createHash} from 'node:crypto'
 import {fingerprint} from './worker-input-probe.mjs'
 import {observeCompiledScripts,observeModuleEvaluation} from './worker-module-probe.mjs'
+import {compiledScriptLog} from './compiled-script-log.mjs'
 
 const sha=s=>createHash('sha256').update(s,'utf16le').digest('hex')
+test('compiled trace compression preserves order, multiplicity and differing record fields',()=>{
+  const a={identity:{hash:'same'},code:{sha256:'a'},language:'JavaScript'},b={...a,code:{sha256:'b'}}
+  const input=[a,a,b,a,{...a,language:'WebAssembly'},a,a],log=compiledScriptLog(5)
+  for(const row of input)log.append(row)
+  const report=log.report()
+  assert.equal(report.encoding,'rle-v1');assert.equal(report.events,input.length);assert.equal(report.overflow,false)
+  assert.deepEqual(report.scripts.flatMap(({count,...row})=>Array.from({length:count},()=>row)),input)
+  log.append(b)
+  assert.equal(log.report().overflow,true,'new runs beyond the capacity must fail closed')
+  assert.equal(log.report().events,input.length+1)
+})
+
+test('more than 20000 repeated live compilations retain every occurrence without trace overflow',()=>{
+  const p=observeCompiledScripts(),url='quod-repeated-compilation-fixture',code='1 + 1',other='2 + 2',iterations=20005
+  try {
+    for(let i=0;i<iterations;i++)vm.runInThisContext(code,{filename:url})
+    vm.runInThisContext(other,{filename:url});vm.runInThisContext(code,{filename:url})
+    const report=p.report(),expected=fingerprint({url,language:'JavaScript',isModule:false,hasSourceURL:false,failedParse:false}).hash
+    assert.equal(report.overflow,false);assert.deepEqual(report.errors,[])
+    const rows=report.scripts.filter(s=>s.identity.hash===expected)
+    assert.deepEqual(rows.map(s=>[s.code.sha256,s.count]),[[sha(code),iterations],[sha(other),1],[sha(code),1]])
+    assert.equal(report.events,report.scripts.reduce((n,s)=>n+s.count,0))
+    assert.equal(report.completeCompilationCoverage,false);assert.equal(report.replayEligible,false)
+  }finally{p.close()}
+})
 test('observes exact evaluator code, preserves promise/throw identity, and restores methods',()=>{
   const promise=Promise.resolve(7),failure=Error('original failure')
   class Evaluator {
