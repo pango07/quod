@@ -7,8 +7,10 @@ import vm from 'node:vm'
 
 const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
 const observe=addon.createScalarReadObserver
-const make=(value=17,enumerable=true,prototype=Object.prototype)=>
-  Object.defineProperty(Object.create(prototype),'tmp',{value,writable:true,enumerable,configurable:true})
+function make(value,enumerable=true,prototype=Object.prototype) {
+  if(arguments.length===0)value=17
+  return Object.defineProperty(Object.create(prototype),'tmp',{value,writable:true,enumerable,configurable:true})
+}
 
 test('native scalar reads preserve primitive identity, descriptors and aliases',()=>{
   for(const value of [undefined,null,false,true,0,-0,NaN,Infinity,-Infinity,17,42n,'','\u0000\u03bb\ud800',Symbol('scalar')])
@@ -52,7 +54,8 @@ test('native scalar integrity checks never invoke a replacement JavaScript acces
   const observer=observe(target,'tmp',()=>reads++)
   const getter=()=>{getters++;return 17}
   Object.defineProperty(target,'tmp',{get:getter,configurable:true})
-  assert.equal(observer.report().available,false);assert.equal(reads,0);assert.equal(getters,0)
+  const before=reads
+  assert.equal(observer.report().available,false);assert.equal(reads,before);assert.equal(getters,0)
   observer.close();assert.equal(Object.getOwnPropertyDescriptor(target,'tmp').get,getter)
   assert.equal(getters,0)
 })

@@ -96,7 +96,7 @@ if(phase) {
     write(path.join(out,name+'-phase.json'),{phase:name,nativeTransport:boundaryProbe&&name!=='baseline'?nativeTransport:null,timeoutMs,elapsedMs:performance.now()-started,
       status:r.status,signal:r.signal,errorCode:r.error?.code??null})
     fs.writeFileSync(path.join(out,name+'.log'),(r.stdout??'')+(r.stderr??''))
-    assert.equal(r.error,undefined);assert.equal(r.status,0,'plain Vitest failed; see '+name+'.log')
+    assert.equal(r.error,undefined);assert.equal(r.status,0,name+' Vitest phase failed; see '+name+'.log')
     const s=states(path.join(out,name+'-tests.json'))
     assert.equal(s.fingerprint,'09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd')
     const progress=JSON.parse(fs.readFileSync(path.join(out,name+'-test-progress-summary.json')))

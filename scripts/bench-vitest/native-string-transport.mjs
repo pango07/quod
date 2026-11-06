@@ -64,7 +64,10 @@ export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}
       if(closed||!handle||typeof api!=='string'||entries.has(api)||typeof receiver!=='boolean'||typeof describeOwnAccessors!=='boolean')
         throw Error('invalid primitive entry registration')
       entries.set(api,{receiver,describeOwnAccessors})
-      return `(()=>{throw ${name}({__proto__:null,quodNativeEntry:${stringify(nonce)},api:${stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void(0)'},argumentCount:arguments.length,receiverBased:${receiver},describeOwnAccessors:${describeOwnAccessors}})})()`
+      // Parentheses avoid the required token-separating space after throw.
+      // This keeps controlled conditions within the existing exact-source
+      // cache's injective ASCII domain; the cache rules remain unchanged.
+      return `(()=>{throw(${name}({__proto__:null,quodNativeEntry:${stringify(nonce)},api:${stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void(0)'},argumentCount:arguments.length,receiverBased:${receiver},describeOwnAccessors:${describeOwnAccessors}}))})()`
     },
     handleException(params) {
       if(closed)return false

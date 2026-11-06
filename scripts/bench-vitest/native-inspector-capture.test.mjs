@@ -7,6 +7,7 @@ import {spawnSync} from 'node:child_process'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 const codec=new URL('./native-capture-summary.mjs',import.meta.url).href
 const strings=new URL('./native-string-transport.mjs',import.meta.url).href
+const compilation=new URL('./worker-module-probe.mjs',import.meta.url).href
 const directMode=process.env.QUOD_NATIVE_CAPTURE_TRANSPORT==='string'?'string':'native'
 function fixture(mode,body,{timeout=20000}={}) {
   const source=`import {Session} from 'node:inspector';
@@ -17,15 +18,16 @@ import vm from 'node:vm';
 import {observeNativeEntryArguments} from ${JSON.stringify(probe)};
 import {decodeNativeCaptureSummary} from ${JSON.stringify(codec)};
 import {nativeStringTransport} from ${JSON.stringify(strings)};
+import {createCompiledScriptRecorder} from ${JSON.stringify(compilation)};
 const require=createRequire(import.meta.url),session=new Session(),mode=${JSON.stringify(mode)};
 const events=[],extra={},commands={},nonce=randomBytes(32).toString('hex');
-let summaries=0,cleared=0,pauses=0,compiled=0,observer=null,bridge=null;
+let summaries=0,cleared=0,pauses=0,compiled=0,observer=null,bridge=null,sourceRecorder=null;
 function post(method,params={}) {
  commands[method]=(commands[method]??0)+1;let done=false,error,result;
  session.post(method,params,(e,r)=>{done=true;error=e;result=r});
  if(!done||error)throw error??Error('asynchronous Inspector response');return result;
 }
-session.connect();session.on('Debugger.scriptParsed',()=>compiled++);post('Debugger.enable');
+session.connect();session.on('Debugger.scriptParsed',({params})=>{compiled++;sourceRecorder?.record(params)});post('Debugger.enable');
 const globalProperties=Reflect.ownKeys(globalThis);
 session.on('Debugger.paused',()=>{pauses++;post('Debugger.resume')});
 function nativeSummary(packed) {
@@ -175,6 +177,19 @@ extra.value=native({tmp:7},'tmp').value;stop();`)
   assert.equal(data.value,7);assert.equal(data.summaries,1);assert.equal(data.bridge.failures,1)
   assert.equal(data.bridge.failure,'primitive transport context installation failed')
   assert.equal(data.bridge.replayEligible,false);assert.equal(data.closedBridge.closed,true)
+})
+
+test('primitive conditions use the exact-source cache without weakening its source restriction',()=>{
+  if(directMode!=='string')return
+  const data=fixture('string',`const native=Object.getOwnPropertyDescriptor,target={get tmp(){return 7}};
+watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');
+sourceRecorder=createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId}));
+for(let i=0;i<1000;i++)native(target,'tmp');
+extra.sourceCache=sourceRecorder.counts();sourceRecorder=null;stop();`)
+  complete(data,1000)
+  assert.equal(data.sourceCache.policy,'pinned-injective-ascii');assert.equal(data.sourceCache.events,1000)
+  assert.equal(data.sourceCache.sourceReads,1);assert.equal(data.sourceCache.cacheHits,999)
+  assert.equal(data.sourceCache.entries,1)
 })
 
 test('direct native session and protocol transport retain every repeated observation',t=>{
