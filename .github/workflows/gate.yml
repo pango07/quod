@@ -870,6 +870,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
+      - name: Build the diagnostic native capture helper
+        if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures'
+        shell: bash
+        run: |
+          NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
+          test -f "$NODE_INCLUDE/node.h"
+          c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
+            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
+          echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
         if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'

@@ -5,13 +5,16 @@
 import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
 import {watchedAccessorInspector} from './watched-accessor-inspector.mjs'
+import {nativeCaptureInspector} from './native-capture-inspector.mjs'
 const hasOwn=Object.hasOwn,isSafeInteger=Number.isSafeInteger
 const own=(object,key)=>object&&hasOwn(object,key)?object[key]:undefined
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol'}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
   if(!['protocol','watched','adaptive'].includes(targetInspection))throw Error('invalid target inspection mode')
+  if(nativeCapture&&(!directArguments||handleGroups||targetInspection!=='protocol'))throw Error('native capture requires direct arguments and its own inspection mode')
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
+  const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce):null
   const errors=[]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'
@@ -24,7 +27,9 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       if(!supported||closed)throw Error('native entry conditions require the pinned active diagnostic')
       if(typeof api!=='string'||entries.has(api))throw Error('invalid native entry registration')
       scoped?.initialize()
+      nativeInspector?.initialize()
       entries.set(api,{receiver,describeOwnAccessors})
+      if(nativeCapture)return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void 0'},argumentCount:arguments.length,receiverBased:${JSON.stringify(receiver)},describeOwnAccessors:${JSON.stringify(describeOwnAccessors)}})()`
       if(directArguments)return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void 0'},argumentCount:arguments.length}})()`
       return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},args:arguments,receiver:this}})()`
     },
@@ -51,6 +56,25 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       try {
         let remote=params.exceptionDetails?.exception
         if(!remote?.objectId||remote.subtype==='proxy'){ignored++;return false}
+        if(nativeInspector) {
+          handles.add(remote.objectId)
+          const value=nativeInspector.capture(remote.objectId)
+          if(!value.owned) {
+            if(!value.available)throw Error('native exception inspection unavailable')
+            ignored++;return false
+          }
+          owned=true;calls++
+          if(value.cleared)cleared++
+          const configuration=entries.get(value.api)
+          if(!value.available||!value.cleared||!configuration||value.receiverBased!==configuration.receiver||
+            value.describeOwnAccessors!==configuration.describeOwnAccessors||!isSafeInteger(value.argumentCount)||value.argumentCount<0||
+            value.inspected!==(value.kind==='object'&&configuration.describeOwnAccessors))throw Error('native capture summary unavailable')
+          if(value.inspected)scopedInspections++
+          note({api:value.api,argumentCount:value.argumentCount,receiverBased:value.receiverBased,kind:value.kind,
+            ...(value.target?{target:value.target}:{})},getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+              scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber})))
+          return true
+        }
         if(handleGroups) {
           // getProperties (including internal/private properties) inherits
           // the inspected handle's object group on the pinned V8 runtime.
@@ -126,9 +150,9 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       }
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
-      handleMode:handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
-      targetAccessorsOnly,targetInspection,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
+      handleMode:nativeCapture?'native-private-capture':handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
+      targetAccessorsOnly,targetInspection:nativeCapture?'native-watched':targetInspection,nativeCapture,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),
-    close(){if(closed)return;closed=true;try{scoped?.close()}catch{fail('watched accessor cleanup failed')}},
+    close(){if(closed)return;closed=true;try{scoped?.close();nativeInspector?.close()}catch{fail('private inspector cleanup failed')}},
   }
 }

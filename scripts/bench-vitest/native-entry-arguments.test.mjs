@@ -2,9 +2,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
+import {createRequire} from 'node:module'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol'}={}) {
+function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
 import {types} from 'node:util';
@@ -31,7 +32,7 @@ function same(id,other){
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
 function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
- const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)}});
+ const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)}});
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
@@ -103,7 +104,7 @@ if(applicationExceptions!==0||results.filter(r=>typeof r.get==='function').lengt
   t.diagnostic(JSON.stringify({case:'non-pausing-native-arguments',...data,replayEligible:false}))
 })
 
-for(const {directArguments,targetInspection='protocol'} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'}])test('actual native capture handles C++ proxy checks and receiver-based descriptor APIs: '+directArguments+'/'+targetInspection,()=>{
+for(const {directArguments,targetInspection='protocol',nativeCapture=false} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'},{directArguments:true,nativeCapture:true}])test('actual native capture handles C++ proxy checks and receiver-based descriptor APIs: '+directArguments+'/'+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let traps=0;const proxy=new Proxy({}, {get(){traps++;throw Error('trap')},getOwnPropertyDescriptor(){traps++;throw Error('trap')}});
 const isProxy=types.isProxy,lookup=Object.prototype.__lookupGetter__;
 const stop=captureEntries([
@@ -111,21 +112,21 @@ const stop=captureEntries([
  ['Object.prototype.__lookupGetter__','Object.prototype.__lookupGetter__',{receiver:true,describeOwnAccessors:true}]
 ]);
 extra.values=[isProxy(proxy),isProxy(plain),typeof lookup.call(target,key),typeof lookup.bind(target)(key)];
-stop();extra.traps=traps;`,{directArguments,targetInspection})
+stop();extra.traps=traps;`,{directArguments,targetInspection,nativeCapture})
   complete(data,4);assert.equal(data.traps,0)
   assert.deepEqual(data.values,[true,false,'function','function'])
   assert.deepEqual(data.events.map(e=>e.kind),['proxy','object','object','object'])
   assert(data.events.slice(2).every(e=>e.receiverBased&&e.target.watchedAccessorKeys.includes('tmp')))
 })
 
-for(const {directArguments,targetInspection='protocol'} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'}])test('native capture preserves arguments and queued microtasks: '+directArguments+'/'+targetInspection,()=>{
+for(const {directArguments,targetInspection='protocol',nativeCapture=false} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'},{directArguments:true,nativeCapture:true}])test('native capture preserves arguments and queued microtasks: '+directArguments+'/'+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let keyConversions=0,microtasks=0;const objectKey={toString(){keyConversions++;return key}};
 const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 let current=target;queueMicrotask(()=>{current=plain;microtasks++});
 function originalCaller(value,k){return native(value,k)}
 const a=originalCaller(current,objectKey);current=plain;const b=originalCaller(current,key);
 extra.during=microtasks;extra.values=[typeof a.get,b.value];extra.keyConversions=keyConversions;
-stop();await Promise.resolve();extra.after=microtasks;`,{directArguments,targetInspection})
+stop();await Promise.resolve();extra.after=microtasks;`,{directArguments,targetInspection,nativeCapture})
   complete(data,2);assert.equal(data.during,0);assert.equal(data.after,1)
   assert.equal(data.keyConversions,1);assert.deepEqual(data.values,['function',7])
   assert.deepEqual(data.events.map(e=>e.target.watchedAccessorKeys),[['tmp'],[]])
@@ -133,12 +134,12 @@ stop();await Promise.resolve();extra.after=microtasks;`,{directArguments,targetI
     'native call-site capture must preserve the actual caller without materializing lexical scopes')
 })
 
-for(const {directArguments,targetInspection='protocol'} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'}])test('clearing owned exception wrappers does not retain application arguments: '+directArguments+'/'+targetInspection,()=>{
+for(const {directArguments,targetInspection='protocol',nativeCapture=false} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'},{directArguments:true,nativeCapture:true}])test('clearing owned exception wrappers does not retain application arguments: '+directArguments+'/'+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 function temporary(){const value={tmp:1};const weak=new WeakRef(value);native(value,key);return weak}
 const weak=temporary();stop();
 await new Promise(resolve=>setImmediate(resolve));
-for(let i=0;i<4;i++)globalThis.gc();extra.collected=weak.deref()===undefined;`,{gc:true,directArguments,targetInspection})
+for(let i=0;i<4;i++)globalThis.gc();extra.collected=weak.deref()===undefined;`,{gc:true,directArguments,targetInspection,nativeCapture})
   complete(data,1);assert.equal(data.collected,true,'the Inspector console must retain only a cleared diagnostic wrapper')
 })
 
@@ -180,21 +181,21 @@ extra.collected=weak.every(w=>w.deref()===undefined);`,{gc:true,handleGroups:tru
   assert(data.collected&&data.originalHandleSurvives)
 })
 
-for(const {directArguments,targetInspection='protocol'} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'}])test('accessor-only target inspection preserves own accessor evidence: '+directArguments+'/'+targetInspection,()=>{
+for(const {directArguments,targetInspection='protocol',nativeCapture=false} of [{directArguments:false},{directArguments:true},{directArguments:true,targetInspection:'watched'},{directArguments:true,nativeCapture:true}])test('accessor-only target inspection preserves own accessor evidence: '+directArguments+'/'+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let reads=0;
 const proto={get seed(){reads++;throw Error('inherited accessor')}};
 const value=Object.create(proto);
 Object.defineProperties(value,{tmp:{get(){reads++;throw Error('own getter')}},invalidate:{set(v){reads++;}},
  seed:{value:123},data:{value:()=>42}});
 const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
-extra.returned=typeof native(value,key).get;stop();extra.reads=reads;`,{targetAccessorsOnly:true,directArguments,targetInspection})
+extra.returned=typeof native(value,key).get;stop();extra.reads=reads;`,{targetAccessorsOnly:true,directArguments,targetInspection,nativeCapture})
   complete(data,1);assert.equal(data.reads,0);assert.equal(data.returned,'function')
-  if(targetInspection==='watched'){assert.equal(data.events[0].target.watchedAccessorCount,2);assert(!Object.hasOwn(data.events[0].target,'ownAccessorCount'))}
+  if(targetInspection==='watched'||nativeCapture){assert.equal(data.events[0].target.watchedAccessorCount,2);assert(!Object.hasOwn(data.events[0].target,'ownAccessorCount'))}
   else assert.equal(data.events[0].target.ownAccessorCount,2)
   assert.deepEqual(data.events[0].target.watchedAccessorKeys.sort(),['invalidate','tmp'])
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments preserve replacing bound callees and add no public global bridge: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments preserve replacing bound callees and add no public global bridge: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`const before=Reflect.ownKeys(globalThis);
 const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 let owner={get call(){memberGets++;owner={call:native};return native.bind(null,target)}};
@@ -202,18 +203,18 @@ const a=owner.call(key);let current=target;const b=native(current,(current=plain
 const c=vm.runInNewContext('native(target,key)',{native,target,key});
 extra.values=[typeof a.get,typeof b.get,typeof c.get];stop();
 const after=Reflect.ownKeys(globalThis);extra.globalsUnchanged=before.length===after.length&&before.every((v,i)=>v===after[i]);
-extra.originalHandleSurvives=same(targetId,targetId);`,{directArguments:true,targetInspection})
+extra.originalHandleSurvives=same(targetId,targetId);`,{directArguments:true,targetInspection,nativeCapture})
   complete(data,3);assert.equal(data.memberGets,1);assert(data.globalsUnchanged&&data.originalHandleSurvives)
   assert.equal(data.capture.argumentMode,'direct')
   assert.deepEqual(data.values,['function','function','function'])
   assert(data.events.every(e=>e.target.watchedAccessorKeys.includes('tmp')))
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments ignore unrelated exception getters and leave their fields intact: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments ignore unrelated exception getters and leave their fields intact: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let reads=0;
 const foreign={get quodNativeEntry(){reads++;throw Error('foreign getter')},args:target};
 globalThis.__quodEntryFixture.foreign=foreign;
-const capture=observeNativeEntryArguments(post,{directArguments:true,targetInspection:${JSON.stringify(targetInspection)}});
+const capture=observeNativeEntryArguments(post,{directArguments:true,targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)}});
 capture.condition('Object.getOwnPropertyDescriptor',{describeOwnAccessors:true});
 const remote=post('Runtime.evaluate',{expression:'globalThis.__quodEntryFixture.foreign',objectGroup:'quod-entry-fixture'}).result;
 extra.owned=capture.handleException({exceptionDetails:{exception:remote}});
@@ -223,7 +224,7 @@ extra.intact=foreign.args===target&&typeof Object.getOwnPropertyDescriptor(forei
   assert.equal(data.capture.ignored,1)
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments use captured intrinsics without touching poisoned descriptor prototypes: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments use captured intrinsics without touching poisoned descriptor prototypes: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`const originals={descriptor:Object.getOwnPropertyDescriptor,keys:Reflect.ownKeys,has:Object.hasOwn,
  proxy:types.isProxy,define:Reflect.defineProperty,setPrototype:Object.setPrototypeOf,integer:Number.isSafeInteger};
 const define=Object.defineProperty;
@@ -236,38 +237,38 @@ const answer=native(target,key);
 delete Object.prototype.get;delete Object.prototype.value;
 Object.getOwnPropertyDescriptor=originals.descriptor;Reflect.ownKeys=originals.keys;Object.hasOwn=originals.has;types.isProxy=originals.proxy;
 Reflect.defineProperty=originals.define;Object.setPrototypeOf=originals.setPrototype;Number.isSafeInteger=originals.integer;
-extra.answer=typeof answer.get;extra.poisoned=poisoned;stop();`,{directArguments:true,targetInspection})
+extra.answer=typeof answer.get;extra.poisoned=poisoned;stop();`,{directArguments:true,targetInspection,nativeCapture})
   complete(data,1);assert.equal(data.poisoned,0);assert.equal(data.answer,'function')
-  assert.equal(targetInspection==='watched'?data.events[0].target.watchedAccessorCount:data.events[0].target.ownAccessorCount,1)
+  assert.equal(targetInspection==='watched'||nativeCapture?data.events[0].target.watchedAccessorCount:data.events[0].target.ownAccessorCount,1)
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments clear accessor closures as well as argument objects: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments clear accessor closures as well as argument objects: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 function temporary(){const captured={tmp:1},value={get tmp(){return captured}};
  const refs=[new WeakRef(captured),new WeakRef(value)];native(value,key);return refs}
 const refs=temporary();stop();await new Promise(resolve=>setImmediate(resolve));
-for(let i=0;i<4;i++)globalThis.gc();extra.collected=refs.every(r=>r.deref()===undefined);`,{directArguments:true,gc:true,targetInspection})
+for(let i=0;i<4;i++)globalThis.gc();extra.collected=refs.every(r=>r.deref()===undefined);`,{directArguments:true,gc:true,targetInspection,nativeCapture})
   complete(data,1);assert(data.collected)
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments preserve native errors and observe revoked proxies without touching their traps: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments preserve native errors and observe revoked proxies without touching their traps: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let traps=0,failed=0;
 const proxy=new Proxy({}, {ownKeys(){traps++;throw Error('unexpected inspection')},getOwnPropertyDescriptor(){traps++;return undefined}});
 const revocable=Proxy.revocable({},{});revocable.revoke();
 const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 native(proxy,key);
 for(const value of [undefined,revocable.proxy])try{native(value,key)}catch(e){if(e instanceof TypeError)failed++}
-stop();extra.traps=traps;extra.failed=failed;`,{directArguments:true,targetInspection})
+stop();extra.traps=traps;extra.failed=failed;`,{directArguments:true,targetInspection,nativeCapture})
   complete(data,3);assert.equal(data.traps,1);assert.equal(data.failed,2)
   assert.deepEqual(data.events.map(e=>e.kind),['proxy','primitive','proxy'])
 })
 
-for(const targetInspection of ['protocol','watched'])test('direct native arguments distinguish absent and explicit undefined arguments: '+targetInspection,()=>{
+for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments distinguish absent and explicit undefined arguments: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`let failed=0;
 const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 try{native()}catch(e){if(e instanceof TypeError)failed++}
 try{native(undefined,key)}catch(e){if(e instanceof TypeError)failed++}
-extra.absent=native(12,key)===undefined;stop();extra.failed=failed;`,{directArguments:true,targetInspection})
+extra.absent=native(12,key)===undefined;stop();extra.failed=failed;`,{directArguments:true,targetInspection,nativeCapture})
   complete(data,3);assert.equal(data.failed,2);assert(data.absent)
   assert.deepEqual(data.events.map(e=>e.argumentCount),[0,2,2])
   assert(data.events.every(e=>e.kind==='primitive'))
@@ -291,15 +292,47 @@ stop();`,{directArguments:true,targetAccessorsOnly:true,targetInspection:'adapti
   assert(data.events.slice(1).every(e=>!Object.hasOwn(e.target,'ownAccessorCount')))
 })
 
-test('scoped inspection does not retain targets while its private helper remains active',()=>{
+for(const nativeCapture of [false,true])test('scoped inspection does not retain targets while its private helper remains active: native '+nativeCapture,()=>{
   const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
 function temporary(){const captured={tmp:1},value={get tmp(){return captured}};
  const refs=[new WeakRef(captured),new WeakRef(value)];native(value,key);return refs}
 const refs=temporary();await new Promise(resolve=>setImmediate(resolve));
 for(let i=0;i<4;i++)globalThis.gc();extra.collectedWhileActive=refs.every(r=>r.deref()===undefined);
-native(target,key);stop();`,{directArguments:true,gc:true,targetInspection:'watched'})
+native(target,key);stop();`,{directArguments:true,gc:true,targetInspection:nativeCapture?'protocol':'watched',nativeCapture})
   complete(data,2);assert(data.collectedWhileActive)
   assert.equal(data.capture.scopedInspections,2)
+})
+
+test('native capture rejects malformed owned wrappers and foreign getters without leaking target values',()=>{
+  const {createCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce='a'.repeat(64),capture=createCapture(nonce)
+  const target={get tmp(){throw Error('getter must not run')}}
+  const payload=()=>({__proto__:null,quodNativeEntry:nonce,api:'test',argument:target,
+    argumentCount:1,receiverBased:false,describeOwnAccessors:true})
+  let gets=0
+  const foreign={__proto__:null,get quodNativeEntry(){gets++;throw Error('foreign getter')},argument:target}
+  const ignored=capture(foreign)
+  assert.equal(ignored.owned,false);assert.equal(gets,0);assert.equal(foreign.argument,target)
+  const invalid=payload();invalid.argumentCount=NaN
+  const rejected=capture(invalid)
+  assert(rejected.owned&&!rejected.available&&rejected.cleared)
+  assert.equal(invalid.argument,null);assert.equal(invalid.quodNativeEntry,null);assert.equal(invalid.api,null)
+  const frozen=Object.freeze(payload()),untouched=capture(frozen)
+  assert(untouched.owned&&!untouched.available&&!untouched.cleared);assert.equal(frozen.argument,target)
+  const valid=payload(),summary=capture(valid)
+  assert(summary.owned&&summary.available&&summary.cleared&&summary.inspected)
+  assert.equal(summary.mask,2);assert.equal(summary.kind,1)
+  assert(!Object.hasOwn(summary,'argument'));assert.equal(valid.argument,null)
+})
+
+test('native capture rejects interceptor targets but clears the owned wrapper',()=>{
+  const {createCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce='b'.repeat(64),capture=createCapture(nonce)
+  const payload={__proto__:null,quodNativeEntry:nonce,api:'test',argument:process.env,
+    argumentCount:1,receiverBased:false,describeOwnAccessors:true}
+  const result=capture(payload)
+  assert(result.owned&&!result.available&&result.cleared)
+  assert.equal(payload.argument,null)
 })
 
 test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{
@@ -364,7 +397,8 @@ const report=log.report();validateCompilationCounts(report);extra.compiledEvents
 test('compare scoped inspection on narrow and accessor-heavy targets with complete compilation logging',t=>{
   const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
     logs=new URL('./compiled-script-log.mjs',import.meta.url).href
-  for(const width of [0,80,2247])for(const targetInspection of ['protocol','watched','adaptive']) {
+  for(const width of [0,80,2247])for(const mode of ['protocol','watched','adaptive','native']) {
+    const nativeCapture=mode==='native',targetInspection=nativeCapture?'protocol':mode
     const data=fixture(`const {compiledScriptRecord}=await import(${JSON.stringify(compiled)});
 const {dictionaryCompiledScriptLog,validateCompilationCounts}=await import(${JSON.stringify(logs)});
 const log=dictionaryCompiledScriptLog();
@@ -386,11 +420,12 @@ const start=now();let values=0;
 for(let i=0;i<300;i++)if(typeof invoke().get==='function')values++;
 extra.elapsedMs=now()-start;stop();extra.observed=observed;extra.values=values;
 const report=log.report();validateCompilationCounts(report);extra.compiledEvents=report.events;extra.commands={...commands};`,
-      {ballast:2000,targetAccessorsOnly:true,directArguments:true,targetInspection})
+      {ballast:2000,targetAccessorsOnly:true,directArguments:true,targetInspection,nativeCapture})
     complete(data,300);assert.equal(data.observed,300);assert.equal(data.values,300)
-    assert.equal(data.capture.scopedInspections,targetInspection==='watched'?300:targetInspection==='adaptive'&&width>=64?299:0)
+    assert.equal(data.capture.scopedInspections,nativeCapture||targetInspection==='watched'?300:targetInspection==='adaptive'&&width>=64?299:0)
     assert(data.compiledEvents>=600)
-    rows.push({width,targetInspection,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,
+    if(nativeCapture){assert.equal(data.commands['Runtime.getProperties']??0,0);assert.equal(data.commands['Runtime.callFunctionOn'],300);assert.equal(data.commands['Runtime.releaseObject'],300)}
+    rows.push({width,targetInspection,nativeCapture,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,
       compiledEvents:data.compiledEvents,capture:data.capture,replayEligible:false})
   }
   t.diagnostic(JSON.stringify({scopedTargetInspectionMeasurements:rows}))
