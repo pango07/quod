@@ -2605,5 +2605,41 @@
       "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/js-objects.cc"
     ],
     "replayEligible": false
+  },
+  "ordinaryOwnerFixture": {
+    "commit": "b3006e8",
+    "run": "https://github.com/pango07/quod/actions/runs/42244547700",
+    "job": 127983218445,
+    "conclusion": "success",
+    "regressionsPassed": 190,
+    "nativeBinarySha256": "bbc4c4d8611afb1d86300826ec7fd87156c08298915c2ae374e4f2a8603f7c2f",
+    "change": "The combined diagnostic admits watched scalar owners only after the native ordinary-object guard. In that explicit scope, API-wrapper/interceptor targets are retained as excluded-owner-type, without reading host descriptors or claiming inspection. Default unrestricted capture still rejects them.",
+    "requiredEvidence": [
+      "Combined bootstrap installs the native guard on seed and module metadata owners.",
+      "Each watched scalar report requires ownerGuardRequired=true and ownerGuardPassed=true.",
+      "Metadata reports with rejected owners contain gaps and fail the driver.",
+      "Capture ownerPolicy must be native-ordinary; excluded targets retain their type and no fabricated accessor count."
+    ],
+    "regressions": [
+      "Host objects rejected before scalar or module descriptor access, with no native access-check callbacks.",
+      "Ordinary scalar and module owners pass and install.",
+      "Strict native capture still rejects the same wrapper.",
+      "Guarded capture classifies the wrapper without inspecting it.",
+      "Foreign-context bridge preserves the owner scope and still observes ordinary targets."
+    ],
+    "limitations": [
+      "This constrains diagnostic instrumentation; it does not establish initial runtime integrity, exclude arbitrary native capabilities, or authorize replay.",
+      "The full workload has not yet established all owners pass this construction rule."
+    ],
+    "replayEligible": false
+  },
+  "pendingFullDiagnostic": {
+    "commit": "941d2d3",
+    "run": "https://github.com/pango07/quod/actions/runs/42245249422",
+    "status": "in_progress",
+    "fixtureGate": 42245067969,
+    "fixtureRegressionsPassed": 192,
+    "replayEligible": false,
+    "job": 127985664291
   }
 }

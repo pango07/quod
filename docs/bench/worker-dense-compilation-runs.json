@@ -1,0 +1,45 @@
+{
+  "scope": "Lossless storage of the full diagnostic compilation run index",
+  "replayEligible": false,
+  "commit": "941d2d3",
+  "run": "https://github.com/pango07/quod/actions/runs/42245067969",
+  "job": 127985044342,
+  "conclusion": "success",
+  "regressionsPassed": 192,
+  "encoding": "dictionary-v1 reports unchanged; internal Float64Array chunks hold exact safe-integer IDs and counts",
+  "measurements": [
+    {
+      "mode": "array-tuples",
+      "runs": 250000,
+      "matches": 250000,
+      "heapDelta": 18065560,
+      "arrayBufferDelta": 0
+    },
+    {
+      "mode": "dense-runs",
+      "runs": 250000,
+      "matches": 250000,
+      "heapDelta": 38384,
+      "arrayBufferDelta": 4063196,
+      "allocatedRunStorageBytes": 4063232
+    }
+  ],
+  "regressions": [
+    "Exact event order and every record field survive dictionary expansion.",
+    "Adjacent counts and new runs remain exact across a 4096-run chunk boundary.",
+    "Mutating a serialized report cannot alter retained run data.",
+    "Record/run capacity failures remain unavailable.",
+    "Every serialized entry in the isolated 250000-run measurement is independently checked."
+  ],
+  "limitations": [
+    "Memory sample covers retained run storage before JSON report materialization, not total process RSS.",
+    "Reports still allocate ordinary JSON tuples; peak serialization memory is not removed.",
+    "No compilation is omitted and no capacity increased.",
+    "This is not a CI savings measurement."
+  ],
+  "pendingFullGate": {
+    "run": 42245249422,
+    "status": "in_progress",
+    "job": 127985664291
+  }
+}

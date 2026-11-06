@@ -106,5 +106,51 @@
     "indexErrorWorkers": 1,
     "indexErrorSamples": 20,
     "indexErrorSamplesCapped": true
+  },
+  "reentrantCorrection": {
+    "commit": "9f886ac",
+    "run": "https://github.com/pango07/quod/actions/runs/42243803259",
+    "job": 127980645117,
+    "conclusion": "success",
+    "regressionsPassed": 187,
+    "change": "Validate owned data fields without invoking their getters, freeze the copy before allocating a dictionary slot, then re-read membership and capacities after any nested insertion. Capture used intrinsics and encode complete UTF-16 metadata with length prefixes rather than inherited toJSON hooks.",
+    "regressions": [
+      "Nested insertion cannot alias two metadata slots.",
+      "Nested insertion rechecks entry capacity and updates to the same ID.",
+      "Later intrinsic replacements and inherited toJSON hooks do not execute.",
+      "Accessor metadata is rejected without invoking the getter; its failure stage is counted."
+    ],
+    "measurements": [
+      {
+        "mode": "map",
+        "entries": 250000,
+        "matches": 250000,
+        "insertMs": 123.919117,
+        "lookupMs": 104.82779400000001,
+        "heapDelta": 43430672,
+        "arrayBufferDelta": 0
+      },
+      {
+        "mode": "compact",
+        "entries": 250000,
+        "matches": 250000,
+        "insertMs": 452.664201,
+        "lookupMs": 47.022988000000055,
+        "heapDelta": 150072,
+        "arrayBufferDelta": 1015808
+      }
+    ],
+    "limitations": [
+      "This fixes a reproducible nested-insertion hazard, but does not yet explain the prior full-run index errors.",
+      "The driver now requires failures=0 as well as count agreement and no overflow.",
+      "No production replay or savings claim changes."
+    ]
+  },
+  "pendingFullGate": {
+    "commit": "941d2d3",
+    "run": 42245249422,
+    "status": "in_progress",
+    "alsoChanges": "private native context bridge; guarded ordinary scalar owners; dense compilation run storage",
+    "job": 127985664291
   }
 }

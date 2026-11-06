@@ -854,7 +854,7 @@
     "freshModuleScopeLookupLatestFixtureTests": 110,
     "freshModuleScopeLookupLatestFixtureConclusion": "success",
     "freshModuleScopeLookupEnabledInCombinedWorkload": false,
-    "descriptorOverheadNextAction": "Resolve native API-wrapper target coverage without invoking host callbacks; diagnose the script-index errors from worker 5846. The private context bridge passes 183 fixtures but has not been measured on the full workload. Batch a full boundary gate once these gaps are addressed; do not promote partial diagnostics into replay authority.",
+    "descriptorOverheadNextAction": "Inspect full gate 42245249422 at 941d2d3: context bridge, ordinary-owner construction guard, reentrant-safe metadata index with failure-stage counters, and dense run storage. Require full before/after coverage, zero observation errors, exact counts and unchanged per-test states; partial results grant no replay authority.",
     "nativeEntryArgumentsFixtureGate": 42216738359,
     "nativeEntryArgumentsFixtureTests": 122,
     "nativeEntryArgumentsFixtureConclusion": "success",
@@ -954,6 +954,21 @@
     "nativeCaptureContextBridgeCommit": "5350601",
     "nativeCaptureContextBridgeGate": 42241986122,
     "nativeCaptureContextBridgeGateConclusion": "success",
-    "nativeCaptureContextBridgeGateTests": 183
+    "nativeCaptureContextBridgeGateTests": 183,
+    "scriptMetadataReentrantCommit": "9f886ac",
+    "scriptMetadataReentrantGate": 42243803259,
+    "scriptMetadataReentrantGateConclusion": "success",
+    "scriptMetadataReentrantTests": 187,
+    "ordinaryOwnerGuardCommit": "b3006e8",
+    "ordinaryOwnerGuardGate": 42244547700,
+    "ordinaryOwnerGuardGateConclusion": "success",
+    "ordinaryOwnerGuardTests": 190,
+    "denseCompilationRunsCommit": "941d2d3",
+    "denseCompilationRunsGate": 42245067969,
+    "denseCompilationRunsGateConclusion": "success",
+    "denseCompilationRunsTests": 192,
+    "denseCompilationRunsEvidence": "worker-dense-compilation-runs.json",
+    "guardedBoundaryFullGate": 42245249422,
+    "guardedBoundaryFullGateStatus": "in_progress"
   }
 }

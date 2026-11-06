@@ -1294,3 +1294,45 @@ collects garbage and clears feedback vectors. Its full-workload cost remains
 unmeasured. Resolve the rejected targets and script-index errors before the
 next full boundary gate. This remains diagnostic work with replay eligibility
 false; no production key or savings claim changes.
+
+## Guarded owners and dense run storage
+
+The index correction at `9f886ac` passes
+[187 regressions](https://github.com/pango07/quod/actions/runs/42243803259).
+The new regression deliberately re-enters insertion while freezing metadata.
+The earlier order reserved a dictionary slot before freezing; a nested
+insertion could reserve that same slot. The correction completes descriptor
+validation and freezing before committing, then rechecks membership and
+capacity. Captured intrinsics and length-prefixed UTF-16 keys avoid later
+application replacements and inherited `toJSON` hooks. Failure stages are
+counted and required to be zero. The earlier full-run errors remain
+unexplained until a new workload measurement; this fix is not that evidence.
+
+Candidate `b3006e8` requires a native ordinary-object guard before installing
+watched scalar accessors on seed or module metadata. Rejected owners create
+explicit gaps. Within this construction rule, API-wrapper/interceptor targets
+cannot be those watched owners: capture retains the call as
+`excluded-owner-type`, without inspecting host properties or inventing an
+accessor count. Unrestricted capture keeps its previous rejection behavior.
+The full-workload verifier requires the native owner policy and passing
+guards on every watched scalar. This does not certify initial runtime
+integrity or arbitrary native capabilities, and still authorizes no replay.
+[All 190 regressions pass](https://github.com/pango07/quod/actions/runs/42244547700),
+including host access-check exclusion, ordinary owners, strict-mode rejection,
+and scope preservation through the private foreign-context bridge.
+
+At `941d2d3`, the compilation log stores its exact ordered runs in dense
+Float64Array chunks. Every safe-integer ID and occurrence count remains exact;
+reports retain the existing `dictionary-v1` JSON format. No script, count,
+ordering, field, or capacity is removed. The
+[192-regression gate](https://github.com/pango07/quod/actions/runs/42245067969)
+passes. For 250,000 alternating runs, isolated heap plus ArrayBuffer growth
+falls from 18.07 MB to 4.10 MB, with every serialized entry checked. This
+measures run storage before report materialization, not process RSS or CI
+savings. [Measurement details](worker-dense-compilation-runs.json) retain that
+distinction and the chunk-boundary and snapshot-mutation regressions.
+
+[Full diagnostic 42245249422](https://github.com/pango07/quod/actions/runs/42245249422)
+is running at `941d2d3`. It must still establish complete worker
+coverage, error-free observations, per-test agreement, and the actual memory
+and tracing cost of the combined changes.
