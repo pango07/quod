@@ -1,0 +1,90 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {spawnSync} from 'node:child_process'
+
+const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
+function run(kind) {
+  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+import {EventEmitter} from 'node:events';
+const kind=${JSON.stringify(kind)},p=inspectPromiseObservers({compiledScripts:true});
+const delivered=[],copied=[],message={seed:123,tmp:'/private-message'};
+function observer(value){delivered.push(value.seed)}
+process.prependListener('message',observer);
+const initial=p.captureMessageObserver(),emit=process.emit;
+let getterCalls=0,traps=0,mid=null;
+function thief(value){copied.push([value.seed,value.tmp]);process.removeListener('message',thief)}
+if(kind==='self-removing')process.prependListener('message',thief);
+if(kind==='same-source') {
+  // Same code is insufficient: this is a different closure instance.
+  const impostor=eval('('+observer.toString()+')');
+  process.prependListener('message',impostor);
+}
+if(kind==='nested') {
+  function nested(value){process.removeListener('message',nested);emit.call(process,'message',{seed:456})}
+  process.prependListener('message',nested);
+}
+if(kind==='unpaired')observer(message);
+else if(kind==='other-receiver')new EventEmitter().emit('message',message);
+else if(kind==='removed') {process.removeListener('message',observer);emit.call(process,'message',message)}
+else if(kind==='alternate-dispatch') {process.emit=function(type,value){if(type==='message')observer.call(process,value)};process.emit('message',message);process.emit=emit}
+else if(kind==='getter') {
+  const events=process._events,original=Object.getOwnPropertyDescriptor(events,'message');
+  Object.defineProperty(events,'message',{get(){getterCalls++;return observer},configurable:true});
+  emit.call(process,'message',message);
+  Object.defineProperty(events,'message',original);
+}
+else if(kind==='proxy') {
+  const events=process._events;
+  process._events=new Proxy(events,{get(target,key,receiver){traps++;return Reflect.get(target,key,receiver)}});
+  emit.call(process,'message',message);process._events=events;
+}
+else if(kind==='close') {p.close();emit.call(process,'message',message)}
+else {
+  emit.call(process,'message',message);
+  if(kind==='self-removing'){mid=p.messageDispatch();emit.call(process,'message',{seed:789})}
+  if(kind==='primitive')emit.call(process,'message',42);
+}
+const report=p.messageDispatch(),compilation=p.compiledScriptReport(),listeners=process.rawListeners('message');
+p.close();process.removeAllListeners('message');
+console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,traps,observerFirst:listeners[0]===observer,
+  compilationErrors:compilation.errors,closed:p.messageDispatch()}));`
+  const result=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(result.status,0,result.stderr||String(result.error))
+  return JSON.parse(result.stdout)
+}
+for(const kind of ['normal','self-removing','same-source','nested','unpaired','other-receiver','removed','alternate-dispatch','getter','proxy','primitive','close']) {
+  test('message dispatch entry: '+kind,()=>{
+    const r=run(kind),report=r.report
+    assert.equal(r.initial.installed,true,JSON.stringify(r.initial))
+    assert.equal(r.initial.available,true,JSON.stringify(r.initial))
+    assert.equal(report.replayEligible,false)
+    assert.equal(report.completeOwnership,false)
+    assert.deepEqual(r.compilationErrors,[])
+    assert.equal(r.closed.closed,true)
+    assert.equal(r.closed.groupsCreated,r.closed.groupsReleased)
+    if(kind==='normal'||kind==='primitive') {
+      assert.equal(report.available,true,JSON.stringify(report))
+      assert.equal(report.dispatches,kind==='normal'?1:2)
+      assert.equal(report.paired,report.dispatches)
+      assert.equal(r.observerFirst,true,'diagnostic did not replace the listener')
+    } else if(kind==='other-receiver') {
+      assert.equal(report.available,true,JSON.stringify(report));assert.equal(report.dispatches,0)
+      assert.equal(report.ignoredReceivers,1);assert.deepEqual(r.delivered,[])
+    } else if(kind==='close') {
+      assert.equal(report.closed,true);assert.equal(report.dispatches,0);assert.deepEqual(r.delivered,[123])
+    } else {
+      assert.equal(report.available,false,JSON.stringify(report))
+      if(['self-removing','same-source','nested'].includes(kind))assert(report.errors.includes('observer was not first at message dispatch'),JSON.stringify(report))
+      if(kind==='self-removing') {
+        assert.deepEqual(r.copied,[[123,'/private-message']]);assert.equal(r.observerFirst,true)
+        assert.equal(r.mid.available,false);assert.equal(report.dispatches,2);assert.equal(report.paired,2)
+      }
+      if(kind==='nested'){assert.equal(report.paired,2);assert.deepEqual(r.delivered,[456,123])}
+      if(kind==='removed'){assert.equal(report.pending,1);assert.equal(report.callbacks,0)}
+      if(kind==='unpaired'||kind==='alternate-dispatch')assert(report.errors.includes('observer callback has no matching message dispatch'),JSON.stringify(report))
+      if(kind==='getter')assert.equal(r.getterCalls,1,'only original emit executes the getter')
+      if(kind==='proxy')assert.equal(r.traps,1,'only original emit reads the proxy')
+    }
+    assert(!JSON.stringify(report).includes('/private-message'),'reports never contain message values')
+  })
+}

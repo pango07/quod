@@ -12,6 +12,7 @@ import {observeNativeEntryArguments} from './native-entry-probe.mjs'
 import {nativeEntryLog,nativeEntryFrames,nativeFrameMapper} from './native-entry-log.mjs'
 import {scriptMetadataIndex} from './script-metadata-index.mjs'
 import {issuedCompilationSources} from './issued-compilation-sources.mjs'
+import {observeMessageDispatch} from './message-dispatch-probe.mjs'
 const monotonicNow=process.hrtime.bigint
 const memoryUsage=process.memoryUsage
 
@@ -60,7 +61,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     compiledEvent(params,false)
   })
   session.on('Debugger.scriptFailedToParse',({params})=>compiledEvent(params,true))
-  let failure=null, closed=false
+  let failure=null, closed=false,messageDispatch=null
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
@@ -278,7 +279,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const proxy=(params.hitBreakpoints??[]).map(id=>proxyBreakpoints.get(id)).filter(Boolean)
       const hooks=(params.hitBreakpoints??[]).map(id=>hookBreakpoints.get(id)).filter(Boolean)
       const descriptors=(params.hitBreakpoints??[]).map(id=>descriptorBreakpoints.get(id)).filter(Boolean)
-      if(inspector.length||opaque.length||proxy.length||hooks.length||descriptors.length) {
+      const messageEntry=messageDispatch?.handlePause(params)??false
+      if(inspector.length||opaque.length||proxy.length||hooks.length||descriptors.length||messageEntry) {
         const frames=params.callFrames.slice(0,8).map(f=>({
           name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
         if(inspector.length)inspectorEntries.push({entries:inspector,frames})
@@ -502,6 +504,14 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     }catch(e){return {available:false,reason:e.message,replayEligible:false}}
   }
   return {
+    captureMessageObserver() {
+      if(closed||messageDispatch)throw Error('message observer already captured or closed')
+      messageDispatch=observeMessageDispatch(post)
+      return messageDispatch.report()
+    },
+    messageDispatch() {
+      return messageDispatch?.report()??{available:false,installed:false,replayEligible:false,completeOwnership:false}
+    },
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
         ...compilationLog.report(),storage:compilationLog.counts(),errors:[...compilationErrors],failedToParse,
@@ -663,6 +673,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     snapshot:hookSnapshot,
     close() {
       closed=true
+      messageDispatch?.close()
       heapIdentityObserver?.close()
       for(const breakpointId of inspectorBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
