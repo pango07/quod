@@ -733,5 +733,19 @@
     "hookEntries": 0,
     "completeOwnership": false,
     "replayEligible": false
+  },
+  "metadataReaderSourceDiagnostic": {
+    "evidence": "metadata-reader-source.json",
+    "run": 42188370043,
+    "commit": "0179811",
+    "regressionTests": 62,
+    "runs": 2,
+    "statesPerRun": 4131,
+    "workers": 120,
+    "readerCalls": 6442,
+    "matchedReaderCalls": 6442,
+    "unmatchedReaderSources": 0,
+    "completeOwnership": false,
+    "replayEligible": false
   }
 }

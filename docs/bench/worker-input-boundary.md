@@ -399,3 +399,36 @@ still a diagnostic, with `replayEligible: false`; the Action and savings
 claims are unchanged.
 [Independent counts, call sites and artifact digests](worker-transport-metadata.json)
 preserve the evidence.
+
+## Executable identity of metadata readers
+
+[Gate 42188370043](https://github.com/pango07/quod/actions/runs/42188370043)
+at `0179811` passes 62 regressions and both complete runs. Independent
+artifact analysis again confirms 120 file/project instances and 4,131
+matching test states. Every one of the 6,442 observed metadata operations
+resolves to the actual V8 script and exact UTF-16 source digest of one of
+the two pinned Vitest/Vite loader modules. There are no unmatched reader
+sources. All 530 module RPC requests have responses, and all 236
+invalidations clear empty state. No stored-field reads or watched hook
+entries appear.
+
+The lookup uses the native call site's script identity, exposed by
+[Node's call-site API](https://nodejs.org/download/release/v24.4.0/docs/api/util.html#utilgetcallsitesframecount-options),
+and retrieves the corresponding source from the existing Inspector
+session. It does not trust a displayed filename or `Function#toString`.
+Five regressions cover actual ESM source, identical filenames with different
+bodies, forged function text, source-URL annotations, exact UTF-16 code
+units, closed sessions and unavailable source evidence. The failed
+predecessor `42188179118` had an incorrect fixture expectation: Node's
+native call-site API retains the original resource name despite a
+source-URL annotation. The corrected fixture checks that behavior and the
+Inspector annotation flag.
+
+This establishes executable identity for the operations observed through
+the metadata proxies. It does not establish complete object ownership or
+exclude earlier raw aliases, and source equality alone does not establish
+callback closure state or parent-side effect equivalence. Configuration
+and consumed-code observations still need a combined run before they can
+be used together. No replay or savings claim changes.
+[Independent source comparison and artifact digests](metadata-reader-source.json)
+retain the complete result.
