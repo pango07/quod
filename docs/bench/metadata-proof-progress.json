@@ -914,6 +914,14 @@
     "nativeCaptureFullGateStatus": "in_progress",
     "nativeCaptureEvidence": "worker-native-capture.json",
     "nativeCaptureSetupCorrectionCommit": "99a9310",
-    "nativeCaptureIntegrationFailedGate": 42233729723
+    "nativeCaptureIntegrationFailedGate": 42233729723,
+    "nativeCaptureCallbackCorrectionCommit": "98de5e8",
+    "nativeCaptureCallbackFixtureGate": 42234824816,
+    "nativeCaptureCallbackFixtureTests": 170,
+    "nativeCaptureCallbackFixtureConclusion": "success",
+    "nativeCaptureAccessCheckCommit": "21c3531",
+    "nativeCaptureAccessCheckFixtureGate": 42235088537,
+    "nativeCaptureAccessCheckFixtureTests": 171,
+    "nativeCaptureAccessCheckFixtureConclusion": "success"
   }
 }

@@ -1145,3 +1145,25 @@ pauses for the 19 descriptor operations; it does not hide the load.
 Initial runtime integrity, unsupported native channels and
 complete workload coverage still require evidence. [Exact measurements and
 failed-gate history](worker-native-capture.json) remain diagnostic-only.
+
+Source review then identified a native-callback gap in the first helper.
+V8's descriptor implementation can fetch a native data property's value,
+invoking its host callback. Correction `98de5e8` uses
+`HasRealNamedCallbackProperty` instead: it checks own callback presence
+without fetching the value, and conservatively includes native callbacks
+and empty JavaScript accessors. Owned wrapper fields reject callbacks before
+requesting their descriptors. API wrappers and interceptors are rejected
+before target property inspection. The implementation follows the pinned
+[V8 API entry](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api.cc)
+and [object lookup](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/js-objects.cc).
+
+[Gate 42235088537](https://github.com/pango07/quod/actions/runs/42235088537)
+at `21c3531` passes 171 regressions. A native data callback on an ordinary
+object remains uncalled during capture, then runs during ordinary descriptor
+inspection. A foreign marker callback remains uncalled too. A separate API
+wrapper fixture proves that capture rejects the object without invoking
+either host callback, while an ordinary cross-context read exercises both
+the access check and getter. The wide 300-call fixture measures 126 ms native
+versus 358 ms adaptive with complete compilation logging. The earlier full
+gate runs the pre-correction helper and cannot establish native-callback
+exclusion; a complete run of the corrected helper is still required.
