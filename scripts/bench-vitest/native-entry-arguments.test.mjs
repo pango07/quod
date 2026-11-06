@@ -291,6 +291,17 @@ stop();`,{directArguments:true,targetAccessorsOnly:true,targetInspection:'adapti
   assert(data.events.slice(1).every(e=>!Object.hasOwn(e.target,'ownAccessorCount')))
 })
 
+test('scoped inspection does not retain targets while its private helper remains active',()=>{
+  const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+function temporary(){const captured={tmp:1},value={get tmp(){return captured}};
+ const refs=[new WeakRef(captured),new WeakRef(value)];native(value,key);return refs}
+const refs=temporary();await new Promise(resolve=>setImmediate(resolve));
+for(let i=0;i<4;i++)globalThis.gc();extra.collectedWhileActive=refs.every(r=>r.deref()===undefined);
+native(target,key);stop();`,{directArguments:true,gc:true,targetInspection:'watched'})
+  complete(data,2);assert(data.collectedWhileActive)
+  assert.equal(data.capture.scopedInspections,2)
+})
+
 test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{
   const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
     logs=new URL('./compiled-script-log.mjs',import.meta.url).href
@@ -377,7 +388,7 @@ extra.elapsedMs=now()-start;stop();extra.observed=observed;extra.values=values;
 const report=log.report();validateCompilationCounts(report);extra.compiledEvents=report.events;extra.commands={...commands};`,
       {ballast:2000,targetAccessorsOnly:true,directArguments:true,targetInspection})
     complete(data,300);assert.equal(data.observed,300);assert.equal(data.values,300)
-    assert.equal(data.capture.scopedInspections,targetInspection==='watched'?300:targetInspection==='adaptive'&&width>=128?299:0)
+    assert.equal(data.capture.scopedInspections,targetInspection==='watched'?300:targetInspection==='adaptive'&&width>=64?299:0)
     assert(data.compiledEvents>=600)
     rows.push({width,targetInspection,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,
       compiledEvents:data.compiledEvents,capture:data.capture,replayEligible:false})

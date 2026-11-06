@@ -226,6 +226,16 @@ if(phase) {
           validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
           assert.equal(x.native.identity?.targetAccessorsOnly,true,'the diagnostic must use the gated accessor-only observation')
           assert.equal(x.native.identity?.argumentMode,'direct','the combined diagnostic must use the gated direct argument transport')
+          assert.equal(x.native.identity?.targetInspection,'adaptive','the combined diagnostic must use the gated adaptive inspection')
+          for(const entry of x.native.descriptors.entries)if(entry.argument.kind==='object') {
+            const target=entry.argument.target
+            assert(target&&['all-own-accessors','watched-properties'].includes(target.inspectionScope),
+              'every object target must declare its descriptor inspection scope')
+            assert(Array.isArray(target.watchedAccessorKeys)&&new Set(target.watchedAccessorKeys).size===target.watchedAccessorKeys.length&&
+              target.watchedAccessorKeys.every(key=>['seed','tmp','invalidate'].includes(key)))
+            if(target.inspectionScope==='watched-properties')assert(!Object.hasOwn(target,'ownAccessorCount')&&
+              target.watchedAccessorCount===target.watchedAccessorKeys.length,'scoped inspection must not claim an all-accessor count')
+          }
           const evidence=x.native.descriptors.sourceEvidence
           assert(evidence?.available&&evidence.scope==='frames-of-watched-accessor-targets',
             'watched target call stacks must retain actual V8 source evidence')

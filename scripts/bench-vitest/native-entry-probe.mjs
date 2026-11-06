@@ -98,7 +98,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
               watchedAccessorKeys:accessors.map(p=>p.name).filter(k=>['seed','tmp','invalidate'].includes(k))}
             // Capacity only bounds this optional performance hint. Unknown
             // sites keep the complete protocol path, with no dropped calls.
-            if(site&&accessors.length>=128&&wideSites.size<4096)wideSites.add(site)
+            if(site&&accessors.length>=64&&wideSites.size<4096)wideSites.add(site)
           }
         }
         // Native call-site records avoid constructing every lexical scope.

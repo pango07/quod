@@ -49,6 +49,7 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
   assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
   assert.equal(data.identity.targetAccessorsOnly,true)
   assert.equal(data.identity.argumentMode,'direct')
+  assert.equal(data.identity.targetInspection,'adaptive')
   assert.equal(data.report.sourceEvidence.available,true)
   assert.equal(data.report.sourceEvidence.scope,'frames-of-watched-accessor-targets')
   const sources=new Map(data.report.sourceEvidence.records.map(r=>[r.scriptId,r]))
