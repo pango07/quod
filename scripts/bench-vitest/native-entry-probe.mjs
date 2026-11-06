@@ -15,10 +15,10 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
   const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce):null
-  const errors=[],ignoredReasons=[0,0,0,0,0,0]
+  const errors=[],failureSamples=[],failureCounts=new Map(),ignoredReasons=[0,0,0,0,0,0]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'
-  function fail(reason) {if(errors.length<20)errors.push(reason)}
+  function fail(reason) {failureCounts.set(reason,(failureCounts.get(reason)??0)+1);if(errors.length<20)errors.push(reason)}
   function note(entry,frames) {
     onEntry({...entry,frames,replayEligible:false})
   }
@@ -74,13 +74,23 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
           owned=true;calls++
           if(value.cleared)cleared++
           const configuration=entries.get(value.api)
-          if(!value.available||!value.cleared||!configuration||value.receiverBased!==configuration.receiver||
-            value.describeOwnAccessors!==configuration.describeOwnAccessors||!isSafeInteger(value.argumentCount)||value.argumentCount<0||
-            value.inspected!==(value.kind==='object'&&configuration.describeOwnAccessors))throw Error('native capture summary unavailable')
+          if(!value.metadataValid||!configuration||value.receiverBased!==configuration.receiver||
+            value.describeOwnAccessors!==configuration.describeOwnAccessors||!isSafeInteger(value.argumentCount)||value.argumentCount<0)
+            throw Error('native capture summary unavailable')
+          const frames=getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+            scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber}))
+          if(!value.available) {
+            const reason='native capture unavailable: '+value.failureReason
+            fail(reason)
+            note({api:value.api,argumentCount:value.argumentCount,receiverBased:value.receiverBased,kind:value.kind,
+              available:false,reason},frames)
+            return true
+          }
+          if(!value.cleared||value.failure!==0||value.inspected!==(value.kind==='object'&&configuration.describeOwnAccessors))
+            throw Error('native capture summary unavailable')
           if(value.inspected)scopedInspections++
           note({api:value.api,argumentCount:value.argumentCount,receiverBased:value.receiverBased,kind:value.kind,
-            ...(value.target?{target:value.target}:{})},getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
-              scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber})))
+            ...(value.target?{target:value.target}:{})},frames)
           return true
         }
         if(handleGroups) {
@@ -137,7 +147,14 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         // Keep all bounded frames for now; no filename grants provenance.
         note({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{})},frames)
         return true
-      }catch(error) {fail(nativeInspector?.failureReason(error)??'native entry capture failed');return owned}
+      }catch(error) {
+        const reason=nativeInspector?.failureReason(error)??'native entry capture failed';fail(reason)
+        if(failureSamples.length<20)failureSamples.push({reason,owned,
+          executionContextId:isSafeInteger(params.exceptionDetails?.executionContextId)?params.exceptionDetails.executionContextId:null,
+          frames:getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+            scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber}))})
+        return owned
+      }
       finally {
         if(owned&&payload&&canClear)try {
           // V8's console storage retains condition exceptions. Clear only
@@ -158,6 +175,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       }
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,ignoredReasons:[...ignoredReasons],cleared,released,groupsReleased,
+      failureCounts:Object.fromEntries(failureCounts),failureSamples:[...failureSamples],
       handleMode:nativeCapture?'native-private-capture':handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
       targetAccessorsOnly,targetInspection:nativeCapture?'native-watched':targetInspection,nativeCapture,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),

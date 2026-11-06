@@ -70,7 +70,8 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   auto result = Object::New(isolate);
   if (!result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false)) return;
   bool owned = false, available = true, clearable = false, cleared = false;
-  bool inspected = false, receiver = false, describe = false;
+  bool inspected = false, receiver = false, describe = false, metadata_valid = false;
+  int failure = 0;  // 1 wrapper, 2 API wrapper, 3 interceptor, 4 lookup, 5 exception, 6 cleanup.
   int kind = 0, mask = 0;  // 0 primitive, 1 ordinary object, 2 proxy.
   int rejection = 0;  // Foreign-wrapper classification, never target data.
   double count = 0;
@@ -88,6 +89,7 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
     if (!marker->StrictEquals(info.Data())) { rejection = 5; break; }
     owned = true;
     available = false;
+    failure = 1;
     Local<Value> argument, count_value, receiver_value, describe_value;
     if (!OwnData(context, payload, "quodNativeEntry", &marker, true) ||
         !OwnData(context, payload, "api", &api, true) ||
@@ -105,8 +107,14 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
     receiver = receiver_value->IsTrue();
     describe = describe_value->IsTrue();
     kind = argument->IsProxy() ? 2 : argument->IsObject() ? 1 : 0;
+    metadata_valid = true;
+    failure = 0;
     if (describe && kind == 1) {
-      if (!OrdinaryForInspection(argument)) break;
+      auto target = argument.As<Object>();
+      if (target->IsApiWrapper()) { failure = 2; break; }
+      if (target->HasNamedLookupInterceptor() || target->HasIndexedLookupInterceptor()) {
+        failure = 3; break;
+      }
       const char* names[] = {"seed", "tmp", "invalidate"};
       bool okay = true;
       for (int index = 0; index < 3; ++index) {
@@ -115,13 +123,13 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
                             &accessor)) { okay = false; break; }
         if (accessor) mask |= 1 << index;
       }
-      if (!okay) break;
+      if (!okay) { failure = 4; break; }
       inspected = true;
     }
     available = true;
   } while (false);
 
-  if (caught.HasCaught()) { caught.Reset(); available = false; }
+  if (caught.HasCaught()) { caught.Reset(); available = false; failure = 5; }
   if (owned && clearable) {
     // Only our own validated writable data fields are modified. Even an
     // unsupported target loses its references in retained console history.
@@ -130,13 +138,16 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
       cleared = payload->Set(context, Key(isolate, field), Null(isolate))
                     .FromMaybe(false) && cleared;
     if (caught.HasCaught()) { caught.Reset(); cleared = false; }
+    if (!cleared) failure = 6;
     available = available && cleared;
   }
   bool okay = Put(context, result, "owned", Boolean::New(isolate, owned)) &&
       Put(context, result, "available", Boolean::New(isolate, available)) &&
       Put(context, result, "cleared", Boolean::New(isolate, cleared)) &&
+      Put(context, result, "metadataValid", Boolean::New(isolate, metadata_valid)) &&
+      Put(context, result, "failure", Integer::New(isolate, failure)) &&
       Put(context, result, "rejection", Integer::New(isolate, rejection));
-  if (owned && available) {
+  if (owned && metadata_valid) {
     okay = okay && Put(context, result, "api", api) &&
         Put(context, result, "argumentCount", Number::New(isolate, count)) &&
         Put(context, result, "receiverBased", Boolean::New(isolate, receiver)) &&

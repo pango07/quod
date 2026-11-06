@@ -80,7 +80,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,onEntry(entry) {
     const frames=entry.frames.map(f=>({name:f.name,
       location:{scriptId:f.scriptId,lineNumber:f.line-1,columnNumber:f.column-1},script:scripts.get(f.scriptId)??null}))
-    const argument={available:true,kind:entry.kind,...(entry.target?{target:entry.target}:{}),
+    const argument={available:entry.available!==false,kind:entry.kind,...(entry.reason?{reason:entry.reason}:{}),...(entry.target?{target:entry.target}:{}),
       actualNativeEntry:true,argumentCount:entry.argumentCount,receiverBased:entry.receiverBased,replayEligible:false}
     if(proxyFunctions.has(entry.api))recordProxy([entry.api],frames,argument)
     else if(descriptorFunctions.has(entry.api))recordDescriptor([entry.api],frames,argument)

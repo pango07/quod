@@ -29,11 +29,13 @@ export function nativeCaptureInspector(post,nonce) {
       const value=r.result?.value
       if(!value||typeof value.owned!=='boolean'||typeof value.available!=='boolean'||typeof value.cleared!=='boolean')throw failure('invalid native capture result')
       if(!integer(value.rejection)||value.rejection<0||value.rejection>5)throw failure('invalid native rejection reason')
-      if(value.owned&&value.available) {
+      if(typeof value.metadataValid!=='boolean'||!integer(value.failure)||value.failure<0||value.failure>6)throw failure('invalid native failure classification')
+      value.failureReason=['none','invalid-wrapper','api-wrapper','interceptor','callback-lookup','native-exception','cleanup'][value.failure]
+      if(value.owned&&value.metadataValid) {
         if(!integer(value.kind)||value.kind<0||value.kind>2||!integer(value.mask)||value.mask<0||value.mask>7||
           typeof value.inspected!=='boolean')throw failure('invalid native argument summary')
         value.kind=['primitive','object','proxy'][value.kind]
-        if(value.inspected) {
+        if(value.available&&value.inspected) {
           const keys=['seed','tmp','invalidate'].filter((_,index)=>value.mask&(1<<index))
           value.target={inspectionScope:'watched-properties',callbackPropertyCheck:'v8-own-callback',
             watchedAccessorCount:keys.length,watchedAccessorKeys:keys}

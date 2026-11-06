@@ -137,7 +137,12 @@ console.log(JSON.stringify({report,identity,preserved:before.value===process.env
   assert(data.preserved)
   assert.equal(data.report.available,false);assert.equal(data.identity.available,false)
   assert.equal(data.identity.calls,1);assert.equal(data.identity.cleared,1)
-  assert.equal(data.identity.errors.length,1);assert.equal(data.report.entries.length,0)
+  assert.equal(data.identity.errors.length,1);assert.equal(data.report.entries.length,1)
+  const entry=data.report.entries[0]
+  assert.equal(entry.argument.available,false);assert.equal(entry.argument.kind,'object')
+  assert(['native capture unavailable: api-wrapper','native capture unavailable: interceptor'].includes(entry.argument.reason))
+  assert(nativeEntryFrames(data.report,entry).length>0)
+  assert.equal(data.identity.failureCounts[entry.argument.reason],1)
 })
 
 for(const [api,args] of [

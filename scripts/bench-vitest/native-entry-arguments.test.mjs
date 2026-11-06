@@ -245,6 +245,20 @@ native(target,key);stop();`,{directArguments:true,nativeCapture:true})
   assert.equal(data.capture.available,false);assert.equal(data.capture.ignored,0)
   assert.equal(data.capture.calls,1);assert.equal(data.capture.cleared,1)
   assert.deepEqual(data.capture.errors,['native capture protocol request failed'])
+  assert.equal(data.capture.failureCounts['native capture protocol request failed'],1)
+  assert.equal(data.capture.failureSamples.length,1);assert(data.capture.failureSamples[0].frames.length>0)
+})
+
+test('native entry conditions from foreign intrinsics remain explicitly unavailable across contexts',()=>{
+  const data=fixture(`const foreignNative=vm.runInNewContext('Object.getOwnPropertyDescriptor');
+globalThis.__quodEntryFixture.foreignNative=foreignNative;
+const stop=captureEntries([['foreign.descriptor','globalThis.__quodEntryFixture.foreignNative',{describeOwnAccessors:true}]]);
+extra.returned=typeof foreignNative(target,key).get;stop();`,{directArguments:true,nativeCapture:true})
+  assert.equal(data.returned,'function');assert.equal(data.capture.available,false)
+  assert.equal(data.capture.calls,0);assert.equal(data.capture.ignored,0)
+  assert.deepEqual(data.capture.errors,['native capture protocol request failed'])
+  assert.equal(data.capture.failureCounts['native capture protocol request failed'],1)
+  assert.equal(data.capture.failureSamples.length,1)
 })
 
 for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments use captured intrinsics without touching poisoned descriptor prototypes: '+targetInspection+'/native:'+nativeCapture,()=>{
