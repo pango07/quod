@@ -31,6 +31,16 @@ if(phase) {
   const nodeEntry=pkg.exports['./node'],relative=typeof nodeEntry==='string'?nodeEntry:nodeEntry.import??nodeEntry.default
   const entry=path.join(path.dirname(packageFile),relative)
   const V=await import(pathToFileURL(entry).href)
+  if(phase==='after'&&process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
+    const directory=path.join(out,'worker-config')
+    fs.mkdirSync(directory,{recursive:true})
+    const original=V.ForksPoolWorker.prototype.start
+    V.ForksPoolWorker.prototype.start=function(...args) {
+      this.execArgv=['--require',fileURLToPath(new URL('./worker-config-probe.cjs',import.meta.url)),...this.execArgv]
+      this.env={...this.env,QUOD_WORKER_CONFIG_REPORT_DIR:directory}
+      return Reflect.apply(original,this,args)
+    }
+  }
   const observer=observeWorkerInputs(V)
   try {
     await V.startVitest('test',[],{run:true,watch:false,reporters:['default','json'],outputFile:{json:path.join(out,phase+'-tests.json')}})
@@ -105,5 +115,20 @@ if(phase) {
     equalRpcWorkers:comparisons.filter(c=>c.rpcEqual===true).length,
     comparisons,limitations:before.limitations}
   write(path.join(out,'result.json'),result)
+  if(process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
+    const directory=path.join(out,'worker-config')
+    const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
+    const workers=reports.flatMap(r=>r.reports)
+    assert.equal(workers.length,120,'every worker must provide diagnostic evidence')
+    assert(reports.every(r=>r.unknown.length===0&&!r.replayEligible))
+    assert(workers.every(r=>r.files.length===1&&!r.replayEligible&&!r.overflow))
+    const seedReads=workers.filter(w=>w.events.some(e=>e.path.join('.')==='sequence.seed'))
+    const configResult={replayEligible:false,workers:workers.length,workersObservingSeed:seedReads.length,
+      observations:seedReads.flatMap(w=>w.events.filter(e=>e.path.join('.')==='sequence.seed').map(e=>({project:w.project,files:w.files,...e}))),
+      plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
+      limitation:'Proxy observations cannot exclude native reads or prove that unobserved fields are irrelevant'}
+    write(path.join(out,'worker-config-result.json'),configResult)
+    console.log(JSON.stringify(configResult,null,2))
+  }
   console.log(JSON.stringify({...result,changes:changes.length,comparisons:comparisons.length},null,2))
 }

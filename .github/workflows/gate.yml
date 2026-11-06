@@ -856,7 +856,7 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-worker-inputs:
-    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-worker-inputs'
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -870,9 +870,13 @@ jobs:
         with:
           node-version: '24.18.0'
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
+      - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
+        if: inputs.only == 'benchmark-worker-config'
       - run: npm ci
         working-directory: profile-project
       - name: Compare worker inputs across a metadata-only change
+        env:
+          QUOD_WORKER_CONFIG_PROBE: ${{ inputs.only == 'benchmark-worker-config' && '1' || '0' }}
         run: node scripts/bench-vitest/driver-worker-input-probe.mjs "$PWD/profile-project" /tmp/quod-worker-inputs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
