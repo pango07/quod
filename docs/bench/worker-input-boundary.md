@@ -1106,3 +1106,42 @@ inside Inspector; a native implementation may avoid that cost. It must be
 built and tested remotely before use. No production input keys or replay
 eligibility have changed. [Samples, source verification and artifact
 digests](worker-native-scoped-inspection.json) retain the exact evidence.
+
+## Private native capture fixture
+
+The pinned Node 24.18.0 addon at `28278be`, corrected at `f4f0e4d`, combines
+wrapper validation, argument classification, watched own-accessor inspection
+and wrapper cleanup in one private Inspector call. It uses V8 APIs without
+calling application getters or proxy traps. Interceptor targets are rejected;
+their owned wrappers are still cleared. No public global holds the capture
+function, and active-helper garbage-collection regressions check that argument
+objects and accessor closures are not retained.
+
+The first two gates failed because a generated condition lacked its final
+block brace. Inspector accepted the malformed condition, producing zero
+captured calls. The fixture now parses every generated condition before
+installing it. [Gate 42233436439](https://github.com/pango07/quod/actions/runs/42233436439)
+passes all 168 regressions after the correction. For 300 calls with complete
+compilation logging, the measured times are:
+
+| Target own accessors | Protocol | Adaptive JavaScript | Native |
+| --- | ---: | ---: | ---: |
+| 1 | 160 ms | 151 ms | 129 ms |
+| 81 | 406 ms | 285 ms | 120 ms |
+| 2,248 | 8,905 ms | 271 ms | 96 ms |
+
+Every native sample captures and clears all 300 wrappers, with 300 private
+calls and 300 handle releases. It retains 614 compilation events; adaptive
+wide inspection retains 2,106. No breakpoint suppression or source filtering
+produces that difference. These are fixture measurements, not CI savings.
+
+Commit `b74197c` selects the helper in the combined worker diagnostic, passes
+its path explicitly through Vitest's worker environment, and requires the
+native inspection mode in the driver. The full gate is tracked separately
+from the fixture. The first integration gate caught its obsolete zero-pause
+setup assertion: loading the addon correctly emits one observed `dlopen`
+pause. Correction `99a9310` requires that exact setup event and no additional
+pauses for the 19 descriptor operations; it does not hide the load.
+Initial runtime integrity, unsupported native channels and
+complete workload coverage still require evidence. [Exact measurements and
+failed-gate history](worker-native-capture.json) remain diagnostic-only.

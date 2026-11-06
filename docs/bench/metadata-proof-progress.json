@@ -854,7 +854,7 @@
     "freshModuleScopeLookupLatestFixtureTests": 110,
     "freshModuleScopeLookupLatestFixtureConclusion": "success",
     "freshModuleScopeLookupEnabledInCombinedWorkload": false,
-    "descriptorOverheadNextAction": "Prototype a private pinned-Node native helper that validates the owned wrapper, inspects actual arguments, returns sanitized watched-field evidence and clears the wrapper in one Inspector call. Build only on GitHub and gate side-effect, proxy, receiver, foreign-exception, active-lifetime and complete-compilation regressions before full use. No breakpoint suppression or source filtering.",
+    "descriptorOverheadNextAction": "Verify full pinned-workload native capture: exact test states, complete event counts, cleared wrappers, actual caller-source hashes and metadata-only before/after observations. No replay eligibility follows from fixture timing improvements.",
     "nativeEntryArgumentsFixtureGate": 42216738359,
     "nativeEntryArgumentsFixtureTests": 122,
     "nativeEntryArgumentsFixtureConclusion": "success",
@@ -904,6 +904,16 @@
     "nativeEntryScopedInspectionFullGateConclusion": "failure",
     "nativeEntryScopedInspectionFullGateTests": 191,
     "nativeEntryScopedInspectionFullGateCompletedWorkers": 93,
-    "nativeEntryScopedInspectionEvidence": "worker-native-scoped-inspection.json"
+    "nativeEntryScopedInspectionEvidence": "worker-native-scoped-inspection.json",
+    "nativeCaptureFixtureCommit": "f4f0e4d",
+    "nativeCaptureFixtureGate": 42233436439,
+    "nativeCaptureFixtureTests": 168,
+    "nativeCaptureFixtureConclusion": "success",
+    "nativeCaptureCombinedCommit": "b74197c",
+    "nativeCaptureFullGate": 42234007135,
+    "nativeCaptureFullGateStatus": "in_progress",
+    "nativeCaptureEvidence": "worker-native-capture.json",
+    "nativeCaptureSetupCorrectionCommit": "99a9310",
+    "nativeCaptureIntegrationFailedGate": 42233729723
   }
 }
