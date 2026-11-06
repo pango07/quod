@@ -881,7 +881,7 @@ jobs:
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/opaque-observers-probe.test.mjs scripts/bench-vitest/heap-observers-probe.test.mjs scripts/bench-vitest/proxy-observers-probe.test.mjs
         if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary'
-      - run: node --test scripts/bench-vitest/worker-boundary-probe.test.mjs scripts/bench-vitest/scalar-property-probe.test.mjs scripts/bench-vitest/descriptor-access-probe.test.mjs scripts/bench-vitest/native-handle-lifetime.test.mjs scripts/bench-vitest/heap-native-identity-probe.test.mjs scripts/bench-vitest/native-module-scope.test.mjs
+      - run: node --test scripts/bench-vitest/worker-boundary-probe.test.mjs scripts/bench-vitest/scalar-property-probe.test.mjs scripts/bench-vitest/descriptor-access-probe.test.mjs scripts/bench-vitest/native-handle-lifetime.test.mjs scripts/bench-vitest/heap-native-identity-probe.test.mjs scripts/bench-vitest/native-module-scope.test.mjs scripts/bench-vitest/private-module-callees.test.mjs
         if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures'
       - run: npm ci
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'

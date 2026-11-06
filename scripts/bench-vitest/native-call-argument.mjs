@@ -4,11 +4,14 @@
 // Arbitrary expressions/getters and unknown syntax/scope/identity stay unknown.
 import {parse} from '../../crates/quod-cli/src/vitest/acorn.mjs'
 import {createHash} from 'node:crypto'
+import {privateModuleCallees} from './private-module-callees.mjs'
 
-export function observeNativeCallArguments(post,{identityComparison=null,moduleBindingEvaluation=false}={}) {
+export function observeNativeCallArguments(post,{identityComparison=null,moduleBindingEvaluation=false,privateCalleeCache=false,
+  canCachePrivateCallees=()=>true}={}) {
   const sources=new Map()
+  const verifiedCallees=new Set()
   const propertyRequests={},propertyEntries={}
-  let skippedModuleScopes=0,moduleBindingEvaluations=0,moduleBindingEvaluationErrors=0
+  let skippedModuleScopes=0,moduleBindingEvaluations=0,moduleBindingEvaluationErrors=0,privateCalleeCacheHits=0
   // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
   // getProperties children inherit that group and Debugger.resume releases
   // it. Other runtimes keep the conservative per-handle cleanup. See the
@@ -58,12 +61,13 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
       if(['FunctionDeclaration','ClassDeclaration'].includes(declaration.type))pattern(declaration.id,moduleNames)
       if(declaration.type==='ImportDeclaration'&&!declaration.phase)for(const specifier of declaration.specifiers)pattern(specifier.local,moduleNames)
     }
-    const result={calls,lines,declaredNames,moduleNames,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
+    const result={calls,lines,declaredNames,moduleNames,privateCallees:privateModuleCallees(tree),
+      locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
     sources.set(scriptId,result);return result
   }
   const observe=(frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
     const handles=new Set(),pauseProperties=new Map()
-    let callerSourceSha256=null,evaluatedBinding=false
+    let callerSourceSha256=null,evaluatedBinding=false,calleeCacheKey=null,calleeCacheHit=false
     function properties(id,kind='object') {
       if(!id)throw Error('missing runtime object')
       // In native identity mode this invocation uses descriptor reads and
@@ -84,12 +88,19 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
       if(!p||p.get||p.set||!p.value)throw Error('argument is not an own data property')
       return p.value
     }
-    function binding(name) {
+    function binding(name,isCallee=false) {
       for(const scope of frame.scopeChain) {
         if(!['local','block','closure','module','script','catch'].includes(scope.type))throw Error('unsupported argument scope')
         if(scope.type==='module'&&typeof scope.startLocation?.scriptId==='string') {
           const module=source(scope.startLocation.scriptId)
           if(!module.declaredNames.has(name)){skippedModuleScopes++;continue}
+          if(isCallee&&privateCalleeCache&&releaseOnResume&&canCachePrivateCallees()&&module.privateCallees.has(name)) {
+            calleeCacheKey=JSON.stringify([scope.startLocation.scriptId,module.sha256,name,nativeFunction])
+            if(verifiedCallees.has(calleeCacheKey)) {
+              privateCalleeCacheHits++;calleeCacheHit=true
+              return {type:'function',objectId:nativeFunction}
+            }
+          }
           // Only a declared module binding qualifies, after checking every
           // preceding supported scope. No global/member/property expression
           // is evaluated. Module bindings are lexical data/live imports, not
@@ -109,8 +120,8 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
       }
       throw Error('argument binding unavailable')
     }
-    function value(node) {
-      if(node.type==='Identifier')return binding(node.name)
+    function value(node,isCallee=false) {
+      if(node.type==='Identifier')return binding(node.name,isCallee)
       if(node.type==='ThisExpression')return frame.this
       if(node.type==='Literal'&&(node.value===null||['string','number','boolean'].includes(typeof node.value))) {
         return {type:node.value===null?'object':typeof node.value,subtype:node.value===null?'null':undefined}
@@ -173,9 +184,13 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
           call.arguments.some(arg=>!pureSyntax(arg)))throw Error('native argument evaluation may have side effects')
         for(const arg of call.arguments)validatePureBindings(arg)
       }
-      const callee=value(call.callee)
+      const callee=value(call.callee,true)
       if(callee.type!=='function'||!callee.objectId||callee.subtype==='proxy')throw Error('native callee unavailable')
-      if(identityComparison) {
+      if(calleeCacheHit) {
+        // The initial native identity was checked and the private module
+        // binding has no writes/escapes/direct eval in its actual source.
+        // This is still a diagnostic, not complete runtime provenance.
+      }else if(identityComparison) {
         const match=identityComparison(callee.objectId,nativeFunction)
         if(!match.available)throw Error(match.reason??'native identity comparison unavailable')
         if(match.same!==true)throw Error('native callee identity differs')
@@ -185,6 +200,7 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
           returnByValue:true,silent:true})
         if(match.exceptionDetails||match.result?.value!==true)throw Error('native callee identity differs')
       }
+      if(calleeCacheKey&&verifiedCallees.size<20000)verifiedCallees.add(calleeCacheKey)
       // A getter can return a proxy, replace itself with an ordinary data
       // property, and finish before this pause. The current descriptor is
       // therefore not evidence of the value evaluated as the argument.
@@ -208,6 +224,7 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
     }
   }
   observe.diagnostics=()=>({propertyRequests:{...propertyRequests},propertyEntries:{...propertyEntries},
-    skippedModuleScopes,moduleBindingEvaluation,moduleBindingEvaluations,moduleBindingEvaluationErrors,replayEligible:false})
+    skippedModuleScopes,moduleBindingEvaluation,moduleBindingEvaluations,moduleBindingEvaluationErrors,
+    privateCalleeCache,privateCalleeCacheHits,privateCalleeCacheEntries:verifiedCallees.size,replayEligible:false})
   return observe
 }

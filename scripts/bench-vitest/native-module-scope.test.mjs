@@ -26,7 +26,7 @@ test('a missing module binding skips a large scope and still leaves globals unkn
   const data=fixture(`const native=Object.getOwnPropertyDescriptor;
 globalThis.__quodNativeScopeTarget=target;
 function invoke(key){return native(__quodNativeScopeTarget,key)}
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,privateCalleeCache:true});
 const value=invoke(key);const report=p.descriptorAccess();p.close();delete globalThis.__quodNativeScopeTarget;
 console.log(JSON.stringify({report,gets,found:typeof value.get==='function'}));`,evaluate)
   assert.equal(data.found,true)
@@ -40,7 +40,7 @@ console.log(JSON.stringify({report,gets,found:typeof value.get==='function'}));`
 test('mutable module aliases and local targets are read anew at the same call location'+suffix,()=>{
   const data=fixture(`let native=Object.getOwnPropertyDescriptor;
 function invoke(target,key){return native(target,key)}
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,privateCalleeCache:true});
 const a=invoke(target,key);native=Reflect.getOwnPropertyDescriptor;
 const b=invoke(plain,key);native=Object.getOwnPropertyDescriptor;const c=invoke(target,key);
 const report=p.descriptorAccess();p.close();
@@ -64,7 +64,7 @@ test('destructuring declarations and imported live aliases remain visible'+suffi
   const data=fixture(`import {native as live,flip} from ${JSON.stringify(imported)};
 const {getOwnPropertyDescriptor:destructured}=Object;
 function invoke(target,key){return live(target,key)}
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,privateCalleeCache:true});
 destructured(target,key);invoke(target,key);flip();invoke(plain,key);
 const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets}));`,evaluate)
   assert.equal(data.report.calls,3)
@@ -77,7 +77,7 @@ test('dynamic local bindings and shadowed closure bindings are never excluded by
 let native=Object.getOwnPropertyDescriptor;
 function factory(native){return function invoke(target,key){return native(target,key)}}
 const shadowed=factory(Reflect.getOwnPropertyDescriptor);
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,privateCalleeCache:true});
 dynamic(target,key);shadowed(plain,key);
 const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets}));`,evaluate)
   assert.equal(data.report.calls,2)
@@ -90,7 +90,7 @@ const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,g
 test('bare lexical evaluation does not flush a queued target replacement during the native pause',()=>{
   const data=fixture(`let first=target,microtasks=0;const native=Object.getOwnPropertyDescriptor;
 function invoke(){return native(first,key)}
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,privateCalleeCache:true});
 queueMicrotask(()=>{first=plain;microtasks++});const value=invoke();
 const report=p.descriptorAccess();p.close();const during=microtasks;await Promise.resolve();
 console.log(JSON.stringify({report,gets,during,after:microtasks,moved:first===plain,found:typeof value.get==='function'}));`,true)
