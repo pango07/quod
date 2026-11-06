@@ -224,6 +224,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const connection=prop(inspector,'Connection')?.objectId
       const prototype=prop(connection,'prototype')?.objectId
       const mainThreadPrototype=prop(prop(inspector,'MainThreadConnection')?.objectId,'prototype')?.objectId
+      const sessionPrototype=builtin("process.getBuiltinModule('inspector').Session.prototype")
+      const capturedConnection=binding(prop(sessionPrototype,'connect')?.objectId,'Connection')?.objectId
+      const capturedPrototype=prop(capturedConnection,'prototype')?.objectId
       if(!prototype||!mainThreadPrototype)throw Error('native inspector prototypes unavailable')
       const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
@@ -236,10 +239,17 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       // never by a description or an assumed baseline count.
       const isPrototype=p=>same(p.value?.objectId,prototype)||same(p.value?.objectId,mainThreadPrototype)
       const prototypeObjects=objectsList.filter(isPrototype).length
+      const sessionObjects=post('Runtime.queryObjects',{prototypeObjectId:sessionPrototype,
+        objectGroup:'quod-observer-diagnostic'}).objects.objectId
+      const sessionConnections=properties(sessionObjects).result.filter(p=>/^\d+$/.test(p.name)).map(p=>
+        properties(p.value?.objectId).privateProperties?.find(v=>v.name==='#connection')?.value?.objectId).filter(Boolean)
       inspectorInitial={localConnectionObjects:objectsList.length-prototypeObjects,prototypeObjects,
+        sessionConnectionObjects:sessionConnections.length,
+        capturedConstructorMatches:same(connection,capturedConnection),
         objects:objectsList.map(p=>({description:p.value?.description,
           properties:properties(p.value?.objectId).result.map(v=>v.name),
-          isPrototype:isPrototype(p)})),
+          isPrototype:isPrototype(p),matchesCapturedPrototype:same(p.value?.objectId,capturedPrototype),
+          matchesSessionConnections:sessionConnections.map(c=>same(p.value?.objectId,c))})),
         listenerOpen:post('Runtime.callFunctionOn',{objectId:prop(inspector,'isEnabled').objectId,
           functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
       if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
