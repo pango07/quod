@@ -1911,3 +1911,66 @@ configuration and transport metadata reached the observer before application
 code could copy their values. The configuration proxy and added Promise
 reaction also remain observable. Worker filesystem/environment inputs and
 parent RPC effects must still be accounted for before enabling reuse.
+
+## Message dispatch before listener removal
+
+`42c7959` observes the actual Node `emit` entry before a preceding listener
+can copy a message and remove itself. It retains the captured observer's
+function identity, checks own data descriptors without invoking application
+getters or proxy traps, pairs each dispatch with its observer callback, and
+releases transient Inspector handles. Removed listeners, reordered listeners,
+unpaired callbacks and capacity failures leave persistent failures.
+`210aba2` additionally pins the exact Node function location: a matching
+`node:events` file digest alone also identifies unrelated functions in that
+file. Its [275-test shared gate](https://github.com/pango07/quod/actions/runs/42293922758)
+includes 16 dispatch regressions and actual child-process IPC.
+
+The [first complete integration](https://github.com/pango07/quod/actions/runs/42293521520)
+preserves all 120 file/project instances and 4,131 states in all three phases,
+but correctly fails the diagnostic. All workers have Vitest's
+`suppress-warnings.cjs` wrapper installed before the ESM preload. No dispatch
+guard was installed, so matching tests are not dispatch-coverage evidence.
+`33f0482` follows the exact wrapper's lexical `emit` reference and validates
+the actual captured Node function before observing it. An exact copy of the
+pinned wrapper is included in regressions. This does not certify its mutable
+`Reflect.apply` or exclude code running before Node dispatch.
+
+`19d3b0c` removes the whole-configuration proxy in native-data mode. The
+original configuration and nested objects retain their identities; only the
+separate native seed observer remains. Other configuration access counts are
+explicitly unavailable (`events: null`), not zero. Two new native regressions
+cover original aliases/descriptors and a sequence getter that must not run;
+the [27-test native gate](https://github.com/pango07/quod/actions/runs/42294581388)
+passes. The legacy accessor mode retains proxy reporting and restores its
+seed observer if wrapper construction fails.
+
+The [corrected complete run](https://github.com/pango07/quod/actions/runs/42295252133)
+passes 383 preflight tests and all three workload phases. Baseline is 48.073
+seconds; observed runs are 67.176 and 66.129 seconds. Each phase has 4,130
+passed tests and one skipped test, with the unchanged semantic fingerprint.
+The metadata-only edit changes 39 file mtimes without changing contents.
+The observed phases pair all 1,741 and 1,746 message dispatches with their
+callbacks, with no pending messages or observation failures. All 6,974
+transient handle groups are released. All 240 observed workers retain the
+original configuration, with zero seed reads; each phase reconciles 2,581
+native scalar reads with recorded events and has no metadata gaps or
+transport failures. Different runner baselines and transport selections
+prevent treating the timing differences between runs as an isolated speedup.
+
+Evaluator code sequences agree in all 120 workers; complete compilation
+sequences still differ in all 120. The exact issued-source partition now
+leaves 13,034 and 13,054 unmatched anonymous events, with matching sequences
+in 93 workers. The increase from the previous 6,070 events is exactly four
+events per message dispatch. Their source digest matches the parenthesized
+identity comparator `(function(other){return this===other})`, while command
+accounting records the unparenthesized declaration. This identifies a source
+format to verify against V8 and cover with a regression; it is not permission
+to omit those events or an ownership certificate.
+
+[Machine-readable evidence](worker-message-dispatch.json) records both full
+runs, regression gates, message counters, timings and artifact digests.
+There are still no product hits or lineage audits in these diagnostics. The
+remaining work includes observations before Node dispatch, copies made while
+Vitest transforms RPC metadata, removal of the extra Promise reaction, and
+complete worker filesystem/environment and parent-effect coverage. The
+production replay predicates and product savings claims remain unchanged.
