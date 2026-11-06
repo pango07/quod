@@ -6,6 +6,11 @@ import {createHash} from 'node:crypto'
 
 export function observeNativeCallArguments(post) {
   const sources=new Map()
+  // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
+  // getProperties children inherit that group and Debugger.resume releases
+  // it. Other runtimes keep the conservative per-handle cleanup. See the
+  // native handle-lifetime regression before extending this version guard.
+  const releaseOnResume=process.versions.node==='24.18.0'
   function source(scriptId) {
     if(sources.has(scriptId))return sources.get(scriptId)
     const text=post('Debugger.getScriptSource',{scriptId}).scriptSource
@@ -34,7 +39,7 @@ export function observeNativeCallArguments(post) {
       if(!id)throw Error('missing runtime object')
       const r=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false})
       if(r.exceptionDetails)throw Error('runtime descriptors unavailable')
-      for(const p of [...r.result??[],...r.internalProperties??[],...r.privateProperties??[]]) {
+      if(!releaseOnResume)for(const p of [...r.result??[],...r.internalProperties??[],...r.privateProperties??[]]) {
         for(const v of [p.value,p.get,p.set])if(v?.objectId)handles.add(v.objectId)
       }
       return r.result
@@ -82,12 +87,12 @@ export function observeNativeCallArguments(post) {
       // A second argument could mutate the first binding after it was
       // evaluated. Bound functions may inject a different first argument.
       if(call.optional||!call.arguments.length||(!pureAdditionalArguments&&call.arguments.length!==1))throw Error('unsupported native call arguments')
-      if(pureAdditionalArguments)for(const arg of call.arguments) {
+      if(pureAdditionalArguments) {
         // Reading a later identifier/this/literal cannot change an already
         // evaluated target. Reject globals, properties, spreads and calls:
         // each can run code that replaces an earlier binding.
-        if(!['Identifier','ThisExpression','Literal'].includes(arg.type))throw Error('native argument evaluation may have side effects')
-        value(arg)
+        if(call.arguments.some(arg=>!['Identifier','ThisExpression','Literal'].includes(arg.type)))throw Error('native argument evaluation may have side effects')
+        for(const arg of call.arguments)value(arg)
       }
       const callee=value(call.callee)
       if(callee.type!=='function'||!callee.objectId||callee.subtype==='proxy')throw Error('native callee unavailable')
