@@ -145,6 +145,22 @@ statProof?.close(); if(booleanProof!==statProof)booleanProof?.close(); namesProo
   } finally {fs.rmSync(dir,{recursive:true,force:true})}
 }
 const query = result => result.keys.filter(k=>k.startsWith('pjq:')).map(k=>JSON.parse(k.split('\0')[1]))
+test('a Stats method replaced by a user preload retains complete metadata',()=>{
+  const result=recorded('!!pkg.exports',{
+    startup:"require('node:fs').Stats.prototype.isFile=function(){return this.mtimeMs>0}",
+    prelude:"const isFile=fs.statSync('package.json').isFile();",
+  })
+  assert.ok(result.keys.includes('sm:package.json'),'the initial method is already a metadata reader')
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
+test('a public stat replacement installed by a user preload retains complete metadata',()=>{
+  const result=recorded('!!pkg.exports',{
+    startup:"const fs=require('node:fs'),stat=fs.statSync;fs.statSync=function(...args){const s=Reflect.apply(stat,this,args);globalThis.exposedMtime=s.mtimeMs;return s}",
+    prelude:"const isFile=fs.statSync('package.json').isFile();",
+  })
+  assert.ok(result.keys.includes('sm:package.json'),'the initial stat wrapper exposes metadata')
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
 test('resolver boolean reads replace the broad key only after a watched parse', () => {
   const result=recorded('pkg.exports && pkg.name === "x" ? true : false')
   assert.equal(result.value,true)
