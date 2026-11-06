@@ -30,7 +30,8 @@ export function nativeCaptureInspector(post,nonce) {
         value.kind=['primitive','object','proxy'][value.kind]
         if(value.inspected) {
           const keys=['seed','tmp','invalidate'].filter((_,index)=>value.mask&(1<<index))
-          value.target={inspectionScope:'watched-properties',watchedAccessorCount:keys.length,watchedAccessorKeys:keys}
+          value.target={inspectionScope:'watched-properties',callbackPropertyCheck:'v8-own-callback',
+            watchedAccessorCount:keys.length,watchedAccessorKeys:keys}
         }
       }
       return value

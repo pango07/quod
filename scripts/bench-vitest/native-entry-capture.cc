@@ -16,13 +16,18 @@ Local<String> Key(Isolate* isolate, const char* value) {
 bool OrdinaryForInspection(Local<Value> value) {
   if (!value->IsObject() || value->IsProxy()) return false;
   auto object = value.As<Object>();
-  return !object->HasNamedLookupInterceptor() &&
+  return !object->IsApiWrapper() && !object->HasNamedLookupInterceptor() &&
          !object->HasIndexedLookupInterceptor();
 }
 
 bool OwnData(Local<Context> context, Local<Object> object, const char* name,
              Local<Value>* value, bool writable = false) {
   auto isolate = context->GetIsolate();
+  // A native data callback can masquerade as a data descriptor and execute
+  // while GetOwnPropertyDescriptor fills its value. Owned fields must be real
+  // data, so reject every callback before requesting their descriptors.
+  auto callback = object->HasRealNamedCallbackProperty(context, Key(isolate, name));
+  if (callback.IsNothing() || callback.FromJust()) return false;
   Local<Value> descriptor_value;
   if (!object->GetOwnPropertyDescriptor(context, Key(isolate, name))
            .ToLocal(&descriptor_value) || !descriptor_value->IsObject())
@@ -42,25 +47,12 @@ bool OwnData(Local<Context> context, Local<Object> object, const char* name,
 
 bool HasOwnAccessor(Local<Context> context, Local<Object> object,
                     const char* name, bool* found) {
-  auto isolate = context->GetIsolate();
-  Local<Value> descriptor_value;
-  if (!object->GetOwnPropertyDescriptor(context, Key(isolate, name))
-           .ToLocal(&descriptor_value)) return false;
-  *found = false;
-  if (descriptor_value->IsUndefined()) return true;
-  if (!descriptor_value->IsObject()) return false;
-  auto descriptor = descriptor_value.As<Object>();
-  for (const char* field : {"get", "set"}) {
-    Local<Value> value;
-    // Descriptor records are fresh own data. An absent field must not read
-    // an application getter installed on Object.prototype.
-    if (descriptor->HasOwnProperty(context, Key(isolate, field))
-            .FromMaybe(false)) {
-      if (!descriptor->Get(context, Key(isolate, field)).ToLocal(&value))
-        return false;
-      *found = *found || value->IsFunction();
-    }
-  }
+  // This V8 own-property query skips interceptors and does not fetch values.
+  // Conservatively include native data callbacks and empty JS accessors too.
+  auto callback = object->HasRealNamedCallbackProperty(
+      context, Key(context->GetIsolate(), name));
+  if (callback.IsNothing()) return false;
+  *found = callback.FromJust();
   return true;
 }
 
@@ -168,12 +160,41 @@ void CreateCapture(const FunctionCallbackInfo<Value>& info) {
   if (Function::New(context, Capture, info[0], 1, ConstructorBehavior::kThrow)
           .ToLocal(&capture)) info.GetReturnValue().Set(capture);
 }
+
+// Adversarial fixture: a host callback on an otherwise ordinary JS object.
+// Reading its descriptor invokes native code even though it looks like data.
+void NativeDataRead(Local<Name>, const PropertyCallbackInfo<Value>& info) {
+  auto isolate = info.GetIsolate();
+  auto context = isolate->GetCurrentContext();
+  auto state = info.Data().As<Object>();
+  Local<Value> count;
+  if (!state->Get(context, Key(isolate, "calls")).ToLocal(&count)) return;
+  if (!Put(context, state, "calls", Integer::New(isolate, count.As<Int32>()->Value() + 1))) return;
+  info.GetReturnValue().Set(Key(isolate, "host callback value"));
+}
+void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
+  auto isolate = info.GetIsolate();
+  auto context = isolate->GetCurrentContext();
+  auto target = Object::New(isolate), state = Object::New(isolate);
+  auto result = Object::New(isolate);
+  if (!target->SetPrototypeV2(context, Null(isolate)).FromMaybe(false) ||
+      !Put(context, state, "calls", Integer::New(isolate, 0))) return;
+  const char* field = info.Length() && info[0]->IsTrue() ? "quodNativeEntry" : "tmp";
+  if (!target->SetNativeDataProperty(context, Key(isolate, field), NativeDataRead,
+                                     nullptr, state).FromMaybe(false)) return;
+  if (Put(context, result, "target", target) && Put(context, result, "state", state))
+    info.GetReturnValue().Set(result);
+}
 void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
                 void*) {
   Local<Function> factory;
   if (Function::New(context, CreateCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createCapture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, CreateNativeDataFixture).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createNativeDataFixture"), factory)
         .FromMaybe(false);
 }
 }  // namespace

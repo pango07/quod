@@ -339,6 +339,24 @@ test('native capture rejects interceptor targets but clears the owned wrapper',(
   assert.equal(payload.argument,null)
 })
 
+test('native capture observes host callback presence without executing its descriptor getter',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce='c'.repeat(64),capture=addon.createCapture(nonce)
+  const {target,state}=addon.createNativeDataFixture()
+  const payload={__proto__:null,quodNativeEntry:nonce,api:'test',argument:target,
+    argumentCount:1,receiverBased:false,describeOwnAccessors:true}
+  const result=capture(payload)
+  assert(result.owned&&result.available&&result.cleared&&result.inspected)
+  assert.equal(result.mask,2);assert.equal(state.calls,0)
+  assert.equal(Object.getOwnPropertyDescriptor(target,'tmp').value,'host callback value')
+  assert.equal(state.calls,1,'ordinary descriptor inspection must exercise the fixture callback')
+  const foreign=addon.createNativeDataFixture(true)
+  const ignored=capture(foreign.target)
+  assert(!ignored.owned&&ignored.available);assert.equal(foreign.state.calls,0)
+  Object.getOwnPropertyDescriptor(foreign.target,'quodNativeEntry')
+  assert.equal(foreign.state.calls,1)
+})
+
 test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{
   const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
     logs=new URL('./compiled-script-log.mjs',import.meta.url).href
