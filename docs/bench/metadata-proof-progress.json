@@ -777,5 +777,24 @@
     "workersWithUnknownNativeArgumentsPerPhase": 120,
     "completeOwnership": false,
     "replayEligible": false
+  },
+  "workerMetadataAccessorDiagnostic": {
+    "evidence": "worker-metadata-accessors.json",
+    "run": 42195814149,
+    "commit": "2de3436",
+    "regressionTests": 104,
+    "regressionConclusion": "success",
+    "fullRunConclusion": "failure",
+    "failure": "before phase 420-second timeout",
+    "completedWorkers": 15,
+    "expectedWorkers": 120,
+    "optimizationCommit": "7be1dfe",
+    "optimizationFixtureGate": 42197573577,
+    "optimizationFixtureStatus": "completed",
+    "replayEligible": false,
+    "optimizationFixtureConclusion": "success",
+    "optimizationFixtureTests": 69,
+    "optimizedFullGate": 42197790745,
+    "optimizedFullGateStatus": "in_progress"
   }
 }

@@ -535,3 +535,48 @@ the accessor alone is not a complete solution. No Action or production key
 changes, and no new savings measurement is claimed.
 [Independent scalar, argument and combined-run evidence](worker-scalar-seed.json)
 preserve the corrected counts and remaining gaps.
+
+## Original-object metadata and descriptor access
+
+Commit `2de3436` adds an accessor mode that observes existing `tmp` and
+`invalidate` scalar fields on the original metadata object. References
+retained before observation now reach the observer; `isProxy` and object
+identity retain their original values. Absent properties stay absent.
+The evaluator obtains a fingerprint snapshot only from owned, intact
+accessors. Replaced or deleted accessors make that snapshot unavailable.
+Earlier primitive copies, intermediate deletion/restoration, descriptor
+inspection, and other native channels remain explicit gaps.
+
+The same combined diagnostic watches 19 native descriptor-related entry
+functions, including cached references to Object/Reflect reads and
+mutations. Argument recovery permits additional arguments only when all
+are supported, side-effect-free lexical reads, `this`, or primitive
+literals. Calls whose arguments can mutate earlier bindings remain unknown.
+This finite API set does not cover syntax deletion or every native channel.
+
+[Gate 42195814149](https://github.com/pango07/quod/actions/runs/42195814149)
+passes **104 regressions**, but the full comparison fails: its first
+observed phase reaches the existing 420-second timeout. The unobserved
+baseline completed all 120 file/project instances and 4,131 states. Only
+15 observed worker reports completed; they contain 700 instrumented
+metadata scalars and 145,981 descriptor calls. Those partial records have
+no reported observation errors or overflows. They are **not** a complete
+corpus comparison or evidence of restored replay.
+
+Follow-up `7be1dfe` removes redundant per-handle cleanup only on pinned
+Node 24.18.0. The [protocol](https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#method-getProperties)
+specifies inherited object groups, and the pinned
+[Node implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc#L1486)
+releases the paused backtrace group on resume. Other runtime versions keep
+individual cleanup. Unsupported argument syntax is now rejected before
+resolving any bindings, with the same unknown classification.
+
+[Fixture gate 42197573577](https://github.com/pango07/quod/actions/runs/42197573577)
+passes **69 regressions**, including a new lifetime check: all temporary
+argument-property handles become invalid after resume, while the watched
+intrinsic remains valid. It makes no full-workload speed claim.
+The optimized full comparison is
+[42197790745](https://github.com/pango07/quod/actions/runs/42197790745);
+its result is pending at this evidence revision. No action pin, production
+key, or savings claim changes. [Partial evidence and artifact digests](worker-metadata-accessors.json)
+retain the failed run and the successful fixture gate separately.
