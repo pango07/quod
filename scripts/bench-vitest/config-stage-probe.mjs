@@ -227,6 +227,8 @@ if (mode) {
       sizeConsumers:p.asyncStats.calls.filter(c=>c.sizeConsumer).length,
       ownNativeContinuations:p.asyncStats.calls.filter(c=>c.rootSettledFromOwnReaction).length,
       onlyOwnedHooks:p.asyncStats.calls.filter(c=>c.observedOnlyOwnedHooks).length,
+      nativeUnchanged:p.asyncStats.calls.filter(c=>c.observedNativeUnchanged).length,
+      outcomes:p.asyncStats.calls.reduce((a,c)=>{const k=c.outcome?.available?c.outcome.projection:'unknown';a[k]=(a[k]??0)+1;return a},{}),
       nativeStatProvenance:p.asyncStats.nativeStatProvenance}}
   console.log(JSON.stringify(records.map(r => ({ mode:r.mode, configure_ms:r.configure_ms, selection_ms:r.selection_ms, projects:r.projects.length, files:r.files.length, configHash:r.configHash, filesHash:r.filesHash, replayEligible:r.replayEligible, proof:summaryProof(r.proof) })), null, 2))
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1') {

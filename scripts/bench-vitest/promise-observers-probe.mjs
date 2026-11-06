@@ -52,7 +52,7 @@ export function inspectPromiseObservers() {
       sourceSha256:createHash('sha256').update(source).digest('hex')}
   }
   const kinds=['init','before','after','settled']
-  let lists={}, fields=null, indices={}, active=null, owned=null
+  let lists={}, fields=null, indices={}, active=null, owned=null, nativeRefs=null
   try {
     session.connect()
     post('Debugger.enable')
@@ -84,12 +84,55 @@ export function inspectPromiseObservers() {
         const native=binding(stat,'binding').objectId
         const nativeStat=prop(native,'stat')
         const publicCtor=builtin("process.getBuiltinModule('fs').Stats")
+        const prototype=prop(ctor,'prototype')?.objectId
+        if(!prototype || nativeStat?.type!=='function') throw Error('native stat shape unavailable')
+        nativeRefs={stat,convert,ctor,native,fn:nativeStat.objectId,prototype}
         return {available:true,stat:functionSource(stat),convert:functionSource(convert),constructor:functionSource(ctor),
           publicConstructor:functionSource(publicCtor),publicConstructorMatches:same(ctor,publicCtor),
           publicPrototypeMatches:same(prop(ctor,'prototype')?.objectId,prop(publicCtor,'prototype')?.objectId),
           bindingStat:functionSource(nativeStat?.objectId),
           bindingStatDescriptionSha256:createHash('sha256').update(nativeStat?.description??'').digest('hex'),
           replayEligible:false}
+      } catch(e) {return {available:false,reason:e.message,replayEligible:false}}
+    },
+    nativeStatSnapshot() {
+      if(failure || closed || !nativeRefs) return {available:false,unchanged:false,replayEligible:false}
+      try {
+        const n=nativeRefs
+        // The public promise function can remain unchanged while its
+        // closed-over binding's stat method is replaced. Compare actual
+        // identities; names and native-looking text are insufficient.
+        const unchanged=same(binding(n.stat,'getStatsFromBinding').objectId,n.convert) &&
+          same(binding(n.convert,'Stats').objectId,n.ctor) &&
+          same(binding(n.stat,'binding').objectId,n.native) &&
+          same(prop(n.native,'stat')?.objectId,n.fn) &&
+          same(prop(n.ctor,'prototype')?.objectId,n.prototype)
+        return {available:true,unchanged,replayEligible:false}
+      } catch(e) {return {available:false,unchanged:false,reason:e.message,replayEligible:false}}
+    },
+    promiseOutcome(kind) {
+      // The owned hook keeps this short-lived reference in its private
+      // lexical context. No global bridge, replacement Stats or promise
+      // reaction is needed to inspect the native result before its await
+      // consumer starts. Merely resolving a promise is too early: the
+      // settled hook may still see a pending internal state.
+      if(failure || closed || !owned || !nativeRefs) return {available:false,replayEligible:false}
+      try {
+        const context=binding(owned[kind],'checkpoint').objectId
+        const promise=prop(context,'promise')?.objectId
+        if(!promise) throw Error('owned promise reference unavailable')
+        const internal=properties(promise).internalProperties
+        const state=internal?.find(p=>p.name==='[[PromiseState]]')?.value?.value
+        if(state==='rejected') return {available:true,state,projection:'ignored-error',replayEligible:false}
+        if(state!=='fulfilled') return {available:false,state:state??'unknown',replayEligible:false}
+        const result=internal.find(p=>p.name==='[[PromiseResult]]')?.value
+        if(result?.type!=='object' || !result.objectId) throw Error('non-object stat result')
+        const p=properties(result.objectId)
+        const prototype=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value?.objectId
+        const size=p.result.find(p=>p.name==='size')
+        if(!same(prototype,nativeRefs.prototype) || size?.get || size?.set || size?.value?.type!=='number' ||
+          !Number.isSafeInteger(size.value.value) || size.value.value<0) throw Error('unknown stat result shape')
+        return {available:true,state,projection:'size',size:size.value.value,replayEligible:false}
       } catch(e) {return {available:false,reason:e.message,replayEligible:false}}
     },
     captureOwned() {

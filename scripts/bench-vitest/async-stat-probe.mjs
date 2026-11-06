@@ -32,9 +32,13 @@ export function observeAsyncStat(project) {
     }
     return result
   }
-  const calls=[], promises=new WeakMap(), stack=[]
+  const calls=[], promises=new WeakMap(), roots=new Map(), stack=[]
+  // Referenced by the owned before hook and inspected through that
+  // hook's private V8 context, never through an application-visible global.
+  const checkpoint={promise:null}
   let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null
-  const snapshot=()=>({pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()})
+  const snapshot=()=>({pristine:pristine(),native:observerRegistry.nativeStatSnapshot(),
+    asyncHooks:counts(),observers:observerRegistry.snapshot()})
   const stop=promiseHooks.createHook({
     init(p,parent) {
       const ancestor=promises.get(parent)
@@ -47,7 +51,15 @@ export function observeAsyncStat(project) {
     before(p) {
       stack.push({promise:p,prior:active});active=p
       const state=promises.get(p)
-      if(state) state.before.push(snapshot())
+      if(state) {
+        state.before.push(snapshot())
+        const op=calls[state.op-1]
+        if(state.parent===op.root && roots.has(op.id)) {
+          checkpoint.promise=roots.get(op.id)
+          try {op.outcome=observerRegistry.promiseOutcome('before')}
+          finally {checkpoint.promise=null;roots.delete(op.id)}
+        }
+      }
     },
     after(p) {
       const frame=stack.pop()
@@ -71,6 +83,7 @@ export function observeAsyncStat(project) {
     try {
       const result=apply(original,this,args)
       op.root=promises.get(result)?.id??null
+      if(op.root) roots.set(op.id,result)
       // Return the very same native promise. No fulfillment observer and
       // no additional promise reaction are inserted by this diagnostic.
       return result
@@ -88,11 +101,13 @@ export function observeAsyncStat(project) {
           const creator=op.promises.find(p=>p.id===root?.settled?.insidePromise)
           const checkpoints=[op.before,...op.promises.flatMap(p=>[p.init,...p.before,...(p.settled?[p.settled]:[])])]
           return {...op,rootSettledFromOwnReaction:!!creator && creator.nativeCall && root.settled.insideOperation===op.id,
+            observedNativeUnchanged:checkpoints.every(x=>x.native.available && x.native.unchanged),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
               x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}
         }),
-        unvalidated:['other promise observers','preload effects','native bindings','all result consumers','outcome and error projection']}
+        unvalidated:['non-registry observation channels','initial preload state','native binding origin',
+          'all result consumers','production integration']}
     },
     close(){stop();observerRegistry.close()},
   }
