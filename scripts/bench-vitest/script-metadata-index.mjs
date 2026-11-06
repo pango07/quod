@@ -10,6 +10,11 @@ const freeze=Object.freeze,keys=Reflect.ownKeys,descriptor=Object.getOwnProperty
   floor=Math.floor,Uint32=Uint32Array,ErrorType=Error
 const get=(map,key)=>call(mapGet,map,key),set=(map,key,value)=>call(mapSet,map,key,value),
   size=map=>call(mapSize,map)
+const ownedMetadata=new WeakSet(),weakAdd=Function.prototype.call.bind(WeakSet.prototype.add),
+  weakHas=Function.prototype.call.bind(WeakSet.prototype.has)
+// Only these records have a checked four-scalar shape and an immutable,
+// owned copy. Consumers must not infer this contract from Object.isFrozen.
+export const isOwnedScriptMetadata=value=>weakHas(ownedMetadata,value)
 export function scriptMetadataIndex({storage='dense',entryLimit=storage==='ranges'?9007199254740991:4000000,
   metadataLimit=20000,denseLimit=4194304,rangeLimit=65536,sparseLimit=65536,
   lookupLimit=storage==='ranges'?2048:0}={}) {
@@ -82,6 +87,7 @@ export function scriptMetadataIndex({storage='dense',entryLimit=storage==='range
         if(fresh)value=size(values)+1
         if(number!==null&&ranges&&!ranges.set(number,value)){overflow=true;return false}
         if(fresh) {
+          weakAdd(ownedMetadata,copy)
           set(values,value,copy);set(dictionary,key,value)
         }
         if(number===null)set(sparse,id,value)

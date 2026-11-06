@@ -9,7 +9,7 @@ import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog} from './compiled-script-log.mjs'
 import {blockCompiledScriptLog} from './compiled-block-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
-import {nativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
+import {nativeEntryLog,nativeEntryFrames,nativeFrameMapper} from './native-entry-log.mjs'
 import {scriptMetadataIndex} from './script-metadata-index.mjs'
 const monotonicNow=process.hrtime.bigint
 const memoryUsage=process.memoryUsage
@@ -31,6 +31,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=nativeEntries?scriptMetadataIndex({storage:'ranges'}):new Map(),scriptEvidence=new Map()
+  const nativeFrames=nativeEntries?nativeFrameMapper(scripts):null
   // Repeated condition/capture pairs exceeded four million ordered runs.
   // Intern exact blocks while retaining every event and its position; the
   // four-million-pair bound now applies to the stored representation.
@@ -89,8 +90,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const evidence=sourceForScript(frame.scriptId)
       if(!evidence.available)descriptorFailure='watched caller source unavailable at native entry'
     }
-    const frames=entry.frames.map(f=>({name:f.name,
-      location:{scriptId:f.scriptId,lineNumber:f.line-1,columnNumber:f.column-1},script:scripts.get(f.scriptId)??null}))
+    const frames=nativeFrames.map(entry.frames)
     const argument={available:entry.available!==false,kind:entry.kind,...(entry.reason?{reason:entry.reason}:{}),...(entry.target?{target:entry.target}:{}),
       actualNativeEntry:true,argumentCount:entry.argumentCount,receiverBased:entry.receiverBased,replayEligible:false}
     if(proxyFunctions.has(entry.api))recordProxy([entry.api],frames,argument)
@@ -98,7 +98,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     else throw Error('unexpected native argument event')
   }}):null
   function argumentDiagnostics() {
-    return nativeEntryObserver?{mode:'native-entry-arguments',...nativeEntryObserver.report()}:nativeArgument.diagnostics()
+    return nativeEntryObserver?{mode:'native-entry-arguments',...nativeEntryObserver.report(),
+      frameCache:nativeFrames.counts()}:nativeArgument.diagnostics()
   }
   function recordProxy(entries,frames,argument) {
     if(nativeProxyLog){nativeProxyLog.append(entries,frames,argument);return}
