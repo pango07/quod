@@ -84,3 +84,11 @@ proof modes. Each unchanged record replayed; each metadata-only mutation
 executed and agreed with plain (wrong = 0, exit 1, zero replayed files).
 The release archive SHA-256 is
 `eb75a5194e2cb97c443597299327b26bfe288b31730ff412b48237719d7d6db6`.
+
+Action `9cf6d91` now ships that binary and the exact compiled bundle from
+[successful packaged gate 42137916242](https://github.com/pango07/quod/actions/runs/42137916242).
+The names-only discarded-version replay, lineage audit, recorder upgrades,
+Boolean switch cycle and metadata-reader fallbacks passed. The subsequent
+[fresh-runner probe](metadata-fresh-runner-probe.md) matched all per-test
+states, but replayed no Vitest files because conservative metadata keys
+changed across checkouts. It does not establish new full-window savings.
