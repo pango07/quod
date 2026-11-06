@@ -806,11 +806,11 @@
     "syntaxCacheFixtureGate": 42198746560,
     "syntaxCacheFixtureConclusion": "success",
     "progressCheckpointCommit": "1e14732",
-    "latestFullGate": 42205868477,
+    "latestFullGate": 42216898878,
     "latestFullGateStatus": "completed",
     "latestFullGateConclusion": "failure",
     "latestFullGateFailure": "before phase 420-second timeout",
-    "latestFullGateCompletedWorkers": 11,
+    "latestFullGateCompletedWorkers": 43,
     "descriptorOverheadEvidence": "worker-descriptor-overhead.json",
     "moduleScopeCommit": "2092649",
     "moduleScopeFixtureGate": 42204149648,
@@ -854,6 +854,15 @@
     "freshModuleScopeLookupLatestFixtureTests": 110,
     "freshModuleScopeLookupLatestFixtureConclusion": "success",
     "freshModuleScopeLookupEnabledInCombinedWorkload": false,
-    "descriptorOverheadNextAction": "Investigate reducing the number or construction cost of native debugger pauses while retaining observation coverage. Further individual binding lookup tuning has limited upside; do not rerun the full workload solely for this small gain."
+    "descriptorOverheadNextAction": "Measure private per-event Inspector object groups to reduce millions of release commands; preserve exact frame evidence with compression before another full attempt.",
+    "nativeEntryArgumentsFixtureGate": 42216738359,
+    "nativeEntryArgumentsFixtureTests": 122,
+    "nativeEntryArgumentsFixtureConclusion": "success",
+    "nativeEntryArgumentsCombinedCommit": "9f6dab7",
+    "nativeEntryArgumentsFullGate": 42216898878,
+    "nativeEntryArgumentsFullGateStatus": "completed",
+    "nativeEntryArgumentsFullGateConclusion": "failure",
+    "nativeEntryArgumentsFullGateTests": 158,
+    "nativeEntryArgumentsFullGateCompletedWorkers": 43
   }
 }

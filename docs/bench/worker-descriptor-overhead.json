@@ -1872,5 +1872,92 @@
     },
     "nextAction": "Investigate reducing the number or construction cost of native debugger pauses while retaining observation coverage. Further individual binding lookup tuning has limited upside; do not rerun the full workload solely for this small gain.",
     "runtimeSource": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc#L1641-L1717"
+  },
+  "nativeEntryArguments": {
+    "scope": "Diagnostic only. Native arguments are observed through caught breakpoint-condition exceptions on pinned Node 24.18.0. This does not exclude other native channels or establish replay safety.",
+    "gates": [
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42214239789",
+        "commit": "df1e12f",
+        "conclusion": "success",
+        "regressionTests": 112,
+        "logSha256": "6b394d3e784aa779b896194a5283dded9ef84eace5713240442e203cf9ea2b4e",
+        "nativeEntryMeasurements": []
+      },
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42215330256",
+        "commit": "02d9bb0",
+        "conclusion": "success",
+        "regressionTests": 116,
+        "logSha256": "107329e5803afb70bd64f9ebaeaa68c4be56a50c63015514fc2778e3556c9c4f",
+        "nativeEntryMeasurements": [
+          {
+            "mode": "pause",
+            "calls": 300,
+            "elapsedMs": 1020.4481030000001,
+            "pauses": 300,
+            "argumentsCaptured": 0,
+            "replayEligible": false
+          },
+          {
+            "mode": "capture",
+            "calls": 300,
+            "elapsedMs": 213.864733,
+            "pauses": 0,
+            "argumentsCaptured": 300,
+            "replayEligible": false
+          }
+        ]
+      },
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42216738359",
+        "commit": "92abaaa",
+        "conclusion": "success",
+        "regressionTests": 122,
+        "logSha256": "ba9aaa404f19413b3483018bb0a573ddf169e847bdd7dfc0ce7455e3090f2194",
+        "nativeEntryMeasurements": [
+          {
+            "mode": "pause",
+            "calls": 300,
+            "elapsedMs": 585.1866809999999,
+            "pauses": 300,
+            "argumentsCaptured": 0,
+            "replayEligible": false
+          },
+          {
+            "mode": "capture",
+            "calls": 300,
+            "elapsedMs": 81.39071799999999,
+            "pauses": 0,
+            "argumentsCaptured": 300,
+            "replayEligible": false
+          }
+        ]
+      }
+    ],
+    "integratedApis": 19,
+    "dictionaryEncoding": "dictionary-v1",
+    "dictionaryPreserves": [
+      "complete record fields",
+      "event order",
+      "multiplicity"
+    ],
+    "completeOwnership": false,
+    "replayEligible": false,
+    "combinedRun": 42216898878,
+    "combinedCommit": "9f6dab7",
+    "combinedStatus": "completed",
+    "runtimeSources": [
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug.cc#L852-L894",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-evaluate.cc#L117-L156",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger.cc#L674-L694",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-console-message.cc"
+    ],
+    "combinedConclusion": "failure",
+    "combinedFailure": "before phase 420-second timeout",
+    "combinedRegressionTests": 158,
+    "combinedCompletedWorkers": 43,
+    "combinedEvidence": "worker-native-entry-overhead.json",
+    "nextAction": "Measure private per-event Inspector object groups to reduce millions of release commands; preserve exact frame evidence with compression before another full attempt."
   }
 }

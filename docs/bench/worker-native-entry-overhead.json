@@ -1,0 +1,1002 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42216898878",
+  "commit": "9f6dab7b96ead05d4a23386a31bc8fa1c7d31de4",
+  "conclusion": "failure",
+  "failure": "before phase 420-second timeout",
+  "regressionTests": 158,
+  "baselineFileProjectInstances": 120,
+  "baselineTestStates": 4131,
+  "completeObservedPhases": 0,
+  "counts": {
+    "reports": 43,
+    "descriptorCalls": 397022,
+    "descriptorEventsRetained": 389017,
+    "nativeCalls": 420394,
+    "cleared": 420394,
+    "released": 17192026,
+    "compiledEvents": 855588
+  },
+  "errors": {
+    "descriptorOverflows": 5
+  },
+  "overflowedWorkers": [
+    {
+      "file": "5277.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+      ],
+      "calls": 21291,
+      "retainedCalls": 18811,
+      "entries": 10000
+    },
+    {
+      "file": "5628.json",
+      "project": "example-ui",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx"
+      ],
+      "calls": 27380,
+      "retainedCalls": 26139,
+      "entries": 10000
+    },
+    {
+      "file": "5665.json",
+      "project": "zod-4.0",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+      ],
+      "calls": 16313,
+      "retainedCalls": 15949,
+      "entries": 10000
+    },
+    {
+      "file": "5486.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react.test.ts"
+      ],
+      "calls": 26889,
+      "retainedCalls": 26462,
+      "entries": 10000
+    },
+    {
+      "file": "5643.json",
+      "project": "zod-4.0",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+      ],
+      "calls": 20673,
+      "retainedCalls": 17180,
+      "entries": 10000
+    }
+  ],
+  "checkpoints": [
+    {
+      "file": "5120.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 430000,
+        "apis": {
+          "Object.defineProperty": 216256,
+          "Object.getOwnPropertyDescriptor": 697,
+          "Object.freeze": 6,
+          "Object.defineProperties": 106124,
+          "Object.setPrototypeOf": 21,
+          "Object.getOwnPropertyDescriptors": 106115,
+          "Reflect.getOwnPropertyDescriptor": 775,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 430000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 861284,
+          "runs": 861266,
+          "records": 411,
+          "overflow": false,
+          "failedToParse": 173
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 430345,
+          "ignored": 0,
+          "cleared": 430344,
+          "released": 4763583,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5127.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 5874,
+          "Object.getOwnPropertyDescriptor": 662,
+          "Object.freeze": 6,
+          "Object.defineProperties": 929,
+          "Object.setPrototypeOf": 21,
+          "Object.getOwnPropertyDescriptors": 914,
+          "Reflect.getOwnPropertyDescriptor": 1588,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 20985,
+          "runs": 20967,
+          "records": 406,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10283,
+          "ignored": 0,
+          "cleared": 10282,
+          "released": 303002,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5277.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 20000,
+        "apis": {
+          "Object.defineProperty": 11552,
+          "Object.getOwnPropertyDescriptor": 2913,
+          "Object.freeze": 7,
+          "Object.defineProperties": 447,
+          "Object.setPrototypeOf": 30,
+          "Object.getOwnPropertyDescriptors": 449,
+          "Reflect.getOwnPropertyDescriptor": 4596,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 20000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": true,
+        "compilation": {
+          "events": 41739,
+          "runs": 41721,
+          "records": 504,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20611,
+          "ignored": 0,
+          "cleared": 20610,
+          "released": 546084,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5286.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 6889,
+          "Object.getOwnPropertyDescriptor": 961,
+          "Object.freeze": 7,
+          "Object.defineProperties": 118,
+          "Object.setPrototypeOf": 7,
+          "Object.getOwnPropertyDescriptors": 113,
+          "Reflect.getOwnPropertyDescriptor": 1899,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21277,
+          "runs": 21259,
+          "records": 478,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10393,
+          "ignored": 0,
+          "cleared": 10392,
+          "released": 248313,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5315.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/tsApiSpec.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 8827,
+          "Object.getOwnPropertyDescriptor": 882,
+          "Object.freeze": 14,
+          "Object.defineProperties": 38,
+          "Object.setPrototypeOf": 14,
+          "Object.getOwnPropertyDescriptors": 28,
+          "Reflect.getOwnPropertyDescriptor": 191,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 9999,
+          "proxy": 1
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21077,
+          "runs": 21059,
+          "records": 387,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10338,
+          "ignored": 0,
+          "cleared": 10337,
+          "released": 5284243,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5339.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 7426,
+          "Object.getOwnPropertyDescriptor": 2230,
+          "Object.freeze": 7,
+          "Object.defineProperties": 36,
+          "Object.setPrototypeOf": 8,
+          "Object.getOwnPropertyDescriptors": 39,
+          "Reflect.getOwnPropertyDescriptor": 248,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21469,
+          "runs": 21451,
+          "records": 506,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10475,
+          "ignored": 0,
+          "cleared": 10474,
+          "released": 359453,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5377.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 7167,
+          "Object.getOwnPropertyDescriptor": 2097,
+          "Object.freeze": 8,
+          "Object.defineProperties": 61,
+          "Object.setPrototypeOf": 7,
+          "Object.getOwnPropertyDescriptors": 63,
+          "Reflect.getOwnPropertyDescriptor": 591,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21614,
+          "runs": 21596,
+          "records": 505,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10548,
+          "ignored": 0,
+          "cleared": 10547,
+          "released": 347495,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5486.json",
+      "project": "convex-helpers",
+      "files": [],
+      "checkpoint": {
+        "calls": 20000,
+        "apis": {
+          "Object.defineProperty": 19258,
+          "Object.getOwnPropertyDescriptor": 607,
+          "Object.freeze": 32,
+          "Object.defineProperties": 36,
+          "Object.setPrototypeOf": 44,
+          "Object.getOwnPropertyDescriptors": 2,
+          "Reflect.getOwnPropertyDescriptor": 19,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 20000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 43265,
+          "runs": 43247,
+          "records": 1395,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20927,
+          "ignored": 0,
+          "cleared": 20926,
+          "released": 330966,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5515.json",
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 6887,
+          "Object.getOwnPropertyDescriptor": 2009,
+          "Object.freeze": 7,
+          "Object.defineProperties": 93,
+          "Object.setPrototypeOf": 9,
+          "Object.getOwnPropertyDescriptors": 88,
+          "Reflect.getOwnPropertyDescriptor": 901,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21365,
+          "runs": 21347,
+          "records": 470,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10441,
+          "ignored": 0,
+          "cleared": 10440,
+          "released": 329910,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5621.json",
+      "project": "example-ui",
+      "files": [],
+      "checkpoint": {
+        "calls": 20000,
+        "apis": {
+          "Object.defineProperty": 19258,
+          "Object.getOwnPropertyDescriptor": 607,
+          "Object.freeze": 32,
+          "Object.defineProperties": 36,
+          "Object.setPrototypeOf": 44,
+          "Object.getOwnPropertyDescriptors": 2,
+          "Reflect.getOwnPropertyDescriptor": 19,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 20000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 43265,
+          "runs": 43247,
+          "records": 1395,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20927,
+          "ignored": 0,
+          "cleared": 20926,
+          "released": 330966,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5628.json",
+      "project": "example-ui",
+      "files": [],
+      "checkpoint": {
+        "calls": 20000,
+        "apis": {
+          "Object.defineProperty": 19258,
+          "Object.getOwnPropertyDescriptor": 607,
+          "Object.freeze": 32,
+          "Object.defineProperties": 36,
+          "Object.setPrototypeOf": 44,
+          "Object.getOwnPropertyDescriptors": 2,
+          "Reflect.getOwnPropertyDescriptor": 19,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 20000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 43265,
+          "runs": 43247,
+          "records": 1395,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20927,
+          "ignored": 0,
+          "cleared": 20926,
+          "released": 330966,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5643.json",
+      "project": "zod-4.0",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 20000,
+        "apis": {
+          "Object.defineProperty": 13144,
+          "Object.getOwnPropertyDescriptor": 981,
+          "Object.freeze": 7,
+          "Object.defineProperties": 482,
+          "Object.setPrototypeOf": 30,
+          "Object.getOwnPropertyDescriptors": 514,
+          "Reflect.getOwnPropertyDescriptor": 4836,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 20000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": true,
+        "compilation": {
+          "events": 41734,
+          "runs": 41716,
+          "records": 477,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20622,
+          "ignored": 0,
+          "cleared": 20621,
+          "released": 398700,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5650.json",
+      "project": "zod-4.0",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 7924,
+          "Object.getOwnPropertyDescriptor": 1113,
+          "Object.freeze": 9,
+          "Object.defineProperties": 115,
+          "Object.setPrototypeOf": 12,
+          "Object.getOwnPropertyDescriptors": 149,
+          "Reflect.getOwnPropertyDescriptor": 672,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21802,
+          "runs": 21784,
+          "records": 479,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10655,
+          "ignored": 0,
+          "cleared": 10654,
+          "released": 269841,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    },
+    {
+      "file": "5665.json",
+      "project": "zod-4.0",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+      ],
+      "checkpoint": {
+        "calls": 10000,
+        "apis": {
+          "Object.defineProperty": 6862,
+          "Object.getOwnPropertyDescriptor": 737,
+          "Object.freeze": 7,
+          "Object.defineProperties": 146,
+          "Object.setPrototypeOf": 7,
+          "Object.getOwnPropertyDescriptors": 141,
+          "Reflect.getOwnPropertyDescriptor": 2094,
+          "Reflect.deleteProperty": 4,
+          "Reflect.defineProperty": 2
+        },
+        "arguments": {
+          "object": 10000
+        },
+        "last": {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 65,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        "overflow": false,
+        "compilation": {
+          "events": 21241,
+          "runs": 21223,
+          "records": 450,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "argumentDiagnostics": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 10389,
+          "ignored": 0,
+          "cleared": 10388,
+          "released": 243559,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "identity": {
+          "mode": "native-entry-arguments",
+          "snapshotsRequested": 0
+        },
+        "replayEligible": false
+      }
+    }
+  ],
+  "artifactDigest": "sha256:4db0d90c2f5d15b4bcc9c3f1d0b35e86cb7a87863cdf17555078e9887f953de9",
+  "artifactFilesSha256": {
+    "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+    "baseline-tests.json": "2002e8941cf34cf87e229b8d43646d9113f0d3abaf54bbd41a894dcac771a2a5",
+    "baseline.log": "d046530d1a4a6c2f07158815dea9e40fc680b7e9cdff9d921a5bfb68a1b54850",
+    "before.log": "cf0b2323887e7d3c6ced97f47a9e2050d3c53b7e1c9e0495bedc9658d6fdcf41",
+    "worker-boundary/before/5121.json": "d824ae2d9494c95439494a464e37714b18cbbd032b8f62fc689fc039f8c05799",
+    "worker-boundary/before/5127.json": "ad89ba6c34ac28718d684d17fe306f2336c6234c73cee88689ce117f922d57f5",
+    "worker-boundary/before/5260.json": "f0f7c8170650e39acb0f68919f6c909d5e57c937a2f1e3ab3891d8bc58349fad",
+    "worker-boundary/before/5267.json": "544c8fabfd71f9e2626f0c43579827d8900f0b4a267023871325af69b5c1b510",
+    "worker-boundary/before/5277.json": "f276cb7ca85fdaac98b56d7c9719ab5c464afd70589651688a12945af6b851ba",
+    "worker-boundary/before/5286.json": "95a3b14a5f6a49e9c0adbe3ceba7bc0821f39ae8c0c0b30cff40cf1129f48e4c",
+    "worker-boundary/before/5297.json": "ea0e8cdb1706cb7959ecabfa3692e593622af0f17fdd9432a6e8154d0dcae376",
+    "worker-boundary/before/5306.json": "ad0eb0a9f225018d299d6f79e8eb83f6cbe7ab0544ad1f1c0f9f16a38d577e70",
+    "worker-boundary/before/5315.json": "e55e4c7d1d973fbfeafcb3995e16014bc0ce34f08c6136741ae553129f8ded39",
+    "worker-boundary/before/5327.json": "e94d4bbaa3bcee5f0a32a805ec4d321c67b1e0b26649831ff0f17019fda2ef8e",
+    "worker-boundary/before/5339.json": "96ffdd5e6667e847e764b5cb5c094a3015a65a7ec45ae5972058083f8f173100",
+    "worker-boundary/before/5377.json": "25e70333ea52dc160e55fd2a8b00a5db2e7006e9eb58ca636177c465408e90d6",
+    "worker-boundary/before/5393.json": "1cd297face30b2c1f286607fce1973a452602ae922aa6307cd17097a4fb33d09",
+    "worker-boundary/before/5404.json": "4aef5ae09eefc6916369b00f92fa4ed6f67366f0120b648bb08c49b1580021a8",
+    "worker-boundary/before/5414.json": "3502ab4c48c5ab35bd9f972b6095c76315cdb9f809ba9df9fcc5843519fb2e23",
+    "worker-boundary/before/5430.json": "59c4cb1bc377ec1fa374a9b884f8fbf431ad84b393a28a9bc0ea52b66648a686",
+    "worker-boundary/before/5441.json": "37fede2ee02244cf867747fdffd08ca26fbf07d86ed333cd7951f488c4c0ebf9",
+    "worker-boundary/before/5449.json": "f052167dc814a3f257c11b2435777d176b8e5f542add6e26dead6b987c8e9038",
+    "worker-boundary/before/5459.json": "1afcba2a5281b706acf2dca182aa1cd7b36390a0b3df1a668c0ef9fdc2b5abf0",
+    "worker-boundary/before/5467.json": "682c30ddc90cc3bd5593abad7fe465232c6b27485a03c5610b339ab1971e89e4",
+    "worker-boundary/before/5477.json": "373f75f30b8ec2b47add72962084c3e7d697a544c22c60d9bd87eba79950db97",
+    "worker-boundary/before/5486.json": "3385ec8c88bcccf512d4c4f52e19f99c3856b8066ecfd7bab4351ccc1d32ac37",
+    "worker-boundary/before/5494.json": "79944b0aa9c47b852b714d2ffb129d5e3be260176e2c0469892b6443e5bfd0d8",
+    "worker-boundary/before/5504.json": "734c3aa5ebb7d427ce361569b615ea117f436c96307a9f3744ffcef318dc319e",
+    "worker-boundary/before/5515.json": "61b8d6ab31eff259268fbf4a94cee0c5f2b28fe9465163f1788b2c28ee7ad604",
+    "worker-boundary/before/5525.json": "b220263c055e6f0e1924027bfdcade8999c5a78e720d863fa5853c10038dfcc4",
+    "worker-boundary/before/5535.json": "6b8ac6e90dc0e6690867e751fdf3e31de83d347193c2e733cd3c4cdc6e873bfb",
+    "worker-boundary/before/5544.json": "e9d3f42294772e89cf60cd80248795fc66da7ecc78176241ee07e6adc65c4b72",
+    "worker-boundary/before/5551.json": "0a1e39d39d126cd70e14e01baf6a0b49ca9f06faa6d753e879ada3e2efcef179",
+    "worker-boundary/before/5561.json": "52c0150069046e872e2d92fed319c277446e641e3a9a3316adc55c5e5b494ea7",
+    "worker-boundary/before/5568.json": "756859340e519139fad60a5ec76d670d4d8d364ae5ca7bca8c40dd4c22d5b1c7",
+    "worker-boundary/before/5579.json": "3b638f3874051a9ff9c16f314fc3beba013bb93fc321c3c72a37c57e78f1f144",
+    "worker-boundary/before/5586.json": "c85efb1bae1f0e54e990e5ebbbd1d3d07fe2f4aef186e2fc0c088fab66ca3784",
+    "worker-boundary/before/5595.json": "285469c055267b5ce940d40005b3db7a8ad1592fda29fd2e4f9748eee810c345",
+    "worker-boundary/before/5603.json": "da18e4c4ceb0dfbf12526248446d514998ddac02a2aeb42f7d1934500a41929e",
+    "worker-boundary/before/5610.json": "2c9ba1f7942b1ace1b0f61328cfc6635ba772309a12b3e6a4071c5c884a7a97c",
+    "worker-boundary/before/5628.json": "a9993e9effb1b7635868f2a1b2910d00ed29f6995f7618c04de8cb79bf0d53db",
+    "worker-boundary/before/5643.json": "1d341f7f65f42615c07421bde42bad5b2faef8ea9fd1f37b3ea45e24ee99aa18",
+    "worker-boundary/before/5650.json": "7d2c348431c0561d46bdf6975b8d9bbce6bf5ab9f032a5fcd25751766824bf96",
+    "worker-boundary/before/5665.json": "87012f60b8b69694d743e47f950e2d3b7ca657b834af767f16ac1ce61567ba15",
+    "worker-boundary/before/5682.json": "b5429eedb5f9ec24e6d4755a975b22db85ddaadeac8d4adcf40e02011ac3670d",
+    "worker-boundary/before/5692.json": "9a058e59d0928fa065c9b50a3bc18f1f4213dfa98e0d10048c2dda24efd68e5c",
+    "worker-boundary/before/5700.json": "6ea593114c6f8c0f48220fce6e483cf2e978f5365dd1bb021cd7a493912727b2",
+    "worker-boundary/before/progress/5120.json": "d9ab26e2d9a8b17f96ad6d7660a84ed6e753c622606cda59120d76b80994f08f",
+    "worker-boundary/before/progress/5127.json": "e1c613666e483566f77529775e93208ab75f1de74349919c5fe14e41e61bfc60",
+    "worker-boundary/before/progress/5277.json": "23aa6b2b30bbfe9d912c9c1bebd9e740d9b9ab5592ca2dffe747becf59ea3476",
+    "worker-boundary/before/progress/5286.json": "163ba62bad6cca2f443227768816ed662e5817317cc3283c7b4198ace6d2f902",
+    "worker-boundary/before/progress/5315.json": "111028829d3718901bb7adfe78c1de2ebf7c436f16e2750b8854e8ee88be4485",
+    "worker-boundary/before/progress/5339.json": "df13749799d4edc10b0c606ac59c90ae50b489db845b0f33a799dd81db3e809d",
+    "worker-boundary/before/progress/5377.json": "75f36ed11f1a7eca3d4d5ad53ba4800121137ade4818faff403467a8270ecaa1",
+    "worker-boundary/before/progress/5486.json": "939615bf04106f3044225fbda6d9fe2959c0f8d79a53f475c6898482f2763eec",
+    "worker-boundary/before/progress/5515.json": "5ce61652ca34662c189f3fa325fad9b48a58ab49cc3a9d92862fca7f7099421e",
+    "worker-boundary/before/progress/5621.json": "a6fca5faeb2ca007d2301f3af8c9445ec6f17016bcd21643841648d88999a2c5",
+    "worker-boundary/before/progress/5628.json": "a6fca5faeb2ca007d2301f3af8c9445ec6f17016bcd21643841648d88999a2c5",
+    "worker-boundary/before/progress/5643.json": "ffe39b6a30e8921a88688f8dbcfe4948ddbffe65950d6efb154ce2ca6332bc22",
+    "worker-boundary/before/progress/5650.json": "b1ccbdf8ef0b509aa1447739d89a736df6537e96768fc1ad9f7d51fc9e6e7d58",
+    "worker-boundary/before/progress/5665.json": "42d34cd06f8aa2257a6296f8f27515ef4e08a988ba7f0a61dce0636b1b8aefab"
+  },
+  "logSha256": "5886e43bb5b5e3ac0048974971aba40fb0e18437850663bb81a482c8fd24fde8",
+  "replayEligible": false
+}

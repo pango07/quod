@@ -5,10 +5,10 @@
 import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{}}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false}={}) {
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const errors=[]
-  let calls=0,ignored=0,cleared=0,released=0,closed=false
+  let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false
   const supported=process.versions.node==='24.18.0'
   function fail(reason) {if(errors.length<20)errors.push(reason)}
   return {
@@ -21,7 +21,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{}}={}) {
     handleException(params) {
       if(!supported||closed)return false
       const handles=new Set()
-      let owned=false,payload=null,canClear=false
+      let owned=false,payload=null,canClear=false,group=null,original=null
       function properties(id) {
         if(!id)throw Error('entry object unavailable')
         handles.add(id)
@@ -38,8 +38,22 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{}}={}) {
         return p.value
       }
       try {
-        const remote=params.exceptionDetails?.exception
+        let remote=params.exceptionDetails?.exception
         if(!remote?.objectId||remote.subtype==='proxy'){ignored++;return false}
+        if(handleGroups) {
+          // getProperties (including internal/private properties) inherits
+          // the inspected handle's object group on the pinned V8 runtime.
+          // Give this event a private group without reading any properties;
+          // one release then drops every temporary handle, including values
+          // discovered recursively. Never clear the shared console group.
+          original=remote.objectId
+          if(events===Number.MAX_SAFE_INTEGER)throw Error('native event capacity exceeded')
+          group='quod-native-entry-'+nonce+'-'+(++events)
+          const copied=post('Runtime.callFunctionOn',{objectId:original,objectGroup:group,
+            functionDeclaration:'function(){return this}',silent:true,generatePreview:false})
+          if(copied.exceptionDetails||!copied.result?.objectId)throw Error('native event group unavailable')
+          remote=copied.result
+        }
         const fields=properties(remote.objectId)
         if(fields.find(p=>p.name==='quodNativeEntry')?.value?.value!==nonce){ignored++;return false}
         owned=true;payload=remote.objectId;calls++
@@ -78,11 +92,16 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{}}={}) {
           if(result.exceptionDetails)throw Error('clear failed')
           cleared++
         }catch {fail('native entry payload cleanup failed')}
-        for(const objectId of handles)try {post('Runtime.releaseObject',{objectId});released++}
+        if(group)try {post('Runtime.releaseObjectGroup',{objectGroup:group});groupsReleased++;released+=handles.size}
+        catch {fail('native entry group cleanup failed')}
+        else for(const objectId of handles)try {post('Runtime.releaseObject',{objectId});released++}
         catch {fail('native entry handle cleanup failed')}
+        if(original)try {post('Runtime.releaseObject',{objectId:original});released++}
+        catch {fail('native entry original handle cleanup failed')}
       }
     },
-    report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,errors:[...errors],
+    report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
+      handleMode:handleGroups?'private-event-group':'individual',errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),
     close(){closed=true},
   }

@@ -4,14 +4,15 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body,{ballast=0,gc=false}={}) {
+function fixture(body,{ballast=0,gc=false,handleGroups=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
 import {types} from 'node:util';
 import {observeNativeEntryArguments} from ${JSON.stringify(probe)};
 ${Array.from({length:ballast},(_,i)=>`export const unused${i}=${i};`).join('\n')}
-const session=new Session(),errors=[],pauses=[],events=[],extra={};
+const session=new Session(),errors=[],pauses=[],events=[],extra={},commands=Object.create(null);
 function post(method,params={}){
+ commands[method]=(commands[method]??0)+1;
  let done=false,error,result;
  session.post(method,params,(e,r)=>{done=true;error=e;result=r});
  if(!done||error)throw error??Error('asynchronous inspector response');return result;
@@ -30,7 +31,7 @@ function same(id,other){
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
 function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
- const capture=observeNativeEntryArguments(post,{onEntry});
+ const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)}});
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
@@ -139,6 +140,73 @@ const weak=temporary();stop();
 await new Promise(resolve=>setImmediate(resolve));
 for(let i=0;i<4;i++)globalThis.gc();extra.collected=weak.deref()===undefined;`,{gc:true})
   complete(data,1);assert.equal(data.collected,true,'the Inspector console must retain only a cleared diagnostic wrapper')
+})
+
+test('private event groups preserve actual arguments, receivers, errors and queued work',()=>{
+  const data=fixture(`let microtasks=0,traps=0,failed=false;
+const proxy=new Proxy({}, {getOwnPropertyDescriptor(){traps++;return undefined}});
+const lookup=Object.prototype.__lookupGetter__,isProxy=types.isProxy;
+const stop=captureEntries([
+ ['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}],
+ ['Object.prototype.__lookupGetter__','Object.prototype.__lookupGetter__',{receiver:true,describeOwnAccessors:true}],
+ ['util.types.isProxy','process.getBuiltinModule("util").types.isProxy',{}]
+]);
+queueMicrotask(()=>microtasks++);
+const owner={get call(){memberGets++;Object.defineProperty(this,'call',{value:native});return native.bind(null,target)}};
+extra.values=[typeof owner.call(key).get,typeof lookup.bind(target)(key),isProxy(proxy)];
+native(proxy,key);try{native()}catch(e){failed=e instanceof TypeError}
+extra.during=microtasks;stop();await Promise.resolve();extra.after=microtasks;
+extra.traps=traps;extra.failed=failed;extra.originalHandleSurvives=same(targetId,targetId);`,{handleGroups:true})
+  complete(data,5);assert.equal(data.capture.groupsReleased,5)
+  assert.equal(data.capture.handleMode,'private-event-group')
+  assert.equal(data.memberGets,1);assert.equal(data.gets,0);assert.equal(data.traps,1)
+  assert.equal(data.during,0);assert.equal(data.after,1);assert(data.failed&&data.originalHandleSurvives)
+  assert.deepEqual(data.values,['function','function',true])
+  assert.deepEqual(data.events.map(e=>e.kind),['object','object','proxy','proxy','primitive'])
+  assert(data.events.slice(0,2).every(e=>e.target.watchedAccessorKeys.includes('tmp')))
+})
+
+test('group cleanup releases descriptors and internal properties without releasing unrelated handles',()=>{
+  const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+function temporary(){
+ const captured={tmp:1};const weak=new WeakRef(captured);
+ const value={get tmp(){return captured}};
+ native(value,key);return [new WeakRef(value),weak];
+}
+const weak=temporary();stop();extra.originalHandleSurvives=same(targetId,targetId);
+await new Promise(resolve=>setImmediate(resolve));for(let i=0;i<4;i++)globalThis.gc();
+extra.collected=weak.every(w=>w.deref()===undefined);`,{gc:true,handleGroups:true})
+  complete(data,1);assert.equal(data.capture.groupsReleased,1)
+  assert(data.collected&&data.originalHandleSurvives)
+})
+
+test('compare individual and grouped handle cleanup with complete compilation logging',t=>{
+  const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
+    logs=new URL('./compiled-script-log.mjs',import.meta.url).href
+  for(const handleGroups of [false,true]) {
+    const data=fixture(`const {compiledScriptRecord}=await import(${JSON.stringify(compiled)});
+const {dictionaryCompiledScriptLog,validateCompilationCounts}=await import(${JSON.stringify(logs)});
+const log=dictionaryCompiledScriptLog();
+session.on('Debugger.scriptParsed',({params})=>log.append(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}))));
+const wide={get tmp(){gets++;return 'not-read'}};
+for(let i=0;i<80;i++)wide['field'+i]=()=>i;
+const now=performance.now.bind(performance);now();let observed=0;
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]],e=>{
+ if(e.kind!=='object'||e.target.ownAccessorCount!==1)throw Error('incorrect native target');observed++;
+});
+const start=now();let values=0;
+for(let i=0;i<300;i++)if(typeof native(wide,key).get==='function')values++;
+extra.elapsedMs=now()-start;stop();extra.observed=observed;extra.values=values;
+const report=log.report();validateCompilationCounts(report);extra.compiledEvents=report.events;
+extra.commands={...commands};`,{ballast:2000,handleGroups})
+    complete(data,300);assert.equal(data.gets,0);assert.equal(data.values,300);assert.equal(data.observed,300)
+    if(handleGroups){assert.equal(data.capture.groupsReleased,300);assert.equal(data.commands['Runtime.releaseObject'],300)}
+    else assert(data.commands['Runtime.releaseObject']>24000)
+    assert(data.compiledEvents>=600)
+    rows.push({handleGroups,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,compiledEvents:data.compiledEvents,
+      capture:data.capture,replayEligible:false})
+  }
+  t.diagnostic(JSON.stringify({nativeHandleGroupMeasurements:rows}))
 })
 
 test('compare native argument capture against an empty full-pause handler',t=>{

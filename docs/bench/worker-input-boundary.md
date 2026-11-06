@@ -799,3 +799,76 @@ attempt still failed. The packaged Action and the latest full 12-commit
 product result remain unchanged. No new savings are claimed, and another
 full workload run is not justified solely by the approximately 3% improvement
 over lexical evaluation in this bounded full-logging fixture.
+
+## Native entry arguments without full debugger pauses
+
+Pinned V8 [evaluates native function-entry conditions with the topmost
+arguments](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug.cc#L852-L894),
+using an [extension object containing the actual arguments and receiver](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-evaluate.cc#L117-L156).
+A thrown condition exception is cleared from the application and
+[reported to Inspector](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger.cc#L674-L694).
+The diagnostic uses this path to observe actual native values, including
+bound arguments, without reconstructing the caller expression or creating
+all lexical scopes for a full pause. It installs no public callback or
+global bridge. Each condition carries a private nonce; reports contain no
+raw application arguments.
+
+[42214239789](https://github.com/pango07/quod/actions/runs/42214239789),
+commit `df1e12f`, passes 112 tests. Wrapped, bound, replacing-getter,
+apply and foreign-context calls preserve their actual arguments. Caught
+condition exceptions produce zero debugger pauses and do not reach the
+application's uncaught-exception handler.
+
+[42215330256](https://github.com/pango07/quod/actions/runs/42215330256),
+commit `02d9bb0`, passes 116 tests. The helper clears its own exception
+wrapper and releases temporary Inspector handles. V8 console storage
+otherwise retains those wrappers; clearing only remote handles is
+insufficient. A WeakRef regression confirms an ephemeral argument is
+collectible after observation. Proxy traps and target getters do not run;
+queued microtasks remain queued; native call-site records retain the actual
+caller. The synthetic exception is visible to other Inspector sessions and
+can affect console history. This remains diagnostic instrumentation.
+
+[42216738359](https://github.com/pango07/quod/actions/runs/42216738359),
+commit `92abaaa`, passes 122 tests and integrates the helper as an opt-in
+observer. All 19 listed descriptor APIs are observed with zero full pauses;
+receiver-based APIs, bound replacing callees, later argument mutations,
+native errors and proxy targets retain their checked behavior. The default
+observer remains unchanged. A bounded 300-call fixture with 2,000 module
+bindings took 585 ms for an empty pause handler and 81 ms for native capture;
+the preceding gate measured 1,020 ms and 214 ms respectively. These are
+diagnostic microbenchmarks, not full-job savings.
+
+Alternating condition and cleanup compilations defeat adjacent run-length
+compression. `dictionary-v1` stores complete records once and an ordered
+run index, preserving every source digest, event and occurrence count.
+Regression checks cover 40,002 alternating/changing records, malformed
+indices, differing event order and capacity overflow. No source, including
+nonce-bearing diagnostic source, is masked or dropped.
+
+Commit `9f6dab7` enables this gated path in the combined diagnostic and
+requires all native events to be attributed and every wrapper cleared.
+[42216898878](https://github.com/pango07/quod/actions/runs/42216898878)
+passes 158 regressions and completes plain's 120 instances / 4,131 states,
+but the first observed phase again reaches its 420-second timeout.
+It completes 43 worker reports, versus 11 in the previous full attempt.
+Those reports contain 420,394 native events, with every wrapper cleared,
+but five descriptor logs overflow; 8,005 descriptor occurrences are absent
+from their retained entries. No complete observed phase or metadata-only
+before/after comparison is established. The stream property-test worker's
+last checkpoint reaches 430,000 descriptor calls, with no capture errors
+or compilation-log overflow. These cumulative checkpoints must not be
+added to final reports for the same worker.
+
+The completed reports issued 17,192,026 individual handle releases.
+The pinned [Inspector runtime implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-runtime-agent-impl.cc#L569-L637)
+assigns property, internal-property and private-property handles to their
+parent handle's group. The next bounded experiment gives each exception
+event a private group, clears the wrapper as before, and releases that
+group together. It must leave unrelated handles usable and allow argument
+objects and descriptor closures to be collected. Exact stack compression
+also needs to resolve the detailed-entry cap without discarding frames.
+[Raw counts, checkpoints and artifact hashes](worker-native-entry-overhead.json)
+preserve this failed attempt. Complete native coverage, framework-object
+ownership and production replay safety remain unproven; the packaged
+Action and 12-commit savings result are unchanged.
