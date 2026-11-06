@@ -2763,16 +2763,19 @@ pub(crate) fn state(
         }
         "e" => (exists(&path()), None),
         "sm" | "sl" => (stat_metadata(&path(), kind == "sl"), None),
-        // A proven synchronous stat helper whose result is used only by
-        // native isFile/isDirectory. Follow links exactly as stat does.
+        // A proven synchronous stat whose result is used only by native
+        // isFile/isDirectory or a success check. Follow links exactly as
+        // stat does, and retain errors: a direct caller may inspect them.
         "st" => (
             match fs::metadata(path()) {
-                Ok(m) if m.is_file() => "file",
-                Ok(m) if m.is_dir() => "directory",
-                Ok(_) => "other",
-                Err(_) => "unavailable",
-            }
-            .into(),
+                Ok(m) if m.is_file() => "file".into(),
+                Ok(m) if m.is_dir() => "directory".into(),
+                Ok(_) => "other".into(),
+                Err(e) => e.raw_os_error().map_or_else(
+                    || format!("unobservable:stat-type:{}", ulid::Ulid::generate()),
+                    |errno| format!("errno:{errno}"),
+                ),
+            },
             None,
         ),
         "d" => (listing(&path(), false), None),
@@ -3908,7 +3911,8 @@ mod tests {
         fs::write(&file, "different bytes and size").unwrap();
         assert_eq!(st("st:file"), "file");
         assert_eq!(st("st:dir"), "directory");
-        assert_eq!(st("st:missing"), "unavailable");
+        assert!(st("st:missing").starts_with("errno:"));
+        assert_eq!(st("st:missing"), st("st:missing"));
         #[cfg(unix)]
         {
             let link = t.path().join("link");
@@ -3918,7 +3922,10 @@ mod tests {
             std::os::unix::fs::symlink(&dir, &link).unwrap();
             assert_eq!(st("st:link"), "directory");
             fs::remove_dir(&dir).unwrap();
-            assert_eq!(st("st:link"), "unavailable");
+            assert_eq!(st("st:link"), st("st:missing"));
+            // ENOTDIR and ENOENT must not collapse: a caller may choose
+            // different tests depending on which error statSync throws.
+            assert_ne!(st("st:file/child"), st("st:missing/child"));
         }
     }
 

@@ -165,6 +165,45 @@ test('actual resolver stat type reads coexist with the boolean manifest query', 
     assert.equal(result.stats.statType,1)
   }
 })
+test('direct native stat calls keep only proved type observations', () => {
+  for (const consumer of [
+    "export const type=fs.statSync(file).isFile();",
+    "export const type=fs.statSync(file,{throwIfNoEntry:false})?.isDirectory();",
+    "const config={root:file}; export const type=fs.statSync(config.root,{throwIfNoEntry:false})?.isFile();",
+    "const native=fs.statSync; export const type=native(file).isFile();",
+    "function kind(file){const s=fs.statSync(file); if(s.isFile()) return 'file'; else if(s.isDirectory()) return 'directory'; throw Error('other');} export const type=kind(file);",
+    "function kind(file){try{const s=fs.statSync(file); if(s.isFile()) return 'file'; return 'other';}catch(e){return e.code}} export const type=kind(file);",
+  ]) {
+    const result=recorded('!!pkg.exports',{prelude:`const file='package.json'; ${consumer}`})
+    assert.ok(result.keys.includes('st:package.json'),consumer)
+    assert.equal(result.keys.includes('sm:package.json'),false,consumer)
+    assert.equal(result.stats.statType,1)
+  }
+})
+test('direct calls reject metadata, unknown options and intermediate escapes', () => {
+  for (const consumer of [
+    'export const type=fs.statSync(file).mtimeMs;',
+    'export const type=fs.statSync(file,{bigint:true}).isFile();',
+    'const opts={throwIfNoEntry:false}; export const type=fs.statSync(file,opts)?.isFile();',
+    "export const type=fs['statSync'](file).isFile();",
+    'const s=fs.statSync(file); export const type=s.isFile();',
+    'function kind(file){const s=fs.statSync(file); if(s.isFile()) return s.size; return 0;} export const type=kind(file);',
+    "function fileName(){return file;} export const type=fs.statSync(fileName()).isFile();",
+    'export const type=(await fs.promises.stat(file)).isFile();',
+  ]) {
+    const result=recorded('!!pkg.exports',{prelude:`const file='package.json'; ${consumer}`})
+    assert.ok(result.keys.includes('sm:package.json'),consumer)
+    assert.equal(result.keys.includes('st:package.json'),false,consumer)
+  }
+})
+test('stat proof also rejects mutations to the base Object prototype', () => {
+  const result=recorded('!!pkg.exports',{prelude:`
+Object.defineProperty(Object.prototype,'quodStatProbe',{value:true,configurable:true});
+export const type=fs.statSync('package.json').isFile();
+delete Object.prototype.quodStatProbe;`})
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
 test('private helper results may feed only uninterrupted type branches', () => {
   for (const body of [
     'const s=tryStatSync(file); if(s?.isFile()) return "file"; if(s?.isDirectory()) return "directory"; return "other";',

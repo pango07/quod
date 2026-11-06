@@ -13,7 +13,7 @@ const plainFile = name => name?.startsWith('file:') ? fileURLToPath(name) : name
 const nativeStats = fs.Stats
 const nativeStatsPrototype = nativeStats.prototype
 const statPrototypes = []
-for (let p = nativeStatsPrototype; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+for (let p = nativeStatsPrototype; p; p = Object.getPrototypeOf(p)) {
   statPrototypes.push({object:p, parent:Object.getPrototypeOf(p), descriptors:Object.getOwnPropertyDescriptors(p)})
 }
 function pristineStats() {
@@ -41,9 +41,9 @@ function inBooleanContext(n, parents) {
 // also feed consecutive, type-only if tests. No arbitrary code can run
 // between those tests, and no reference to the binding may escape them.
 export function certifyStatTypeReads(source) {
-  if (typeof source !== 'string' || source.length > 2_000_000) return {helpers:[], calls:[]}
+  if (typeof source !== 'string' || source.length > 2_000_000) return {helpers:[], calls:[], direct:[]}
   let tree
-  try {tree=parse(source,{ecmaVersion:'latest',sourceType:'module'})} catch {return {helpers:[],calls:[]}}
+  try {tree=parse(source,{ecmaVersion:'latest',sourceType:'module'})} catch {return {helpers:[],calls:[],direct:[]}}
   const nodes=[], parents=new Map()
   function visit(n, parent=null) {
     if (!n || typeof n!=='object') return
@@ -119,7 +119,32 @@ export function certifyStatTypeReads(source) {
     if (call.type!=='CallExpression' || call.optional || call.callee.type!=='Identifier' || call.arguments.length!==1 || call.arguments[0].type!=='Identifier') continue
     if (helpers.some(h=>h.name===call.callee.name)) calls.push({name:call.callee.name,start:call.start,end:call.end})
   }
-  return {helpers,calls}
+  function simple(n) {
+    return n.type==='Identifier' || n.type==='ThisExpression' ||
+      n.type==='MemberExpression' && !n.computed && !n.optional && simple(n.object)
+  }
+  function literalOptions(n) {
+    const p=n?.properties?.[0]
+    return n?.type==='ObjectExpression' && n.properties.length===1 && p.type==='Property' &&
+      !p.computed && !p.method && p.kind==='init' && p.key.type==='Identifier' &&
+      p.key.name==='throwIfNoEntry' && p.value.type==='Literal' && p.value.value===false
+  }
+  function immediateType(call) {
+    const m=parents.get(call), c=parents.get(m)
+    return m?.type==='MemberExpression' && m.object===call && !m.computed &&
+      ['isFile','isDirectory'].includes(m.property.name) && c?.type==='CallExpression' &&
+      c.callee===m && !c.optional && !c.arguments.length
+  }
+  // This is checked only at the actual fs.statSync wrapper entry, using
+  // its immediate V8 caller. No callee name or library filename grants
+  // native provenance. Exclude nested calls in the receiver/arguments so
+  // another invocation cannot match the containing call's source span.
+  const direct=nodes.filter(n=>n.type==='CallExpression' && !n.optional && simple(n.callee) &&
+    (n.arguments.length===1 || n.arguments.length===2 && literalOptions(n.arguments[1])) &&
+    (simple(n.arguments[0]) || n.arguments[0].type==='Literal' && typeof n.arguments[0].value==='string') &&
+    (immediateType(n) || inBooleanContext(n,parents) || privateTypeBinding(n)))
+    .map(n=>({start:n.start,end:n.end}))
+  return {helpers,calls,direct}
 }
 
 export function certifyBooleanReads(source, property = 'exports') {
@@ -215,13 +240,17 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
     },
     statType(args) {
       let proved=false
-      if (typeof args[0]==='string' && args.length===2 && unchangedIntrinsics() && pristineStats()) {
+      if (typeof args[0]==='string' && (args.length===1 || args.length===2) && unchangedIntrinsics() && pristineStats()) {
         const [helper,caller]=frames()
         const source=load(helper,'@stat')
-        if (helper && caller && source && helper.scriptId===caller.scriptId) {
-          const at=offset(helper,source), calledAt=offset(caller,source)
-          const h=source.sites.helpers.find(h=>h.start<=at && at<h.end)
-          proved=!!h && source.sites.calls.some(c=>c.name===h.name && c.start<=calledAt && calledAt<c.end)
+        if (helper && source) {
+          const at=offset(helper,source)
+          proved=source.sites.direct.some(c=>c.start<=at && at<c.end)
+          if (!proved && args.length===2 && caller && helper.scriptId===caller.scriptId) {
+            const calledAt=offset(caller,source)
+            const h=source.sites.helpers.find(h=>h.start<=at && at<h.end)
+            proved=!!h && source.sites.calls.some(c=>c.name===h.name && c.start<=calledAt && calledAt<c.end)
+          }
         }
       }
       stats[proved ? 'statType' : 'statWhole']++
