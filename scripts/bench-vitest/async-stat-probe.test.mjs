@@ -2,16 +2,19 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 
-function run(lateObserver) {
+function run(lateObserver,changePrototype=false) {
   const source=`import {observeAsyncStat} from ${JSON.stringify(new URL('./async-stat-probe.mjs',import.meta.url).href)};
 import fs from 'node:fs';import {promiseHooks} from 'node:v8';
 const probe=observeAsyncStat(process.cwd());const NativeStats=fs.Stats;
 const originalThen=Promise.prototype.then;let thenCalls=0;
 Promise.prototype.then=function(){thenCalls++;throw Error('diagnostic inserted a reaction')};
 const root=fs.promises.stat(${JSON.stringify(new URL('./async-stat-probe.mjs',import.meta.url).pathname)});
+const internal=NativeStats.prototype.constructor,originalPrototype=internal.prototype;
+if(${changePrototype}) internal.prototype=Object.create(originalPrototype);
 let foreign=0,stop=()=>{};
 if(${lateObserver}) stop=promiseHooks.onSettled(()=>{foreign++;stop()});
 const value=await root;
+internal.prototype=originalPrototype;
 await new Promise(resolve=>setImmediate(resolve));
 Promise.prototype.then=originalThen;
 const report=probe.report();probe.close();
@@ -44,5 +47,12 @@ test('an observer installed during I/O cannot disappear between root checkpoints
   assert.ok(op.creatorBefore.every(s=>s.observers.onlyOwnedPromiseHooks===true))
   assert.equal(op.observedOnlyOwnedHooks,false,'retain the earlier binding-promise observation')
   assert.ok(op.promises.some(p=>p.settled?.observers.onlyOwnedPromiseHooks===false))
+  assert.equal(r.report.replayEligible,false)
+})
+test('a transient internal Stats prototype change is seen before native construction',()=>{
+  const r=run(false,true),op=r.report.calls[0]
+  assert.equal(op.before.pristine,true)
+  assert.ok(op.creatorBefore.some(s=>s.pristine===false))
+  assert.equal(r.nativePrototype,false,'native stat used the temporarily changed internal prototype')
   assert.equal(r.report.replayEligible,false)
 })

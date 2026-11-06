@@ -49,4 +49,29 @@ const changed=run('file-became-directory'), plain=run('directory-plain',true)
 assert.equal(changed.summary.replayed,0,'changed shared type must rerun selection')
 assert.equal(plain.states.length,2)
 assert.deepEqual(changed.states,plain.states)
-fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({wrong:0,metadataReplayed:metadata.summary.replayed,typeChangeReplayed:changed.summary.replayed,selectedTests:plain.states.length},null,2))
+// Node's public Stats wrapper shares the native constructor's original
+// prototype. Replacing the internal constructor's prototype can turn an
+// apparent isFile() query into a metadata read without changing that wrapper.
+fs.rmdirSync(input);fs.writeFileSync(input,'unchanged bytes\n')
+fs.utimesSync(input,1577836800,1577836800)
+fs.writeFileSync(path.join(project,'vitest.config.mjs'),`import fs from 'node:fs';
+const Ctor=fs.Stats.prototype.constructor, original=Ctor.prototype;
+Ctor.prototype=Object.create(original);
+Ctor.prototype.isFile=function(){return this.mtimeMs<1600000000000};
+let isFile;
+try { isFile=fs.statSync('stat-type-input').isFile(); }
+finally { Ctor.prototype=original; }
+export default {css:{postcss:{}},test:{include:isFile ? ['tests/add.test.js'] : ['tests/*.test.js']}};
+`)
+const prototypeBefore=run('prototype-plain-before',true)
+assert.equal(prototypeBefore.states.length,1)
+for(const label of ['prototype-record','prototype-confirm','prototype-warm']) assert.deepEqual(run(label).states,prototypeBefore.states)
+assert.equal(runs.at(-1).summary.replayed,1)
+fs.utimesSync(input,1609459200,1609459200)
+const prototypeChanged=run('prototype-metadata-change'),prototypePlain=run('prototype-metadata-plain',true)
+assert.equal(prototypeChanged.summary.replayed,0,'internal constructor replacement must retain metadata')
+assert.equal(prototypePlain.states.length,2)
+assert.deepEqual(prototypeChanged.states,prototypePlain.states)
+fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({wrong:0,metadataReplayed:metadata.summary.replayed,
+  typeChangeReplayed:changed.summary.replayed,selectedTests:plain.states.length,
+  prototypeMetadataReplayed:prototypeChanged.summary.replayed,prototypeSelectedTests:prototypePlain.states.length},null,2))

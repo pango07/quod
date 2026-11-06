@@ -15,12 +15,13 @@ export function observeAsyncStat(project) {
   const getPrototypeOf=Object.getPrototypeOf, ownKeys=Reflect.ownKeys, apply=Reflect.apply
   const prototypes=[]
   for(let p=NativeStats.prototype;p;p=getPrototypeOf(p)) prototypes.push({object:p,parent:getPrototypeOf(p),shape:descriptors(p)})
+  const nativeConstructor=descriptor(prototypes[0].object,'constructor')?.value
   const pristine=()=>descriptor(fs,'Stats')?.value===NativeStats &&
     descriptor(NativeStats,'prototype')?.value===prototypes[0].object && prototypes.every(({object,parent,shape})=>
       getPrototypeOf(object)===parent && ownKeys(object).length===ownKeys(shape).length && ownKeys(shape).every(k=>{
         const a=shape[k],b=descriptor(object,k)
         return b && a.value===b.value && a.get===b.get && a.set===b.set && a.writable===b.writable && a.configurable===b.configurable && a.enumerable===b.enumerable
-      }))
+      })) && typeof nativeConstructor==='function' && descriptor(nativeConstructor,'prototype')?.value===prototypes[0].object
   let binding=null
   try {binding=process.binding('async_wrap')} catch {}
   const counts=()=>{

@@ -10,14 +10,20 @@ import fs from 'node:fs'
 
 const ownFile = fileURLToPath(import.meta.url)
 const plainFile = name => name?.startsWith('file:') ? fileURLToPath(name) : name
-const nativeStats = fs.Stats
-const nativeStatsPrototype = nativeStats.prototype
+const nativeStats = Object.getOwnPropertyDescriptor(fs,'Stats')?.value
+const nativeStatsPrototype = typeof nativeStats==='function' ? Object.getOwnPropertyDescriptor(nativeStats,'prototype')?.value : null
+// Node 24's public fs.Stats is a deprecated wrapper. The constructor that
+// native stat actually invokes is the shared prototype's constructor.
+const nativeStatsConstructor = nativeStatsPrototype && Object.getOwnPropertyDescriptor(nativeStatsPrototype,'constructor')?.value
 const statPrototypes = []
 for (let p = nativeStatsPrototype; p; p = Object.getPrototypeOf(p)) {
   statPrototypes.push({object:p, parent:Object.getPrototypeOf(p), descriptors:Object.getOwnPropertyDescriptors(p)})
 }
 function pristineStats() {
-  if (fs.Stats !== nativeStats || nativeStats.prototype !== nativeStatsPrototype) return false
+  if (!nativeStatsPrototype || typeof nativeStatsConstructor!=='function' ||
+      Object.getOwnPropertyDescriptor(fs,'Stats')?.value!==nativeStats ||
+      Object.getOwnPropertyDescriptor(nativeStats,'prototype')?.value!==nativeStatsPrototype ||
+      Object.getOwnPropertyDescriptor(nativeStatsConstructor,'prototype')?.value!==nativeStatsPrototype) return false
   return statPrototypes.every(({object,parent,descriptors}) => Object.getPrototypeOf(object) === parent &&
     Reflect.ownKeys(object).length === Reflect.ownKeys(descriptors).length && Reflect.ownKeys(descriptors).every(k => {
       const a=descriptors[k], b=Object.getOwnPropertyDescriptor(object,k)
