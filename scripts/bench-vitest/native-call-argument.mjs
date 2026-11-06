@@ -1,13 +1,14 @@
 // Diagnostic only. Recover a bounded native-call argument from the actual
-// paused script and Inspector data descriptors. Never evaluate application
-// expressions or invoke getters. Unknown syntax/scope/identity stays unknown.
+// paused script and Inspector data descriptors. An optional diagnostic uses
+// side-effect-checked evaluation of a bare, declared module identifier only.
+// Arbitrary expressions/getters and unknown syntax/scope/identity stay unknown.
 import {parse} from '../../crates/quod-cli/src/vitest/acorn.mjs'
 import {createHash} from 'node:crypto'
 
-export function observeNativeCallArguments(post,{identityComparison=null}={}) {
+export function observeNativeCallArguments(post,{identityComparison=null,moduleBindingEvaluation=false}={}) {
   const sources=new Map()
   const propertyRequests={},propertyEntries={}
-  let skippedModuleScopes=0
+  let skippedModuleScopes=0,moduleBindingEvaluations=0,moduleBindingEvaluationErrors=0
   // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
   // getProperties children inherit that group and Debugger.resume releases
   // it. Other runtimes keep the conservative per-handle cleanup. See the
@@ -20,15 +21,15 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     let tree
     try {tree=parse(text,{ecmaVersion:'latest',sourceType:'module',allowReturnOutsideFunction:true})}
     catch {tree=parse(text,{ecmaVersion:'latest',sourceType:'script',allowReturnOutsideFunction:true,allowAwaitOutsideFunction:true})}
-    const calls=[],lines=[0],declaredNames=new Set()
+    const calls=[],lines=[0],declaredNames=new Set(),moduleNames=new Set()
     for(let i=0;i<text.length;i++)if(text[i]==='\n')lines.push(i+1)
-    function pattern(node) {
+    function pattern(node,names=declaredNames) {
       if(!node)return
-      if(node.type==='Identifier')declaredNames.add(node.name)
-      else if(node.type==='RestElement')pattern(node.argument)
-      else if(node.type==='AssignmentPattern')pattern(node.left)
-      else if(node.type==='ArrayPattern')node.elements.forEach(pattern)
-      else if(node.type==='ObjectPattern')for(const p of node.properties)pattern(p.type==='RestElement'?p.argument:p.value)
+      if(node.type==='Identifier')names.add(node.name)
+      else if(node.type==='RestElement')pattern(node.argument,names)
+      else if(node.type==='AssignmentPattern')pattern(node.left,names)
+      else if(node.type==='ArrayPattern')node.elements.forEach(n=>pattern(n,names))
+      else if(node.type==='ObjectPattern')for(const p of node.properties)pattern(p.type==='RestElement'?p.argument:p.value,names)
     }
     function visit(node) {
       if(!node||typeof node!=='object')return
@@ -39,7 +40,7 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
       // exclusion to a script, closure, local, or unknown scope.
       if(node.type==='VariableDeclarator')pattern(node.id)
       if(['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) {
-        pattern(node.id);node.params.forEach(pattern)
+        pattern(node.id);node.params.forEach(n=>pattern(n))
       }
       if(['ClassDeclaration','ClassExpression'].includes(node.type))pattern(node.id)
       if(node.type==='ImportDeclaration')for(const specifier of node.specifiers)pattern(specifier.local)
@@ -50,18 +51,25 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
       }
     }
     visit(tree)
-    const result={calls,lines,declaredNames,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
+    if(tree.sourceType==='module')for(const statement of tree.body) {
+      const declaration=['ExportNamedDeclaration','ExportDefaultDeclaration'].includes(statement.type)?statement.declaration:statement
+      if(!declaration)continue
+      if(declaration.type==='VariableDeclaration')for(const d of declaration.declarations)pattern(d.id,moduleNames)
+      if(['FunctionDeclaration','ClassDeclaration'].includes(declaration.type))pattern(declaration.id,moduleNames)
+      if(declaration.type==='ImportDeclaration'&&!declaration.phase)for(const specifier of declaration.specifiers)pattern(specifier.local,moduleNames)
+    }
+    const result={calls,lines,declaredNames,moduleNames,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
     sources.set(scriptId,result);return result
   }
   const observe=(frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
     const handles=new Set(),pauseProperties=new Map()
-    let callerSourceSha256=null
+    let callerSourceSha256=null,evaluatedBinding=false
     function properties(id,kind='object') {
       if(!id)throw Error('missing runtime object')
       // In native identity mode this invocation uses descriptor reads and
       // native ID queries only. Reuse a paused scope's descriptors within
       // this invocation, never across calls/resumes or JS identity evaluation.
-      if(identityComparison&&pauseProperties.has(id))return pauseProperties.get(id)
+      if(identityComparison&&!evaluatedBinding&&pauseProperties.has(id))return pauseProperties.get(id)
       const r=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false})
       if(r.exceptionDetails)throw Error('runtime descriptors unavailable')
       propertyRequests[kind]=(propertyRequests[kind]??0)+1
@@ -69,7 +77,7 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
       if(!releaseOnResume)for(const p of [...r.result??[],...r.internalProperties??[],...r.privateProperties??[]]) {
         for(const v of [p.value,p.get,p.set])if(v?.objectId)handles.add(v.objectId)
       }
-      if(identityComparison)pauseProperties.set(id,r.result)
+      if(identityComparison&&!evaluatedBinding)pauseProperties.set(id,r.result)
       return r.result
     }
     function data(p) {
@@ -84,9 +92,22 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     function binding(name) {
       for(const scope of frame.scopeChain) {
         if(!['local','block','closure','module','script','catch'].includes(scope.type))throw Error('unsupported argument scope')
-        if(scope.type==='module'&&typeof scope.startLocation?.scriptId==='string'&&
-          !source(scope.startLocation.scriptId).declaredNames.has(name)) {
-          skippedModuleScopes++;continue
+        if(scope.type==='module'&&typeof scope.startLocation?.scriptId==='string') {
+          const module=source(scope.startLocation.scriptId)
+          if(!module.declaredNames.has(name)){skippedModuleScopes++;continue}
+          // Only a declared module binding qualifies, after checking every
+          // preceding supported scope. No global/member/property expression
+          // is evaluated. Module bindings are lexical data/live imports, not
+          // object getters. Keep this experiment pinned to the tested runtime.
+          if(moduleBindingEvaluation&&releaseOnResume&&module.moduleNames.has(name)) {
+            evaluatedBinding=true;pauseProperties.clear();moduleBindingEvaluations++
+            try {
+              const r=post('Debugger.evaluateOnCallFrame',{callFrameId:frame.callFrameId,expression:name,
+                throwOnSideEffect:true,silent:true,returnByValue:false,objectGroup:'backtrace'})
+              if(r.exceptionDetails||!r.result?.type)throw Error('module binding evaluation unavailable')
+              return r.result
+            }catch(e){moduleBindingEvaluationErrors++;throw e}
+          }
         }
         const p=properties(scope.object.objectId,scope.type).find(p=>p.name===name)
         if(p)return data(p)
@@ -193,6 +214,6 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     }
   }
   observe.diagnostics=()=>({propertyRequests:{...propertyRequests},propertyEntries:{...propertyEntries},
-    skippedModuleScopes,replayEligible:false})
+    skippedModuleScopes,moduleBindingEvaluation,moduleBindingEvaluations,moduleBindingEvaluationErrors,replayEligible:false})
   return observe
 }

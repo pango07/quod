@@ -20,7 +20,7 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false}={}) {
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
@@ -43,7 +43,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
   let heapIdentityObserver=null
   const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post,
-    {identityComparison:heapIdentity?(a,b)=>heapIdentityObserver?.compare(a,b)??{available:false,reason:'native heap identity not ready'}:null})
+    {moduleBindingEvaluation,
+      identityComparison:heapIdentity?(a,b)=>heapIdentityObserver?.compare(a,b)??{available:false,reason:'native heap identity not ready'}:null})
   let proxyFailure=null,proxyOverflow=false
   const descriptorBreakpoints=new Map(),descriptorFunctions=new Map(),descriptorEntries=new Map()
   let descriptorFailure=null,descriptorOverflow=false
