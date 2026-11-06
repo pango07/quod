@@ -747,5 +747,21 @@
     "unmatchedReaderSources": 0,
     "completeOwnership": false,
     "replayEligible": false
+  },
+  "combinedWorkerBoundaryDiagnostic": {
+    "evidence": "worker-combined-boundary.json",
+    "run": 42189187106,
+    "commit": "e98f671",
+    "regressionTests": 73,
+    "runs": 3,
+    "statesPerRun": 4131,
+    "workersPerObservedPhase": 120,
+    "equalEvaluatorCodeSequences": 120,
+    "equalCompiledSequences": 27,
+    "equalCompiledMultisets": 48,
+    "unpairedCompiledIdentityBodyRecords": 0,
+    "configurationSeedOperations": 0,
+    "completeOwnership": false,
+    "replayEligible": false
   }
 }

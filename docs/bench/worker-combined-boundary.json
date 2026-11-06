@@ -1,0 +1,1260 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42189187106",
+  "commit": "e98f671",
+  "conclusion": "success",
+  "regressionTests": 73,
+  "node": "24.18.0",
+  "vitest": "5.0.0",
+  "vite": "8.2.0",
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "corpusCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "independentStateComparison": true,
+  "independentObservationCounts": true,
+  "runs": 3,
+  "statesPerRun": 4131,
+  "fileProjectInstancesPerRun": 120,
+  "metadataOnlyFilesChanged": 39,
+  "phases": {
+    "before": {
+      "counts": {
+        "nodes": 1208,
+        "metadataObjects": 4485,
+        "invalidations": 235,
+        "coldInvalidations": 235,
+        "metadataOperations": 6451,
+        "matchedReaderOperations": 6451,
+        "storedMetadataOperations": 0,
+        "inlineEvaluations": 645,
+        "externalEvaluations": 562,
+        "JavaScriptScriptEvents": 108354,
+        "WebAssemblyScriptEvents": 117,
+        "hookEntries": 0
+      },
+      "transport": {
+        "requests": 521,
+        "responses": 521,
+        "errorResponses": 0,
+        "rpcMetadata": 3282,
+        "invocations": 2640,
+        "settled": 2640,
+        "transportMetadata": 2640,
+        "rejections": 0
+      },
+      "configurationGaps": {
+        "non-plain object": 119
+      },
+      "nativeArgumentCounts": {
+        "object": 49877,
+        "primitive": 585,
+        "unknown: argument is not an own data property": 3
+      },
+      "opaqueEntries": {
+        "spawnSync": 3
+      },
+      "readerSources": [
+        {
+          "source": [
+            {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+            },
+            {
+              "bytes": 103502,
+              "encoding": "utf16le",
+              "sha256": "1cf4b59bebb4cfe0ea9a3120917752a32971d51909d0ebbade6e1f8ae2eb5eb9"
+            }
+          ],
+          "count": 4547
+        },
+        {
+          "source": [
+            {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+            },
+            {
+              "bytes": 108868,
+              "encoding": "utf16le",
+              "sha256": "d05328fae8080320a9aa2ac25c98ae860cda2d04b62d800a3a9c7ce11ab895e6"
+            }
+          ],
+          "count": 1904
+        }
+      ]
+    },
+    "after": {
+      "counts": {
+        "nodes": 1208,
+        "metadataObjects": 4373,
+        "invalidations": 235,
+        "coldInvalidations": 235,
+        "metadataOperations": 6456,
+        "matchedReaderOperations": 6456,
+        "storedMetadataOperations": 0,
+        "inlineEvaluations": 645,
+        "externalEvaluations": 562,
+        "JavaScriptScriptEvents": 107985,
+        "WebAssemblyScriptEvents": 117,
+        "hookEntries": 0
+      },
+      "transport": {
+        "requests": 516,
+        "responses": 516,
+        "errorResponses": 0,
+        "rpcMetadata": 3079,
+        "invocations": 2640,
+        "settled": 2640,
+        "transportMetadata": 2640,
+        "rejections": 0
+      },
+      "configurationGaps": {
+        "non-plain object": 119
+      },
+      "nativeArgumentCounts": {
+        "object": 49508,
+        "primitive": 585,
+        "unknown: argument is not an own data property": 3
+      },
+      "opaqueEntries": {
+        "spawnSync": 3
+      },
+      "readerSources": [
+        {
+          "source": [
+            {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+            },
+            {
+              "bytes": 103502,
+              "encoding": "utf16le",
+              "sha256": "1cf4b59bebb4cfe0ea9a3120917752a32971d51909d0ebbade6e1f8ae2eb5eb9"
+            }
+          ],
+          "count": 4552
+        },
+        {
+          "source": [
+            {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+            },
+            {
+              "bytes": 108868,
+              "encoding": "utf16le",
+              "sha256": "d05328fae8080320a9aa2ac25c98ae860cda2d04b62d800a3a9c7ce11ab895e6"
+            }
+          ],
+          "count": 1904
+        }
+      ]
+    }
+  },
+  "comparison": {
+    "equalEvaluatorCodeSequences": 120,
+    "equalCompiledSequences": 27,
+    "equalCompiledMultisets": 48
+  },
+  "differentWorkers": [
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 4
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 6,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 4
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.flatmap.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 77
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.distinct.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 71
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 57,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/relationships.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 66
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/pagination.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 55
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 6
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rateLimit.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 50
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 13
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 21,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/customFunctions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 22,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/triggers.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 7,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/cors.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 77,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/validators.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 15,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/crud.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 43,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 53,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rowLevelSecurity.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 3
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 35,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/table.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 55,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 4
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/index.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 6
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react/sessions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 2,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "convex-helpers",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/browser.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 6,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "example-ui",
+        [
+          "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 52
+    },
+    {
+      "key": [
+        "example-ui",
+        [
+          "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.injection.test.tsx"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 52,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 67,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 8,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 6,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 73
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 27,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.0",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 2,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 75,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 4
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 54
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 18
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 15,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.1",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 15,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 75,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 4
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 69
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 2,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 14,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.2",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 17,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 71,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 9,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 23
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 34
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 10,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.3",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 11,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 63,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 4,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 29
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 15
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 7,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.4",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 16,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 67,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 18,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 23
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 42
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 10,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 24,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.5",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 2
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 75,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 31,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 2
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 5
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 35
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 0,
+      "compiledEventsOnlyAfter": 2
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 4,
+      "compiledEventsOnlyAfter": 0
+    },
+    {
+      "key": [
+        "zod-4.6",
+        [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts"
+        ]
+      ],
+      "codeEqual": true,
+      "compiledEventsOnlyBefore": 20,
+      "compiledEventsOnlyAfter": 0
+    }
+  ],
+  "artifactsSha256": {
+    "after-inputs.json": "545602cbe8395aff2d946eb26a51724eb5423bfcf9a0fd80f08948dba380fd84",
+    "after-tests.json": "69ea3d17f986c7f80c92b76b539036398ac3c1a9a5cfaf2e9f9a18a5695ec067",
+    "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+    "baseline-tests.json": "ec4f89172bbab6acb8829b66e97e6d9a9f50ca3fda9abb9ebc7cfbbd511de541",
+    "before-inputs.json": "d6ee97cf73b34ed50f546188e5d14544815e790522fe42bcee6d7b2e82da25ba",
+    "before-tests.json": "88460a775f8b4c677cae82147a9430f4bd2fe6f88afdc2b3d445297973b56518",
+    "result.json": "66a96091712f3aa8371b1bd2b7abd5041b8e0ef1f705a45c2f6664c9a27c0763",
+    "worker-boundary/after/5499.json": "7c8818fc72a72a1d6e02ffc2e30f89f48537ab880b1896baacab8d55ef735a9a",
+    "worker-boundary/after/5500.json": "78f8b1cd4fec48545d80bab5942bbb0e1494ebb755b3823e40a143db924c8e6b",
+    "worker-boundary/after/5506.json": "2be94988dbcef853c9eef73aa57b9407d11e3a5223a68862397b43d6f666fdcc",
+    "worker-boundary/after/5544.json": "4cacd39aca478a05c562509e4afb220104c3492edf66888d27e7c29212ed7e79",
+    "worker-boundary/after/5620.json": "26ba53867257e5d79524a3257697ee02f211052754a65fbf3c91c5a577570e62",
+    "worker-boundary/after/5653.json": "c7ee2ba7f0c8e195e3d25d80681a55cfcdecbfa9c5d95bfbb620ee9dc7dae11c",
+    "worker-boundary/after/5661.json": "4ecec2b3e875eb57a454ee8dd1c1211b802761c9bdf090ec9b564fa2db20447e",
+    "worker-boundary/after/5669.json": "009ef1260c2446925a2905ae69d8e5f6b6a16575f08bbb63d5f06671d25c14cf",
+    "worker-boundary/after/5677.json": "37d51c9fef3ad23013fe2f0378dbae373ddba79bfd842edee10add5d7dc18f2c",
+    "worker-boundary/after/5685.json": "4ae57f12cc1d2b7aa24d916b9ad3e0ea0a564a7f5873d0cad24e4b163526a419",
+    "worker-boundary/after/5694.json": "8785a74941cfa2a7e4fdb83a41f49aabe45290316a647940d6a15944a15e0776",
+    "worker-boundary/after/5702.json": "25a80ccb12876340f4c9dd3803bf219a5b1b7fa6fc5ae398a14656e5aae9983b",
+    "worker-boundary/after/5714.json": "d333b9934f8591b8610c6abaefe2e6bbcca7eb7488c36398973e0e72b51d466c",
+    "worker-boundary/after/5723.json": "0c2f0b94dd149793b0c7a468ad6510b32c21852fee21ada870a45cad5e75cca6",
+    "worker-boundary/after/5730.json": "81d37c93d0e7b138ad787ea0862ba58bf107831e69fe9353ff2e132c8f9fcc0b",
+    "worker-boundary/after/5740.json": "639718187e7b3680ba47c7093685d8ed58d78dfc09db0d14c5a295c3823b1a81",
+    "worker-boundary/after/5747.json": "558c18ce48e267dec485ce8e0761ad872334baac6dbe9e4cdfa7cafe5bf1cebf",
+    "worker-boundary/after/5756.json": "1f2aaa822a93df31ad6e6ddc0659d27113e61268528da2fc63fc30a5e102031c",
+    "worker-boundary/after/5763.json": "8e770142293d0421b39640108cda4fe162ff76a26e93054bb77a644deaab218c",
+    "worker-boundary/after/5774.json": "25e807747ba74bdcf0fdbacf4428af45883ff44307f0e678daf5dade4ea3735e",
+    "worker-boundary/after/5781.json": "e0f3969b46eaaac0ba715991c0b8bc39f7dc96b29b6e6453269e273a2b81e97a",
+    "worker-boundary/after/5790.json": "b9f85731be4351beb4f01a39e99b506b72d7843c90a857370638e4fa25a2dd47",
+    "worker-boundary/after/5802.json": "bb9449b152eeebf387d43ec58f5f3ebf7f9555d786cf2fce85dc27e64392d0e4",
+    "worker-boundary/after/5810.json": "4e18767de45b571a4db186b63ae7e93f606d02d2e07bb58e2863d248c4b07c29",
+    "worker-boundary/after/5818.json": "9670ca3e0221a2564396b8c491269c15f5329ca330eb1f7b96879a25297556ac",
+    "worker-boundary/after/5826.json": "8d8f86284eebb200c849fff963bf26114a64d471cc3e8c449931b3b39e96e91e",
+    "worker-boundary/after/5834.json": "95cc8a28c78975aef350da62f7a58c423403fc6bf352a03e66d9d825f7278fde",
+    "worker-boundary/after/5842.json": "5f08951797d6cab100bb1873ac4ab695a0d3398dacb3fd618cf7abda2b2d09df",
+    "worker-boundary/after/5851.json": "18aa2a051bbb7b9bfc67cf2c1d5071c9f1ac1acfcea54974547f16e198ab4e4a",
+    "worker-boundary/after/5859.json": "2dc2d55624d7b9219d1e39bbee79cce099dcb5a5e5bc531cc81ab16572e15c36",
+    "worker-boundary/after/5867.json": "3a4bf16e6e47ce18a2da9c5103ecc24e4dc8bfd43182ceafcf233b58717e5576",
+    "worker-boundary/after/5875.json": "0b7e1bc096fd7c51677f31d539efccb4ea9ac265ad9735014d2c56d2bfe673c1",
+    "worker-boundary/after/5883.json": "788994d2f869425a4d5031f851b9da5b8ef40d7b18ce5ae3798088791853d450",
+    "worker-boundary/after/5891.json": "a0f3ff33bc1d2a5c60676e7f84efb32a1add7607377bd95a8586626ea6064197",
+    "worker-boundary/after/5900.json": "76b00e4fba6b71673efee9b9f9d99b97ee8d52f3ff64623af5360e3a1b15a908",
+    "worker-boundary/after/5908.json": "7f1011f7219ef9a337873bcaabe6107e6e7d7c8c7cf8893e009301fedbcfa383",
+    "worker-boundary/after/5916.json": "43a9d894f63d698765e176b15ee2850c99d1c1551cb27fb5b9a4db935918c825",
+    "worker-boundary/after/5925.json": "eab09e329323000cc8f5d74f3112a569e6e7c91d10be708950303ab3eba308a0",
+    "worker-boundary/after/5934.json": "d2bdb1578c9df3adc10804e1e04e0a047fea40e3ecfc41cdf48d5f2b3acd3922",
+    "worker-boundary/after/5947.json": "69f47f9efc7b6468b270efbea4b558eccf919c57c9f652bb2e5e0ce6bc1cf6bf",
+    "worker-boundary/after/5956.json": "30be82746c77bec5b89ce9f77c5a71e55c4390f9f3a765109ea3d4a7d1154ec5",
+    "worker-boundary/after/5963.json": "43bc457220cfbe02a1448efc46091022131113098871537575935193737dca5f",
+    "worker-boundary/after/5972.json": "0d5a9217beff7942ae95270105ed81b6e74e26093f423b87b3ac05ce912f03a1",
+    "worker-boundary/after/5979.json": "3f1566fc8422c3b8498b9c4c1b473366203269949c9260f4376ae9bfce2d602f",
+    "worker-boundary/after/5988.json": "cba3e7f7444f9fa9847010c58c8853365faa9823e6129005a36fafdea726b691",
+    "worker-boundary/after/5995.json": "b5a083c731ef4ffc5eeb62155d7cae87248663011eb78149c7f8d47f39e23edf",
+    "worker-boundary/after/6004.json": "7c6ff3cf280334aaf48f32edd9ba1f4919398aa8f9daed54bfe0f45a8c86a8de",
+    "worker-boundary/after/6011.json": "f39196d371618960cff1682f70a1f10788ad9dd38a87cbb24b941477984b5e0b",
+    "worker-boundary/after/6020.json": "db26027865aab8a35513942fffbb796049e91398d5e2f9afb425b189b7489ef9",
+    "worker-boundary/after/6027.json": "721c9c5c79682b4abd0b2244ed9aebad75fb5461f027cda79117835cd9da80a1",
+    "worker-boundary/after/6036.json": "8aba64ec8095c3559771cc459ba26fb7efaae0b601b1cc59a4e26553745af391",
+    "worker-boundary/after/6043.json": "1ed8f26b5614c823fb2b55659afadfedf3bcee2b6efb152a53f1b2133f30559e",
+    "worker-boundary/after/6052.json": "b10263469a571d63da7ba703e31854bcb97879a30730a3c3637f5b418c44a411",
+    "worker-boundary/after/6060.json": "a1a2c1a9583bf7445f5920cb45871ed9bd2dfdaf1b5b8f9bbf6d00d7826fd2d2",
+    "worker-boundary/after/6069.json": "c88b42f199420265c8b910b7067f21f7c14f57a645e39024fe997f41a0be211b",
+    "worker-boundary/after/6076.json": "9d0170591abc41c736d10c45a6e518343d2e1101ab251939bdd4a5af33e1e8d8",
+    "worker-boundary/after/6085.json": "714eedb6d5f164a7c21d16a43d27c2457718a61a29a3c614d0e75bee17ce70be",
+    "worker-boundary/after/6093.json": "7949e11632628928116a91f101a42149c6cbf7ca36f9d40f9a8cbbd8c761963e",
+    "worker-boundary/after/6101.json": "ee66c442b9f5fd4da0e2c90b05f7baa2a6ee4d7443eb396feca1decfdd617049",
+    "worker-boundary/after/6108.json": "567fe5cec3c956cb217ce1286ca9149d4a934033341088d272f2712ece019910",
+    "worker-boundary/after/6118.json": "a65acdb839eda57a2a1d8ad10cc163b112d756413d889f86f29fb0c65cd4aca7",
+    "worker-boundary/after/6125.json": "9b1f496d85fd55f8b78b8788ec82cc282c46ed17fe49572305cf8d6689f02bf6",
+    "worker-boundary/after/6134.json": "f8866ca40a466575078dd6793e31500e79ab130beafea804224e7f8330a94663",
+    "worker-boundary/after/6142.json": "daa67bf69f2063d00226e06dfaf8d505ef3f21b3b124f45c39d686cc50d59146",
+    "worker-boundary/after/6151.json": "19d9d1c2b28a8f9d8dcbb084c1becab4bc8dd9acace546cbd084e39f35e4aefb",
+    "worker-boundary/after/6158.json": "801704afb8162c32b6a7ced778bab7ae162a665f870b0da2bd9b2ed0b9e280a7",
+    "worker-boundary/after/6167.json": "e7b378d9a2963ba5d30c79196cf7bf2001844fbf7b7cbabd6b7e2d181fb99502",
+    "worker-boundary/after/6174.json": "6f72488307ce3fd7e43692aba22a62e13dda9af6ac93fc8ca4c3f9388c99f528",
+    "worker-boundary/after/6185.json": "a4f6f00cf462502607fed306c1efa2444945a499c021b00247e975bd4469773f",
+    "worker-boundary/after/6192.json": "a0e93c019cdb5e5d82272780bfe3a6709df937b370b485b8d4a3b0ef3b7a210b",
+    "worker-boundary/after/6201.json": "d8a27e15039acc5b848186db28180527565fc2ceb8aa28e0640444118e0f2d38",
+    "worker-boundary/after/6210.json": "e1fe18a2af7c56e8e4d1fe9e67bccbd6a6218c03072e8f4189ec63277cd8c9bf",
+    "worker-boundary/after/6217.json": "796dc6be2898571c3becd59cff22b66937bb8cb2e0b1ed156742e5c9560f8917",
+    "worker-boundary/after/6226.json": "eaa8db4f19cec56c9c902dccaf1337ba2ddb29685c961b24342ba1e56b10fcdd",
+    "worker-boundary/after/6234.json": "1c642a4cb3903c5f8f90f2cae9a7d2c566eee502804efdf7055260ca41d964ed",
+    "worker-boundary/after/6242.json": "0af54470b07583d7ac766bacbfbee94ed90354f2562c8aed23a9dd58952ecd51",
+    "worker-boundary/after/6250.json": "1f5ea6494d3bf8562e53820baf975a7f2d2d23b1799d6aa69491013dc81f1846",
+    "worker-boundary/after/6258.json": "e8e139e66a7088a566aeb63664d88c989a34065a205c261a52dff981cc5eb832",
+    "worker-boundary/after/6265.json": "3015414491c9a99d4f61d2c34c90f5d783e7583491b1ae35c415a720f076f91a",
+    "worker-boundary/after/6274.json": "1cde92a7f9f7f389db52e01ea318d9bd63696fd09ac67f8fae37045cd3684ee6",
+    "worker-boundary/after/6281.json": "b90ff9a688fb9300edb8d022b00e5ca7f2627f9f9e2336240e28768ce425d91c",
+    "worker-boundary/after/6290.json": "722f64c4239848cf632238403b6e5ccc11f9112a5800f0da7e25d5c9566ea89e",
+    "worker-boundary/after/6297.json": "fe3ac33e7993729c00f07ebd5c13a7152d34f834c8da878681145c9365924352",
+    "worker-boundary/after/6306.json": "aa40b683d9c0813e4dca3af71a0a15c647ea44857fe76289ebe9cd5629dda48e",
+    "worker-boundary/after/6313.json": "b43d9ba77ec93c117640f81f14d4ef58cf1b7ac70a399db547c460dd59d109c8",
+    "worker-boundary/after/6322.json": "24c9c50d6a57d2a4b5a0514536916893d904df9744ecf40494f7e33bb27b1fd4",
+    "worker-boundary/after/6329.json": "33cbf2a69474ce289fe96ea79f25057a77afd432aab4945d8bab76665cea864c",
+    "worker-boundary/after/6338.json": "ccfe345eac7670c76bab214ed402053c06bc331247500e2eb79a7008ea517000",
+    "worker-boundary/after/6346.json": "8ac438877d3aa705b0b26092e16f5f904d6e3aac91723400f2705d449b26140c",
+    "worker-boundary/after/6353.json": "0810756a98faa76ad2fc71a33a6c2caf4801871f291df641f4f179efe20c1219",
+    "worker-boundary/after/6362.json": "a1093eca67a98bc567d5aed3ed6c8e7a1736a2423d3bbba2491e0d5c89dbd9a1",
+    "worker-boundary/after/6369.json": "6bc9fec2acd816d8944ac28da74d3a4bff41e4836f7265998c002c30e37ba771",
+    "worker-boundary/after/6378.json": "163ae34deb42f1a4e9f8a14f9de3b8337f5191d6743c7b2624ae1d4aed32bfd7",
+    "worker-boundary/after/6385.json": "39465b25d362db5316b0894026d3f3a5b590c8b6fbc993359603bf3512913384",
+    "worker-boundary/after/6396.json": "2fc3a320129c049eb8af5daf55b71a173b50d0e9fd441e8a02a66c6dbd358108",
+    "worker-boundary/after/6404.json": "4897ce98fe32cd0f64a3f0f61d35118f77f5e056a34685fdb3893a71aa8c1fcd",
+    "worker-boundary/after/6411.json": "d10b6a38a76cd98c6517f058cc3e0f5e182ca4980d435b894fa11220de7e0512",
+    "worker-boundary/after/6422.json": "d8469f38628bf836a74ddc3fa2acdde909145d5624e0951c0427afed6dff0ee4",
+    "worker-boundary/after/6429.json": "ae7e2232fce122031aa734ab7d12ba4025c5aba8aae0dab0bbefc5b41c8c696f",
+    "worker-boundary/after/6438.json": "0d5bdaed617306683e69c829157155ce0e179daf2763fcf4b2c6aeb15e947d59",
+    "worker-boundary/after/6446.json": "8d327ab0bbd817bf9bb7656dad3f9aa571cdf5deadb40ba0bfe514d2b51568a9",
+    "worker-boundary/after/6453.json": "c57359be912e9728fb1916cbd12e2a49baed58bfc145b8d300cc50c1b0cabba6",
+    "worker-boundary/after/6462.json": "49cd03a9f46661ad67d7f0e692f1ce297a70017eb85702cbb2c19372d39b5ab7",
+    "worker-boundary/after/6470.json": "9d0e31abb27b9acdfbcf9991b25a8273b2e293e2d22899ad7b1c6f42d19bd2b3",
+    "worker-boundary/after/6477.json": "0d2c0621a2f6f21a9c2a9b3acf7847183c6c7ef8989056d62d3b97b37263171b",
+    "worker-boundary/after/6485.json": "a741bf8c90b1ee3baa1a22b14ea851e3da575121dc4a49d1a49c3780f77a5508",
+    "worker-boundary/after/6494.json": "0fb9ab0188f3fa23b3cfcf5e697f5d83b85881271fa4d490d5d4a88bfd704332",
+    "worker-boundary/after/6501.json": "cd8374805cee0105daaa49d91efd808684e9727903c8dc03fe51e5a30d052d02",
+    "worker-boundary/after/6508.json": "cf4c80589bfce5e9a0e8dc401a30fa779f6eab19519f0be6e4eb3a13bab70508",
+    "worker-boundary/after/6518.json": "58f2ea32034c04df59a03782dd6302e10b4da490a1758c81802d9c6185421081",
+    "worker-boundary/after/6525.json": "fd2004c4d17c965ada1ed15f38fe5593f6e148013c76ae3558b116c1df5701e8",
+    "worker-boundary/after/6532.json": "5c77670b9558809e66cf4e84c99423d0965d7474e57913b7869edf2cc6e23b2d",
+    "worker-boundary/after/6542.json": "ee7df54dac0652c426f5a5c37571cfe74a67ca16a0f49474dfd4316a8e541fe8",
+    "worker-boundary/after/6549.json": "f8e3fd99b45a0c2a56eaa8c3ebf5edd03db5c865b0473b1baff8b8e5e1f7112b",
+    "worker-boundary/after/6556.json": "23abb7be7dea5505d40492fba5b1d465b08092d359d2d3086bc339560d6b85b5",
+    "worker-boundary/after/6566.json": "9c4eee4a9bcf8f97ff8d68cda2f2d27cee9db2974ad724ec5e7ed09a9bb7b083",
+    "worker-boundary/after/6573.json": "ca72dc29cb14f07bcec892ea774d65bfea129e6cffd97140e63713759e97e4ee",
+    "worker-boundary/after/6580.json": "5a561d395ba249491b8fe6d756479eedb48718bda519ee1128c46d6279050fa1",
+    "worker-boundary/after/6590.json": "c839f890976cc47ba0aabd020775738bfe1b0a81fd39d60daa04d4d50192a724",
+    "worker-boundary/after/6597.json": "636e620aab24a178ef4cd8d8ff8e3c742a0b0c2323474dd6db0b55c1365228cb",
+    "worker-boundary/before/4336.json": "4bb208e30a6640f168edc05b40e29a7bb78b3245dce7c3a79e9e75c09b03f900",
+    "worker-boundary/before/4337.json": "5a713c53b6f02a9c3ac87921d542ac98b528c9fbf7ccadcbae8ddb5155f374d7",
+    "worker-boundary/before/4343.json": "0d3bfe325aab5d047b2ef02d3f7a0f1d8dbb58c013bc7c505fd3b3d4e0f49f1a",
+    "worker-boundary/before/4382.json": "95884259e2c4ab87cdc354fdd1d4d5368e2f4c6f08ae3ab1e593135a3ab4886c",
+    "worker-boundary/before/4440.json": "dc03d382601ed59d12db32ed329165b57ed0828878dd985b6a568be24020d549",
+    "worker-boundary/before/4493.json": "1893f15c968a53c57eb4d8580863b418087ce00b9badc22c5e81e5940d244182",
+    "worker-boundary/before/4494.json": "d8ddca79de90c8c222a7bd56f01474c896e83f5d976b8cf0a1d288b973475149",
+    "worker-boundary/before/4513.json": "82320ca7dd1f0a55a0a605b7b912c71ffaf82f54d340af268ba7b2c79dee2317",
+    "worker-boundary/before/4520.json": "71a205a62cdecc21275065f6cadee1bd03c67d79424d6f8f7937632e3cd0bd3e",
+    "worker-boundary/before/4529.json": "07324bf2c36b7eb440944688104f48dc150b56b7ef44a1001dbe9dd979c0fec1",
+    "worker-boundary/before/4536.json": "42d2bbf09f85c866667537169b9bdd7c534858ed659609795cfc6d2e7e0fdac6",
+    "worker-boundary/before/4545.json": "73741ffc13a48103dc0a19cee5b1b53c87cc404812851227bcf2a60f9fe91052",
+    "worker-boundary/before/4552.json": "42896bf311dbf751bf073ac88f39522084ddc61d65844ee2a1609ee95fd7c520",
+    "worker-boundary/before/4561.json": "bb2d199e5c0cae8aa5a90829098e33dd35b0188184ea090c3d5ea84af62855d9",
+    "worker-boundary/before/4568.json": "b3902a6a510cf574f8d49098f0f391462a73e810b0b0a8b6625a36575d5d7ac6",
+    "worker-boundary/before/4578.json": "9d38f9b8233916603a90a247345e046d0473fbf6a1c7785a2fe42fe8777c5beb",
+    "worker-boundary/before/4585.json": "7f5e4104b263f94e0254ed4499ec84b7fa81963156379fa15775375f4a564621",
+    "worker-boundary/before/4599.json": "82764a9c7dc33b075c1d67cfd48c06f7c1dd4e8a383ae37777af1a325141ad2d",
+    "worker-boundary/before/4606.json": "1ed30113b1ca608883a4265ef9e4d8f93664035181e4ca7c1b81af13ad4f5296",
+    "worker-boundary/before/4615.json": "17c7bd43a4c547d7f55d4fca98ab18a129075da05fce5c51bcb64252bf47a0f7",
+    "worker-boundary/before/4623.json": "aba20f44e3cb353b8826eab6b67739588336b25cc26ab9f849e62a92b00cdd08",
+    "worker-boundary/before/4631.json": "f73755fc7252f7e6eaa32215d7a938e55d96148ed0e188cde809a25f8bad9879",
+    "worker-boundary/before/4639.json": "6c5c3f05a6dbfce65fd7b0498c6eed3752011017ae12752c75c762bf0791222d",
+    "worker-boundary/before/4647.json": "8ce317517d72b5d61bcc84d21996fea92702db464d7c3fc8228bafb4c92cbdf5",
+    "worker-boundary/before/4655.json": "f74bcc23849d847a60e8e768dee3ed7d1fcee602f41b444816182954ceddd20d",
+    "worker-boundary/before/4664.json": "288805fcbfe4b6b6db9c0c0b85cfe56e6294c5dc5cf4ec515ad8226c689f29f6",
+    "worker-boundary/before/4673.json": "2861717bc4ad20a763ec65756d09540eb77f287144a5ca1de86ff4f645e4495c",
+    "worker-boundary/before/4681.json": "b256973204df642bb3fa489e9feb73373e125a6f479373338bc0e1cab00d6024",
+    "worker-boundary/before/4691.json": "a7be23fc213d5cd6c3b3e631b686a09c04f2114677bcecdd71c972c0909cc1e0",
+    "worker-boundary/before/4699.json": "efce325ac4e0431942c3c25dfc8a2ca3299d8831a0295ca933f977a2e120126f",
+    "worker-boundary/before/4707.json": "462a2d20c9a5a037a59e710aad32974f90c6fb2feaaa3d66fefd90876e4afdd7",
+    "worker-boundary/before/4715.json": "ebaf50bdffeb57645ac75a502c98044a8e7f4a68f765b3b521dd47d774aafa31",
+    "worker-boundary/before/4723.json": "094c3a1faf974a8a486eedca0fbff7bf58b28ca58278ef3ba0bef6d8fb7c5895",
+    "worker-boundary/before/4731.json": "486ad0a682515c9a70b7df53e94dab3af6060161e93edc27b80df78203da8429",
+    "worker-boundary/before/4740.json": "4eb4f7d84c2bbc4c3ee4282e2851e1d63665e3e291fb33532e4f196d2140b7c5",
+    "worker-boundary/before/4747.json": "875cf267b1ff0deee63106c91fa643e108c43a80533e07ec5f7875b7e2e6a113",
+    "worker-boundary/before/4755.json": "6fb0619c43033c057d56dc8f13bebd46209648ce97682d1beede0b3f652be3af",
+    "worker-boundary/before/4763.json": "beeca99b30380e4f8733dcddb665f886883db969547e34df811b7b7bb5e9e9c2",
+    "worker-boundary/before/4772.json": "8052fab7257018d5c0d1c3ad3632ed36564d2ad24a6cab7d9aa9dd318646c660",
+    "worker-boundary/before/4784.json": "465c30a195f1e79697a8c423a15b756bbc2d790da8f040af1877d4c4e8f312b3",
+    "worker-boundary/before/4792.json": "63669376b31d2998395adaf3f95155b40edfec1fb358dea84593e21edd81f591",
+    "worker-boundary/before/4801.json": "7d0d77be28342d01e3fe246a7d3770238acd8963a74646352d57932ee2a0c78d",
+    "worker-boundary/before/4809.json": "ab1a5e881fe9a434480d2ee74cad36f822e210f96e6292ef68e75ef496924a8f",
+    "worker-boundary/before/4817.json": "1a7feb376c72cd7b0abe88bdffd6240502dd851c5f0b1be002b7a34ec1dd297d",
+    "worker-boundary/before/4825.json": "1c04f2a29bbbc4e5cd177958f022d40d9be2165bae67c488b7598e3713ae79e7",
+    "worker-boundary/before/4832.json": "92a7a80b1c0b6270ff9bc3abb3f6234fa9b10a4e47b26003bc6aab493546455f",
+    "worker-boundary/before/4841.json": "ebe625b8d489e73224f73e286411377ffeb5d953b652f4c70ad8ad56f3859bed",
+    "worker-boundary/before/4848.json": "20e82e5cb192788ef91adb009c058c55cb0c1dd966d706af34fbfaebd75928e2",
+    "worker-boundary/before/4857.json": "f2de4ccc70d38ce857e0369cf0bb08029e4ade6cbeb962e5907c77a37b90e01f",
+    "worker-boundary/before/4866.json": "f8292add5164bab06ba702d1f0b73d11c33e508a89c5599413e721d810389768",
+    "worker-boundary/before/4874.json": "0037b9db293c6717b439c2f23bac267dfec15743174dc578189b743ffe2c26db",
+    "worker-boundary/before/4882.json": "ef2915d4ff6b01a0550c742d6e0f2f8bb0d674ca98c5fcbaa2e7d44cbbbd5474",
+    "worker-boundary/before/4891.json": "e6961bfe6c9fe4723aafea1e317be427aba613d81e4ce6193bd8d589991d5ec2",
+    "worker-boundary/before/4900.json": "7aadb2c9ac1fa3ce6b97ca2722bd123610dd5df1f0d834dc5f2155a7552c3ec0",
+    "worker-boundary/before/4907.json": "7ab8bd9e45a62de69267458049ce065366eed825c85ef1e35419b67feea3ab61",
+    "worker-boundary/before/4916.json": "cb522f04dc350c30b0ffbb14a7c2e7ed4110349ae54f9c0c48e04c04525d64d2",
+    "worker-boundary/before/4923.json": "2ad2ea05c59e80c6e9e10baed2ab1c7e81e2b6db1d17540537905bc5affa6c6f",
+    "worker-boundary/before/4932.json": "a24c66a1ebe0f135a27ae2e3292ad82859a62f9dfbbe88b90b9abf14496a4889",
+    "worker-boundary/before/4939.json": "2e4f00a199658a7fd58f8a86332fbce289b8726a0a0b26ddb39affa76ddc16d2",
+    "worker-boundary/before/4948.json": "199863047a3e1184ef50e381f34924bdb46575cbe450701292881e2da1b6ddc6",
+    "worker-boundary/before/4955.json": "62e18cc606d1bf98bbafe14abdf0c664aeb6212dee467ad67241c940981a2ef3",
+    "worker-boundary/before/4964.json": "335dd265d9f605b0330dae2d0c9652d569786b32d8aebabf6ae92639e89fcdf8",
+    "worker-boundary/before/4972.json": "e07ff6af5e55d6c2ce8d7e8ae9a7528051f30a9fe376e9eb70dad134300db8fe",
+    "worker-boundary/before/4979.json": "7aa0b780360ec17378e6e144d113c2211cb2bead8c58efb0badae5f2c1d63e59",
+    "worker-boundary/before/4989.json": "a8ecaccfc6a59773249af23ae0838c304f4ef4017fb2e7db6bc2bb75c3cac812",
+    "worker-boundary/before/4996.json": "d7e72e12b10714aebe6983e9a2c5e75eff121db77f3625bf06c709309d7c96c8",
+    "worker-boundary/before/5008.json": "a1aafcba3385409645f1620051ad268b556e3cfed14289931226c6c3a1461e80",
+    "worker-boundary/before/5016.json": "16b49f1de5dc50112522caf525be5256bf1349e219bb8ddde3f88e9c7f20b065",
+    "worker-boundary/before/5025.json": "3e8398783390f0796525641de9fb89c87d8305be737efed1466ae49935501b1c",
+    "worker-boundary/before/5034.json": "327d390fe1bd820ba313589642fbc80cf0a2b3dc7aa3de4ed1cfd900d8e436a3",
+    "worker-boundary/before/5042.json": "9948b778798fbc5a63dfa7627a5d84434361f34211e71d88403a157933df5044",
+    "worker-boundary/before/5049.json": "c4a1a75cd3a8445f2fa4bff3592aec50742b6f91e30cc3767b217cda7e65b59c",
+    "worker-boundary/before/5058.json": "32c8661f09aa31d307118592dc73e5af4d029590743c8d758cebfc29f3b0be88",
+    "worker-boundary/before/5065.json": "c75a6b41c277ffe28ecd80b64c097831439b3f8d83fe9627722705feea70e931",
+    "worker-boundary/before/5074.json": "6f7c73a1a138fab27b21bd3f1ac6da427a0b8fcebff50b44deb354abe9cfc3df",
+    "worker-boundary/before/5081.json": "4909dac2b70ce7aac0ec7b131d076e6a08d4b24203ce752bdbfb48ef5dd97bda",
+    "worker-boundary/before/5090.json": "96ea0dc7520749e45a73498d624f352a444488db9cdc0142fc88c59cab74bd08",
+    "worker-boundary/before/5104.json": "8b28b9ff4f83430f093f0b4b5cade526cb8bfeeedabb006c651d7cfcadd7c932",
+    "worker-boundary/before/5111.json": "291b0ab4ab0943e33a951c20bffc8392ff31dab003427ff5d4f0949432afb2c4",
+    "worker-boundary/before/5120.json": "ea3adb4633accabc81482e7e5e25b142a60fad0255a34287c7dd6df6a8eecd7f",
+    "worker-boundary/before/5127.json": "60ba378074baaebf91a1981ba6bab8b89ba414ce26c9a442a79f7f319bb4124d",
+    "worker-boundary/before/5143.json": "2b0da2c602ba651dbc58a94078c6805046eda6fb124200e2a170ec2e86eb9a9a",
+    "worker-boundary/before/5161.json": "000ae1ed366b2c25324a7742b29b3230a510c42e41e3046ce39ec52a6b4fcf33",
+    "worker-boundary/before/5170.json": "e512ae6295368ec904eaa237f0e48d9190f29b5c61021dd1fd38912baccdd7d7",
+    "worker-boundary/before/5177.json": "6d94366fd370920723891165bfd433511f715ae836f6e4294da9ec2788bb89f6",
+    "worker-boundary/before/5186.json": "a0145a91a8b392ca86551186790babf7e870122ad0582d1b0e973ba314aa5c64",
+    "worker-boundary/before/5193.json": "01e936e4d346ded5d62cf18053f50f420a998c0eb9359002a1369d7b2b835da0",
+    "worker-boundary/before/5202.json": "5a1bca730cd678a21bd39cdd0fa3d52fea992d2544269b119b4be97f243a58bd",
+    "worker-boundary/before/5210.json": "4c7097ef5e9cc8a4100a4bbb688e5af37ebbcc5255db23004150735d1e213d31",
+    "worker-boundary/before/5221.json": "9a94098179bc97c9a1c231bb827f787f70038f0c080369dc54e0a1ef227bceba",
+    "worker-boundary/before/5230.json": "0d8074161efbacd052db65e3e40162da3852dca2eff0925d92b550bf1cf5208f",
+    "worker-boundary/before/5238.json": "3785b691f90d68fa57ac0769fb870a967e757fdadd30b3a120727f314ac27b40",
+    "worker-boundary/before/5248.json": "561ac2887b9dcdf159465b5ab63960b5547022515559f51e0ca53943348953db",
+    "worker-boundary/before/5256.json": "49e244ac2a92f284e44c1a3e4ffb5e85b5c85bcb2462d11adafa482724b5796d",
+    "worker-boundary/before/5264.json": "9a728ffcc45c974cba243a19d9bd030c8bdead445fd35dcb444d05b8df397971",
+    "worker-boundary/before/5271.json": "ab19079d750b16196b1198b760a8128925ce14adafa69cc816bb40583637ed9b",
+    "worker-boundary/before/5281.json": "7316dbea1b0fedde94ec1ed4e3a1ad1f4a46dfa2f76c5044d6973b5dae88aab4",
+    "worker-boundary/before/5289.json": "04a786fe02f750ffd371c3356d11895afbd18243fb60bbf712cdddcfdd9000f7",
+    "worker-boundary/before/5298.json": "ba108e527be559a841660f58f15db1b675af909bdca39f2f0dc2b58c20a584f0",
+    "worker-boundary/before/5305.json": "1db8a7647615817a3dfc92b43ab2b47e3bbb693516f9a7de962af0eb79114f08",
+    "worker-boundary/before/5314.json": "424fb002e7b262bb6d507c7d720663c6a123a86d2354106a0a73ba90541b0565",
+    "worker-boundary/before/5321.json": "1d75401c28a24214dc042bd732ff3ad255faa76363c73f65effa9b4b9d60c194",
+    "worker-boundary/before/5330.json": "c989a92e40c01477154f457b7873821fbf31cfce33fdcb64d70c785e27115419",
+    "worker-boundary/before/5338.json": "38fd04fd92c86b47b8663aa3bd067846b98c75f7a7d048d92a3f66a4a9faa272",
+    "worker-boundary/before/5345.json": "6bf3fd4ed9984fbb35db65e4eb9e377cb85e52e9f3eae9c1b1fa95bb99f43eac",
+    "worker-boundary/before/5354.json": "5af077e6e04278de648b5894d5f95ab47ddf82a1725321bc38daf5b13e45c1eb",
+    "worker-boundary/before/5362.json": "55d483479db4aaad7a7ec4d0557d2569fa37cfd0c696767c5fc211485d72c904",
+    "worker-boundary/before/5372.json": "530c49ed0dffef43360b2b995b2f612b4d0d34747ef0b20cfc63ffdc2be85409",
+    "worker-boundary/before/5379.json": "8f423c6aee9453f01e9112ea9ec50cc02046a996d20aa48feafb4d1264e30190",
+    "worker-boundary/before/5387.json": "78a22cf4aba8556e916c7a833e71a8f3a4531e536e16fe5e50f58ac213f3b960",
+    "worker-boundary/before/5396.json": "05d5b85d8a26b957142e00811779f864f63c6d68db05175f7def831cc8409fc6",
+    "worker-boundary/before/5404.json": "a2155e74dfc42211e4b9d1195d79a38995d195a5331d52123280bdec9657ce17",
+    "worker-boundary/before/5412.json": "775776736f028973a16d02c5958a9fd53b663ded71e29ed32d9e4f7c6c16738f",
+    "worker-boundary/before/5420.json": "d2e3b00d05cb5f0c56e5317936eab26f761ee96f1f1a36f8403133a2d4b7fe78",
+    "worker-boundary/before/5431.json": "34314c662bff84850e888e9258786e24e8abf5c4ebe254307ef0c2a38f9ad28b",
+    "worker-boundary/before/5439.json": "ad0808a9536b808c38f19fbbd155fd069170368f168a81eef6a0fea6f76b3184",
+    "worker-boundary/before/5441.json": "83b6b29003f55d4fe18f0cb9386755b77cd6c654222bdb184a5d7c6340f3c5b3",
+    "worker-boundary/before/5455.json": "ab32b968def197414e1cd1d2956a0bd756a0383bdc14802305a690093dcf30b3",
+    "worker-boundary/before/5462.json": "f2d937d80521e999327861bc9b21142bc7f8882d62ed3b045b1df78002c09d2e",
+    "worker-boundary/before/5469.json": "a1bb4e34f2022310492919cb8a294f486b9efe1329cd273adf26054864bf61f9",
+    "worker-boundary-result.json": "32917d787779bf4c8055f8cd72333617e1870abf8ea3d9e02b0ee503038c96c7",
+    "worker-module-metadata-result.json": "d6a70e814f0a1a76824db54d232b5433e13621dbc39bfc53498a31902ca153eb"
+  },
+  "replayEligible": false,
+  "completeOwnership": false,
+  "compiledOccurrenceDifferences": [
+    {
+      "phase": "before",
+      "script": {
+        "code": {
+          "bytes": 76,
+          "encoding": "utf16le",
+          "sha256": "4ca51a5c9a43f7ba68b044f5c44fd64d7e37a76cbe1d8b535d031eb052142e41"
+        },
+        "identity": {
+          "available": true,
+          "hash": "e344957e2496ec3e31e0831021c0631f74e3ba294a4d824ff6a55991773696c3"
+        },
+        "kind": "anonymous",
+        "language": "JavaScript"
+      },
+      "count": 1214
+    },
+    {
+      "phase": "after",
+      "script": {
+        "code": {
+          "bytes": 76,
+          "encoding": "utf16le",
+          "sha256": "4ca51a5c9a43f7ba68b044f5c44fd64d7e37a76cbe1d8b535d031eb052142e41"
+        },
+        "identity": {
+          "available": true,
+          "hash": "e344957e2496ec3e31e0831021c0631f74e3ba294a4d824ff6a55991773696c3"
+        },
+        "kind": "anonymous",
+        "language": "JavaScript"
+      },
+      "count": 845
+    }
+  ],
+  "unpairedCompiledIdentityBodyRecords": 0,
+  "occurrenceDifferenceBodyMatchesInspectorIdentityCheck": true,
+  "occurrenceOriginIsInference": true,
+  "gateLogSha256": "2e1e35caf31ffb7cd0477a9aa70fea6121dedeb15aa9d8c04c9720609f91739f",
+  "limitations": [
+    "All observations coexist, but neither the proxies nor script events establish complete input or object-ownership coverage.",
+    "The complete compiled trace differs in order and in occurrences of a body identical to the diagnostic identity check; those differences are retained, not normalized away.",
+    "Configuration observation has a non-plain snapshot environment gap in 119 workers per observed phase.",
+    "Three native arguments remain unknown and one other worker uses subprocesses; raw aliases, filesystem/environment coverage and parent effects require further work.",
+    "No production replay, Action packaging or new savings measurement is enabled."
+  ]
+}

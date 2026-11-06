@@ -432,3 +432,53 @@ and consumed-code observations still need a combined run before they can
 be used together. No replay or savings claim changes.
 [Independent source comparison and artifact digests](metadata-reader-source.json)
 retain the complete result.
+
+## Combined worker observations
+
+[Gate 42189187106](https://github.com/pango07/quod/actions/runs/42189187106)
+at `e98f671` passes 73 regressions and three full runs: an unobserved
+baseline, an observed run, and another observed run after the same 39
+timestamp-only edits. Independent raw-state comparison confirms all three
+have the same 120 file/project instances and 4,131 test states. Runtime and
+runner image remain unchanged.
+
+Configuration reads, evaluated module inputs, compiled JS/Wasm, metadata
+delivery, executable reader identity and native access now coexist in the
+same observed workers. One Inspector session records compilation and
+watches native entries. The evaluator can read metadata through an
+accessor installed by the diagnostic only while that exact getter and
+setter remain installed; a replacement getter is rejected without calling
+it. Two new regressions cover this ownership check and combined JS/Wasm
+capture without an additional Inspector connection.
+
+| Observation | Before metadata edit | After metadata edit |
+| --- | ---: | ---: |
+| Inline / external evaluations | 645 / 562 | 645 / 562 |
+| Module RPC requests / responses | 521 / 521 | 516 / 516 |
+| Observed metadata operations matching pinned executable source | 6,451 / 6,451 | 6,456 / 6,456 |
+| Invalidations / invalidations of empty state | 235 / 235 | 235 / 235 |
+| Observed stored-field / configuration seed operations | 0 / 0 | 0 / 0 |
+| JS / Wasm script events | 108,354 / 117 | 107,985 / 117 |
+| Configuration instances with a non-plain snapshot environment gap | 119 | 119 |
+| Unknown native arguments / synchronous subprocess calls | 3 / 3 | 3 / 3 |
+
+All **120 paired workers have identical evaluated code/identity
+sequences**. Every per-worker compiled identity/body record appears on
+both sides. The complete compiled sequences agree in only 27 workers;
+their multisets agree in 48. All occurrence-count differences have the
+exact body of `(function(other){return this===other})`, used by the
+diagnostic's Inspector identity checks. This is evidence consistent with
+instrumentation counts varying, not independently established ownership
+of every such compilation. The differing order and counts remain in the
+evidence and are not normalized into an equality claim.
+
+The configuration gap is `snapshotOptions.snapshotEnvironment`. Raw
+aliases, callback ownership, full filesystem/environment inputs, opaque
+channels and parent effects still prevent this from being a replay
+certificate. In particular, zero seed reads through a proxy cannot alone
+exclude reads through an earlier raw alias. The next implementation must
+close those paths while preserving object behavior before it can remove
+the shared metadata dependencies. Production replay and savings claims
+remain unchanged.
+[Independent phase counts, raw comparisons and artifact digests](worker-combined-boundary.json)
+retain the complete combined result.
