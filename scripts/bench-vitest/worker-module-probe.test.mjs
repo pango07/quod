@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import {spawnSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {fingerprint} from './worker-input-probe.mjs'
 import {observeCompiledScripts,observeModuleEvaluation} from './worker-module-probe.mjs'
@@ -32,6 +33,40 @@ test('compilation dictionary and run limits fail closed without presenting a par
     assert.equal(log.report().overflow,true)
     assert.throws(()=>validateCompilationCounts(log.report()))
   }
+})
+
+test('dense compilation runs preserve adjacent counts across chunk boundaries and isolate report mutations',()=>{
+  const log=dictionaryCompiledScriptLog(2,4097),a={code:'a'},b={code:'b'}
+  for(let i=0;i<4096;i++)log.append(i%2?b:a)
+  log.append(b);log.append(b)
+  const first=log.report();validateCompilationCounts(first)
+  assert.deepEqual(first.runs.at(-1),[1,3]);assert.equal(first.runs.length,4096)
+  first.runs[0][0]=999;first.runs.at(-1)[1]=999
+  log.append(a)
+  const second=log.report();validateCompilationCounts(second)
+  assert.deepEqual(second.runs[0],[0,1]);assert.deepEqual(second.runs.at(-2),[1,3]);assert.deepEqual(second.runs.at(-1),[0,1])
+  assert.equal(second.events,4099);assert.equal(second.runs.length,4097)
+  assert.equal(log.counts().runStorageBytes,2*4096*16)
+  log.append(b);assert.equal(log.report().overflow,true)
+})
+
+test('measure dense compilation run storage with every serialized occurrence checked',t=>{
+  const url=new URL('./compiled-script-log.mjs',import.meta.url).href,rows=[]
+  for(const mode of ['array-tuples','dense-runs']) {
+    const source=`import {dictionaryCompiledScriptLog,validateCompilationCounts} from ${JSON.stringify(url)};
+const records=[{code:'a'},{code:'b'}];globalThis.gc();const before=process.memoryUsage();
+const log=${mode==='array-tuples'?'null':'dictionaryCompiledScriptLog(2,250000)'},runs=${mode==='array-tuples'?'[]':'null'};
+for(let i=0;i<250000;i++){if(log)log.append(records[i%2]);else runs.push([i%2,1])}
+globalThis.gc();const after=process.memoryUsage();
+const report=log?.report();if(report)validateCompilationCounts(report);
+const result=report?.runs??runs;let matches=0;for(let i=0;i<result.length;i++)if(result[i][0]===i%2&&result[i][1]===1)matches++;
+console.log(JSON.stringify({mode:${JSON.stringify(mode)},runs:result.length,matches,heapDelta:after.heapUsed-before.heapUsed,arrayBufferDelta:after.arrayBuffers-before.arrayBuffers,counts:log?.counts()??null}));`
+    const r=spawnSync(process.execPath,['--expose-gc','--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+    assert.equal(r.status,0,r.stderr||String(r.error));const row=JSON.parse(r.stdout)
+    assert.equal(row.runs,250000);assert.equal(row.matches,row.runs);if(row.counts)assert.equal(row.counts.overflow,false)
+    rows.push(row)
+  }
+  t.diagnostic(JSON.stringify({compilationRunStorageMeasurements:rows,scope:'isolated run storage before JSON report materialization'}))
 })
 
 test('compilation validation rejects missing events, invalid references and inconsistent dictionary totals',()=>{
