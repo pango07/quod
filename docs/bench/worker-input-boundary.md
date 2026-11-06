@@ -1683,3 +1683,31 @@ metadata mutation. The phase artifact identifies the chosen transport;
 primitive captures must account for every summary without claiming object
 handle releases. Whole-suite agreement and runtime remain unmeasured for
 the integrated string transport.
+
+The full diagnostic is [42276956134](https://github.com/pango07/quod/actions/runs/42276956134),
+at `0c65084` with `native_transport=string`. Its measured workload is
+unchanged. The job was still running when this evidence was recorded;
+no completed whole-suite result is claimed here.
+
+## Native data-property candidate
+
+[Gate 42277546954](https://github.com/pango07/quod/actions/runs/42277546954)
+at `ce3fb40` inventories 44 cases using the existing native-data fixture:
+23 reads/shape queries and 21 mutations. Every observed result, error type
+and final descriptor/shape matches the corresponding ordinary data property.
+The 19 value-reading cases each invoke the native callback once, including
+descriptor reflection, cloning, JSON, V8 serialization, `util.inspect`,
+inherited/proxy receivers and a foreign realm. Getter/setter lookup, keys
+and presence checks do not invoke it or expose a JavaScript getter.
+
+This may allow direct scalar-read observation without intercepting unrelated
+descriptor operations globally. It is not yet an application observer or
+a replay proof. Ordinary writes and partial property redefinitions can
+remove the callback. A future observer must detect that loss and reject
+incomplete evidence; it cannot assume tracking survives a successful write.
+The fixture covers one string field on a null-prototype object. General
+values/attributes, replacement/restoration, native callback identity, earlier
+copies, error/microtask isolation and lifetime still need implementation
+and checks. [Machine-readable evidence](worker-native-data-property.json)
+retains every comparison and callback count. No performance measurement or
+product change is attached to this candidate.

@@ -1,0 +1,2265 @@
+{
+  "commit": "ce3fb40caa9560a22a29bc1e74f4d534f100004f",
+  "run": "https://github.com/pango07/quod/actions/runs/42277546954",
+  "job": 128097712098,
+  "conclusion": "success",
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "node": "24.18.0",
+  "cases": 44,
+  "differences": [],
+  "nativeDataPropertyInventory": [
+    {
+      "kind": "read",
+      "name": "direct",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "reflect",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "foreign receiver",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "inherited",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "proxy receiver",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "descriptor",
+      "equal": true,
+      "plain": {
+        "result": {
+          "value": "host callback value",
+          "writable": true,
+          "enumerable": true,
+          "configurable": true
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "value": "host callback value",
+          "writable": true,
+          "enumerable": true,
+          "configurable": true
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "reflect descriptor",
+      "equal": true,
+      "plain": {
+        "result": {
+          "value": "host callback value",
+          "writable": true,
+          "enumerable": true,
+          "configurable": true
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "value": "host callback value",
+          "writable": true,
+          "enumerable": true,
+          "configurable": true
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "all descriptors",
+      "equal": true,
+      "plain": {
+        "result": {
+          "tmp": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          }
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "tmp": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          }
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "descriptor clone",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "assign",
+      "equal": true,
+      "plain": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "spread",
+      "equal": true,
+      "plain": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "entries",
+      "equal": true,
+      "plain": {
+        "result": [
+          [
+            "tmp",
+            "host callback value"
+          ]
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          [
+            "tmp",
+            "host callback value"
+          ]
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "values",
+      "equal": true,
+      "plain": {
+        "result": [
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "json",
+      "equal": true,
+      "plain": {
+        "result": "{\"tmp\":\"host callback value\"}",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "{\"tmp\":\"host callback value\"}",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "structured clone",
+      "equal": true,
+      "plain": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "v8 serialization",
+      "equal": true,
+      "plain": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": {
+          "tmp": "host callback value"
+        },
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "inspect",
+      "equal": true,
+      "plain": {
+        "result": "[Object: null prototype] { tmp: 'host callback value' }",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "[Object: null prototype] { tmp: 'host callback value' }",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "inspect getters false",
+      "equal": true,
+      "plain": {
+        "result": "[Object: null prototype] { tmp: 'host callback value' }",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "[Object: null prototype] { tmp: 'host callback value' }",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "foreign realm",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "legacy getter lookup",
+      "equal": true,
+      "plain": {
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "legacy setter lookup",
+      "equal": true,
+      "plain": {
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "keys only",
+      "equal": true,
+      "plain": {
+        "result": [
+          "tmp"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          "tmp"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "read",
+      "name": "has only",
+      "equal": true,
+      "plain": {
+        "result": true,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": true,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "strict assignment",
+      "equal": true,
+      "plain": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "sloppy assignment",
+      "equal": true,
+      "plain": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "reflect assignment",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "foreign receiver",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42,
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42,
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "inherited receiver",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42,
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42,
+          "host callback value"
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "frozen receiver",
+      "equal": true,
+      "plain": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "primitive receiver",
+      "equal": true,
+      "plain": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "getter receiver",
+      "equal": true,
+      "plain": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "readonly receiver",
+      "equal": true,
+      "plain": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "proxy rejected definition",
+      "equal": true,
+      "plain": {
+        "result": [
+          false,
+          [
+            [
+              "descriptor",
+              "tmp"
+            ],
+            [
+              "define",
+              "tmp",
+              {
+                "value": 42,
+                "writable": true,
+                "enumerable": true,
+                "configurable": true
+              }
+            ]
+          ]
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          false,
+          [
+            [
+              "descriptor",
+              "tmp"
+            ],
+            [
+              "define",
+              "tmp",
+              {
+                "value": 42,
+                "writable": true,
+                "enumerable": true,
+                "configurable": true
+              }
+            ]
+          ]
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "proxy accepted definition",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          [
+            [
+              "descriptor",
+              "tmp"
+            ],
+            [
+              "define",
+              "tmp",
+              {
+                "value": 42,
+                "writable": true,
+                "enumerable": true,
+                "configurable": true
+              }
+            ]
+          ],
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          [
+            [
+              "descriptor",
+              "tmp"
+            ],
+            [
+              "define",
+              "tmp",
+              {
+                "value": 42,
+                "writable": true,
+                "enumerable": true,
+                "configurable": true
+              }
+            ]
+          ],
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "define value",
+      "equal": true,
+      "plain": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": 42,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "reflect define value",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "define same value",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "define readonly",
+      "equal": true,
+      "plain": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": false,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": false,
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": false,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "define nonconfigurable",
+      "equal": true,
+      "plain": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": "host callback value",
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": true,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "delete",
+      "equal": true,
+      "plain": {
+        "result": true,
+        "error": null,
+        "after": {
+          "keys": [],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": true,
+        "error": null,
+        "after": {
+          "keys": [],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "reflect delete",
+      "equal": true,
+      "plain": {
+        "result": true,
+        "error": null,
+        "after": {
+          "keys": [],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": true,
+        "error": null,
+        "after": {
+          "keys": [],
+          "extensible": true,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "freeze",
+      "equal": true,
+      "plain": {
+        "result": [
+          "host callback value",
+          false
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": false,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": true,
+          "sealed": true,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          "host callback value",
+          false
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": "host callback value",
+            "writable": false,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": true,
+          "sealed": true,
+          "nullPrototype": true
+        },
+        "operationReads": 1,
+        "snapshotReads": 1
+      }
+    },
+    {
+      "kind": "write",
+      "name": "seal",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": false,
+          "sealed": true,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": false
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": false,
+          "sealed": true,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    },
+    {
+      "kind": "write",
+      "name": "prevent extensions",
+      "equal": true,
+      "plain": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      },
+      "native": {
+        "result": [
+          true,
+          42
+        ],
+        "error": null,
+        "after": {
+          "descriptor": {
+            "value": 42,
+            "writable": true,
+            "enumerable": true,
+            "configurable": true
+          },
+          "keys": [
+            "tmp"
+          ],
+          "extensible": false,
+          "frozen": false,
+          "sealed": false,
+          "nullPrototype": true
+        },
+        "operationReads": 0,
+        "snapshotReads": 0
+      }
+    }
+  ],
+  "replayEligible": false,
+  "scope": "Pinned native fixture only; no application instrumentation or ownership proof",
+  "interpretation": {
+    "readCases": 23,
+    "writeCases": 21,
+    "valueReadCases": 19,
+    "valueReadCallbacksEach": 1,
+    "shapeOnlyCasesWithoutReadCallbacks": 4,
+    "ordinaryOwnWritesRemoveCallback": true,
+    "partialPropertyRedefinitionCanRemoveCallback": true,
+    "allSemanticsProven": false
+  },
+  "nextAction": "Prototype a private native scalar-read observer with explicit callback-loss detection. Require read/reflection equivalence, original value/flags preservation, no application getter/trap invocation during guard checks, callback error and microtask isolation, alias/foreign-context handling and lifetime tests before workload integration.",
+  "limitations": [
+    "The native fixture supplies one string value on one null-prototype object; it is not an installed observer for arbitrary application objects.",
+    "Writes and property redefinition can remove the native callback. A future observer must detect this and reject incomplete evidence.",
+    "Callbacks installed before observation, earlier value copies and native capability integrity remain unproven.",
+    "No workload change, replay authority or product savings measurement."
+  ],
+  "sources": [
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/include/v8-object.h",
+      "use": "Public native data-property callback API and attributes"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/include/v8-function-callback.h",
+      "use": "Callback receiver, holder and setter failure semantics"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/src/objects/objects.cc",
+      "use": "Native accessor write dispatch; source review did not replace runtime comparison"
+    }
+  ]
+}
