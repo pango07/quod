@@ -36,7 +36,7 @@ export function observeAsyncStat(project) {
   // Referenced by the owned before hook and inspected through that
   // hook's private V8 context, never through an application-visible global.
   const checkpoint={promise:null}
-  let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null
+  let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null, inspectorAtConsumerProof=null
   const snapshot=()=>({pristine:pristine(),native:observerRegistry.nativeStatSnapshot(),
     asyncHooks:counts(),observers:observerRegistry.snapshot()})
   const stop=promiseHooks.createHook({
@@ -90,9 +90,10 @@ export function observeAsyncStat(project) {
     } finally {scope=prior}
   }
   return {
-    setConsumerProof(proof){consumerProof=proof},
+    setConsumerProof(proof){consumerProof=proof;inspectorAtConsumerProof=observerRegistry.inspectorAccess()},
     report() {
       return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
+        inspectorAccess:{atConsumerProof:inspectorAtConsumerProof,final:observerRegistry.inspectorAccess()},
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
