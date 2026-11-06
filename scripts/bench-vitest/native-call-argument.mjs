@@ -9,6 +9,7 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
   const sources=new Map()
   const propertyRequests={},propertyEntries={}
   let skippedModuleScopes=0,moduleBindingEvaluations=0,moduleBindingEvaluationErrors=0,moduleBindingLookups=0,moduleBindingLookupErrors=0
+  let compiledIdentityComparisons=0
   // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
   // getProperties children inherit that group and Debugger.resume releases
   // it. Other runtimes keep the conservative per-handle cleanup. See the
@@ -198,6 +199,7 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
         if(!match.available)throw Error(match.reason??'native identity comparison unavailable')
         if(match.same!==true)throw Error('native callee identity differs')
       }else {
+        compiledIdentityComparisons++
         const match=post('Runtime.callFunctionOn',{objectId:callee.objectId,
           functionDeclaration:'function(other){return this===other}',arguments:[{objectId:nativeFunction}],
           returnByValue:true,silent:true})
@@ -227,6 +229,6 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
   }
   observe.diagnostics=()=>({propertyRequests:{...propertyRequests},propertyEntries:{...propertyEntries},
     skippedModuleScopes,moduleBindingEvaluation,moduleBindingEvaluations,moduleBindingEvaluationErrors,
-    moduleBindingLookup,moduleBindingLookups,moduleBindingLookupErrors,replayEligible:false})
+    moduleBindingLookup,moduleBindingLookups,moduleBindingLookupErrors,compiledIdentityComparisons,replayEligible:false})
   return observe
 }

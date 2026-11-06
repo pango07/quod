@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 
 const observer=new URL('./promise-observers-probe.mjs',import.meta.url).href
-function fixture(body,mode='descriptors') {
+function fixture(body,mode='descriptors',heap=true) {
   // Export the ballast so V8 cannot omit unused bindings from the module
   // context; the regression must exercise an actually large scope.
   const ballast=Array.from({length:2000},(_,i)=>`export const unused${i}=${i};`).join('\n')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(observer)};
-const EVALUATE=${mode==='evaluate'},LOOKUP=${mode==='lookup'};
+const EVALUATE=${mode==='evaluate'},LOOKUP=${mode==='lookup'},HEAP=${heap};
 ${ballast}
 let gets=0;const target={get tmp(){gets++;return 'do-not-read'}},plain={tmp:7},key='tmp';
 ${body}`
@@ -110,26 +110,28 @@ console.log(JSON.stringify({report,gets,during,after:microtasks,moved:first===pl
 
 test('compare scope-read overhead with equal calls, values and native identity checks',t=>{
   const measurements=[]
-  for(const mode of ['descriptors','evaluate','lookup']) {
+  for(const [mode,heap] of [['descriptors',true],['evaluate',true],['lookup',true],['lookup',false]]) {
     const data=fixture(`const native=Object.getOwnPropertyDescriptor;
 function invoke(target,key){return native(target,key)}
 const now=performance.now.bind(performance);now();
-const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,moduleBindingLookup:LOOKUP});
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:HEAP,moduleBindingEvaluation:EVALUATE,moduleBindingLookup:LOOKUP});
 let accessorCount=0,valueCount=0;const start=now();
 for(let i=0;i<300;i++) {const value=invoke(i%2?target:plain,key);if(value.get)accessorCount++;else valueCount+=value.value}
 const elapsedMs=now()-start,report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
-console.log(JSON.stringify({report,identity,gets,accessorCount,valueCount,elapsedMs}));`,mode)
+console.log(JSON.stringify({report,identity,gets,accessorCount,valueCount,elapsedMs}));`,mode,heap)
     assert.equal(data.accessorCount,150);assert.equal(data.valueCount,1050)
-    assert.equal(data.report.calls,300);assert.equal(data.identity.comparisons,300)
-    assert.equal(data.identity.unknown,0)
-    assert(data.report.entries.every(e=>e.argument.available),JSON.stringify(data.report))
+    assert.equal(data.report.calls,300)
     const counters=data.report.argumentDiagnostics
+    const identityChecks=heap?data.identity.comparisons:counters.compiledIdentityComparisons
+    assert.equal(identityChecks,300)
+    if(heap)assert.equal(data.identity.unknown,0)
+    assert(data.report.entries.every(e=>e.argument.available),JSON.stringify(data.report))
     if(mode==='descriptors')assert(counters.propertyEntries.module>=600000)
     else {
       assert.equal(counters.propertyRequests.module??0,0)
       assert.equal(counters[mode==='evaluate'?'moduleBindingEvaluations':'moduleBindingLookups'],300)
     }
-    measurements.push({mode,calls:data.report.calls,elapsedMs:data.elapsedMs,identityChecks:data.identity.comparisons,
+    measurements.push({mode,heapIdentity:heap,calls:data.report.calls,elapsedMs:data.elapsedMs,identityChecks,
       transferredModuleEntries:counters.propertyEntries.module??0,replayEligible:false})
   }
   // Timing is evidence, not a flaky pass/fail threshold or product claim.
