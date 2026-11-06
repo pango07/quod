@@ -165,6 +165,42 @@ test('actual resolver stat type reads coexist with the boolean manifest query', 
     assert.equal(result.stats.statType,1)
   }
 })
+test('private helper results may feed only uninterrupted type branches', () => {
+  for (const body of [
+    'const s=tryStatSync(file); if(s?.isFile()) return "file"; if(s?.isDirectory()) return "directory"; return "other";',
+    'const s=tryStatSync(file); if(!s || !s.isFile() && !s.isDirectory()) return "other"; return "exists";',
+    'const s=tryStatSync(file); if(s?.isFile()) { return "file"; } else if(s?.isDirectory()) { return "directory"; } return "other";',
+  ]) {
+    const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfunction kind(file){${body}} export const type=kind('package.json');`})
+    assert.ok(result.keys.includes('st:package.json'),body)
+    assert.equal(result.keys.includes('sm:package.json'),false,body)
+    assert.equal(result.stats.statType,1)
+  }
+})
+test('private stat bindings reject escapes, intervening code and unknown consumers', () => {
+  for (const body of [
+    'const s=tryStatSync(file); effect(); if(s.isFile()) return "file";',
+    'const s=tryStatSync(file); if(s.isFile()) effect(); if(s.isDirectory()) return "directory";',
+    'const s=tryStatSync(file); if(s.isFile()) return s.mtimeMs;',
+    'const s=tryStatSync(file); if(s.isFile()) return () => s.size;',
+    'const s=tryStatSync(file); if(s.isFile()) return eval("s.size");',
+    'const s=tryStatSync(file); if(effect() && s.isFile()) return "file";',
+    'const s=tryStatSync(file); if(s?.isFIFO()) return "fifo";',
+    'const s=tryStatSync(file); if(s.isFile()) return "file"; const alias=s;',
+    'const s=tryStatSync(file); if(s.isFile()) return "file"; if(s.size) return "size";',
+    'const s=tryStatSync(file); if(s.isFile()) { try { return "file"; } finally { effect() } } if(s.isDirectory()) return "directory";',
+    'let s=tryStatSync(file); if(s.isFile()) return "file";',
+  ]) {
+    const proof=certifyStatTypeReads(`${statHelper}\nfunction kind(file){${body}}`)
+    assert.equal(proof.calls.length,0,body)
+  }
+})
+test('private type branches retain metadata after a Stats prototype change', () => {
+  const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nfs.Stats.prototype.isFile=function(){return this.mtimeMs>0};
+function kind(file){const s=tryStatSync(file); if(s?.isFile()) return 'file'; return 'other';} export const type=kind('package.json');`})
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
 test('a native stat success check keeps type/existence without inventing a content read', () => {
   const result=recorded('!!pkg.exports',{prelude:`${statHelper}\nconst file='package.json'; export const missing=!tryStatSync(file);`})
   assert.deepEqual(query(result),[{values:[],truthy:['exports']}])

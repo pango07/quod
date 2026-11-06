@@ -37,7 +37,9 @@ function inBooleanContext(n, parents) {
 // The only accepted helper returns native statSync directly through an
 // empty catch. The caller immediately consumes it through .isFile() or
 // .isDirectory(), or tests whether stat succeeded in a boolean context,
-// without binding, exposing or inspecting the Stats object.
+// without exposing or inspecting the Stats object. A private const may
+// also feed consecutive, type-only if tests. No arbitrary code can run
+// between those tests, and no reference to the binding may escape them.
 export function certifyStatTypeReads(source) {
   if (typeof source !== 'string' || source.length > 2_000_000) return {helpers:[], calls:[]}
   let tree
@@ -64,9 +66,52 @@ export function certifyStatTypeReads(source) {
     helpers.push({name:f.id.name,start:c.start,end:c.end})
   }
   const calls=[]
+  function privateTypeBinding(call) {
+    const binding=parents.get(call), declaration=parents.get(binding), block=parents.get(declaration)
+    if (binding?.type!=='VariableDeclarator' || binding.init!==call || binding.id.type!=='Identifier' ||
+        declaration?.type!=='VariableDeclaration' || declaration.kind!=='const' || declaration.declarations.length!==1 || block?.type!=='BlockStatement') return false
+    const name=binding.id.name, allowed=new Set([binding.id])
+    function condition(n) {
+      if (n.type==='ChainExpression') return condition(n.expression)
+      if (n.type==='Identifier' && n.name===name) { allowed.add(n); return true }
+      if (n.type==='UnaryExpression' && n.operator==='!') return condition(n.argument)
+      if (n.type==='LogicalExpression' && ['&&','||'].includes(n.operator)) return condition(n.left) && condition(n.right)
+      if (n.type!=='CallExpression' || n.optional || n.arguments.length || n.callee.type!=='MemberExpression' ||
+          n.callee.computed || !['isFile','isDirectory'].includes(n.callee.property.name) ||
+          n.callee.object.type!=='Identifier' || n.callee.object.name!==name) return false
+      allowed.add(n.callee.object)
+      return true
+    }
+    function exits(n) {
+      if (!n) return false
+      if (['ReturnStatement','ThrowStatement'].includes(n.type)) return true
+      if (n.type==='BlockStatement') return exits(n.body.at(-1))
+      return n.type==='IfStatement' && exits(n.consequent) && exits(n.alternate)
+    }
+    function tests(n) {
+      if (!condition(n.test)) return false
+      return n.alternate?.type==='IfStatement' ? tests(n.alternate) : true
+    }
+    function trueBranchesExit(n) {
+      return exits(n.consequent) && (n.alternate?.type==='IfStatement' ? trueBranchesExit(n.alternate) : !n.alternate || exits(n.alternate))
+    }
+    let prior=null
+    for (let i=block.body.indexOf(declaration)+1; i<block.body.length; i++) {
+      const n=block.body[i]
+      if (n.type!=='IfStatement') break
+      if (prior && !trueBranchesExit(prior) || !tests(n)) return false
+      prior=n
+    }
+    if (!prior) return false
+    // Includes nested closures, branch bodies, later statements, writes,
+    // aliases, destructuring and even unused extra reads. Direct eval can
+    // observe a lexical binding without a syntactic reference to its name.
+    return !nodes.some(n=>n.start>=block.start && n.end<=block.end && n.type==='Identifier' &&
+      (n.name==='eval' || n.name===name && !allowed.has(n)))
+  }
   for (const n of nodes) {
     if (n.type==='CallExpression' && !n.optional && n.callee.type==='Identifier' && n.arguments.length===1 && n.arguments[0].type==='Identifier' &&
-        helpers.some(h=>h.name===n.callee.name) && inBooleanContext(n,parents)) {
+        helpers.some(h=>h.name===n.callee.name) && (inBooleanContext(n,parents) || privateTypeBinding(n))) {
       calls.push({name:n.callee.name,start:n.start,end:n.end})
     }
     if (n.type!=='CallExpression' || n.optional || n.arguments.length || n.callee.type!=='MemberExpression' || n.callee.computed || !['isFile','isDirectory'].includes(n.callee.property.name)) continue

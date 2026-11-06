@@ -766,7 +766,7 @@ jobs:
         if: inputs.only == 'benchmark-query-async'
         run: node --test crates/quod-cli/src/vitest/async-json-proof.test.mjs
       - name: Boolean-context proof adversarial regressions
-        if: inputs.only == 'benchmark-boolean' || inputs.only == 'benchmark-query'
+        if: inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: Config proof regression tests
         if: inputs.only == 'benchmark-config'
