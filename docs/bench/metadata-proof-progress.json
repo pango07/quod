@@ -83,5 +83,93 @@
     "states": 4131,
     "sha256": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
   },
-  "measurementScope": "Main-process diagnostics; no ledger, no replay, no production worker-input coverage or runner-time savings established."
+  "measurementScope": "Main-process diagnostics; no ledger, no replay, no production worker-input coverage or runner-time savings established.",
+  "observerRegistryDiagnostic": {
+    "runtimeRun": "https://github.com/pango07/quod/actions/runs/42144976636",
+    "runtimeCommit": "73ac7eb",
+    "workflowConclusion": "failure",
+    "workloadStepConclusion": "success",
+    "failure": "The isolated async_hooks fixture expected immediate dispatcher removal; Node defers it to a microtask.",
+    "correctedFixtureRun": "https://github.com/pango07/quod/actions/runs/42145373987",
+    "correctedFixtureCommit": "722f588",
+    "correctedFixtureConclusion": "success",
+    "fixturesPassed": 4,
+    "initial": {
+      "available": true,
+      "promiseHooks": {
+        "init": 0,
+        "before": 0,
+        "after": 0,
+        "settled": 0
+      },
+      "asyncHooks": {
+        "kInit": 0,
+        "kBefore": 0,
+        "kAfter": 0,
+        "kDestroy": 0,
+        "kPromiseResolve": 0,
+        "kTotals": 0
+      },
+      "pendingAsyncHookEdit": false,
+      "replayEligible": false
+    },
+    "testFileDispatchSnapshots": [
+      {
+        "snapshot": {
+          "asyncHooks": {
+            "kAfter": 0,
+            "kBefore": 0,
+            "kDestroy": 0,
+            "kInit": 0,
+            "kPromiseResolve": 0,
+            "kTotals": 0
+          },
+          "available": true,
+          "pendingAsyncHookEdit": false,
+          "promiseHooks": {
+            "after": 1,
+            "before": 1,
+            "init": 1,
+            "settled": 1
+          },
+          "replayEligible": false
+        },
+        "count": 120
+      }
+    ],
+    "testFileCreatorSnapshots": [
+      {
+        "snapshot": {
+          "asyncHooks": {
+            "kAfter": 0,
+            "kBefore": 0,
+            "kDestroy": 0,
+            "kInit": 0,
+            "kPromiseResolve": 0,
+            "kTotals": 0
+          },
+          "available": true,
+          "pendingAsyncHookEdit": false,
+          "promiseHooks": {
+            "after": 1,
+            "before": 1,
+            "init": 1,
+            "settled": 1
+          },
+          "replayEligible": false
+        },
+        "count": 120
+      }
+    ],
+    "nativeContinuationMatches": 354,
+    "testFingerprintMatched": true,
+    "replayEligible": false,
+    "unvalidated": [
+      "observer identity and changes between checkpoints",
+      "native and preload provenance",
+      "all result consumers",
+      "actual stat outcomes and error projection",
+      "production driver and worker observations"
+    ]
+  }
 }

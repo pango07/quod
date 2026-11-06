@@ -149,3 +149,30 @@ See [machine-readable proof progress](metadata-proof-progress.json). The
 historical 45.2% runner-time / 41.7% rounded-minute reductions and floor + 3 s
 hit still do not apply to this corrected engine. A fresh real-job hit is
 required before the next full 12-commit window is useful.
+
+The next [runtime diagnostic at 73ac7eb](https://github.com/pango07/quod/actions/runs/42144976636)
+read the actual Node observer registries through Inspector without modifying
+them. The workload step passed and retained the same full test fingerprint.
+Initially both registries were empty. At dispatch and native-creator entry
+for all 120 test-file stats, async hook counts were zero and each promise
+hook list contained one callback—the diagnostic's installed observer.
+All 354 native continuation traces still matched. These are checkpoint
+measurements, not a proof of callback identity or absence of intervening
+observations. This probe does not use the benchmark's report preload or
+the complete production driver/worker setup.
+
+That workflow's overall result was **failure**, because its async-hook
+fixture incorrectly expected promise-dispatcher removal to be immediate.
+Node defers removal to a microtask. The corrected
+[isolated gate at 722f588](https://github.com/pango07/quod/actions/runs/42145373987)
+passed all four cases: no observers, public promise hooks, async hooks
+including deferred teardown, and an observer that reads modification-time
+metadata through `util.inspect` without attaching a `.then` reaction.
+An earlier scope lookup failure was also fixed by reading the live public
+AsyncHook field bindings rather than assuming numeric offsets.
+
+The registries make a guard worth investigating, but no async size-only
+key is enabled. A production proof must establish native/preload provenance,
+the actual consumer and stat outcome, relevant observer changes between
+checkpoints, and safe fallback when any of that is unknown. Checking only
+the local `.size` read or counting additional `.then` reactions is insufficient.
