@@ -29,7 +29,7 @@ export function observeNativeCallArguments(post) {
       }
     }
     visit(tree)
-    const result={calls,lines,sha256:createHash('sha256').update(text).digest('hex')}
+    const result={calls,lines,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
     sources.set(scriptId,result);return result
   }
   return (frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
@@ -109,7 +109,10 @@ export function observeNativeCallArguments(post) {
       const line=s.lines[frame.location.lineNumber]
       if(line===undefined)throw Error('caller location unavailable')
       const offset=line+frame.location.columnNumber
-      const calls=s.calls.filter(c=>c.callee.start<=offset&&offset<=c.callee.end)
+      // Cache syntax lookup only. Repeated calls from a library helper must
+      // still resolve their current bindings and target on every pause.
+      let calls=s.locations.get(offset)
+      if(!calls){calls=s.calls.filter(c=>c.callee.start<=offset&&offset<=c.callee.end);s.locations.set(offset,calls)}
       if(calls.length!==1)throw Error('ambiguous native call location')
       const call=calls[0]
       // A second argument could mutate the first binding after it was

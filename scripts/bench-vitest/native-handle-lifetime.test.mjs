@@ -34,12 +34,14 @@ test('pinned Inspector releases argument descriptor handles on resume while reta
       catch(e){errors.push(e.message)}
       finally{post('Debugger.resume')}
     })
-    assert.equal(typeof native(target,key).get,'function')
-    assert.equal(native(other,key).value,7)
+    const results=[]
+    for(const current of [target,other,target])results.push(native(current,key))
+    assert.equal(typeof results[0].get,'function');assert.equal(results[1].value,7)
     post('Debugger.removeBreakpoint',{breakpointId})
-    assert.deepEqual(errors,[]);assert.equal(reports.length,2)
+    assert.deepEqual(errors,[]);assert.equal(reports.length,3)
     assert(reports.every(r=>r.available),JSON.stringify(reports))
-    assert.deepEqual(reports.map(r=>r.target.watchedAccessorKeys),[['tmp'],[]])
+    assert.deepEqual(reports.map(r=>r.target.watchedAccessorKeys),[['tmp'],[],['tmp']],
+      'a repeated call location must resolve each current target instead of caching a previous argument')
     assert.equal(gets,0);assert.equal(individualReleases,0)
     assert(handles.size>5,'exercise scopes, target objects and getter handles')
     for(const objectId of handles)assert.throws(()=>post('Runtime.getProperties',{objectId,ownProperties:true}),
