@@ -225,6 +225,7 @@ if(phase) {
             'the combined diagnostic must report actual native arguments')
           validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
           assert.equal(x.native.identity?.targetAccessorsOnly,true,'the diagnostic must use the gated accessor-only observation')
+          assert.equal(x.native.identity?.argumentMode,'direct','the combined diagnostic must use the gated direct argument transport')
           assert(x.native.identity?.available&&x.native.identity.mode==='native-entry-arguments'&&x.native.identity.snapshotsRequested===0,
             'native argument observation must remain available without collecting heap snapshots')
           assert.equal(x.native.identity.calls,x.native.identity.cleared,'every diagnostic exception wrapper must be cleared')

@@ -47,6 +47,7 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
   validateNativeEntryLog(data.report)
   assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
   assert.equal(data.identity.targetAccessorsOnly,true)
+  assert.equal(data.identity.argumentMode,'direct')
   assert.equal(data.timing.pauses.calls,0);assert.equal(data.identity.mode,'native-entry-arguments')
   assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
   assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
@@ -87,6 +88,7 @@ console.log(JSON.stringify({report,gets,traps,failed,detected,proxyReport,identi
   assert.equal(data.report.entries[1].argument.argumentCount,0)
   assert.equal(data.proxyReport.entries.length,1);assert.equal(data.proxyReport.entries[0].argument.kind,'proxy')
   assert.equal(data.identity.calls,3);assert.equal(data.identity.cleared,3)
+  assert.equal(data.identity.argumentMode,'direct')
 })
 
 for(const [api,args] of [
