@@ -800,6 +800,31 @@ jobs:
           name: benchmark-driver-stat
           path: /tmp/quod-driver-stat
 
+  benchmark-worker-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-worker-inputs'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
+      - run: npm ci
+        working-directory: profile-project
+      - name: Compare worker inputs across a metadata-only change
+        run: node scripts/bench-vitest/driver-worker-input-probe.mjs "$PWD/profile-project" /tmp/quod-worker-inputs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: benchmark-worker-inputs
+          path: /tmp/quod-worker-inputs
+
   benchmark-config:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query'))
     runs-on: ubuntu-latest
