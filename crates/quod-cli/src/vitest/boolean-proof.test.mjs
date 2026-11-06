@@ -355,3 +355,14 @@ const file='package.json'; export const type=tryStatSync(file)?.isFile();`})
   assert.equal(result.keys.includes('st:package.json'),false)
   assert.equal(result.stats.statType,0)
 })
+test('replacing the internal Stats prototype behind the public wrapper retains metadata',()=>{
+  const result=recorded('!!pkg.exports',{prelude:`
+const InternalStats=fs.Stats.prototype.constructor;
+const originalPrototype=InternalStats.prototype;
+InternalStats.prototype=Object.create(originalPrototype);
+InternalStats.prototype.isFile=function(){return this.mtimeMs>0};
+export const type=fs.statSync('package.json').isFile();`})
+  assert.ok(result.keys.includes('sm:package.json'),'the actual native constructor prototype changed')
+  assert.equal(result.keys.includes('st:package.json'),false)
+  assert.equal(result.stats.statType,0)
+})
