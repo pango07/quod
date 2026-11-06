@@ -4,6 +4,7 @@
 import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
 import {observeNativeCallArguments} from './native-call-argument.mjs'
+import {compiledScriptRecord} from './worker-module-probe.mjs'
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -16,12 +17,22 @@ const nativeSources={
 const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
-export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={}) {
+export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false}={}) {
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
-  session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
+  const compiled=[],compilationErrors=[]
+  let compilationOverflow=false,failedToParse=0
+  function compiledEvent(params,failedParse) {
+    if(!compiledScripts)return
+    if(failedParse)failedToParse++
+    if(compiled.length>=20000){compilationOverflow=true;return}
+    try{compiled.push(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
+    catch(e){compilationErrors.push(e.message)}
+  }
+  session.on('Debugger.scriptParsed',({params})=>{scripts.set(params.scriptId,{
     url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,
-    language:params.scriptLanguage??'JavaScript'}))
+    language:params.scriptLanguage??'JavaScript'});compiledEvent(params,false)})
+  session.on('Debugger.scriptFailedToParse',({params})=>compiledEvent(params,true))
   let failure=null, closed=false
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
@@ -296,6 +307,11 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={})
     }catch(e){hookFailure=e.message}
   } catch(e) {failure=e.message}
   return {
+    compiledScriptReport() {
+      return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
+        scripts:[...compiled],errors:[...compilationErrors],overflow:compilationOverflow,failedToParse,
+        limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
+    },
     sourceForScript(scriptId) {
       // A filename or a Function#toString result can be forged. Resolve the
       // actual V8 script identity from a native call site in this session.

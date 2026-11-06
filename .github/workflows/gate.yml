@@ -856,9 +856,9 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-worker-inputs:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: ${{ inputs.only == 'benchmark-worker-boundary' && 15 || 12 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -874,19 +874,22 @@ jobs:
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
         if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'
       - run: node --test scripts/bench-vitest/worker-module-probe.test.mjs
-        if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures'
+        if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs scripts/bench-vitest/worker-transport-metadata-probe.test.mjs scripts/bench-vitest/metadata-reader-source.test.mjs
-        if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures'
+        if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/hook-access-probe.test.mjs
-        if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures'
+        if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/opaque-observers-probe.test.mjs scripts/bench-vitest/heap-observers-probe.test.mjs scripts/bench-vitest/proxy-observers-probe.test.mjs
-        if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata'
+        if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary'
+      - run: node --test scripts/bench-vitest/worker-boundary-probe.test.mjs
+        if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures'
       - run: npm ci
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'
         working-directory: profile-project
       - name: Compare worker inputs across a metadata-only change
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'
         env:
+          QUOD_WORKER_BOUNDARY_PROBE: ${{ inputs.only == 'benchmark-worker-boundary' && '1' || '0' }}
           QUOD_WORKER_CONFIG_PROBE: ${{ (inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities') && '1' || '0' }}
           QUOD_WORKER_CONFIG_NATIVE_PROBE: ${{ inputs.only == 'benchmark-worker-capabilities' && '1' || '0' }}
           QUOD_WORKER_MODULE_PROBE: ${{ inputs.only == 'benchmark-worker-modules' && '1' || '0' }}

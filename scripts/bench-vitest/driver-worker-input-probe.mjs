@@ -14,7 +14,8 @@ const project=path.resolve(projectArg),out=path.resolve(outArg)
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex')
 const self=fileURLToPath(import.meta.url)
 const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
-const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'
+const boundaryProbe=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
+const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'||boundaryProbe
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function states(file) {
   const report=JSON.parse(fs.readFileSync(file))
@@ -33,13 +34,13 @@ if(phase) {
   const nodeEntry=pkg.exports['./node'],relative=typeof nodeEntry==='string'?nodeEntry:nodeEntry.import??nodeEntry.default
   const entry=path.join(path.dirname(packageFile),relative)
   const V=await import(pathToFileURL(entry).href)
-  if(moduleMetadataProbe&&phase==='after') {
-    const directory=path.join(out,'worker-module-metadata')
+  if(moduleMetadataProbe&&(phase==='after'||boundaryProbe&&phase==='before')) {
+    const directory=path.join(out,boundaryProbe?'worker-boundary/'+phase:'worker-module-metadata')
     fs.mkdirSync(directory,{recursive:true})
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
       this.execArgv=['--import',fileURLToPath(new URL('./worker-module-metadata-bootstrap.mjs',import.meta.url)),...this.execArgv]
-      this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory}
+      this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0'}
       return Reflect.apply(original,this,args)
     }
   }
@@ -81,7 +82,7 @@ if(phase) {
     assert.equal(s.fingerprint,'09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd')
     return s
   }
-  const baseline=moduleProbe?run('baseline'):null
+  const baseline=moduleProbe||boundaryProbe?run('baseline'):null
   const first=run('before'),changes=[]
   for(const file of first.paths) {
     assert.ok(file.startsWith(project+'/'),'only modify the disposable benchmark checkout')
@@ -140,7 +141,7 @@ if(phase) {
     comparisons,limitations:before.limitations}
   write(path.join(out,'result.json'),result)
   if(moduleMetadataProbe) {
-    const directory=path.join(out,'worker-module-metadata')
+    const directory=path.join(out,boundaryProbe?'worker-boundary/after':'worker-module-metadata')
     const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
     assert.equal(reports.length,120,'every worker must report module metadata')
     assert.equal(new Set(reports.map(r=>JSON.stringify([r.project,r.files]))).size,120)
@@ -199,6 +200,39 @@ if(phase) {
       limitations:[...reports[0].metadata.limitations,...reports[0].transport.limitations]}
     write(path.join(out,'worker-module-metadata-result.json'),metadataResult)
     console.log(JSON.stringify(metadataResult,null,2))
+    if(boundaryProbe) {
+      const beforeDir=path.join(out,'worker-boundary/before')
+      const previous=fs.readdirSync(beforeDir).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(beforeDir,f))))
+      const key=r=>JSON.stringify([r.project,r.files]),byKey=new Map(previous.map(r=>[key(r),r]))
+      assert.equal(previous.length,120);assert.equal(byKey.size,120)
+      const code=events=>events.map(e=>({kind:e.kind,identity:e.identity,...(e.code?{code:e.code}:{})}))
+      const comparisons=[]
+      for(const r of reports) {
+        const a=byKey.get(key(r));assert(a,'every combined worker must have a previous observation')
+        for(const x of [a,r]) {
+          assert(!x.unknown.length&&!x.metadata.errors.length&&!x.metadata.gaps.length&&!x.metadata.overflow)
+          assert(!x.transport.errors.length&&!x.transport.overflow&&x.transport.pending===0&&x.transport.unsettled===0)
+          assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
+          assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
+          for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
+          assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
+          assert(x.boundary.config&&!x.boundary.config.overflow)
+        }
+        comparisons.push({key:key(r),codeSequenceEqual:JSON.stringify(code(a.boundary.evaluation.events))===JSON.stringify(code(r.boundary.evaluation.events)),
+          compiledSequenceEqual:JSON.stringify(a.boundary.compilation.scripts)===JSON.stringify(r.boundary.compilation.scripts),
+          evaluatorBefore:a.boundary.evaluation.events.length,evaluatorAfter:r.boundary.evaluation.events.length,
+          configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
+          configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0)})
+      }
+      const combined={replayEligible:false,completeOwnership:false,baseline,first,second,workers:comparisons.length,
+        equalEvaluatorCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
+        equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,comparisons,
+        limitations:['Recorded code, configuration, transport and native observations coexist in these runs',
+          'Raw aliases, full filesystem/environment inputs, parent effects and opaque channels remain outside complete coverage']}
+      write(path.join(out,'worker-boundary-result.json'),combined)
+      console.log(JSON.stringify({boundaryWorkers:combined.workers,equalEvaluatorCodeSequences:combined.equalEvaluatorCodeSequences,
+        equalCompiledSequences:combined.equalCompiledSequences,replayEligible:false},null,2))
+    }
   }
   if(moduleProbe) {
     function loadModules(phase) {

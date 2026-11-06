@@ -32,7 +32,7 @@ function field(object,name) {
   return d.value
 }
 
-export function observeModuleEvaluation(Evaluator) {
+export function observeModuleEvaluation(Evaluator,{metadataForNode=null}={}) {
   const events=[],errors=[],restores=[]
   let overflow=false
   function note(kind,args) {
@@ -44,7 +44,9 @@ export function observeModuleEvaluation(Evaluator) {
     const [,code,module]=args
     if(typeof code!=='string')throw Error('unsupported evaluator code')
     const id=field(module,'id'),url=field(module,'url'),file=field(module,'file')
-    const meta=field(module,'meta')
+    const owned=metadataForNode?metadataForNode(module):null
+    if(metadataForNode&&!owned?.available)throw Error('module metadata ownership unavailable')
+    const meta=metadataForNode?owned.value:field(module,'meta')
     events.push({kind,identity:fingerprint({id,url,file}),meta:fingerprint(meta),metaFields:metadataFields(meta),
       code:sourceDigest(code)})
   }
@@ -63,6 +65,29 @@ export function observeModuleEvaluation(Evaluator) {
     close(){for(const restore of restores)restore()}}
 }
 
+export function compiledScriptRecord(params,source,failedParse=false) {
+  const language=params.scriptLanguage??'JavaScript'
+  if(language!=='JavaScript'&&language!=='WebAssembly')throw Error('unsupported compiled language')
+  let code
+  if(language==='WebAssembly') {
+    if(typeof source.bytecode!=='string'||!source.bytecode.length)throw Error('compiled bytecode unavailable')
+    const bytes=Buffer.from(source.bytecode,'base64')
+    if(bytes.toString('base64')!==source.bytecode)throw Error('invalid compiled bytecode')
+    code={encoding:'bytes',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}
+  }else {
+    if(typeof source.scriptSource!=='string')throw Error('compiled source unavailable')
+    code=sourceDigest(source.scriptSource)
+  }
+  if(params.url!==undefined&&typeof params.url!=='string')throw Error('unsupported compiled URL')
+  // The protocol supplies these primitives. Encode the same fingerprint
+  // without calling the observed native isProxy from an Inspector event.
+  const fields={url:params.url,language,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,failedParse}
+  const identity=['object',0,Object.entries(fields).map(([key,value])=>[key,
+    value===undefined?['undefined']:[typeof value,value]])]
+  return {identity:{available:true,hash:createHash('sha256').update(JSON.stringify(identity)).digest('hex')},
+    code,language,kind:language==='WebAssembly'?'wasm':params.url?.startsWith('node:')?'builtin':params.url?.startsWith('file:')?'file':params.url?'named':'anonymous'}
+}
+
 export function observeCompiledScripts() {
   const session=new Session(),scripts=[],errors=[]
   let overflow=false,failedToParse=0
@@ -76,23 +101,8 @@ export function observeCompiledScripts() {
     if(failedParse)failedToParse++
     if(scripts.length>=20000){overflow=true;return}
     try {
-      const language=params.scriptLanguage??'JavaScript'
-      if(language!=='JavaScript'&&language!=='WebAssembly')throw Error('unsupported compiled language')
       const source=post('Debugger.getScriptSource',{scriptId:params.scriptId})
-      let code
-      if(language==='WebAssembly') {
-        // getScriptSource returns Wasm bytes separately from its empty JS source.
-        if(typeof source.bytecode!=='string'||!source.bytecode.length)throw Error('compiled bytecode unavailable')
-        const bytes=Buffer.from(source.bytecode,'base64')
-        if(bytes.toString('base64')!==source.bytecode)throw Error('invalid compiled bytecode')
-        code={encoding:'bytes',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}
-      }else {
-        if(typeof source.scriptSource!=='string')throw Error('compiled source unavailable')
-        code=sourceDigest(source.scriptSource)
-      }
-      scripts.push({identity:fingerprint({url:params.url,language,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,failedParse}),
-        code,language,
-        kind:language==='WebAssembly'?'wasm':params.url?.startsWith('node:')?'builtin':params.url?.startsWith('file:')?'file':params.url?'named':'anonymous'})
+      scripts.push(compiledScriptRecord(params,source,failedParse))
     }catch(e){errors.push(e.message)}
   }
   session.on('Debugger.scriptParsed',({params})=>observe(params,false))

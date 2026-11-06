@@ -68,7 +68,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}
       value=wrap(raw,id.hash)
     }
     define(node,'meta',{get,set,enumerable:d.enumerable,configurable:true})
-    nodes.set(node,{id,raw:()=>raw})
+    nodes.set(node,{id,raw:()=>raw,get,set})
     restores.push(()=>{
       const now=descriptor(node,'meta')
       if(now?.get===get&&now?.set===set&&now.configurable)define(node,'meta',{...d,value:raw})
@@ -107,6 +107,11 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}
       'Installing metadata accessors and proxies is observable']}),
     observeMetadata(value,origin) {
       try{return wrap(value,origin,origin)}catch(e){errors.push(e.message);return value}
+    },
+    metadataForNode(node) {
+      const tracked=nodes.get(node),d=tracked&&descriptor(node,'meta')
+      if(!tracked||d?.get!==tracked.get||d?.set!==tracked.set)return {available:false}
+      return {available:true,value:tracked.raw()}
     },
     close(){for(const restore of restores.reverse())restore()}}
 }

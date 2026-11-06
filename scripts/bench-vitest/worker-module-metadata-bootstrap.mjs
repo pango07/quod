@@ -7,10 +7,12 @@ import {pathToFileURL} from 'node:url'
 import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 import {observeTransportMetadata} from './worker-transport-metadata-probe.mjs'
+import {observeModuleEvaluation} from './worker-module-probe.mjs'
 
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true})
+const combined=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined})
 const require=createRequire(path.join(process.cwd(),'package.json'))
 const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
@@ -25,6 +27,12 @@ const expectedReaderSources=[entry,transportEntry].map(file=>({url:pathToFileURL
   sha256:createHash('sha256').update(fs.readFileSync(file,'utf8'),'utf16le').digest('hex')}))
 const {b:VitestTransport}=await import(pathToFileURL(transportEntry).href)
 const transport=observeTransportMetadata(VitestTransport,observer)
+const {observeConfig}=combined?createRequire(import.meta.url)('./worker-config-probe.cjs'):{}
+let evaluation=null,config=null
+if(combined) {
+  const {VitestModuleEvaluator}=await import(pathToFileURL(path.join(path.dirname(vitestPackage),'dist/module-evaluator.js')).href)
+  evaluation=observeModuleEvaluation(VitestModuleEvaluator,{metadataForNode:observer.metadataForNode})
+}
 const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect.apply
 const output=path.join(directory,`${process.pid}.json`)
 let project=null
@@ -34,6 +42,10 @@ process.prependListener('message',message=>{
   if(message.type==='start') {
     if(project!==null)unknown.push('reused worker')
     project=message.context?.config?.name??''
+    if(combined) {
+      config=observeConfig(message.context.config)
+      message.context.config=config.value
+    }
   }
   if(message.type==='run'||message.type==='collect')files.push(...message.context.files.map(f=>f.filepath))
 })
@@ -42,6 +54,7 @@ process.send=function(...args) {
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
+      boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }
