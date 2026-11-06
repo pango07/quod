@@ -6,6 +6,8 @@ import {spawnSync} from 'node:child_process'
 
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 const codec=new URL('./native-capture-summary.mjs',import.meta.url).href
+const strings=new URL('./native-string-transport.mjs',import.meta.url).href
+const directMode=process.env.QUOD_NATIVE_CAPTURE_TRANSPORT==='string'?'string':'native'
 function fixture(mode,body,{timeout=20000}={}) {
   const source=`import {Session} from 'node:inspector';
 import {getCallSites,types} from 'node:util';
@@ -14,6 +16,7 @@ import {randomBytes} from 'node:crypto';
 import vm from 'node:vm';
 import {observeNativeEntryArguments} from ${JSON.stringify(probe)};
 import {decodeNativeCaptureSummary} from ${JSON.stringify(codec)};
+import {nativeStringTransport} from ${JSON.stringify(strings)};
 const require=createRequire(import.meta.url),session=new Session(),mode=${JSON.stringify(mode)};
 const events=[],extra={},commands={},nonce=randomBytes(32).toString('hex');
 let summaries=0,cleared=0,pauses=0,compiled=0,observer=null,bridge=null;
@@ -23,6 +26,7 @@ function post(method,params={}) {
  if(!done||error)throw error??Error('asynchronous Inspector response');return result;
 }
 session.connect();session.on('Debugger.scriptParsed',()=>compiled++);post('Debugger.enable');
+const globalProperties=Reflect.ownKeys(globalThis);
 session.on('Debugger.paused',()=>{pauses++;post('Debugger.resume')});
 function nativeSummary(packed) {
  const value=decodeNativeCaptureSummary(packed);
@@ -36,7 +40,12 @@ function nativeSummary(packed) {
  if(extra.closeInSink)bridge.close();
  if(extra.throwInSink)throw Error('intentional sink failure');
 }
-if(mode==='native') {
+if(mode==='string') {
+ bridge=nativeStringTransport(post,nonce,{onSummary:nativeSummary});bridge.initialize();
+ session.on('Runtime.executionContextCreated',({params})=>bridge.contextCreated(params.context));
+ session.on('Runtime.exceptionThrown',({params})=>bridge.handleException(params));
+ post('Runtime.enable');
+} else if(mode==='native') {
  const addon=require(process.env.QUOD_NATIVE_INSPECTOR_ADDON);
  bridge=addon.createInspectorCapture(nonce,nativeSummary);
  if(typeof bridge.report!=='function')throw Error('native bridge unavailable: '+JSON.stringify(bridge));
@@ -51,7 +60,7 @@ if(mode==='native') {
 const breakpoints=[];
 function watch(api,expression,{receiver=false,describeOwnAccessors=true}={}) {
  const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-native-session-fixture'}).result.objectId;
- const condition=mode==='native'?
+ const condition=mode==='string'?bridge.condition(api,{receiver,describeOwnAccessors}):mode==='native'?
   '(()=>{throw({__proto__:null,quodNativeEntry:'+JSON.stringify(nonce)+',api:'+JSON.stringify(api)+
   ',argument:'+(receiver?'this':'arguments.length?arguments[0]:void(0)')+',argumentCount:arguments.length,receiverBased:'+receiver+',describeOwnAccessors:'+describeOwnAccessors+'})})()':
   observer.condition(api,{receiver,describeOwnAccessors});
@@ -66,6 +75,8 @@ function stop() {
 }
 ${body}
 if(breakpoints.length)stop();
+const finalGlobalProperties=Reflect.ownKeys(globalThis);
+extra.globalPropertiesUnchanged=globalProperties.length===finalGlobalProperties.length&&globalProperties.every((key,i)=>key===finalGlobalProperties[i]);
 post('Runtime.releaseObjectGroup',{objectGroup:'quod-native-session-fixture'});session.disconnect();
 console.log(JSON.stringify({mode,events,summaries,cleared,pauses,commands,...extra}));`
   const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout,maxBuffer:16*1024*1024})
@@ -75,12 +86,18 @@ console.log(JSON.stringify({mode,events,summaries,cleared,pauses,commands,...ext
 
 function complete(data,count) {
   assert.equal(data.summaries,count);assert.equal(data.cleared,count);assert.equal(data.pauses,0)
+  assert.equal(data.globalPropertiesUnchanged,true)
   if(data.bridge) {
     assert.equal(data.bridge.enabled,true);assert.equal(data.bridge.failures,0,JSON.stringify(data.bridge))
     assert.equal(data.bridge.failure,null);assert.equal(data.bridge.delivered,count)
-    assert.equal(data.bridge.unwrapped,count);assert.equal(data.bridge.notifications,count)
-    assert.equal(data.bridge.groupsReleased,count);assert.equal(data.closedBridge.closed,true)
-    assert.equal(data.bridge.verifiedHandleReleases,count)
+    assert.equal(data.bridge.notifications,count);assert.equal(data.closedBridge.closed,true)
+    if(data.bridge.transport==='primitive-string') {
+      assert.equal(data.bridge.perEntryObjectHandles,0);assert.equal(data.bridge.perEntryProtocolRequests,0)
+      assert(data.bridge.contexts>=1)
+    }else {
+      assert.equal(data.bridge.unwrapped,count);assert.equal(data.bridge.groupsReleased,count)
+      assert.equal(data.bridge.verifiedHandleReleases,count)
+    }
     assert.equal(data.bridge.replayEligible,false)
   }else {
     assert.equal(data.capture.available,true,JSON.stringify(data.capture));assert.deepEqual(data.capture.errors,[])
@@ -90,7 +107,7 @@ const withoutFrames=data=>data.events.map(({frames,...row})=>row)
 
 test('native session preserves actual arguments, foreign contexts, proxies and queued microtasks',t=>{
   const rows=[]
-  for(const mode of ['protocol','native']) {
+  for(const mode of ['protocol',directMode]) {
     const data=fixture(mode,`let getters=0,traps=0,microtasks=0,conversions=0;
 const target={get tmp(){getters++;return 7}},plain={tmp:7},key='tmp';
 const native=Object.getOwnPropertyDescriptor,lookup=Object.prototype.__lookupGetter__;
@@ -119,7 +136,7 @@ extra.getters=getters;extra.traps=traps;extra.conversions=conversions;`)
 })
 
 test('native private session leaves another Inspector session usable after close',()=>{
-  const data=fixture('native',`const native=Object.getOwnPropertyDescriptor,target={get tmp(){throw Error('getter')}};
+  const data=fixture(directMode,`const native=Object.getOwnPropertyDescriptor,target={get tmp(){throw Error('getter')}};
 watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');native(target,'tmp');stop();
 extra.afterClose=post('Runtime.evaluate',{expression:'21*2',returnByValue:true}).result.value;
 extra.sourceCount=post('Debugger.getScriptSource',{scriptId:events[0].frames.find(f=>f.name==='nativeSummary').scriptId}).scriptSource.length;
@@ -129,31 +146,35 @@ native(target,'tmp');`)
 
 test('native summary callback failure and reentrant close remain explicit observation failures',()=>{
   for(const flag of ['closeInSink','throwInSink']) {
-    const data=fixture('native',`const native=Object.getOwnPropertyDescriptor,target={tmp:7};
+    const data=fixture(directMode,`const native=Object.getOwnPropertyDescriptor,target={tmp:7};
 watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');
 extra.${flag}=true;extra.value=native(target,'tmp').value;stop();`)
     assert.equal(data.value,7);assert.equal(data.pauses,0)
-    assert(data.bridge.failures>0);assert.equal(data.bridge.verifiedHandleReleases,1)
+    assert(data.bridge.failures>0)
+    if(directMode==='native')assert.equal(data.bridge.verifiedHandleReleases,1)
     assert.equal(data.closedBridge.closed,true);assert.equal(data.bridge.replayEligible,false)
   }
 })
 
 test('direct native session and protocol transport retain every repeated observation',t=>{
   const rows=[]
-  for(const mode of ['protocol','native','native','protocol']) {
+  for(const mode of ['protocol',directMode,directMode,'protocol']) {
     const data=fixture(mode,`const native=Object.getOwnPropertyDescriptor,target={get tmp(){throw Error('getter')}},key='tmp',calls=5000;
 watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');
 const now=performance.now.bind(performance);now();let values=0;
-const compileStart=compiled,started=now();for(let i=0;i<calls;i++)if(typeof native(target,key).get==='function')values++;
-extra.elapsedMs=now()-started;extra.compiledEvents=compiled-compileStart;extra.values=values;stop();
+const commandStart={...commands},compileStart=compiled,started=now();for(let i=0;i<calls;i++)if(typeof native(target,key).get==='function')values++;
+extra.elapsedMs=now()-started;extra.compiledEvents=compiled-compileStart;extra.values=values;
+extra.entryCommands=Object.fromEntries(Object.entries(commands).map(([name,count])=>[name,count-(commandStart[name]??0)]).filter(([,count])=>count));stop();
 extra.frameCounts=events.map(e=>e.frames.length);extra.observations=events.length;
 extra.uniform=events.every(e=>e.api==='Object.getOwnPropertyDescriptor'&&e.kind==='object'&&e.argumentCount===2&&e.keys.length===1&&e.keys[0]==='tmp');
 events.length=0;`)
     complete(data,5000);assert.equal(data.values,5000);assert.equal(data.observations,5000);assert(data.uniform)
-    assert.equal(data.compiledEvents,mode==='native'?5000:10000)
+    assert.equal(data.compiledEvents,mode==='protocol'?10000:5000)
+    if(mode==='string')assert.deepEqual(data.entryCommands,{})
     assert(data.frameCounts.every(n=>n>0&&n<=100))
     rows.push({mode,elapsedMs:data.elapsedMs,calls:data.summaries,cleared:data.cleared,commands:data.commands,
-      bridge:data.bridge??null,compiledEvents:data.compiledEvents,minimumFrames:Math.min(...data.frameCounts),maximumFrames:Math.max(...data.frameCounts)})
+      bridge:data.bridge??null,compiledEvents:data.compiledEvents,entryCommands:data.entryCommands,
+      minimumFrames:Math.min(...data.frameCounts),maximumFrames:Math.max(...data.frameCounts)})
   }
   t.diagnostic(JSON.stringify({nativeInspectorTransportMeasurements:rows,
     scope:'isolated transport, summaries and bounded stacks; not workload or CI savings',replayEligible:false}))

@@ -856,7 +856,7 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-native-inspector:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api' || inputs.only == 'benchmark-native-string')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -877,7 +877,7 @@ jobs:
           print(json.dumps({name:[line.split(' ',2)[-1] for line in symbols if name in line] for name in names},indent=2))
           PY
       - name: Build isolated native Inspector experiment
-        if: inputs.only == 'benchmark-native-inspector'
+        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string'
         shell: bash
         run: |
           NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
@@ -897,7 +897,9 @@ jobs:
           echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
           echo "QUOD_NATIVE_INSPECTOR_ADDON=$RUNNER_TEMP/quod-native-inspector.node" >> "$GITHUB_ENV"
       - name: Verify direct capture and measure the two transports
-        if: inputs.only == 'benchmark-native-inspector'
+        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string'
+        env:
+          QUOD_NATIVE_CAPTURE_TRANSPORT: ${{ inputs.only == 'benchmark-native-string' && 'string' || 'native' }}
         run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs
 
   benchmark-worker-inputs:
