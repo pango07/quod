@@ -772,7 +772,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: pango07/quod-action
-          ref: d2bb917792130dcaf3fafec066b481bec5c2f674
+          ref: 17427a7fec623d595553a3c20b31454a2f707cbe
           path: profile-action
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -782,8 +782,8 @@ jobs:
       - name: Observe actual planner, driver and workers without refining inputs
         run: |
           mkdir -p /tmp/quod-driver-stat-bin
-          echo '98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0  profile-action/dist/quod/bin-4d99319.tar.gz' | sha256sum -c -
-          tar -xzf profile-action/dist/quod/bin-4d99319.tar.gz -C /tmp/quod-driver-stat-bin
+          echo 'b31627739db6fe8ebdbed4d6aa54e7307e86665cefc677eca0bd7b3f93c95a9b  profile-action/dist/quod/bin-081f20a.tar.gz' | sha256sum -c -
+          tar -xzf profile-action/dist/quod/bin-081f20a.tar.gz -C /tmp/quod-driver-stat-bin
           node scripts/bench-vitest/driver-stat-probe.mjs "$PWD/profile-project" /tmp/quod-driver-stat-bin/quod /tmp/quod-driver-stat
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
