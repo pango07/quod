@@ -763,3 +763,39 @@ did not improve the bounded measurement. These fixtures had compilation
 logging disabled, unlike the full diagnostic. The next comparison enables
 that logging and measures Inspector commands to identify the remaining cost.
 These are diagnostic timings, not CI savings or a production replay change.
+
+## Pause construction is now the dominant measured cost
+
+Full compilation logging and inclusive Inspector command timing pass all
+110 regressions in [42212940071](https://github.com/pango07/quod/actions/runs/42212940071),
+commit `7704825`. The follow-up
+[42213337485](https://github.com/pango07/quod/actions/runs/42213337485), commit
+`7bc8cfb`, also passes 110 tests and times the entire pause callback. Every
+mode observes all 300 calls, performs 300 identity comparisons, returns
+identical values and invokes no application getter.
+
+| Method, full compilation logging | 300 calls, ms | Inside pause callback, ms | Outside callback, ms |
+| --- | ---: | ---: | ---: |
+| Full module descriptors + heap identity | 2,691.9 | 1,940.5 | 751.3 |
+| Lexical evaluation + heap identity | 960.9 | 259.8 | 701.0 |
+| Fresh scope lookup + heap identity | 931.4 | 236.0 | 695.4 |
+| Fresh scope lookup + compiled identity | 977.9 | 281.9 | 696.0 |
+
+For the fastest mode, 74.7% lies outside the diagnostic pause callback.
+This remainder includes runtime pause preparation, notification delivery,
+resumption and the application calls; the measurement does not individually
+attribute those components. V8's
+[currentCallFrames](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc#L1641-L1717)
+builds scope chains for every frame before emitting a pause. That is a
+source-backed lead for the large remainder, not a measured breakdown.
+Blackbox-pattern configuration does not add a frame filter in that loop.
+
+Further binding lookup tuning cannot remove most of this measured cost.
+The next investigation must reduce repeated pause construction or safely
+reduce the number of observed pauses while preserving coverage, including
+unknown calls. None of these experiments authorizes ignoring an input. The
+fresh lookup remains disabled in the combined workload, whose latest full
+attempt still failed. The packaged Action and the latest full 12-commit
+product result remain unchanged. No new savings are claimed, and another
+full workload run is not justified solely by the approximately 3% improvement
+over lexical evaluation in this bounded full-logging fixture.

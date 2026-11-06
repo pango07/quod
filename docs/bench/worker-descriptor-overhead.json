@@ -1485,7 +1485,7 @@
     "sourceLead": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api-natives.cc#L261-L331"
   },
   "freshModuleScopeLookup": {
-    "status": "110 regressions pass; full-trace command timing pending",
+    "status": "110 regressions pass; most remaining time is outside the pause callback",
     "enabledInCombinedWorkload": false,
     "replayEligible": false,
     "source": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-scopes.cc#L579-L621",
@@ -1577,12 +1577,300 @@
           }
         ],
         "replayEligible": false
+      },
+      {
+        "commit": "7704825",
+        "gate": 42212940071,
+        "conclusion": "success",
+        "tests": 110,
+        "logSha256": "559302ed148a270cb6f5b2da557e09b47f7ab365f9e47adbb85d8599cf85a28a",
+        "compiledScripts": true,
+        "measurements": [
+          {
+            "mode": "descriptors",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 2660.995109,
+            "identityChecks": 300,
+            "transferredModuleEntries": 601200,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 1,
+                "elapsedMs": 0.33714399999999856
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 1766.3043389999996
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 13.728128000000002
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.972915999999996
+              }
+            },
+            "compiledScripts": true,
+            "replayEligible": false
+          },
+          {
+            "mode": "evaluate",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 959.2730290000001,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 301,
+                "elapsedMs": 7.189875999999977
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 39.979003000000034
+              },
+              "Debugger.evaluateOnCallFrame": {
+                "calls": 300,
+                "elapsedMs": 67.54485499999998
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 10.346780999999991
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.689728999999999
+              }
+            },
+            "compiledScripts": true,
+            "replayEligible": false
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 935.2589579999999,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 301,
+                "elapsedMs": 7.291335
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 39.736829
+              },
+              "Runtime.callFunctionOn": {
+                "calls": 300,
+                "elapsedMs": 63.81886500000004
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 10.39763700000001
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.633608000000003
+              }
+            },
+            "compiledScripts": true,
+            "replayEligible": false
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": false,
+            "calls": 300,
+            "elapsedMs": 984.3909610000001,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 601,
+                "elapsedMs": 13.077252000000023
+              },
+              "Runtime.getProperties": {
+                "calls": 1500,
+                "elapsedMs": 59.016982999999925
+              },
+              "Runtime.callFunctionOn": {
+                "calls": 600,
+                "elapsedMs": 107.16602800000001
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.297145000000003
+              }
+            },
+            "compiledScripts": true,
+            "replayEligible": false
+          }
+        ],
+        "replayEligible": false
+      },
+      {
+        "commit": "7bc8cfb33751b4a9b2f46a2589b120654cdffbb3",
+        "gate": 42213337485,
+        "conclusion": "success",
+        "tests": 110,
+        "logSha256": "afa52e367c4b66323304464058594a10f6fd22c13219de5fa2e635722f60895f",
+        "compiledScripts": true,
+        "measurements": [
+          {
+            "mode": "descriptors",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 2691.860406,
+            "identityChecks": 300,
+            "transferredModuleEntries": 601200,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 1,
+                "elapsedMs": 0.3537099999999995
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 1769.9687019999988
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 13.190401000000012
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.947524000000001
+              }
+            },
+            "pauses": {
+              "calls": 300,
+              "elapsedMs": 1940.523282999999
+            },
+            "compiledScripts": true,
+            "replayEligible": false,
+            "outsidePauseCallbackMs": 751.3371230000007,
+            "outsidePauseCallbackFraction": 0.27911444491152443
+          },
+          {
+            "mode": "evaluate",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 960.8602600000002,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 301,
+                "elapsedMs": 7.227318999999994
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 39.222861999999964
+              },
+              "Debugger.evaluateOnCallFrame": {
+                "calls": 300,
+                "elapsedMs": 66.07775400000003
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 10.298780999999995
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.765161000000006
+              }
+            },
+            "pauses": {
+              "calls": 300,
+              "elapsedMs": 259.81725900000015
+            },
+            "compiledScripts": true,
+            "replayEligible": false,
+            "outsidePauseCallbackMs": 701.043001,
+            "outsidePauseCallbackFraction": 0.729599329042914
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 931.4073740000001,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 301,
+                "elapsedMs": 7.104563000000027
+              },
+              "Runtime.getProperties": {
+                "calls": 900,
+                "elapsedMs": 39.03041399999988
+              },
+              "Runtime.callFunctionOn": {
+                "calls": 300,
+                "elapsedMs": 64.08473900000006
+              },
+              "HeapProfiler.getHeapObjectId": {
+                "calls": 600,
+                "elapsedMs": 10.073637999999997
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.459101
+              }
+            },
+            "pauses": {
+              "calls": 300,
+              "elapsedMs": 236.04582900000003
+            },
+            "compiledScripts": true,
+            "replayEligible": false,
+            "outsidePauseCallbackMs": 695.3615450000001,
+            "outsidePauseCallbackFraction": 0.7465707964214593
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": false,
+            "calls": 300,
+            "elapsedMs": 977.9145860000001,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "commands": {
+              "Debugger.getScriptSource": {
+                "calls": 601,
+                "elapsedMs": 12.549827000000022
+              },
+              "Runtime.getProperties": {
+                "calls": 1500,
+                "elapsedMs": 58.132150999999936
+              },
+              "Runtime.callFunctionOn": {
+                "calls": 600,
+                "elapsedMs": 105.21901400000004
+              },
+              "Debugger.resume": {
+                "calls": 300,
+                "elapsedMs": 5.255925
+              }
+            },
+            "pauses": {
+              "calls": 300,
+              "elapsedMs": 281.91033199999964
+            },
+            "compiledScripts": true,
+            "replayEligible": false,
+            "outsidePauseCallbackMs": 696.0042540000004,
+            "outsidePauseCallbackFraction": 0.7117229500041431
+          }
+        ],
+        "replayEligible": false
       }
     ],
     "measurementFixtureFailure": {
       "gate": 42211891164,
       "commit": "3f7267a",
       "reason": "Lazy performance module initialization added ten descriptor calls. Clock initialization moved before observation in 1242d87."
-    }
+    },
+    "nextAction": "Investigate reducing the number or construction cost of native debugger pauses while retaining observation coverage. Further individual binding lookup tuning has limited upside; do not rerun the full workload solely for this small gain.",
+    "runtimeSource": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc#L1641-L1717"
   }
 }

@@ -806,11 +806,11 @@
     "syntaxCacheFixtureGate": 42198746560,
     "syntaxCacheFixtureConclusion": "success",
     "progressCheckpointCommit": "1e14732",
-    "latestFullGate": 42201706092,
+    "latestFullGate": 42205868477,
     "latestFullGateStatus": "completed",
     "latestFullGateConclusion": "failure",
     "latestFullGateFailure": "before phase 420-second timeout",
-    "latestFullGateCompletedWorkers": 9,
+    "latestFullGateCompletedWorkers": 11,
     "descriptorOverheadEvidence": "worker-descriptor-overhead.json",
     "moduleScopeCommit": "2092649",
     "moduleScopeFixtureGate": 42204149648,
@@ -847,8 +847,13 @@
     "lexicalBindingFullGateCompletedWorkers": 11,
     "privateCalleeExperimentRemoved": true,
     "privateCalleeLastGate": 42209923638,
-    "freshModuleScopeLookupStatus": "regressions passed; throughput comparison pending",
+    "freshModuleScopeLookupStatus": "110 regressions pass; most remaining time is outside the pause callback",
     "freshModuleScopeLookupFixtureGate": 42211683490,
-    "freshModuleScopeLookupFixtureTests": 109
+    "freshModuleScopeLookupFixtureTests": 109,
+    "freshModuleScopeLookupLatestFixtureGate": 42213337485,
+    "freshModuleScopeLookupLatestFixtureTests": 110,
+    "freshModuleScopeLookupLatestFixtureConclusion": "success",
+    "freshModuleScopeLookupEnabledInCombinedWorkload": false,
+    "descriptorOverheadNextAction": "Investigate reducing the number or construction cost of native debugger pauses while retaining observation coverage. Further individual binding lookup tuning has limited upside; do not rerun the full workload solely for this small gain."
   }
 }
