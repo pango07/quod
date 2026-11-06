@@ -1,0 +1,117 @@
+{
+  "scope": "Diagnostic evidence only; no async size key or new performance result",
+  "lifetimeBaseline": {
+    "commit": "0397956",
+    "run": "https://github.com/pango07/quod/actions/runs/42161966201",
+    "plainRetainedStats": 0,
+    "diagnosticRetainedStats": 1
+  },
+  "finalRegression": {
+    "commit": "45a982b",
+    "run": "https://github.com/pango07/quod/actions/runs/42162973816",
+    "observerTests": 38,
+    "productionProofTests": 65,
+    "failed": 0,
+    "plainRetainedStats": 0,
+    "diagnosticRetainedStats": 0
+  },
+  "driver": {
+    "commit": "8073db0",
+    "run": "https://github.com/pango07/quod/actions/runs/42162475605",
+    "conclusion": "success",
+    "result": {
+      "files": 120,
+      "states": 4131,
+      "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "replayed": 0,
+      "metadata": {
+        "sm": 299,
+        "sl": 257,
+        "st": 104
+      },
+      "sizeConsumers": 120,
+      "consumersWithSizeOutcome": 120,
+      "consumersWithOnlyOwnedHooks": 120,
+      "consumersWithNativeUnchanged": 120,
+      "consumersWithConstructionFieldsAbsent": 120,
+      "consumersWithStartupNativeUnchanged": 120,
+      "consumersWithNoOpaqueEntries": 0
+    },
+    "initial": {
+      "nativeWorkerObjects": 0,
+      "cachedNativeModules": []
+    },
+    "nativeEntryCounts": {
+      "dlopen": 1,
+      "Process.spawn": 120
+    },
+    "sizeDispatchCounts": [
+      {
+        "counts": {
+          "Process.spawn": 0,
+          "Worker": 0,
+          "Worker.startThread": 0,
+          "dlopen": 1,
+          "linkedBinding": 0,
+          "spawnSync": 0
+        },
+        "consumers": 120
+      }
+    ],
+    "cachedNativeModules": [
+      "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+    ]
+  },
+  "lockedAddonStaticInspection": {
+    "package": "@rolldown/binding-linux-x64-gnu",
+    "version": "1.2.2",
+    "archiveUrl": "https://registry.npmjs.org/@rolldown/binding-linux-x64-gnu/-/binding-linux-x64-gnu-1.2.2.tgz",
+    "verifiedIntegrity": "sha512-Q/+HI/ToJafZ1iCqGgVQXUEkIjufHCTF0gBQ2a5o3cg7GJ2h0qyq3nvvSmU+bGda2/7ygXpTY4TM6gO9OhQ0ZA==",
+    "nativeBytes": 19336888,
+    "nativeSha256": "09efa62dc8d03fb62f06ab2aadbbc26bde416acb7da20a927f7d53b2bd440322",
+    "importCount": 124,
+    "exports": [
+      "napi_register_module_v1"
+    ],
+    "capabilityRelatedImports": [
+      "dl_iterate_phdr",
+      "dlclose",
+      "dlerror",
+      "dlopen",
+      "dlsym",
+      "syscall"
+    ],
+    "napiImportCount": 0,
+    "runtimeLoadedBinaryIndependentlyHashed": false,
+    "capabilityCertified": false,
+    "nativeDependencies": [
+      {
+        "name": "libloading",
+        "version": "0.9.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "checksum": "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+      },
+      {
+        "name": "napi",
+        "version": "3.12.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "checksum": "6f71d6bc097c4a6eb853c3f24991ab8c9f50f57d1f719e305175541482217e36"
+      },
+      {
+        "name": "napi-derive",
+        "version": "3.6.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "checksum": "6d9002b2940f0184444754546e0fcd15182f56948e6f381968b019d549387c42"
+      },
+      {
+        "name": "napi-sys",
+        "version": "3.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "checksum": "85fbf1fa9f1babfe396d74bbbf52b3643770243e8f5b0b46715d4caf7f0dfc9a"
+      }
+    ]
+  },
+  "productionEngine": "081f20a",
+  "asyncSizeKeyEnabled": false,
+  "performanceBarEstablished": false
+}

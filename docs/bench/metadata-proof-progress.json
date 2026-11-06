@@ -498,5 +498,17 @@
         "freshRunnerSavingsEstablished": false
       }
     }
-  ]
+  ],
+  "opaqueObserverDiagnostic": {
+    "evidence": "opaque-stat-observers.json",
+    "regressionRun": 42162973816,
+    "driverRun": 42162475605,
+    "observerTests": 38,
+    "productionProofTests": 65,
+    "states": 4131,
+    "sizeConsumers": 120,
+    "consumersWithNoOpaqueEntries": 0,
+    "nativeAddonLoadsBeforeSizeReads": 1,
+    "asyncSizeKeyEnabled": false
+  }
 }
