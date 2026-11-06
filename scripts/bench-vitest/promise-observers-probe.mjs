@@ -200,6 +200,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
             onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
               arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,
               compilation:{events:compiled.length,overflow:compilationOverflow,failedToParse},
+              argumentDiagnostics:nativeArgument.diagnostics(),
               identity:heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
           }catch{descriptorFailure='descriptor progress checkpoint failed'}
         }
@@ -398,6 +399,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     descriptorAccess() {
       return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length,
         entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow,reason:failure??descriptorFailure,
+        argumentDiagnostics:nativeArgument.diagnostics(),
         replayEligible:false,completeDescriptorCoverage:false,
         limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
     },

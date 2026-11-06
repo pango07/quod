@@ -6,6 +6,8 @@ import {createHash} from 'node:crypto'
 
 export function observeNativeCallArguments(post,{identityComparison=null}={}) {
   const sources=new Map()
+  const propertyRequests={},propertyEntries={}
+  let skippedModuleScopes=0
   // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
   // getProperties children inherit that group and Debugger.resume releases
   // it. Other runtimes keep the conservative per-handle cleanup. See the
@@ -18,24 +20,43 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     let tree
     try {tree=parse(text,{ecmaVersion:'latest',sourceType:'module',allowReturnOutsideFunction:true})}
     catch {tree=parse(text,{ecmaVersion:'latest',sourceType:'script',allowReturnOutsideFunction:true,allowAwaitOutsideFunction:true})}
-    const calls=[],lines=[0]
+    const calls=[],lines=[0],declaredNames=new Set()
     for(let i=0;i<text.length;i++)if(text[i]==='\n')lines.push(i+1)
+    function pattern(node) {
+      if(!node)return
+      if(node.type==='Identifier')declaredNames.add(node.name)
+      else if(node.type==='RestElement')pattern(node.argument)
+      else if(node.type==='AssignmentPattern')pattern(node.left)
+      else if(node.type==='ArrayPattern')node.elements.forEach(pattern)
+      else if(node.type==='ObjectPattern')for(const p of node.properties)pattern(p.type==='RestElement'?p.argument:p.value)
+    }
     function visit(node) {
       if(!node||typeof node!=='object')return
       if(node.type==='CallExpression')calls.push(node)
+      // Overapproximate bindings, including nested scopes. False positives
+      // only cause an ordinary descriptor read. Strict ES modules cannot
+      // acquire extra module bindings through direct eval. Never apply this
+      // exclusion to a script, closure, local, or unknown scope.
+      if(node.type==='VariableDeclarator')pattern(node.id)
+      if(['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'].includes(node.type)) {
+        pattern(node.id);node.params.forEach(pattern)
+      }
+      if(['ClassDeclaration','ClassExpression'].includes(node.type))pattern(node.id)
+      if(node.type==='ImportDeclaration')for(const specifier of node.specifiers)pattern(specifier.local)
+      if(node.type==='CatchClause')pattern(node.param)
       for(const value of Object.values(node)) {
         if(Array.isArray(value))value.forEach(visit)
         else if(value&&typeof value==='object')visit(value)
       }
     }
     visit(tree)
-    const result={calls,lines,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
+    const result={calls,lines,declaredNames,locations:new Map(),sha256:createHash('sha256').update(text).digest('hex')}
     sources.set(scriptId,result);return result
   }
-  return (frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
+  const observe=(frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
     const handles=new Set(),pauseProperties=new Map()
     let callerSourceSha256=null
-    function properties(id) {
+    function properties(id,kind='object') {
       if(!id)throw Error('missing runtime object')
       // In native identity mode this invocation uses descriptor reads and
       // native ID queries only. Reuse a paused scope's descriptors within
@@ -43,6 +64,8 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
       if(identityComparison&&pauseProperties.has(id))return pauseProperties.get(id)
       const r=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false})
       if(r.exceptionDetails)throw Error('runtime descriptors unavailable')
+      propertyRequests[kind]=(propertyRequests[kind]??0)+1
+      propertyEntries[kind]=(propertyEntries[kind]??0)+(r.result?.length??0)
       if(!releaseOnResume)for(const p of [...r.result??[],...r.internalProperties??[],...r.privateProperties??[]]) {
         for(const v of [p.value,p.get,p.set])if(v?.objectId)handles.add(v.objectId)
       }
@@ -61,7 +84,11 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     function binding(name) {
       for(const scope of frame.scopeChain) {
         if(!['local','block','closure','module','script','catch'].includes(scope.type))throw Error('unsupported argument scope')
-        const p=properties(scope.object.objectId).find(p=>p.name===name)
+        if(scope.type==='module'&&typeof scope.startLocation?.scriptId==='string'&&
+          !source(scope.startLocation.scriptId).declaredNames.has(name)) {
+          skippedModuleScopes++;continue
+        }
+        const p=properties(scope.object.objectId,scope.type).find(p=>p.name===name)
         if(p)return data(p)
       }
       throw Error('argument binding unavailable')
@@ -165,4 +192,7 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
       for(const objectId of handles)try{post('Runtime.releaseObject',{objectId})}catch{}
     }
   }
+  observe.diagnostics=()=>({propertyRequests:{...propertyRequests},propertyEntries:{...propertyEntries},
+    skippedModuleScopes,replayEligible:false})
+  return observe
 }
