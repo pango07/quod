@@ -113,10 +113,11 @@ test('compare scope-read overhead with equal calls, values and native identity c
   for(const mode of ['descriptors','evaluate','lookup']) {
     const data=fixture(`const native=Object.getOwnPropertyDescriptor;
 function invoke(target,key){return native(target,key)}
+const now=performance.now.bind(performance);now();
 const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,moduleBindingLookup:LOOKUP});
-let accessorCount=0,valueCount=0;const start=performance.now();
+let accessorCount=0,valueCount=0;const start=now();
 for(let i=0;i<300;i++) {const value=invoke(i%2?target:plain,key);if(value.get)accessorCount++;else valueCount+=value.value}
-const elapsedMs=performance.now()-start,report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
+const elapsedMs=now()-start,report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
 console.log(JSON.stringify({report,identity,gets,accessorCount,valueCount,elapsedMs}));`,mode)
     assert.equal(data.accessorCount,150);assert.equal(data.valueCount,1050)
     assert.equal(data.report.calls,300);assert.equal(data.identity.comparisons,300)
