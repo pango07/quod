@@ -230,8 +230,23 @@ if(phase) {
           assert.equal(x.native.identity?.targetInspection,'native-watched','the combined diagnostic must use the gated native inspection')
           assert.equal(x.native.identity?.nativeCapture,true)
           assert.equal(x.native.identity?.handleMode,'native-private-capture')
+          assert.equal(x.native.identity?.ownerPolicy,'native-ordinary')
+          assert.equal(x.metadata.ownerGuardRequired,true)
+          assert(x.boundary.seed?.ownerGuardRequired&&x.boundary.seed.ownerGuardPassed,
+            'the seed owner must pass the native ordinary-object guard')
+          for(const record of x.metadata.metadata)for(const scalar of record.scalars)
+            assert(scalar.ownerGuardRequired&&scalar.ownerGuardPassed,
+              'every watched metadata scalar must pass the native owner guard')
           for(const entry of x.native.descriptors.entries)if(entry.argument.kind==='object') {
             const target=entry.argument.target
+            if(target?.inspectionScope==='excluded-owner-type') {
+              assert.equal(target.ownerPolicy,'native-ordinary')
+              assert(['api-wrapper','interceptor'].includes(target.ownerType))
+              assert.deepEqual(target.watchedAccessorKeys,[])
+              assert(!Object.hasOwn(target,'watchedAccessorCount')&&!Object.hasOwn(target,'ownAccessorCount'),
+                'an excluded owner must not claim descriptor inspection')
+              continue
+            }
             assert(target&&['all-own-accessors','watched-properties'].includes(target.inspectionScope),
               'every object target must declare its descriptor inspection scope')
             assert(Array.isArray(target.watchedAccessorKeys)&&new Set(target.watchedAccessorKeys).size===target.watchedAccessorKeys.length&&

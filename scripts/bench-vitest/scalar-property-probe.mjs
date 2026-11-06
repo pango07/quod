@@ -6,9 +6,9 @@ const isProxy=types.isProxy
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty
 const scalar=v=>v===null||!['object','function'].includes(typeof v)
-export function observeScalarProperty(target,key,{sourceForScript=null,onOperation=null}={}) {
+export function observeScalarProperty(target,key,{sourceForScript=null,onOperation=null,ownerGuard=null}={}) {
   const events=new Map(),gaps=new Set()
-  let installed=false,overflow=false,original,value,get,set
+  let installed=false,overflow=false,original,value,get,set,ownerGuardPassed=false
   function note(operation) {
     try {
       const sites=getCallSites(8,{sourceMap:false}).slice(2).map(s=>({scriptId:s.scriptId,
@@ -24,6 +24,10 @@ export function observeScalarProperty(target,key,{sourceForScript=null,onOperati
   }
   try {
     if(!target||typeof target!=='object'||isProxy(target))throw Error('unsupported scalar owner')
+    if(ownerGuard) {
+      if(ownerGuard(target)!==true)throw Error('unsupported native scalar owner')
+      ownerGuardPassed=true
+    }
     if(typeof key!=='string')throw Error('unsupported scalar key')
     original=descriptor(target,key)
     if(!original||!Object.hasOwn(original,'value')||!original.configurable||!original.writable)throw Error('unsupported scalar descriptor')
@@ -55,6 +59,7 @@ export function observeScalarProperty(target,key,{sourceForScript=null,onOperati
     // only to reconstruct diagnostic fingerprints after instrumentation.
     currentValue:()=>intact()?{available:true,value}:{available:false},
     report:()=>({replayEligible:false,completeOwnership:false,installed,intact:intact(),overflow,
+      ownerGuardRequired:ownerGuard!==null,ownerGuardPassed,
       descriptorObservable:true,earlierCopiesExcluded:false,nativeReadsExcluded:false,
       events:[...events.values()],gaps:[...gaps],
       limitations:['The data property becomes an observable accessor',

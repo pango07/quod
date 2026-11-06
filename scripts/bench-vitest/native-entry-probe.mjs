@@ -9,12 +9,13 @@ import {nativeCaptureInspector} from './native-capture-inspector.mjs'
 const hasOwn=Object.hasOwn,isSafeInteger=Number.isSafeInteger
 const own=(object,key)=>object&&hasOwn(object,key)?object[key]:undefined
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false}={}) {
   if(!['protocol','watched','adaptive'].includes(targetInspection))throw Error('invalid target inspection mode')
   if(nativeCapture&&(!directArguments||handleGroups||targetInspection!=='protocol'))throw Error('native capture requires direct arguments and its own inspection mode')
+  if(ordinaryOwners&&!nativeCapture)throw Error('ordinary owners require native capture')
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
-  const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce):null
+  const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce,{ordinaryOwners}):null
   const errors=[],failureSamples=[],failureCounts=new Map(),ignoredReasons=[0,0,0,0,0,0]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'
@@ -86,7 +87,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
               available:false,reason},frames)
             return true
           }
-          if(!value.cleared||value.failure!==0||value.inspected!==(value.kind==='object'&&configuration.describeOwnAccessors))
+          if(!value.cleared||value.failure!==0||value.inspected!==(value.kind==='object'&&configuration.describeOwnAccessors&&!value.excludedOwner))
             throw Error('native capture summary unavailable')
           if(value.inspected)scopedInspections++
           note({api:value.api,argumentCount:value.argumentCount,receiverBased:value.receiverBased,kind:value.kind,
@@ -177,6 +178,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,ignoredReasons:[...ignoredReasons],cleared,released,groupsReleased,
       failureCounts:Object.fromEntries(failureCounts),failureSamples:[...failureSamples],
       contextCapture:nativeInspector?.report()??null,
+      ownerPolicy:ordinaryOwners?'native-ordinary':'unrestricted',
       handleMode:nativeCapture?'native-private-capture':handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
       targetAccessorsOnly,targetInspection:nativeCapture?'native-watched':targetInspection,nativeCapture,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),

@@ -70,7 +70,7 @@ bool Put(Local<Context> context, Local<Object> result, const char* name,
                                     value).FromMaybe(false);
 }
 
-void Capture(const FunctionCallbackInfo<Value>& info) {
+void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners) {
   auto isolate = info.GetIsolate();
   HandleScope scope(isolate);
   auto context = isolate->GetCurrentContext();
@@ -81,6 +81,7 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   bool inspected = false, receiver = false, describe = false, metadata_valid = false;
   int failure = 0;  // 1 wrapper, 2 API wrapper, 3 interceptor, 4 lookup, 5 exception, 6 cleanup.
   int kind = 0, mask = 0;  // 0 primitive, 1 ordinary object, 2 proxy.
+  int excluded_owner = 0;  // Only valid with the ordinary-owner installation guard.
   int rejection = 0;  // Foreign-wrapper classification, never target data.
   double count = 0;
   Local<Object> payload;
@@ -119,9 +120,12 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
     failure = 0;
     if (describe && kind == 1) {
       auto target = argument.As<Object>();
-      if (target->IsApiWrapper()) { failure = 2; break; }
-      if (target->HasNamedLookupInterceptor() || target->HasIndexedLookupInterceptor()) {
-        failure = 3; break;
+      int unsupported = target->IsApiWrapper() ? 2 :
+          target->HasNamedLookupInterceptor() || target->HasIndexedLookupInterceptor() ? 3 : 0;
+      if (unsupported) {
+        if (ordinary_owners) { excluded_owner = unsupported - 1; available = true; }
+        else failure = unsupported;
+        break;
       }
       const char* names[] = {"seed", "tmp", "invalidate"};
       bool okay = true;
@@ -153,6 +157,7 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
       Put(context, result, "available", Boolean::New(isolate, available)) &&
       Put(context, result, "cleared", Boolean::New(isolate, cleared)) &&
       Put(context, result, "metadataValid", Boolean::New(isolate, metadata_valid)) &&
+      Put(context, result, "excludedOwner", Integer::New(isolate, excluded_owner)) &&
       Put(context, result, "failure", Integer::New(isolate, failure)) &&
       Put(context, result, "rejection", Integer::New(isolate, rejection));
   if (owned && metadata_valid) {
@@ -167,18 +172,27 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   if (okay) info.GetReturnValue().Set(result);
 }
 
+void Capture(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false); }
+void CaptureOrdinary(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true); }
+
+void IsInspectableOwner(const FunctionCallbackInfo<Value>& info) {
+  info.GetReturnValue().Set(info.Length() == 1 && OrdinaryForInspection(info[0]));
+}
+
 void CreateContextCapture(const FunctionCallbackInfo<Value>& info);
 
 void CreateCapture(const FunctionCallbackInfo<Value>& info) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
-  if (info.Length() != 1 || !info[0]->IsString() ||
+  if (info.Length() < 1 || info.Length() > 2 ||
+      (info.Length() == 2 && !info[1]->IsBoolean()) || !info[0]->IsString() ||
       info[0].As<String>()->Length() != 64) {
     isolate->ThrowException(Exception::TypeError(Key(isolate, "invalid nonce")));
     return;
   }
   Local<Function> capture, context_factory;
-  if (Function::New(context, Capture, info[0], 1, ConstructorBehavior::kThrow)
+  bool ordinary_owners = info.Length() == 2 && info[1]->IsTrue();
+  if (Function::New(context, ordinary_owners ? CaptureOrdinary : Capture, info[0], 1, ConstructorBehavior::kThrow)
           .ToLocal(&capture) &&
       Function::New(context, CreateContextCapture, Local<Value>(), 2,
                      ConstructorBehavior::kThrow).ToLocal(&context_factory) &&
@@ -221,7 +235,8 @@ void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
   TryCatch caught(isolate);
   bool okay = false;
   do {
-    if (info.Length() != 2 || !info[0]->IsString() ||
+    if (info.Length() < 2 || info.Length() > 3 ||
+        (info.Length() == 3 && !info[2]->IsBoolean()) || !info[0]->IsString() ||
         info[0].As<String>()->Length() != 64 || !info[1]->IsString() ||
         info[1].As<String>()->Length() != 64) break;
     // Intern before heap iteration: constructing a PropertyKey from an
@@ -253,7 +268,8 @@ void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
     if (!holder->GetCreationContext().ToLocal(&destination)) break;
     Context::Scope destination_scope(destination);
     Local<Function> capture;
-    if (!Function::New(destination, Capture, info[0], 1,
+    bool ordinary_owners = info.Length() == 3 && info[2]->IsTrue();
+    if (!Function::New(destination, ordinary_owners ? CaptureOrdinary : Capture, info[0], 1,
                        ConstructorBehavior::kThrow).ToLocal(&capture)) break;
     okay = holder->Set(destination, key, Null(isolate)).FromMaybe(false) &&
         holder->Set(destination, Key(isolate, "capture"), capture).FromMaybe(false);
@@ -311,6 +327,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
   if (Function::New(context, CreateContextCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createContextCapture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, IsInspectableOwner).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "isInspectableOwner"), factory)
         .FromMaybe(false);
   if (Function::New(context, CreateNativeDataFixture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),

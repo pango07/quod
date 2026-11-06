@@ -5,9 +5,12 @@ import {spawnSync} from 'node:child_process'
 import {createRequire} from 'node:module'
 import vm from 'node:vm'
 import {randomBytes} from 'node:crypto'
+import {nativeOwnerGuard} from './native-owner-guard.mjs'
+import {observeScalarProperty} from './scalar-property-probe.mjs'
+import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
+function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
 import {types} from 'node:util';
@@ -34,7 +37,7 @@ function same(id,other){
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
 function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
- const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)}});
+ const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)},ordinaryOwners:${JSON.stringify(ordinaryOwners)}});
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
@@ -462,6 +465,51 @@ test('native capture rejects API wrappers before any host access check',()=>{
   const descriptor=vm.runInNewContext('Object.getOwnPropertyDescriptor(target,"tmp")',{target})
   assert.equal(descriptor.value,'host callback value')
   assert(state.calls>=2,'the ordinary cross-context read must exercise the host access check and getter')
+})
+
+test('native ordinary-owner guards reject host objects before scalar or module descriptor access',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),ownerGuard=nativeOwnerGuard()
+  const {target,state,apiWrapper}=addon.createNativeDataFixture(false,true)
+  assert(apiWrapper);assert.equal(state.calls,0);assert.equal(ownerGuard(target),false)
+  const scalar=observeScalarProperty(target,'tmp',{ownerGuard})
+  assert.equal(scalar.report().installed,false);assert.equal(scalar.report().ownerGuardPassed,false)
+  assert(scalar.report().gaps.includes('unsupported native scalar owner'))
+  class Graph {ensureModule(){return {id:'/a',url:'/a',file:'/a',meta:undefined}}invalidateModule(){}}
+  const module=observeModuleMetadata(Graph,{observation:'accessor',ownerGuard})
+  assert.equal(module.observeMetadata(target,'fixture'),target)
+  assert(module.report().gaps.includes('unsupported native metadata owner'));assert.equal(module.report().metadata.length,0)
+  const plain={tmp:'/tmp/fixture',invalidate:false}
+  assert.equal(module.observeMetadata(plain,'fixture'),plain)
+  assert(module.report().metadata[0].scalars.every(s=>s.installed&&s.ownerGuardRequired&&s.ownerGuardPassed))
+  const seed=observeScalarProperty({seed:7},'seed',{ownerGuard})
+  assert(seed.report().installed&&seed.report().ownerGuardPassed)
+  seed.close();scalar.close();module.close();assert.equal(state.calls,0)
+  let traps=0;assert.equal(ownerGuard(new Proxy({},{getPrototypeOf(){traps++;throw Error('trap')}})),false)
+  assert.equal(traps,0);assert.equal(ownerGuard(process.env),false)
+})
+
+test('native wrapper exclusion is conditional on the guarded owner scope and never inspects host properties',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),nonce='e'.repeat(64)
+  const {target,state}=addon.createNativeDataFixture(false,true)
+  const payload=()=>({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,argumentCount:1,receiverBased:false,describeOwnAccessors:true})
+  const strict=addon.createCapture(nonce)(payload())
+  assert(strict.owned&&!strict.available&&strict.cleared);assert.equal(strict.excludedOwner,0)
+  const guarded=addon.createCapture(nonce,true)(payload())
+  assert(guarded.owned&&guarded.available&&guarded.cleared&&!guarded.inspected)
+  assert.equal(guarded.excludedOwner,1);assert.equal(guarded.mask,0);assert.equal(state.calls,0)
+})
+
+test('foreign-context bridge retains the guarded owner scope without losing ordinary targets',()=>{
+  const data=fixture(`const foreignNative=vm.runInNewContext('Object.getOwnPropertyDescriptor');
+globalThis.__quodEntryFixture.foreignNative=foreignNative;
+const stop=captureEntries([['foreign.descriptor','globalThis.__quodEntryFixture.foreignNative',{describeOwnAccessors:true}]]);
+foreignNative(globalThis,'process');foreignNative(target,key);stop();`,{directArguments:true,nativeCapture:true,ordinaryOwners:true})
+  complete(data,2);assert.equal(data.capture.ownerPolicy,'native-ordinary')
+  assert.equal(data.capture.contextCapture.contextQueries,1)
+  assert.equal(data.events[0].target.inspectionScope,'excluded-owner-type')
+  assert.equal(data.events[0].target.ownerType,'api-wrapper')
+  assert.equal(data.events[1].target.inspectionScope,'watched-properties')
+  assert.deepEqual(data.events[1].target.watchedAccessorKeys,['tmp'])
 })
 
 for(const foreign of [false,true])test('native capture distinguishes foreign execution-context exceptions: '+foreign,()=>{

@@ -9,7 +9,7 @@ import {observeScalarProperty} from './scalar-property-probe.mjs'
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty,apply=Reflect.apply
 const setSize=descriptor(Set.prototype,'size').get
 const watched=new Set(['tmp','invalidate'])
-export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,observation='proxy'}={}) {
+export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,observation='proxy',ownerGuard=null}={}) {
   if(!['proxy','accessor'].includes(observation))throw Error('unknown metadata observation mode')
   const nodes=new Map(),metadata=new Map(),proxyToRaw=new WeakMap(),events=new Map()
   const errors=[],gaps=new Set(),invalidations=[],restores=[]
@@ -43,6 +43,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     let m=metadata.get(value)
     if(m){m.owners.add(owner);m.origins.add(origin);return m.proxy}
     if(typeof value!=='object'||isProxy(value)){gaps.add('unsupported metadata value');return value}
+    if(ownerGuard&&ownerGuard(value)!==true){gaps.add('unsupported native metadata owner');return value}
     const proto=Object.getPrototypeOf(value)
     if(proto!==Object.prototype&&proto!==null){gaps.add('non-plain metadata');return value}
     if(metadata.size>=10000){overflow=true;return value}
@@ -53,7 +54,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
       // property would change `in`, ownKeys, and loader control flow.
       m.proxy=value;m.raw=value;m.scalars=new Map();metadata.set(value,m)
       for(const key of watched)if(descriptor(value,key)) {
-        const scalar=observeScalarProperty(value,key,{sourceForScript,
+        const scalar=observeScalarProperty(value,key,{sourceForScript,ownerGuard,
           onOperation:e=>record(m,e.operation,key,e.sites,e.source)})
         m.scalars.set(key,scalar);restores.push(()=>scalar.close())
       }
@@ -124,7 +125,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
       if(!r.installed||!r.intact)gaps.add('metadata scalar descriptor unavailable: '+key)
       for(const gap of r.gaps)gaps.add(key+': '+gap)
       if(r.overflow)overflow=true
-      return {key,installed:r.installed,intact:r.intact}
+      return {key,installed:r.installed,intact:r.intact,ownerGuardRequired:r.ownerGuardRequired,ownerGuardPassed:r.ownerGuardPassed}
     })
   }
   function snapshot(raw) {
@@ -148,7 +149,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
   }
   return {report:()=>{
     const records=[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners],origins:[...m.origins],scalars:scalarStatus(m)}))
-    return {replayEligible:false,completeOwnership:false,observation,overflow,assignments,
+    return {replayEligible:false,completeOwnership:false,observation,overflow,assignments,ownerGuardRequired:ownerGuard!==null,
     nodes:nodes.size,metadata:records,
     events:[...events.values()],invalidations,errors,gaps:[...gaps],
     limitations:observation==='accessor'?[

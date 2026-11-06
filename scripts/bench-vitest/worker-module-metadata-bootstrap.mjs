@@ -9,6 +9,7 @@ import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 import {observeTransportMetadata} from './worker-transport-metadata-probe.mjs'
 import {observeModuleEvaluation} from './worker-module-probe.mjs'
 import {observeScalarProperty} from './scalar-property-probe.mjs'
+import {nativeOwnerGuard} from './native-owner-guard.mjs'
 
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
@@ -18,7 +19,7 @@ let project=null
 const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
 const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
-  nativeEntries:combined,inspectorTiming:combined,
+  nativeEntries:combined,inspectorTiming:combined,ordinaryOwners:combined,
   onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
     JSON.stringify({project,files,checkpoint})+'\n'):null})
 const require=createRequire(path.join(process.cwd(),'package.json'))
@@ -26,7 +27,8 @@ const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
 if(entrySha256!=='9e3f0bc4ea6d01e55bb9a73ee3666c750e139340bb84fa46e35f92085f2535b7')throw Error('review module graph interface before changing Vite')
 const {EvaluatedModules}=await import(pathToFileURL(entry).href)
-const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript,observation:combined?'accessor':'proxy'})
+const ownerGuard=combined?nativeOwnerGuard():null
+const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript,observation:combined?'accessor':'proxy',ownerGuard})
 const vitestPackage=require.resolve('vitest/package.json')
 const transportEntry=path.join(path.dirname(vitestPackage),'dist/chunks/index.1_nbEjJY.js')
 const transportSha256=createHash('sha256').update(fs.readFileSync(transportEntry)).digest('hex')
@@ -51,7 +53,7 @@ process.prependListener('message',message=>{
     if(combined) {
       const sequence=Object.getOwnPropertyDescriptor(message.context.config,'sequence')
       seed=observeScalarProperty(sequence&&Object.hasOwn(sequence,'value')?sequence.value:null,'seed',
-        {sourceForScript:registry.sourceForScript})
+        {sourceForScript:registry.sourceForScript,ownerGuard})
       config=observeConfig(message.context.config)
       message.context.config=config.value
     }
