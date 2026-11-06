@@ -36,7 +36,11 @@ function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
-  return post('Debugger.setBreakpointOnFunctionCall',{objectId:fn,condition:capture.condition(api,options)}).breakpointId;
+  const condition=capture.condition(api,options);
+  // Inspector accepts malformed breakpoint conditions without a setup error.
+  // Parse every generated variant here so invalid syntax cannot look like zero calls.
+  new vm.Script(condition);
+  return post('Debugger.setBreakpointOnFunctionCall',{objectId:fn,condition}).breakpointId;
  });
  return ()=>{for(const breakpointId of breakpoints)post('Debugger.removeBreakpoint',{breakpointId});
    session.removeListener('Runtime.exceptionThrown',listener);extra.capture=capture.report();capture.close()};
