@@ -746,7 +746,7 @@ jobs:
 
   # Isolated Node diagnostics: no Rust build or external benchmark install.
   benchmark-observers:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-observers' || inputs.only == 'benchmark-proofs')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-observers' || inputs.only == 'benchmark-proofs' || inputs.only == 'benchmark-native-load')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -755,11 +755,11 @@ jobs:
         with:
           node-version: '24.18.0'
       - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/async-stat-probe.test.mjs scripts/bench-vitest/inspector-access-probe.test.mjs scripts/bench-vitest/startup-stat-probe.test.mjs scripts/bench-vitest/opaque-observers-probe.test.mjs scripts/bench-vitest/heap-observers-probe.test.mjs
-      - if: always() && inputs.only == 'benchmark-proofs'
+      - if: always() && (inputs.only == 'benchmark-proofs' || inputs.only == 'benchmark-native-load')
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/record.test.mjs
 
   benchmark-driver-stat:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-driver-stat' || inputs.only == 'benchmark-native-symbols')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-driver-stat' || inputs.only == 'benchmark-native-symbols' || inputs.only == 'benchmark-native-load')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -783,6 +783,9 @@ jobs:
           node --test scripts/bench-vitest/native-symbol-audit.test.mjs
           cc -std=c11 -Wall -Wextra -Werror -shared -fPIC -O2 scripts/bench-vitest/native-symbol-audit.c -o /tmp/quod-native-symbol-audit.so
           echo 'QUOD_NATIVE_AUDIT_LIBRARY=/tmp/quod-native-symbol-audit.so' >> "$GITHUB_ENV"
+      - name: Verify native artifact identity around the actual load
+        if: inputs.only == 'benchmark-native-load'
+        run: node --test scripts/bench-vitest/native-load-probe.test.mjs
       - run: npm ci
         working-directory: profile-project
       - name: Observe actual planner, driver and workers without refining inputs

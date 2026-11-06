@@ -99,6 +99,7 @@ export function observeAsyncStat(project,{startup=null}={}) {
         startupAtAttach,
         inspectorAccess:{atConsumerProof:inspectorAtConsumerProof,final:observerRegistry.inspectorAccess()},
         opaqueAccess:observerRegistry.opaqueAccess(),
+        nativeArtifacts:startup?.nativeLoads.report()??null,
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
@@ -117,6 +118,10 @@ export function observeAsyncStat(project,{startup=null}={}) {
               Object.values(x.opaque.counts).every(n=>n===0)),
             observedNoHeapEntries:checkpoints.every(x=>x.opaque.available &&
               Object.entries(x.opaque.counts).filter(([name])=>name.startsWith('v8.')).every(([,n])=>n===0)),
+            observedNativeArtifactsMatched:startupAtAttach?.startup.available===true && checkpoints.every(x=>
+              x.opaque.available && x.startup?.nativeArtifacts.available &&
+              x.startup.nativeArtifacts.loads===x.opaque.counts.dlopen &&
+              x.startup.nativeArtifacts.matchedArtifacts===x.startup.nativeArtifacts.loads),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
               x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}
@@ -124,6 +129,6 @@ export function observeAsyncStat(project,{startup=null}={}) {
         unvalidated:['non-registry observation channels','initial preload state','native binding origin',
           'all result consumers','production integration']}
     },
-    close(){stop();observerRegistry.close()},
+    close(){stop();observerRegistry.close();startup?.nativeLoads.close()},
   }
 }

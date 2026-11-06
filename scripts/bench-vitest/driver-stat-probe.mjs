@@ -16,6 +16,7 @@ const source=fileURLToPath(new URL('../../crates/quod-cli/src/vitest/',import.me
 const observer=new URL('./async-stat-probe.mjs',import.meta.url)
 const registry=new URL('./promise-observers-probe.mjs',import.meta.url)
 const startup=new URL('./startup-stat-probe.cjs',import.meta.url)
+const nativeLoad=new URL('./native-load-probe.mjs',import.meta.url)
 const state=path.join(out,'state'),staged=path.join(out,'js'),observations=path.join(out,'async-stats.json')
 assert.equal(fs.existsSync(state),false,'diagnostic state must be fresh')
 fs.mkdirSync(staged,{recursive:true})
@@ -34,7 +35,7 @@ function replaceOnce(before,after) {
 }
 const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 replaceOnce("const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'",
-  `// Diagnostic module hashes: ${hash(observer)} ${hash(registry)} ${hash(startup)}\n`+
+  `// Diagnostic module hashes: ${hash(observer)} ${hash(registry)} ${hash(startup)} ${hash(nativeLoad)}\n`+
   `const statDiagnostics=hooks?(await import(${JSON.stringify(observer.href)})).observeAsyncStat(process.cwd(),{startup:nodeModule.createRequire(import.meta.url)(${JSON.stringify(fileURLToPath(startup))})}):null;\n`+
   `process.on('exit',()=>{if(statDiagnostics){try{real.writeFileSync(${JSON.stringify(observations)},JSON.stringify(statDiagnostics.report()))}finally{statDiagnostics.close()}}});\n`+
   "const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'")
@@ -93,11 +94,13 @@ const result={measurementScope:'Real planner/driver/workers with passive main-pr
   consumersWithStartupNativeUnchanged:fileCalls.filter(c=>c.observedStartupNativeUnchanged).length,
   consumersWithNoOpaqueEntries:fileCalls.filter(c=>c.observedNoOpaqueEntries).length,
   consumersWithNoHeapEntries:fileCalls.filter(c=>c.observedNoHeapEntries).length,
+  consumersWithNativeArtifactsMatched:fileCalls.filter(c=>c.observedNativeArtifactsMatched).length,
   startupAtAttach:trace.startupAtAttach,
   initialObservers:trace.initialObservers,nativeProvenance:trace.nativeStatProvenance,
   inspectorAccess:trace.inspectorAccess,
   opaqueAccess:trace.opaqueAccess,
   nativeSymbols,
+  nativeArtifacts:trace.nativeArtifacts,
   preloadModules:trace.preloadModules,replayEligible:false,unvalidated:trace.unvalidated}
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2))
 console.log(JSON.stringify({...result,opaqueAccess:{...result.opaqueAccess,entries:result.opaqueAccess.entries.length},

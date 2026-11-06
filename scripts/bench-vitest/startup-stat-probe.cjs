@@ -80,7 +80,7 @@ function snapshot() {
   return {startup,nativeBindingUnchanged:descriptor(binding,'stat')?.value===nativeStat,
     publicSyncUnchanged:descriptor(fs,'statSync')?.value===nativeSync,
     publicAsyncUnchanged:descriptor(fs.promises,'stat')?.value===nativeAsync,
-    prototypeUnchanged,replayEligible:false}
+    prototypeUnchanged,nativeArtifacts:nativeLoads.snapshot(),replayEligible:false}
 }
 // The same inspector stays alive across preloads and the main driver.
 // Its native references are captured before a user preload can replace
@@ -89,4 +89,10 @@ function snapshot() {
 const {inspectPromiseObservers}=require('./promise-observers-probe.mjs')
 const observerRegistry=inspectPromiseObservers()
 const provenance=observerRegistry.nativeStatProvenance()
-module.exports=freeze({startup,snapshot,observerRegistry,provenance})
+// Capture file identity before a user preload can load an addon. A digest
+// match is only provenance evidence; it grants no native capability trust.
+const {observeNativeLoads}=require('./native-load-probe.mjs')
+const nativeLoads=observeNativeLoads({digests:[
+  '09efa62dc8d03fb62f06ab2aadbbc26bde416acb7da20a927f7d53b2bd440322',
+]})
+module.exports=freeze({startup,snapshot,observerRegistry,provenance,nativeLoads})
