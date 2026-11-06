@@ -204,6 +204,27 @@ delete Object.prototype.quodStatProbe;`})
   assert.ok(result.keys.includes('sm:package.json'))
   assert.equal(result.keys.includes('st:package.json'),false)
 })
+test('a private awaited size read does not hide promise observers of metadata', () => {
+  const result=recorded('{size,observed}',{enabled:false,statEnabled:true,names:true,prelude:`
+import {createHook} from 'node:async_hooks';
+const observed=[];
+let attaching=false;
+const hook=createHook({init(id,type,trigger,promise){
+  if(type!=='PROMISE' || attaching) return;
+  attaching=true;
+  try { promise.then(value=>{if(typeof value?.mtimeMs==='number') observed.push(value.mtimeMs)},()=>{}); }
+  finally { attaching=false; }
+}});
+hook.enable();
+async function fileSize(file){const stats=await fs.promises.stat(file); return stats.size;}
+const size=await fileSize('package.json');
+await new Promise(resolve=>setImmediate(resolve));
+hook.disable();`})
+  assert.ok(result.value.size>0)
+  assert.ok(result.value.observed.some(n=>n>0),'the promise hook must actually observe a native Stats timestamp')
+  assert.ok(result.keys.includes('sm:package.json'),'the lexical size-only consumer is insufficient proof')
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
 test('private helper results may feed only uninterrupted type branches', () => {
   for (const body of [
     'const s=tryStatSync(file); if(s?.isFile()) return "file"; if(s?.isDirectory()) return "directory"; return "other";',
