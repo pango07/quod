@@ -8,10 +8,10 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "Quod: Faster Vitest CI. Fewer runner minutes.",
   description:
-    "Reuse verified Vitest results when their inputs are unchanged. See measured savings of 45.2% in runner time and 41.7% in estimated runner charges on convex-helpers.",
+    "Explore how Quod reuses verified Vitest results, try the interactive demos, and follow the current benchmark evidence.",
   openGraph: {
     title: "Quod: Faster Vitest CI. Fewer runner minutes.",
-    description: "Measured on convex-helpers: 45.2% less runner time and 41.7% lower estimated runner charges across 12 commits, including the cold start.",
+    description: "Try Quod’s interactive Vitest replay demos and explore the benchmark history. Savings for the corrected engine are still being validated.",
     images: ["/quod-logo.png"],
   },
 };

@@ -1,4 +1,5 @@
-// One pinned, cold-start 12-commit window. Warm-hit probes are separate.
+// Historical engine: a later metadata regression invalidated current claims.
+// Keep the measured archive available without attributing it to the fix.
 export const benchmark = {
   project: "convex-helpers",
   commits: 12,
@@ -9,7 +10,8 @@ export const benchmark = {
   bestHitSeconds: 14,
   bestFloorSeconds: 11,
   medianHitSeconds: 20,
-  report: "https://github.com/pango07/quod/blob/ae52750/docs/bench/config-names-proof-window.md",
+  report: "https://github.com/pango07/quod/blob/b1ca965/docs/bench/config-names-proof-window.md",
+  currentReport: "https://github.com/pango07/quod/blob/b1ca965/docs/bench/metadata-fresh-runner-probe.md",
   run: "https://github.com/pango07/ci-bench/actions/runs/42103710173",
   support: "https://github.com/pango07/quod/blob/8fe1016/docs/bench/support-boundaries.md",
 } as const;

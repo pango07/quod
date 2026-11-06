@@ -14,6 +14,7 @@ export function Receipt() {
   const [on, setOn] = useState(0);
   return (
     <div className="receipt">
+      <p className="demo-note">Historical engine: these results predate the metadata correctness fix. <a href={benchmark.currentReport}>See the corrected-engine results ↗</a></p>
       <div className="receipt-lines" role="group" aria-label="Explore the benchmark evidence">
         {LINES.map((line, i) => <button key={line.label} type="button" aria-pressed={i === on} className={`ln ${i === on ? "on" : ""}`} onClick={() => setOn(i)}>{line.label}</button>)}
       </div>

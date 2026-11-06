@@ -28,7 +28,11 @@ A replayed result is useful only when it agrees with a fresh execution. Quod use
 - **Audits run replays for real.** When workers would otherwise sit idle, a random sample of replayable files runs instead of replaying, and is compared with the recording, test by test. A mismatch stops that file replaying.
 - **Only trusted branches write.** Pull requests read results recorded on your writer branches, such as `main`, but they can't write them. See [Trust and audits](/docs/trust).
 
-## Observed whole-job savings
+## Historical whole-job savings
+
+<Note>
+  These measurements predate a metadata correctness fix. A later regression found that the older engine could replay a stale result when file metadata changed without a content edit. **The figures below do not apply to the corrected engine.** Its fresh-runner probe matched all 4,131 test states but replayed zero test files; its window savings and warm-hit time remain unestablished. [Read the corrected-engine evidence](https://github.com/pango07/quod/blob/b1ca965/docs/bench/metadata-fresh-runner-probe.md).
+</Note>
 
 We compared plain CI with Quod across the same 12 commits of **convex-helpers**, including the cold start, installs, builds, tests, confirmations, audits and Action overhead.
 
@@ -46,7 +50,7 @@ Separate warm-hit probes had a best job of **14 seconds against an 11-second emp
   These results use an experimental Action with lineage witnesses and a bounded configuration-input proof enabled, and timing-sensitive replay off. They are not the released Action's defaults or a savings guarantee. First recordings, shared input changes and audits can make individual jobs slower. Zero observed wrong results is evidence for this window, not proof of universal correctness.
 </Note>
 
-[Read the pinned report and settings](https://github.com/pango07/quod/blob/ae52750/docs/bench/config-names-proof-window.md), [inspect the original GitHub jobs](https://github.com/pango07/ci-bench/actions/runs/42103710173), or [check current support and observation limits](https://github.com/pango07/quod/blob/8fe1016/docs/bench/support-boundaries.md).
+[Read the historical report and correction](https://github.com/pango07/quod/blob/b1ca965/docs/bench/config-names-proof-window.md), [inspect the original GitHub jobs](https://github.com/pango07/ci-bench/actions/runs/42103710173), or [check support and observation limits](https://github.com/pango07/quod/blob/8fe1016/docs/bench/support-boundaries.md).
 
 ## Next steps
 

@@ -13,7 +13,7 @@ export function CiJob() {
     <figure className="job benchmark-job" aria-labelledby="job-caption">
       <figcaption className="job-head" id="job-caption">
         <span className="job-title">convex-helpers · 12 commits</span>
-        <span className="job-label">Measured on GitHub Actions</span>
+        <span className="job-label">Historical engine · GitHub Actions</span>
       </figcaption>
       <div className="job-controls seg" role="group" aria-label="Compare benchmark metrics">
         <button type="button" aria-pressed={isTime} onClick={() => setMetric("time")}>Runner time</button>
@@ -33,6 +33,7 @@ export function CiJob() {
         </div>
         <p className="job-label">{isTime ? "Same commits. Same test outcomes. Less repeated work." : "Estimated usage charges at the same runner rate. These public jobs were free."}</p>
       </div>
+      <p className="demo-note">These measurements predate a metadata correctness fix. <a href={benchmark.currentReport}>Current-engine savings are still being validated ↗</a></p>
       <div className="job-foot">
         <span><b>{isTime ? timeSaved : costSaved}%</b> {isTime ? `less runner time · ${duration(plain - quod)} saved` : "lower estimated runner charges"}</span>
         <a href={benchmark.run}>View the runs ↗</a>

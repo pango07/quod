@@ -11,11 +11,11 @@ const FAQ: [string, string][] = [
   ["What does Quod actually skip?",
     "Eligible Vitest test files whose recorded inputs are unchanged and whose results have been verified. Files with changed inputs still run. Dependency caching can also avoid repeat installs; experimental command replay covers selected npm scripts."],
   ["Will my CI always be 40–50% cheaper?",
-    "We measured 41.7% lower estimated runner charges and 45.2% less runner time on convex-helpers, including its cold start. Your savings depend on what changes, test duration and how often results can be reused. First recordings, confirmations and audits add work. Individual jobs can be slower."],
+    "No. An earlier experimental version measured 41.7% lower estimated runner charges and 45.2% less runner time. A later regression test found that it could miss changes to file metadata. Those historical savings do not apply to the corrected engine, whose savings are still being validated. First recordings, confirmations and audits add work; individual jobs can be slower."],
   ["What is supported?",
     "The benchmark covers one-shot Vitest on GitHub-hosted Linux x64, using Node 24.18.0 and Vitest 5.0.0, in a monorepo with multiple test projects. We are not claiming these savings for other test frameworks, operating systems or runner architectures. Watch mode, browser mode and other unsupported command modes run normally."],
   ["What does zero wrong replays mean?",
-    "On every commit in this benchmark, Quod matched the plain job’s per-test names and pass/fail states, test counts and job conclusion. That is zero observed differences in this window, not proof that every possible test behavior is covered. Quod also audits reused results and stops reusing records that disagree."],
+    "The historical window matched every paired plain job, but a separate regression later exposed a wrong replay when only file metadata changed. The corrected engine passes that regression. Its fresh-runner probe also matched all 4,131 test states, while replaying zero test files. Agreement during execution does not establish replay correctness or savings."],
   ["Why are time savings and cost savings different?",
     "We measured runner-seconds for time. For estimated usage cost, we rounded each job up to a full minute, as GitHub does, then compared the totals at the same per-minute rate. The public benchmark jobs were free. These are two views of the same saved work; the percentages do not add together."],
   ["Are these the released Action’s default results?",
@@ -36,29 +36,33 @@ export default function Home() {
               Quod reuses that result. Changed files still run.
             </p>
             <JoinForm source="hero" />
-            <a className="text-link" href="#benchmarks">See the measured savings ↓</a>
+            <a className="text-link" href="#benchmarks">Explore the benchmark evidence ↓</a>
           </div>
           <CiJob />
         </section>
         <section className="sec" id="benchmarks">
           <div className="sec-head">
-            <p className="eyebrow">Observed results · November 5, 2026</p>
-            <h2>Real jobs. Measured savings.</h2>
+            <p className="eyebrow">Benchmark history · November 5, 2026</p>
+            <h2>Measured results, with their limits.</h2>
             <p className="lede">
-              We compared Quod with plain CI across the same 12 commits of convex-helpers.
-              The window includes the cold start, installs, builds, tests and action overhead.
+              An earlier experimental engine saved time across 12 commits of convex-helpers.
+              A later file-metadata regression required a correctness fix. These figures describe the older engine.
             </p>
           </div>
+          <div className="benchmark-notes" data-benchmark-status="historical">
+            <p><strong>Current engine: savings still being validated.</strong> The corrected fresh-runner probe matched all 4,131 test states but reused zero test files. We have not established its 12-commit savings or a warm-hit time.</p>
+            <p><a href={benchmark.currentReport}>Read the corrected-engine results ↗</a></p>
+          </div>
           <div className="proof">
-            <div><span className="big">{timeSaved}%</span><p>less total runner time</p><p>1,766 → 968 runner-seconds</p></div>
-            <div><span className="big">{costSaved}%</span><p>lower estimated runner charges</p><p>36 → 21 rounded runner-minutes</p></div>
-            <div><span className="big">floor + {benchmark.bestHitSeconds - benchmark.bestFloorSeconds}s</span><p>best separate warm-hit job</p><p>{benchmark.bestHitSeconds}s total, against an {benchmark.bestFloorSeconds}s empty job</p></div>
+            <div><span className="big">{timeSaved}%</span><p>historical runner-time reduction</p><p>1,766 → 968 runner-seconds</p></div>
+            <div><span className="big">{costSaved}%</span><p>historical estimated charge reduction</p><p>36 → 21 rounded runner-minutes</p></div>
+            <div><span className="big">floor + {benchmark.bestHitSeconds - benchmark.bestFloorSeconds}s</span><p>historical best separate warm hit</p><p>{benchmark.bestHitSeconds}s total, against an {benchmark.bestFloorSeconds}s empty job</p></div>
           </div>
           <div className="benchmark-notes">
-            <p><strong>0 wrong replays observed.</strong> Every commit matched the paired plain job&rsquo;s test outcomes.</p>
+            <p><strong>0 wrong observed in that window.</strong> The metadata defect was found in a separate regression test afterward.</p>
             <p>Three separate warm-hit probes had a median job duration of {benchmark.medianHitSeconds}s. They are excluded from the 12-commit totals.</p>
             <p className="foot-note">
-              Experimental settings, one repository. Savings vary. Cost is estimated from rounded minutes at the same
+              Earlier experimental engine, one repository. Cost is estimated from rounded minutes at the same
               runner rate; these public jobs cost $0. The report includes the code pins, settings and runner images.
             </p>
             <p className="evidence-links"><a href={benchmark.report}>Read the benchmark report ↗</a><a href={benchmark.run}>Inspect the GitHub jobs ↗</a></p>
@@ -77,7 +81,7 @@ export default function Home() {
           <div className="sec-head">
             <h2>Add one Action step.</h2>
             <p className="lede">Keep your GitHub runner, install command and Vitest tests. Connect your repository to Quod Cloud, enable the job&rsquo;s OIDC permission and add Quod after Node setup.</p>
-            <p className="foot-note">This shows the released Action. The benchmark report documents the experimental settings behind the measured savings.</p>
+            <p className="foot-note">This shows the released Action. The historical benchmark uses a different experimental revision; it does not establish savings for the released Action or corrected engine.</p>
             <a className="text-link" href="https://github.com/pango07/quod-action/tree/v2">Read the setup guide ↗</a>
           </div>
           <WorkflowDiff />

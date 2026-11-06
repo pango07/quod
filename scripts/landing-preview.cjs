@@ -22,6 +22,10 @@ async function main() {
         await page.screenshot({ path: `${output}/${name}-${label}-full.png`, fullPage: true });
         if (route === '/') {
           const chart = page.locator('.benchmark-job');
+          assert.match(await chart.textContent(), /Historical engine/);
+          assert.match(await chart.textContent(), /Current-engine savings are still being validated/);
+          assert.match(await page.locator('[data-benchmark-status="historical"]').textContent(), /reused zero test files/);
+          assert.doesNotMatch(await page.locator('meta[name="description"]').getAttribute('content'), /45\.2|41\.7/);
           await chart.getByRole('button', { name: 'Runner cost', exact: true }).click();
           await chart.locator('.comparison', { hasText: '36 min' }).waitFor();
           assert.match(await chart.textContent(), /21 min/);
@@ -102,7 +106,7 @@ async function main() {
           assert.doesNotMatch(yaml, /^\+/m);
           assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name}: interactive layout overflow`);
 
-          await page.getByRole('link', { name: 'See the measured savings' }).click();
+          await page.getByRole('link', { name: 'Explore the benchmark evidence' }).click();
           assert.equal(new URL(page.url()).hash, '#benchmarks');
           for (const section of ['benchmarks', 'setup']) {
             await page.locator(`#${section}`).screenshot({ path: `${output}/${name}-${section}.png` });

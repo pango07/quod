@@ -53,9 +53,10 @@ export default function UnderTheHood() {
         </section>
         <section className="sec split"><div className="sec-head"><h2>Put verification to work.</h2><p className="lede">Step through the example, then make an audit disagree.</p></div><TrustMeter /></section>
         <section className="sec" id="cost">
-          <div className="sec-head"><h2>Count the whole job.</h2></div>
+          <div className="sec-head"><h2>Count the whole job.</h2><p className="lede">Historical measurements from an earlier engine. A later metadata correctness fix means these savings do not describe the current candidate.</p></div>
           <Receipt />
           <div className="reading">
+            <p>The corrected engine matched all 4,131 test states in its fresh-runner probe, but reused zero test files. Its window savings and warm-hit time have not been established. <a href={benchmark.currentReport}>Read the current results ↗</a></p>
             <p>The benchmark compares the same 12 commits with and without Quod. Total runner time includes installs, builds, tests, setup and post steps. The cold recording, confirmations and audits stay in the measured window.</p>
             <p>Runner time fell from 1,766 to 968 seconds: 45.2% less. Rounding each job up to a full minute gives 36 minutes plain and 21 with Quod: 41.7% less metered usage. At the same runner rate, that is the estimated reduction in usage charges. The actual public jobs were free.</p>
             <p>The estimate follows <a href="https://docs.github.com/en/billing/reference/actions-runner-pricing">GitHub&rsquo;s per-job minute rounding</a>. It covers runner usage, before included allowances, storage charges or Quod pricing.</p>
