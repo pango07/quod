@@ -960,3 +960,26 @@ bridges, preserve actual arguments and receivers, and retain unrelated
 exception/handle and collection checks. No full rerun is justified until
 that path is gated and its complete-logging cost is measured. Production
 replay eligibility and the 12-commit savings result remain unchanged.
+
+## Private summary rejected; direct argument transport under test
+
+The private summary helper at `f9d1ef3` passed all 140 fixture tests in
+[gate 42222713382](https://github.com/pango07/quod/actions/runs/42222713382),
+but made the diagnostic slower. For 300 calls with complete compilation
+logging, the existing accessor-only protocol path took 226 ms versus
+690 ms for the helper on a narrow target. With 80 extra function fields,
+the times were 322 ms versus 4,293 ms. The helper reduced protocol calls,
+but its own descriptor operations caused additional native breakpoint
+condition compilations: 3,911 / 27,911 events versus 609 in either existing
+case. The passing tests do not turn that overhead into a useful improvement.
+[Measurements and log digest](worker-native-private-summary.json) preserve
+the rejected experiment.
+
+The helper is removed. The next candidate places the actual first native
+argument directly in the existing private exception wrapper, alongside
+the argument count. Receiver-based APIs carry the actual receiver instead.
+It retains Inspector accessor inspection and avoids a separate request
+for the synthetic arguments array. Zero-argument calls avoid reading an
+inherited array element. The existing array format remains the default;
+the direct format is an opt-in diagnostic pending its remote gate.
+Neither format establishes input ownership or authorizes production replay.

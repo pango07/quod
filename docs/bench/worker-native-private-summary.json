@@ -1,0 +1,141 @@
+{
+  "commit": "f9d1ef3eb0d99ca4bca00c487fe96e5afd74ec82",
+  "run": "https://github.com/pango07/quod/actions/runs/42222713382",
+  "job": 127908429181,
+  "conclusion": "success",
+  "testsPassed": 140,
+  "logSha256": "b06cd8943f3c68779492f48626bc3559cc5a759498812e6c04bee72b7261ca2d",
+  "measurements": [
+    {
+      "width": 0,
+      "inProcessInspection": false,
+      "calls": 300,
+      "elapsedMs": 225.70330500000003,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 900,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 2400,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 2400,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 0,
+      "inProcessInspection": true,
+      "calls": 300,
+      "elapsedMs": 690.160796,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 4,
+        "Debugger.getScriptSource": 3911,
+        "Runtime.callFunctionOn": 301,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.releaseObject": 300,
+        "Debugger.removeBreakpoint": 1,
+        "Runtime.releaseObjectGroup": 1
+      },
+      "compiledEvents": 3911,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 300,
+        "groupsReleased": 0,
+        "handleMode": "private-inspector-summary",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 80,
+      "inProcessInspection": false,
+      "calls": 300,
+      "elapsedMs": 321.649263,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 3,
+        "Debugger.getScriptSource": 609,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.getProperties": 900,
+        "Runtime.callFunctionOn": 300,
+        "Runtime.releaseObject": 2400,
+        "Debugger.removeBreakpoint": 1
+      },
+      "compiledEvents": 609,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 2400,
+        "groupsReleased": 0,
+        "handleMode": "individual",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    },
+    {
+      "width": 80,
+      "inProcessInspection": true,
+      "calls": 300,
+      "elapsedMs": 4292.837389,
+      "commands": {
+        "Runtime.enable": 1,
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 4,
+        "Debugger.getScriptSource": 27911,
+        "Runtime.callFunctionOn": 301,
+        "Debugger.setBreakpointOnFunctionCall": 1,
+        "Runtime.releaseObject": 300,
+        "Debugger.removeBreakpoint": 1,
+        "Runtime.releaseObjectGroup": 1
+      },
+      "compiledEvents": 27911,
+      "capture": {
+        "available": true,
+        "calls": 300,
+        "ignored": 0,
+        "cleared": 300,
+        "released": 300,
+        "groupsReleased": 0,
+        "handleMode": "private-inspector-summary",
+        "targetAccessorsOnly": true,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "replayEligible": false
+    }
+  ],
+  "decision": "Remove the private helper: watched descriptor calls inside Inspector evaluation still generate condition compilations. Retain complete compilation accounting. Try direct first-argument transport without executing target inspection in JavaScript.",
+  "replayEligible": false,
+  "productionSavingsChanged": false
+}
