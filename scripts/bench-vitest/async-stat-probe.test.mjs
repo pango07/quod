@@ -2,15 +2,18 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 
-function run(lateObserver,changePrototype=false,{missing=false,changeBinding=false}={}) {
+function run(lateObserver,changePrototype=false,{missing=false,changeBinding=false,observe=true}={}) {
   const input=new URL('./async-stat-probe.mjs',import.meta.url).pathname+(missing?'.missing':'')
   const source=`import {observeAsyncStat} from ${JSON.stringify(new URL('./async-stat-probe.mjs',import.meta.url).href)};
 import fs from 'node:fs';import {promiseHooks} from 'node:v8';
-const probe=observeAsyncStat(process.cwd());const NativeStats=fs.Stats;
+const probe=${observe?'observeAsyncStat(process.cwd())':'({report(){return {calls:[]}},close(){}})'};const NativeStats=fs.Stats;
 const binding=process.binding('fs'), originalStat=binding.stat;
 if(${changeBinding}) binding.stat=function(...args){return Reflect.apply(originalStat,this,args)};
 const originalThen=Promise.prototype.then;let thenCalls=0;
-Promise.prototype.then=function(){thenCalls++;throw Error('diagnostic inserted a reaction')};
+Promise.prototype.then=function(...args){thenCalls++;
+  if(!${missing}) throw Error('diagnostic inserted a reaction');
+  return Reflect.apply(originalThen,this,args);
+};
 const root=fs.promises.stat(${JSON.stringify(input)});
 binding.stat=originalStat;
 const internal=NativeStats.prototype.constructor,originalPrototype=internal.prototype;
@@ -56,8 +59,13 @@ test('an observer installed during I/O cannot disappear between root checkpoints
   assert.equal(r.report.replayEligible,false)
 })
 test('an awaited native rejection is observed without a new reaction or error reader',()=>{
+  // Node's handleErrorFromBinding returns PromiseReject(error), whose
+  // adoption can invoke the public then method. Compare a plain baseline;
+  // throwing from then would break native rejection handling itself.
+  const baseline=run(false,false,{missing:true,observe:false})
   const r=run(false,false,{missing:true}),op=r.report.calls[0]
-  assert.equal(r.caught,true);assert.equal(r.thenCalls,0)
+  assert.equal(baseline.caught,true);assert.equal(r.caught,true)
+  assert.equal(r.thenCalls,baseline.thenCalls,'the diagnostic must add no public then reactions')
   assert.equal(op.observedNativeUnchanged,true)
   assert.deepEqual(op.outcome,{available:true,state:'rejected',projection:'ignored-error',replayEligible:false})
   assert.equal(r.report.replayEligible,false)
