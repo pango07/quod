@@ -2,10 +2,14 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 
-function run(lateObserver,changePrototype=false,{missing=false,changeBinding=false,observe=true}={}) {
+function run(lateObserver,changePrototype=false,{missing=false,changeBinding=false,observe=true,inheritedSetter=false}={}) {
   const input=new URL('./async-stat-probe.mjs',import.meta.url).pathname+(missing?'.missing':'')
   const source=`import {observeAsyncStat} from ${JSON.stringify(new URL('./async-stat-probe.mjs',import.meta.url).href)};
 import fs from 'node:fs';import {promiseHooks} from 'node:v8';
+let escaped=null;
+if(${inheritedSetter}) Object.defineProperty(fs.Stats.prototype,'mtimeMs',{configurable:true,set(value){
+  escaped=this;Object.defineProperty(this,'mtimeMs',{value,writable:true,enumerable:true,configurable:true});
+}});
 const probe=${observe?'observeAsyncStat(process.cwd())':'({report(){return {calls:[]}},close(){}})'};const NativeStats=fs.Stats;
 const binding=process.binding('fs'), originalStat=binding.stat;
 if(${changeBinding}) binding.stat=function(...args){return Reflect.apply(originalStat,this,args)};
@@ -26,7 +30,7 @@ await new Promise(resolve=>setImmediate(resolve));
 Promise.prototype.then=originalThen;
 const report=probe.report();probe.close();
 const descriptor=value && Object.getOwnPropertyDescriptor(value,'mtimeMs');
-console.log(JSON.stringify({report,thenCalls,foreign,caught,size:value?.size,nativeStats:value instanceof NativeStats,
+console.log(JSON.stringify({report,thenCalls,foreign,caught,escaped:escaped===value && value!==null,size:value?.size,nativeStats:value instanceof NativeStats,
  nativePrototype:value && Object.getPrototypeOf(value)===NativeStats.prototype,metadataData:descriptor && typeof descriptor.value==='number' && descriptor.get===undefined}));`
   const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
   assert.equal(r.status,0,r.stderr||String(r.error));return JSON.parse(r.stdout)
@@ -46,6 +50,8 @@ test('passive stat tracing preserves native Stats and adds no then reaction',()=
   assert.equal(op.rootSettledFromOwnReaction,true)
   assert.equal(op.observedOnlyOwnedHooks,true)
   assert.equal(op.observedNativeUnchanged,true)
+  assert.deepEqual(r.report.nativeStatProvenance.construction,{knownSources:true,fieldsAbsent:true,replayEligible:false})
+  assert.equal(op.observedConstructionFieldsAbsent,true)
   assert.deepEqual(op.outcome,{available:true,state:'fulfilled',projection:'size',size:r.size,replayEligible:false})
   assert.ok(op.promises.some(p=>!p.nativeCall),'the awaiting consumer must also be observed')
 })
@@ -76,6 +82,16 @@ test('replacing the closed-over native binding cannot hide behind the public pro
   assert.equal(op.before.native.unchanged,false)
   assert.equal(op.observedNativeUnchanged,false)
   assert.ok(op.creatorBefore.every(s=>s.native.unchanged),'restoration after dispatch must not erase earlier evidence')
+  assert.equal(r.report.replayEligible,false)
+})
+test('a constructor-field setter installed before observation exposes an additional consumer',()=>{
+  const r=run(false,false,{inheritedSetter:true}),op=r.report.calls[0]
+  assert.equal(r.escaped,true,'the inherited setter obtained the actual native Stats')
+  assert.equal(op.before.pristine,true,'an initial snapshot alone misses this escape')
+  assert.equal(op.outcome.available,true,'a native own size field alone also misses it')
+  assert.equal(r.report.nativeStatProvenance.construction.knownSources,true)
+  assert.equal(r.report.nativeStatProvenance.construction.fieldsAbsent,false)
+  assert.equal(op.observedConstructionFieldsAbsent,false)
   assert.equal(r.report.replayEligible,false)
 })
 test('a transient internal Stats prototype change is seen before native construction',()=>{

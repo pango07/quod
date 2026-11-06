@@ -113,7 +113,7 @@ test('modified parser intrinsics fail closed', () => {
   assert.deepEqual(run('globalThis.pkg.exports ? 1 : 0', {prelude:'const prior=Object.values; Object.values=function(x){return prior(x)};'}).reads, [false])
 })
 
-function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false, statEnabled=enabled} = {}) {
+function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false, statEnabled=enabled, startup=''} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-boolean-recorder-'))
   try {
     fs.writeFileSync(path.join(dir,'package.json'), JSON.stringify({name:'x', exports:{'.':'./a.js'}, devDependencies:{unused:'1'}}))
@@ -137,7 +137,9 @@ const r=createRecorder({stateDir:'/nonexistent-state',mode:'main',booleanProof,n
 const m=await import(${JSON.stringify(config)});
 const keys=[...settledKeys(r)].filter(k=>k.includes('/package.json')).map(k=>k.replace(process.cwd()+'/', ''));
 statProof?.close(); if(booleanProof!==statProof)booleanProof?.close(); namesProof?.close(); console.log(JSON.stringify({keys,value:m.value,stats:statProof?.stats}));`)
-    const result=spawnSync(process.execPath,[runner],{cwd:dir,encoding:'utf8',timeout:10000})
+    const preload=path.join(dir,'startup.cjs')
+    if(startup) fs.writeFileSync(preload,startup)
+    const result=spawnSync(process.execPath,[...(startup?['--require',preload]:[]),runner],{cwd:dir,encoding:'utf8',timeout:10000})
     assert.equal(result.status,0,result.stderr || String(result.error))
     return JSON.parse(result.stdout)
   } finally {fs.rmSync(dir,{recursive:true,force:true})}
@@ -178,6 +180,19 @@ test('the names proof remains conservative when the object has another use', () 
 })
 
 const statHelper = 'function tryStatSync(file) { try { return fs.statSync(file, {throwIfNoEntry:false}); } catch {} }'
+test('constructor-field setters present before proof initialization retain metadata',()=>{
+  for(const prototype of ['fs.Stats.prototype','Object.getPrototypeOf(fs.Stats.prototype)','Object.prototype']) {
+    const result=recorded('globalThis.exposedStat.mtimeMs > 0',{
+      startup:`const fs=require('node:fs');Object.defineProperty(${prototype},'mtimeMs',{configurable:true,set(value){
+        globalThis.exposedStat=this;Object.defineProperty(this,'mtimeMs',{value,writable:true,enumerable:true,configurable:true});
+      }});`,
+      prelude:`const file='package.json';export const regular=fs.statSync(file).isFile();`,
+    })
+    assert.equal(result.value,true)
+    assert.ok(result.keys.includes('sm:package.json'),prototype+': an inherited constructor setter exposes metadata')
+    assert.equal(result.keys.includes('st:package.json'),false,prototype)
+  }
+})
 test('names-only mode can prove a stat type without refining manifest truthiness', () => {
   const result=recorded('!!pkg.exports',{enabled:false,statEnabled:true,names:true,
     prelude:`${statHelper}\nconst file='package.json'; export const type=tryStatSync(file)?.isFile();`})

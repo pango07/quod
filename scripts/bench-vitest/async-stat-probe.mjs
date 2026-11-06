@@ -102,6 +102,7 @@ export function observeAsyncStat(project) {
           const checkpoints=[op.before,...op.promises.flatMap(p=>[p.init,...p.before,...(p.settled?[p.settled]:[])])]
           return {...op,rootSettledFromOwnReaction:!!creator && creator.nativeCall && root.settled.insideOperation===op.id,
             observedNativeUnchanged:checkpoints.every(x=>x.native.available && x.native.unchanged),
+            observedConstructionFieldsAbsent:checkpoints.every(x=>x.native.constructionFieldsAbsent===true),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
               x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}

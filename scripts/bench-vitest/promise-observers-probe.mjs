@@ -4,6 +4,17 @@
 import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
 
+// Exact primary Node 24.18.0 source, previously compared with the V8
+// scripts in this benchmark. Unknown versions remain unknown. This
+// certifies constructor source, not earlier preload effects or native
+// addon integrity; it must not authorize reuse on its own.
+const nativeSources={
+  promises:'6a3d853657112c197bab3b06d1d179840310eb1ec10205ab84d2a2c7eced2dd1',
+  utils:'a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770',
+}
+const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
+  'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
+
 export function inspectPromiseObservers() {
   const session=new Session()
   const scripts=new Map()
@@ -51,6 +62,25 @@ export function inspectPromiseObservers() {
     return {location,script:scripts.get(location.scriptId)??null,
       sourceSha256:createHash('sha256').update(source).digest('hex')}
   }
+  function constructionFieldsAbsent(prototype) {
+    // A setter inherited before the diagnostic starts can publish the
+    // newly created Stats even if the local consumer only reads size.
+    // Inspector descriptors do not invoke those setters or other getters.
+    const seen=new Set()
+    for(let p=prototype;p;) {
+      if(seen.has(p) || seen.size>=8) return false
+      seen.add(p)
+      const props=properties(p)
+      if(props.result.some(v=>constructedFields.includes(v.name))) return false
+      if(props.internalProperties?.some(v=>['[[Target]]','[[Handler]]'].includes(v.name))) return false
+      const next=props.internalProperties?.find(v=>v.name==='[[Prototype]]')?.value
+      if(!next) return false
+      if(next.subtype==='null') return true
+      if(!next.objectId) return false
+      p=next.objectId
+    }
+    return false
+  }
   const kinds=['init','before','after','settled']
   let lists={}, fields=null, indices={}, active=null, owned=null, nativeRefs=null
   try {
@@ -81,13 +111,19 @@ export function inspectPromiseObservers() {
         const stat=builtin("process.getBuiltinModule('fs').promises.stat")
         const convert=binding(stat,'getStatsFromBinding').objectId
         const ctor=binding(convert,'Stats').objectId
+        const base=binding(ctor,'StatsBase').objectId
         const native=binding(stat,'binding').objectId
         const nativeStat=prop(native,'stat')
         const publicCtor=builtin("process.getBuiltinModule('fs').Stats")
         const prototype=prop(ctor,'prototype')?.objectId
         if(!prototype || nativeStat?.type!=='function') throw Error('native stat shape unavailable')
-        nativeRefs={stat,convert,ctor,native,fn:nativeStat.objectId,prototype}
-        return {available:true,stat:functionSource(stat),convert:functionSource(convert),constructor:functionSource(ctor),
+        nativeRefs={stat,convert,ctor,base,native,fn:nativeStat.objectId,prototype}
+        const statSource=functionSource(stat),convertSource=functionSource(convert),ctorSource=functionSource(ctor),baseSource=functionSource(base)
+        const knownSources=statSource.sourceSha256===nativeSources.promises &&
+          [convertSource,ctorSource,baseSource].every(s=>s.sourceSha256===nativeSources.utils &&
+            s.location?.scriptId===convertSource.location?.scriptId && s.script?.hasSourceURL===false)
+        return {available:true,stat:statSource,convert:convertSource,constructor:ctorSource,baseConstructor:baseSource,
+          construction:{knownSources,fieldsAbsent:constructionFieldsAbsent(prototype),replayEligible:false},
           publicConstructor:functionSource(publicCtor),publicConstructorMatches:same(ctor,publicCtor),
           publicPrototypeMatches:same(prop(ctor,'prototype')?.objectId,prop(publicCtor,'prototype')?.objectId),
           bindingStat:functionSource(nativeStat?.objectId),
@@ -104,10 +140,11 @@ export function inspectPromiseObservers() {
         // identities; names and native-looking text are insufficient.
         const unchanged=same(binding(n.stat,'getStatsFromBinding').objectId,n.convert) &&
           same(binding(n.convert,'Stats').objectId,n.ctor) &&
+          same(binding(n.ctor,'StatsBase').objectId,n.base) &&
           same(binding(n.stat,'binding').objectId,n.native) &&
           same(prop(n.native,'stat')?.objectId,n.fn) &&
           same(prop(n.ctor,'prototype')?.objectId,n.prototype)
-        return {available:true,unchanged,replayEligible:false}
+        return {available:true,unchanged,constructionFieldsAbsent:constructionFieldsAbsent(n.prototype),replayEligible:false}
       } catch(e) {return {available:false,unchanged:false,reason:e.message,replayEligible:false}}
     },
     promiseOutcome(kind) {
