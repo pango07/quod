@@ -14,6 +14,7 @@ function run(kind) {
     const preload=path.join(dir,'user preload.cjs'),entry=path.join(dir,'main.cjs')
     const bodies={
       method:"require('node:fs').Stats.prototype.isFile=function(){return this.mtimeMs>0}",
+      poisoned:"require('node:fs').Stats.prototype.isFile=function(){return this.mtimeMs>0};Array.prototype.every=function(){return true}",
       setter:"Object.defineProperty(require('node:fs').Stats.prototype,'mtimeMs',{configurable:true,set(value){globalThis.exposed=this;Object.defineProperty(this,'mtimeMs',{value,enumerable:true})}})",
       binding:"const b=process.binding('fs'),stat=b.stat;b.stat=function(...args){return Reflect.apply(stat,this,args)}",
       promise:"const fs=require('node:fs'),stat=fs.promises.stat;fs.promises.stat=async function(...args){const s=await Reflect.apply(stat,this,args);globalThis.observedMtime=s.mtimeMs;return s}",
@@ -39,7 +40,7 @@ console.log(JSON.stringify({before,native,foreign,options,hasOptions:Object.hasO
   } finally {fs.rmSync(dir,{recursive:true,force:true})}
 }
 
-for(const kind of ['none','empty','report','import','method','setter','binding','promise','inspector','prior','late','unsupported'])
+for(const kind of ['none','empty','report','import','method','poisoned','setter','binding','promise','inspector','prior','late','unsupported'])
 test('first-preload origin diagnostic: '+kind,()=>{
   const {result:r,original}=run(kind),s=r.before
   assert.equal(s.replayEligible,false)
@@ -52,7 +53,7 @@ test('first-preload origin diagnostic: '+kind,()=>{
   assert.equal(s.nativeBindingUnchanged,kind!=='binding')
   assert.equal(s.publicAsyncUnchanged,kind!=='promise')
   assert.equal(s.publicSyncUnchanged,true)
-  assert.equal(s.prototypeUnchanged,!['method','setter'].includes(kind))
+  assert.equal(s.prototypeUnchanged,!['method','poisoned','setter'].includes(kind))
   assert.equal(r.native.unchanged,kind!=='binding')
   if(kind==='setter')assert.equal(r.escaped,true)
   if(kind==='import')assert.equal(r.importRan,true,'later ESM imports must still execute after restoring NODE_OPTIONS')

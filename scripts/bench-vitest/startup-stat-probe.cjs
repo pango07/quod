@@ -44,17 +44,26 @@ const binding=process.binding('fs'),nativeStat=binding.stat,nativeSync=fs.statSy
 const publicStats=fs.Stats,prototype=publicStats.prototype,constructor=descriptor(prototype,'constructor')?.value
 const shapes=[]
 for(let p=prototype;p;p=getPrototypeOf(p))shapes.push({object:p,parent:getPrototypeOf(p),shape:descriptors(p)})
+function unchangedShapes() {
+  // A preload may replace Array.prototype.every or its iterator. The
+  // comparison itself uses captured primitives and indexed own arrays.
+  for(let i=0;i<shapes.length;i++) {
+    const {object,parent,shape}=shapes[i],keys=ownKeys(shape)
+    if(getPrototypeOf(object)!==parent||ownKeys(object).length!==keys.length)return false
+    for(let j=0;j<keys.length;j++) {
+      const a=shape[keys[j]],b=descriptor(object,keys[j])
+      if(!b||!same(a.value,b.value)||a.get!==b.get||a.set!==b.set||a.writable!==b.writable||
+        a.configurable!==b.configurable||a.enumerable!==b.enumerable)return false
+    }
+  }
+  return true
+}
 function snapshot() {
   let prototypeUnchanged=false
   try {
     prototypeUnchanged=descriptor(fs,'Stats')?.value===publicStats &&
       descriptor(publicStats,'prototype')?.value===prototype &&
-      descriptor(constructor,'prototype')?.value===prototype && shapes.every(({object,parent,shape})=>
-        getPrototypeOf(object)===parent && ownKeys(object).length===ownKeys(shape).length && ownKeys(shape).every(key=>{
-          const a=shape[key],b=descriptor(object,key)
-          return b&&same(a.value,b.value)&&a.get===b.get&&a.set===b.set&&a.writable===b.writable&&
-            a.configurable===b.configurable&&a.enumerable===b.enumerable
-        }))
+      descriptor(constructor,'prototype')?.value===prototype && unchangedShapes()
   }catch{}
   return {startup,nativeBindingUnchanged:descriptor(binding,'stat')?.value===nativeStat,
     publicSyncUnchanged:descriptor(fs,'statSync')?.value===nativeSync,
