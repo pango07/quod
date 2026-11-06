@@ -4,13 +4,16 @@
 // input-ownership certificate and must never authorize a replay by itself.
 import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
+import {watchedAccessorInspector} from './watched-accessor-inspector.mjs'
 const hasOwn=Object.hasOwn,isSafeInteger=Number.isSafeInteger
 const own=(object,key)=>object&&hasOwn(object,key)?object[key]:undefined
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol'}={}) {
+  if(!['protocol','watched','adaptive'].includes(targetInspection))throw Error('invalid target inspection mode')
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
+  const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
   const errors=[]
-  let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false
+  let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'
   function fail(reason) {if(errors.length<20)errors.push(reason)}
   function note(entry,frames) {
@@ -20,6 +23,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
     condition(api,{receiver=false,describeOwnAccessors=false}={}) {
       if(!supported||closed)throw Error('native entry conditions require the pinned active diagnostic')
       if(typeof api!=='string'||entries.has(api))throw Error('invalid native entry registration')
+      scoped?.initialize()
       entries.set(api,{receiver,describeOwnAccessors})
       if(directArguments)return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void 0'},argumentCount:arguments.length}})()`
       return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},args:arguments,receiver:this}})()`
@@ -77,18 +81,29 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         const argument=directArguments?data(fields,'argument'):configuration.receiver?data(fields,'receiver'):
           argumentCount?data(args,'0'):{type:'undefined'}
         const kind=argument.subtype==='proxy'?'proxy':argument.objectId?'object':'primitive'
+        // Capture once, at the same handler depth as the protocol path. The
+        // adaptive key only selects an inspection implementation; collisions
+        // cannot authorize reuse or omit the watched descriptor checks.
+        const frames=getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+          scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber}))
         let target
         if(configuration.describeOwnAccessors&&kind==='object') {
-          const accessors=properties(argument.objectId,{accessorsOnly:targetAccessorsOnly})
-            .filter(p=>own(p,'isOwn')===true&&(own(p,'get')?.type==='function'||own(p,'set')?.type==='function'))
-          target={ownAccessorCount:accessors.length,
-            watchedAccessorKeys:accessors.map(p=>p.name).filter(k=>['seed','tmp','invalidate'].includes(k))}
+          const site=targetInspection==='adaptive'&&frames[5]?JSON.stringify([api,frames[5]]):null
+          if(targetInspection==='watched'||site&&wideSites.has(site)) {
+            target=scoped.inspect(argument.objectId);scopedInspections++
+          }else {
+            const accessors=properties(argument.objectId,{accessorsOnly:targetAccessorsOnly})
+              .filter(p=>own(p,'isOwn')===true&&(own(p,'get')?.type==='function'||own(p,'set')?.type==='function'))
+            target={inspectionScope:'all-own-accessors',ownAccessorCount:accessors.length,
+              watchedAccessorKeys:accessors.map(p=>p.name).filter(k=>['seed','tmp','invalidate'].includes(k))}
+            // Capacity only bounds this optional performance hint. Unknown
+            // sites keep the complete protocol path, with no dropped calls.
+            if(site&&accessors.length>=128&&wideSites.size<4096)wideSites.add(site)
+          }
         }
         // Native call-site records avoid constructing every lexical scope.
         // Keep all bounded frames for now; no filename grants provenance.
-        note({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{})},
-          getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
-            scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber})))
+        note({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{})},frames)
         return true
       }catch {fail('native entry capture failed');return owned}
       finally {
@@ -112,8 +127,8 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
       handleMode:handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
-      targetAccessorsOnly,errors:[...errors],
+      targetAccessorsOnly,targetInspection,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),
-    close(){closed=true},
+    close(){if(closed)return;closed=true;try{scoped?.close()}catch{fail('watched accessor cleanup failed')}},
   }
 }
