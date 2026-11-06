@@ -95,7 +95,7 @@ export function observeAsyncStat(project,{startup=null}={}) {
   return {
     setConsumerProof(proof){consumerProof=proof;inspectorAtConsumerProof=observerRegistry.inspectorAccess()},
     report() {
-      return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
+      return {pid:process.pid,replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
         startupAtAttach,
         inspectorAccess:{atConsumerProof:inspectorAtConsumerProof,final:observerRegistry.inspectorAccess()},
         opaqueAccess:observerRegistry.opaqueAccess(),

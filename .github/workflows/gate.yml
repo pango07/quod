@@ -759,7 +759,7 @@ jobs:
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/record.test.mjs
 
   benchmark-driver-stat:
-    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-driver-stat'
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-driver-stat' || inputs.only == 'benchmark-native-symbols')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -777,6 +777,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
+      - name: Verify loader diagnostic with a real native addon
+        if: inputs.only == 'benchmark-native-symbols'
+        run: |
+          node --test scripts/bench-vitest/native-symbol-audit.test.mjs
+          cc -std=c11 -Wall -Wextra -Werror -shared -fPIC -O2 scripts/bench-vitest/native-symbol-audit.c -o /tmp/quod-native-symbol-audit.so
+          echo 'QUOD_NATIVE_AUDIT_LIBRARY=/tmp/quod-native-symbol-audit.so' >> "$GITHUB_ENV"
       - run: npm ci
         working-directory: profile-project
       - name: Observe actual planner, driver and workers without refining inputs

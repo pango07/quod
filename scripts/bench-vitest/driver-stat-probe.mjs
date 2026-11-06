@@ -8,6 +8,7 @@ import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
+import {readNativeSymbolAudit} from './native-symbol-report.mjs'
 
 const [projectArg,binaryArg,outArg]=process.argv.slice(2)
 const project=path.resolve(projectArg),binary=path.resolve(binaryArg),out=path.resolve(outArg)
@@ -18,6 +19,12 @@ const startup=new URL('./startup-stat-probe.cjs',import.meta.url)
 const state=path.join(out,'state'),staged=path.join(out,'js'),observations=path.join(out,'async-stats.json')
 assert.equal(fs.existsSync(state),false,'diagnostic state must be fresh')
 fs.mkdirSync(staged,{recursive:true})
+const auditLibrary=process.env.QUOD_NATIVE_AUDIT_LIBRARY
+const nativeAuditDirectory=path.join(out,'native-loader')
+if(auditLibrary) {
+  assert.ok(path.isAbsolute(auditLibrary)&&fs.statSync(auditLibrary).isFile())
+  fs.mkdirSync(nativeAuditDirectory)
+}
 for(const name of fs.readdirSync(source)) if(/\.(mjs|cjs)$/.test(name)||name==='acorn-LICENSE')
   fs.copyFileSync(path.join(source,name),path.join(staged,name))
 let driver=fs.readFileSync(path.join(staged,'driver.mjs'),'utf8')
@@ -46,6 +53,7 @@ const args=['vitest','--dir',state,'--audits','0','--report',path.join(out,'inte
   '--summary',path.join(out,'summary.json'),'--','run','--reporter=default','--reporter=json','--outputFile.json='+report]
 const child=spawnSync(binary,args,{cwd:project,encoding:'utf8',timeout:420000,maxBuffer:64*1024*1024,
   env:{...process.env,QUOD_SHIM_ACTIVE:'1',QUOD_VITEST_JS_DIR:staged,QUOD_VITEST_NAMES_PROOF:'1',
+    ...(auditLibrary?{LD_AUDIT:auditLibrary,QUOD_NATIVE_AUDIT_DIR:nativeAuditDirectory}:{}),
     QUOD_VITEST_BOOLEAN_PROOF:'0',QUOD_VITEST_LINEAGE:'0',QUOD_VITEST_TIMING:'off',
     NODE_OPTIONS:'--require="'+fileURLToPath(startup).replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'" --require='+preload,BENCH_VITEST_REPORT:report}})
 fs.writeFileSync(path.join(out,'driver.log'),(child.stdout??'')+(child.stderr??''))
@@ -62,6 +70,18 @@ assert.equal(summary.replayed,0)
 assert.equal(trace.replayEligible,false)
 assert.equal(trace.startupAtAttach?.startup.available,true,'early origin must precede the benchmark report preload')
 const fileCalls=trace.calls.filter(c=>c.sizeConsumer)
+let nativeSymbols=null
+if(auditLibrary) {
+  nativeSymbols=readNativeSymbolAudit(nativeAuditDirectory,{pid:trace.pid})
+  assert.equal(nativeSymbols.processes,1)
+  const cached=trace.opaqueAccess.cachedNativeModules
+  assert.equal(cached.length,1,'review the native boundary if this workload loads other addons')
+  assert.deepEqual(nativeSymbols.addons.map(a=>a.path),cached)
+  assert.equal(nativeSymbols.addons[0].postRunSha256,
+    '09efa62dc8d03fb62f06ab2aadbbc26bde416acb7da20a927f7d53b2bd440322',
+    'the loaded path must still contain the exact locked registry artifact after the run')
+  fs.writeFileSync(path.join(out,'native-symbols.json'),JSON.stringify(nativeSymbols,null,2))
+}
 const metadata=Object.fromEntries(['sm','sl','st'].map(kind=>[kind,ledger.keys.filter(k=>k.startsWith(kind+':')).length]))
 const result={measurementScope:'Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay',
   files:rows.length,states:rows.reduce((n,r)=>n+r[2].length,0),fingerprint,replayed:summary.replayed,
@@ -76,6 +96,8 @@ const result={measurementScope:'Real planner/driver/workers with passive main-pr
   initialObservers:trace.initialObservers,nativeProvenance:trace.nativeStatProvenance,
   inspectorAccess:trace.inspectorAccess,
   opaqueAccess:trace.opaqueAccess,
+  nativeSymbols,
   preloadModules:trace.preloadModules,replayEligible:false,unvalidated:trace.unvalidated}
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2))
-console.log(JSON.stringify(result,null,2))
+console.log(JSON.stringify({...result,opaqueAccess:{...result.opaqueAccess,entries:result.opaqueAccess.entries.length},
+  nativeSymbols:nativeSymbols?{...nativeSymbols,addons:nativeSymbols.addons.map(({bindings,...a})=>a)}:null},null,2))
