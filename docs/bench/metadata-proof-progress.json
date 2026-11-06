@@ -700,5 +700,20 @@
     "workersWithoutTheseFlags": 116,
     "completeOwnership": false,
     "replayEligible": false
+  },
+  "workerHookLifetimeDiagnostic": {
+    "run": "https://github.com/pango07/quod/actions/runs/42185034887",
+    "commit": "4bfd2786ab4838d1bb4325eb3b24fbb062b66f68",
+    "regressionTests": 52,
+    "runs": 2,
+    "statesPerRun": 4131,
+    "replayEligible": false,
+    "completeOwnership": false,
+    "evidence": "worker-hook-lifetime.json",
+    "workers": 120,
+    "hookEntries": 0,
+    "workersWithInitialHooks": 0,
+    "workersWithFinalHooks": 0,
+    "coldInvalidations": 235
   }
 }

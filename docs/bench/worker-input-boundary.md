@@ -317,3 +317,34 @@ data inputs and parent-side behavior.
 [Evidence and per-artifact digests](worker-module-metadata.json) retain the
 full scope. Production keys, the Action pin and performance claims remain
 unchanged.
+
+## Hook lifetime observation
+
+[Gate 42185034887](https://github.com/pango07/quod/actions/runs/42185034887)
+at `4bfd278` passes 52 regressions and repeats the two full runs with 39
+timestamp-only changes. Independent comparison confirms the same 120
+file/project instances and 4,131 test states. All workers report empty
+Promise/async-hook registries at the beginning and end, and zero entries
+into the watched registration, async-resource access and private-binding
+functions during observation. The 235 module invalidations are all cold;
+the stored metadata observer again records no reads of the varying fields.
+
+The observer watches the actual function objects, including cached
+references and native installation functions. A fixture registers a hook,
+retains a resolved metadata object, then unregisters it: an empty final
+registry alone would miss this access, while the lifetime observer catches
+it. Nine new fixtures cover the four Promise registration variants, cached
+registration, async hooks, resource access, private binding access and the
+inactive case. The earlier fixture gate failed because the four Promise
+registration closures share a V8 breakpoint location; they now use one
+truthfully grouped label. A separate fixture now uses an available private
+binding instead of assuming `async_wrap` is publicly exposed.
+
+This narrows one pre-assignment alias channel but does not establish full
+metadata ownership. Transport callbacks and direct raw aliases still need
+observation, as do worker configuration, non-code inputs and parent-side
+behavior. No production replay is enabled by this result. The runtime
+remains Node 24.18.0, Vitest 5.0.0, Vite 8.2.0 on
+`ubuntu-26.04/20261101.186.1`.
+[Independent verification and artifact digests](worker-hook-lifetime.json)
+preserve the completed run and failed predecessor scope.
