@@ -280,3 +280,9 @@ these are fixture counts, not new convex-helpers window results.
 Harness `99d0ca5af335d82fee1b7bbd37a35d4b251a376a` pins that Action,
 binary version and archive hash. No current full-window or best-hit claim
 has been established by this packaging gate.
+
+The subsequent [real-job package probe](metadata-native-guard-probe.md)
+matched all test states again, but replayed no Vitest files. The same-commit
+reuse attempt still had 47 changed inputs and took 140 seconds against a
+166-second plain job; both rounded to three minutes. This is not a full
+window or evidence of current 40–50% cost savings.

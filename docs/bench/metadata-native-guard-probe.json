@@ -1,0 +1,166 @@
+{
+  "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
+  "action": "d2bb917792130dcaf3fafec066b481bec5c2f674",
+  "harness": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
+  "sourceCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "branch": "bench/metadata-4d99319",
+  "fullWindow": false,
+  "bestHit": null,
+  "medianHit": null,
+  "actualPublicChargesUsd": 0,
+  "rows": [
+    {
+      "name": "plain",
+      "run": 42150962645,
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42150962645",
+      "job": 127673835042,
+      "seconds": 166,
+      "roundedMinutes": 3,
+      "conclusion": "success",
+      "image": "ubuntu-26.04/20261101.186.1",
+      "fingerprint": {
+        "sha256": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+        "files": 120,
+        "tests": 4131
+      },
+      "wrongVsPlain": null,
+      "lineage": [],
+      "replay": [],
+      "changedSharedInputs": [],
+      "inputCounts": [],
+      "steps": {
+        "Set up job": 1,
+        "checkout": 1,
+        "Run actions/setup-node@v6": 4,
+        "capture per-test evidence": 0,
+        "env": 0,
+        "install": 53,
+        "build": 2,
+        "test": 102,
+        "compare evidence": 0,
+        "Post Run actions/setup-node@v6": 0,
+        "Post checkout": 1,
+        "Complete job": 0
+      }
+    },
+    {
+      "name": "initial",
+      "run": 42150965835,
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42150965835",
+      "job": 127673842134,
+      "seconds": 123,
+      "roundedMinutes": 3,
+      "conclusion": "success",
+      "image": "ubuntu-26.04/20261101.186.1",
+      "fingerprint": {
+        "sha256": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+        "files": 120,
+        "tests": 4131
+      },
+      "wrongVsPlain": 0,
+      "lineage": [
+        {
+          "promoted": 0,
+          "audits": 0,
+          "disagreed": 0,
+          "revoked": 0
+        }
+      ],
+      "replay": [
+        {
+          "ran": 120,
+          "replayed": 0,
+          "audited": 0
+        }
+      ],
+      "changedSharedInputs": [],
+      "inputCounts": [
+        {
+          "hashed": 0,
+          "changed": 0
+        }
+      ],
+      "steps": {
+        "Set up job": 2,
+        "checkout": 1,
+        "Run actions/setup-node@v6": 5,
+        "capture per-test evidence": 0,
+        "quod policy": 0,
+        "quod": 1,
+        "env": 0,
+        "install": 34,
+        "build": 2,
+        "test": 71,
+        "compare evidence": 0,
+        "Post quod": 4,
+        "Post Run actions/setup-node@v6": 0,
+        "Post checkout": 0,
+        "Complete job": 0
+      }
+    },
+    {
+      "name": "reuse",
+      "run": 42151279597,
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42151279597",
+      "job": 127674846758,
+      "seconds": 140,
+      "roundedMinutes": 3,
+      "conclusion": "success",
+      "image": "ubuntu-26.04/20261101.186.1",
+      "fingerprint": {
+        "sha256": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+        "files": 120,
+        "tests": 4131
+      },
+      "wrongVsPlain": 0,
+      "lineage": [
+        {
+          "promoted": 0,
+          "audits": 0,
+          "disagreed": 0,
+          "revoked": 0
+        }
+      ],
+      "replay": [
+        {
+          "ran": 120,
+          "replayed": 0,
+          "audited": 0
+        }
+      ],
+      "changedSharedInputs": [
+        "sm:example-ui/src/components/Counter.injection.test.tsx",
+        "sm:example-ui/src/components/Counter.mock.test.tsx",
+        "sm:packages/convex-helpers/standardSchema.test.ts",
+        "sm:packages/convex-helpers/server/zod.test.ts",
+        "sm:packages/convex-helpers/server/zod3.test.ts",
+        "sm:packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "sm:packages/convex-helpers/server/zod4.functions.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zod3.test.ts"
+      ],
+      "inputCounts": [
+        {
+          "hashed": 1913,
+          "changed": 47
+        }
+      ],
+      "steps": {
+        "Set up job": 3,
+        "checkout": 1,
+        "Run actions/setup-node@v6": 4,
+        "capture per-test evidence": 0,
+        "quod policy": 0,
+        "quod": 4,
+        "env": 0,
+        "install": 0,
+        "build": 3,
+        "test": 119,
+        "compare evidence": 0,
+        "Post quod": 2,
+        "Post Run actions/setup-node@v6": 0,
+        "Post checkout": 0,
+        "Complete job": 0
+      }
+    }
+  ]
+}

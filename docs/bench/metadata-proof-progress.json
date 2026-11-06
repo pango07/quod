@@ -325,5 +325,36 @@
     },
     "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
     "freshRunnerSavingsEstablished": false
+  },
+  "latestRealJobProbe": {
+    "evidence": "metadata-native-guard-probe.json",
+    "plainRun": 42150962645,
+    "quodRuns": [
+      42150965835,
+      42151279597
+    ],
+    "runnerSeconds": [
+      166,
+      123,
+      140
+    ],
+    "roundedMinutes": [
+      3,
+      3,
+      3
+    ],
+    "wrongPerQuodJob": [
+      0,
+      0
+    ],
+    "replayedPerQuodJob": [
+      0,
+      0
+    ],
+    "reuseChangedInputs": 47,
+    "lineageAudits": 0,
+    "lineageDisagreements": 0,
+    "fullWindow": false,
+    "performanceBarMet": false
   }
 }
