@@ -384,6 +384,7 @@ void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
 #ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
 #include "native-inspector-capture-experiment.inc"
 #endif
+#include "native-scalar-capture-experiment.inc"
 
 void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
                 void*) {
@@ -411,6 +412,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
   if (Function::New(context, CreateNativeDataFixture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createNativeDataFixture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, CreateNativeScalarObserver).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createScalarReadObserver"), factory)
         .FromMaybe(false);
 #ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
   if (Function::New(context, CreateInspectorCapture).ToLocal(&factory))

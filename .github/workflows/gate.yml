@@ -913,7 +913,7 @@ jobs:
         run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
       - name: Inventory native data-property semantics without enabling instrumentation
         if: inputs.only == 'benchmark-native-property'
-        run: node --test scripts/bench-vitest/native-data-property-semantics.test.mjs
+        run: node --test scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs
 
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
