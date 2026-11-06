@@ -27,7 +27,10 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
-  const compilationLog=nativeEntries?dictionaryCompiledScriptLog():compiledScriptLog(),compilationErrors=[]
+  // The prior 420-second partial run already observed 861,284 events in
+  // one worker. Leave room for the faster complete run without dropping
+  // condition/cleanup compilations; both dictionary dimensions stay bounded.
+  const compilationLog=nativeEntries?dictionaryCompiledScriptLog(20000,4000000):compiledScriptLog(),compilationErrors=[]
   let failedToParse=0
   function compiledEvent(params,failedParse) {
     if(!compiledScripts)return
@@ -103,6 +106,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],
         overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
         ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),
+        ...(nativeEntryObserver?{stack:frames}:{}),
         compilation:{...compilationLog.counts(),failedToParse},argumentDiagnostics:argumentDiagnostics(),
         identity:nativeEntryObserver?{mode:'native-entry-arguments',snapshotsRequested:0}:
           heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
