@@ -103,7 +103,7 @@ test('actual V8 events match complete UTF-16 source records, including a native-
 test('measure repeated compilation capture while retaining all occurrences and exact code',t=>{
   const measurements=[]
   for(const cached of [false,true]) {
-    const url='quod-source-cache-measurement',iterations=20000,errors=[]
+    const url='quod-source-cache-measurement-'+(cached?'cached':'full'),iterations=20000,errors=[]
     let activePost,events=0,sourceReads=0,matches=0
     const read=scriptId=>{sourceReads++;return activePost('Debugger.getScriptSource',{scriptId})}
     const recorder=cached?createCompiledScriptRecorder(read):null
@@ -117,6 +117,7 @@ test('measure repeated compilation capture while retaining all occurrences and e
         events++
       }catch(e){errors.push(e.message)}
     })
+    assert.equal(events,0,'enabling a session must not count scripts from the other measurement')
     const started=performance.now()
     try{for(let i=0;i<iterations;i++)vm.runInThisContext(i%2?'2+2':'1+1',{filename:url})}
     finally{session.disconnect()}
