@@ -3190,17 +3190,41 @@
     "failure": "900-second before timeout; no complete observed test-state report or after phase",
     "streamCompilationOverflow": false
   },
-  "pendingFullDiagnostic": {
+  "cachedNativeFullDiagnostic": {
     "commit": "e9255f0e69d605953947c7cdc785f2a090212b28",
     "run": "https://github.com/pango07/quod/actions/runs/42263493464",
-    "status": "in_progress",
+    "status": "completed",
     "changes": [
       "packed native summaries",
       "bounded exact caller-metadata lookup cache",
       "immutable native frame cache"
     ],
     "fixture": "https://github.com/pango07/quod/actions/runs/42263280155",
-    "regressionsPassed": 243,
+    "regressionsPassed": 279,
+    "expectedWorkers": 120,
+    "expectedStatesPerPhase": 4131,
+    "expectedMetadataOnlyChangedPaths": 39,
+    "observedPhaseLimitSeconds": 900,
+    "testTimeoutsChanged": false,
+    "replayEligible": false,
+    "job": 128049255229,
+    "conclusion": "failure",
+    "retainedWorkers": 119,
+    "retainedScopedObservationErrors": 0,
+    "failure": "900-second before timeout; no complete observed test-state result or after phase",
+    "evidence": "worker-native-frame-cache.json#fullDiagnostic"
+  },
+  "pendingFullDiagnostic": {
+    "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+    "run": "https://github.com/pango07/quod/actions/runs/42267064963",
+    "status": "in_progress",
+    "changes": [
+      "owned immutable compilation-record keys",
+      "incremental per-test progress",
+      "native callback and command timing checkpoints"
+    ],
+    "fixture": "https://github.com/pango07/quod/actions/runs/42266816888",
+    "regressionsPassed": 249,
     "expectedWorkers": 120,
     "expectedStatesPerPhase": 4131,
     "expectedMetadataOnlyChangedPaths": 39,

@@ -1,0 +1,106 @@
+{
+  "commit": "5b32fc45559ea69a84ae5c893be144a23d17d365",
+  "run": "https://github.com/pango07/quod/actions/runs/42265335788",
+  "job": 128055660437,
+  "conclusion": "success",
+  "regressionsPassed": 7,
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "artifact": {
+    "id": 13526363950,
+    "bytes": 2201617,
+    "sha256": "62f89927dc15b44953c1def678f2f9169e9ab2240ec2813505cf1637af519342"
+  },
+  "phases": {
+    "before": {
+      "summary": {
+        "events": 8263,
+        "ready": 4131,
+        "results": 4131,
+        "ended": true,
+        "overflow": false,
+        "failure": null,
+        "eventLimit": 40000,
+        "replayEligible": false,
+        "scope": "Reporter callback receipt order and elapsed time; complete JSON results remain authoritative"
+      },
+      "phase": {
+        "phase": "before",
+        "timeoutMs": 420000,
+        "elapsedMs": 69646.58164599999,
+        "status": 0,
+        "signal": null,
+        "errorCode": null
+      },
+      "fileProjectInstances": 120,
+      "testStates": 4131,
+      "states": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "sequencesContiguous": true,
+      "elapsedMonotonic": true,
+      "lastEvent": "run-end"
+    },
+    "after": {
+      "summary": {
+        "events": 8263,
+        "ready": 4131,
+        "results": 4131,
+        "ended": true,
+        "overflow": false,
+        "failure": null,
+        "eventLimit": 40000,
+        "replayEligible": false,
+        "scope": "Reporter callback receipt order and elapsed time; complete JSON results remain authoritative"
+      },
+      "phase": {
+        "phase": "after",
+        "timeoutMs": 420000,
+        "elapsedMs": 69187.419025,
+        "status": 0,
+        "signal": null,
+        "errorCode": null
+      },
+      "fileProjectInstances": 120,
+      "testStates": 4131,
+      "states": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "sequencesContiguous": true,
+      "elapsedMonotonic": true,
+      "lastEvent": "run-end"
+    }
+  },
+  "independentPerTestStatesEqual": true,
+  "independentOneReadyAndOneResultPerTask": true,
+  "semantics": [
+    "Each case ready/result callback is appended immediately in the parent process; timeout leaves earlier events on disk.",
+    "Project, file, task ID, full name, receipt order, elapsed time and final state are retained.",
+    "The complete JSON state report remains authoritative; incremental evidence never substitutes for a complete phase.",
+    "Unknown callback shapes, write failures and the 40,000-event limit are explicit incomplete states.",
+    "No test, seed, timeout, selection or worker instrumentation was changed."
+  ],
+  "apiReferences": [
+    "https://vitest.dev/api/advanced/reporters",
+    "https://vitest.dev/api/advanced/test-case"
+  ],
+  "artifactFileSha256": {
+    "after-inputs.json": "d55ff0a63581afbbabd176c929fe413b022a0fa0034ed1fcb1a04d02f752ab5a",
+    "after-phase.json": "0436696571a8dde07978f2a702237a062a01825589688e4f1ca386861e265493",
+    "after-test-progress-summary.json": "411818a184201bef30804d293524b240b8e2d1c01d5ffd46db9e4090050bf951",
+    "after-test-progress.jsonl": "59e1a563fcfc3d6fbd61f8f393a2b90ce401e8fc3bbc06b2f3ffa80d41f8f684",
+    "after-tests.json": "e6c7835ec277cfef1ba65a47c24d659dfe302af92f5bd6e70b2e30c4db16aef2",
+    "after.log": "9346629796ec3656f32f6670453b331abf51893076106b205ce417b4f07108df",
+    "before-inputs.json": "a3213bfedbb465f53a9c21e9510540c356ebb90f12d30cfb1278d4420c02cc20",
+    "before-phase.json": "2803fd5e22f014fe168459512b8b08776428f9577f87cd9560abd454c19889a1",
+    "before-test-progress-summary.json": "411818a184201bef30804d293524b240b8e2d1c01d5ffd46db9e4090050bf951",
+    "before-test-progress.jsonl": "11231a7e9dab57869c6e53c0c9a879ac6b098530aa0015511f29edc95c1bac42",
+    "before-tests.json": "285e915d30a2569c4b1fc0ab9540b06d7d85ae480387db6895a9d6c390d446c2",
+    "before.log": "e3ce36f0172897ab2c4b03b1f0ca4c1605efabb28f2ac00baa83a62c0e10a43e",
+    "result.json": "38301e957a85224d769dc098595a67efc92e128c903e2a8baf79b63635a31c16"
+  },
+  "replayEligible": false,
+  "scope": "Two complete plain diagnostic runs with metadata-only edit; no replay or production savings result",
+  "metadataOnlyChangedPaths": 39
+}

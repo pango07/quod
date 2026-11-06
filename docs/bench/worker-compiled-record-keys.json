@@ -1,0 +1,120 @@
+{
+  "commit": "b719412f0f5f719d3dac3316ac37df8b10f6bf92",
+  "fixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42265857321",
+    "job": 128057454713,
+    "conclusion": "success",
+    "regressionsPassed": 249
+  },
+  "measurements": {
+    "compiledRecordKeyMeasurements": [
+      {
+        "cached": false,
+        "elapsedMs": 3979.73255,
+        "counts": {
+          "events": 2000000,
+          "runs": 2000000,
+          "records": 2,
+          "overflow": false,
+          "runStorage": "block-dictionary-f64",
+          "blocks": 1,
+          "blockRuns": 1,
+          "storedPairs": 385,
+          "pairLimit": 4000000,
+          "runStorageBytes": 71680
+        },
+        "serializedBytes": 2239,
+        "sha256": "5b2572fb9c224d940316280f6121711c7cdad4feb298f0600ebc8cfcefcf8523"
+      },
+      {
+        "cached": true,
+        "elapsedMs": 199.850056,
+        "counts": {
+          "events": 2000000,
+          "runs": 2000000,
+          "records": 2,
+          "overflow": false,
+          "runStorage": "block-dictionary-f64",
+          "blocks": 1,
+          "blockRuns": 1,
+          "storedPairs": 385,
+          "pairLimit": 4000000,
+          "runStorageBytes": 71680
+        },
+        "serializedBytes": 2239,
+        "sha256": "5b2572fb9c224d940316280f6121711c7cdad4feb298f0600ebc8cfcefcf8523"
+      },
+      {
+        "cached": true,
+        "elapsedMs": 191.685836,
+        "counts": {
+          "events": 2000000,
+          "runs": 2000000,
+          "records": 2,
+          "overflow": false,
+          "runStorage": "block-dictionary-f64",
+          "blocks": 1,
+          "blockRuns": 1,
+          "storedPairs": 385,
+          "pairLimit": 4000000,
+          "runStorageBytes": 71680
+        },
+        "serializedBytes": 2239,
+        "sha256": "5b2572fb9c224d940316280f6121711c7cdad4feb298f0600ebc8cfcefcf8523"
+      },
+      {
+        "cached": false,
+        "elapsedMs": 3680.492143,
+        "counts": {
+          "events": 2000000,
+          "runs": 2000000,
+          "records": 2,
+          "overflow": false,
+          "runStorage": "block-dictionary-f64",
+          "blocks": 1,
+          "blockRuns": 1,
+          "storedPairs": 385,
+          "pairLimit": 4000000,
+          "runStorageBytes": 71680
+        },
+        "serializedBytes": 2239,
+        "sha256": "5b2572fb9c224d940316280f6121711c7cdad4feb298f0600ebc8cfcefcf8523"
+      }
+    ],
+    "scope": "isolated exact record serialization/logging; not workload or CI savings"
+  },
+  "semantics": [
+    "Only recorder-owned deeply frozen scalar compilation records can reuse a serialized key.",
+    "The exact identity, code digest, byte length, encoding, language and kind fields remain present; every event, count and ordered position is logged.",
+    "Mutable/unowned records use complete serialization each time, including later field changes.",
+    "An independently frozen copy cannot grant key-cache ownership.",
+    "Null-prototype serialization mirrors prevent inherited toJSON hooks from changing owned record fields."
+  ],
+  "regressions": [
+    "All source-cache identity variants and failed-parse states retain byte-identical complete serialization.",
+    "Mixed owned and changing mutable records match the full-serialization log and expand to every expected event.",
+    "Inherited serialization hooks do not execute during private cached-key lookup.",
+    "Four two-million-event comparisons retain identical 2,239-byte reports and exact counts."
+  ],
+  "replayEligible": false,
+  "limitations": [
+    "Isolated record serialization/logging times are not full-workload or CI savings.",
+    "Source-hash admission policy and native coverage remain unchanged.",
+    "This commit is not in full diagnostic 42263493464 at e9255f0."
+  ],
+  "checkpointTiming": {
+    "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+    "run": "https://github.com/pango07/quod/actions/runs/42266816888",
+    "job": 128060781493,
+    "conclusion": "success",
+    "regressionsPassed": 249,
+    "semantics": "Every existing descriptor checkpoint now retains inclusive command durations and native exception-callback events/completions/time. Current callback is still in flight at its checkpoint. These timings overlap; do not sum them as elapsed job time.",
+    "regression": "All 19 native descriptor operations remain captured; callback counts settle after completion, checkpoint snapshots remain independent, and command/release counts account for the in-flight entry."
+  },
+  "pendingFullDiagnostic": {
+    "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+    "run": "https://github.com/pango07/quod/actions/runs/42267064963",
+    "status": "in_progress",
+    "replayEligible": false
+  }
+}

@@ -1573,7 +1573,65 @@ limit. These are isolated mapping/logging timings, not new product gains.
 [Evidence](worker-native-frame-cache.json) records the complete comparison.
 
 The combined [full diagnostic 42263493464](https://github.com/pango07/quod/actions/runs/42263493464)
-is running at `e9255f0` with packed capture, caller-metadata caching and
-frame reuse together. Test scope, expected states, metadata-only mutation,
+at `e9255f0` passes 279 regressions and the complete 120-file / 4,131-state
+baseline, then times out at 900 seconds in `before`. All 119 retained
+workers pass scoped checks: 1,272,645 native calls cleared/released,
+3,858 guarded metadata scalars, 119 guarded seeds and no capture/index/log
+failures. All 48,173 retained watched calls match checked-in caller sources.
+
+The unfinished stream worker reaches 2,370,000 descriptor calls and
+4,741,945 compilation events without overflow. It retains 117 hot metadata
+lookups and 2,639 cached frames, with 434,249,728 bytes RSS. The baseline
+takes 99.50 seconds; complete observed states and the after phase are missing.
+This does not establish a workload speedup or a full wrong=0 result. Scope,
 native coverage, collection limits and original Vitest timeouts are unchanged.
-Its result is pending; production replay authority and savings claims remain unchanged.
+Detailed [full-run evidence](worker-native-frame-cache.json) records the
+partial verification and artifact hashes. Production replay authority and
+savings claims remain unchanged.
+
+## Incremental test progress and owned compilation-record keys
+
+`5b32fc4` adds parent-side ready/result events using the documented Vitest
+[reporter lifecycle](https://vitest.dev/api/advanced/reporters). Each event
+is written immediately, so a phase timeout retains completed test identities
+and the last reported starts. The complete JSON test report remains the
+state-comparison authority. Write failures, unknown callback shapes and the
+40,000-event limit explicitly make progress evidence incomplete.
+
+[Gate 42265335788](https://github.com/pango07/quod/actions/runs/42265335788)
+passes seven regressions and both complete plain runs around 39 metadata-only
+edits. Each run retains 8,263 contiguous events: 4,131 ready, 4,131 result
+and one run-end. Independent verification matches task identities, event
+order, monotonic receipt times and 4,130 passed / one skipped state across
+120 file/project instances. Every case has exactly one ready and one result.
+The complete per-test state lists agree before and after. This validates
+reporting, not replay ownership or performance savings.
+[Evidence](worker-test-progress.json) includes all artifact file hashes.
+
+`b719412` reuses exact serialized keys for compilation records already owned
+and deeply frozen by the source recorder. All identity/code/language/kind
+fields remain present. Mutable or unrelated records keep full serialization,
+including their later field changes. Independently freezing a record cannot
+grant ownership; private lookup never invokes inherited serialization hooks.
+
+[Gate 42265857321](https://github.com/pango07/quod/actions/runs/42265857321)
+passes 249 regressions. Four two-million-event measurements produce identical
+2,239-byte reports and exact ordered counts. Full serialization/logging takes
+3,979.73 / 3,680.49 ms; owned-key reuse takes 199.85 / 191.69 ms. These isolated
+times do not establish workload or CI savings. Neither this change nor the
+progress reporter is included in the `e9255f0` full diagnostic above.
+[Evidence](worker-compiled-record-keys.json) records the complete comparisons.
+
+`aaed633` adds inclusive command timings and native exception-callback
+events/completions/time to the existing descriptor checkpoints. The in-flight
+callback is explicit, and each snapshot owns its counter values. These
+durations overlap and cannot be summed as job elapsed time.
+[Gate 42266816888](https://github.com/pango07/quod/actions/runs/42266816888)
+passes 249 regressions, including all 19 descriptor operations, settled
+callback counts and per-checkpoint in-flight/release accounting.
+
+The next [full diagnostic 42267064963](https://github.com/pango07/quod/actions/runs/42267064963)
+is running at `aaed633` with the exact-key cache, incremental test journal
+and timing checkpoints. It preserves the full 120-file / 4,131-state scope,
+39 metadata-only edits, original timeouts and 900-second observed-phase limit.
+No complete result or new product savings has been established for this run.
