@@ -200,3 +200,63 @@ production key, published Action, or savings claim changes.
 [Evidence, source hashes and artifact digests](worker-native-arguments.json)
 preserve the native argument classifications without values or object
 references.
+
+## Code consumed inside workers
+
+[Gate 42181213496](https://github.com/pango07/quod/actions/runs/42181213496)
+at `30776ed` passes ten regressions and three complete runs: an unobserved
+baseline, an observed run, and another observed run after the same 39
+timestamp-only file changes. All three have 120 file/project instances and
+4,131 test states. An independent comparison of the raw reports agrees.
+Node is 24.18.0, Vitest is 5.0.0, and the runner image is
+`ubuntu-26.04/20261101.186.1`.
+
+The worker bootstrap observes the actual evaluator arguments and source
+returned by V8's debugger. It hashes JavaScript as UTF-16 code units and
+WebAssembly as bytecode, without retaining source or configuration values.
+A regression demonstrates why UTF-8 is insufficient for arbitrary source
+strings: two different lone surrogates encode identically but produce
+different JavaScript results. Another verifies different Wasm bytecode and
+results, using the protocol's separate
+[bytecode field](https://chromedevtools.github.io/devtools-protocol/tot/Debugger/#method-getScriptSource).
+Original evaluator return values, promises and thrown errors are preserved.
+
+| Observation | Per observed phase / paired result |
+| --- | ---: |
+| Inlined evaluator calls | 645 |
+| External evaluator calls | 562 |
+| Workers with identical evaluator code/identity sequences | 120 / 120 |
+| Captured JavaScript script events | 53,209 |
+| Captured Wasm script events | 117 |
+| Paired script identities with equal code and occurrence counts | 48,145 / 48,145 |
+| Workers with identical combined script-event sequences | 75 / 120 |
+| Changed evaluator `tmp` fields | 645 |
+| Changed evaluator `invalidate` fields | 46 |
+
+JavaScript-only and Wasm-only event sequences agree in all 120 workers.
+Their relative interleaving differs in 45 workers; the combined trace is
+not reordered to manufacture equality. No paired code-body or occurrence
+count differs, and no identity appears on only one side. All evaluator
+metadata is inspectable in this run, but its full sequence differs in every
+worker. Temporary paths and invalidation flags remain explicit differences.
+
+Two failed gates exposed diagnostic limitations before this result.
+`42179523607` incorrectly expected a compiled but unbound `vm.Script` to
+appear immediately in the debugger. The corrected fixture verifies deferred
+reporting, and reports explicitly declare incomplete compilation coverage.
+`42180282486` completed all three matching test runs but rejected unsupported
+Wasm observations in 117 workers. The successful gate captures those bytes
+instead of dropping the errors.
+
+This is useful evidence for a stable code boundary across metadata changes;
+it is not a replay certificate. Debugger events are not an execution trace
+and may omit unbound scripts. Matching module code does not establish equal
+configuration, module metadata, Wasm imports, non-code data, parent RPC state
+or side effects. The configuration/native-access probes ran separately, so
+their observations are not a combined certificate for these runs.
+
+The next worker-boundary work must account for how `tmp` and `invalidate`
+are consumed, along with the already identified seed and worker identities.
+No production key, published Action or savings claim changes.
+[Independent comparison and artifact digests](worker-module-consumption.json)
+preserve this result and both failed-gate scopes.

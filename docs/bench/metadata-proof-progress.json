@@ -660,5 +660,27 @@
     "unknownArgumentCalls": 3,
     "workersWithoutTheseFlags": 116,
     "replayEligible": false
+  },
+  "workerModuleConsumptionDiagnostic": {
+    "evidence": "worker-module-consumption.json",
+    "run": 42181213496,
+    "commit": "30776ed",
+    "regressionTests": 10,
+    "runs": 3,
+    "statesPerRun": 4131,
+    "workersPerObservedPhase": 120,
+    "metadataOnlyFilesChanged": 39,
+    "equalEvaluatorCodeSequences": 120,
+    "equalCombinedCompilationSequences": 75,
+    "pairedBodyIdentities": {
+      "evaluation": 645,
+      "compilation": 48145
+    },
+    "metadataFieldChanges": {
+      "tmp": 645,
+      "invalidate": 46
+    },
+    "completeCompilationCoverage": false,
+    "replayEligible": false
   }
 }
