@@ -43,8 +43,10 @@ function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
   new vm.Script(condition);
   return post('Debugger.setBreakpointOnFunctionCall',{objectId:fn,condition}).breakpointId;
  });
- return ()=>{for(const breakpointId of breakpoints)post('Debugger.removeBreakpoint',{breakpointId});
+ const stop=()=>{for(const breakpointId of breakpoints)post('Debugger.removeBreakpoint',{breakpointId});
    session.removeListener('Runtime.exceptionThrown',listener);extra.capture=capture.report();capture.close()};
+ stop.inspectException=params=>capture.handleException(params);
+ return stop;
 }
 ${body}
 post('Runtime.releaseObjectGroup',{objectGroup:'quod-entry-fixture'});session.disconnect();delete globalThis.__quodEntryFixture;
@@ -382,6 +384,9 @@ const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnProp
 const outcome=post('Runtime.evaluate',{expression:'throw new Error("unrelated fixture exception")',silent:false,
   ...(${JSON.stringify(foreign)}?{contextId}:{})});
 extra.exceptionObserved=!!outcome.exceptionDetails;
+// Runtime.evaluate returns this exception to its caller instead of emitting
+// Runtime.exceptionThrown. Send that exact response through the same handler.
+stop.inspectException(outcome);
 native(target,key);stop();`,{directArguments:true,nativeCapture:true})
   assert(data.exceptionObserved)
   complete(data,1)
