@@ -44,15 +44,179 @@
   "fullDiagnostic": {
     "commit": "3db47e45184a38864032d6483d2d8d936561a0a9",
     "run": "https://github.com/pango07/quod/actions/runs/42250940190",
-    "status": "in_progress",
-    "includes": "nested-event cache admission regression; complete 120-worker baseline/before/after workload",
+    "job": 128005538140,
+    "status": "completed",
+    "conclusion": "failure",
+    "regressionsPassed": 236,
+    "failure": "before phase 420-second timeout; no complete observed test-state report or after phase",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "baselineSpanMs": 92117.63061523438,
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 115,
+        "descriptorCalls": 1184224,
+        "nativeCalls": 1240967,
+        "cleared": 1240967,
+        "released": 1240967,
+        "compilationEvents": 2523643,
+        "scopedInspections": 1147053,
+        "descriptorsRetainedCalls": 1184224,
+        "proxyRetainedCalls": 56743
+      },
+      "flags": {},
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 115,
+          "elapsedMs": 39.248506000000006
+        },
+        "Debugger.getScriptSource": {
+          "calls": 63569,
+          "elapsedMs": 13164.750578000001
+        },
+        "Debugger.enable": {
+          "calls": 115,
+          "elapsedMs": 10908.519405000003
+        },
+        "Runtime.evaluate": {
+          "calls": 5862,
+          "elapsedMs": 2252.1727659999997
+        },
+        "Runtime.getProperties": {
+          "calls": 16790,
+          "elapsedMs": 3126.585521
+        },
+        "Runtime.queryObjects": {
+          "calls": 345,
+          "elapsedMs": 30504.689131999992
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1243603,
+          "elapsedMs": 230594.18299399992
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 5060,
+          "elapsedMs": 15871.407844000005
+        },
+        "Debugger.resume": {
+          "calls": 118,
+          "elapsedMs": 7.327167999999999
+        },
+        "Runtime.releaseObject": {
+          "calls": 1241079,
+          "elapsedMs": 33274.15773399999
+        }
+      },
+      "watchedTargetCalls": 47464
+    },
+    "streamCheckpoint": {
+      "calls": 880000,
+      "memory": {
+        "rss": 442912768,
+        "heapTotal": 260739072,
+        "heapUsed": 153225184,
+        "external": 39609974,
+        "arrayBuffers": 35569787
+      },
+      "compilation": {
+        "events": 1761382,
+        "runs": 1761364,
+        "records": 420,
+        "overflow": false,
+        "runStorage": "chunked-f64",
+        "runStorageBytes": 28246016,
+        "failedToParse": 329
+      },
+      "argumentDiagnostics": {
+        "mode": "native-entry-arguments",
+        "available": true,
+        "calls": 880311,
+        "ignored": 0,
+        "ignoredReasons": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cleared": 880311,
+        "released": 880310,
+        "groupsReleased": 0,
+        "failureCounts": {},
+        "failureSamples": [],
+        "contextCapture": {
+          "contexts": 1,
+          "attemptedContexts": 1,
+          "contextQueries": 1,
+          "contextQueryMs": 245.853444
+        },
+        "ownerPolicy": "native-ordinary",
+        "handleMode": "native-private-capture",
+        "argumentMode": "direct",
+        "targetAccessorsOnly": true,
+        "targetInspection": "native-watched",
+        "nativeCapture": true,
+        "scopedInspections": 879696,
+        "adaptiveSites": 0,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      }
+    },
+    "partialVerification": {
+      "scope": "retained worker reports only; no complete observed test-state result",
+      "counts": {
+        "guardedMetadataScalars": 3776,
+        "cache_events": 2523643,
+        "cache_sourceReads": 59910,
+        "cache_cacheHits": 2463733,
+        "cache_entries": 7535,
+        "contextBridges": 112,
+        "excludedOwnerCalls": 37170,
+        "workers": 115,
+        "guardedSeeds": 115
+      },
+      "replayEligible": false
+    },
+    "sourceVerification": {
+      "workers": 115,
+      "sourceRecords": 2394,
+      "watchedCalls": 47464,
+      "callsMatchingCheckedInDiagnosticSource": 47464
+    },
+    "artifact": {
+      "id": 13519813838,
+      "bytes": 13649260,
+      "sha256": "85dc7f085fa89eedce9c9f7f1be2b930a136c70858707200b7784a29a830a3ea"
+    },
     "replayEligible": false,
-    "job": 128005538140
+    "limitations": [
+      "115 retained worker reports pass scoped checks; five are missing.",
+      "No complete observed test-state report; no full wrong=0 claim.",
+      "No production performance claim changes."
+    ]
   },
   "replayEligible": false,
   "limitations": [
     "No completed full-workload comparison yet.",
     "Initial runtime integrity, complete native coverage and input ownership remain unproven.",
     "No production engine, Action pin or savings claim changes."
-  ]
+  ],
+  "extendedFullDiagnostic": {
+    "commit": "567e91e288291d2ccedcc43dd689de513e1ae466",
+    "run": "https://github.com/pango07/quod/actions/runs/42253196341",
+    "job": 128013419250,
+    "status": "in_progress",
+    "observedPhaseLimitSeconds": 900,
+    "jobLimitMinutes": 35,
+    "testTimeoutsChanged": false,
+    "productTargetsChanged": false,
+    "replayEligible": false
+  }
 }

@@ -1421,7 +1421,25 @@ capture timings, not full-workload or CI savings.
 so a nested script event cannot double-count an admitted source. A regression
 exercises that path. The
 [full gate 42250940190](https://github.com/pango07/quod/actions/runs/42250940190)
-includes that regression and the complete unchanged workload. It is running;
-no production replay authority or savings claim changes.
+passed 236 regressions and the complete baseline, then timed out in `before`
+at 420 seconds. All 115 retained workers pass scoped checks: 1,240,967 native
+calls are attributed, cleared and released; zero capture or index failures;
+3,776 guarded metadata scalars and 115 guarded seeds. All 47,464 retained
+watched calls have matching actual source evidence.
+
+The retained compilation logs preserve 2,523,643 events with 2,463,733 cache
+hits and 59,910 full-source reads. Including separate caller-source lookups,
+63,569 source-fetch commands took 13.16 seconds inclusively across workers.
+The unfinished stream worker reaches 880,000 descriptor calls and 1,761,382
+compilation events at 442,912,768 bytes RSS. The plain baseline span is
+92.12 seconds. Five worker reports and all complete observed test-state
+comparisons remain missing; this is not a full wrong=0 or CI savings result.
+
+`567e91e` extends only the combined diagnostic's observed-phase collection
+limit to 900 seconds, with a 35-minute workflow cap. The original Vitest
+test timeouts, test scope and product targets remain unchanged. Phase
+duration/status and source-cache checkpoint counts are now saved explicitly.
+The [extended full gate 42253196341](https://github.com/pango07/quod/actions/runs/42253196341)
+is running. No production replay authority or savings claim changes.
 [Machine-readable evidence](worker-compiled-source-cache.json) retains the
 cache restrictions, measured counts and gate scope.

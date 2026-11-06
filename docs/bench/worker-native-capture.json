@@ -3095,11 +3095,26 @@
     "regressionsPassed": 199
   },
   "pendingFullDiagnostic": {
-    "commit": "3db47e45184a38864032d6483d2d8d936561a0a9",
-    "run": "https://github.com/pango07/quod/actions/runs/42250940190",
+    "commit": "567e91e288291d2ccedcc43dd689de513e1ae466",
+    "run": "https://github.com/pango07/quod/actions/runs/42253196341",
+    "job": 128013419250,
     "status": "in_progress",
-    "includes": "nested-event cache admission regression; complete 120-worker baseline/before/after workload",
-    "replayEligible": false,
-    "job": 128005538140
+    "observedPhaseLimitSeconds": 900,
+    "jobLimitMinutes": 35,
+    "testTimeoutsChanged": false,
+    "productTargetsChanged": false,
+    "replayEligible": false
+  },
+  "injectiveSourceCacheFullDiagnostic": {
+    "commit": "3db47e4",
+    "run": "https://github.com/pango07/quod/actions/runs/42250940190",
+    "job": 128005538140,
+    "status": "completed",
+    "conclusion": "failure",
+    "regressionsPassed": 236,
+    "retainedWorkers": 115,
+    "scopedObservationErrors": 0,
+    "evidence": "worker-compiled-source-cache.json#fullDiagnostic",
+    "replayEligible": false
   }
 }
