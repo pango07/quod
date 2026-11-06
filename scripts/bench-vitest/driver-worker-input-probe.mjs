@@ -147,15 +147,18 @@ if(phase) {
     assert(reports.every(r=>!r.replayEligible&&!r.unknown.length&&r.files.length===1))
     assert(reports.every(r=>!r.metadata.replayEligible&&!r.metadata.completeOwnership&&!r.metadata.overflow&&!r.metadata.errors.length&&r.metadata.nodes>0))
     assert(reports.every(r=>r.native.opaque.available&&r.native.inspector.available&&r.native.proxy.available&&!r.native.proxy.overflow))
+    assert(reports.every(r=>r.native.hooks.available&&!r.native.hooks.overflow),'hook lifetime observation must be available in every worker')
     const events=reports.flatMap(r=>r.metadata.events),invalidations=reports.flatMap(r=>r.metadata.invalidations)
     const operations=Object.create(null)
     for(const e of events){const k=e.operation+':'+e.key;operations[k]=(operations[k]??0)+e.count}
-    const entryCounts=Object.create(null),argumentCounts=Object.create(null)
+    const entryCounts=Object.create(null),argumentCounts=Object.create(null),hookEntryCounts=Object.create(null)
     for(const r of reports)for(const e of r.native.opaque.entries)for(const name of e.entries)entryCounts[name]=(entryCounts[name]??0)+1
     for(const r of reports)for(const e of r.native.proxy.entries) {
       const k=e.argument.available?e.argument.kind:'unknown: '+e.argument.reason
       argumentCounts[k]=(argumentCounts[k]??0)+e.count
     }
+    for(const r of reports)for(const e of r.native.hooks.entries)for(const name of e.entries)hookEntryCounts[name]=(hookEntryCounts[name]??0)+e.count
+    const activeHooks=s=>Object.values(s.promiseHooks).some(n=>n!==0)||s.asyncHooks.kTotals!==0||s.pendingAsyncHookEdit
     const cold=x=>!x.evaluated&&!x.hasMeta&&!x.hasMap&&!x.hasPromise&&!x.hasExports&&x.imports===0
     const metadataResult={replayEligible:false,completeOwnership:false,workers:reports.length,
       fingerprint:first.fingerprint,plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
@@ -165,7 +168,10 @@ if(phase) {
       nonColdInvalidations:invalidations.filter(x=>!cold(x)),
       workersWithReads:reports.filter(r=>r.metadata.events.some(e=>['get','has','descriptor','keys'].includes(e.operation))).length,
       gaps:[...new Set(reports.flatMap(r=>r.metadata.gaps))],
-      native:{entryCounts,argumentCounts,
+      native:{entryCounts,argumentCounts,hookEntryCounts,
+        workersWithInitialHooks:reports.filter(r=>activeHooks(r.native.hooks.initial)).length,
+        workersWithFinalHooks:reports.filter(r=>activeHooks(r.native.hooks.current)).length,
+        workersWithHookAccess:reports.filter(r=>r.native.hooks.entries.length>0).length,
         workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
         workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
         workersWithProxyUnwrapEntries:reports.filter(r=>r.native.proxy.entries.some(e=>e.entries.includes('util.getProxyDetails'))).length},

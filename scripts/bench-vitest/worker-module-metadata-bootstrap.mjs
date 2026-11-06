@@ -9,7 +9,7 @@ import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
-const registry=inspectPromiseObservers({proxyAccess:true})
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true})
 const require=createRequire(path.join(process.cwd(),'package.json'))
 const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
@@ -31,7 +31,7 @@ process.send=function(...args) {
   const message=args[0]
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,
-      metadata:observer.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess()}})+'\n')}
+      metadata:observer.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }
   return apply(send,this,args)

@@ -16,7 +16,7 @@ const nativeSources={
 const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
-export function inspectPromiseObservers({proxyAccess=false}={}) {
+export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={}) {
   const session=new Session()
   const scripts=new Map()
   session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
@@ -28,6 +28,8 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
   const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post)
   let proxyFailure=null,proxyOverflow=false
+  const hookBreakpoints=new Map(),hookEntries=new Map(),hookSources={}
+  let hookInitial=null,hookFailure=null,hookOverflow=false
   const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
     'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
   let opaqueInitial=null,opaqueFailure=null
@@ -96,6 +98,31 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
   }
   const kinds=['init','before','after','settled']
   let lists={}, fields=null, indices={}, active=null, owned=null, nativeRefs=null, objectPrototype=null
+  function hookSnapshot() {
+    if(failure || closed) return {available:false,reason:failure??'closed',replayEligible:false}
+    try {
+      const promiseHooks={}, identities={}
+      for(const kind of kinds) {
+        const length=prop(lists[kind],'length')?.value
+        if(!Number.isInteger(length) || length<0) throw Error('unknown promise registry shape')
+        promiseHooks[kind]=length
+        if(owned) {
+          const fn=length===1 ? prop(lists[kind],'0') : null
+          identities[kind]=false
+          if(fn?.type==='function' && fn.objectId) identities[kind]=same(owned[kind],fn.objectId)
+        }
+      }
+      const values=properties(fields).result, asyncHooks={}
+      for(const [name,index] of Object.entries(indices)) {
+        const value=values.find(p=>p.name===String(index))?.value?.value
+        if(!Number.isInteger(value) || value<0) throw Error('unknown async registry shape')
+        asyncHooks[name]=value
+      }
+      const pending=prop(active,'tmp_array')
+      return {available:true,promiseHooks,asyncHooks,pendingAsyncHookEdit:pending?.subtype!=='null',
+        onlyOwnedPromiseHooks:owned ? kinds.every(k=>identities[k]) : null,replayEligible:false}
+    } catch(e) {failure=e.message;return {available:false,reason:failure,replayEligible:false}}
+  }
   try {
     session.connect()
     post('Debugger.enable')
@@ -103,11 +130,18 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
       const inspector=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
       const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
       const proxy=(params.hitBreakpoints??[]).map(id=>proxyBreakpoints.get(id)).filter(Boolean)
-      if(inspector.length||opaque.length||proxy.length) {
+      const hooks=(params.hitBreakpoints??[]).map(id=>hookBreakpoints.get(id)).filter(Boolean)
+      if(inspector.length||opaque.length||proxy.length||hooks.length) {
         const frames=params.callFrames.slice(0,8).map(f=>({
           name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
         if(inspector.length)inspectorEntries.push({entries:inspector,frames})
         if(opaque.length)opaqueEntries.push({entries:opaque,frames})
+        if(hooks.length) {
+          const key=JSON.stringify([hooks,frames])
+          if(hookEntries.has(key))hookEntries.get(key).count++
+          else if(hookEntries.size<10000)hookEntries.set(key,{entries:hooks,frames,count:1})
+          else hookOverflow=true
+        }
         if(proxy.length) {
           // Count all calls, including the config probe's own isProxy checks.
           // Do not retain arguments, targets or raw values in the diagnostic.
@@ -117,8 +151,8 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
           else if(proxyEntries.size<10000)proxyEntries.set(key,{entries:proxy,frames,argument,count:1})
           else proxyOverflow=true
         }
-        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure='could not resume watched entry'}
-      } else inspectorFailure=opaqueFailure=proxyFailure='unrelated debugger pause'
+        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure='could not resume watched entry'}
+      } else inspectorFailure=opaqueFailure=proxyFailure=hookFailure='unrelated debugger pause'
     })
     // An Inspector connection can inspect a fulfilled promise or heap
     // object without appearing in either JavaScript hook registry. This
@@ -219,8 +253,44 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
         proxyFunctions.set(name,fn)
       }
     }catch(e){proxyFailure=e.message}
+    if(hookAccess)try {
+      // A hook can capture a raw Promise result and disappear before a final
+      // registry snapshot. Watch its registration path and native installation
+      // for the entire diagnostic lifetime, including cached references.
+      hookInitial=hookSnapshot()
+      if(!hookInitial.available)throw Error('initial hook registry unavailable')
+      const onInit=builtin("process.getBuiltinModule('v8').promiseHooks.onInit")
+      const update=binding(onInit,'update').objectId
+      const asyncHook=binding(publicCreate,'AsyncHook').objectId
+      const asyncPrototype=prop(asyncHook,'prototype')?.objectId
+      const asyncWrap=binding(getHooks,'async_wrap').objectId
+      const resource=builtin("process.getBuiltinModule('async_hooks').executionAsyncResource")
+      for(const [name,fn] of [
+        ...kinds.map(kind=>{const name='on'+kind[0].toUpperCase()+kind.slice(1);return ['promiseHooks.'+name,builtin(`process.getBuiltinModule('v8').promiseHooks.${name}`)]}),
+        ['async_wrap.setPromiseHooks',binding(update,'setPromiseHooks').objectId],
+        ['AsyncHook.enable',prop(asyncPrototype,'enable')?.objectId],
+        ['AsyncHook.disable',prop(asyncPrototype,'disable')?.objectId],
+        ['async_hooks.executionAsyncResource',resource],
+        ['async_wrap.executionAsyncResource',binding(resource,'executionAsyncResource_').objectId],
+        ['async_wrap.setupHooks',prop(asyncWrap,'setupHooks')?.objectId],
+        ['async_wrap.setCallbackTrampoline',prop(asyncWrap,'setCallbackTrampoline')?.objectId],
+        ['process.binding',builtin('process.binding')],
+      ]) {
+        if(!fn)throw Error('missing hook observation entry: '+name)
+        hookSources[name]=functionSource(fn)
+        const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
+        hookBreakpoints.set(breakpointId,name)
+      }
+    }catch(e){hookFailure=e.message}
   } catch(e) {failure=e.message}
   return {
+    hookAccess() {
+      const current=hookSnapshot()
+      return {available:hookAccess&&!failure&&!hookFailure&&current.available&&hookBreakpoints.size===12,
+        initial:hookInitial,current,entries:[...hookEntries.values()],sources:hookSources,
+        overflow:hookOverflow,reason:failure??hookFailure,replayEligible:false,
+        limitation:'Observed hook registrations, async resource access and private binding entry; not complete raw-object ownership or native capability exclusion'}
+    },
     proxyAccess() {
       return {available:proxyAccess&&!failure&&!proxyFailure&&proxyBreakpoints.size===2,
         entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow,
@@ -338,33 +408,7 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
         return true
       } catch(e) {failure=e.message;return false}
     },
-    snapshot() {
-      if(failure || closed) return {available:false,reason:failure??'closed',replayEligible:false}
-      try {
-        const promiseHooks={}, identities={}
-        for(const kind of kinds) {
-          const length=prop(lists[kind],'length')?.value
-          if(!Number.isInteger(length) || length<0) throw Error('unknown promise registry shape')
-          promiseHooks[kind]=length
-          if(owned) {
-            const fn=length===1 ? prop(lists[kind],'0') : null
-            identities[kind]=false
-            if(fn?.type==='function' && fn.objectId) {
-              identities[kind]=same(owned[kind],fn.objectId)
-            }
-          }
-        }
-        const values=properties(fields).result, asyncHooks={}
-        for(const [name,index] of Object.entries(indices)) {
-          const value=values.find(p=>p.name===String(index))?.value?.value
-          if(!Number.isInteger(value) || value<0) throw Error('unknown async registry shape')
-          asyncHooks[name]=value
-        }
-        const pending=prop(active,'tmp_array')
-        return {available:true,promiseHooks,asyncHooks,pendingAsyncHookEdit:pending?.subtype!=='null',
-          onlyOwnedPromiseHooks:owned ? kinds.every(k=>identities[k]) : null,replayEligible:false}
-      } catch(e) {failure=e.message;return {available:false,reason:failure,replayEligible:false}}
-    },
+    snapshot:hookSnapshot,
     close() {
       closed=true
       for(const breakpointId of inspectorBreakpoints.keys()) {
@@ -374,6 +418,9 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       for(const breakpointId of proxyBreakpoints.keys()) {
+        try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
+      }
+      for(const breakpointId of hookBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       try {post('Runtime.releaseObjectGroup',{objectGroup:'quod-observer-diagnostic'})} catch {}
