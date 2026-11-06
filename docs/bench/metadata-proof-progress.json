@@ -994,6 +994,10 @@
     "injectiveSourceCacheFullGateAvailableWorkers": 115,
     "extendedBoundaryFullGate": 42253196341,
     "extendedBoundaryFullGateStatus": "in_progress",
-    "extendedBoundaryFullGateCommit": "567e91e"
+    "extendedBoundaryFullGateCommit": "567e91e",
+    "nativeDataFieldCommit": "5750e67",
+    "nativeDataFieldFixtureGate": 42255029030,
+    "nativeDataFieldFixtureConclusion": "success",
+    "nativeDataFieldFixtureTests": 202
   }
 }

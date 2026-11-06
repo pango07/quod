@@ -3116,5 +3116,57 @@
     "scopedObservationErrors": 0,
     "evidence": "worker-compiled-source-cache.json#fullDiagnostic",
     "replayEligible": false
+  },
+  "nativeDataFieldFixture": {
+    "commit": "5750e671c00bfc2ccb73d2f8176ed7a67cef13f9",
+    "run": "https://github.com/pango07/quod/actions/runs/42255029030",
+    "job": 128019848762,
+    "conclusion": "success",
+    "regressionsPassed": 202,
+    "nativeBinarySha256": "ec39dba01388e41abc2f75a8dcf4e05054c058803abbc4ab575b1811ccb90321",
+    "change": "For validated ordinary null-prototype payload/holder objects, reject callbacks, check real property attributes and read the real data value; avoid allocating descriptor objects. The old descriptor implementation remains a separately compiled measurement baseline.",
+    "regressions": [
+      "29 wrapper shapes produce the same summaries under both implementations.",
+      "Missing, read-only, getter, empty-accessor, frozen, inherited and proxy wrappers are covered.",
+      "No malformed-field getter or proxy trap runs.",
+      "Existing native callback/access-check, foreign-context and lifetime regressions pass."
+    ],
+    "measurements": [
+      {
+        "mode": "descriptors",
+        "calls": 100000,
+        "matches": 100000,
+        "gets": 0,
+        "elapsedMs": 721.415864
+      },
+      {
+        "mode": "real-data",
+        "calls": 100000,
+        "matches": 100000,
+        "gets": 0,
+        "elapsedMs": 409.210597
+      },
+      {
+        "mode": "real-data",
+        "calls": 100000,
+        "matches": 100000,
+        "gets": 0,
+        "elapsedMs": 532.667716
+      },
+      {
+        "mode": "descriptors",
+        "calls": 100000,
+        "matches": 100000,
+        "gets": 0,
+        "elapsedMs": 567.427093
+      }
+    ],
+    "measurementScope": "Native helper only; excludes Inspector transport, workload time and CI savings",
+    "primarySource": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api.cc",
+    "replayEligible": false,
+    "limitations": [
+      "The active full run 42253196341 still uses the earlier native helper at 567e91e.",
+      "This fixture does not certify initial runtime integrity, complete native coverage or replay ownership."
+    ]
   }
 }

@@ -1443,3 +1443,26 @@ The [extended full gate 42253196341](https://github.com/pango07/quod/actions/run
 is running. No production replay authority or savings claim changes.
 [Machine-readable evidence](worker-compiled-source-cache.json) retains the
 cache restrictions, measured counts and gate scope.
+
+## Native payload data lookup
+
+While the extended full diagnostic runs, `5750e67` removes descriptor-object
+allocation from owned native payload/holder validation. The helper first
+requires an ordinary object with a null prototype and no host wrapper or
+interceptor, then rejects callback properties before checking attributes and
+reading data. The pinned [V8 lookup implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api.cc)
+can traverse prototypes and invoke accessors in general; the explicit owner,
+null-prototype and callback checks are required before using it here.
+
+[Gate 42255029030](https://github.com/pango07/quod/actions/runs/42255029030)
+passes 202 regressions. A separately compiled descriptor baseline produces
+the same capture summaries for 29 wrapper shapes, including missing and
+read-only fields, getters, empty accessors, frozen wrappers, inherited fields
+and proxies. No getter or proxy trap runs. Existing native callback,
+host access-check, foreign-context and lifetime cases also pass.
+
+Four isolated 100,000-call measurements retain 100,000 matching summaries
+each. Descriptor validation takes 721.42 / 567.43 ms; direct data validation
+takes 409.21 / 532.67 ms. These measure the native helper alone, excluding
+Inspector transport and full-workload time. The active full run still uses
+the earlier helper. No production savings or replay authority changes.
