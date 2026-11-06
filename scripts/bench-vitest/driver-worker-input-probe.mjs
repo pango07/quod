@@ -223,6 +223,8 @@ if(phase) {
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(x.native.descriptors?.available&&!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage,
             'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
+          assert(x.native.descriptors.argumentDiagnostics?.moduleBindingEvaluation,
+            'the combined diagnostic must report its bounded lexical lookup mode')
           assert(x.native.identity?.available&&x.native.identity.mode==='heap-object-id'&&x.native.identity.snapshotsRequested===0,
             'native identity comparison must remain available without collecting heap snapshots')
           assert.equal(x.metadata.observation,'accessor')
