@@ -17,7 +17,9 @@ const nativeSources={
 const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
-export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false}={}) {
+export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000}={}) {
+  if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
   const compiled=[],compilationErrors=[]
@@ -42,6 +44,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let proxyFailure=null,proxyOverflow=false
   const descriptorBreakpoints=new Map(),descriptorFunctions=new Map(),descriptorEntries=new Map()
   let descriptorFailure=null,descriptorOverflow=false
+  let descriptorCalls=0
+  const descriptorCounts=new Map(),descriptorArgumentCounts=new Map()
   const descriptorNames=['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptors','Reflect.getOwnPropertyDescriptor',
     'Object.defineProperty','Object.defineProperties','Reflect.defineProperty','Reflect.deleteProperty',
     'Object.freeze','Object.seal','Object.preventExtensions','Reflect.preventExtensions',
@@ -181,6 +185,14 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
           if(descriptorEntries.has(key))descriptorEntries.get(key).count++
           else if(descriptorEntries.size<10000)descriptorEntries.set(key,{entries:descriptors,frames,argument,count:1})
           else descriptorOverflow=true
+          descriptorCalls++
+          for(const name of descriptors)descriptorCounts.set(name,(descriptorCounts.get(name)??0)+1)
+          const kind=argument.available?argument.kind:'unknown: '+argument.reason
+          descriptorArgumentCounts.set(kind,(descriptorArgumentCounts.get(kind)??0)+1)
+          if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
+            onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
+              arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,replayEligible:false})
+          }catch{descriptorFailure='descriptor progress checkpoint failed'}
         }
         try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='could not resume watched entry'}
       } else inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='unrelated debugger pause'
@@ -376,7 +388,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     },
     descriptorAccess() {
       return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length,
-        entries:[...descriptorEntries.values()],overflow:descriptorOverflow,reason:failure??descriptorFailure,
+        entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow,reason:failure??descriptorFailure,
         replayEligible:false,completeDescriptorCoverage:false,
         limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
     },

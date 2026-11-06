@@ -69,6 +69,17 @@ const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,g
   assert.equal(data.present,false);assert.equal(data.gets,0);assert.deepEqual(data.report.entries,[])
 })
 
+test('progress checkpoints retain cumulative calls without replacing the final observation',()=>{
+  const data=fixture(`const native=Object.getOwnPropertyDescriptor,checkpoints=[];
+const p=inspectPromiseObservers({descriptorAccess:true,descriptorCheckpointEvery:2,onDescriptorCheckpoint:c=>checkpoints.push(c)});
+for(let i=0;i<5;i++)native(target,key);
+const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets,checkpoints}));`)
+  assert.equal(data.gets,0);assert.deepEqual(data.checkpoints.map(c=>c.calls),[2,4])
+  assert.equal(data.report.calls,5)
+  assert.equal(data.report.entries.reduce((n,e)=>n+e.count,0),5)
+  assert(data.checkpoints.every(c=>c.apis['Object.getOwnPropertyDescriptor']===c.calls&&c.arguments.object===c.calls&&!c.replayEligible))
+})
+
 for(const [kind,expression,known] of [
   ['primitive object fields','{value:42,configurable:!0}',true],
   ['lexical object fields','{value:change,configurable:true}',true],

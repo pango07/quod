@@ -13,7 +13,13 @@ import {observeScalarProperty} from './scalar-property-probe.mjs'
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
 const combined=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined})
+const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect.apply
+let project=null
+const progressDirectory=path.join(directory,'progress')
+if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
+  onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
+    JSON.stringify({project,files,checkpoint})+'\n'):null})
 const require=createRequire(path.join(process.cwd(),'package.json'))
 const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
@@ -34,9 +40,7 @@ if(combined) {
   const {VitestModuleEvaluator}=await import(pathToFileURL(path.join(path.dirname(vitestPackage),'dist/module-evaluator.js')).href)
   evaluation=observeModuleEvaluation(VitestModuleEvaluator,{metadataForNode:observer.metadataForNode})
 }
-const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect.apply
 const output=path.join(directory,`${process.pid}.json`)
-let project=null
 process.prependListener('message',message=>{
   transport.received(message)
   if(message?.__vitest_worker_request__!==true)return
