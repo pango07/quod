@@ -744,3 +744,22 @@ passes 109 regressions in [42211683490](https://github.com/pango07/quod/actions/
 at `b025766`. It is not enabled in the full workload or product. A bounded
 300-call comparison will measure each approach with identical values and
 one native identity comparison per call before another full workload run.
+
+The first equal-work fixture failed in [42211891164](https://github.com/pango07/quod/actions/runs/42211891164):
+reading the clock lazily initialized `perf_hooks`, adding ten descriptor calls.
+`1242d87` moves clock initialization before observation. Its
+[gate 42212082012](https://github.com/pango07/quod/actions/runs/42212082012) passes
+110 tests. For 300 calls, transferring all module descriptors took 1,516 ms;
+lexical evaluation took 520 ms; fresh scope lookup took 495 ms. All methods
+made 300 identity checks and returned the same values without invoking getters.
+The lookup improvement over lexical evaluation is small, not sufficient
+evidence for another full-workload run.
+
+[42212429550](https://github.com/pango07/quod/actions/runs/42212429550) at `c813670`
+also passes 110 tests and compares fresh compiled identity checks with heap
+tracking. In that run the same three methods took 2,061 / 718 / 683 ms;
+lookup with compiled identity checks took 702 ms. Removing heap tracking
+did not improve the bounded measurement. These fixtures had compilation
+logging disabled, unlike the full diagnostic. The next comparison enables
+that logging and measures Inspector commands to identify the remaining cost.
+These are diagnostic timings, not CI savings or a production replay change.

@@ -7,6 +7,7 @@ import {observeNativeCallArguments} from './native-call-argument.mjs'
 import {compiledScriptRecord} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog} from './compiled-script-log.mjs'
+const monotonicNow=process.hrtime.bigint
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -20,7 +21,7 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false}={}) {
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
@@ -61,11 +62,21 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
     'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
   let opaqueInitial=null,opaqueFailure=null
+  const commandTiming=new Map()
   function post(method,params={}) {
-    let done=false,result,error
-    session.post(method,params,(e,r)=>{done=true;error=e;result=r})
-    if (!done || error) throw Error(!done ? 'asynchronous inspector response' : 'inspector request failed')
-    return result
+    const started=inspectorTiming?monotonicNow():null
+    try {
+      let done=false,result,error
+      session.post(method,params,(e,r)=>{done=true;error=e;result=r})
+      if (!done || error) throw Error(!done ? 'asynchronous inspector response' : 'inspector request failed')
+      return result
+    }finally {
+      if(started!==null) {
+        const elapsed=Number(monotonicNow()-started)/1e6
+        const row=commandTiming.get(method)??{calls:0,elapsedMs:0}
+        row.calls++;row.elapsedMs+=elapsed;commandTiming.set(method,row)
+      }
+    }
   }
   function properties(id) {
     if (!id) throw Error('missing runtime object')
@@ -425,6 +436,10 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     },
     nativeIdentity() {
       return heapIdentityObserver?.report()??{mode:'compiled-comparison',replayEligible:false}
+    },
+    inspectorTiming() {
+      return {enabled:inspectorTiming,commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
+        replayEligible:false,limitation:'Inclusive command timings can overlap through synchronous notifications'}
     },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,

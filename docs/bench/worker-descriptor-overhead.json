@@ -1485,7 +1485,7 @@
     "sourceLead": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api-natives.cc#L261-L331"
   },
   "freshModuleScopeLookup": {
-    "status": "regressions passed; throughput comparison pending",
+    "status": "110 regressions pass; full-trace command timing pending",
     "enabledInCombinedWorkload": false,
     "replayEligible": false,
     "source": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-scopes.cc#L579-L621",
@@ -1494,6 +1494,95 @@
     "fixtureGate": 42211683490,
     "fixtureConclusion": "success",
     "fixtureTests": 109,
-    "fixtureLogSha256": "fdf2e299523fa792561932fc66834df0d3eeb3e095a62197391892dd19e6b457"
+    "fixtureLogSha256": "fdf2e299523fa792561932fc66834df0d3eeb3e095a62197391892dd19e6b457",
+    "throughputRuns": [
+      {
+        "commit": "1242d87",
+        "gate": 42212082012,
+        "conclusion": "success",
+        "tests": 110,
+        "logSha256": "ee17fbafed78587b3c761ff58081bc5f2da40cffe77ea7a79990cf482fdfe72f",
+        "compiledScripts": false,
+        "measurements": [
+          {
+            "mode": "descriptors",
+            "calls": 300,
+            "elapsedMs": 1516.338262,
+            "identityChecks": 300,
+            "transferredModuleEntries": 600900,
+            "replayEligible": false
+          },
+          {
+            "mode": "evaluate",
+            "calls": 300,
+            "elapsedMs": 519.752289,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "replayEligible": false
+          },
+          {
+            "mode": "lookup",
+            "calls": 300,
+            "elapsedMs": 495.229462,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "replayEligible": false
+          }
+        ],
+        "replayEligible": false
+      },
+      {
+        "commit": "c813670",
+        "gate": 42212429550,
+        "conclusion": "success",
+        "tests": 110,
+        "logSha256": "4758345b1c65135881e70eed3e0ee8e97f23adc30e1a375790ef69fca062ea1f",
+        "compiledScripts": false,
+        "measurements": [
+          {
+            "mode": "descriptors",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 2061.393003,
+            "identityChecks": 300,
+            "transferredModuleEntries": 600900,
+            "replayEligible": false
+          },
+          {
+            "mode": "evaluate",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 717.739916,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "replayEligible": false
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": true,
+            "calls": 300,
+            "elapsedMs": 682.927762,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "replayEligible": false
+          },
+          {
+            "mode": "lookup",
+            "heapIdentity": false,
+            "calls": 300,
+            "elapsedMs": 702.403865,
+            "identityChecks": 300,
+            "transferredModuleEntries": 0,
+            "replayEligible": false
+          }
+        ],
+        "replayEligible": false
+      }
+    ],
+    "measurementFixtureFailure": {
+      "gate": 42211891164,
+      "commit": "3f7267a",
+      "reason": "Lazy performance module initialization added ten descriptor calls. Clock initialization moved before observation in 1242d87."
+    }
   }
 }
