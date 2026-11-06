@@ -10,6 +10,7 @@ import {spawnSync} from 'node:child_process'
 import {observeWorkerInputs} from './worker-input-probe.mjs'
 import {validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
 import {validateNativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
+import {testProgressReporter} from './test-progress-reporter.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -72,9 +73,12 @@ if(phase) {
     }
   }
   const observer=phase==='baseline'?null:observeWorkerInputs(V)
+  const progress=testProgressReporter(project,row=>
+    fs.appendFileSync(path.join(out,phase+'-test-progress.jsonl'),JSON.stringify(row)+'\n'))
   try {
-    await V.startVitest('test',[],{run:true,watch:false,reporters:['default','json'],outputFile:{json:path.join(out,phase+'-tests.json')}})
+    await V.startVitest('test',[],{run:true,watch:false,reporters:['default','json',progress.reporter],outputFile:{json:path.join(out,phase+'-tests.json')}})
   }finally{
+    write(path.join(out,phase+'-test-progress-summary.json'),progress.report())
     write(path.join(out,phase+'-inputs.json'),{node:process.version,vitest:pkg.version,
       entrySha256:sha(fs.readFileSync(entry)),...(observer?.report()??{baseline:true})})
     observer?.close()
@@ -92,6 +96,9 @@ if(phase) {
     assert.equal(r.error,undefined);assert.equal(r.status,0,'plain Vitest failed; see '+name+'.log')
     const s=states(path.join(out,name+'-tests.json'))
     assert.equal(s.fingerprint,'09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd')
+    const progress=JSON.parse(fs.readFileSync(path.join(out,name+'-test-progress-summary.json')))
+    assert.equal(progress.failure,null);assert.equal(progress.overflow,false);assert.equal(progress.ended,true)
+    assert.equal(progress.results,s.states,'incremental results must account for every complete test state')
     return s
   }
   const baseline=moduleProbe||boundaryProbe?run('baseline'):null
