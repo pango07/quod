@@ -47,7 +47,7 @@ if(combined) {
   evaluation=observeModuleEvaluation(VitestModuleEvaluator,{metadataForNode:observer.metadataForNode})
 }
 const output=path.join(directory,`${process.pid}.json`)
-process.prependListener('message',message=>{
+function observeWorkerMessage(message) {
   transport.received(message)
   if(message?.__vitest_worker_request__!==true)return
   if(message.type==='start') {
@@ -62,13 +62,15 @@ process.prependListener('message',message=>{
     }
   }
   if(message.type==='run'||message.type==='collect')files.push(...message.context.files.map(f=>f.filepath))
-})
+}
+process.prependListener('message',observeWorkerMessage)
+if(combined)registry.captureMessageObserver()
 process.send=function(...args) {
   const message=args[0]
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{scalarObservation,evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
+      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity(),timing:registry.inspectorTiming()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }

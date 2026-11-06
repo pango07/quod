@@ -312,6 +312,15 @@ if(phase) {
             'native argument evidence must not silently fall back to reconstructed caller expressions')
           assert.equal(x.metadata.observation,scalarObservation)
           assert.equal(x.boundary.scalarObservation,scalarObservation)
+          const messages=x.boundary.messageDispatch
+          assert(messages?.available&&messages.installed&&!messages.closed&&!messages.replayEligible&&!messages.completeOwnership,
+            'message dispatch observation must be available within its declared scope: '+JSON.stringify(messages))
+          assert.deepEqual(messages.errors,[])
+          assert(messages.dispatches>0)
+          assert.equal(messages.dispatches,messages.callbacks)
+          assert.equal(messages.dispatches,messages.paired)
+          assert.equal(messages.pending,0)
+          assert.equal(messages.groupsCreated,messages.groupsReleased,'all transient message handles must be released')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert.equal(x.boundary.compilation.debuggerScriptCacheBytes,0)
@@ -339,6 +348,7 @@ if(phase) {
         }
         comparisons.push({key:key(r),codeSequenceEqual:JSON.stringify(code(a.boundary.evaluation.events))===JSON.stringify(code(r.boundary.evaluation.events)),
           compiledSequenceEqual:JSON.stringify(compilationSequence(a.boundary.compilation))===JSON.stringify(compilationSequence(r.boundary.compilation)),
+          messageDispatchesBefore:a.boundary.messageDispatch.dispatches,messageDispatchesAfter:r.boundary.messageDispatch.dispatches,
           evaluatorBefore:a.boundary.evaluation.events.length,evaluatorAfter:r.boundary.evaluation.events.length,
           configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
           configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
