@@ -1,0 +1,729 @@
+{
+  "scope": "Diagnostic only. Partial runs cannot establish full-suite agreement, replay safety, or runner-time savings. Checkpoints are cumulative and must not be added to final reports for the same worker.",
+  "replayEligible": false,
+  "fullWindowSavingsMeasured": false,
+  "runs": [
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42199994352",
+      "commit": "1e147329fed9c155c60e57dd9b6b2860a253be7b",
+      "conclusion": "failure",
+      "failure": "before phase 420-second timeout",
+      "regressionTests": 116,
+      "baselineFileProjectInstances": 120,
+      "baselineTestStates": 4131,
+      "completedObservedWorkers": 21,
+      "fullObservedRunCompleted": false,
+      "completedWorkerCounts": {
+        "descriptorCalls": 200983
+      },
+      "completedWorkerArguments": {
+        "object": 119381,
+        "unknown: argument value unavailable": 9635,
+        "unknown: native argument evaluation may have side effects": 30520,
+        "unknown: unsupported argument scope": 38200,
+        "unknown: native callee identity differs": 2394,
+        "unknown: ambiguous native call location": 853
+      },
+      "checkpoints": [
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 200000,
+            "apis": {
+              "Object.defineProperty": 101503,
+              "Object.getOwnPropertyDescriptor": 684,
+              "Object.freeze": 8,
+              "Object.defineProperties": 48485,
+              "Object.setPrototypeOf": 83,
+              "Object.getOwnPropertyDescriptors": 48439,
+              "Reflect.getOwnPropertyDescriptor": 775,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 101005,
+              "unknown: argument value unavailable": 344,
+              "unknown: native argument evaluation may have side effects": 49365,
+              "unknown: unsupported argument scope": 49132,
+              "unknown: native callee identity differs": 114,
+              "unknown: ambiguous native call location": 40
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "481",
+                "lineNumber": 1614,
+                "columnNumber": 60
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4549.json",
+          "workerCompleted": false
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 6286,
+              "Object.getOwnPropertyDescriptor": 643,
+              "Object.freeze": 8,
+              "Object.defineProperties": 864,
+              "Object.setPrototypeOf": 82,
+              "Object.getOwnPropertyDescriptors": 811,
+              "Reflect.getOwnPropertyDescriptor": 1283,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 6267,
+              "unknown: argument value unavailable": 342,
+              "unknown: native argument evaluation may have side effects": 1712,
+              "unknown: unsupported argument scope": 1483,
+              "unknown: native callee identity differs": 114,
+              "unknown: ambiguous native call location": 82
+            },
+            "last": {
+              "name": "data",
+              "location": {
+                "scriptId": "175",
+                "lineNumber": 9,
+                "columnNumber": 10
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-transport-metadata-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4556.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 20000,
+            "apis": {
+              "Object.defineProperty": 11881,
+              "Object.getOwnPropertyDescriptor": 2895,
+              "Object.freeze": 9,
+              "Object.defineProperties": 444,
+              "Object.setPrototypeOf": 89,
+              "Object.getOwnPropertyDescriptors": 408,
+              "Reflect.getOwnPropertyDescriptor": 4251,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 10997,
+              "unknown: argument value unavailable": 784,
+              "unknown: native argument evaluation may have side effects": 1744,
+              "unknown: unsupported argument scope": 6361,
+              "unknown: native callee identity differs": 114
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "481",
+                "lineNumber": 1614,
+                "columnNumber": 21
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4702.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 7165,
+              "Object.getOwnPropertyDescriptor": 922,
+              "Object.freeze": 9,
+              "Object.defineProperties": 119,
+              "Object.setPrototypeOf": 69,
+              "Object.getOwnPropertyDescriptors": 77,
+              "Reflect.getOwnPropertyDescriptor": 1616,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 5716,
+              "unknown: argument value unavailable": 649,
+              "unknown: native argument evaluation may have side effects": 1307,
+              "unknown: unsupported argument scope": 2214,
+              "unknown: native callee identity differs": 114
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "481",
+                "lineNumber": 1614,
+                "columnNumber": 60
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4729.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 7556,
+              "Object.getOwnPropertyDescriptor": 2112,
+              "Object.freeze": 9,
+              "Object.defineProperties": 70,
+              "Object.setPrototypeOf": 69,
+              "Object.getOwnPropertyDescriptors": 32,
+              "Reflect.getOwnPropertyDescriptor": 129,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 4286,
+              "unknown: argument value unavailable": 793,
+              "unknown: native argument evaluation may have side effects": 1351,
+              "unknown: unsupported argument scope": 3455,
+              "unknown: native callee identity differs": 114,
+              "unknown: ambiguous native call location": 1
+            },
+            "last": {
+              "name": "members",
+              "location": {
+                "scriptId": "4406",
+                "lineNumber": 724,
+                "columnNumber": 28
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/zod/v4/core/util.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4828.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 7558,
+              "Object.getOwnPropertyDescriptor": 1933,
+              "Object.freeze": 9,
+              "Object.defineProperties": 75,
+              "Object.setPrototypeOf": 69,
+              "Object.getOwnPropertyDescriptors": 39,
+              "Reflect.getOwnPropertyDescriptor": 294,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 4388,
+              "unknown: argument value unavailable": 791,
+              "unknown: native argument evaluation may have side effects": 1329,
+              "unknown: unsupported argument scope": 3364,
+              "unknown: native callee identity differs": 114,
+              "unknown: ambiguous native call location": 14
+            },
+            "last": {
+              "name": "data",
+              "location": {
+                "scriptId": "175",
+                "lineNumber": 9,
+                "columnNumber": 10
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-transport-metadata-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4847.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 7187,
+              "Object.getOwnPropertyDescriptor": 1708,
+              "Object.freeze": 9,
+              "Object.defineProperties": 117,
+              "Object.setPrototypeOf": 71,
+              "Object.getOwnPropertyDescriptors": 75,
+              "Reflect.getOwnPropertyDescriptor": 810,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 4877,
+              "unknown: argument value unavailable": 597,
+              "unknown: native argument evaluation may have side effects": 1303,
+              "unknown: unsupported argument scope": 3109,
+              "unknown: native callee identity differs": 114
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "481",
+                "lineNumber": 1614,
+                "columnNumber": 60
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "4944.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 6961,
+              "Object.getOwnPropertyDescriptor": 1444,
+              "Object.freeze": 9,
+              "Object.defineProperties": 141,
+              "Object.setPrototypeOf": 70,
+              "Object.getOwnPropertyDescriptors": 95,
+              "Reflect.getOwnPropertyDescriptor": 1257,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 5106,
+              "unknown: argument value unavailable": 597,
+              "unknown: native argument evaluation may have side effects": 1282,
+              "unknown: unsupported argument scope": 2901,
+              "unknown: native callee identity differs": 114
+            },
+            "last": {
+              "name": "data",
+              "location": {
+                "scriptId": "175",
+                "lineNumber": 9,
+                "columnNumber": 10
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-transport-metadata-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "replayEligible": false
+          },
+          "reportFile": "5024.json",
+          "workerCompleted": true
+        }
+      ],
+      "artifactSha256": {
+        "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+        "baseline-tests.json": "17dbcd3667bc27e680c1cfa839e82166d9a0d76b5d342c09c2e83c9fc6f89529",
+        "baseline.log": "d867add5e178babe8afaac9b95552fb818ceb87ed61dd8212fe6b7f96f7f2949",
+        "before.log": "3fd35e7bda3a8d247a1a966c60d1c0ab2e36bf27970037d1b7e349ec1b141b96",
+        "worker-boundary/before/4550.json": "1e54026f4bdd6778e39b2fc1d2b5a76bf001eaa806d862d1670e84abdf18245b",
+        "worker-boundary/before/4556.json": "1a64b81dad4b095a36a7233ff174ec2e7a3ade95e763aa7da6ec092ac31a77dd",
+        "worker-boundary/before/4592.json": "84ecc9eaff962f220afab39cd66341cbd1f3f495e9094ff8bc0fdede358ed132",
+        "worker-boundary/before/4702.json": "0377fe2991f84f60224cf340423aa1a56808f5813d32d324b34c8cce77ff82fc",
+        "worker-boundary/before/4715.json": "83816d8400067e234a08cd3dd83164dbf6867f43b37ea16ad889d8b379fdc371",
+        "worker-boundary/before/4729.json": "d28b4cf5ef52989cf67a2db5bb2baba7009d38977e359349bf0d5e28b96dd4da",
+        "worker-boundary/before/4739.json": "a7700bd405362af119dfb8f8dc0d9906ba3b351498318d715465103de7272a89",
+        "worker-boundary/before/4828.json": "0bcd8b234da7cda13d9952e6ab9e19a796995a892ee8fbf5ee82ac433574e6bb",
+        "worker-boundary/before/4837.json": "4f1f2608abcf4869f05a8cfae473ad034e87bc824fd3817e738411a9fc12afe0",
+        "worker-boundary/before/4847.json": "daae16215cf37b3cfb82da18ebc574b23d0d1298b17ccc0795483b5d19dce840",
+        "worker-boundary/before/4856.json": "8563c240a362b88ad1685509bfe3183536d2a35806f1971ff94572d209f07d8f",
+        "worker-boundary/before/4880.json": "8a3838e7cbdc01b28f48bb97c735ec8c58a025baf38769af0adaba124c74e638",
+        "worker-boundary/before/4944.json": "d671b1e09ed3697c7263df83272d79d991da5e2e6df3a9f639d41c78b5345cc8",
+        "worker-boundary/before/4956.json": "95af328cd7054686541a4135bac6abed06c5a521a23ea9715f9f746736d0bb2e",
+        "worker-boundary/before/4968.json": "3ca34c858955db9dfe41704d0670dcdcfb02288dd04764a7f5b0dc0206ef00a3",
+        "worker-boundary/before/4982.json": "cd61648f373dc7c95accd16bf55d54f4cd0a7824c9ad59be2bb9db7afc1870f9",
+        "worker-boundary/before/4993.json": "0bd899dcb2f23c4d02e7c15e55517c6ae1c04c7075636cdb7e196f5c4a7453b9",
+        "worker-boundary/before/5003.json": "b9bd957b97a7129a25c6cfe345861468c755fc68a8683ba2a8faa9588de55ef3",
+        "worker-boundary/before/5013.json": "8bde42cefc2fb7c6cec0eecebaf6730af692a102b6cc01831e4aa362498ea3f1",
+        "worker-boundary/before/5024.json": "66296fc338b5406b81e7d877b7ffa3d24ef4dfbb8c5de0c8752fff097cb75dba",
+        "worker-boundary/before/5035.json": "a2ac69c88294eea7cbc93670e3dc1019a3435ac8463fdf630fc07796b2f648fd",
+        "worker-boundary/before/progress/4549.json": "f5c5ded384c6f501a69551cde7ad52e0c2adea052c65ec9d0f98e535537f83f5",
+        "worker-boundary/before/progress/4556.json": "9475a080f45204339b94b982d6df1cd0d4f85a518eaa19be4295de42b1821b82",
+        "worker-boundary/before/progress/4702.json": "ff9c70581e21863d3cea32dc44f3375f8bf07a3d9d9d2d3ff8ce1b19c7475a48",
+        "worker-boundary/before/progress/4729.json": "64a950b9baf75935c8945ca95bffc410089c9945e47eece11b4f89cdb8864db8",
+        "worker-boundary/before/progress/4828.json": "1529f6b7807df948c1ba4efa33e28a1dcf4253668a91b11307527944c4c21c2a",
+        "worker-boundary/before/progress/4847.json": "dca04f09d323be2766881195fdae1e5b0eb30e73a87f3c8cc702fc01eba3b9c3",
+        "worker-boundary/before/progress/4944.json": "c8c614eadd5abec4003e30a9b2d0a18453ca70ec5ebbc32ce033c8a8c501558e",
+        "worker-boundary/before/progress/5024.json": "4aa7b9de1b261df331414690d8e61118799ad115d38fd40662a6d199729276b4"
+      }
+    },
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42201706092",
+      "commit": "09efe9f57b1480baa22638c4659a928a4fe8d71a",
+      "conclusion": "failure",
+      "failure": "before phase 420-second timeout",
+      "regressionTests": 118,
+      "baselineFileProjectInstances": 120,
+      "baselineTestStates": 4131,
+      "completedObservedWorkers": 9,
+      "fullObservedRunCompleted": false,
+      "completedWorkerCounts": {
+        "descriptorCalls": 84935
+      },
+      "completedWorkerArguments": {
+        "object": 52914,
+        "unknown: argument value unavailable": 3441,
+        "unknown: native argument evaluation may have side effects": 13180,
+        "unknown: unsupported argument scope": 13903,
+        "unknown: native heap identity unavailable": 1026,
+        "unknown: ambiguous native call location": 471
+      },
+      "checkpoints": [
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 150000,
+            "apis": {
+              "Object.defineProperty": 76488,
+              "Object.getOwnPropertyDescriptor": 706,
+              "Object.freeze": 8,
+              "Object.defineProperties": 35982,
+              "Object.setPrototypeOf": 83,
+              "Object.getOwnPropertyDescriptors": 35935,
+              "Reflect.getOwnPropertyDescriptor": 775,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 76020,
+              "unknown: argument value unavailable": 344,
+              "unknown: native argument evaluation may have side effects": 36854,
+              "unknown: unsupported argument scope": 36628,
+              "unknown: native heap identity unavailable": 114,
+              "unknown: ambiguous native call location": 40
+            },
+            "last": {
+              "name": "__name",
+              "location": {
+                "scriptId": "256",
+                "lineNumber": 2,
+                "columnNumber": 32
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "compilation": {
+              "events": 451,
+              "overflow": false,
+              "failedToParse": 47
+            },
+            "identity": {
+              "available": true,
+              "comparisons": 76481,
+              "unknown": 114,
+              "reason": null,
+              "replayEligible": false,
+              "mode": "heap-object-id",
+              "snapshotsRequested": 0,
+              "limitation": "Heap tracking and garbage collection can be observable; this comparison does not prove complete input ownership"
+            },
+            "replayEligible": false
+          },
+          "reportFile": "4529.json",
+          "workerCompleted": false
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 6288,
+              "Object.getOwnPropertyDescriptor": 627,
+              "Object.freeze": 8,
+              "Object.defineProperties": 866,
+              "Object.setPrototypeOf": 82,
+              "Object.getOwnPropertyDescriptors": 814,
+              "Reflect.getOwnPropertyDescriptor": 1292,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 6260,
+              "unknown: argument value unavailable": 342,
+              "unknown: native argument evaluation may have side effects": 1714,
+              "unknown: unsupported argument scope": 1486,
+              "unknown: native heap identity unavailable": 114,
+              "unknown: ambiguous native call location": 84
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "267",
+                "lineNumber": 1614,
+                "columnNumber": 60
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "compilation": {
+              "events": 402,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "identity": {
+              "available": true,
+              "comparisons": 6654,
+              "unknown": 114,
+              "reason": null,
+              "replayEligible": false,
+              "mode": "heap-object-id",
+              "snapshotsRequested": 0,
+              "limitation": "Heap tracking and garbage collection can be observable; this comparison does not prove complete input ownership"
+            },
+            "replayEligible": false
+          },
+          "reportFile": "4536.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 20000,
+            "apis": {
+              "Object.defineProperty": 11865,
+              "Object.getOwnPropertyDescriptor": 2957,
+              "Object.freeze": 9,
+              "Object.defineProperties": 441,
+              "Object.setPrototypeOf": 89,
+              "Object.getOwnPropertyDescriptors": 405,
+              "Reflect.getOwnPropertyDescriptor": 4211,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 11006,
+              "unknown: argument value unavailable": 784,
+              "unknown: native argument evaluation may have side effects": 1742,
+              "unknown: unsupported argument scope": 6354,
+              "unknown: native heap identity unavailable": 114
+            },
+            "last": {
+              "name": "__name",
+              "location": {
+                "scriptId": "256",
+                "lineNumber": 2,
+                "columnNumber": 32
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "compilation": {
+              "events": 500,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "identity": {
+              "available": true,
+              "comparisons": 11811,
+              "unknown": 114,
+              "reason": null,
+              "replayEligible": false,
+              "mode": "heap-object-id",
+              "snapshotsRequested": 0,
+              "limitation": "Heap tracking and garbage collection can be observable; this comparison does not prove complete input ownership"
+            },
+            "replayEligible": false
+          },
+          "reportFile": "4742.json",
+          "workerCompleted": true
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+          ],
+          "checkpoint": {
+            "calls": 10000,
+            "apis": {
+              "Object.defineProperty": 7154,
+              "Object.getOwnPropertyDescriptor": 934,
+              "Object.freeze": 9,
+              "Object.defineProperties": 119,
+              "Object.setPrototypeOf": 69,
+              "Object.getOwnPropertyDescriptors": 76,
+              "Reflect.getOwnPropertyDescriptor": 1616,
+              "Reflect.deleteProperty": 21,
+              "Reflect.defineProperty": 2
+            },
+            "arguments": {
+              "object": 5715,
+              "unknown: argument value unavailable": 649,
+              "unknown: native argument evaluation may have side effects": 1309,
+              "unknown: unsupported argument scope": 2213,
+              "unknown: native heap identity unavailable": 114
+            },
+            "last": {
+              "name": "setState",
+              "location": {
+                "scriptId": "267",
+                "lineNumber": 1614,
+                "columnNumber": 21
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            "overflow": false,
+            "compilation": {
+              "events": 474,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "identity": {
+              "available": true,
+              "comparisons": 6228,
+              "unknown": 114,
+              "reason": null,
+              "replayEligible": false,
+              "mode": "heap-object-id",
+              "snapshotsRequested": 0,
+              "limitation": "Heap tracking and garbage collection can be observable; this comparison does not prove complete input ownership"
+            },
+            "replayEligible": false
+          },
+          "reportFile": "4822.json",
+          "workerCompleted": false
+        }
+      ],
+      "artifactSha256": {
+        "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+        "baseline-tests.json": "cd2645b3cbb35f6c2cfee9afc85ea0396dfa9249be6d17b4aaa7fa55e54fa158",
+        "baseline.log": "b355b32d5c8ca370868907da730033542e1e3cc445fac3c5eee810801ad143cb",
+        "before.log": "e45f52bc298d9f6e70289b31fb03f6db65b0a9e3c7cd35d20b07b5706ffbbb7b",
+        "worker-boundary/before/4530.json": "811d5c2ec1ea749df6a04e758fba13383831ea274e1a623b9da4c2a9b67ae6a7",
+        "worker-boundary/before/4536.json": "d6e51b60dcb56ea70faae718df4c98cf4fd2204dcb21d722cc7d6322f0daa315",
+        "worker-boundary/before/4612.json": "7d6cd0e66d69609853014bfc117208d17511c873f1ce5c132b8aa4c2b0461a80",
+        "worker-boundary/before/4702.json": "deee07932711fe24a5aa2ba2127a2f17c2e6d5324327c96ed5ceba5b1ad76c61",
+        "worker-boundary/before/4742.json": "1a9513477690cdad5a0d38e84c151ad0a6068f383eaded63773d6540868098d4",
+        "worker-boundary/before/4765.json": "27c85cbbf9498a7f5561e7a03737ce5bcb9793d01fe026abd6bf203db5c3fe06",
+        "worker-boundary/before/4780.json": "499c6ae9b6d280f722769432fd2ec1b8a9e046040f94096754b322ecb05254cc",
+        "worker-boundary/before/4797.json": "19f4434af2cca239874728aac6de654fb7a93cf5a493aa555adf71ac2876da5d",
+        "worker-boundary/before/4811.json": "1b22dbebb9429ac2987d32325914cae48421510f9e6dbdcb807a45ecc57b3a04",
+        "worker-boundary/before/progress/4529.json": "73f070bcb7fb10e2462481126780e2fb9e7c4392dd166858ec684ba3d2b38e0c",
+        "worker-boundary/before/progress/4536.json": "6cbd86b9ee1477390718c065a0c9419213aa4aafa0183072951ce3d9814088c7",
+        "worker-boundary/before/progress/4742.json": "9607c861293bd5e0a02f4f336044045bb02971a31ebb85c29027be657e4e52e9",
+        "worker-boundary/before/progress/4822.json": "5706eb9a56bc79ba1aae6f753f214e39e9eaae65cd604c38570f692c55c81778"
+      }
+    }
+  ],
+  "moduleScopeOptimization": {
+    "commit": "2092649f284421e00f248dff7832d4061efced48",
+    "fixtureCorrectionCommit": "e4123866baae0889ac891209dea607bf6b86c41a",
+    "firstFixtureRun": "https://github.com/pango07/quod/actions/runs/42203926915",
+    "firstFixtureConclusion": "failure",
+    "firstFixtureFailure": "unused fixture declarations were omitted from the V8 module context; value-recovery assertions passed",
+    "fixtureRun": "https://github.com/pango07/quod/actions/runs/42204149648",
+    "fixtureConclusion": "success",
+    "fixtureTests": 86,
+    "fixtureLogSha256": "0898f4b921e3b2c71a3c68dfb63930e62edc3ffef735a212d997629c16d6e908",
+    "fullRun": "https://github.com/pango07/quod/actions/runs/42204247885",
+    "fullRunStatus": "in_progress",
+    "replayEligible": false
+  }
+}

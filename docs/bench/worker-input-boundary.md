@@ -598,7 +598,51 @@ Commit `1e14732` also writes bounded progress checkpoints for unfinished
 workers, so a timeout can identify the APIs and callers still consuming
 time. Checkpoints retain cumulative counts; no native events are skipped.
 The combined [42199994352](https://github.com/pango07/quod/actions/runs/42199994352)
-is pending at this evidence revision. No timeout was increased, and no
-action pin, production key, or savings claim changes.
+passes 116 regressions but reaches the same 420-second limit. Twenty-one
+workers finish. The unfinished `stream.property.test.ts` worker alone
+reaches 200,000 descriptor calls; its last checkpoint is in Vitest's
+`setState`. This identifies assertion bookkeeping as a major source of
+observer work. The calls remain observable and cannot simply be ignored.
+No timeout was increased, and no action pin, production key, or savings
+claim changes.
 [Partial evidence and artifact digests](worker-metadata-accessors.json)
 retain full-run failures and passing fixture gates separately.
+
+## Descriptor-observer overhead
+
+Commit `11f9f4` compares actual native-function identities with nonzero V8
+heap IDs instead of compiling a JavaScript comparison for each call.
+[42201238868](https://github.com/pango07/quod/actions/runs/42201238868)
+passes 82 fixtures, including aliases, distinct closures, cleared IDs and
+bound callees. One hundred comparisons create zero scripts, versus 100
+with the old comparison. No heap snapshots are requested. Heap tracking
+and GC remain observable, so this is a diagnostic, not a reuse certificate.
+
+The full attempt at `09efe9f`,
+[42201706092](https://github.com/pango07/quod/actions/runs/42201706092),
+passes 118 regressions but still times out in the first observed phase.
+Only nine workers finish, versus 21 in the preceding attempt. The
+unfinished property-test worker reaches 150,000 descriptor calls, with
+451 compiled-script events and no compilation overflow at that checkpoint.
+The small fixture's faster comparisons therefore do **not** establish a
+full-workload improvement. Both baselines complete 120 instances and
+4,131 states; neither observed run completes. Both use Node 24.18.0 on
+`ubuntu-26.04/20261101.186.1`.
+
+Commit `2092649` next caches only an overapproximation of names declared
+in the actual ES module source. When a name cannot be declared there, it
+can avoid serializing the module's entire scope. All actual values,
+targets and native identities are still read afresh. Local/closure/script
+scopes and unknown scope locations keep descriptor reads. Counters record
+descriptor request and result volume by scope kind. Live Inspector tests
+cover mutable module aliases, live imports, destructuring, shadowing and
+dynamic local bindings. The first fixture run recovered the changed values
+but failed its descriptor-volume assertion: V8 had omitted unused ballast
+declarations. Commit `e412386` exports those bindings to retain the large
+scope. [42204149648](https://github.com/pango07/quod/actions/runs/42204149648)
+then passes all 86 fixture tests. The full comparison,
+[42204247885](https://github.com/pango07/quod/actions/runs/42204247885),
+is running at this evidence revision. Fixture success establishes no new
+full-suite or runner-time claim.
+[Raw checkpoint evidence and artifact digests](worker-descriptor-overhead.json)
+preserve partial results separately from complete worker reports.

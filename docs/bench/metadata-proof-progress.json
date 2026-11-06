@@ -806,7 +806,19 @@
     "syntaxCacheFixtureGate": 42198746560,
     "syntaxCacheFixtureConclusion": "success",
     "progressCheckpointCommit": "1e14732",
-    "latestFullGate": 42199994352,
-    "latestFullGateStatus": "in_progress"
+    "latestFullGate": 42201706092,
+    "latestFullGateStatus": "completed",
+    "latestFullGateConclusion": "failure",
+    "latestFullGateFailure": "before phase 420-second timeout",
+    "latestFullGateCompletedWorkers": 9,
+    "descriptorOverheadEvidence": "worker-descriptor-overhead.json",
+    "moduleScopeCommit": "2092649",
+    "moduleScopeFixtureGate": 42204149648,
+    "moduleScopeFixtureStatus": "completed",
+    "moduleScopeFixtureConclusion": "success",
+    "moduleScopeFixtureTests": 86,
+    "moduleScopeFixtureCorrectionCommit": "e412386",
+    "moduleScopeFullGate": 42204247885,
+    "moduleScopeFullGateStatus": "in_progress"
   }
 }
