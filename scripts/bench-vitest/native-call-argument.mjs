@@ -60,7 +60,7 @@ export function observeNativeCallArguments(post) {
       if(node.type==='Identifier')return binding(node.name)
       if(node.type==='ThisExpression')return frame.this
       if(node.type==='MemberExpression'&&!node.optional) {
-        const key=!node.computed?node.property.name:
+        const key=!node.computed?(node.property.type==='Identifier'?node.property.name:null):
           node.property.type==='Literal'&&['string','number'].includes(typeof node.property.value)?String(node.property.value):null
         if(key===null)throw Error('computed argument property')
         return own(value(node.object),key)

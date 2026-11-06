@@ -39,7 +39,7 @@ console.log(JSON.stringify({value,traps,report}));`
   })
 }
 
-for(const kind of ['plain','primitive','bound','getter','proxy-receiver','multiple','spread','call']) {
+for(const kind of ['plain','primitive','bound','getter','proxy-receiver','multiple','spread','call','private-field']) {
   test('native argument identity remains bounded: '+kind,()=>{
     const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
 import {types} from 'node:util';
@@ -47,6 +47,7 @@ const kind=${JSON.stringify(kind)},native=types.isProxy,proxy=new Proxy({},{}),p
 let getters=0,traps=0,first=plain;
 const box={get value(){getters++;return proxy}},receiver=new Proxy({value:proxy},{get(t,k){traps++;return t[k]}});
 const bound=native.bind(null,proxy),args=[proxy];
+class Private {#value=proxy;value=plain;inspect(){return native(this.#value)}}
 const p=inspectPromiseObservers({proxyAccess:true});
 let result;
 if(kind==='plain')result=native(plain);
@@ -57,6 +58,7 @@ if(kind==='proxy-receiver')result=native(receiver.value);
 if(kind==='multiple')result=native(first,first=proxy);
 if(kind==='spread')result=native(...args);
 if(kind==='call')result=native.call(null,proxy);
+if(kind==='private-field')result=new Private().inspect();
 const report=p.proxyAccess();p.close();console.log(JSON.stringify({report,result,getters,traps}));`
     const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
     assert.equal(r.status,0,r.stderr||String(r.error))
