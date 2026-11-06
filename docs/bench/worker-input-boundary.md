@@ -1333,6 +1333,44 @@ savings. [Measurement details](worker-dense-compilation-runs.json) retain that
 distinction and the chunk-boundary and snapshot-mutation regressions.
 
 [Full diagnostic 42245249422](https://github.com/pango07/quod/actions/runs/42245249422)
-is running at `941d2d3`. It must still establish complete worker
-coverage, error-free observations, per-test agreement, and the actual memory
-and tracing cost of the combined changes.
+at `941d2d3` passed 228 regressions and the 120-file / 4,131-state baseline,
+then timed out at 420 seconds in `before`. All 98 retained worker reports
+pass the scoped observation checks: 1,047,507 owned native calls are
+attributed and cleared, with zero capture failures or index failures.
+The 95 foreign-context bridges each require one query. All 3,268 watched
+metadata scalars and 98 seeds pass the native owner guard; 32,072 API-wrapper
+calls remain explicitly classified as excluded owner types. The formerly
+failing zod-4.2 worker completes with zero index errors. Source verification
+checks all 40,468 retained watched calls across 2,042 source records.
+
+The unfinished stream worker reaches 700,000 descriptor calls, with
+1,401,387 compilation events and 1,011,503,104 bytes RSS. Its run index uses
+22,478,848 bytes. The plain baseline took 101.42 seconds versus 48.26 in the
+preceding full attempt, so worker progress alone cannot isolate performance
+effects. Twenty-two required worker reports and the complete observed
+test-state result are missing. This is not full coverage or a wrong=0
+comparison for the observed phase.
+
+## Bounded retired-script source cache
+
+The pinned V8 [Debugger implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc)
+defaults `maxScriptsCacheSize` to an effectively unlimited value, retaining
+retired script source text outside the JavaScript lookup tables. Candidate
+`32256db` sets that cache to zero for the combined native compilation
+diagnostic. Every compilation is still recorded during `scriptParsed`.
+Watched caller sources are now captured synchronously at the native entry,
+while their frames are live, then retained as exact source hashes and
+metadata. Missing source makes observation unavailable; deferred reports
+do not depend on retired Inspector source text.
+
+[Gate 42246820101](https://github.com/pango07/quod/actions/runs/42246820101)
+passes 194 regressions. A watched temporary function is garbage-collected,
+then its source evidence is verified with all late source requests forced
+to fail; no late request occurs. In an isolated 25,000-compilation check,
+every source matches under both cache settings. RSS growth is 112.06 MB
+with the default cache and 88.32 MB with zero retired-source caching.
+These are synthetic memory samples, not full-workload or CI savings.
+
+[Full diagnostic 42247258542](https://github.com/pango07/quod/actions/runs/42247258542)
+is running at `32256db` to measure the combined change. Complete before/after
+coverage, observation validity and per-test agreement remain unproven.

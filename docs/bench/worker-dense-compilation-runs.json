@@ -37,9 +37,13 @@
     "No compilation is omitted and no capacity increased.",
     "This is not a CI savings measurement."
   ],
-  "pendingFullGate": {
+  "guardedFullGate": {
     "run": 42245249422,
-    "status": "in_progress",
-    "job": 127985664291
+    "status": "completed",
+    "job": 127985664291,
+    "conclusion": "failure",
+    "retainedWorkers": 98,
+    "observationErrorsInRetainedWorkers": 0,
+    "evidence": "worker-native-capture.json#guardedFullDiagnostic"
   }
 }

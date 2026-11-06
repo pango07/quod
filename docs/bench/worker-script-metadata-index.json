@@ -146,11 +146,15 @@
       "No production replay or savings claim changes."
     ]
   },
-  "pendingFullGate": {
+  "guardedFullGate": {
     "commit": "941d2d3",
     "run": 42245249422,
-    "status": "in_progress",
+    "status": "completed",
     "alsoChanges": "private native context bridge; guarded ordinary scalar owners; dense compilation run storage",
-    "job": 127985664291
+    "job": 127985664291,
+    "conclusion": "failure",
+    "retainedWorkers": 98,
+    "observationErrorsInRetainedWorkers": 0,
+    "evidence": "worker-native-capture.json#guardedFullDiagnostic"
   }
 }

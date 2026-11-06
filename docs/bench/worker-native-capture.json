@@ -2633,13 +2633,311 @@
     ],
     "replayEligible": false
   },
-  "pendingFullDiagnostic": {
+  "guardedFullDiagnostic": {
     "commit": "941d2d3",
     "run": "https://github.com/pango07/quod/actions/runs/42245249422",
+    "job": 127985664291,
+    "conclusion": "failure",
+    "regressionsPassed": 228,
+    "failure": "before phase 420-second timeout; no complete observed test-state result or after phase",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 98,
+        "descriptorCalls": 998054,
+        "nativeCalls": 1047507,
+        "cleared": 1047507,
+        "released": 1047507,
+        "compilationEvents": 2130619,
+        "scopedInspections": 965981,
+        "descriptorsRetainedCalls": 998054,
+        "proxyRetainedCalls": 49453
+      },
+      "flags": {},
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 98,
+          "elapsedMs": 28.147847999999996
+        },
+        "Debugger.getScriptSource": {
+          "calls": 2148933,
+          "elapsedMs": 65602.03191499999
+        },
+        "Debugger.enable": {
+          "calls": 98,
+          "elapsedMs": 10049.452210000001
+        },
+        "Runtime.evaluate": {
+          "calls": 4995,
+          "elapsedMs": 1857.6941290000004
+        },
+        "Runtime.getProperties": {
+          "calls": 14308,
+          "elapsedMs": 2964.384741
+        },
+        "Runtime.queryObjects": {
+          "calls": 294,
+          "elapsedMs": 24456.997600999995
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1049752,
+          "elapsedMs": 254319.15866300015
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 4312,
+          "elapsedMs": 14748.981518
+        },
+        "Debugger.resume": {
+          "calls": 101,
+          "elapsedMs": 5.174225999999997
+        },
+        "Runtime.releaseObject": {
+          "calls": 1047602,
+          "elapsedMs": 26769.841755999983
+        }
+      },
+      "watchedTargetCalls": 40468
+    },
+    "nativeAndIndexStatus": {
+      "native": {
+        "available": 98,
+        "calls": 1047507,
+        "cleared": 1047507,
+        "contexts": 95,
+        "contextQueries": 95
+      },
+      "failures": {},
+      "indices": {
+        "validation": 0,
+        "copy": 0,
+        "lookup": 0,
+        "commit": 0,
+        "failures": 0,
+        "overflow": 0
+      },
+      "guards": {
+        "seedGuardPassed": 98,
+        "metadataGuardRequired": 98
+      },
+      "exclusions": {
+        "api-wrapper": 32072
+      }
+    },
+    "largestCheckpoints": [
+      {
+        "file": "5383.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+        ],
+        "calls": 700000,
+        "memory": {
+          "rss": 1011503104,
+          "heapTotal": 249114624,
+          "heapUsed": 133859472,
+          "external": 32400206,
+          "arrayBuffers": 28360019
+        },
+        "compilation": {
+          "events": 1401387,
+          "runs": 1401369,
+          "records": 420,
+          "overflow": false,
+          "runStorage": "chunked-f64",
+          "runStorageBytes": 22478848,
+          "failedToParse": 282
+        },
+        "native": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 700337,
+          "ignored": 0,
+          "ignoredReasons": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "cleared": 700337,
+          "released": 700336,
+          "groupsReleased": 0,
+          "failureCounts": {},
+          "failureSamples": [],
+          "contextCapture": {
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 1,
+            "contextQueryMs": 231.298962
+          },
+          "ownerPolicy": "native-ordinary",
+          "handleMode": "native-private-capture",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "native-watched",
+          "nativeCapture": true,
+          "scopedInspections": 699696,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        }
+      },
+      {
+        "file": "5529.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ],
+        "calls": 20000,
+        "memory": {
+          "rss": 241393664,
+          "heapTotal": 141606912,
+          "heapUsed": 83490248,
+          "external": 5203834,
+          "arrayBuffers": 1162591
+        },
+        "compilation": {
+          "events": 41613,
+          "runs": 41595,
+          "records": 513,
+          "overflow": false,
+          "runStorage": "chunked-f64",
+          "runStorageBytes": 720896,
+          "failedToParse": 0
+        },
+        "native": {
+          "mode": "native-entry-arguments",
+          "available": true,
+          "calls": 20543,
+          "ignored": 0,
+          "ignoredReasons": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "cleared": 20543,
+          "released": 20542,
+          "groupsReleased": 0,
+          "failureCounts": {},
+          "failureSamples": [],
+          "contextCapture": {
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 1,
+            "contextQueryMs": 217.777277
+          },
+          "ownerPolicy": "native-ordinary",
+          "handleMode": "native-private-capture",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "native-watched",
+          "nativeCapture": true,
+          "scopedInspections": 19736,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        }
+      }
+    ],
+    "sourceVerification": {
+      "workers": 98,
+      "sourceRecords": 2042,
+      "watchedCalls": 40468,
+      "callsMatchingCheckedInDiagnosticSource": 40468
+    },
+    "partialVerification": {
+      "replayEligible": false,
+      "scope": "98 retained workers only; no complete observed test-state result",
+      "verified": {
+        "guardedMetadataScalars": 3268,
+        "excludedOwnerCalls": 32072,
+        "workers": 98,
+        "guardedSeeds": 98
+      }
+    },
+    "baselineTiming": {
+      "testSpanMs": 101421.86547851562,
+      "streamPropertyDurationMs": 100771.86547851562,
+      "previousBaselineSpanMs": 48264.9619140625
+    },
+    "priorIndexFailureWorkerRetested": {
+      "project": "zod-4.2",
+      "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+      "worker": "6138.json",
+      "indexEvents": 16667,
+      "indexEntries": 16667,
+      "indexFailures": 0,
+      "compilationErrors": []
+    },
+    "artifact": {
+      "id": 13517876606,
+      "bytes": 11653543,
+      "sha256": "0934a86d5d2ba216dec3ee90c83e62662940ea1683f83aad30d0b3c20ca726d0"
+    },
+    "limitations": [
+      "All 98 retained reports pass the scoped observation checks; 22 required reports are missing.",
+      "No complete before/after test-state comparison exists, so this is not a wrong=0 result for an observed full phase.",
+      "Different plain baseline times prevent attributing worker progress differences to implementation alone.",
+      "Replay eligibility remains false."
+    ]
+  },
+  "boundedSourceCacheFixture": {
+    "commit": "32256db",
+    "run": "https://github.com/pango07/quod/actions/runs/42246820101",
+    "job": 127991095293,
+    "conclusion": "success",
+    "regressionsPassed": 194,
+    "change": "Set Debugger.enable maxScriptsCacheSize=0 for combined native compilation diagnostics. Capture actual watched-frame source evidence synchronously at native entry; missing evidence makes observation unavailable. Every compilation is still recorded at scriptParsed.",
+    "regressions": [
+      "Watched ephemeral function is collected while the observer remains active.",
+      "Caller-source reports succeed with late getScriptSource requests forced to fail; no such request is made.",
+      "Every one of 25000 generated compilations has its full source checked before collection under both cache settings.",
+      "Actual source hash matches the compiled function body."
+    ],
+    "measurements": [
+      {
+        "bounded": false,
+        "compilations": 25000,
+        "matches": 25000,
+        "errors": 0,
+        "rssDelta": 112062464,
+        "heapDelta": 224200,
+        "externalDelta": -3571
+      },
+      {
+        "bounded": true,
+        "compilations": 25000,
+        "matches": 25000,
+        "errors": 0,
+        "rssDelta": 88317952,
+        "heapDelta": 243632,
+        "externalDelta": -3571
+      }
+    ],
+    "primarySource": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc",
+    "limitations": [
+      "Synthetic memory samples do not establish full-workload time or CI savings.",
+      "Complete native coverage and initial runtime integrity remain unproven."
+    ],
+    "replayEligible": false
+  },
+  "pendingFullDiagnostic": {
+    "commit": "32256db",
+    "run": "https://github.com/pango07/quod/actions/runs/42247258542",
+    "job": 127992628206,
     "status": "in_progress",
-    "fixtureGate": 42245067969,
-    "fixtureRegressionsPassed": 192,
-    "replayEligible": false,
-    "job": 127985664291
+    "fixtureGate": 42246820101,
+    "fixtureRegressionsPassed": 194,
+    "replayEligible": false
   }
 }
