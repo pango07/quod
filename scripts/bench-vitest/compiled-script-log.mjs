@@ -1,6 +1,7 @@
 // Lossless run-length encoding of the existing compiled-script records.
 // Adjacent equal records merge; ordering, multiplicity and every field in
 // each record remain significant. This does not improve Inspector coverage.
+import {validateBlockCompilationCounts} from './compiled-block-log.mjs'
 const RunArray=Float64Array,ArrayType=Array,floor=Math.floor
 export function compiledScriptLog(limit=20000) {
   if(!Number.isSafeInteger(limit)||limit<1)throw Error('invalid compilation run limit')
@@ -71,7 +72,7 @@ export function dictionaryCompiledScriptLog(recordLimit=20000,runLimit=1000000) 
 }
 
 export function validateCompilationCounts(report) {
-  if(!report||report.overflow!==false||!['rle-v1','dictionary-v1'].includes(report.encoding)||!Number.isSafeInteger(report.events)||report.events<0||!Array.isArray(report.scripts))throw Error('invalid compilation log')
+  if(!report||report.overflow!==false||!['rle-v1','dictionary-v1','block-dictionary-v1'].includes(report.encoding)||!Number.isSafeInteger(report.events)||report.events<0||!Array.isArray(report.scripts))throw Error('invalid compilation log')
   if(report.scripts.some(s=>!Number.isSafeInteger(s.count)||s.count<1)||
     report.scripts.reduce((n,s)=>n+s.count,0)!==report.events)throw Error('compilation event count differs')
   if(report.encoding==='dictionary-v1') {
@@ -84,8 +85,10 @@ export function validateCompilationCounts(report) {
     }
     if(counts.some((n,i)=>n!==report.scripts[i].count))throw Error('compilation dictionary count differs')
   }
+  if(report.encoding==='block-dictionary-v1')validateBlockCompilationCounts(report)
 }
 
 export function compilationSequence(report) {
-  return {encoding:report.encoding,scripts:report.scripts,...(report.encoding==='dictionary-v1'?{runs:report.runs}:{})}
+  return {encoding:report.encoding,scripts:report.scripts,...(report.encoding==='dictionary-v1'?{runs:report.runs}:{}),
+    ...(report.encoding==='block-dictionary-v1'?{blockSize:report.blockSize,blocks:report.blocks,blockRuns:report.blockRuns,tail:report.tail}:{})}
 }

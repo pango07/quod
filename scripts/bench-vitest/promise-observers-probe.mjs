@@ -6,7 +6,8 @@ import {createHash} from 'node:crypto'
 import {observeNativeCallArguments} from './native-call-argument.mjs'
 import {compiledScriptRecord,createCompiledScriptRecorder} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
-import {compiledScriptLog,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
+import {compiledScriptLog} from './compiled-script-log.mjs'
+import {blockCompiledScriptLog} from './compiled-block-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
 import {nativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 import {scriptMetadataIndex} from './script-metadata-index.mjs'
@@ -30,10 +31,10 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=nativeEntries?scriptMetadataIndex():new Map(),scriptEvidence=new Map()
-  // The prior 420-second partial run already observed 861,284 events in
-  // one worker. Leave room for the faster complete run without dropping
-  // condition/cleanup compilations; both dictionary dimensions stay bounded.
-  const compilationLog=nativeEntries?dictionaryCompiledScriptLog(20000,4000000):compiledScriptLog(),compilationErrors=[]
+  // Repeated condition/capture pairs exceeded four million ordered runs.
+  // Intern exact blocks while retaining every event and its position; the
+  // four-million-pair bound now applies to the stored representation.
+  const compilationLog=nativeEntries?blockCompiledScriptLog():compiledScriptLog(),compilationErrors=[]
   const compilationRecorder=nativeEntries?createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId})):null
   let failedToParse=0
   function compiledEvent(params,failedParse) {
@@ -125,7 +126,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
         ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),
         ...(nativeEntryObserver?{stack:frames}:{}),
-        compilation:{...compilationLog.counts(),failedToParse,
+        compilation:{...compilationLog.counts(),failedToParse,scriptMetadataIndex:scripts.counts?.()??null,
           ...(compilationRecorder?{sourceCache:compilationRecorder.counts()}: {})},argumentDiagnostics:argumentDiagnostics(),
         identity:nativeEntryObserver?{mode:'native-entry-arguments',snapshotsRequested:0}:
           heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})

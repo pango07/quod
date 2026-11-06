@@ -71,7 +71,7 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
   assert(data.report.entries.every(e=>e.count===1&&e.argument.actualNativeEntry&&e.argument.available&&
     e.argument.target.watchedAccessorKeys.includes('tmp')&&e.argument.target.inspectionScope==='watched-properties'&&
     !Object.hasOwn(e.argument.target,'ownAccessorCount')))
-  assert.equal(data.compilation.encoding,'dictionary-v1');assert.deepEqual(data.compilation.errors,[])
+  assert.equal(data.compilation.encoding,'block-dictionary-v1');assert.deepEqual(data.compilation.errors,[])
   assert.equal(data.compilation.scriptMetadataIndex.overflow,false)
   assert.equal(data.compilation.debuggerScriptCacheBytes,0)
   assert.equal(data.report.sourceEvidence.collection,'at-native-entry')
