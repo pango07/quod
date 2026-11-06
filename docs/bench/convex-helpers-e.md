@@ -1,6 +1,6 @@
 # Convex-helpers: Addendum E implementation and evidence
 
-Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+**Historical measurements, superseded engine.** The [names-proof window](config-names-proof-window.md) measured 968/1766 runner-seconds and a separate best hit of floor + 3 s, but the later [metadata-only stale replay](stat-metadata-regression.md) invalidated its recording semantics. These figures do not establish the corrected engine's safety or savings. The [corrected window](https://github.com/pango07/ci-bench/actions/runs/42167641326) is being measured separately.
 
 Experimental work on `exp/whole-job-e-codex`, starting from `c0f55ad` and
 including the fail-closed audit fixes described in `convex-helpers-audit.md`.

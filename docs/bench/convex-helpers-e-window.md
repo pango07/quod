@@ -1,6 +1,6 @@
 # Convex-helpers: measured Addendum E window
 
-Latest follow-up: [the names-proof 12-commit window](config-names-proof-window.md) measured 968/1766 runner-seconds (0.548×), c1–c11 790/1636 (0.483×), with zero wrong comparisons; separate best hit floor + 3 s. The cold-inclusive 0.50× bar remains open.
+**Historical measurements, superseded engine.** The [names-proof window](config-names-proof-window.md) measured 968/1766 runner-seconds and a separate best hit of floor + 3 s, but the later [metadata-only stale replay](stat-metadata-regression.md) invalidated its recording semantics. These figures do not establish the corrected engine's safety or savings. The [corrected window](https://github.com/pango07/ci-bench/actions/runs/42167641326) is being measured separately.
 
 Run: [42087297690](https://github.com/pango07/ci-bench/actions/runs/42087297690), 27 minutes 19 seconds.
 
