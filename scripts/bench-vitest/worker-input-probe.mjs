@@ -3,6 +3,10 @@
 // This is not a complete dependency certificate and never permits replay.
 import {createHash} from 'node:crypto'
 import {types} from 'node:util'
+import fs from 'node:fs'
+
+const {openSync,closeSync,fstatSync,readFileSync}=fs
+const {O_RDONLY,O_NOATIME,O_NOFOLLOW}=fs.constants
 
 const descriptors=Object.getOwnPropertyDescriptors,proto=Object.getPrototypeOf
 const own=Object.hasOwn,apply=Reflect.apply
@@ -52,6 +56,37 @@ function fields(object) {
   return Object.fromEntries(Object.entries(values(object)).map(([k,v])=>[k,fingerprint(v)]))
 }
 
+// Read the exact module bytes behind a transport path. Unknown platforms,
+// symlinks, changed files and access-time changes remain explicit failures.
+// This does not prove that the worker later read those same bytes.
+export function moduleArtifact(file) {
+  let fd
+  try {
+    if(process.platform!=='linux'||!Number.isInteger(O_NOATIME)||!Number.isInteger(O_NOFOLLOW))throw Error('unsupported artifact reader')
+    if(typeof file!=='string'||!file.startsWith('/'))throw Error('non-absolute module artifact')
+    fd=openSync(file,O_RDONLY|O_NOATIME|O_NOFOLLOW)
+    const before=fstatSync(fd,{bigint:true})
+    if(!before.isFile()||before.size>33554432n)throw Error('unsupported module artifact size or kind')
+    const content=readFileSync(fd),after=fstatSync(fd,{bigint:true})
+    const stable=['dev','ino','mode','size','nlink','mtimeNs','ctimeNs']
+    if(!stable.every(k=>before[k]===after[k])||BigInt(content.length)!==before.size)throw Error('module artifact changed while reading')
+    if(before.atimeNs!==after.atimeNs)throw Error('module artifact access time changed')
+    return {available:true,bytes:content.length,sha256:hash(content),noAtimeRead:true}
+  }catch(e){return {available:false,reason:e.code??e.message}}
+  finally{if(fd!==undefined)try{closeSync(fd)}catch{}}
+}
+
+export function moduleDetails(value) {
+  try {
+    const v=values(value),body=typeof v.tmp==='string'?moduleArtifact(v.tmp):
+      typeof v.code==='string'?{available:true,bytes:Buffer.byteLength(v.code),sha256:hash(v.code),inline:true}:null
+    return {available:true,fields:fields(value),body,
+      identity:fingerprint({id:v.id,file:v.file,url:v.url,externalize:v.externalize,type:v.type,moduleType:v.moduleType}),
+      kind:typeof v.externalize==='string'?'external':body?'transformed':v.cache===true?'cache-ack':'unknown',
+      replayEligible:false}
+  }catch(e){return {available:false,reason:e.message,replayEligible:false}}
+}
+
 export function observeWorkerInputs(V) {
   const records=[],byWorker=new WeakMap(),restores=[]
   const failures=[]
@@ -71,7 +106,8 @@ export function observeWorkerInputs(V) {
         if(m.type==='start') {
           const w=values(worker)
           s.starts.push({packet:fields(message),context:fields(m.context),
-            config:fields(values(m.context).config),env:fingerprint(w.env),execArgv:fingerprint(w.execArgv)})
+            config:fields(values(m.context).config),sequence:fields(values(values(m.context).config).sequence??{}),
+            env:fingerprint(w.env),execArgv:fingerprint(w.execArgv)})
         }
         else if(m.type==='run'||m.type==='collect') {
           const c=values(m.context)
@@ -95,6 +131,10 @@ export function observeWorkerInputs(V) {
         const r=s.pending.get(m.i)
         if(!r)throw Error('unmatched response')
         r.response={value:fingerprint(m.r),error:fingerprint(m.e),fields:Object.keys(m)}
+        if(m.e===undefined&&r.method==='fetch')r.response.modules=[moduleDetails(m.r)]
+        if(m.e===undefined&&r.method==='fetchWarmModules') {
+          r.response.modules=Object.entries(values(m.r)).map(([url,v])=>({url:fingerprint(url),...moduleDetails(v)}))
+        }
         s.pending.delete(m.i);s.responses++
         return
       }
@@ -128,7 +168,7 @@ export function observeWorkerInputs(V) {
     report() {
       return {replayEligible:false,failures,workers:records.map(({pending,...s})=>({...s,pending:pending.size})),
         limitations:['unobserved worker channels and side effects are not excluded',
-          'hashing a temporary-module pathname does not hash its contents',
+          'artifact bytes observed before sending do not prove what a worker later reads',
           'RPC validation must preserve ordering and stateful parent behavior',
           'matching packets alone do not prove worker dependency completeness']}
     },

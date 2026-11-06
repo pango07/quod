@@ -91,6 +91,7 @@ if(phase) {
     const next=b.get(key)
     const canCompare=!!next&&comparable(rpc(w))&&comparable(rpc(next))
     comparisons.push({key,matched:!!next,configChanged:diff(w.starts[0]?.config,next?.starts[0]?.config),
+      sequenceChanged:diff(w.starts[0]?.sequence,next?.starts[0]?.sequence),
       startPacketChanged:diff(w.starts[0]?.packet,next?.starts[0]?.packet),
       startContextChanged:diff(w.starts[0]?.context,next?.starts[0]?.context),
       runContextChanged:diff(w.runs[0]?.context,next?.runs[0]?.context),

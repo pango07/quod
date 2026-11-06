@@ -1,6 +1,9 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {fingerprint,observeWorkerInputs} from './worker-input-probe.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import {fingerprint,moduleArtifact,moduleDetails,observeWorkerInputs} from './worker-input-probe.mjs'
 
 test('fingerprints preserve scalar distinctions, insertion order and graph identity',()=>{
   const vals=[undefined,null,false,0,-0,NaN,Infinity,-Infinity,'0',0n,[],{},Object.create(null)]
@@ -47,4 +50,30 @@ test('worker packets retain results and errors, pair out-of-order responses and 
   assert.equal(report.replayEligible,false)
   assert.equal(JSON.stringify(report).includes('test-secret-that-must-not-be-published'),false)
   probe.close();assert.equal(Worker.prototype.send,original)
+})
+
+test('module bytes distinguish content changes while retaining different transport paths',()=>{
+  assert.equal(process.platform,'linux','run artifact regression on GitHub')
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quod-worker-module-'))
+  try {
+    const a=path.join(dir,'a'),b=path.join(dir,'b'),link=path.join(dir,'link')
+    fs.writeFileSync(a,'export const n = 1');fs.copyFileSync(a,b)
+    const before=fs.statSync(a,{bigint:true})
+    const x=moduleDetails({id:'/source.ts',tmp:a,cached:true})
+    const y=moduleDetails({id:'/source.ts',tmp:b,cached:true})
+    assert.equal(x.body.available,true);assert.equal(x.body.noAtimeRead,true)
+    assert.equal(fs.statSync(a,{bigint:true}).atimeNs,before.atimeNs)
+    assert.deepEqual(x.identity,y.identity);assert.equal(x.body.sha256,y.body.sha256)
+    assert.notDeepEqual(x.fields.tmp,y.fields.tmp,'transport paths remain observable evidence')
+    fs.writeFileSync(b,'export const n = 2')
+    assert.notEqual(moduleArtifact(b).sha256,x.body.sha256)
+    const inline=moduleDetails({id:'/source.ts',code:'export const n = 1'})
+    assert.equal(inline.body.sha256,x.body.sha256)
+    fs.symlinkSync(a,link)
+    assert.equal(moduleArtifact(link).available,false)
+    assert.equal(moduleArtifact(a+'.missing').available,false)
+    assert.equal(moduleDetails({cache:true}).kind,'cache-ack')
+    assert.equal(moduleDetails({externalize:'node:fs',type:'builtin'}).kind,'external')
+    assert.equal(x.replayEligible,false)
+  }finally{fs.rmSync(dir,{recursive:true,force:true})}
 })
