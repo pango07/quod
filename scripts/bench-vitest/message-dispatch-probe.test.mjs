@@ -10,7 +10,9 @@ const kind=${JSON.stringify(kind)},p=inspectPromiseObservers({compiledScripts:tr
 const delivered=[],copied=[],message={seed:123,tmp:'/private-message'};
 function observer(value){delivered.push(value.seed)}
 process.prependListener('message',observer);
-const initial=p.captureMessageObserver(),emit=process.emit;
+const emit=process.emit;
+if(kind==='wrong-function')process.emit=EventEmitter.prototype.removeAllListeners;
+const initial=p.captureMessageObserver();process.emit=emit;
 let getterCalls=0,traps=0,mid=null;
 function thief(value){copied.push([value.seed,value.tmp]);process.removeListener('message',thief)}
 if(kind==='self-removing')process.prependListener('message',thief);
@@ -54,11 +56,11 @@ console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,trap
   assert.equal(result.status,0,result.stderr||String(result.error))
   return JSON.parse(result.stdout)
 }
-for(const kind of ['normal','self-removing','once','same-source','nested','unpaired','other-receiver','removed','overflow','alternate-dispatch','getter','proxy','primitive','close']) {
+for(const kind of ['normal','self-removing','once','same-source','nested','unpaired','other-receiver','removed','overflow','alternate-dispatch','getter','proxy','primitive','close','wrong-function']) {
   test('message dispatch entry: '+kind,()=>{
     const r=run(kind),report=r.report
-    assert.equal(r.initial.installed,true,JSON.stringify(r.initial))
-    assert.equal(r.initial.available,true,JSON.stringify(r.initial))
+    assert.equal(r.initial.installed,kind!=='wrong-function',JSON.stringify(r.initial))
+    assert.equal(r.initial.available,kind!=='wrong-function',JSON.stringify(r.initial))
     assert.equal(report.replayEligible,false)
     assert.equal(report.completeOwnership,false)
     assert.deepEqual(r.compilationErrors,[])
@@ -76,6 +78,10 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
       assert.equal(report.closed,true);assert.equal(report.dispatches,0);assert.deepEqual(r.delivered,[123])
     } else {
       assert.equal(report.available,false,JSON.stringify(report))
+      if(kind==='wrong-function') {
+        assert.equal(report.source.sha256,'113b0cd4b1c81c909022c572525ae844136a746dd26e2b7e4a3161841e744281')
+        assert(report.errors.includes('process emit function differs from pinned Node'))
+      }
       if(['self-removing','once','same-source','nested'].includes(kind))assert(report.errors.includes('observer was not first at message dispatch'),JSON.stringify(report))
       if(kind==='self-removing') {
         assert.deepEqual(r.copied,[[123,'/private-message']]);assert.equal(r.observerFirst,true)

@@ -85,7 +85,10 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     const script=post('Debugger.getScriptSource',{scriptId:location.scriptId}).scriptSource
     if(typeof script!=='string')throw Error('process emit source unavailable')
     source={sha256:createHash('sha256').update(script).digest('hex'),line:location.lineNumber,column:location.columnNumber}
-    if(source.sha256!==eventsSource)throw Error('process emit source differs from pinned Node')
+    // The file digest alone also matches removeListener/addListener and every
+    // other function in node:events. Pin emit's actual function location too.
+    if(source.sha256!==eventsSource||source.line!==455||source.column!==43)
+      throw Error('process emit function differs from pinned Node')
     observer=firstListener()
     // Function identity is retained. An identical function body is not enough
     // to pass the first-listener check at a later dispatch.
