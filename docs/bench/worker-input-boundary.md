@@ -2070,3 +2070,66 @@ This removes the extra reaction from combined-mode observation. Earlier
 consumers, Vitest's intermediate metadata copies, per-Promise ownership,
 complete worker inputs and parent effects remain unproven. No production
 replay predicate changes; there are no product hits or lineage audits here.
+
+## Decoded IPC before Node dispatch
+
+`e04c7a7` moves combined-mode input preparation ahead of message dispatch.
+The new observer pauses at the pinned Node IPC loop after it receives a
+decoded message and before it classifies or dispatches that message. It
+validates the actual parser's source and function location, prepares the
+original object, then pairs that object's identity with the captured worker
+observer. A synthetic message without a decoded counterpart, a failed
+preparation, a reordered delivery or exhausted capacity stays rejected.
+Per-message handles are released at the paired callback; shutdown releases
+any remaining handles. No public global bridge is introduced.
+
+The source pins come from Node 24.18.0's
+[child-process implementation](https://github.com/nodejs/node/blob/v24.18.0/lib/internal/child_process.js)
+and [serialization implementation](https://github.com/nodejs/node/blob/v24.18.0/lib/internal/child_process/serialization.js).
+This observation point is **after** the decoder. The real-IPC regressions
+exercise JSON and advanced serialization, copies before `process.emit`,
+self-removing listeners, synthetic messages, primitive messages, callback
+failure and shutdown. A replacement decoder that retains a copy still sees
+the object before preparation. That regression explicitly preserves the
+remaining decoder-ownership gap; the observer never grants replay authority.
+
+The [full gate](https://github.com/pango07/quod/actions/runs/42313226082)
+passes 416 preflight checks, including nine new IPC regressions. Each of
+the baseline, before-change and after-change runs retains all 120
+file/project instances and 4,131 test states, with the established
+fingerprint after 39 content-preserving mtime changes. Baseline takes
+67.698 seconds; observed runs take 95.124 and 95.988 seconds (1.405x and
+1.418x baseline). These timings describe instrumentation overhead, not
+product savings.
+
+All 1,777 before-change and 1,767 after-change decoded messages are prepared
+and paired, with zero pending messages, ignored receivers or failures. The
+3,544 IPC handle groups, 10,632 dispatch groups and 5,280 transport groups
+are all released. Each observed phase still reconciles 2,581 scalar reads,
+with zero seed reads or metadata gaps. Evaluator code sequences match in
+all workers; complete compilation and RPC sequences still differ in all
+workers. The exact-source accounting retains 36,468 and 36,328 unmatched
+anonymous events. [The evidence record](worker-message-dispatch.json)
+contains the complete counters, source pins and verified artifact digests.
+
+The next ownership barrier is now concrete: copies made by the decoder
+before this observation point, including temporary native-method
+replacements. Initial runtime integrity, intermediate Vitest metadata
+copies, complete worker inputs and parent effects also remain unproven.
+Production replay behavior is unchanged.
+
+## Fixed-overhead ceiling against the product target
+
+Rechecking the latest [full product window](convex-helpers-native-origin-window.md)
+against its raw job timestamps gives 33 seconds in the default Action main
+steps and 31 in its post steps, across all twelve jobs. Median total post
+time is 2.5 seconds. The current Action already restores independent caches
+in parallel, saves independent caches in parallel, and skips unchanged
+ledgers.
+
+The default window takes 1,561 runner-seconds against 1,862 plain; its
+50% target is 931 seconds, leaving a 630-second gap. Even making all 64
+Action main/post seconds free would leave 1,497 seconds, still 566 over
+target. Tests account for 1,197 seconds, with no Vitest replays. This is a
+cost ceiling from existing measurements, not a new performance result:
+safe test reuse remains the work capable of closing most of the gap.
