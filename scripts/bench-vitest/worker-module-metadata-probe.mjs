@@ -23,22 +23,23 @@ export function observeModuleMetadata(EvaluatedModules) {
     try {
       const sites=getCallSites(8,{sourceMap:false}).slice(2).map(s=>({script:s.scriptName,
         function:s.functionName,line:s.lineNumber,column:s.columnNumber}))
-      const id=JSON.stringify([m.id,operation,key,sites])
+      const origins=[...m.origins]
+      const id=JSON.stringify([m.id,operation,key,sites,origins])
       if(events.has(id))events.get(id).count++
-      else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,count:1})
+      else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,origins,count:1})
       else overflow=true
     }catch{gaps.add('metadata call sites unavailable')}
   }
-  function wrap(value,owner) {
+  function wrap(value,owner,origin='stored') {
     if(value===undefined||value===null)return value
     if(proxyToRaw.has(value))value=proxyToRaw.get(value)
     let m=metadata.get(value)
-    if(m){m.owners.add(owner);return m.proxy}
+    if(m){m.owners.add(owner);m.origins.add(origin);return m.proxy}
     if(typeof value!=='object'||types.isProxy(value)){gaps.add('unsupported metadata value');return value}
     const proto=Object.getPrototypeOf(value)
     if(proto!==Object.prototype&&proto!==null){gaps.add('non-plain metadata');return value}
     if(metadata.size>=10000){overflow=true;return value}
-    m={id:metadata.size,owners:new Set([owner])}
+    m={id:metadata.size,owners:new Set([owner]),origins:new Set([origin])}
     const proxy=new Proxy(value,{
       get(target,key,receiver){note(m,'get',key);return Reflect.get(target,key,receiver)},
       has(target,key){note(m,'has',key);return Reflect.has(target,key)},
@@ -97,10 +98,13 @@ export function observeModuleMetadata(EvaluatedModules) {
     restores.push(()=>{if(descriptor(p,method)?.value===wrapper)define(p,method,d)})
   }
   return {report:()=>({replayEligible:false,completeOwnership:false,overflow,assignments,
-    nodes:nodes.size,metadata:[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners]})),
+    nodes:nodes.size,metadata:[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners],origins:[...m.origins]})),
     events:[...events.values()],invalidations,errors,gaps:[...gaps],
-    limitations:['Stored metadata reads only; earlier transport reads are not observed',
+    limitations:['Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it',
       'Original aliases, nested values and native target reads can bypass these proxies',
       'Installing metadata accessors and proxies is observable']}),
+    observeMetadata(value,origin) {
+      try{return wrap(value,origin,origin)}catch(e){errors.push(e.message);return value}
+    },
     close(){for(const restore of restores.reverse())restore()}}
 }

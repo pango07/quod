@@ -148,9 +148,16 @@ if(phase) {
     assert(reports.every(r=>!r.metadata.replayEligible&&!r.metadata.completeOwnership&&!r.metadata.overflow&&!r.metadata.errors.length&&r.metadata.nodes>0))
     assert(reports.every(r=>r.native.opaque.available&&r.native.inspector.available&&r.native.proxy.available&&!r.native.proxy.overflow))
     assert(reports.every(r=>r.native.hooks.available&&!r.native.hooks.overflow),'hook lifetime observation must be available in every worker')
+    assert(reports.every(r=>!r.transport.replayEligible&&!r.transport.completeOwnership&&!r.transport.overflow&&
+      !r.transport.errors.length&&r.transport.pending===0&&r.transport.unsettled===0),'transport observation must complete in every worker')
     const events=reports.flatMap(r=>r.metadata.events),invalidations=reports.flatMap(r=>r.metadata.invalidations)
-    const operations=Object.create(null)
-    for(const e of events){const k=e.operation+':'+e.key;operations[k]=(operations[k]??0)+e.count}
+    const operations=Object.create(null),operationsByOrigin=Object.create(null),transportCounts=Object.create(null)
+    for(const e of events){
+      const k=e.operation+':'+e.key;operations[k]=(operations[k]??0)+e.count
+      const origin=JSON.stringify(e.origins),group=operationsByOrigin[origin]??=Object.create(null)
+      group[k]=(group[k]??0)+e.count
+    }
+    for(const r of reports)for(const [k,n] of Object.entries(r.transport.counts))transportCounts[k]=(transportCounts[k]??0)+n
     const entryCounts=Object.create(null),argumentCounts=Object.create(null),hookEntryCounts=Object.create(null)
     for(const r of reports)for(const e of r.native.opaque.entries)for(const name of e.entries)entryCounts[name]=(entryCounts[name]??0)+1
     for(const r of reports)for(const e of r.native.proxy.entries) {
@@ -163,10 +170,11 @@ if(phase) {
     const metadataResult={replayEligible:false,completeOwnership:false,workers:reports.length,
       fingerprint:first.fingerprint,plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
       nodes:reports.reduce((n,r)=>n+r.metadata.nodes,0),assignments:reports.reduce((n,r)=>n+r.metadata.assignments,0),
-      metadataObjects:reports.reduce((n,r)=>n+r.metadata.metadata.length,0),operations,
+      metadataObjects:reports.reduce((n,r)=>n+r.metadata.metadata.length,0),operations,operationsByOrigin,transportCounts,
       invalidations:invalidations.length,coldInvalidations:invalidations.filter(cold).length,
       nonColdInvalidations:invalidations.filter(x=>!cold(x)),
       workersWithReads:reports.filter(r=>r.metadata.events.some(e=>['get','has','descriptor','keys'].includes(e.operation))).length,
+      workersWithStoredReads:reports.filter(r=>r.metadata.events.some(e=>e.origins.includes('stored')&&['get','has','descriptor','keys'].includes(e.operation))).length,
       gaps:[...new Set(reports.flatMap(r=>r.metadata.gaps))],
       native:{entryCounts,argumentCounts,hookEntryCounts,
         workersWithInitialHooks:reports.filter(r=>activeHooks(r.native.hooks.initial)).length,
@@ -175,7 +183,7 @@ if(phase) {
         workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
         workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
         workersWithProxyUnwrapEntries:reports.filter(r=>r.native.proxy.entries.some(e=>e.entries.includes('util.getProxyDetails'))).length},
-      limitations:reports[0].metadata.limitations}
+      limitations:[...reports[0].metadata.limitations,...reports[0].transport.limitations]}
     write(path.join(out,'worker-module-metadata-result.json'),metadataResult)
     console.log(JSON.stringify(metadataResult,null,2))
   }
