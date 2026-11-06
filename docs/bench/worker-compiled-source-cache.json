@@ -1,0 +1,58 @@
+{
+  "candidate": "68308eb",
+  "nestedAdmissionGuard": "3db47e4",
+  "fixture": {
+    "commit": "dfccfbe8d4a4c5747d660c5f890ba798ec26156f",
+    "run": "https://github.com/pango07/quod/actions/runs/42250490937",
+    "job": 128003968907,
+    "conclusion": "success",
+    "regressionsPassed": 199
+  },
+  "measurements": [
+    {
+      "cached": false,
+      "events": 20000,
+      "exactMatches": 20000,
+      "sourceReads": 20000,
+      "elapsedMs": 1230.385516
+    },
+    {
+      "cached": true,
+      "events": 20000,
+      "exactMatches": 20000,
+      "sourceReads": 2,
+      "elapsedMs": 426.27630999999997,
+      "cacheHits": 19998,
+      "cacheEntries": 2
+    }
+  ],
+  "measurementScope": "Isolated repeated compilation recording, not full-workload or production CI savings",
+  "eligibility": [
+    "Node 24.18.0 JavaScript events only; no live edits.",
+    "Complete source fetched before admission.",
+    "Only ASCII code units, excluding NUL and space.",
+    "Reported source length and native SHA-256 must match the fetched source.",
+    "Retained digest remains SHA-256 of UTF-16LE; metadata, parse status, every event and order remain recorded.",
+    "Nonqualifying source, Wasm and capacity exhaustion fall back to full source reads."
+  ],
+  "nativeHashLimitation": "String::ToCString replaces NUL with space; the actual V8 regression demonstrates equal native hashes for distinct space/NUL source, and distinct exact recorder hashes.",
+  "primarySources": [
+    "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/objects.cc",
+    "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/string.cc",
+    "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-interface.cc"
+  ],
+  "fullDiagnostic": {
+    "commit": "3db47e45184a38864032d6483d2d8d936561a0a9",
+    "run": "https://github.com/pango07/quod/actions/runs/42250940190",
+    "status": "in_progress",
+    "includes": "nested-event cache admission regression; complete 120-worker baseline/before/after workload",
+    "replayEligible": false,
+    "job": 128005538140
+  },
+  "replayEligible": false,
+  "limitations": [
+    "No completed full-workload comparison yet.",
+    "Initial runtime integrity, complete native coverage and input ownership remain unproven.",
+    "No production engine, Action pin or savings claim changes."
+  ]
+}

@@ -1372,5 +1372,56 @@ with the default cache and 88.32 MB with zero retired-source caching.
 These are synthetic memory samples, not full-workload or CI savings.
 
 [Full diagnostic 42247258542](https://github.com/pango07/quod/actions/runs/42247258542)
-is running at `32256db` to measure the combined change. Complete before/after
-coverage, observation validity and per-test agreement remain unproven.
+at `32256db` passed 230 regressions and the 120-file / 4,131-state baseline,
+then timed out at 420 seconds in `before`. All 103 retained worker reports
+pass the scoped checks: 1,103,506 native calls attributed, cleared and
+released; 3,428 guarded metadata scalars; 103 guarded seeds; zero native or
+index failures. All 42,265 retained watched calls match the actual checked-in
+caller sources. Seventeen worker reports and the complete observed test-state
+result are missing, so this is not a full before/after or wrong=0 result.
+
+The stream worker reaches 740,000 descriptor calls and 1,481,406 compilation
+events at 435,458,048 bytes RSS, versus 700,000 calls at 1,011,503,104 bytes in
+the previous attempt. Plain baseline spans are 98.56 and 101.42 seconds.
+Memory retention improves, but complete workload time remains unmeasured.
+The retained workers still issue 2,263,648 source-fetch commands, taking
+67.23 seconds inclusively across workers. These timings overlap other
+Inspector commands and cannot be added to wall time.
+
+## Exact source reuse for repeated diagnostic compilations
+
+Candidate `68308eb` avoids fetching identical diagnostic source on every
+compilation, while preserving every ordered event. Native hashes alone are
+unsafe: the pinned V8 [script hash](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/objects.cc)
+uses [String::ToCString](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/string.cc),
+which replaces NUL with space. The cache admits a source only after fetching
+its complete text, checking its length and native hash, and establishing
+that every code unit is ASCII, excluding NUL and space. Within that subset,
+the conversion has a unique preimage, subject to the existing SHA-256
+collision assumption. The retained digest remains SHA-256 of UTF-16LE.
+
+All other sources, live edits and WebAssembly keep full source reads.
+Capacity exhaustion also falls back to full reads. Metadata, failed-parse
+state, occurrence counts and order remain independently recorded. The
+diagnostic's condition and private invocation strings use equivalent
+space-free syntax so their repeated compilations can qualify.
+
+The first fixture gate passed the exact-record and actual native-hash
+collision regressions, then rejected the measurement because a second
+Inspector session rediscovered scripts from the first measurement.
+Correction `dfccfbe` gives the two measurements distinct source identities
+and requires zero initial events. The corrected
+[gate 42250490937](https://github.com/pango07/quod/actions/runs/42250490937)
+passes 199 regressions. Both isolated measurements retain all 20,000 exact
+compilation records. Full source reads fall from 20,000 to two; measured
+capture time falls from 1,230.39 ms to 426.28 ms. These are diagnostic
+capture timings, not full-workload or CI savings.
+
+`3db47e4` also rechecks cache membership and capacity after source acquisition
+so a nested script event cannot double-count an admitted source. A regression
+exercises that path. The
+[full gate 42250940190](https://github.com/pango07/quod/actions/runs/42250940190)
+includes that regression and the complete unchanged workload. It is running;
+no production replay authority or savings claim changes.
+[Machine-readable evidence](worker-compiled-source-cache.json) retains the
+cache restrictions, measured counts and gate scope.
