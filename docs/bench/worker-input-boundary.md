@@ -1167,3 +1167,45 @@ the access check and getter. The wide 300-call fixture measures 126 ms native
 versus 358 ms adaptive with complete compilation logging. The earlier full
 gate runs the pre-correction helper and cannot establish native-callback
 exclusion; a complete run of the corrected helper is still required.
+
+The pre-correction [full gate 42234007135](https://github.com/pango07/quod/actions/runs/42234007135)
+at `99a9310` passes 205 regressions and the plain 120-instance/4,131-state
+baseline, then reaches the 420-second `before` limit. It retains 119 worker
+reports, with 1,255,379 captured native calls and matching wrapper cleanup
+counts. The remaining stream-property worker reaches 1,030,000 descriptor
+calls without log overflow. No complete observed test result or `after`
+phase exists.
+
+Unlike the preceding adaptive run, 116 completed reports contain capture
+errors and are explicitly unavailable. Their retained calls cannot establish
+complete coverage. Each stores the maximum 20 error samples; that cap does
+not establish the total error count. All 48,117 retained watched-property
+calls have immediate caller bytes matching the diagnostic at the measured
+commit, across 2,476 verified source records, but the failed captures remain
+unaccounted for. The next investigation isolates exception handling across
+execution contexts before another full gate. The [evidence file](worker-native-capture.json)
+records the timeout, unavailable reports, artifact digest and scoped checks.
+
+A focused [foreign-context fixture](https://github.com/pango07/quod/actions/runs/42236331469)
+reproduces a protocol failure when the private native function receives a
+foreign-context Error handle. The same-context case succeeds. V8's
+[argument resolver](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/injected-script.cc)
+rejects handles from another execution context. This explains the focused
+failure, but a corrected full run must still establish whether it explains
+the 116 unavailable reports.
+
+Candidate `4d18bf2` excludes genuine native Error exceptions before inspecting
+them. Their subtype comes from `IsNativeError()` in the pinned
+[value mirror](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/value-mirror.cc);
+the pinned [Node Inspector client](https://github.com/nodejs/node/blob/v24.18.0/src/inspector_agent.cc)
+does not override value subtypes. A fresh null-prototype capture literal
+cannot be a native Error. The added forged-Error fixture keeps a foreign
+plain object unknown even when its name and `Symbol.toStringTag` say Error.
+The candidate does not enumerate foreign properties, execute their getters,
+or silently accept an unknown capture.
+
+[Gate 42237047476](https://github.com/pango07/quod/actions/runs/42237047476)
+passes all 174 regressions at `4d18bf2`, including both native Error contexts,
+the forged foreign object and native callback/access-check fixtures. Corrected
+[full gate 42237280902](https://github.com/pango07/quod/actions/runs/42237280902)
+is running that commit. Its completion and coverage remain unproven.

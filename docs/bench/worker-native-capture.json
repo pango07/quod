@@ -1196,5 +1196,376 @@
         "replayEligible": false
       }
     ]
+  },
+  "fullDiagnostic": {
+    "commit": "99a9310",
+    "run": "https://github.com/pango07/quod/actions/runs/42234007135",
+    "job": 127946806921,
+    "conclusion": "failure",
+    "regressionsPassed": 205,
+    "failure": "before phase 420-second timeout; no complete observed phase or after phase",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 119,
+        "descriptorCalls": 1197819,
+        "nativeCalls": 1255379,
+        "cleared": 1255379,
+        "released": 1272083,
+        "compilationEvents": 2570253,
+        "scopedInspections": 1197818,
+        "descriptorsRetainedCalls": 1197819,
+        "proxyRetainedCalls": 57560
+      },
+      "flags": {
+        "identity: native entry capture failed": 2320,
+        "identity unavailable": 116,
+        "descriptors unavailable": 116,
+        "proxy unavailable": 116
+      },
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 119,
+          "elapsedMs": 24.940334999999987
+        },
+        "Debugger.getScriptSource": {
+          "calls": 2592159,
+          "elapsedMs": 53011.90466200001
+        },
+        "Debugger.enable": {
+          "calls": 119,
+          "elapsedMs": 8682.85084
+        },
+        "Runtime.evaluate": {
+          "calls": 5950,
+          "elapsedMs": 1505.5815419999997
+        },
+        "Runtime.getProperties": {
+          "calls": 17374,
+          "elapsedMs": 2393.1046139999994
+        },
+        "Runtime.queryObjects": {
+          "calls": 357,
+          "elapsedMs": 22104.68507799999
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1274463,
+          "elapsedMs": 189861.45759700003
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 5236,
+          "elapsedMs": 12819.772499999995
+        },
+        "Debugger.resume": {
+          "calls": 122,
+          "elapsedMs": 4.8408659999999974
+        },
+        "Runtime.releaseObject": {
+          "calls": 1272083,
+          "elapsedMs": 21057.992329999986
+        }
+      },
+      "watchedTargetCalls": 48117
+    },
+    "unfinishedCheckpoints": [
+      {
+        "file": "5051.json",
+        "project": "convex-helpers",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+        ],
+        "checkpoint": {
+          "calls": 1030000,
+          "apis": {
+            "Object.defineProperty": 516429,
+            "Object.getOwnPropertyDescriptor": 673,
+            "Object.freeze": 8,
+            "Object.defineProperties": 256018,
+            "Object.setPrototypeOf": 85,
+            "Object.getOwnPropertyDescriptors": 255971,
+            "Reflect.getOwnPropertyDescriptor": 793,
+            "Reflect.deleteProperty": 21,
+            "Reflect.defineProperty": 2
+          },
+          "arguments": {
+            "object": 1030000
+          },
+          "last": {
+            "name": "handleException",
+            "location": {
+              "scriptId": "175",
+              "lineNumber": 74,
+              "columnNumber": 56
+            },
+            "script": {
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+              "isModule": true,
+              "hasSourceURL": false,
+              "language": "JavaScript"
+            }
+          },
+          "overflow": false,
+          "nativeLog": {
+            "calls": 1030000,
+            "entries": 2843,
+            "frames": 2431,
+            "overflow": false
+          },
+          "stack": [
+            {
+              "name": "handleException",
+              "location": {
+                "scriptId": "175",
+                "lineNumber": 74,
+                "columnNumber": 56
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "153",
+                "lineNumber": 216,
+                "columnNumber": 75
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/promise-observers-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "emit",
+              "location": {
+                "scriptId": "22",
+                "lineNumber": 508,
+                "columnNumber": 27
+              },
+              "script": {
+                "url": "node:events",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "#onMessage",
+              "location": {
+                "scriptId": "154",
+                "lineNumber": 99,
+                "columnNumber": 13
+              },
+              "script": {
+                "url": "node:inspector",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "154",
+                "lineNumber": 65,
+                "columnNumber": 66
+              },
+              "script": {
+                "url": "node:inspector",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "setState",
+              "location": {
+                "scriptId": "775",
+                "lineNumber": 1614,
+                "columnNumber": 21
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "expect",
+              "location": {
+                "scriptId": "775",
+                "lineNumber": 7999,
+                "columnNumber": 2
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "check",
+              "location": {
+                "scriptId": "8918",
+                "lineNumber": 236,
+                "columnNumber": 33
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "processTicksAndRejections",
+              "location": {
+                "scriptId": "32",
+                "lineNumber": 103,
+                "columnNumber": 4
+              },
+              "script": {
+                "url": "node:internal/process/task_queues",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            }
+          ],
+          "compilation": {
+            "events": 2061582,
+            "runs": 2061447,
+            "records": 415,
+            "overflow": false,
+            "failedToParse": 374
+          },
+          "argumentDiagnostics": {
+            "mode": "native-entry-arguments",
+            "available": false,
+            "calls": 1030319,
+            "ignored": 0,
+            "ignoredReasons": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "cleared": 1030319,
+            "released": 1030462,
+            "groupsReleased": 0,
+            "handleMode": "native-private-capture",
+            "argumentMode": "direct",
+            "targetAccessorsOnly": true,
+            "targetInspection": "native-watched",
+            "nativeCapture": true,
+            "scopedInspections": 1030000,
+            "adaptiveSites": 0,
+            "errors": [
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed"
+            ],
+            "replayEligible": false,
+            "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+          },
+          "identity": {
+            "mode": "native-entry-arguments",
+            "snapshotsRequested": 0
+          },
+          "replayEligible": false
+        }
+      }
+    ],
+    "callerSourceVerification": {
+      "commit": "99a9310",
+      "counts": {
+        "workers": 119,
+        "sourceRecords": 2476,
+        "watchedCalls": 48117,
+        "callsMatchingCheckedInDiagnosticSource": 48117
+      },
+      "expectedSources": {
+        "scripts/bench-vitest/worker-config-probe.cjs": {
+          "sha256": "3021505e7161d2ddbbd89db27683f85d5e0fdac10a3f898996e2d170a0313578",
+          "bytes": 11108
+        },
+        "scripts/bench-vitest/worker-module-metadata-probe.mjs": {
+          "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf",
+          "bytes": 18704
+        },
+        "scripts/bench-vitest/scalar-property-probe.mjs": {
+          "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b",
+          "bytes": 6986
+        }
+      }
+    },
+    "artifact": {
+      "id": 13510404968,
+      "bytes": 13590944,
+      "sha256": "e3fce5b538b9cd5c459c5c9179666b0b55bac70b272dd18749d2ab9941a6da2f"
+    },
+    "logSha256": "ff84b864ae97a36593ccba3a85e20f134248f7eac87b7dcc7521bb1f3203bc6e",
+    "limitations": [
+      "Capture errors make 116 worker reports unavailable; their retained calls are partial evidence only.",
+      "Each worker retains at most 20 error strings; 2320 retained messages is not a total error count.",
+      "This run predates the native callback safety correction.",
+      "No full test-result comparison, replay certificate or product speedup established."
+    ]
+  },
+  "foreignContextInvestigation": {
+    "diagnosticCommit": "8da2564",
+    "fixtureDeliveryCorrection": "e014bce",
+    "reproducingGate": 42236331469,
+    "result": "The same-context Error is ignored; a foreign-context Error produces native capture protocol request failed. The first fixture gate 42236050399 did not deliver the returned exception to the handler and was corrected.",
+    "candidateCommit": "4d18bf2",
+    "candidateGate": 42237047476,
+    "candidateStatus": "completed",
+    "change": "Exclude native Error exceptions using the pinned Inspector native subtype. Unknown foreign plain objects still fail closed; no descriptor fallback or user getter execution.",
+    "sources": [
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/injected-script.cc",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/value-mirror.cc",
+      "https://github.com/nodejs/node/blob/v24.18.0/src/inspector_agent.cc"
+    ],
+    "fullWorkloadCauseConfirmed": false,
+    "candidateConclusion": "success",
+    "candidateTestsPassed": 174,
+    "candidateJob": 127957279422,
+    "logSha256": "61dc97e5f46fab2bbf64fe22076e09e0402a9d82c78de53cef5d190f55ac0f3e",
+    "nativeBinarySha256": "a3eb050f948a2e4abc4524ad306e5a4132d4440d6441169c483236516060290a",
+    "correctedFullGate": 42237280902,
+    "correctedFullGateCommit": "4d18bf2",
+    "correctedFullGateStatus": "in_progress"
   }
 }
