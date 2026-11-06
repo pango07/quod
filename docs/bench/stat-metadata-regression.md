@@ -92,3 +92,60 @@ Boolean switch cycle and metadata-reader fallbacks passed. The subsequent
 [fresh-runner probe](metadata-fresh-runner-probe.md) matched all per-test
 states, but replayed no Vitest files because conservative metadata keys
 changed across checkouts. It does not establish new full-window savings.
+
+## Direct synchronous type readers
+
+Engine `ebdf96d0c569dc5c4ccd7000013c3b737387ad58` extends the bounded type
+proof to direct native `statSync` calls. It checks the actual immediate V8
+caller and executed source, accepts immediate type/existence consumers and
+private type branches, and rejects metadata access, escapes, unknown options,
+bigint options, nested argument calls and changed Stats/Object prototypes.
+Type-key failures now distinguish native error numbers, so a caller's catch
+can distinguish a missing path from a non-directory path component.
+
+[Gate 42140626596](https://github.com/pango07/quod/actions/runs/42140626596)
+passed 167 tests, clippy, release compilation, and the metadata regression in
+all three proof modes. Each mode retained wrong = 0 and reran the changed
+metadata reader. A new built-binary test also verified the useful case:
+changing only time and permissions still replayed one proven type reader;
+changing that input from a file to a directory replayed zero files and
+selected both tests, matching plain. The archive SHA-256 is
+`9649172196b66af39155788824d46d7e2191e8fd7ab622da5b083f1f48fc7ea9`.
+This engine is not yet packaged into the benchmark Action.
+
+The [complete-suite diagnostic](https://github.com/pango07/quod/actions/runs/42140629979)
+matched all 120 file/project instances and 4,131 test states. It removed
+complete metadata dependencies for the checkout root, `example-ui` and
+`packages/convex-helpers`, replacing them with proven type dependencies.
+Type observations increased from 771 to 783; broad stat observations fell
+from 52 to 40. Unique `sm:` keys fell from 288 to 285 and `st:` keys rose
+from 101 to 104, with 12 `sl:` keys unchanged. Temporary cache paths differ
+between diagnostics and are not additional demonstrated product blockers.
+This is a dependency refinement, not a measured whole-job speedup.
+
+## Async stat observations remain complete
+
+[Gate 42141395235](https://github.com/pango07/quod/actions/runs/42141395235)
+passed 27 proof regressions, including an observer escape: a function only
+uses the size of its awaited stat, while an `async_hooks` callback independently
+reads the modification time from that promise. The record must retain `sm:`.
+Proving the local size read alone would miss a real consumer.
+
+The passive [provenance diagnostic](https://github.com/pango07/quod/actions/runs/42143434404)
+at `caa4245` observed 354 native stat promises: 120 file/project reads covering
+39 unique test paths, plus 234 temporary-cache reads. All 354 settled from
+their own native continuation with pristine Stats prototypes at the observed
+entry, without inserting `.then` reactions or changing returned values.
+The full test fingerprint still matched. This identifies the creator; it
+does not establish absence of other consumers or authorize a narrower key.
+
+Its legacy `process.binding('async_wrap')` hook counters were unavailable,
+not zero. Node's [v24.18.0 binding allowlist](https://github.com/nodejs/node/blob/v24.18.0/lib/internal/bootstrap/realm.js)
+does not expose that binding. A diagnostic must not treat missing counters
+as evidence that no observers exist. Unknown asynchronous consumers and
+Node's realpath callbacks continue to retain complete metadata.
+
+See [machine-readable proof progress](metadata-proof-progress.json). The
+historical 45.2% runner-time / 41.7% rounded-minute reductions and floor + 3 s
+hit still do not apply to this corrected engine. A fresh real-job hit is
+required before the next full 12-commit window is useful.

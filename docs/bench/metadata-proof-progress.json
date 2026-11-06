@@ -1,0 +1,87 @@
+{
+  "engine": "ebdf96d0c569dc5c4ccd7000013c3b737387ad58",
+  "packaged": false,
+  "binaryGate": "https://github.com/pango07/quod/actions/runs/42140626596",
+  "binaryArchiveSha256": "9649172196b66af39155788824d46d7e2191e8fd7ab622da5b083f1f48fc7ea9",
+  "metadataRegressions": {
+    "evidence": {
+      "wrong": 0,
+      "quodExit": 1,
+      "plainExit": 1,
+      "replayed": 0,
+      "contentChanged": false
+    },
+    "evidence-all": {
+      "wrong": 0,
+      "quodExit": 1,
+      "plainExit": 1,
+      "replayed": 0,
+      "contentChanged": false
+    },
+    "evidence-names": {
+      "wrong": 0,
+      "quodExit": 1,
+      "plainExit": 1,
+      "replayed": 0,
+      "contentChanged": false
+    }
+  },
+  "directTypeRegression": {
+    "wrong": 0,
+    "metadataReplayed": 1,
+    "typeChangeReplayed": 0,
+    "selectedTests": 2
+  },
+  "runtimeBefore": {
+    "run": 42139029246,
+    "stats": {
+      "boolean": 0,
+      "whole": 0,
+      "sources": 3,
+      "statType": 771,
+      "statWhole": 52
+    },
+    "metadataKeys": {
+      "sl": 12,
+      "sm": 288,
+      "st": 101
+    }
+  },
+  "runtimeAfter": {
+    "run": 42140629979,
+    "stats": {
+      "boolean": 0,
+      "whole": 0,
+      "sources": 3,
+      "statType": 783,
+      "statWhole": 40
+    },
+    "metadataKeys": {
+      "sl": 12,
+      "sm": 285,
+      "st": 104
+    }
+  },
+  "sharedDirectoryMetadataKeysRemoved": [
+    "sm:/home/runner/work/quod/quod/profile-project",
+    "sm:/home/runner/work/quod/quod/profile-project/example-ui",
+    "sm:/home/runner/work/quod/quod/profile-project/packages/convex-helpers"
+  ],
+  "promiseProvenance": {
+    "run": 42143434404,
+    "commit": "caa4245e2bdba30d3c1fa0cfa154ca1aba5391ba",
+    "calls": 354,
+    "testFileCalls": 120,
+    "uniqueTestFilePaths": 39,
+    "rootSettledFromOwnReaction": 354,
+    "eventMismatch": false,
+    "legacyHookCountsAvailable": false,
+    "replayEligible": false
+  },
+  "testFingerprint": {
+    "files": 120,
+    "states": 4131,
+    "sha256": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
+  },
+  "measurementScope": "Main-process diagnostics; no ledger, no replay, no production worker-input coverage or runner-time savings established."
+}
