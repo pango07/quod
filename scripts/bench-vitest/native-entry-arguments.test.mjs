@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {createRequire} from 'node:module'
+import vm from 'node:vm'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
 function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
@@ -342,7 +343,8 @@ test('native capture rejects interceptor targets but clears the owned wrapper',(
 test('native capture observes host callback presence without executing its descriptor getter',()=>{
   const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
   const nonce='c'.repeat(64),capture=addon.createCapture(nonce)
-  const {target,state}=addon.createNativeDataFixture()
+  const {target,state,apiWrapper}=addon.createNativeDataFixture()
+  assert.equal(apiWrapper,false)
   const payload={__proto__:null,quodNativeEntry:nonce,api:'test',argument:target,
     argumentCount:1,receiverBased:false,describeOwnAccessors:true}
   const result=capture(payload)
@@ -355,6 +357,21 @@ test('native capture observes host callback presence without executing its descr
   assert(!ignored.owned&&ignored.available);assert.equal(foreign.state.calls,0)
   Object.getOwnPropertyDescriptor(foreign.target,'quodNativeEntry')
   assert.equal(foreign.state.calls,1)
+})
+
+test('native capture rejects API wrappers before any host access check',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce='d'.repeat(64),capture=addon.createCapture(nonce)
+  const {target,state,apiWrapper}=addon.createNativeDataFixture(false,true)
+  assert.equal(apiWrapper,true);assert.equal(state.calls,0)
+  const payload={__proto__:null,quodNativeEntry:nonce,api:'test',argument:target,
+    argumentCount:1,receiverBased:false,describeOwnAccessors:true}
+  const result=capture(payload)
+  assert(result.owned&&!result.available&&result.cleared)
+  assert.equal(state.calls,0);assert.equal(payload.argument,null)
+  const descriptor=vm.runInNewContext('Object.getOwnPropertyDescriptor(target,"tmp")',{target})
+  assert.equal(descriptor.value,'host callback value')
+  assert(state.calls>=2,'the ordinary cross-context read must exercise the host access check and getter')
 })
 
 test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{

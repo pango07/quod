@@ -172,6 +172,13 @@ void NativeDataRead(Local<Name>, const PropertyCallbackInfo<Value>& info) {
   if (!Put(context, state, "calls", Integer::New(isolate, count.As<Int32>()->Value() + 1))) return;
   info.GetReturnValue().Set(Key(isolate, "host callback value"));
 }
+bool NativeAccessCheck(Local<Context> context, Local<Object>, Local<Value> data) {
+  auto isolate = context->GetIsolate();
+  auto state = data.As<Object>();
+  Local<Value> count;
+  return state->Get(context, Key(isolate, "calls")).ToLocal(&count) &&
+      Put(context, state, "calls", Integer::New(isolate, count.As<Int32>()->Value() + 1));
+}
 void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
@@ -182,7 +189,15 @@ void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
   const char* field = info.Length() && info[0]->IsTrue() ? "quodNativeEntry" : "tmp";
   if (!target->SetNativeDataProperty(context, Key(isolate, field), NativeDataRead,
                                      nullptr, state).FromMaybe(false)) return;
-  if (Put(context, result, "target", target) && Put(context, result, "state", state))
+  if (info.Length() > 1 && info[1]->IsTrue()) {
+    auto object_template = ObjectTemplate::New(isolate);
+    object_template->SetAccessCheckCallback(NativeAccessCheck, state);
+    object_template->SetNativeDataProperty(Key(isolate, field), NativeDataRead,
+                                           nullptr, state);
+    if (!object_template->NewInstance(context).ToLocal(&target)) return;
+  }
+  if (Put(context, result, "target", target) && Put(context, result, "state", state) &&
+      Put(context, result, "apiWrapper", Boolean::New(isolate, target->IsApiWrapper())))
     info.GetReturnValue().Set(result);
 }
 void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
