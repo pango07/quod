@@ -56,6 +56,13 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       try {
         let remote=params.exceptionDetails?.exception
         if(!remote?.objectId||remote.subtype==='proxy'){ignored++;return false}
+        // Pinned Node's Inspector uses V8 IsNativeError(), not an object's
+        // name, prototype or Symbol.toStringTag, for this subtype. Our fresh
+        // null-prototype literal cannot be a native Error. In particular,
+        // don't pass an unrelated Error across Inspector execution contexts.
+        if(nativeInspector&&remote.subtype==='error') {
+          handles.add(remote.objectId);ignored++;return false
+        }
         if(nativeInspector) {
           handles.add(remote.objectId)
           const value=nativeInspector.capture(remote.objectId)

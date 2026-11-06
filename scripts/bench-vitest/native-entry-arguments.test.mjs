@@ -231,6 +231,22 @@ extra.intact=foreign.args===target&&typeof Object.getOwnPropertyDescriptor(forei
   assert.equal(data.capture.ignored,1)
 })
 
+test('foreign error-shaped objects remain unknown instead of inheriting native Error exclusion',()=>{
+  const data=fixture(`let contextId;
+session.on('Runtime.executionContextCreated',({params})=>{if(params.context.name==='quod-foreign-lookalike')contextId=params.context.id});
+const context=vm.createContext({reads:0},{name:'quod-foreign-lookalike'});
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+const result=post('Runtime.evaluate',{contextId,expression:'({__proto__:null,[Symbol.toStringTag]:"Error",name:"Error",get quodNativeEntry(){reads++;throw Error("must not read")}})',generatePreview:false});
+extra.subtype=result.result.subtype??null;
+stop.inspectException({exceptionDetails:{exception:result.result}});
+extra.foreignReads=post('Runtime.evaluate',{contextId,expression:'reads',returnByValue:true}).result.value;
+native(target,key);stop();`,{directArguments:true,nativeCapture:true})
+  assert.equal(data.subtype,null);assert.equal(data.foreignReads,0)
+  assert.equal(data.capture.available,false);assert.equal(data.capture.ignored,0)
+  assert.equal(data.capture.calls,1);assert.equal(data.capture.cleared,1)
+  assert.deepEqual(data.capture.errors,['native capture protocol request failed'])
+})
+
 for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments use captured intrinsics without touching poisoned descriptor prototypes: '+targetInspection+'/native:'+nativeCapture,()=>{
   const data=fixture(`const originals={descriptor:Object.getOwnPropertyDescriptor,keys:Reflect.ownKeys,has:Object.hasOwn,
  proxy:types.isProxy,define:Reflect.defineProperty,setPrototype:Object.setPrototypeOf,integer:Number.isSafeInteger};
