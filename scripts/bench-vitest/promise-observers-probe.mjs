@@ -23,6 +23,8 @@ export function inspectPromiseObservers() {
   let failure=null, closed=false
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
+  const opaqueBreakpoints=new Map(),opaqueEntries=[]
+  let opaqueInitial=null,opaqueFailure=null
   function post(method,params={}) {
     let done=false,result,error
     session.post(method,params,(e,r)=>{done=true;error=e;result=r})
@@ -91,6 +93,17 @@ export function inspectPromiseObservers() {
   try {
     session.connect()
     post('Debugger.enable')
+    session.on('Debugger.paused',({params})=>{
+      const inspector=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
+      const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
+      if(inspector.length||opaque.length) {
+        const frames=params.callFrames.slice(0,8).map(f=>({
+          name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
+        if(inspector.length)inspectorEntries.push({entries:inspector,frames})
+        if(opaque.length)opaqueEntries.push({entries:opaque,frames})
+        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure='could not resume watched entry'}
+      } else inspectorFailure=opaqueFailure='unrelated debugger pause'
+    })
     // An Inspector connection can inspect a fulfilled promise or heap
     // object without appearing in either JavaScript hook registry. This
     // diagnostic watches the actual native entry functions, including
@@ -117,14 +130,6 @@ export function inspectPromiseObservers() {
           functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
       if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
          typeof inspectorInitial.listenerOpen!=='boolean') throw Error('unknown inspector startup state')
-      session.on('Debugger.paused',({params})=>{
-        const entries=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
-        if(entries.length) {
-          inspectorEntries.push({entries,frames:params.callFrames.slice(0,8).map(f=>({
-            name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))})
-          try {post('Debugger.resume')} catch {inspectorFailure='could not resume inspector entry'}
-        } else inspectorFailure='unrelated debugger pause'
-      })
       for(const name of ['Connection','MainThreadConnection','open']) {
         const fn=prop(inspector,name)
         if(fn?.type!=='function') throw Error('missing inspector entry: '+name)
@@ -132,6 +137,27 @@ export function inspectPromiseObservers() {
         inspectorBreakpoints.set(breakpointId,name)
       }
     } catch(e) {inspectorFailure=e.message}
+    try {
+      // Observe the actual closed-over native constructor and thread
+      // start method, not only the replaceable public Worker export.
+      const worker=builtin("process.getBuiltinModule('worker_threads').Worker")
+      const nativeWorker=binding(worker,'WorkerImpl').objectId
+      const prototype=prop(nativeWorker,'prototype')?.objectId
+      const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
+        objectGroup:'quod-observer-diagnostic'}).objects.objectId
+      const rows=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
+      const cache=builtin("process.getBuiltinModule('module')._cache")
+      opaqueInitial={nativeWorkerObjects:rows.filter(p=>!same(p.value?.objectId,prototype)).length,
+        cachedNativeModules:properties(cache).result.filter(p=>p.name.endsWith('.node')).map(p=>p.name)}
+      for(const [name,fn] of [
+        ['Worker',nativeWorker],['Worker.startThread',prop(prototype,'startThread')?.objectId],
+        ['dlopen',builtin('process.dlopen')],['linkedBinding',builtin('process._linkedBinding')],
+      ]) {
+        if(!fn)throw Error('missing opaque entry: '+name)
+        const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
+        opaqueBreakpoints.set(breakpointId,name)
+      }
+    } catch(e) {opaqueFailure=e.message}
     objectPrototype=properties(builtin('({})')).internalProperties?.find(p=>p.name==='[[Prototype]]')?.value?.objectId
     if(!objectPrototype) throw Error('intrinsic object prototype unavailable')
     for(const kind of kinds) {
@@ -152,6 +178,19 @@ export function inspectPromiseObservers() {
     }
   } catch(e) {failure=e.message}
   return {
+    opaqueSnapshot() {
+      return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
+        counts:Object.fromEntries(['Worker','Worker.startThread','dlopen','linkedBinding'].map(name=>
+          [name,opaqueEntries.filter(e=>e.entries.includes(name)).length])),
+        reason:opaqueFailure,replayEligible:false}
+    },
+    opaqueAccess() {
+      let cachedNativeModules=[]
+      try {cachedNativeModules=properties(builtin("process.getBuiltinModule('module')._cache")).result
+        .filter(p=>p.name.endsWith('.node')).map(p=>p.name)}catch{}
+      return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
+        entries:opaqueEntries.map(e=>({...e})),cachedNativeModules,reason:opaqueFailure,replayEligible:false}
+    },
     inspectorAccess() {
       // These are observations, not an exhaustive exclusion certificate:
       // worker/native-addon access and initial runtime provenance still
@@ -209,15 +248,18 @@ export function inspectPromiseObservers() {
       // consumer starts. Merely resolving a promise is too early: the
       // settled hook may still see a pending internal state.
       if(failure || closed || !owned || !nativeRefs) return {available:false,replayEligible:false}
+      const transient=new Set()
       try {
         const context=binding(owned[kind],'checkpoint').objectId
         const promise=prop(context,'promise')?.objectId
         if(!promise) throw Error('owned promise reference unavailable')
+        transient.add(promise)
         const internal=properties(promise).internalProperties
+        const result=internal?.find(p=>p.name==='[[PromiseResult]]')?.value
+        if(result?.objectId)transient.add(result.objectId)
         const state=internal?.find(p=>p.name==='[[PromiseState]]')?.value?.value
         if(state==='rejected') return {available:true,state,projection:'ignored-error',replayEligible:false}
         if(state!=='fulfilled') return {available:false,state:state??'unknown',replayEligible:false}
-        const result=internal.find(p=>p.name==='[[PromiseResult]]')?.value
         if(result?.type!=='object' || !result.objectId) throw Error('non-object stat result')
         const p=properties(result.objectId)
         const prototype=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value?.objectId
@@ -226,6 +268,12 @@ export function inspectPromiseObservers() {
           !Number.isSafeInteger(size.value.value) || size.value.value<0) throw Error('unknown stat result shape')
         return {available:true,state,projection:'size',size:size.value.value,replayEligible:false}
       } catch(e) {return {available:false,reason:e.message,replayEligible:false}}
+      finally {
+        // Runtime.getProperties creates strong remote handles. Releasing
+        // only the diagnostic session at exit would keep the native
+        // promise and its Stats/Error observable after user code drops it.
+        for(const objectId of transient)try {post('Runtime.releaseObject',{objectId})}catch{}
+      }
     },
     captureOwned() {
       if(failure || closed || owned) return false
@@ -271,6 +319,9 @@ export function inspectPromiseObservers() {
     close() {
       closed=true
       for(const breakpointId of inspectorBreakpoints.keys()) {
+        try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
+      }
+      for(const breakpointId of opaqueBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       try {post('Runtime.releaseObjectGroup',{objectGroup:'quod-observer-diagnostic'})} catch {}

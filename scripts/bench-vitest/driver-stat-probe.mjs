@@ -71,9 +71,11 @@ const result={measurementScope:'Real planner/driver/workers with passive main-pr
   consumersWithNativeUnchanged:fileCalls.filter(c=>c.observedNativeUnchanged).length,
   consumersWithConstructionFieldsAbsent:fileCalls.filter(c=>c.observedConstructionFieldsAbsent).length,
   consumersWithStartupNativeUnchanged:fileCalls.filter(c=>c.observedStartupNativeUnchanged).length,
+  consumersWithNoOpaqueEntries:fileCalls.filter(c=>c.observedNoOpaqueEntries).length,
   startupAtAttach:trace.startupAtAttach,
   initialObservers:trace.initialObservers,nativeProvenance:trace.nativeStatProvenance,
   inspectorAccess:trace.inspectorAccess,
+  opaqueAccess:trace.opaqueAccess,
   preloadModules:trace.preloadModules,replayEligible:false,unvalidated:trace.unvalidated}
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2))
 console.log(JSON.stringify(result,null,2))

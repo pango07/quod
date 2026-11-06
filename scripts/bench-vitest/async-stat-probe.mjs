@@ -40,6 +40,7 @@ export function observeAsyncStat(project,{startup=null}={}) {
   let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null, inspectorAtConsumerProof=null
   const snapshot=()=>({pristine:pristine(),native:observerRegistry.nativeStatSnapshot(),
     startup:startup?.snapshot()??null,
+    opaque:observerRegistry.opaqueSnapshot(),
     asyncHooks:counts(),observers:observerRegistry.snapshot()})
   const stop=promiseHooks.createHook({
     init(p,parent) {
@@ -97,6 +98,7 @@ export function observeAsyncStat(project,{startup=null}={}) {
       return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
         startupAtAttach,
         inspectorAccess:{atConsumerProof:inspectorAtConsumerProof,final:observerRegistry.inspectorAccess()},
+        opaqueAccess:observerRegistry.opaqueAccess(),
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
@@ -111,6 +113,8 @@ export function observeAsyncStat(project,{startup=null}={}) {
               checkpoints.every(x=>x.startup?.nativeBindingUnchanged && x.startup.prototypeUnchanged),
             observedNativeUnchanged:checkpoints.every(x=>x.native.available && x.native.unchanged),
             observedConstructionFieldsAbsent:checkpoints.every(x=>x.native.constructionFieldsAbsent===true),
+            observedNoOpaqueEntries:checkpoints.every(x=>x.opaque.available &&
+              Object.values(x.opaque.counts).every(n=>n===0)),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
               x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}
