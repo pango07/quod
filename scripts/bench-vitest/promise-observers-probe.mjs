@@ -21,6 +21,8 @@ export function inspectPromiseObservers() {
   session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
     url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true}))
   let failure=null, closed=false
+  const inspectorBreakpoints=new Map(), inspectorEntries=[]
+  let inspectorInitial=null, inspectorFailure=null
   function post(method,params={}) {
     let done=false,result,error
     session.post(method,params,(e,r)=>{done=true;error=e;result=r})
@@ -89,6 +91,37 @@ export function inspectPromiseObservers() {
   try {
     session.connect()
     post('Debugger.enable')
+    // An Inspector connection can inspect a fulfilled promise or heap
+    // object without appearing in either JavaScript hook registry. This
+    // diagnostic watches the actual native entry functions, including
+    // references cached before observation. A public Session wrapper is
+    // not enough: process.binding('inspector').Connection is accessible.
+    // Existing native connection objects are counted once at startup;
+    // queryObjects may collect garbage, so never use it per stat call.
+    try {
+      const inspector=builtin("process.binding('inspector')")
+      const connection=prop(inspector,'Connection')?.objectId
+      const prototype=prop(connection,'prototype')?.objectId
+      const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
+        objectGroup:'quod-observer-diagnostic'}).objects.objectId
+      inspectorInitial={localConnectionObjects:prop(objects,'length')?.value,
+        listenerOpen:post('Runtime.callFunctionOn',{objectId:prop(inspector,'isEnabled').objectId,
+          functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
+      if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
+         typeof inspectorInitial.listenerOpen!=='boolean') throw Error('unknown inspector startup state')
+      session.on('Debugger.paused',({params})=>{
+        const entries=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
+        if(entries.length) inspectorEntries.push({entries,frames:params.callFrames.slice(0,8).map(f=>({
+          name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))})
+        try {post('Debugger.resume')} catch {inspectorFailure='could not resume inspector entry'}
+      })
+      for(const name of ['Connection','MainThreadConnection','open']) {
+        const fn=prop(inspector,name)
+        if(fn?.type!=='function') throw Error('missing inspector entry: '+name)
+        const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn.objectId})
+        inspectorBreakpoints.set(breakpointId,name)
+      }
+    } catch(e) {inspectorFailure=e.message}
     objectPrototype=properties(builtin('({})')).internalProperties?.find(p=>p.name==='[[Prototype]]')?.value?.objectId
     if(!objectPrototype) throw Error('intrinsic object prototype unavailable')
     for(const kind of kinds) {
@@ -109,6 +142,13 @@ export function inspectPromiseObservers() {
     }
   } catch(e) {failure=e.message}
   return {
+    inspectorAccess() {
+      // These are observations, not an exhaustive exclusion certificate:
+      // worker/native-addon access and initial runtime provenance still
+      // require independent checks. Even a zero-entry result grants no key.
+      return {available:!inspectorFailure && !!inspectorInitial,initial:inspectorInitial,
+        entries:inspectorEntries.map(e=>({...e})),reason:inspectorFailure,replayEligible:false}
+    },
     nativeStatProvenance() {
       // Capture before wrapping fs. Do not equate matching names/source
       // with native provenance: these are diagnostic facts for review.
@@ -220,6 +260,9 @@ export function inspectPromiseObservers() {
     },
     close() {
       closed=true
+      for(const breakpointId of inspectorBreakpoints.keys()) {
+        try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
+      }
       try {post('Runtime.releaseObjectGroup',{objectGroup:'quod-observer-diagnostic'})} catch {}
       try {session.disconnect()} catch {}
     },
