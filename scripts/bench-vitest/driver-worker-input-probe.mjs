@@ -9,7 +9,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url'
 import {spawnSync} from 'node:child_process'
 import {observeWorkerInputs} from './worker-input-probe.mjs'
 import {validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
-import {validateNativeEntryLog} from './native-entry-log.mjs'
+import {validateNativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -226,6 +226,13 @@ if(phase) {
           validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
           assert.equal(x.native.identity?.targetAccessorsOnly,true,'the diagnostic must use the gated accessor-only observation')
           assert.equal(x.native.identity?.argumentMode,'direct','the combined diagnostic must use the gated direct argument transport')
+          const evidence=x.native.descriptors.sourceEvidence
+          assert(evidence?.available&&evidence.scope==='frames-of-watched-accessor-targets',
+            'watched target call stacks must retain actual V8 source evidence')
+          const sourceIds=new Set(evidence.records.filter(r=>r.available&&r.code.encoding==='utf16le').map(r=>r.scriptId))
+          for(const entry of x.native.descriptors.entries)if(entry.argument.target?.watchedAccessorKeys.length)
+            assert(nativeEntryFrames(x.native.descriptors,entry).every(f=>sourceIds.has(f.location.scriptId)),
+              'every watched target frame must resolve by its actual script identity')
           assert(x.native.identity?.available&&x.native.identity.mode==='native-entry-arguments'&&x.native.identity.snapshotsRequested===0,
             'native argument observation must remain available without collecting heap snapshots')
           assert.equal(x.native.identity.calls,x.native.identity.cleared,'every diagnostic exception wrapper must be cleared')

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
+import {createHash} from 'node:crypto'
 import {validateCompilationCounts} from './compiled-script-log.mjs'
 import {nativeEntryFrames,validateNativeEntryLog} from './native-entry-log.mjs'
 
@@ -48,6 +49,13 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
   assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
   assert.equal(data.identity.targetAccessorsOnly,true)
   assert.equal(data.identity.argumentMode,'direct')
+  assert.equal(data.report.sourceEvidence.available,true)
+  assert.equal(data.report.sourceEvidence.scope,'frames-of-watched-accessor-targets')
+  const sources=new Map(data.report.sourceEvidence.records.map(r=>[r.scriptId,r]))
+  for(const e of data.report.entries)for(const f of nativeEntryFrames(data.report,e)) {
+    const source=sources.get(f.location.scriptId)
+    assert(source?.available&&source.code.encoding==='utf16le'&&source.code.sha256.length===64)
+  }
   assert.equal(data.timing.pauses.calls,0);assert.equal(data.identity.mode,'native-entry-arguments')
   assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
   assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
@@ -70,6 +78,21 @@ console.log(JSON.stringify({report,gets,calls,found:[typeof a.get,typeof b.get]}
   const entries=data.report.entries.filter(e=>e.entries.includes('Object.getOwnPropertyDescriptor'))
   assert.equal(entries.reduce((n,e)=>n+e.count,0),2)
   assert(entries.every(e=>e.argument.actualNativeEntry&&e.argument.target.watchedAccessorKeys.includes('tmp')))
+})
+
+test('watched native target caller evidence uses actual source despite a forged diagnostic filename',()=>{
+  const source='native(target,key)',url=new URL('./scalar-property-probe.mjs',import.meta.url).href
+  const data=fixture(`const vm=await import('node:vm');
+const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true});
+vm.runInNewContext(${JSON.stringify(source)},{native:Object.getOwnPropertyDescriptor,target,key},{filename:${JSON.stringify(url)}});
+const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets}));`)
+  assert.equal(data.gets,0);assert.equal(data.report.calls,1)
+  assert.equal(data.report.sourceEvidence.available,true)
+  const sources=data.report.sourceEvidence.records.filter(r=>r.script.url===url)
+  assert.equal(sources.length,1)
+  assert.equal(sources[0].code.sha256,createHash('sha256').update(source,'utf16le').digest('hex'))
+  assert.equal(sources[0].script.isModule,false)
+  assert(nativeEntryFrames(data.report,data.report.entries[0]).some(f=>f.location.scriptId===sources[0].scriptId))
 })
 
 test('integrated native arguments preserve native errors and do not invoke proxy traps',()=>{

@@ -8,7 +8,7 @@ import {compiledScriptRecord} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
-import {nativeEntryLog} from './native-entry-log.mjs'
+import {nativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 const monotonicNow=process.hrtime.bigint
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
@@ -434,31 +434,32 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       }
     }catch(e){descriptorFailure=e.message}
   } catch(e) {failure=e.message}
+  function sourceForScript(scriptId) {
+    // A filename or a Function#toString result can be forged. Resolve the
+    // actual V8 script identity from a native call site in this session.
+    if(failure||closed)return {available:false,reason:failure??'closed',replayEligible:false}
+    try {
+      if(typeof scriptId!=='string'||!scripts.has(scriptId))throw Error('unknown script identity')
+      if(scriptEvidence.has(scriptId))return scriptEvidence.get(scriptId)
+      if(scriptEvidence.size>=20000)throw Error('script evidence capacity exceeded')
+      const script=scripts.get(scriptId)
+      if(script.language!=='JavaScript')throw Error('non-JavaScript read site')
+      const source=post('Debugger.getScriptSource',{scriptId}).scriptSource
+      if(typeof source!=='string')throw Error('script source unavailable')
+      const evidence={available:true,scriptId,script:{...script},code:{encoding:'utf16le',
+        bytes:Buffer.byteLength(source,'utf16le'),sha256:createHash('sha256').update(source,'utf16le').digest('hex')},
+        replayEligible:false}
+      scriptEvidence.set(scriptId,evidence)
+      return evidence
+    }catch(e){return {available:false,reason:e.message,replayEligible:false}}
+  }
   return {
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
         ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },
-    sourceForScript(scriptId) {
-      // A filename or a Function#toString result can be forged. Resolve the
-      // actual V8 script identity from a native call site in this session.
-      if(failure||closed)return {available:false,reason:failure??'closed',replayEligible:false}
-      try {
-        if(typeof scriptId!=='string'||!scripts.has(scriptId))throw Error('unknown script identity')
-        if(scriptEvidence.has(scriptId))return scriptEvidence.get(scriptId)
-        if(scriptEvidence.size>=20000)throw Error('script evidence capacity exceeded')
-        const script=scripts.get(scriptId)
-        if(script.language!=='JavaScript')throw Error('non-JavaScript read site')
-        const source=post('Debugger.getScriptSource',{scriptId}).scriptSource
-        if(typeof source!=='string')throw Error('script source unavailable')
-        const evidence={available:true,scriptId,script:{...script},code:{encoding:'utf16le',
-          bytes:Buffer.byteLength(source,'utf16le'),sha256:createHash('sha256').update(source,'utf16le').digest('hex')},
-          replayEligible:false}
-        scriptEvidence.set(scriptId,evidence)
-        return evidence
-      }catch(e){return {available:false,reason:e.message,replayEligible:false}}
-    },
+    sourceForScript,
     hookAccess() {
       const current=hookSnapshot()
       return {available:hookAccess&&!failure&&!hookFailure&&current.available&&hookBreakpoints.size===9,
@@ -473,8 +474,17 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         limitation:'Observes isProxy and getProxyDetails with bounded caller argument diagnostics; other native observers are not excluded'}
     },
     descriptorAccess() {
+      const log=nativeDescriptorLog?.report()??{entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow}
+      let sourceEvidence
+      if(nativeDescriptorLog) {
+        const ids=new Set()
+        for(const entry of log.entries)if(entry.argument.target?.watchedAccessorKeys.length)
+          for(const frame of nativeEntryFrames(log,entry))ids.add(frame.location?.scriptId)
+        const records=[...ids].map(scriptId=>sourceForScript(scriptId))
+        sourceEvidence={scope:'frames-of-watched-accessor-targets',available:records.every(r=>r.available),records,replayEligible:false}
+      }
       return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length&&(!nativeEntryObserver||nativeEntryObserver.report().available),
-        ...(nativeDescriptorLog?.report()??{entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow}),reason:failure??descriptorFailure,
+        ...log,...(sourceEvidence?{sourceEvidence}:{}),reason:failure??descriptorFailure,
         argumentDiagnostics:argumentDiagnostics(),
         replayEligible:false,completeDescriptorCoverage:false,
         limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
