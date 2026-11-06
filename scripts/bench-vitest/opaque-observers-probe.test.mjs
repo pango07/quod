@@ -48,9 +48,11 @@ test('a worker can connect to the main Inspector without a main-isolate connecti
 import {Worker} from 'node:worker_threads';import {once} from 'node:events';
 const p=inspectPromiseObservers();globalThis.__quodWorkerInspectorFixture='main-only';
 const worker=new Worker(\`const {parentPort}=require('node:worker_threads');
+// Inspector requests to another isolate do not keep this worker alive.
+const keepAlive=setInterval(()=>{},1000);
 const s=new(require('node:inspector').Session)();s.connectToMainThread();
 s.post('Runtime.evaluate',{expression:'globalThis.__quodWorkerInspectorFixture'},(e,r)=>{
- parentPort.postMessage({error:e?.message??null,value:r?.result?.value});s.disconnect();
+ parentPort.postMessage({error:e?.message??null,value:r?.result?.value});s.disconnect();clearInterval(keepAlive);
 });\`,{eval:true,execArgv:[]});
 const [message]=await once(worker,'message');await worker.terminate();
 const inspector=p.inspectorAccess(),opaque=p.opaqueSnapshot();p.close();delete globalThis.__quodWorkerInspectorFixture;
