@@ -142,14 +142,21 @@ test('native scalar evidence rejects missing events, missing source frames and m
 })
 
 test('direct scalar reads coexist with actual native proxy arguments and exact compiled source capture',()=>{
+  fs.writeSync(2,'native scalar combined: registry setup\n')
   const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:true,
     nativeEntries:true,ordinaryOwners:true,nativeTransport:'string',descriptorAccess:false})
+  fs.writeSync(2,'native scalar combined: registry ready\n')
   const target={seed:123},p=observeScalarProperty(target,'seed',{observation,ownerGuard,sourceForScript:registry.sourceForScript})
+  fs.writeSync(2,'native scalar combined: scalar installed\n')
   try {
     assert.equal(target.seed,123)
+    fs.writeSync(2,'native scalar combined: direct read\n')
     assert.equal(types.isProxy(target),false)
+    fs.writeSync(2,'native scalar combined: proxy census\n')
     assert.equal(Object.getOwnPropertyDescriptor(target,'seed').value,123)
+    fs.writeSync(2,'native scalar combined: descriptor read\n')
     assert.equal(vm.runInThisContext('40 + 2',{filename:'native-scalar-compiled-reader'}),42)
+    fs.writeSync(2,'native scalar combined: compilation\n')
     const scalar=p.report();validateNativeScalarEvidence(scalar);assert.equal(scalar.recordedReads,2)
     const descriptors=registry.descriptorAccess(),proxy=registry.proxyAccess(),identity=registry.nativeIdentity()
     assert.equal(descriptors.available,false);assert.equal(descriptors.calls,0)
@@ -161,5 +168,5 @@ test('direct scalar reads coexist with actual native proxy arguments and exact c
     assert(registry.hookAccess().available&&registry.opaqueAccess().available&&registry.inspectorAccess().available)
     const compiled=registry.compiledScriptReport();validateCompilationCounts(compiled)
     assert(compiled.enabled&&!compiled.overflow&&!compiled.errors.length&&!compiled.replayEligible)
-  }finally{p.close();registry.close()}
+  }finally{fs.writeSync(2,'native scalar combined: cleanup\n');p.close();registry.close()}
 })

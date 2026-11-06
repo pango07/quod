@@ -919,6 +919,16 @@ jobs:
       - name: Inventory native data-property semantics without enabling instrumentation
         if: inputs.only == 'benchmark-native-property'
         run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs
+      - name: Capture native scalar integration crash backtrace
+        if: failure() && inputs.only == 'benchmark-native-property'
+        run: |
+          ulimit -c 0
+          if command -v gdb >/dev/null; then
+            gdb --batch --return-child-result -ex run -ex 'thread apply all bt 30' \
+              --args node scripts/bench-vitest/native-scalar-property-probe.test.mjs
+          else
+            echo 'gdb is unavailable on this runner'
+          fi
 
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
