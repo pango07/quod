@@ -101,3 +101,33 @@ test('a transient internal Stats prototype change is seen before native construc
   assert.equal(r.nativePrototype,false,'native stat used the temporarily changed internal prototype')
   assert.equal(r.report.replayEligible,false)
 })
+
+function retainedStats(observe) {
+  const source=`import {observeAsyncStat} from ${JSON.stringify(new URL('./async-stat-probe.mjs',import.meta.url).href)};
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {Session} from 'node:inspector';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quod-stat-lifetime-')),file=path.join(dir,'input');
+fs.writeFileSync(file,'x'.repeat(7013));fs.utimesSync(file,1577836800,1577836800);
+const probe=${observe?'observeAsyncStat(process.cwd())':'null'};
+async function size(file){try{const s=await fs.promises.stat(file);return s.size}catch{}}
+const value=await size(file);
+await new Promise(resolve=>setImmediate(resolve));
+const session=new Session();session.connect();
+function post(method,params={}){let result,error;session.post(method,params,(e,r)=>{error=e;result=r});if(error||!result)throw Error('inspector failed');return result}
+const prototype=post('Runtime.evaluate',{expression:"process.getBuiltinModule('fs').Stats.prototype"}).result.objectId;
+const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype}).objects.objectId;
+let retained=0;
+for(const row of post('Runtime.getProperties',{objectId:objects,ownProperties:true}).result){
+ if(!/^\\d+$/.test(row.name)||!row.value.objectId)continue;
+ const props=post('Runtime.getProperties',{objectId:row.value.objectId,ownProperties:true}).result;
+ if(props.some(p=>p.name==='size'&&p.value?.value===7013)&&props.some(p=>p.name==='mtimeMs'&&p.value?.value===1577836800000))retained++;
+}
+session.disconnect();probe?.close();fs.rmSync(dir,{recursive:true,force:true});console.log(JSON.stringify({value,retained}));`
+  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
+  assert.equal(r.status,0,r.stderr||String(r.error));return JSON.parse(r.stdout)
+}
+test('inspecting a native result must not keep its Stats alive after the consumer returns',()=>{
+  const plain=retainedStats(false),observed=retainedStats(true)
+  assert.equal(plain.value,7013);assert.equal(observed.value,plain.value)
+  assert.equal(plain.retained,0,'the completed plain consumer leaves no live matching Stats')
+  assert.equal(observed.retained,plain.retained,'Inspector result handles must not retain otherwise-dead metadata')
+})
