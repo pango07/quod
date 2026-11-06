@@ -861,7 +861,7 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-native-inspector:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api' || inputs.only == 'benchmark-native-string')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -882,7 +882,7 @@ jobs:
           print(json.dumps({name:[line.split(' ',2)[-1] for line in symbols if name in line] for name in names},indent=2))
           PY
       - name: Build isolated native Inspector experiment
-        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string'
+        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property'
         shell: bash
         run: |
           NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
@@ -911,6 +911,9 @@ jobs:
         env:
           QUOD_TEST_NATIVE_CAPTURE_TRANSPORT: string
         run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
+      - name: Inventory native data-property semantics without enabling instrumentation
+        if: inputs.only == 'benchmark-native-property'
+        run: node --test scripts/bench-vitest/native-data-property-semantics.test.mjs
 
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
