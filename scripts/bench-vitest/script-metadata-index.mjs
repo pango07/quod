@@ -11,12 +11,18 @@ const freeze=Object.freeze,keys=Reflect.ownKeys,descriptor=Object.getOwnProperty
 const get=(map,key)=>call(mapGet,map,key),set=(map,key,value)=>call(mapSet,map,key,value),
   size=map=>call(mapSize,map)
 export function scriptMetadataIndex({storage='dense',entryLimit=storage==='ranges'?9007199254740991:4000000,
-  metadataLimit=20000,denseLimit=4194304,rangeLimit=65536,sparseLimit=65536}={}) {
+  metadataLimit=20000,denseLimit=4194304,rangeLimit=65536,sparseLimit=65536,
+  lookupLimit=storage==='ranges'?2048:0}={}) {
   if(!safeInteger(entryLimit)||entryLimit<=0||!safeInteger(metadataLimit)||metadataLimit<=0||
     !safeInteger(denseLimit)||denseLimit<=0||metadataLimit>=0xffffffff||denseLimit>4194304||
-    !['dense','ranges'].includes(storage)||!safeInteger(sparseLimit)||sparseLimit<1)
+    !['dense','ranges'].includes(storage)||!safeInteger(sparseLimit)||sparseLimit<1||
+    !safeInteger(lookupLimit)||lookupLimit<0||lookupLimit>65536)
     throw new ErrorType('invalid script metadata limits')
   const chunks=new MapType(),sparse=new MapType(),dictionary=new MapType(),values=new MapType(),chunkSize=4096
+  // Cache only successful public lookups. Millions of newly compiled IDs
+  // do not displace the small set of caller IDs read on every native entry.
+  // Each value is the same immutable owned metadata object as in the index.
+  const hot=new MapType()
   const ranges=storage==='ranges'?scriptIdRanges(rangeLimit):null
   const failureStages={validation:0,copy:0,lookup:0,commit:0}
   let entries=0,events=0,overflow=false,failures=0
@@ -81,15 +87,26 @@ export function scriptMetadataIndex({storage='dense',entryLimit=storage==='range
         if(number===null)set(sparse,id,value)
         else if(!ranges)chunk[number%chunkSize]=value
         if(!exists)entries++
+        // A nested descriptor/freeze notification may have cached this ID
+        // during validation. Update it only after the full index commit.
+        if(lookupLimit&&get(hot,id)!==undefined)set(hot,id,get(values,value))
         return true
       }catch(error) {
         failures++;failureStages[stage]++
         throw error
       }
     },
-    get(id){return typeof id==='string'?get(values,lookup(id)):undefined},
+    get(id){
+      if(typeof id!=='string')return undefined
+      const cached=lookupLimit?get(hot,id):undefined
+      if(cached!==undefined)return cached
+      const value=get(values,lookup(id))
+      if(value!==undefined&&size(hot)<lookupLimit)set(hot,id,value)
+      return value
+    },
     has(id){return typeof id==='string'&&!!lookup(id)},
     counts:()=>({events,entries,metadata:size(dictionary),storage,...(ranges?ranges.counts():{}),chunks:size(chunks),
-      denseBytes:size(chunks)*chunkSize*4,sparseEntries:size(sparse),overflow,failures,failureStages:{...failureStages}}),
+      denseBytes:size(chunks)*chunkSize*4,sparseEntries:size(sparse),lookupEntries:size(hot),lookupLimit,
+      overflow,failures,failureStages:{...failureStages}}),
   }
 }

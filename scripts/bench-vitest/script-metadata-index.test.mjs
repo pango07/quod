@@ -40,6 +40,57 @@ test('index limits remain unavailable instead of silently dropping new identitie
   }
 })
 
+test('bounded lookup cache preserves overwrites, misses and immutable metadata',()=>{
+  const index=scriptMetadataIndex({lookupLimit:2}),expected=new Map()
+  for(const limit of [-1,.5,Infinity,65537])assert.throws(()=>scriptMetadataIndex({lookupLimit:limit}))
+  for(const id of ['1','01','9007199254740991','foreign\ud800']) {
+    assert.equal(index.get(id),undefined)
+    assert.equal(index.counts().lookupEntries,0,'missing IDs must not fill the cache')
+  }
+  for(const [i,id] of ['1','01','9007199254740991','foreign\ud800'].entries()) {
+    const value=metadata(i);assert(index.set(id,value));expected.set(id,{...value})
+    assert.deepEqual(index.get(id),value)
+  }
+  assert.equal(index.counts().lookupEntries,2)
+  for(let i=0;i<100;i++)for(const [id] of expected) {
+    const value=metadata(i);assert(index.set(id,value));expected.set(id,{...value})
+    value.url='caller mutation'
+    for(const [key,want] of expected)assert.deepEqual(index.get(key),want)
+  }
+  assert.throws(()=>{index.get('1').url='cached mutation'})
+  assert.equal(index.counts().lookupEntries,2)
+  assert.equal(index.counts().entries,4)
+  assert.equal(index.counts().overflow,false)
+})
+
+test('failed metadata replacement cannot change a cached lookup',()=>{
+  const index=scriptMetadataIndex({lookupLimit:2,metadataLimit:1})
+  assert(index.set('1',metadata(0)));const before=index.get('1')
+  assert.throws(()=>index.set('1',{...metadata(0),extra:true}))
+  assert.equal(index.get('1'),before)
+  assert.equal(index.set('1',metadata(1)),false)
+  assert.equal(index.get('1'),before)
+  assert.equal(index.counts().metadata,1)
+  assert.equal(index.counts().lookupEntries,1)
+  assert.equal(index.counts().overflow,true)
+})
+
+test('nested validation lookups and writes cannot leave stale cached metadata',()=>{
+  const url=new URL('./script-metadata-index.mjs',import.meta.url).href
+  const source=`const freeze=Object.freeze;let index,armed=false,seen;
+const a={url:'a',isModule:true,hasSourceURL:false,language:'JavaScript'},b={...a,url:'b'},c={...a,url:'c'};
+Object.freeze=value=>{if(armed){armed=false;seen=index.get('1').url;index.set('1',b)}return freeze(value)};
+const {scriptMetadataIndex}=await import(${JSON.stringify(url)});
+index=scriptMetadataIndex({storage:${JSON.stringify(storage)},lookupLimit:2});index.set('1',a);
+armed=true;index.set('1',c);Object.freeze=freeze;
+console.log(JSON.stringify({seen,record:index.get('1'),counts:index.counts()}));`
+  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
+  assert.equal(data.seen,'a');assert.deepEqual(data.record,{...metadata(0),url:'c',isModule:true})
+  assert.equal(data.counts.entries,1);assert.equal(data.counts.events,3)
+  assert.equal(data.counts.lookupEntries,1);assert.equal(data.counts.failures,0)
+})
+
 test('nested insertion during metadata freezing cannot alias two dictionary slots',()=>{
   const url=new URL('./script-metadata-index.mjs',import.meta.url).href
   const source=`const freeze=Object.freeze;let index,entered=false;
@@ -120,3 +171,44 @@ console.log(JSON.stringify({mode:${JSON.stringify(mode)},entries:250000,matches,
   t.diagnostic(JSON.stringify({scriptMetadataIndexMeasurements:rows}))
 })
 }
+
+nodeTest('range capacity failure leaves the cached middle of an interval unchanged',()=>{
+  const index=createIndex({storage:'ranges',rangeLimit:1,lookupLimit:2})
+  for(const id of ['1','2','3'])assert(index.set(id,metadata(0)))
+  const before=index.get('2')
+  assert.equal(index.set('2',metadata(1)),false,'a middle replacement would need three intervals')
+  assert.equal(index.get('2'),before)
+  assert.deepEqual(index.get('1'),metadata(0));assert.deepEqual(index.get('3'),metadata(0))
+  assert.equal(index.counts().ranges,1);assert.equal(index.counts().metadata,1)
+  assert.equal(index.counts().overflow,true)
+})
+
+nodeTest('compare repeated exact metadata lookups with bounded cache and unchanged records',t=>{
+  const url=new URL('./script-metadata-index.mjs',import.meta.url).href,rows=[]
+  for(const lookupLimit of [0,2048,2048,0]) {
+    const source=`import {scriptMetadataIndex} from ${JSON.stringify(url)};
+const index=scriptMetadataIndex({storage:'ranges',lookupLimit:${lookupLimit}}),expected=new Map();
+for(let i=0;i<2048;i++){
+ const id=String(i*2),value={url:'file:///source'+i%64+'.mjs',isModule:!!(i&1),hasSourceURL:!!(i&2),language:i&4?'WebAssembly':'JavaScript'};
+ if(!index.set(id,value))throw Error('insertion failed');if(i<128)expected.set(id,value);
+}
+const hot=[...expected.keys()];for(const id of hot)index.get(id);
+const dynamic={url:'',isModule:false,hasSourceURL:false,language:'JavaScript'};
+globalThis.gc();const memory=process.memoryUsage(),start=performance.now();let matches=0;
+for(let i=0;i<2000000;i++){
+ const id=hot[i%128],want=expected.get(id),got=index.get(id);
+ if(got.url!==want.url||got.isModule!==want.isModule||got.hasSourceURL!==want.hasSourceURL||got.language!==want.language)throw Error('metadata mismatch');
+ matches++;if(i%1024===0&&!index.set(String(100000+i/1024),dynamic))throw Error('dynamic insertion failed');
+}
+const elapsedMs=performance.now()-start;globalThis.gc();const after=process.memoryUsage();
+console.log(JSON.stringify({lookupLimit:${lookupLimit},matches,elapsedMs,heapDelta:after.heapUsed-memory.heapUsed,counts:index.counts()}));`
+    const r=spawnSync(process.execPath,['--expose-gc','--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+    assert.equal(r.status,0,r.stderr||String(r.error));const row=JSON.parse(r.stdout)
+    assert.equal(row.matches,2000000);assert.equal(row.counts.entries,2048+1954)
+    assert.equal(row.counts.events,row.counts.entries);assert.equal(row.counts.metadata,65)
+    assert.equal(row.counts.lookupEntries,lookupLimit?128:0)
+    assert.equal(row.counts.overflow,false);assert.equal(row.counts.failures,0)
+    rows.push(row)
+  }
+  t.diagnostic(JSON.stringify({hotScriptMetadataMeasurements:rows,scope:'isolated repeated lookups; not workload or CI savings'}))
+})
