@@ -1,0 +1,1094 @@
+{
+  "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+  "run": "https://github.com/pango07/quod/actions/runs/42267064963",
+  "job": 128061633148,
+  "status": "completed",
+  "conclusion": "failure",
+  "regressionsPassed": 285,
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "failure": "Observed before phase hit its 900-second limit; two received test results disagree with baseline; no complete observed JSON report or after phase",
+  "separateChangesJobFailure": "Input ref aaed633 was not a branch/tag. The measured job successfully checked out the full run head; future dispatches must use full SHAs.",
+  "artifact": {
+    "id": 13529360535,
+    "bytes": 14475361,
+    "sha256": "27fd3682092148c6d0399bdf8d0c1ac1a482d158f8590893a629e7f8bf6fb75f"
+  },
+  "progressVerification": {
+    "scope": "Incremental reporter receipt order; no replay authority",
+    "timingScope": "Parent reporter receipt spans, including delivery delays",
+    "replayEligible": false,
+    "phases": {
+      "baseline": {
+        "phaseResult": {
+          "phase": "baseline",
+          "timeoutMs": 420000,
+          "elapsedMs": 97853.219592,
+          "status": 0,
+          "signal": null,
+          "errorCode": null
+        },
+        "events": 8263,
+        "ready": 4131,
+        "completed": 4131,
+        "states": {
+          "passed": 4130,
+          "skipped": 1
+        },
+        "unfinished": [],
+        "runEnd": {
+          "event": "run-end",
+          "sequence": 8262,
+          "elapsedMs": 97571.937828,
+          "modules": 120,
+          "unhandledErrors": 0,
+          "reason": "passed"
+        },
+        "summary": {
+          "events": 8263,
+          "ready": 4131,
+          "results": 4131,
+          "ended": true,
+          "overflow": false,
+          "failure": null,
+          "eventLimit": 40000,
+          "replayEligible": false,
+          "scope": "Reporter callback receipt order and elapsed time; complete JSON results remain authoritative"
+        },
+        "fullJsonMatched": true,
+        "fullJsonSuccess": true,
+        "lastReceiptMs": 97571.937828,
+        "slowestReceiptSpans": [
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_0",
+            "name": "stream cursor properties (seed 1) > stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+            "state": "passed",
+            "receiptSpanMs": 24627.219858
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_2",
+            "name": "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (asc)",
+            "state": "passed",
+            "receiptSpanMs": 16503.099225
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_13_2",
+            "name": "stream cursor properties (seed 3735928559) > composed streams preserve scope under adversarial cursors (asc)",
+            "state": "passed",
+            "receiptSpanMs": 13237.547175999993
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_9",
+            "name": "stream cursor properties (seed 1) > static index bounds agree with a document oracle (desc)",
+            "state": "passed",
+            "receiptSpanMs": 13116.387635
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_12_2",
+            "name": "stream cursor properties (seed 12648430) > composed streams preserve scope under adversarial cursors (asc)",
+            "state": "passed",
+            "receiptSpanMs": 13047.744246999988
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_12_9",
+            "name": "stream cursor properties (seed 12648430) > static index bounds agree with a document oracle (desc)",
+            "state": "passed",
+            "receiptSpanMs": 12931.206629000008
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_13_3",
+            "name": "stream cursor properties (seed 3735928559) > composed streams preserve scope under adversarial cursors (desc)",
+            "state": "passed",
+            "receiptSpanMs": 378.5906939999986
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_3",
+            "name": "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (desc)",
+            "state": "passed",
+            "receiptSpanMs": 378.1110110000009
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_12_3",
+            "name": "stream cursor properties (seed 12648430) > composed streams preserve scope under adversarial cursors (desc)",
+            "state": "passed",
+            "receiptSpanMs": 374.56135700001323
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_13_6",
+            "name": "stream cursor properties (seed 3735928559) > valid composed pagination is complete and makes progress (asc)",
+            "state": "passed",
+            "receiptSpanMs": 363.1992570000002
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_6",
+            "name": "stream cursor properties (seed 1) > valid composed pagination is complete and makes progress (asc)",
+            "state": "passed",
+            "receiptSpanMs": 358.6620519999997
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_12_6",
+            "name": "stream cursor properties (seed 12648430) > valid composed pagination is complete and makes progress (asc)",
+            "state": "passed",
+            "receiptSpanMs": 353.30051800000365
+          }
+        ],
+        "lastEvents": [
+          {
+            "event": "result",
+            "sequence": 8255,
+            "elapsedMs": 97508.32913499999,
+            "id": "-2090770885_13_8",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > static index bounds agree with a document oracle (asc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8256,
+            "elapsedMs": 97508.39336399999,
+            "id": "-2090770885_13_9",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > static index bounds agree with a document oracle (desc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8257,
+            "elapsedMs": 97538.869809,
+            "id": "-2090770885_13_9",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > static index bounds agree with a document oracle (desc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8258,
+            "elapsedMs": 97538.917267,
+            "id": "-2090770885_13_10",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > lexicographic and repeatedly narrowed ranges never expand (asc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8259,
+            "elapsedMs": 97538.94402699999,
+            "id": "-2090770885_13_10",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > lexicographic and repeatedly narrowed ranges never expand (asc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8260,
+            "elapsedMs": 97538.959005,
+            "id": "-2090770885_13_11",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > lexicographic and repeatedly narrowed ranges never expand (desc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8261,
+            "elapsedMs": 97538.97675799999,
+            "id": "-2090770885_13_11",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 3735928559) > lexicographic and repeatedly narrowed ranges never expand (desc)",
+            "state": "passed"
+          },
+          {
+            "event": "run-end",
+            "sequence": 8262,
+            "elapsedMs": 97571.937828,
+            "modules": 120,
+            "unhandledErrors": 0,
+            "reason": "passed"
+          }
+        ],
+        "completedResultMismatchesAgainstBaseline": [],
+        "unobservedBaselineResults": 0
+      },
+      "before": {
+        "phaseResult": {
+          "phase": "before",
+          "timeoutMs": 900000,
+          "elapsedMs": 900089.953798,
+          "status": 143,
+          "signal": null,
+          "errorCode": "ETIMEDOUT"
+        },
+        "events": 8217,
+        "ready": 4109,
+        "completed": 4108,
+        "states": {
+          "passed": 4105,
+          "skipped": 1,
+          "failed": 2
+        },
+        "unfinished": [
+          {
+            "event": "ready",
+            "sequence": 8216,
+            "elapsedMs": 741874.060808,
+            "id": "-2090770885_12_1",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 12648430) > stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)"
+          }
+        ],
+        "runEnd": null,
+        "summary": null,
+        "fullJsonMatched": false,
+        "fullJsonSuccess": null,
+        "lastReceiptMs": 741874.060808,
+        "slowestReceiptSpans": [
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_1",
+            "name": "stream cursor properties (seed 1) > stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+            "state": "passed",
+            "receiptSpanMs": 403309.32085699996
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_2",
+            "name": "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (asc)",
+            "state": "failed",
+            "receiptSpanMs": 311810.6866000001
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_6",
+            "name": "stream cursor properties (seed 1) > valid composed pagination is complete and makes progress (asc)",
+            "state": "passed",
+            "receiptSpanMs": 7087.967137999949
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_5",
+            "name": "stream cursor properties (seed 1) > distinct budgeted walks omit groups only after empty pages (desc)",
+            "state": "passed",
+            "receiptSpanMs": 6996.394236999913
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_8",
+            "name": "stream cursor properties (seed 1) > static index bounds agree with a document oracle (asc)",
+            "state": "passed",
+            "receiptSpanMs": 3104.715896999929
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_7",
+            "name": "stream cursor properties (seed 1) > valid composed pagination is complete and makes progress (desc)",
+            "state": "passed",
+            "receiptSpanMs": 3086.2271109999856
+          },
+          {
+            "project": "example-ui",
+            "file": "example-ui/src/components/Counter.mock.test.tsx",
+            "id": "-645162154_0_0",
+            "name": "Counter > renders the counter",
+            "state": "passed",
+            "receiptSpanMs": 793.4103860000032
+          },
+          {
+            "project": "example-ui",
+            "file": "example-ui/src/components/Counter.injection.test.tsx",
+            "id": "-1064113437_0_0",
+            "name": "Counter > renders the counter",
+            "state": "passed",
+            "receiptSpanMs": 564.9525799999974
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_10",
+            "name": "stream cursor properties (seed 1) > lexicographic and repeatedly narrowed ranges never expand (asc)",
+            "state": "passed",
+            "receiptSpanMs": 384.7079140000278
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_9",
+            "name": "stream cursor properties (seed 1) > static index bounds agree with a document oracle (desc)",
+            "state": "passed",
+            "receiptSpanMs": 381.84481399995275
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_9",
+            "name": "empty filtered distinct pages advance past the last examined group: {\"order\":\"asc\",\"maximumBytesRead\":1}",
+            "state": "passed",
+            "receiptSpanMs": 221.36867299999994
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_0",
+            "name": "stream cursor properties (seed 1) > stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+            "state": "passed",
+            "receiptSpanMs": 180.15344899999945
+          }
+        ],
+        "lastEvents": [
+          {
+            "event": "result",
+            "sequence": 8209,
+            "elapsedMs": 741270.970069,
+            "id": "-2090770885_11_9",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 1) > static index bounds agree with a document oracle (desc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8210,
+            "elapsedMs": 741271.08317,
+            "id": "-2090770885_11_10",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 1) > lexicographic and repeatedly narrowed ranges never expand (asc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8211,
+            "elapsedMs": 741655.791084,
+            "id": "-2090770885_11_10",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 1) > lexicographic and repeatedly narrowed ranges never expand (asc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8212,
+            "elapsedMs": 741655.85887,
+            "id": "-2090770885_11_11",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 1) > lexicographic and repeatedly narrowed ranges never expand (desc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8213,
+            "elapsedMs": 741765.811184,
+            "id": "-2090770885_11_11",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 1) > lexicographic and repeatedly narrowed ranges never expand (desc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8214,
+            "elapsedMs": 741765.8969340001,
+            "id": "-2090770885_12_0",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 12648430) > stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)"
+          },
+          {
+            "event": "result",
+            "sequence": 8215,
+            "elapsedMs": 741873.9845060001,
+            "id": "-2090770885_12_0",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 12648430) > stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+            "state": "passed"
+          },
+          {
+            "event": "ready",
+            "sequence": 8216,
+            "elapsedMs": 741874.060808,
+            "id": "-2090770885_12_1",
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "name": "stream cursor properties (seed 12648430) > stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)"
+          }
+        ],
+        "completedResultMismatchesAgainstBaseline": [
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_2",
+            "observed": [
+              "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (asc)",
+              "failed"
+            ],
+            "baseline": [
+              "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (asc)",
+              "passed"
+            ]
+          },
+          {
+            "project": "convex-helpers",
+            "file": "packages/convex-helpers/server/stream.property.test.ts",
+            "id": "-2090770885_11_3",
+            "observed": [
+              "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (desc)",
+              "failed"
+            ],
+            "baseline": [
+              "stream cursor properties (seed 1) > composed streams preserve scope under adversarial cursors (desc)",
+              "passed"
+            ]
+          }
+        ],
+        "unobservedBaselineResults": 23
+      }
+    },
+    "comparisonBaseline": "baseline"
+  },
+  "retainedWorkers": {
+    "testResult": null,
+    "counts": {
+      "workers": 119,
+      "descriptorCalls": 1214999,
+      "nativeCalls": 1272788,
+      "cleared": 1272788,
+      "released": 1272788,
+      "compilationEvents": 2589218,
+      "scopedInspections": 1176673,
+      "descriptorsRetainedCalls": 1214999,
+      "proxyRetainedCalls": 57789
+    },
+    "argumentModes": {
+      "direct": 119
+    },
+    "flags": {},
+    "inclusiveCommandTimings": {
+      "Runtime.enable": {
+        "calls": 119,
+        "elapsedMs": 38.71015900000002
+      },
+      "Debugger.getScriptSource": {
+        "calls": 66120,
+        "elapsedMs": 13754.164924999997
+      },
+      "Debugger.enable": {
+        "calls": 119,
+        "elapsedMs": 11486.381712999999
+      },
+      "Runtime.evaluate": {
+        "calls": 6066,
+        "elapsedMs": 2196.6536059999994
+      },
+      "Runtime.getProperties": {
+        "calls": 17374,
+        "elapsedMs": 3167.530588000001
+      },
+      "Runtime.queryObjects": {
+        "calls": 357,
+        "elapsedMs": 24310.704082000004
+      },
+      "Runtime.callFunctionOn": {
+        "calls": 1275516,
+        "elapsedMs": 205058.81774800006
+      },
+      "Debugger.setBreakpointOnFunctionCall": {
+        "calls": 5236,
+        "elapsedMs": 16207.201632999999
+      },
+      "Debugger.resume": {
+        "calls": 122,
+        "elapsedMs": 5.334658000000002
+      },
+      "Runtime.releaseObject": {
+        "calls": 1272904,
+        "elapsedMs": 33289.769923
+      }
+    },
+    "watchedTargetCalls": 48285
+  },
+  "partialBoundaryVerification": {
+    "scope": "retained worker reports only; no complete observed test-state result",
+    "counts": {
+      "guardedMetadataScalars": 3890,
+      "cache_events": 2589218,
+      "cache_sourceReads": 62335,
+      "cache_cacheHits": 2526883,
+      "cache_entries": 7791,
+      "contextBridges": 116,
+      "excludedOwnerCalls": 38325,
+      "workers": 119,
+      "guardedSeeds": 119
+    },
+    "replayEligible": false
+  },
+  "callerSourceVerification": {
+    "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+    "counts": {
+      "workers": 119,
+      "sourceRecords": 2476,
+      "watchedCalls": 48285,
+      "callsMatchingCheckedInDiagnosticSource": 48285
+    },
+    "expectedSources": {
+      "scripts/bench-vitest/worker-config-probe.cjs": {
+        "sha256": "3021505e7161d2ddbbd89db27683f85d5e0fdac10a3f898996e2d170a0313578",
+        "bytes": 11108
+      },
+      "scripts/bench-vitest/worker-module-metadata-probe.mjs": {
+        "sha256": "2627bdc2f66bf3008df6bd87bc70b663328de687efa939e6415633f74461d8af",
+        "bytes": 19194
+      },
+      "scripts/bench-vitest/scalar-property-probe.mjs": {
+        "sha256": "f136ad1fd681cd1a057b8126e4ebfb1757e4a594ab4013233a4805ed0f558a73",
+        "bytes": 7460
+      }
+    },
+    "unmatched": [],
+    "scope": "Completed worker reports only. Actual source equality and synchronous stack-shape verification; not initial runtime integrity, closure ownership or complete native coverage.",
+    "replayEligible": false
+  },
+  "streamCheckpoint": {
+    "file": "5667.json",
+    "project": "convex-helpers",
+    "files": [
+      "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+    ],
+    "checkpoint": {
+      "calls": 2450000,
+      "apis": {
+        "Object.defineProperty": 1226344,
+        "Object.getOwnPropertyDescriptor": 772,
+        "Object.freeze": 8,
+        "Object.defineProperties": 610897,
+        "Object.setPrototypeOf": 97,
+        "Object.getOwnPropertyDescriptors": 610851,
+        "Reflect.getOwnPropertyDescriptor": 1008,
+        "Reflect.deleteProperty": 21,
+        "Reflect.defineProperty": 2
+      },
+      "memory": {
+        "rss": 437403648,
+        "heapTotal": 268242944,
+        "heapUsed": 106795192,
+        "external": 5821321,
+        "arrayBuffers": 1781134
+      },
+      "timing": {
+        "enabled": true,
+        "pauses": {
+          "calls": 1,
+          "elapsedMs": 0.245426
+        },
+        "nativeCallbacks": {
+          "events": 2450341,
+          "completed": 2450340,
+          "elapsedMs": 481741.1514862268
+        },
+        "commands": {
+          "Runtime.enable": {
+            "calls": 1,
+            "elapsedMs": 0.25292
+          },
+          "Debugger.getScriptSource": {
+            "calls": 817,
+            "elapsedMs": 115.55212499999995
+          },
+          "Debugger.enable": {
+            "calls": 1,
+            "elapsedMs": 103.772709
+          },
+          "Runtime.evaluate": {
+            "calls": 49,
+            "elapsedMs": 19.18333699999999
+          },
+          "Runtime.getProperties": {
+            "calls": 132,
+            "elapsedMs": 25.39364699999999
+          },
+          "Runtime.queryObjects": {
+            "calls": 3,
+            "elapsedMs": 201.718889
+          },
+          "Runtime.callFunctionOn": {
+            "calls": 2450364,
+            "elapsedMs": 293984.5741771944
+          },
+          "Debugger.setBreakpointOnFunctionCall": {
+            "calls": 44,
+            "elapsedMs": 153.18810900000003
+          },
+          "Debugger.resume": {
+            "calls": 1,
+            "elapsedMs": 0.049001
+          },
+          "Runtime.releaseObject": {
+            "calls": 2450341,
+            "elapsedMs": 50594.372605031764
+          }
+        },
+        "replayEligible": false,
+        "limitation": "Inclusive command and callback timings overlap through synchronous notifications"
+      },
+      "arguments": {
+        "object": 2450000
+      },
+      "last": {
+        "name": "handleException",
+        "location": {
+          "scriptId": "176",
+          "lineNumber": 81,
+          "columnNumber": 23
+        },
+        "script": {
+          "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+          "isModule": true,
+          "hasSourceURL": false,
+          "language": "JavaScript"
+        }
+      },
+      "overflow": false,
+      "nativeLog": {
+        "calls": 2450000,
+        "entries": 3041,
+        "frames": 2624,
+        "overflow": false
+      },
+      "stack": [
+        {
+          "name": "handleException",
+          "location": {
+            "scriptId": "176",
+            "lineNumber": 81,
+            "columnNumber": 23
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "",
+          "location": {
+            "scriptId": "153",
+            "lineNumber": 246,
+            "columnNumber": 39
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/promise-observers-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "emit",
+          "location": {
+            "scriptId": "22",
+            "lineNumber": 508,
+            "columnNumber": 27
+          },
+          "script": {
+            "url": "node:events",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "#onMessage",
+          "location": {
+            "scriptId": "154",
+            "lineNumber": 99,
+            "columnNumber": 13
+          },
+          "script": {
+            "url": "node:inspector",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "",
+          "location": {
+            "scriptId": "154",
+            "lineNumber": 65,
+            "columnNumber": 66
+          },
+          "script": {
+            "url": "node:inspector",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "setState",
+          "location": {
+            "scriptId": "780",
+            "lineNumber": 1614,
+            "columnNumber": 60
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "expect",
+          "location": {
+            "scriptId": "780",
+            "lineNumber": 7999,
+            "columnNumber": 2
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "check",
+          "location": {
+            "scriptId": "9073",
+            "lineNumber": 234,
+            "columnNumber": 33
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "processTicksAndRejections",
+          "location": {
+            "scriptId": "32",
+            "lineNumber": 103,
+            "columnNumber": 4
+          },
+          "script": {
+            "url": "node:internal/process/task_queues",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        }
+      ],
+      "compilation": {
+        "events": 4901969,
+        "runs": 4901951,
+        "records": 423,
+        "overflow": false,
+        "runStorage": "block-dictionary-f64",
+        "blocks": 331,
+        "blockRuns": 565,
+        "storedPairs": 85364,
+        "pairLimit": 4000000,
+        "runStorageBytes": 1422320,
+        "failedToParse": 853,
+        "scriptMetadataIndex": {
+          "events": 4901116,
+          "entries": 4901116,
+          "metadata": 338,
+          "storage": "ranges",
+          "ranges": 1344,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "lookupEntries": 117,
+          "lookupLimit": 2048,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        },
+        "sourceCache": {
+          "policy": "pinned-injective-ascii",
+          "enabled": true,
+          "events": 4901969,
+          "sourceReads": 786,
+          "cacheHits": 4901183,
+          "entries": 66,
+          "capacity": 256
+        }
+      },
+      "argumentDiagnostics": {
+        "mode": "native-entry-arguments",
+        "available": true,
+        "calls": 2450341,
+        "ignored": 0,
+        "ignoredReasons": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cleared": 2450341,
+        "released": 2450340,
+        "groupsReleased": 0,
+        "failureCounts": {},
+        "failureSamples": [],
+        "contextCapture": {
+          "contexts": 1,
+          "attemptedContexts": 1,
+          "contextQueries": 1,
+          "contextQueryMs": 207.054928,
+          "summaryEncoding": "packed-v1"
+        },
+        "ownerPolicy": "native-ordinary",
+        "handleMode": "native-private-capture",
+        "argumentMode": "direct",
+        "targetAccessorsOnly": true,
+        "targetInspection": "native-watched",
+        "nativeCapture": true,
+        "scopedInspections": 2449640,
+        "adaptiveSites": 0,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven",
+        "frameCache": {
+          "entries": 2638,
+          "limit": 20000,
+          "metadataIdentities": 110
+        }
+      },
+      "identity": {
+        "mode": "native-entry-arguments",
+        "snapshotsRequested": 0
+      },
+      "replayEligible": false
+    }
+  },
+  "metadataMutationReached": false,
+  "afterPhaseReached": false,
+  "testTimeoutsChanged": false,
+  "replayEligible": false,
+  "completeOwnership": false,
+  "completeObservedAgreement": false,
+  "productSavingsEstablished": false,
+  "limitations": [
+    "The two reported failures are diagnostic execution differences, not stale replay results. Their error causes were not retained, so timeout causation is not established.",
+    "Parent reporter callbacks are batched/delayed. Receipt spans are not test durations, and the unmatched ready record is not proof of the exact currently executing test.",
+    "Twenty-three baseline results are absent from the retained observed journal; they must not be counted as agreement.",
+    "Native command and callback timings are inclusive and overlap; completed-worker sums are across concurrent workers and are not whole-job wall time.",
+    "The stream checkpoint precedes timeout; one callback and its handle release are in flight at capture.",
+    "All 119 completed worker reports pass their scoped checks, but this does not cover the unfinished worker, after phase, initial runtime ownership or all observation channels."
+  ],
+  "nextAction": "Prototype and measure direct native debugger capture in an isolated process, preserving argument validation/cleanup and explicit coverage limits. Do not launch another identical full-suite diagnostic or relax test timeouts.",
+  "artifactFileSha256": {
+    "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+    "baseline-phase.json": "cd248fa3f828f05b397060eff2475d2ef30e5960171611b507d4ab7668cbbd28",
+    "baseline-test-progress-summary.json": "411818a184201bef30804d293524b240b8e2d1c01d5ffd46db9e4090050bf951",
+    "baseline-test-progress.jsonl": "401b9b18c25ce125eabfe980c4aa9c5c56f701f76d52ef30dfa3dc3fb8819884",
+    "baseline-tests.json": "f086b2c46301515d7c7d01190ed3a4c979bb31f52f2008cec5c06d9038d1da3c",
+    "baseline.log": "b19085ac0be2de0ba1431e6ef51e5b03ac1f1bffb117841610dfd748473cd831",
+    "before-phase.json": "2989de33c0e10698b9623e44d6b48617e7d7dcd6698e14b54e64db0eda839f6c",
+    "before-test-progress.jsonl": "9604ea5f483a895c6033c2d3a179c08707acd84921bc9b28b8e7291ae227c189",
+    "before.log": "a5b3e7221568ab99fda1755a3c68d8d4cc3dd8539354c2b2f8e5d48a8827b3f1",
+    "worker-boundary/before/5668.json": "2d4911ba5e0e5b04b211a33dd6cf654f19198105b3d4da17b502d33efacd890f",
+    "worker-boundary/before/5674.json": "d7dbd40d71a76dd6007b812217aadecda43f9c99953c65034dbf701d2cf567a7",
+    "worker-boundary/before/5779.json": "a988c7d525d77cac7d2d48c79d4cea0cb5b0d38a2a7dd2dc014bdd62b96dce21",
+    "worker-boundary/before/5834.json": "c7790adede67322ae10c6cc8b64087ae7b724e07223ba42778d2aeeac6e48975",
+    "worker-boundary/before/5842.json": "4544b169171a19994a587a3c6be064ebc20916459593db7222c88b30f8a6bb9d",
+    "worker-boundary/before/5851.json": "b3c9f1393aa17d57b68605a14626e32a1062eecc589b4eaecb3419dfe019ec07",
+    "worker-boundary/before/5859.json": "5a2551938ca110c4b9987575e8c9db16b55a8f80af55db6db9d2f3ea71acae73",
+    "worker-boundary/before/5869.json": "d7b08cca7d8ac26362d37e4836fb3ba093664ef3ec7d3b7e6eb51c2de6cb3992",
+    "worker-boundary/before/5882.json": "849a42c9cb2663d9a6ded1680d32ccb84223f2ad8e77be068a54c0c95ebcb022",
+    "worker-boundary/before/5892.json": "c49b9e52714a49d49da459a0008666b245d8e2561e3f3effa19b5912c0633041",
+    "worker-boundary/before/5902.json": "c94e2dec7caba37fa7dfb2d6c60265d62146dfa1a6f79b776d13d7f7dd5a5b16",
+    "worker-boundary/before/5909.json": "84b07133e29ecb9fb5a3f7163624beceb2601dcecd01fe759be2387f10f98201",
+    "worker-boundary/before/5919.json": "6f985858f708c5dc2fdb8474384a0cb1b4ee3a4377777ce735f774f940b74b37",
+    "worker-boundary/before/5927.json": "ec4e3e17df0fdc18b826b143e82910671173d51a5242fb7d40ddd815b3b40fc0",
+    "worker-boundary/before/5936.json": "639760735104f0e39cd59115b88cb5354c1a6e0c27efbaf1d624cff4fda47931",
+    "worker-boundary/before/5943.json": "bdbc70147ad7f2731010b17137ead5faa12aba2caba9c33fc74ba5f6222ce80f",
+    "worker-boundary/before/5952.json": "771b3545eb9bfe3faf606321004b3d3e804b2c2e6b8fe2d052d821cf2877fb4e",
+    "worker-boundary/before/5961.json": "e4d64432007cb9af8be3e02f1f560ae8248cd46373b4caef7614376c49cbd48a",
+    "worker-boundary/before/5973.json": "58ba5ad6dc6825cf639c2887db8337983e23bc3ad2fb48562ff056b195af230f",
+    "worker-boundary/before/5982.json": "50a4585fed6b5d9fd4ebf167be6c99e9cb1cfce0943f9df89c5744102b4cfc97",
+    "worker-boundary/before/5989.json": "185fb6c34a05a0e351eda28a0c6a6121c688a6120393daec37e3957b630205f9",
+    "worker-boundary/before/5998.json": "6a2e97dd61bb4b9bbd9a539a9a9dec95209e75a70ef9dc9d18e0fadd4353e64b",
+    "worker-boundary/before/6005.json": "d2bf71eff0cefafa406c5c870ce102c0026f28873f1dd2641fb45dc1d98b9a97",
+    "worker-boundary/before/6017.json": "46b510c57f9570c0aa81ed1f96a5134094c3b7743a233cbc73138b84192dfd17",
+    "worker-boundary/before/6026.json": "3f7f29dda7b003fc062d4283a92625eeac7a6db6d31fdbe2ee85c164cc24f41c",
+    "worker-boundary/before/6034.json": "fb2eac94029a128273e3c9f1e7611428d208f5ea742cec8d557bb00b88f798f2",
+    "worker-boundary/before/6044.json": "595a5a7bf49d10a6f70ac2a4f9c4c836900fa91f8acc813e49efc758734161a5",
+    "worker-boundary/before/6051.json": "4bf8dbc9005eedd54ed22bcfa6a126b1e90cb4b155c451259317402864467fa5",
+    "worker-boundary/before/6061.json": "eb41caef4bd03312c2ea94a84b3a6323f8998c25f1b0caf3decf9576d5562b10",
+    "worker-boundary/before/6068.json": "52198902129e1a5bd059615229e0458b88e649f58e2de1a83bbae8495f4446cc",
+    "worker-boundary/before/6077.json": "ba69cc77b6eaa83b3d8c5e671139d359a17ec193528f9086af8c4106b41cbbde",
+    "worker-boundary/before/6084.json": "a7335061ebc4762b4d89aeb7e8f9cc3a9ef49d7ab16a24fd4cc7779890f5463c",
+    "worker-boundary/before/6094.json": "3b54c02bdef3a5dabf0324166f535c4e0051c91dc7ff9ba10105bfc75d46bd82",
+    "worker-boundary/before/6102.json": "d72dc2e90058732892fb4eaf7f9f625c47d981472341c592b1cfa969fa73873c",
+    "worker-boundary/before/6111.json": "f7757bb4e9727c716dd3534539ce231c5afba283eac81a04019bd099e7848a4c",
+    "worker-boundary/before/6119.json": "333400f83fe314e70490b799149850367694c8f7300b84fd1e5247bd9c894b13",
+    "worker-boundary/before/6127.json": "64076343945c35a67b927283078ef0f593ac7169a7730c4fd216b42f66f05e57",
+    "worker-boundary/before/6136.json": "6e8a1b5f3f5934ad4f774aab7f65aa1149833ad62edc3c29a12368bcacb52a43",
+    "worker-boundary/before/6146.json": "c35b257c89b1604500c2524abc544db26f0e9ad9f8e0fdc011bcdab5d5c16c1f",
+    "worker-boundary/before/6156.json": "0d084bd688a72c96f17284d20847d03a4fabbd574965025e20115037ee69e4f0",
+    "worker-boundary/before/6164.json": "36a6d19c1a6ca89b376f357bc00efc6a167c6825c14ca739af82249f3204bdb0",
+    "worker-boundary/before/6171.json": "2a87dbb079135efdc4210be5edc49fe77a745b9f80fbcc2bf76e8bf2b27ee957",
+    "worker-boundary/before/6181.json": "aea08aa090a2e1310979fb2ecdf0dc56300dfeb0b0d971e72965137be4e06eea",
+    "worker-boundary/before/6190.json": "8b067ca1f8c4ea37132e98fe0772b3e76fa7ef1212247ff5c20a86f10c33cd5c",
+    "worker-boundary/before/6197.json": "3a81bf0fac238300ef889060f787d4bd9adc54b55932142fc336be35422faecb",
+    "worker-boundary/before/6206.json": "30b4a5db5be914ec7db06c7f86832026426b274ce54bccbac9e41a928907cf59",
+    "worker-boundary/before/6213.json": "2fed41d8c42c790639932c3c5f6cb9db54a43df7805f1f0e56cbce7326183f65",
+    "worker-boundary/before/6222.json": "75708817c2801b7569f91acca9e086d770bcb70af2fc2b3181e1e16605e89cb2",
+    "worker-boundary/before/6229.json": "a457fbe6166ca22766ec87d0bf510596202e7c02fa159ad360fe1dfbe39b134e",
+    "worker-boundary/before/6297.json": "f9de1d3b02339d8af55d5e2cb1447228fa9cefadaeb2e83e5d75a92604249bb9",
+    "worker-boundary/before/6326.json": "3d992a82361fab8762c6b240d09f6cc15af18d10e4c44105962b78b43c207984",
+    "worker-boundary/before/6334.json": "a60297b33c5404f9f26c5f2f0a4b86c3ea8aaf50f2638d69182f0d306fc79470",
+    "worker-boundary/before/6342.json": "b5f4ad293eef7dcc296cd736d73bbf71a106e46b6eebe0e6c7604c9da8f2c66d",
+    "worker-boundary/before/6353.json": "357e5d557e8cf2d478b630c8ea06ed35cff0f78d070ed064693c62bb55c386ee",
+    "worker-boundary/before/6360.json": "9ee7e8a3a3ccc66319d200387080dc188679dd33e67ebe218c5138851a7e78e7",
+    "worker-boundary/before/6369.json": "31bf36d1fa2b8d9a80152f0b61380196a3ccd60423559f5f9ace03b30166fc41",
+    "worker-boundary/before/6376.json": "c7d1b926279036684b690f33e42a66e894eda9e8a6d2f1fa5c328d285e3130d3",
+    "worker-boundary/before/6386.json": "b38c059761b37c76043fd1f274a8a89fb1ac5feff1b78e15042c41aab7ddd1d0",
+    "worker-boundary/before/6393.json": "945c9f6fb680ade86d0d71261b6cefc46cc174f59e2c9bb5b5a5d05d2eab2a0e",
+    "worker-boundary/before/6402.json": "dfc46b6670a597f157e5275acd6678235e3d91a33bfaa86f19124b6e79fcff9d",
+    "worker-boundary/before/6409.json": "67620e44888d5c14962e08aa1e296a4703166b886e73ad3e5faf208a1bc8e590",
+    "worker-boundary/before/6418.json": "2ec03fa50c9070bd9ab1c45b0ee626a8ae69f87a508bf5ec5d0991056b91f026",
+    "worker-boundary/before/6426.json": "26fb9a08a6d83999f6185694332e4f37bf3b77a082c56a92b2a29961c8b3c299",
+    "worker-boundary/before/6436.json": "a8fd8dd444a98001cf28a1e82fc8b2b5e4b175a30c0265979ee0a58223568d5c",
+    "worker-boundary/before/6443.json": "d1415865968697986844c70d6377d3060ef45598976b1e644efded3c04e27ea8",
+    "worker-boundary/before/6452.json": "65307b615b23517b017bd96e28f03dcf022d49b397c09b4516a33b74974468aa",
+    "worker-boundary/before/6459.json": "20326f117f9cac8c36254eb6217fd46d56461b0d7fc696fc68b10645809e6867",
+    "worker-boundary/before/6470.json": "d57527686e88dc4691cfe88556e7d66bdcfdb60e8a54c5eed1c3df9c957323be",
+    "worker-boundary/before/6477.json": "c63d01d34111bb1a743f978a1f4df13c611d7a93c754f0de158dd282dea72f39",
+    "worker-boundary/before/6490.json": "79694e8dd558a13dc56121586613b959718046619b576b471c7ffb4c6bc686bf",
+    "worker-boundary/before/6497.json": "64dfda40bdc7d5ba8adc27dbfc01d7c22ed74a375809658c41a3976b009b7aab",
+    "worker-boundary/before/6506.json": "fa67cf9e13140bab9c99714a05bc958718f7af4b019be3604588f7f93755c10c",
+    "worker-boundary/before/6513.json": "9f6c6fc1bde7e7bb51edd0385cf0ebfbdd2caff18cc340d0f2473fb072d89d9b",
+    "worker-boundary/before/6524.json": "d4dba8a2ebb074d4febaa3d3d34958fd315b699728567a158cbbfd92df2796a6",
+    "worker-boundary/before/6532.json": "b7f316dc7cce3108668fc5245d17fe184db550efb223490b440740503b5d6f01",
+    "worker-boundary/before/6540.json": "f15f349a3ded97606c53320fd7bd4e223c9b0d8c484178487c1699cd03c57ad8",
+    "worker-boundary/before/6547.json": "e93cb01825529feeb561ceb4ddf497c7033d4ed4d970641e159de2e67f557946",
+    "worker-boundary/before/6558.json": "b94acde17af8af013447b1ed2280255ae54491e9920a939bee10a6ce1d442fe1",
+    "worker-boundary/before/6565.json": "6a76306b2a79a7b855520f46e784429b277b2d214d5635fcae2fb49ee20df246",
+    "worker-boundary/before/6574.json": "2f584f72723e80c77d3daf691e99f457c1af42c6f728958f194cf050598f0e06",
+    "worker-boundary/before/6581.json": "7d444fc20f29edc82094ef380738d34d4f1ade7592fc7a861aaed33069bbed8d",
+    "worker-boundary/before/6590.json": "42ea80d6254305b9f5e42f89c863c7dfa1ab5860d39dfc478feda61f4831c5f1",
+    "worker-boundary/before/6597.json": "9b4609f8192651ab4567a95a4654775c57207a15d470c484fe30e980b6526af7",
+    "worker-boundary/before/6608.json": "3cb9aae0c533d574f40bd6caed2c6c3058dff08124f78559fbc9c06898c19ff9",
+    "worker-boundary/before/6615.json": "b9b0cb26fb8bcaadd56ca38c22cf52e21a80a1a807a7306b85d3fe943368724a",
+    "worker-boundary/before/6624.json": "cea5463a171876c5da2901381dae4ebf410bd478b6fa8f63ff08c884f6e0cfad",
+    "worker-boundary/before/6633.json": "f4ae3fa1b5d29db3f2748cc3ceaadb015223a3bd181a83fbe7a9c7ce687a232b",
+    "worker-boundary/before/6641.json": "e8c4cb64871e00b76bbca5d60f40dca5206329b61f1ae538787fdc80b9df83ec",
+    "worker-boundary/before/6649.json": "2f4b1b0c6fe735fb37aeaf1a132700447cc69de5ed6f9a13e109234bee82dec5",
+    "worker-boundary/before/6657.json": "24845f9e3e7b6784d591173161ef57afa23e6e7dab12cf5bc34ee665e86bea79",
+    "worker-boundary/before/6665.json": "823017315cb229da29690e66ccb56340a584c99f5860feb5eb5dbd826207b941",
+    "worker-boundary/before/6673.json": "fbf660361182155fe21661818d32542f736d18eea67ddf876810413b0fd3096b",
+    "worker-boundary/before/6690.json": "607b346d6a7cfd1f88b68b316a28bb99db4b1a8535dc206565e3f5d244baf40f",
+    "worker-boundary/before/6698.json": "8cf601668f60329bb257ac95a3b9e83d99a296d897b369bbc39ccb381db58a48",
+    "worker-boundary/before/6706.json": "e69138202dc1a4dbc73008d8b30175ad2dc7b8436edb1f5bba1db6526c21ec87",
+    "worker-boundary/before/6713.json": "00c5f55e53999d833bf402111d1fb2721453a6f0ce103b485a128364e52af5bf",
+    "worker-boundary/before/6721.json": "b942e9b7f27ab449d00b319616af5916d4c28a486da7c34fdce7cbb46e6f1498",
+    "worker-boundary/before/6731.json": "dde63d0edb5c67a62f1339df2d788536aaf0217e4463c76eb83c40c1884e7b68",
+    "worker-boundary/before/6738.json": "ce0ae9e25a22abed478bc84c373cd482273d31323af127bbef1675648cec8932",
+    "worker-boundary/before/6747.json": "a3426107b7cbc1916ee468740f24951ffb13b15f9877efee884529de5e6aba9e",
+    "worker-boundary/before/6754.json": "8967bb761c2380e4d89d587df68c80c221d05984f99994264afa5df84df3db96",
+    "worker-boundary/before/6765.json": "8beed627cff094c1c452b8979a6ea46b0394b52c0c8e28ce3a3a9251abe2b8f3",
+    "worker-boundary/before/6772.json": "738b419704acf36069ad32c70953ceafb8740813f36c912afa680578f836a31f",
+    "worker-boundary/before/6781.json": "26c1cc2d2add14526e7d0b48354a1db4e77740282d5f433d200eebd5c5ee8616",
+    "worker-boundary/before/6788.json": "92d1aef3612e2fb703df664ebd1f9503a3e33571a1a85ac1d799d857ede5d3b5",
+    "worker-boundary/before/6797.json": "a42296e3cfe7c38204221c15a099349605b22a49a3ea4d68d7c49e49f1a3bdb6",
+    "worker-boundary/before/6806.json": "6f388ae35c3dbf70238b579b55b45db50ab6ba5f221a3e8836987b38c4968276",
+    "worker-boundary/before/6815.json": "9481f2ea42e766ff0b7f581e21938baf7fedf6b7fdf3594e383616a6f1c95547",
+    "worker-boundary/before/6822.json": "7af5b64bee35be091be7eaa2fa161c822c81ff871d06a936049ded5664f5d180",
+    "worker-boundary/before/6832.json": "7efb44ec8bb26443387e9131d448762161799841b73453f7d61da9d03fc022cd",
+    "worker-boundary/before/6841.json": "87db883d07b525ad02a881aedd56c6d67f44fd1536d5721cf2e3544717fdfc1c",
+    "worker-boundary/before/6851.json": "efc0a227bc0a8c5191b72db41ccefd6401166d6228d769e1823e569fd82f6302",
+    "worker-boundary/before/6858.json": "b5b485d3b2d1774e467628977f8a1e938d0eed5e5455ba0814f15275fba652e0",
+    "worker-boundary/before/6867.json": "5b78463e44956b45a720b4b96f20dc26253aa29d01a62535259c11f043c780d1",
+    "worker-boundary/before/6875.json": "92108e1cbffd09fa441530e091e137bb654a969bab83f6d164da31572fda004c",
+    "worker-boundary/before/6885.json": "6968d47aee7733e05b45d5b93f308c9dbbf827d7c7f7814866f4a8066ccabbce",
+    "worker-boundary/before/6892.json": "a8268c34a48724c2cd5aa11744357eba7eeed6d5a5565f0920f35bffece32e36",
+    "worker-boundary/before/6901.json": "5b3158e645964e20b10705db55619199f44cfb19104a5fc3cb03f4b206e762c5",
+    "worker-boundary/before/6908.json": "59fffda652e4c4d8ab3b266d4f2ea605db9bd2d13471a0d1921259fb9bac7676",
+    "worker-boundary/before/progress/5667.json": "2e958ce70264b36cfa01312d84efbee7eff4e6a3be60ea625cef05b684eb018d",
+    "worker-boundary/before/progress/5674.json": "a74743c4f48de1f38d3e9527b021b5ffd7ea0c20e5ab0910c907ee4281a62664",
+    "worker-boundary/before/progress/5834.json": "be6d635681d494fb633ce44c0d2d5efe147a30b55c6decded7026fd761292c83",
+    "worker-boundary/before/progress/5851.json": "9657f89dd134b6cfd7c425abf4b78add60b92cfcd8f5925444ec063d46a6fd92",
+    "worker-boundary/before/progress/5882.json": "c5702f33a4d29b318314d9d80033060a62ade4ed62e651a619a1cc5f02993c53",
+    "worker-boundary/before/progress/5902.json": "5e9d820161079bec735dd7c43aafe6ab2ea350de01f1ce346cdfbb195088e0c9",
+    "worker-boundary/before/progress/5909.json": "cbe284fdd45559613d684945592cc1c3cce012e09a8240764523271e227baa92",
+    "worker-boundary/before/progress/5919.json": "13986b95d20b7ae4f76494de08b2b2286cb096632051bcbdca5159ebdcdfde46",
+    "worker-boundary/before/progress/5982.json": "d402f3ddbad45732c6c36adf6788f79b5e4a6e834dbcbeaf781425be36ed79f5",
+    "worker-boundary/before/progress/5998.json": "00cf886fd307cb722ae5f7d58b6d3890984f84d8c3cf7db20aa5cba38882be89",
+    "worker-boundary/before/progress/6127.json": "8a1af81e512f0ef7b72a62eebe842dc92f4445a9f64ef8fc7bc4da6f8a91f413",
+    "worker-boundary/before/progress/6136.json": "c63cf10dcb62f6c828d8227e86933c6e0cf65aee51af9b7fa29f6c34566f051f",
+    "worker-boundary/before/progress/6146.json": "b37299ff3e42d7446275c7265458346efc4334edb0ab83a3583b924e23094516",
+    "worker-boundary/before/progress/6156.json": "4b3d47843b4a26412b6265143ef3100b6411247a55fd53ee48c5ab5a2447877a",
+    "worker-boundary/before/progress/6164.json": "c6a378b19df65b049c250e09a4ecde643d0e70d3879e2a904fe49d718371d331",
+    "worker-boundary/before/progress/6222.json": "aa8669d389579e02887ef7a36ec70308c11ba9ce06976f16e6a7e690ed20e73f",
+    "worker-boundary/before/progress/6229.json": "bfe1a6fb45352fd8adad749baeddf64db4629cd53ae8d110149f742583e8da7d",
+    "worker-boundary/before/progress/6297.json": "95e8c21d2fe61159565661e44076db2da320ea0a89a124c667b93839a0368d56",
+    "worker-boundary/before/progress/6402.json": "8dfc446c8bcc86005c0016181de9dadd51e51ac0e45fece20b71d764ae4fb2b0",
+    "worker-boundary/before/progress/6409.json": "2341c526945546f70c1c06f1b6baccb0baf7d5cf023b33ac8612493201c96a0f",
+    "worker-boundary/before/progress/6418.json": "0fe0633eec8abf4e6278b4940b803b234b93d5be50a306039b098ea2d00a4a73",
+    "worker-boundary/before/progress/6506.json": "3b6e0872fda46b8e46b60f18bb536c31a3445549468382f63cbc31f4e6858d46",
+    "worker-boundary/before/progress/6513.json": "e9d670bb2df09d37a52cace7c31793f7ffd8e0276b1da4f2010a7ffa8fc3553e",
+    "worker-boundary/before/progress/6524.json": "e61810af209bed8dd2740b1830e458f160a7899389cdd8098cda6962efd205e2",
+    "worker-boundary/before/progress/6608.json": "466f9bf556cbfd4368a0324d2940fa2990f52cfa31f476fd01805bd70b801667",
+    "worker-boundary/before/progress/6615.json": "88a64cef9d39b6e57df43b8f0b687a14173a0e8f9f190816404c15cc8e8a9e69",
+    "worker-boundary/before/progress/6624.json": "f8fb9712b88975f2df9a7936ddca80baef9198cd2edefd4b9d62a761410cb5a0",
+    "worker-boundary/before/progress/6713.json": "a0b91dbe373ca1883236184d25b7568e248e2cda83ab47c4838d5510dd1b2511",
+    "worker-boundary/before/progress/6721.json": "5ccd7664bf592047c70ec4a0f47537576e64198a15cce05c09928ba91af50058",
+    "worker-boundary/before/progress/6731.json": "443263c258c6f8a550bedbc855e2aa971a9a09f1e481d87581fb52c758c6d786",
+    "worker-boundary/before/progress/6738.json": "ee403aec8dc0694b90a26fc9a1ebbc86a88c44d05a4f280bfe8820d446c470be",
+    "worker-boundary/before/progress/6754.json": "3caaaa74b573c97ddebfe2bbaa304ecc7a1cb39fce0cc4203a220c04dc97bc6e",
+    "worker-boundary/before/progress/6765.json": "e9c33f09829f5c3242c7560618a4f205afea30081c9a55c52f43d3804edc01c7",
+    "worker-boundary/before/progress/6815.json": "2cb785c07a6c5320d6c8d9d3b17442eb07fd3af7cf2895648df9881de1eba662",
+    "worker-boundary/before/progress/6822.json": "371d2eef566984f14523f2d5632c95c2c26c657c89f603de2f6d7a94204b8a7a",
+    "worker-boundary/before/progress/6832.json": "70aaac0e22e396c1b6658ac9c66c3f59fe6c8f7f521fd73c869d829d1d09d361",
+    "worker-boundary/before/progress/6851.json": "04b055ce867d71aca01d78f81a3509eaff27129c4de4b6890df25093f5306688",
+    "worker-boundary/before/progress/6858.json": "8e73d3d7d657264d87ad53a338c069c558225508f7f9b08cc60d8388952fe2c6",
+    "worker-boundary/before/progress/6867.json": "c1ffe97a620dbb40bb5a9317df36310fefacbdd55a9b77b50a1e38c4a2b87b6f"
+  }
+}

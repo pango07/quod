@@ -1056,7 +1056,14 @@
     "checkpointTimingFixtureConclusion": "success",
     "checkpointTimingFixtureTests": 249,
     "profiledNativeFullGate": 42267064963,
-    "profiledNativeFullGateStatus": "in_progress",
-    "profiledNativeFullGateCommit": "aaed633"
+    "profiledNativeFullGateStatus": "completed",
+    "profiledNativeFullGateCommit": "aaed633",
+    "profiledNativeFullGateConclusion": "failure",
+    "profiledNativeFullGateTests": 285,
+    "profiledNativeFullGateAvailableWorkers": 119,
+    "profiledNativeFullReceivedResults": 4108,
+    "profiledNativeFullReceivedMismatches": 2,
+    "profiledNativeFullMissingBaselineResults": 23,
+    "profiledNativeFullEvidence": "worker-native-progress.json"
   }
 }

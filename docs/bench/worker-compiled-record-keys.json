@@ -111,10 +111,19 @@
     "semantics": "Every existing descriptor checkpoint now retains inclusive command durations and native exception-callback events/completions/time. Current callback is still in flight at its checkpoint. These timings overlap; do not sum them as elapsed job time.",
     "regression": "All 19 native descriptor operations remain captured; callback counts settle after completion, checkpoint snapshots remain independent, and command/release counts account for the in-flight entry."
   },
-  "pendingFullDiagnostic": {
+  "profiledFullDiagnostic": {
     "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
     "run": "https://github.com/pango07/quod/actions/runs/42267064963",
-    "status": "in_progress",
-    "replayEligible": false
+    "status": "completed",
+    "replayEligible": false,
+    "job": 128061633148,
+    "conclusion": "failure",
+    "regressionsPassed": 285,
+    "evidence": "worker-native-progress.json",
+    "retainedWorkers": 119,
+    "receivedObservedResults": 4108,
+    "receivedResultMismatches": 2,
+    "missingBaselineResults": 23,
+    "failure": "Observed before phase hit its 900-second limit; two received test results disagree with baseline; no complete observed JSON report or after phase"
   }
 }

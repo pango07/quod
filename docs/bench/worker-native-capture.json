@@ -3214,22 +3214,30 @@
     "failure": "900-second before timeout; no complete observed test-state result or after phase",
     "evidence": "worker-native-frame-cache.json#fullDiagnostic"
   },
-  "pendingFullDiagnostic": {
+  "profiledFullDiagnostic": {
     "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
     "run": "https://github.com/pango07/quod/actions/runs/42267064963",
-    "status": "in_progress",
+    "status": "completed",
     "changes": [
       "owned immutable compilation-record keys",
       "incremental per-test progress",
       "native callback and command timing checkpoints"
     ],
     "fixture": "https://github.com/pango07/quod/actions/runs/42266816888",
-    "regressionsPassed": 249,
+    "regressionsPassed": 285,
     "expectedWorkers": 120,
     "expectedStatesPerPhase": 4131,
     "expectedMetadataOnlyChangedPaths": 39,
     "observedPhaseLimitSeconds": 900,
     "testTimeoutsChanged": false,
-    "replayEligible": false
+    "replayEligible": false,
+    "job": 128061633148,
+    "conclusion": "failure",
+    "evidence": "worker-native-progress.json",
+    "retainedWorkers": 119,
+    "receivedObservedResults": 4108,
+    "receivedResultMismatches": 2,
+    "missingBaselineResults": 23,
+    "failure": "Observed before phase hit its 900-second limit; two received test results disagree with baseline; no complete observed JSON report or after phase"
   }
 }

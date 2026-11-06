@@ -102,5 +102,21 @@
   },
   "replayEligible": false,
   "scope": "Two complete plain diagnostic runs with metadata-only edit; no replay or production savings result",
-  "metadataOnlyChangedPaths": 39
+  "metadataOnlyChangedPaths": 39,
+  "timedOutDiagnostic": {
+    "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",
+    "run": "https://github.com/pango07/quod/actions/runs/42267064963",
+    "job": 128061633148,
+    "status": "completed",
+    "conclusion": "failure",
+    "regressionsPassed": 285,
+    "replayEligible": false,
+    "evidence": "worker-native-progress.json",
+    "retainedWorkers": 119,
+    "receivedObservedResults": 4108,
+    "receivedResultMismatches": 2,
+    "missingBaselineResults": 23,
+    "failure": "Observed before phase hit its 900-second limit; two received test results disagree with baseline; no complete observed JSON report or after phase"
+  },
+  "independentVerifier": "scripts/bench-vitest/verify-test-progress.py"
 }
