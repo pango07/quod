@@ -3,10 +3,14 @@ import assert from 'node:assert/strict'
 import {spawn,spawnSync} from 'node:child_process'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
+const warningWrapper=new URL('./fixtures/vitest-suppress-warnings.cjs',import.meta.url).pathname
 function run(kind) {
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
 import {EventEmitter} from 'node:events';
-const kind=${JSON.stringify(kind)},p=inspectPromiseObservers({compiledScripts:true});
+import {createRequire} from 'node:module';
+const kind=${JSON.stringify(kind)};
+if(kind.startsWith('vitest-wrapper'))createRequire(import.meta.url)(${JSON.stringify(warningWrapper)});
+const p=inspectPromiseObservers({compiledScripts:true});
 const delivered=[],copied=[],message={seed:123,tmp:'/private-message'};
 function observer(value){delivered.push(value.seed)}
 process.prependListener('message',observer);
@@ -15,7 +19,7 @@ if(kind==='wrong-function')process.emit=EventEmitter.prototype.removeAllListener
 const initial=p.captureMessageObserver();process.emit=emit;
 let getterCalls=0,traps=0,mid=null;
 function thief(value){copied.push([value.seed,value.tmp]);process.removeListener('message',thief)}
-if(kind==='self-removing')process.prependListener('message',thief);
+if(kind==='self-removing'||kind==='vitest-wrapper-thief')process.prependListener('message',thief);
 if(kind==='once')process.prependOnceListener('message',thief);
 if(kind==='same-source') {
   // Same code is insufficient: this is a different closure instance.
@@ -56,7 +60,7 @@ console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,trap
   assert.equal(result.status,0,result.stderr||String(result.error))
   return JSON.parse(result.stdout)
 }
-for(const kind of ['normal','self-removing','once','same-source','nested','unpaired','other-receiver','removed','overflow','alternate-dispatch','getter','proxy','primitive','close','wrong-function']) {
+for(const kind of ['normal','self-removing','once','same-source','nested','unpaired','other-receiver','removed','overflow','alternate-dispatch','getter','proxy','primitive','close','wrong-function','vitest-wrapper','vitest-wrapper-thief']) {
   test('message dispatch entry: '+kind,()=>{
     const r=run(kind),report=r.report
     assert.equal(r.initial.installed,kind!=='wrong-function',JSON.stringify(r.initial))
@@ -66,9 +70,13 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
     assert.deepEqual(r.compilationErrors,[])
     assert.equal(r.closed.closed,true)
     assert.equal(r.closed.groupsCreated,r.closed.groupsReleased)
-    if(kind==='normal'||kind==='primitive') {
+    if(kind.startsWith('vitest-wrapper')) {
+      assert.equal(report.wrapperSource.sha256,'a5012da3d2027007781baecda154d343d8c7ad2327b79bec65b1b60a41f42dd1')
+      assert.deepEqual(report.source,{sha256:'113b0cd4b1c81c909022c572525ae844136a746dd26e2b7e4a3161841e744281',line:455,column:43})
+    }
+    if(kind==='normal'||kind==='primitive'||kind==='vitest-wrapper') {
       assert.equal(report.available,true,JSON.stringify(report))
-      assert.equal(report.dispatches,kind==='normal'?1:2)
+      assert.equal(report.dispatches,kind==='primitive'?2:1)
       assert.equal(report.paired,report.dispatches)
       assert.equal(r.observerFirst,true,'diagnostic did not replace the listener')
     } else if(kind==='other-receiver') {
@@ -82,7 +90,7 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
         assert.equal(report.source.sha256,'113b0cd4b1c81c909022c572525ae844136a746dd26e2b7e4a3161841e744281')
         assert(report.errors.includes('process emit function differs from pinned Node'))
       }
-      if(['self-removing','once','same-source','nested'].includes(kind))assert(report.errors.includes('observer was not first at message dispatch'),JSON.stringify(report))
+      if(['self-removing','once','same-source','nested','vitest-wrapper-thief'].includes(kind))assert(report.errors.includes('observer was not first at message dispatch'),JSON.stringify(report))
       if(kind==='self-removing') {
         assert.deepEqual(r.copied,[[123,'/private-message']]);assert.equal(r.observerFirst,true)
         assert.equal(r.mid.available,false);assert.equal(report.dispatches,2);assert.equal(report.paired,2)

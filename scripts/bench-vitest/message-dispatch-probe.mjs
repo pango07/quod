@@ -5,6 +5,7 @@
 import {createHash,randomBytes} from 'node:crypto'
 
 const eventsSource='113b0cd4b1c81c909022c572525ae844136a746dd26e2b7e4a3161841e744281'
+const warningWrapperSource='a5012da3d2027007781baecda154d343d8c7ad2327b79bec65b1b60a41f42dd1'
 const own=Object.hasOwn
 
 // Call synchronously after installing the diagnostic as the first listener,
@@ -16,7 +17,7 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
   const breakpoints=new Map(),pending=[],errors=[],failureCounts=new Map()
   let receiver,observer,installed=false,closed=false,sequence=0
   let dispatches=0,callbacks=0,paired=0,ignoredReceivers=0,groupsCreated=0,groupsReleased=0
-  let source=null
+  let source=null,wrapperSource=null
   function fail(reason) {
     failureCounts.set(reason,(failureCounts.get(reason)??0)+1)
     if(errors.length<20)errors.push(reason)
@@ -64,6 +65,25 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     if(r.exceptionDetails||!r.result)throw Error('message entry arguments unavailable')
     return r.result
   }
+  function functionSource(fn) {
+    if(fn?.type!=='function'||fn.subtype==='proxy')throw Error('process emit function unavailable')
+    const location=post('Runtime.getProperties',{objectId:fn.objectId,ownProperties:true}).internalProperties
+      ?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
+    if(!location?.scriptId)throw Error('process emit source unavailable')
+    const script=post('Debugger.getScriptSource',{scriptId:location.scriptId}).scriptSource
+    if(typeof script!=='string')throw Error('process emit source unavailable')
+    return {sha256:createHash('sha256').update(script).digest('hex'),line:location.lineNumber,column:location.columnNumber}
+  }
+  function capturedEmit(fn) {
+    const scopes=post('Runtime.getProperties',{objectId:fn.objectId,ownProperties:true}).internalProperties
+      ?.find(p=>p.name==='[[Scopes]]')?.value
+    for(const scope of fields(scopes)) {
+      if(!/^\d+$/.test(scope.name)||scope.value?.description==='Global')continue
+      const bindings=fields(scope.value)
+      if(bindings.some(p=>p.name==='emit'))return data(bindings,'emit')
+    }
+    throw Error('Vitest warning wrapper captured emit unavailable')
+  }
   try {
     if(process.versions.node!=='24.18.0')throw Error('message dispatch requires pinned Node 24.18.0')
     const r=post('Runtime.evaluate',{expression:'process',objectGroup:group,silent:true})
@@ -78,13 +98,14 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
       if(props.result.some(p=>p.name==='emit')){emit=data(props.result,'emit');break}
       target=props.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
     }
-    if(emit?.type!=='function'||emit.subtype==='proxy')throw Error('process emit function unavailable')
-    const location=post('Runtime.getProperties',{objectId:emit.objectId,ownProperties:true}).internalProperties
-      ?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
-    if(!location?.scriptId)throw Error('process emit source unavailable')
-    const script=post('Debugger.getScriptSource',{scriptId:location.scriptId}).scriptSource
-    if(typeof script!=='string')throw Error('process emit source unavailable')
-    source={sha256:createHash('sha256').update(script).digest('hex'),line:location.lineNumber,column:location.columnNumber}
+    source=functionSource(emit)
+    if(source.sha256===warningWrapperSource&&source.line===14&&source.column===24) {
+      // Vitest requires suppress-warnings.cjs before ESM imports. Observe
+      // the actual captured Node function, not a guessed public prototype.
+      // Source matching does not certify the wrapper's mutable Reflect.apply
+      // or exclude copies made before Node emit; that remains an explicit gap.
+      wrapperSource=source;emit=capturedEmit(emit);source=functionSource(emit)
+    }
     // The file digest alone also matches removeListener/addListener and every
     // other function in node:events. Pin emit's actual function location too.
     if(source.sha256!==eventsSource||source.line!==455||source.column!==43)
@@ -133,10 +154,10 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     },
     report() {
       return {available:installed&&!closed&&!errors.length&&!pending.length,
-        installed,closed,source,dispatches,callbacks,paired,pending:pending.length,ignoredReceivers,
+        installed,closed,source,wrapperSource,dispatches,callbacks,paired,pending:pending.length,ignoredReceivers,
         groupsCreated,groupsReleased,errors:[...errors],failureCounts:Object.fromEntries(failureCounts),
         replayEligible:false,completeOwnership:false,
-        limitation:'Observed first listener and paired callbacks only; earlier preloads, deserialization, alternative dispatch paths and genuine IPC origin are not certified'}
+        limitation:'Observed first listener at Node emit and paired callbacks only; earlier preloads, warning-wrapper Reflect.apply, deserialization, alternative dispatch paths and genuine IPC origin are not certified'}
     },
     close() {
       if(closed)return
