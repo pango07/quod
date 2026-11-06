@@ -55,9 +55,13 @@ replay was off for the better-performing window.
 
 All observed per-commit results agreed with plain runs. That establishes
 zero observed wrong results, not universal recorder completeness. The
-[audit](convex-helpers-audit.md) still identifies general file-stat metadata
-as an unresolved input-observation risk. A sampled audit can discover an
-error after a replay; it cannot prove the first replay was correct.
+[metadata regression](stat-metadata-regression.md) subsequently reproduced
+five stale passing states after a timestamp/permission-only edit with the
+older recorder. The corrected path-based stat/lstat implementation passes
+that regression, but needs fresh performance measurements and does not
+certify every descriptor-based filesystem API. The savings above belong
+to the historical engine, not the correction. A sampled audit can discover
+an error after a replay; it cannot prove the first replay was correct.
 
 Cold recording, plain confirmations, audits, dependency changes and shared
 configuration can make an individual job slower. Net savings must include

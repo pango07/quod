@@ -1,5 +1,12 @@
 # Convex-helpers: names-proof 12-commit window
 
+**Historical engine result.** The subsequently reproduced
+[metadata-only stale replay](stat-metadata-regression.md) affects the older
+recording semantics used here. The per-commit agreement and timings below
+remain observations of this exact corpus, not evidence that the affected
+engine is safe for metadata-dependent tests. The corrected engine needs a
+new performance measurement; do not apply these savings to it.
+
 [Driver 42103710173](https://github.com/pango07/ci-bench/actions/runs/42103710173)
 completed all 48 jobs in 24 minutes 43 seconds. This repeats exactly c0–c11
 ending at `5eaa7e5160736054d53f8b71e2c522835eb427e0`, with a cold cache per
@@ -55,7 +62,7 @@ states, c7 had 4,130, and c8–c11 had 4,131, always across 120 files. There
 were no missing or unchecked comparisons. Every job's independently fetched
 timestamps and image also matched the driver artifact and expected manifest.
 These observations do not certify universal recorder completeness; the
-stat-metadata audit limitation remains open.
+later metadata regression demonstrated a stale result outside this corpus.
 
 Each policy promoted 113 records and ran **one lineage plain audit**, at
 c10. Both audits agreed; no lineage disagreement or batch revocation was
