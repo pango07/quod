@@ -907,3 +907,56 @@ workload pending integration with lossless stack-frame compression to
 resolve the five overflowing logs. Do not translate this bounded diagnostic
 result into a product savings percentage. No new production replay or
 12-commit measurement has run.
+
+## Lossless stack dictionaries and the next combined attempt
+
+`0a42b0f` integrates accessor-only target inspection with individual handle
+cleanup and passes 130 regressions in
+[42219612107](https://github.com/pango07/quod/actions/runs/42219612107).
+Native-entry reports now store complete frame records once and retain the
+ordered frame indices on each grouped event. Frame fields, script identity,
+stack order, argument evidence and occurrence counts remain significant.
+The bounded capacity is 100,000 distinct event records and 20,000 distinct
+frames per log; overflow or invalid references still reject the evidence.
+The default full-pause observer retains its existing report shape.
+
+The regression includes 12,001 distinct stacks / 24,002 occurrences, beyond
+the previous entry cap. A separate Python check reconstructs every retained
+record from worker 5277 in the failed run, preserving all fields and counts.
+Its 10,000 retained records use 2,870 distinct frames: the serialized payload
+falls from 53,968,352 to 4,156,190 bytes. This checks compression only; it
+cannot recover the occurrences already lost by that old overflowing log.
+
+`8dd2505` gives the native diagnostic a bounded four-million-run compilation
+index, because the prior partial stream worker already recorded 861,284
+compilations. It adds inclusive Inspector command timings to final worker
+reports and complete current stacks to progress checkpoints. The new full
+attempt is [42220018925](https://github.com/pango07/quod/actions/runs/42220018925).
+It passes 166 regressions and plain completes 120 instances / 4,131 states,
+but the first observed phase again reaches the 420-second timeout. It
+completes 87 worker reports, versus 43 in the preceding attempt. Every one
+of their 822,188 descriptor calls is retained, with zero log overflows or
+capture errors. All 866,853 native events have cleared exception wrappers.
+The unfinished stream worker reaches 680,000 descriptor calls, represented
+by 2,871 event records and 1,817 distinct frames; its 1,361,372 compilation
+events also fit without overflow. This confirms the trace-capacity fix,
+not full-suite agreement or new production savings.
+
+Across the 87 completed workers, inclusive Inspector command times are
+251.4 s for 2,568,595 property requests, 149.8 s for 20,550,724 individual
+handle releases, 101.5 s for 868,593 function calls and 33.3 s for 1,779,436
+script-source requests. These sums span concurrent workers, may overlap
+through synchronous notifications, and exclude the unfinished stream
+worker; they are not a job wall-time breakdown. The busiest checkpoint's
+actual caller is Vitest's `setState`, reached from `expect` in the stream
+property test. [Raw evidence and artifact digests](worker-native-accessor-overhead.json)
+preserve the partial observation and timings.
+
+The next bounded experiment should combine owned-wrapper validation,
+argument inspection and wrapper cleanup in one private Inspector
+operation, returning only sanitized summary data. It must use captured
+intrinsics, avoid application getters/proxy traps and public global
+bridges, preserve actual arguments and receivers, and retain unrelated
+exception/handle and collection checks. No full rerun is justified until
+that path is gated and its complete-logging cost is measured. Production
+replay eligibility and the 12-commit savings result remain unchanged.

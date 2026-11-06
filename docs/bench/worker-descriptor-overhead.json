@@ -1958,7 +1958,7 @@
     "combinedRegressionTests": 158,
     "combinedCompletedWorkers": 43,
     "combinedEvidence": "worker-native-entry-overhead.json",
-    "nextAction": "Integrate accessor-only target descriptors with individual cleanup, and losslessly compress repeated stack frames to resolve the detailed-event cap. Gate both before another full workload attempt.",
+    "nextAction": "Prototype one private Inspector operation that validates the owned exception, inspects actual native arguments and clears the wrapper, returning only sanitized summaries. Gate side-effect, argument/receiver, unrelated-exception and object-lifetime regressions and measure complete-logging overhead before another full run.",
     "handleCleanupExperiments": [
       {
         "run": "https://github.com/pango07/quod/actions/runs/42218887590",
@@ -2171,6 +2171,41 @@
         ],
         "replayEligible": false
       }
-    ]
+    ],
+    "stackDictionary": {
+      "commit": "0a42b0f",
+      "fixtureRun": "https://github.com/pango07/quod/actions/runs/42219612107",
+      "fixtureTests": 130,
+      "fixtureConclusion": "success",
+      "fixtureLogSha256": "e4048a2823637d6516cc6b67b8569a5fdcd50bdf41b99563946be6ea79d624a0",
+      "entryLimit": 100000,
+      "frameLimit": 20000,
+      "retainedArtifactFormatCheck": {
+        "artifact": "42216898878/worker-boundary/before/5277.json",
+        "artifactSha256": "f276cb7ca85fdaac98b56d7c9719ab5c464afd70589651688a12945af6b851ba",
+        "scope": "Independent format check on retained records only; the original overflowing report remains incomplete.",
+        "retainedEntries": 10000,
+        "retainedCalls": 18811,
+        "originalCalls": 21291,
+        "originalOverflow": true,
+        "uniqueFrames": 2870,
+        "rawEntryBytes": 53968352,
+        "dictionaryEntryBytes": 4156190,
+        "allRetainedFieldsAndOrderEqual": true,
+        "replayEligible": false
+      },
+      "fullRun": 42220018925,
+      "fullCommit": "8dd2505",
+      "fullStatus": "completed",
+      "replayEligible": false,
+      "fullConclusion": "failure",
+      "fullFailure": "before phase 420-second timeout",
+      "fullFixtureTests": 166,
+      "fullCompletedWorkers": 87,
+      "fullDescriptorCalls": 822188,
+      "fullRetainedDescriptorCalls": 822188,
+      "fullLogOverflows": 0,
+      "fullEvidence": "worker-native-accessor-overhead.json"
+    }
   }
 }
