@@ -87,7 +87,7 @@ bool Put(Local<Context> context, Local<Object> result, const char* name,
 }
 
 void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners,
-                 bool packed = false) {
+                 bool packed = false, bool string_summary = false) {
   auto isolate = info.GetIsolate();
   HandleScope scope(isolate);
   auto context = isolate->GetCurrentContext();
@@ -168,7 +168,7 @@ void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners,
     if (!cleared) failure = 6;
     available = available && cleared;
   }
-  if (packed) {
+  if (packed || string_summary) {
     // Versioned transport of the same sanitized summary. No application
     // values enter the response; the API label and arity are validated data
     // from our owned wrapper. Keep all rejection/failure/cleanup information.
@@ -183,8 +183,17 @@ void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners,
                             owned && metadata_valid ? api : Local<Value>(Null(isolate)),
                             Number::New(isolate, owned && metadata_valid ? count : 0)};
     auto result = Array::New(isolate, fields, 4);
-    if (result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false))
-      info.GetReturnValue().Set(result);
+    if (result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false)) {
+      if (string_summary) {
+        // No global JSON lookup and no application values: the null-prototype
+        // array contains only validated scalars, so inherited toJSON hooks
+        // cannot run. A primitive exception needs no Inspector object handle.
+        Local<String> text;
+        if (JSON::Stringify(context, result).ToLocal(&text))
+          info.GetReturnValue().Set(String::Concat(isolate,
+              String::Concat(isolate, info.Data().As<String>(), Key(isolate, ":")), text));
+      } else info.GetReturnValue().Set(result);
+    }
     return;
   }
   auto result = Object::New(isolate);
@@ -212,6 +221,8 @@ void Capture(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false)
 void CaptureOrdinary(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true); }
 void CapturePacked(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false, true); }
 void CaptureOrdinaryPacked(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true, true); }
+void CaptureString(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false, false, true); }
+void CaptureOrdinaryString(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true, false, true); }
 
 void IsInspectableOwner(const FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(info.Length() == 1 && OrdinaryForInspection(info[0]));
@@ -219,8 +230,9 @@ void IsInspectableOwner(const FunctionCallbackInfo<Value>& info) {
 
 void CreateContextCapture(const FunctionCallbackInfo<Value>& info);
 void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info);
+void CreateStringContextCapture(const FunctionCallbackInfo<Value>& info);
 
-void CreateCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed) {
+void CreateCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed, bool string_summary = false) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
   if (info.Length() < 1 || info.Length() > 2 ||
@@ -231,17 +243,20 @@ void CreateCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed) {
   }
   Local<Function> capture, context_factory;
   bool ordinary_owners = info.Length() == 2 && info[1]->IsTrue();
-  auto callback = packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
+  auto callback = string_summary ? (ordinary_owners ? CaptureOrdinaryString : CaptureString)
+                        : packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
                          : (ordinary_owners ? CaptureOrdinary : Capture);
   if (Function::New(context, callback, info[0], 1, ConstructorBehavior::kThrow)
           .ToLocal(&capture) &&
-      Function::New(context, packed ? CreatePackedContextCapture : CreateContextCapture, Local<Value>(), 2,
+      Function::New(context, string_summary ? CreateStringContextCapture :
+                             packed ? CreatePackedContextCapture : CreateContextCapture, Local<Value>(), 2,
                      ConstructorBehavior::kThrow).ToLocal(&context_factory) &&
       Put(context, capture, "createContextCapture", context_factory))
     info.GetReturnValue().Set(capture);
 }
 void CreateCapture(const FunctionCallbackInfo<Value>& info) { CreateCaptureImpl(info, false); }
 void CreatePackedCapture(const FunctionCallbackInfo<Value>& info) { CreateCaptureImpl(info, true); }
+void CreateStringCapture(const FunctionCallbackInfo<Value>& info) { CreateCaptureImpl(info, false, true); }
 
 // A foreign Inspector handle cannot be an argument to our root-context
 // function. Find a fresh, private holder by an unguessable own property name,
@@ -271,7 +286,7 @@ class HolderPredicate final : public QueryObjectPredicate {
   bool failed_ = false;
 };
 
-void CreateContextCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed) {
+void CreateContextCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed, bool string_summary = false) {
   auto isolate = info.GetIsolate();
   HandleScope scope(isolate);
   auto context = isolate->GetCurrentContext();
@@ -312,7 +327,8 @@ void CreateContextCaptureImpl(const FunctionCallbackInfo<Value>& info, bool pack
     Context::Scope destination_scope(destination);
     Local<Function> capture;
     bool ordinary_owners = info.Length() == 3 && info[2]->IsTrue();
-    auto callback = packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
+    auto callback = string_summary ? (ordinary_owners ? CaptureOrdinaryString : CaptureString)
+                           : packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
                            : (ordinary_owners ? CaptureOrdinary : Capture);
     if (!Function::New(destination, callback, info[0], 1,
                        ConstructorBehavior::kThrow).ToLocal(&capture)) break;
@@ -324,6 +340,7 @@ void CreateContextCaptureImpl(const FunctionCallbackInfo<Value>& info, bool pack
 }
 void CreateContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, false); }
 void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, true); }
+void CreateStringContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, false, true); }
 
 // Adversarial fixture: a host callback on an otherwise ordinary JS object.
 // Reading its descriptor invokes native code even though it looks like data.
@@ -378,6 +395,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
   if (Function::New(context, CreatePackedCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createPackedCapture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, CreateStringCapture).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createStringCapture"), factory)
         .FromMaybe(false);
   if (Function::New(context, CreateContextCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),

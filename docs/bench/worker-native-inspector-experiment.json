@@ -20,10 +20,26 @@
   "nodeSourceCommit": "20da4aeadabc5b0a01e3fcf520f91df8285c68a2",
   "inspectorHeaderSha256": "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28",
   "semantics": "Experimental macro only; shares the existing native capture helper; attempts a private Runtime-only Inspector session without replacing Node debugger ownership",
-  "nextAction": "Inspect the actual dynamic symbol table before attempting another native interface; no memory-offset fallback and no identical full-suite rerun",
+  "nextAction": "Gate a sanitized primitive summary using the existing native capture helper, then test condition-time capture through a realm-local lexical binding. This avoids private V8 APIs and per-entry object handles; lexical binding observability and complete ownership still need explicit treatment.",
   "limitations": [
     "Build success is not runtime availability or correctness evidence",
     "No comparison timing or native handle cleanup result was reached",
     "This does not alter released replay keys, action packaging, test timeouts or performance targets"
-  ]
+  ],
+  "apiInventory": {
+    "commit": "b5f8033562f59e4c175ee4df1328cc59459a438d",
+    "run": "https://github.com/pango07/quod/actions/runs/42273472757",
+    "job": 128083723696,
+    "conclusion": "success",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "exported": {
+      "v8::debug::GetInspector": false,
+      "v8::debug::SetDebugDelegate": false,
+      "v8::debug::SetFunctionBreakpoint": false,
+      "v8::debug::RemoveBreakpoint": false,
+      "v8::debug::GetLoadedScripts": false,
+      "node::inspector::Agent::Connect": true
+    },
+    "scope": "Actual dynamic symbol table of the pinned runner Node binary; no capture or performance measurement"
+  }
 }

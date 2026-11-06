@@ -413,7 +413,7 @@ test('native data-field lookup agrees with descriptor baseline and never invokes
   assert.equal(gets,0);assert.equal(traps,0)
 })
 
-test('packed native summaries preserve every inspected mask, rejection, arity and owner policy',()=>{
+test('packed and string native summaries preserve every inspected mask, rejection, arity and owner policy',()=>{
   const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),nonce='b'.repeat(64)
   let gets=0,traps=0
   const targets=[null,undefined,1,'text',Symbol('symbol'),()=>{},new Proxy({}, {get(){traps++;throw Error('trap')}})]
@@ -426,20 +426,61 @@ test('packed native summaries preserve every inspected mask, rejection, arity an
   }
   const host=addon.createNativeDataFixture(false,true);targets.push(host.target)
   for(const ordinary of [false,true]) {
-    const legacy=addon.createCapture(nonce,ordinary),packed=addon.createPackedCapture(nonce,ordinary)
+    const legacy=addon.createCapture(nonce,ordinary),packed=addon.createPackedCapture(nonce,ordinary),string=addon.createStringCapture(nonce,ordinary)
+    const decode=text=>{assert.equal(typeof text,'string');assert(text.startsWith(nonce+':'));return decodeNativeCaptureSummary(JSON.parse(text.slice(nonce.length+1)))}
     for(const target of targets)for(const receiver of [false,true])for(const describe of [false,true])
       for(const count of [0,1,Number.MAX_SAFE_INTEGER,NaN,Infinity,-1,0.5,1n]) {
         const make=()=>({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,argumentCount:count,
           receiverBased:receiver,describeOwnAccessors:describe})
-        const a=make(),b=make(),expected=legacy(a),actual=decodeNativeCaptureSummary(packed(b))
+        const a=make(),b=make(),c=make(),expected=legacy(a),actual=decodeNativeCaptureSummary(packed(b))
         assert.deepEqual(actual,{...expected})
+        assert.deepEqual(decode(string(c)),{...expected})
         assert.equal(a.argument,b.argument);assert.equal(a.api,b.api);assert.equal(a.quodNativeEntry,b.quodNativeEntry)
+        assert.equal(a.argument,c.argument);assert.equal(a.api,c.api);assert.equal(a.quodNativeEntry,c.quodNativeEntry)
       }
-    for(const value of [null,{},Object.create(null),{__proto__:null,quodNativeEntry:'wrong'}])
+    for(const value of [null,{},Object.create(null),{__proto__:null,quodNativeEntry:'wrong'}]) {
       assert.deepEqual(decodeNativeCaptureSummary(packed(value)),{...legacy(value)})
+      assert.deepEqual(decode(string(value)),{...legacy(value)})
+    }
     assert.deepEqual(decodeNativeCaptureSummary(packed()),{...legacy()})
+    assert.deepEqual(decode(string()),{...legacy()})
   }
   assert.equal(gets,0);assert.equal(traps,0);assert.equal(host.state.calls,0)
+})
+
+test('string native summaries ignore global JSON and inherited toJSON hooks',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),nonce='c'.repeat(64)
+  const capture=addon.createStringCapture(nonce,true),parse=JSON.parse,original=JSON.stringify
+  const define=Object.defineProperty,remove=Reflect.deleteProperty
+  const saved=[Object.prototype,Array.prototype].map(p=>Object.getOwnPropertyDescriptor(p,'toJSON'))
+  let reads=0,encoded
+  try {
+    for(const prototype of [Object.prototype,Array.prototype])define(prototype,'toJSON',{configurable:true,get(){reads++;throw Error('toJSON')}})
+    JSON.stringify=()=>{reads++;throw Error('global JSON')}
+    encoded=capture({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:{tmp:1},argumentCount:1,
+      receiverBased:false,describeOwnAccessors:true})
+  } finally {
+    JSON.stringify=original
+    for(const [i,prototype] of [Object.prototype,Array.prototype].entries()) {
+      if(saved[i])define(prototype,'toJSON',saved[i]);else remove(prototype,'toJSON')
+    }
+  }
+  assert.equal(reads,0);assert.equal(typeof encoded,'string');assert(encoded.startsWith(nonce+':'))
+  const result=decodeNativeCaptureSummary(parse(encoded.slice(nonce.length+1)))
+  assert(result.owned&&result.available&&result.cleared&&result.inspected);assert.equal(result.mask,0)
+})
+
+test('string capture factories preserve the primitive summary in a foreign context',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),nonce='d'.repeat(64),key=randomBytes(32).toString('hex')
+  const capture=addon.createStringCapture(nonce,true),context=vm.createContext({nonce,key})
+  const holder=vm.runInContext('({__proto__:null,[key]:true,capture:void 0})',context)
+  assert.equal(capture.createContextCapture(nonce,key,true),true)
+  context.capture=holder.capture;holder.capture=null
+  const encoded=vm.runInContext('capture({__proto__:null,quodNativeEntry:nonce,api:"foreign",argument:{get tmp(){throw Error("getter")}},argumentCount:1,receiverBased:false,describeOwnAccessors:true})',context)
+  assert.equal(typeof encoded,'string');assert(encoded.startsWith(nonce+':'))
+  const result=decodeNativeCaptureSummary(JSON.parse(encoded.slice(nonce.length+1)))
+  assert(result.owned&&result.available&&result.cleared&&result.inspected);assert.equal(result.mask,2)
+  assert.equal(result.api,'foreign');assert.equal(holder[key],null)
 })
 
 test('compare object and packed capture transport with equal native entries and complete compilation logs',t=>{
