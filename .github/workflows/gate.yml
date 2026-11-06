@@ -758,6 +758,39 @@ jobs:
       - if: always() && inputs.only == 'benchmark-proofs'
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/record.test.mjs
 
+  benchmark-driver-stat:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-driver-stat'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: d2bb917792130dcaf3fafec066b481bec5c2f674
+          path: profile-action
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci
+        working-directory: profile-project
+      - name: Observe actual planner, driver and workers without refining inputs
+        run: |
+          mkdir -p /tmp/quod-driver-stat-bin
+          echo '98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0  profile-action/dist/quod/bin-4d99319.tar.gz' | sha256sum -c -
+          tar -xzf profile-action/dist/quod/bin-4d99319.tar.gz -C /tmp/quod-driver-stat-bin
+          node scripts/bench-vitest/driver-stat-probe.mjs "$PWD/profile-project" /tmp/quod-driver-stat-bin/quod /tmp/quod-driver-stat
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: benchmark-driver-stat
+          path: /tmp/quod-driver-stat
+
   benchmark-config:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query'))
     runs-on: ubuntu-latest
