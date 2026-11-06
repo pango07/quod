@@ -13,6 +13,7 @@ const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex')
 const self=fileURLToPath(import.meta.url)
+const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function states(file) {
   const report=JSON.parse(fs.readFileSync(file))
@@ -31,6 +32,16 @@ if(phase) {
   const nodeEntry=pkg.exports['./node'],relative=typeof nodeEntry==='string'?nodeEntry:nodeEntry.import??nodeEntry.default
   const entry=path.join(path.dirname(packageFile),relative)
   const V=await import(pathToFileURL(entry).href)
+  if(moduleProbe&&phase!=='baseline') {
+    const directory=path.join(out,'worker-modules',phase)
+    fs.mkdirSync(directory,{recursive:true})
+    const original=V.ForksPoolWorker.prototype.start
+    V.ForksPoolWorker.prototype.start=function(...args) {
+      this.execArgv=['--import',fileURLToPath(new URL('./worker-module-bootstrap.mjs',import.meta.url)),...this.execArgv]
+      this.env={...this.env,QUOD_WORKER_MODULE_REPORT_DIR:directory}
+      return Reflect.apply(original,this,args)
+    }
+  }
   if(phase==='after'&&process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
     const directory=path.join(out,'worker-config')
     fs.mkdirSync(directory,{recursive:true})
@@ -42,13 +53,13 @@ if(phase) {
       return Reflect.apply(original,this,args)
     }
   }
-  const observer=observeWorkerInputs(V)
+  const observer=phase==='baseline'?null:observeWorkerInputs(V)
   try {
     await V.startVitest('test',[],{run:true,watch:false,reporters:['default','json'],outputFile:{json:path.join(out,phase+'-tests.json')}})
   }finally{
     write(path.join(out,phase+'-inputs.json'),{node:process.version,vitest:pkg.version,
-      entrySha256:sha(fs.readFileSync(entry)),...observer.report()})
-    observer.close()
+      entrySha256:sha(fs.readFileSync(entry)),...(observer?.report()??{baseline:true})})
+    observer?.close()
   }
 }else {
   function run(name) {
@@ -59,6 +70,7 @@ if(phase) {
     assert.equal(s.fingerprint,'09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd')
     return s
   }
+  const baseline=moduleProbe?run('baseline'):null
   const first=run('before'),changes=[]
   for(const file of first.paths) {
     assert.ok(file.startsWith(project+'/'),'only modify the disposable benchmark checkout')
@@ -116,6 +128,64 @@ if(phase) {
     equalRpcWorkers:comparisons.filter(c=>c.rpcEqual===true).length,
     comparisons,limitations:before.limitations}
   write(path.join(out,'result.json'),result)
+  if(moduleProbe) {
+    function loadModules(phase) {
+      const directory=path.join(out,'worker-modules',phase)
+      const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
+      assert.equal(reports.length,120,'all isolated workers must report modules')
+      const entries=reports.map(r=>[JSON.stringify([r.project,r.files]),r])
+      assert.equal(new Set(entries.map(([k])=>k)).size,120)
+      assert(reports.every(r=>!r.replayEligible&&!r.unknown.length&&r.files.length===1))
+      assert(reports.every(r=>!r.evaluation.errors.length&&!r.compilation.errors.length&&!r.evaluation.overflow&&!r.compilation.overflow))
+      assert(reports.every(r=>r.evaluation.events.length>0&&r.compilation.scripts.length>0))
+      return new Map(entries)
+    }
+    const left=loadModules('before'),right=loadModules('after'),comparisons=[]
+    function group(rows) {
+      const groups=new Map()
+      for(const row of rows) {
+        assert.equal(row.identity.available,true)
+        const k=row.identity.hash,list=groups.get(k)??[]
+        list.push(row.code.sha256);groups.set(k,list)
+      }
+      return groups
+    }
+    function compare(a,b) {
+      const left=group(a),right=group(b),result={paired:0,unpaired:0,differentBodies:0,differentMultiplicity:0,differentBodyMultisets:0}
+      for(const key of new Set([...left.keys(),...right.keys()])) {
+        const a=left.get(key),b=right.get(key)
+        if(!a||!b){result.unpaired++;continue}
+        result.paired++
+        if(a.length!==b.length)result.differentMultiplicity++
+        if(JSON.stringify([...a].sort())!==JSON.stringify([...b].sort()))result.differentBodyMultisets++
+        if(JSON.stringify([...new Set(a)].sort())!==JSON.stringify([...new Set(b)].sort()))result.differentBodies++
+      }
+      return result
+    }
+    for(const [key,a] of left) {
+      const b=right.get(key);assert(b,'workers must pair by project and file')
+      const body=r=>r.evaluation.events.map(({kind,identity,code})=>({kind,identity,code}))
+      const metadataComparable=[a,b].every(r=>r.evaluation.events.every(e=>e.identity.available&&(e.kind==='external'||e.meta.available)))
+      comparisons.push({key,before:{evaluations:a.evaluation.events.length,scripts:a.compilation.scripts.length},
+        after:{evaluations:b.evaluation.events.length,scripts:b.compilation.scripts.length},
+        metadataComparable,
+        evaluatorSequenceEqual:metadataComparable?JSON.stringify(a.evaluation.events)===JSON.stringify(b.evaluation.events):null,
+        codeSequenceEqual:JSON.stringify(body(a))===JSON.stringify(body(b)),
+        compiledSequenceEqual:JSON.stringify(a.compilation.scripts)===JSON.stringify(b.compilation.scripts),
+        inlined:compare(a.evaluation.events.filter(e=>e.kind==='inline'),b.evaluation.events.filter(e=>e.kind==='inline')),
+        compiled:compare(a.compilation.scripts,b.compilation.scripts)})
+    }
+    const totals={}
+    for(const kind of ['inlined','compiled'])totals[kind]=Object.fromEntries(['paired','unpaired','differentBodies','differentMultiplicity','differentBodyMultisets'].map(k=>[k,comparisons.reduce((n,c)=>n+c[kind][k],0)]))
+    const moduleResult={replayEligible:false,baselineFingerprint:baseline.fingerprint,workers:comparisons.length,
+      equalEvaluatorSequences:comparisons.filter(c=>c.evaluatorSequenceEqual).length,
+      equalCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
+      equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,totals,comparisons,
+      unknownMetadataWorkers:comparisons.filter(c=>!c.metadataComparable).length,
+      limitation:'Module code observations do not prove configuration, non-JavaScript data, external inputs, parent RPC state or side effects'}
+    write(path.join(out,'worker-module-result.json'),moduleResult)
+    console.log(JSON.stringify({...moduleResult,comparisons:comparisons.length},null,2))
+  }
   if(process.env.QUOD_WORKER_CONFIG_PROBE==='1') {
     const directory=path.join(out,'worker-config')
     const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
