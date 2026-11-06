@@ -14,6 +14,7 @@ const project=path.resolve(projectArg),binary=path.resolve(binaryArg),out=path.r
 const source=fileURLToPath(new URL('../../crates/quod-cli/src/vitest/',import.meta.url))
 const observer=new URL('./async-stat-probe.mjs',import.meta.url)
 const registry=new URL('./promise-observers-probe.mjs',import.meta.url)
+const startup=new URL('./startup-stat-probe.cjs',import.meta.url)
 const state=path.join(out,'state'),staged=path.join(out,'js'),observations=path.join(out,'async-stats.json')
 assert.equal(fs.existsSync(state),false,'diagnostic state must be fresh')
 fs.mkdirSync(staged,{recursive:true})
@@ -26,8 +27,8 @@ function replaceOnce(before,after) {
 }
 const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 replaceOnce("const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'",
-  `// Diagnostic module hashes: ${hash(observer)} ${hash(registry)}\n`+
-  `const statDiagnostics=hooks?(await import(${JSON.stringify(observer.href)})).observeAsyncStat(process.cwd()):null;\n`+
+  `// Diagnostic module hashes: ${hash(observer)} ${hash(registry)} ${hash(startup)}\n`+
+  `const statDiagnostics=hooks?(await import(${JSON.stringify(observer.href)})).observeAsyncStat(process.cwd(),{startup:nodeModule.createRequire(import.meta.url)(${JSON.stringify(fileURLToPath(startup))})}):null;\n`+
   `process.on('exit',()=>{if(statDiagnostics){try{real.writeFileSync(${JSON.stringify(observations)},JSON.stringify(statDiagnostics.report()))}finally{statDiagnostics.close()}}});\n`+
   "const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'")
 replaceOnce("internalFiles:[new URL('./record.mjs', import.meta.url).href]",
@@ -46,7 +47,7 @@ const args=['vitest','--dir',state,'--audits','0','--report',path.join(out,'inte
 const child=spawnSync(binary,args,{cwd:project,encoding:'utf8',timeout:420000,maxBuffer:64*1024*1024,
   env:{...process.env,QUOD_SHIM_ACTIVE:'1',QUOD_VITEST_JS_DIR:staged,QUOD_VITEST_NAMES_PROOF:'1',
     QUOD_VITEST_BOOLEAN_PROOF:'0',QUOD_VITEST_LINEAGE:'0',QUOD_VITEST_TIMING:'off',
-    NODE_OPTIONS:'--require='+preload,BENCH_VITEST_REPORT:report}})
+    NODE_OPTIONS:'--require="'+fileURLToPath(startup).replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'" --require='+preload,BENCH_VITEST_REPORT:report}})
 fs.writeFileSync(path.join(out,'driver.log'),(child.stdout??'')+(child.stderr??''))
 assert.equal(child.error,undefined)
 assert.equal(child.status,0,'diagnostic command failed; see driver.log')
@@ -59,6 +60,7 @@ const fingerprint=crypto.createHash('sha256').update(JSON.stringify(rows)).diges
 assert.equal(fingerprint,'09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd')
 assert.equal(summary.replayed,0)
 assert.equal(trace.replayEligible,false)
+assert.equal(trace.startupAtAttach?.startup.available,true,'early origin must precede the benchmark report preload')
 const fileCalls=trace.calls.filter(c=>c.sizeConsumer)
 const metadata=Object.fromEntries(['sm','sl','st'].map(kind=>[kind,ledger.keys.filter(k=>k.startsWith(kind+':')).length]))
 const result={measurementScope:'Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay',
@@ -68,6 +70,8 @@ const result={measurementScope:'Real planner/driver/workers with passive main-pr
   consumersWithOnlyOwnedHooks:fileCalls.filter(c=>c.observedOnlyOwnedHooks).length,
   consumersWithNativeUnchanged:fileCalls.filter(c=>c.observedNativeUnchanged).length,
   consumersWithConstructionFieldsAbsent:fileCalls.filter(c=>c.observedConstructionFieldsAbsent).length,
+  consumersWithStartupNativeUnchanged:fileCalls.filter(c=>c.observedStartupNativeUnchanged).length,
+  startupAtAttach:trace.startupAtAttach,
   initialObservers:trace.initialObservers,nativeProvenance:trace.nativeStatProvenance,
   inspectorAccess:trace.inspectorAccess,
   preloadModules:trace.preloadModules,replayEligible:false,unvalidated:trace.unvalidated}

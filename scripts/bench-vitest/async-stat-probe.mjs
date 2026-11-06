@@ -6,10 +6,11 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 
-export function observeAsyncStat(project) {
-  const observerRegistry=inspectPromiseObservers()
+export function observeAsyncStat(project,{startup=null}={}) {
+  const observerRegistry=startup?.observerRegistry??inspectPromiseObservers()
   const initialObservers=observerRegistry.snapshot()
-  const nativeStatProvenance=observerRegistry.nativeStatProvenance()
+  const nativeStatProvenance=startup?.provenance??observerRegistry.nativeStatProvenance()
+  const startupAtAttach=startup?.snapshot()??null
   const original=fs.promises.stat, NativeStats=fs.Stats
   const descriptors=Object.getOwnPropertyDescriptors, descriptor=Object.getOwnPropertyDescriptor
   const getPrototypeOf=Object.getPrototypeOf, ownKeys=Reflect.ownKeys, apply=Reflect.apply
@@ -38,6 +39,7 @@ export function observeAsyncStat(project) {
   const checkpoint={promise:null}
   let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null, inspectorAtConsumerProof=null
   const snapshot=()=>({pristine:pristine(),native:observerRegistry.nativeStatSnapshot(),
+    startup:startup?.snapshot()??null,
     asyncHooks:counts(),observers:observerRegistry.snapshot()})
   const stop=promiseHooks.createHook({
     init(p,parent) {
@@ -93,6 +95,7 @@ export function observeAsyncStat(project) {
     setConsumerProof(proof){consumerProof=proof;inspectorAtConsumerProof=observerRegistry.inspectorAccess()},
     report() {
       return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
+        startupAtAttach,
         inspectorAccess:{atConsumerProof:inspectorAtConsumerProof,final:observerRegistry.inspectorAccess()},
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
@@ -102,6 +105,10 @@ export function observeAsyncStat(project) {
           const creator=op.promises.find(p=>p.id===root?.settled?.insidePromise)
           const checkpoints=[op.before,...op.promises.flatMap(p=>[p.init,...p.before,...(p.settled?[p.settled]:[])])]
           return {...op,rootSettledFromOwnReaction:!!creator && creator.nativeCall && root.settled.insideOperation===op.id,
+            observedStartupNativeUnchanged:startupAtAttach?.startup.available===true &&
+              startupAtAttach.nativeBindingUnchanged && startupAtAttach.publicSyncUnchanged &&
+              startupAtAttach.publicAsyncUnchanged && startupAtAttach.prototypeUnchanged &&
+              checkpoints.every(x=>x.startup?.nativeBindingUnchanged && x.startup.prototypeUnchanged),
             observedNativeUnchanged:checkpoints.every(x=>x.native.available && x.native.unchanged),
             observedConstructionFieldsAbsent:checkpoints.every(x=>x.native.constructionFieldsAbsent===true),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
