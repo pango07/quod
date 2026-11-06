@@ -19,6 +19,8 @@ const emit=process.emit;
 if(kind==='wrong-function')process.emit=EventEmitter.prototype.removeAllListeners;
 const initial=p.captureMessageObserver();process.emit=emit;
 let getterCalls=0,traps=0,mid=null;
+const reflectAccessSites=[];
+function noteReflectAccess(){if(reflectAccessSites.length<4)reflectAccessSites.push(new Error('Reflect access').stack)}
 const originalReflect=Reflect,originalReflectApply=Reflect.apply;
 const reflectDescriptor=Object.getOwnPropertyDescriptor(globalThis,'Reflect');
 const applyDescriptor=Object.getOwnPropertyDescriptor(originalReflect,'apply');
@@ -33,8 +35,8 @@ function copyThenApply(target,receiver,args){
 }
 if(kind==='vitest-wrapper-precopy')originalReflect.apply=copyThenApply;
 if(kind==='vitest-wrapper-apply-getter')Object.defineProperty(originalReflect,'apply',{configurable:true,get(){getterCalls++;return originalReflectApply}});
-if(kind==='vitest-wrapper-global-getter')Object.defineProperty(globalThis,'Reflect',{configurable:true,get(){getterCalls++;return originalReflect}});
-if(kind==='vitest-wrapper-global-proxy')globalThis.Reflect=new Proxy(originalReflect,{get(target,key,receiver){traps++;return originalReflect.get(target,key,receiver)}});
+if(kind==='vitest-wrapper-global-getter')Object.defineProperty(globalThis,'Reflect',{configurable:true,get(){getterCalls++;noteReflectAccess();return originalReflect}});
+if(kind==='vitest-wrapper-global-proxy')globalThis.Reflect=new Proxy(originalReflect,{get(target,key,receiver){traps++;noteReflectAccess();return originalReflect.get(target,key,receiver)}});
 if(kind==='vitest-wrapper-lexical') {
   globalThis.quodFixtureReflect={apply:copyThenApply};
   vm.runInThisContext('let Reflect = globalThis.quodFixtureReflect');
@@ -98,7 +100,7 @@ Object.defineProperty(Function.prototype,'apply',functionApplyDescriptor);
 delete observer.apply;
 const report=p.messageDispatch(),compilation=p.compiledScriptReport(),listeners=process.rawListeners('message');
 p.close();process.removeAllListeners('message');
-console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,traps,observerFirst:listeners[0]===observer,
+console.log(JSON.stringify({initial,report,mid,delivered,copied,getterCalls,traps,reflectAccessSites,observerFirst:listeners[0]===observer,
   compilationErrors:compilation.errors,closed:p.messageDispatch()}));`
   const result=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
   assert.equal(result.status,0,result.stderr||String(result.error))
@@ -160,8 +162,8 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
         assert.deepEqual(r.copied,[[123,'/private-message']],'the input copy occurs, but incomplete observation stays rejected')
       if(kind==='vitest-wrapper-precopy')assert(report.errors.includes('warning wrapper Reflect.apply changed'))
       if(kind==='vitest-wrapper-lexical')assert(report.errors.includes('warning wrapper lexical Reflect changed'))
-      if(['vitest-wrapper-apply-getter','vitest-wrapper-global-getter','single-apply-getter'].includes(kind))assert.equal(r.getterCalls,1,'only the application invokes its getter')
-      if(kind==='vitest-wrapper-global-proxy')assert.equal(r.traps,1,'only the warning wrapper invokes its proxy trap')
+      if(['vitest-wrapper-apply-getter','vitest-wrapper-global-getter','single-apply-getter'].includes(kind))assert.equal(r.getterCalls,1,'only the application invokes its getter: '+JSON.stringify(r.reflectAccessSites))
+      if(kind==='vitest-wrapper-global-proxy')assert.equal(r.traps,1,'only the warning wrapper invokes its proxy trap: '+JSON.stringify(r.reflectAccessSites))
       if(['single-apply','prototype-apply'].includes(kind))assert(report.errors.includes('single message listener apply changed'))
       if(kind==='array-counter-getter'||kind==='array-counter-lookalike') {
         if(kind==='array-counter-getter')assert.equal(r.getterCalls,2)
