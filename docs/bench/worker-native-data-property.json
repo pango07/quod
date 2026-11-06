@@ -2261,5 +2261,43 @@
       "url": "https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/src/objects/objects.cc",
       "use": "Native accessor write dispatch; source review did not replace runtime comparison"
     }
-  ]
+  ],
+  "observerPrototype": {
+    "commit": "079526e725132d8b86a61af34f5494373f1eae3d",
+    "firstGate": {
+      "run": "https://github.com/pango07/quod/actions/runs/42278886610",
+      "job": 128102325220,
+      "conclusion": "failure",
+      "passed": 8,
+      "failed": 2,
+      "causes": [
+        "The fixture default parameter replaced an explicit undefined with 17",
+        "Redefinition itself reads the native field; integrity checks must be compared against the count after that operation"
+      ]
+    },
+    "correctedCommit": "ae49c7f06192ba88b094f6cc83732be4a2c58f3a",
+    "correctedGate": {
+      "run": "https://github.com/pango07/quod/actions/runs/42279314082",
+      "job": 128103805358,
+      "conclusion": "success",
+      "tests": 10,
+      "observerRegressions": 9,
+      "inventoryCases": 44,
+      "scalarValueAttributePrototypeCombinations": 56
+    },
+    "sharedHelperGate": {
+      "run": "https://github.com/pango07/quod/actions/runs/42279322159",
+      "job": 128103834511,
+      "conclusion": "success",
+      "tests": 251
+    },
+    "integrated": false,
+    "replayEligible": false,
+    "limitations": [
+      "Initial ownership, earlier copies and native/Inspector/heap capability integrity remain unproven",
+      "Writes and redefinition that remove the callback make observation unavailable, even if the original value is restored",
+      "Closing a frozen owner reports a retained native callback; it returns the scalar and releases the owner/sink references",
+      "No full workload or savings measurement for this prototype"
+    ]
+  }
 }

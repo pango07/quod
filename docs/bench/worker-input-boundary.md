@@ -1684,10 +1684,43 @@ primitive captures must account for every summary without claiming object
 handle releases. Whole-suite agreement and runtime remain unmeasured for
 the integrated string transport.
 
-The full diagnostic is [42276956134](https://github.com/pango07/quod/actions/runs/42276956134),
-at `0c65084` with `native_transport=string`. Its measured workload is
-unchanged. The job was still running when this evidence was recorded;
-no completed whole-suite result is claimed here.
+The full diagnostic [42276956134](https://github.com/pango07/quod/actions/runs/42276956134),
+at `0c65084` with `native_transport=string`, failed. All 333 preceding
+regressions passed. The observed phase completes within its collection
+limit, but six tests exceed their unchanged 30-second timeouts.
+
+| Measurement | Plain baseline | Observed before phase |
+| --- | ---: | ---: |
+| Elapsed seconds | 46.691 | 538.419 |
+| Retained file/project instances | 120 | 120 |
+| Retained test states | 4,131 | 4,131 |
+| Passed / skipped / failed | 4,130 / 1 / 0 | 4,124 / 1 / 6 |
+| Test-state differences from baseline | — | 6 |
+
+All six failures are the composed-stream adversarial-cursor tests, both
+directions for seeds 1, 12648430 and 3735928559. Their actual JSON failure
+messages identify test timeouts; this is no longer inferred from receipt
+timings. No replay occurred. The driver stops before the 39-file metadata
+mutation and after phase, so the full comparison remains incomplete.
+
+All 120 retained worker reports pass the scoped boundary checks. They
+retain 7,099,799 validated/cleared primitive captures, 7,155,077 compilation
+events and zero per-entry object-handle releases or transport failures.
+All 48,670 watched-accessor calls match checked-in diagnostic caller source
+after independently verifying the new seven-frame transport prefix.
+The reporter journal independently matches every complete JSON test state.
+These checks do not establish initial input ownership or complete coverage.
+[Detailed evidence](worker-native-string-full.json) records all 171 artifact
+digests, failure identities and overlapping command/callback timings.
+
+The run also exposes a regression in diagnostic source caching: the space
+after `throw` makes repeated conditions ineligible for the existing exact-
+source cache. It performs 7,153,171 complete-source reads. `ae49c7f` uses a
+parenthesized throw expression to remove that space without weakening any
+cache rule. [Gate 42279318158](https://github.com/pango07/quod/actions/runs/42279318158)
+passes 50 tests, including 1,000 captures with one source fetch and 999 exact
+cache hits. This fix has no new full-workload measurement. Global native
+observation remains too expensive; no product savings claim follows.
 
 ## Native data-property candidate
 
@@ -1711,3 +1744,33 @@ copies, error/microtask isolation and lifetime still need implementation
 and checks. [Machine-readable evidence](worker-native-data-property.json)
 retains every comparison and callback count. No performance measurement or
 product change is attached to this candidate.
+
+`079526e` prototypes a native scalar-read observer on existing writable,
+configurable own data fields. It preserves the original scalar and flags,
+keeps its state in collectible V8 objects, and checks that its own native
+callback still supplies the field. Replacing the field with identical data
+does not restore tracking. Checks do not call replacement JavaScript
+getters. Sink errors/reentrancy mark observation failed while preserving
+the application's value; queued microtasks do not advance at the new
+native-to-JavaScript boundary.
+
+The first [gate 42278886610](https://github.com/pango07/quod/actions/runs/42278886610)
+compiled both helper variants and passed eight of ten tests. Two fixture
+assumptions were wrong: its default parameter changed an explicit undefined
+test value to 17, and redefining a native property itself reads the prior
+value before the later integrity check. `ae49c7f` corrects those baselines.
+[Gate 42279314082](https://github.com/pango07/quod/actions/runs/42279314082)
+passes all nine observer regressions plus the 44-case inventory, including
+56 scalar/value/descriptor/prototype combinations, foreign realms,
+replacement/restoration, callback failure and garbage collection.
+[The shared-helper gate](https://github.com/pango07/quod/actions/runs/42279322159)
+also passes all 251 existing regressions.
+
+Closing a frozen owner cannot remove its nonconfigurable callback. That
+case is reported explicitly: the closed callback returns the scalar but
+releases the owner and JavaScript sink. Inspector/native/heap capabilities,
+initial ownership and values copied earlier remain unproven. This observer
+is not integrated into the workload and grants no replay authority. The
+next step is a separately gated worker diagnostic using its direct read
+evidence, with callback loss rejecting incomplete observations and the
+same complete test scope and original timeouts.

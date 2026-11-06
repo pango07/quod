@@ -341,5 +341,29 @@
     "job": 128094178713,
     "conclusion": "success",
     "tests": 251
+  },
+  "fullDiagnostic": {
+    "evidence": "worker-native-string-full.json",
+    "run": "https://github.com/pango07/quod/actions/runs/42276956134",
+    "conclusion": "failure",
+    "testStateDifferences": 6,
+    "failures": "Six original 30-second test timeouts",
+    "baselineSeconds": 46.691272298,
+    "observedSeconds": 538.418507384,
+    "metadataMutationReached": false
+  },
+  "sourceCacheCorrection": {
+    "commit": "ae49c7f06192ba88b094f6cc83732be4a2c58f3a",
+    "run": "https://github.com/pango07/quod/actions/runs/42279318158",
+    "job": 128103819120,
+    "conclusion": "success",
+    "tests": 50,
+    "change": "Parenthesized throw avoids a space in generated conditions; exact-source cache admission rules unchanged",
+    "fixture": {
+      "calls": 1000,
+      "sourceReads": 1,
+      "cacheHits": 999
+    },
+    "fullWorkloadMeasurement": null
   }
 }
