@@ -321,6 +321,12 @@ if(phase) {
           assert.equal(messages.dispatches,messages.paired)
           assert.equal(messages.pending,0)
           assert.equal(messages.groupsCreated,messages.groupsReleased,'all transient message handles must be released')
+          assert.equal(messages.invocation.wrapperEntries,messages.dispatches)
+          assert.equal(messages.invocation.wrapperForwarded,messages.dispatches)
+          assert.equal(messages.invocation.wrapperChecks,messages.dispatches)
+          assert.equal(messages.invocation.wrapperPending,0)
+          assert.equal(messages.invocation.singleListenerChecks+messages.invocation.arrayListenerChecks,messages.dispatches,
+            'the listener invocation state must be checked before every dispatch')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert.equal(x.boundary.compilation.debuggerScriptCacheBytes,0)
