@@ -147,11 +147,14 @@ export function inspectPromiseObservers() {
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
       const rows=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
       const cache=builtin("process.getBuiltinModule('module')._cache")
+      const processPrototype=prop(prop(builtin("process.binding('process_wrap')"),'Process')?.objectId,'prototype')?.objectId
       opaqueInitial={nativeWorkerObjects:rows.filter(p=>!same(p.value?.objectId,prototype)).length,
         cachedNativeModules:properties(cache).result.filter(p=>p.name.endsWith('.node')).map(p=>p.name)}
       for(const [name,fn] of [
         ['Worker',nativeWorker],['Worker.startThread',prop(prototype,'startThread')?.objectId],
         ['dlopen',builtin('process.dlopen')],['linkedBinding',builtin('process._linkedBinding')],
+        ['Process.spawn',prop(processPrototype,'spawn')?.objectId],
+        ['spawnSync',prop(builtin("process.binding('spawn_sync')"),'spawn')?.objectId],
       ]) {
         if(!fn)throw Error('missing opaque entry: '+name)
         const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
@@ -180,7 +183,7 @@ export function inspectPromiseObservers() {
   return {
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
-        counts:Object.fromEntries(['Worker','Worker.startThread','dlopen','linkedBinding'].map(name=>
+        counts:Object.fromEntries(['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync'].map(name=>
           [name,opaqueEntries.filter(e=>e.entries.includes(name)).length])),
         reason:opaqueFailure,replayEligible:false}
     },
