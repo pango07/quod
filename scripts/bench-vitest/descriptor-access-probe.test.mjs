@@ -68,3 +68,30 @@ test('direct syntax deletion remains an explicit uncovered channel',()=>{
 const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets,present:'tmp' in target}));`)
   assert.equal(data.present,false);assert.equal(data.gets,0);assert.deepEqual(data.report.entries,[])
 })
+
+for(const [kind,expression,known] of [
+  ['primitive object fields','{value:42,configurable:!0}',true],
+  ['lexical object fields','{value:change,configurable:true}',true],
+  ['unevaluated getter and default parameter','{get(){return 42},set:((value=(first={}))=>{})}',true],
+  ['nested literals and functions','{value:[change,{get ignored(){first={};return 1}},()=>first],configurable:!!1}',true],
+  ['computed literal key','{["value"]:42,configurable:true}',true],
+  ['computed key assignment','{[(first={},"value")]:42}',false],
+  ['object spread getter','{...spread}',false],
+  ['nested member getter','{value:box.value}',false],
+  ['conversion hook','{value:+numeric}',false],
+  ['immediately called function','{value:(()=>{first={};return 42})()}',false],
+])test('later descriptor construction preserves or invalidates target recovery: '+kind,()=>{
+  const data=fixture(`const native=Object.defineProperty;let first=target,sideEffects=0;
+const spread={get value(){sideEffects++;first={};return 42}};
+const box={get value(){sideEffects++;first={};return 42}};
+const numeric={valueOf(){sideEffects++;first={};return 42}};
+const p=inspectPromiseObservers({descriptorAccess:true});
+native(first,key,${expression});const report=p.descriptorAccess();p.close();
+console.log(JSON.stringify({report,gets,sideEffects,originalChanged:Object.getOwnPropertyDescriptor(target,key).value!==undefined||typeof Object.getOwnPropertyDescriptor(target,key).set==='function'}));`)
+  assert.equal(data.gets,0);assert.equal(data.originalChanged,true)
+  assert.equal(data.sideEffects,['object spread getter','nested member getter','conversion hook'].includes(kind)?1:0)
+  const events=data.report.entries.filter(e=>e.entries.includes('Object.defineProperty'))
+  assert.equal(events.length,1)
+  assert.equal(events[0].argument.available,known,JSON.stringify(events))
+  if(known)assert(events[0].argument.target.watchedAccessorKeys.includes('tmp'))
+})

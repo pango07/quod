@@ -75,6 +75,34 @@ export function observeNativeCallArguments(post) {
       }
       throw Error('unsupported argument expression')
     }
+    function pureSyntax(node) {
+      if(!node)return false
+      if(['Identifier','ThisExpression'].includes(node.type))return true
+      if(node.type==='Literal')return node.value===null||['string','number','boolean'].includes(typeof node.value)
+      // Creating a function does not execute its parameters or body. In an
+      // object method the computed property key is checked separately below.
+      if(['FunctionExpression','ArrowFunctionExpression'].includes(node.type))return true
+      if(node.type==='ArrayExpression')return node.elements.every(e=>e===null||pureSyntax(e))
+      if(node.type==='ObjectExpression')return node.properties.every(p=>p.type==='Property'&&
+        (!p.computed||p.key.type==='Literal'&&pureSyntax(p.key))&&pureSyntax(p.value))
+      // These operators cannot invoke conversion hooks. Numeric conversion
+      // is allowed only for a literal primitive, never an arbitrary object.
+      if(node.type==='UnaryExpression')return ['!','void','typeof'].includes(node.operator)?pureSyntax(node.argument):
+        ['+','-','~'].includes(node.operator)&&node.argument.type==='Literal'&&pureSyntax(node.argument)
+      return false
+    }
+    function validatePureBindings(node) {
+      if(['Identifier','ThisExpression'].includes(node.type)) {
+        const v=value(node)
+        if(!v||v.type==='undefined')throw Error('argument value unavailable')
+      }else if(node.type==='ObjectExpression') {
+        for(const p of node.properties)validatePureBindings(p.value)
+      }else if(node.type==='ArrayExpression') {
+        for(const e of node.elements)if(e)validatePureBindings(e)
+      }else if(node.type==='UnaryExpression')validatePureBindings(node.argument)
+      // Function bodies and default parameter expressions are intentionally
+      // not visited: they are not evaluated while constructing the function.
+    }
     try {
       if(!frame?.location?.scriptId||!nativeFunction)throw Error('missing native call frame')
       const s=source(frame.location.scriptId);callerSourceSha256=s.sha256
@@ -88,11 +116,12 @@ export function observeNativeCallArguments(post) {
       // evaluated. Bound functions may inject a different first argument.
       if(call.optional||!call.arguments.length||(!pureAdditionalArguments&&call.arguments.length!==1))throw Error('unsupported native call arguments')
       if(pureAdditionalArguments) {
-        // Reading a later identifier/this/literal cannot change an already
-        // evaluated target. Reject globals, properties, spreads and calls:
-        // each can run code that replaces an earlier binding.
-        if(call.arguments.some(arg=>!['Identifier','ThisExpression','Literal'].includes(arg.type)))throw Error('native argument evaluation may have side effects')
-        for(const arg of call.arguments)value(arg)
+        // The target itself still needs a recoverable binding. Later
+        // arguments may construct literals/functions without executing user
+        // code or replacing that binding. Check all syntax before any reads.
+        if(!['Identifier','ThisExpression','Literal'].includes(call.arguments[0].type)||
+          call.arguments.some(arg=>!pureSyntax(arg)))throw Error('native argument evaluation may have side effects')
+        for(const arg of call.arguments)validatePureBindings(arg)
       }
       const callee=value(call.callee)
       if(callee.type!=='function'||!callee.objectId||callee.subtype==='proxy')throw Error('native callee unavailable')
