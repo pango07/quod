@@ -16,12 +16,12 @@ import {observeTransportMetadata} from ${JSON.stringify(transportUrl)};
 import {ModuleRunner} from ${JSON.stringify(viteUrl)};
 import {promiseHooks} from 'node:v8';
 const mode=${JSON.stringify(mode)},kind=${JSON.stringify(kind)};
-const observed=[],order=[],promiseEvents=[],ids=new Map(),resolvers=[];
+const observed=[],order=[],promiseEvents=[],ids=new Map(),resolvers=[],trapEvents=[];
 let gets=0,traps=0,unhandled=0,lastPromise=null;
 const failure=new Error('fixture rejection');
 const raw={invalidate:true,tmp:'/private-continuation'};
 const response=kind==='error'?{error:failure}:kind==='accessor'?{get result(){gets++;return raw}}:
-  kind==='proxy'?new Proxy({result:raw},{has(target,key){traps++;return Reflect.has(target,key)},get(target,key){traps++;return Reflect.get(target,key)}}):{result:raw};
+  kind==='proxy'?new Proxy({result:raw},{has(target,key){traps++;trapEvents.push(['has',String(key)]);return Reflect.has(target,key)},get(target,key){traps++;trapEvents.push(['get',String(key)]);return Reflect.get(target,key)}}):{result:raw};
 class Transport {invoke(event){
   order.push('invoke:'+event.data.data[0]);
   lastPromise=kind==='rejected'||kind==='orphan'?Promise.reject(failure):kind==='out-of-order'?
@@ -59,7 +59,7 @@ if(kind==='orphan') {
 stop();
 const report=p.transportContinuation(),transportReport=transport.report(),compilation=p.compiledScriptReport();
 p.close();transport.close?.();process.removeListener('message',observer);
-console.log(JSON.stringify({initial,report,transport:transportReport,observed,order,promiseEvents,gets,traps,unhandled,samePromise,
+console.log(JSON.stringify({initial,report,transport:transportReport,observed,order,promiseEvents,gets,traps,trapEvents,unhandled,samePromise,
   rawIdentity:value===raw,error,compilationErrors:compilation.errors,closed:p.transportContinuation()}));`
   const result=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
   assert.equal(result.status,0,result.stderr||String(result.error))
@@ -97,6 +97,8 @@ for(const kind of ['error','rejected','identity','orphan','accessor','proxy','ca
     assert.deepEqual(r.order,plain.order)
     assert.deepEqual(r.promiseEvents,plain.promiseEvents)
     assert.equal(r.error,plain.error);assert.equal(r.rawIdentity,plain.rawIdentity)
+    assert.equal(r.gets,plain.gets);assert.equal(r.traps,plain.traps)
+    assert.deepEqual(r.trapEvents,plain.trapEvents)
     assert.equal(r.report.replayEligible,false);assert.equal(r.report.completeOwnership,false)
     assert.equal(r.report.groupsCreated,r.report.groupsReleased)
     assert(!JSON.stringify(r.report).includes('/private-continuation'))
@@ -110,7 +112,12 @@ for(const kind of ['error','rejected','identity','orphan','accessor','proxy','ca
       if(kind==='orphan'){assert.equal(r.unhandled,1);assert.equal(plain.unhandled,1)}
     }
     if(kind==='accessor'){assert.equal(r.gets,1);assert.equal(r.report.available,false)}
-    if(kind==='proxy'){assert.equal(r.traps,2);assert.equal(r.report.available,false)}
+    if(kind==='proxy') {
+      // Promise.resolve first checks `then`; Vite subsequently tests `error`
+      // and reads `result`. Observation must add no access to that sequence.
+      assert.deepEqual(r.trapEvents,[['get','then'],['has','error'],['get','result']])
+      assert.equal(r.report.available,false)
+    }
     if(kind==='callback-throw')assert.equal(r.report.available,false)
     if(kind==='missing-source')assert.equal(r.initial.available,false)
     if(kind==='closed')assert.equal(r.report.closed,true)
