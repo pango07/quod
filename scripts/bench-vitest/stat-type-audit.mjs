@@ -72,6 +72,32 @@ const prototypeChanged=run('prototype-metadata-change'),prototypePlain=run('prot
 assert.equal(prototypeChanged.summary.replayed,0,'internal constructor replacement must retain metadata')
 assert.equal(prototypePlain.states.length,2)
 assert.deepEqual(prototypeChanged.states,prototypePlain.states)
+// An inherited field setter loaded before the recorder can publish Stats
+// during construction. The visible fs call still reads only isFile().
+fs.utimesSync(input,1577836800,1577836800)
+const startup=path.join(project,'stat-type-preload.cjs')
+fs.writeFileSync(startup,`const fs=require('node:fs');
+Object.defineProperty(fs.Stats.prototype,'mtimeMs',{configurable:true,set(value){
+  globalThis.exposedStat=this;
+  Object.defineProperty(this,'mtimeMs',{value,writable:true,enumerable:true,configurable:true});
+}});
+`)
+env.NODE_OPTIONS='--require='+startup
+fs.writeFileSync(path.join(project,'vitest.config.mjs'),`import fs from 'node:fs';
+const isFile=fs.statSync('stat-type-input').isFile();
+const early=globalThis.exposedStat.mtimeMs<1600000000000;
+export default {css:{postcss:{}},test:{include:isFile && early ? ['tests/add.test.js'] : ['tests/*.test.js']}};
+`)
+const startupBefore=run('startup-plain-before',true)
+assert.equal(startupBefore.states.length,1)
+for(const label of ['startup-record','startup-confirm','startup-warm']) assert.deepEqual(run(label).states,startupBefore.states)
+assert.equal(runs.at(-1).summary.replayed,1)
+fs.utimesSync(input,1609459200,1609459200)
+const startupChanged=run('startup-metadata-change'),startupPlain=run('startup-metadata-plain',true)
+assert.equal(startupChanged.summary.replayed,0,'startup setter must retain its hidden metadata observation')
+assert.equal(startupPlain.states.length,2)
+assert.deepEqual(startupChanged.states,startupPlain.states)
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({wrong:0,metadataReplayed:metadata.summary.replayed,
   typeChangeReplayed:changed.summary.replayed,selectedTests:plain.states.length,
-  prototypeMetadataReplayed:prototypeChanged.summary.replayed,prototypeSelectedTests:prototypePlain.states.length},null,2))
+  prototypeMetadataReplayed:prototypeChanged.summary.replayed,prototypeSelectedTests:prototypePlain.states.length,
+  startupMetadataReplayed:startupChanged.summary.replayed,startupSelectedTests:startupPlain.states.length},null,2))

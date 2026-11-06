@@ -19,8 +19,15 @@ const statPrototypes = []
 for (let p = nativeStatsPrototype; p; p = Object.getPrototypeOf(p)) {
   statPrototypes.push({object:p, parent:Object.getPrototypeOf(p), descriptors:Object.getOwnPropertyDescriptors(p)})
 }
+// An initial snapshot can already contain an inherited setter. Native
+// construction assigns these fields; such a setter could expose the Stats
+// to another consumer even when the immediate caller only uses its type.
+const constructedStatFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
+  'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
+const initialStatFieldsAbsent=statPrototypes.every(({object})=>
+  constructedStatFields.every(k=>Object.getOwnPropertyDescriptor(object,k)===undefined))
 function pristineStats() {
-  if (!nativeStatsPrototype || typeof nativeStatsConstructor!=='function' ||
+  if (!initialStatFieldsAbsent || !nativeStatsPrototype || typeof nativeStatsConstructor!=='function' ||
       Object.getOwnPropertyDescriptor(fs,'Stats')?.value!==nativeStats ||
       Object.getOwnPropertyDescriptor(nativeStats,'prototype')?.value!==nativeStatsPrototype ||
       Object.getOwnPropertyDescriptor(nativeStatsConstructor,'prototype')?.value!==nativeStatsPrototype) return false
