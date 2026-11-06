@@ -254,6 +254,14 @@ if(phase) {
           assert.equal(continuation.delivered,x.transport.counts.settled)
           assert.equal(continuation.entries,continuation.delivered)
           assert.equal(continuation.groupsCreated,continuation.groupsReleased)
+          const ipc=x.boundary.ipcDelivery
+          assert(ipc?.available&&ipc.installed&&!ipc.closed&&!ipc.replayEligible&&!ipc.completeOwnership,
+            'decoded IPC observation must be available: '+JSON.stringify(ipc))
+          assert.deepEqual(ipc.errors,[]);assert.equal(ipc.failures,0);assert.equal(ipc.pending,0)
+          assert.equal(ipc.decoded,ipc.prepared);assert.equal(ipc.decoded,ipc.paired)
+          assert.equal(ipc.paired,x.boundary.messageDispatch.callbacks)
+          assert.equal(ipc.groupsCreated,ipc.groupsReleased)
+          assert.deepEqual(ipc.parsers.map(p=>p.mode),['advanced'])
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage)

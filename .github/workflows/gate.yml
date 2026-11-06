@@ -975,7 +975,7 @@ jobs:
         if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs scripts/bench-vitest/worker-transport-metadata-probe.test.mjs scripts/bench-vitest/metadata-reader-source.test.mjs
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
-      - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/hook-access-probe.test.mjs scripts/bench-vitest/inspector-access-probe.test.mjs scripts/bench-vitest/message-dispatch-probe.test.mjs scripts/bench-vitest/transport-continuation-probe.test.mjs
+      - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/hook-access-probe.test.mjs scripts/bench-vitest/inspector-access-probe.test.mjs scripts/bench-vitest/message-dispatch-probe.test.mjs scripts/bench-vitest/transport-continuation-probe.test.mjs scripts/bench-vitest/ipc-delivery-probe.test.mjs
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/opaque-observers-probe.test.mjs scripts/bench-vitest/heap-observers-probe.test.mjs scripts/bench-vitest/proxy-observers-probe.test.mjs
         if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary'

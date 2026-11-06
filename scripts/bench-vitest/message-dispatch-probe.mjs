@@ -11,7 +11,7 @@ const own=Object.hasOwn
 // Call synchronously after installing the diagnostic as the first listener,
 // before transferring control to the application. Capturing a reference here
 // is an observation baseline, not proof that earlier code was trustworthy.
-export function observeMessageDispatch(post,{pendingLimit=32}={}) {
+export function observeMessageDispatch(post,{pendingLimit=32,onObserverMessage=null}={}) {
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending message limit')
   const group='quod-message-dispatch-'+randomBytes(16).toString('hex')
   const breakpoints=new Map(),pending=[],wrapperPending=[],errors=[],failureCounts=new Map()
@@ -174,6 +174,12 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     installed=true
   }catch(e){fail(e.message)}
   return {
+    ipcDeliveryCallback() {
+      if(!installed||closed)throw Error('message observer unavailable for IPC registration')
+      const callback=binding(observer,'prepareWorkerMessage')
+      if(callback.type!=='function'||callback.subtype==='proxy')throw Error('IPC preparation callback unavailable')
+      return callback
+    },
     transportDeliveryCallback() {
       if(!installed||closed)throw Error('message observer unavailable for transport registration')
       // The bootstrap's captured observer closes over its diagnostic transport.
@@ -225,6 +231,7 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
         } else {
           callbacks++
           const message=evaluate(frame,'arguments[0]',eventGroup),last=pending.at(-1)
+          if(onObserverMessage&&onObserverMessage(message)!==true)fail('observer callback has no prepared IPC delivery')
           if(!same(receiver,actualReceiver)||!last||!same(last.message,message))
             throw Error('observer callback has no matching message dispatch')
           pending.pop();paired++;release(last.group)

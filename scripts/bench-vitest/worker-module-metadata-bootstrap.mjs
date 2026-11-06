@@ -47,9 +47,9 @@ if(combined) {
   evaluation=observeModuleEvaluation(VitestModuleEvaluator,{metadataForNode:observer.metadataForNode})
 }
 const output=path.join(directory,`${process.pid}.json`)
-function observeWorkerMessage(message) {
+function prepareWorkerMessage(message) {
   transport.received(message)
-  if(message?.__vitest_worker_request__!==true)return
+  if(message?.__vitest_worker_request__!==true)return true
   if(message.type==='start') {
     if(project!==null)unknown.push('reused worker')
     project=message.context?.config?.name??''
@@ -61,10 +61,19 @@ function observeWorkerMessage(message) {
     }
   }
   if(message.type==='run'||message.type==='collect')files.push(...message.context.files.map(f=>f.filepath))
+  return true
+}
+function observeWorkerMessage(message) {
+  // Combined mode has already prepared the decoded object before dispatch.
+  // This redundant transport notification is idempotent and retains the
+  // exact diagnostic binding used by the transport continuation observer.
+  if(combined)transport.received(message)
+  else prepareWorkerMessage(message)
 }
 process.prependListener('message',observeWorkerMessage)
 if(combined) {
   registry.captureMessageObserver()
+  registry.captureIpcDelivery()
   registry.captureTransportContinuation(pathToFileURL(entry).href)
 }
 process.send=function(...args) {
@@ -72,7 +81,7 @@ process.send=function(...args) {
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),transportContinuation:registry.transportContinuation(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
+      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),ipcDelivery:registry.ipcDelivery(),transportContinuation:registry.transportContinuation(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity(),timing:registry.inspectorTiming()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }

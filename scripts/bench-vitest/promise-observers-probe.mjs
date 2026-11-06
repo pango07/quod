@@ -14,6 +14,7 @@ import {scriptMetadataIndex} from './script-metadata-index.mjs'
 import {issuedCompilationSources} from './issued-compilation-sources.mjs'
 import {observeMessageDispatch} from './message-dispatch-probe.mjs'
 import {observeTransportContinuation} from './transport-continuation-probe.mjs'
+import {observeIpcDelivery} from './ipc-delivery-probe.mjs'
 const monotonicNow=process.hrtime.bigint
 const memoryUsage=process.memoryUsage
 
@@ -62,7 +63,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     compiledEvent(params,false)
   })
   session.on('Debugger.scriptFailedToParse',({params})=>compiledEvent(params,true))
-  let failure=null, closed=false,messageDispatch=null,transportContinuation=null
+  let failure=null, closed=false,messageDispatch=null,transportContinuation=null,ipcDelivery=null
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
@@ -282,7 +283,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const descriptors=(params.hitBreakpoints??[]).map(id=>descriptorBreakpoints.get(id)).filter(Boolean)
       const messageEntry=messageDispatch?.handlePause(params)??false
       const transportEntry=transportContinuation?.handlePause(params)??false
-      if(inspector.length||opaque.length||proxy.length||hooks.length||descriptors.length||messageEntry||transportEntry) {
+      const ipcEntry=ipcDelivery?.handlePause(params)??false
+      if(inspector.length||opaque.length||proxy.length||hooks.length||descriptors.length||messageEntry||transportEntry||ipcEntry) {
         const frames=params.callFrames.slice(0,8).map(f=>({
           name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
         if(inspector.length)inspectorEntries.push({entries:inspector,frames})
@@ -508,11 +510,19 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   return {
     captureMessageObserver() {
       if(closed||messageDispatch)throw Error('message observer already captured or closed')
-      messageDispatch=observeMessageDispatch(post)
+      messageDispatch=observeMessageDispatch(post,{onObserverMessage:message=>ipcDelivery?.pair(message)??true})
       return messageDispatch.report()
     },
     messageDispatch() {
       return messageDispatch?.report()??{available:false,installed:false,replayEligible:false,completeOwnership:false}
+    },
+    captureIpcDelivery(options={}) {
+      if(closed||ipcDelivery||!messageDispatch)throw Error('IPC delivery already captured or message observer unavailable')
+      ipcDelivery=observeIpcDelivery(post,{...options,callback:messageDispatch.ipcDeliveryCallback()})
+      return ipcDelivery.report()
+    },
+    ipcDelivery() {
+      return ipcDelivery?.report()??{available:false,installed:false,replayEligible:false,completeOwnership:false}
     },
     captureTransportContinuation(entryUrl) {
       if(closed||transportContinuation||!messageDispatch)throw Error('transport continuation already captured or message observer unavailable')
@@ -683,6 +693,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     snapshot:hookSnapshot,
     close() {
       closed=true
+      ipcDelivery?.close()
       transportContinuation?.close()
       messageDispatch?.close()
       heapIdentityObserver?.close()
