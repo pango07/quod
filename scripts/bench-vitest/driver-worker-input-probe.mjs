@@ -45,7 +45,8 @@ if(phase) {
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
       this.execArgv=['--import',fileURLToPath(new URL('./worker-module-metadata-bootstrap.mjs',import.meta.url)),...this.execArgv]
-      this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0'}
+      this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0',
+        ...(boundaryProbe?{QUOD_NATIVE_CAPTURE_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON}:{})}
       return Reflect.apply(original,this,args)
     }
   }
@@ -226,7 +227,9 @@ if(phase) {
           validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
           assert.equal(x.native.identity?.targetAccessorsOnly,true,'the diagnostic must use the gated accessor-only observation')
           assert.equal(x.native.identity?.argumentMode,'direct','the combined diagnostic must use the gated direct argument transport')
-          assert.equal(x.native.identity?.targetInspection,'adaptive','the combined diagnostic must use the gated adaptive inspection')
+          assert.equal(x.native.identity?.targetInspection,'native-watched','the combined diagnostic must use the gated native inspection')
+          assert.equal(x.native.identity?.nativeCapture,true)
+          assert.equal(x.native.identity?.handleMode,'native-private-capture')
           for(const entry of x.native.descriptors.entries)if(entry.argument.kind==='object') {
             const target=entry.argument.target
             assert(target&&['all-own-accessors','watched-properties'].includes(target.inspectionScope),

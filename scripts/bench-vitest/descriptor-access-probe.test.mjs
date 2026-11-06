@@ -49,7 +49,9 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
   assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
   assert.equal(data.identity.targetAccessorsOnly,true)
   assert.equal(data.identity.argumentMode,'direct')
-  assert.equal(data.identity.targetInspection,'adaptive')
+  assert.equal(data.identity.targetInspection,'native-watched')
+  assert.equal(data.identity.nativeCapture,true)
+  assert.equal(data.identity.handleMode,'native-private-capture')
   assert.equal(data.report.sourceEvidence.available,true)
   assert.equal(data.report.sourceEvidence.scope,'frames-of-watched-accessor-targets')
   const sources=new Map(data.report.sourceEvidence.records.map(r=>[r.scriptId,r]))
@@ -63,7 +65,8 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
   assert.deepEqual(data.checkpoints.map(c=>c.calls),[5,10,15])
   assert.deepEqual(data.report.entries.flatMap(e=>e.entries).sort(),data.names.sort())
   assert(data.report.entries.every(e=>e.count===1&&e.argument.actualNativeEntry&&e.argument.available&&
-    e.argument.target.watchedAccessorKeys.includes('tmp')))
+    e.argument.target.watchedAccessorKeys.includes('tmp')&&e.argument.target.inspectionScope==='watched-properties'&&
+    !Object.hasOwn(e.argument.target,'ownAccessorCount')))
   assert.equal(data.compilation.encoding,'dictionary-v1');assert.deepEqual(data.compilation.errors,[])
   validateCompilationCounts(data.compilation)
 })
@@ -113,6 +116,21 @@ console.log(JSON.stringify({report,gets,traps,failed,detected,proxyReport,identi
   assert.equal(data.proxyReport.entries.length,1);assert.equal(data.proxyReport.entries[0].argument.kind,'proxy')
   assert.equal(data.identity.calls,3);assert.equal(data.identity.cleared,3)
   assert.equal(data.identity.argumentMode,'direct')
+})
+
+test('integrated native capture rejects an interceptor target without retaining its wrapper',()=>{
+  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true});
+const key='QUOD_NATIVE_CAPTURE_ADDON',before=Object.getOwnPropertyDescriptor(process.env,key);
+const report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
+console.log(JSON.stringify({report,identity,preserved:before.value===process.env[key]}));`
+  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(r.status,0,r.stderr||String(r.error))
+  const data=JSON.parse(r.stdout)
+  assert(data.preserved)
+  assert.equal(data.report.available,false);assert.equal(data.identity.available,false)
+  assert.equal(data.identity.calls,1);assert.equal(data.identity.cleared,1)
+  assert.equal(data.identity.errors.length,1);assert.equal(data.report.entries.length,0)
 })
 
 for(const [api,args] of [

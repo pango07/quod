@@ -70,7 +70,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let opaqueInitial=null,opaqueFailure=null
   const commandTiming=new Map()
   const pauseTiming={calls:0,elapsedMs:0}
-  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,targetInspection:'adaptive',onEntry(entry) {
+  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,onEntry(entry) {
     const frames=entry.frames.map(f=>({name:f.name,
       location:{scriptId:f.scriptId,lineNumber:f.line-1,columnNumber:f.column-1},script:scripts.get(f.scriptId)??null}))
     const argument={available:true,kind:entry.kind,...(entry.target?{target:entry.target}:{}),
