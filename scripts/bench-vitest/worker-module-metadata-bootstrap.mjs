@@ -14,11 +14,13 @@ import {nativeOwnerGuard} from './native-owner-guard.mjs'
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
 const combined=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
+const scalarObservation=combined?(process.env.QUOD_WORKER_SCALAR_OBSERVATION??'accessor'):'accessor'
+if(!['accessor','native-data'].includes(scalarObservation))throw Error('unknown scalar observation mode')
 const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect.apply
 let project=null
 const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined&&scalarObservation==='accessor',
   nativeEntries:combined,inspectorTiming:combined,ordinaryOwners:combined,
   nativeTransport:combined?(process.env.QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT??'protocol'):'protocol',
   onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
@@ -29,7 +31,7 @@ const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('he
 if(entrySha256!=='9e3f0bc4ea6d01e55bb9a73ee3666c750e139340bb84fa46e35f92085f2535b7')throw Error('review module graph interface before changing Vite')
 const {EvaluatedModules}=await import(pathToFileURL(entry).href)
 const ownerGuard=combined?nativeOwnerGuard():null
-const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript,observation:combined?'accessor':'proxy',ownerGuard})
+const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript,observation:combined?scalarObservation:'proxy',ownerGuard})
 const vitestPackage=require.resolve('vitest/package.json')
 const transportEntry=path.join(path.dirname(vitestPackage),'dist/chunks/index.1_nbEjJY.js')
 const transportSha256=createHash('sha256').update(fs.readFileSync(transportEntry)).digest('hex')
@@ -54,7 +56,7 @@ process.prependListener('message',message=>{
     if(combined) {
       const sequence=Object.getOwnPropertyDescriptor(message.context.config,'sequence')
       seed=observeScalarProperty(sequence&&Object.hasOwn(sequence,'value')?sequence.value:null,'seed',
-        {sourceForScript:registry.sourceForScript,ownerGuard})
+        {sourceForScript:registry.sourceForScript,ownerGuard,observation:scalarObservation})
       config=observeConfig(message.context.config)
       message.context.config=config.value
     }
@@ -66,7 +68,7 @@ process.send=function(...args) {
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
+      boundary:combined?{scalarObservation,evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity(),timing:registry.inspectorTiming()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }

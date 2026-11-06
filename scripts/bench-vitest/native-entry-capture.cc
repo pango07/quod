@@ -1,5 +1,5 @@
 // Diagnostic only, built against the pinned Node headers on GitHub.
-// No process-wide hooks, persistent application references, or public bridge.
+// No process-wide hooks or public bridge. Scalar callback state is V8-owned.
 // This helper does not certify initial runtime integrity or replay eligibility.
 #include <node.h>
 #include <v8-profiler.h>

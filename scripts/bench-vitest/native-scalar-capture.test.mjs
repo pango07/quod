@@ -18,6 +18,8 @@ test('native scalar reads preserve primitive identity, descriptors and aliases',
       const target=make(value,enumerable,prototype),before=Object.getOwnPropertyDescriptor(target,'tmp')
       let reads=0;const observer=observe(target,'tmp',()=>reads++)
       assert(observer.report().available);assert.equal(reads,0,'integrity checks must not notify the read sink')
+      assert.deepEqual(observer.currentValue(),{available:true,value,enumerable,writable:true,configurable:true})
+      assert.equal(reads,0,'private scalar snapshots must not be reported as application reads')
       assert(Object.is(target.tmp,value));assert.equal(reads,1)
       assert.deepEqual(Object.getOwnPropertyDescriptor(target,'tmp'),before);assert.equal(reads,2)
       assert(Object.is(Reflect.get(target,'tmp',{}),value));assert.equal(reads,3)
@@ -44,6 +46,7 @@ test('native scalar callback loss is detected even when the original value is re
     const target=make();let reads=0;const observer=observe(target,'tmp',()=>reads++)
     mutate(target);const before=Object.getOwnPropertyDescriptor(target,'tmp'),count=reads,report=observer.report()
     assert.equal(report.intact,false);assert.equal(report.available,false);assert.equal(reads,count)
+    assert.deepEqual(observer.currentValue(),{available:false});assert.equal(reads,count)
     observer.close();assert.deepEqual(Object.getOwnPropertyDescriptor(target,'tmp'),before)
     assert.equal(observer.report().restored,false,'closing must not overwrite replacement application data')
   }
@@ -56,6 +59,7 @@ test('native scalar integrity checks never invoke a replacement JavaScript acces
   Object.defineProperty(target,'tmp',{get:getter,configurable:true})
   const before=reads
   assert.equal(observer.report().available,false);assert.equal(reads,before);assert.equal(getters,0)
+  assert.deepEqual(observer.currentValue(),{available:false});assert.equal(getters,0)
   observer.close();assert.equal(Object.getOwnPropertyDescriptor(target,'tmp').get,getter)
   assert.equal(getters,0)
 })

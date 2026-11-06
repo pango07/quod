@@ -11,6 +11,7 @@ import {observeWorkerInputs} from './worker-input-probe.mjs'
 import {validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
 import {validateNativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 import {testProgressReporter} from './test-progress-reporter.mjs'
+import {validateNativeScalarEvidence} from './native-scalar-evidence.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -20,6 +21,8 @@ const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
 const boundaryProbe=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
 const nativeTransport=process.env.QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT??'protocol'
 assert(['protocol','string'].includes(nativeTransport),'unknown diagnostic capture transport')
+const scalarObservation=process.env.QUOD_WORKER_SCALAR_OBSERVATION??'accessor'
+assert(['accessor','native-data'].includes(scalarObservation),'unknown diagnostic scalar observation')
 const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'||boundaryProbe
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function checkCompilationCounts(report) {
@@ -50,7 +53,7 @@ if(phase) {
       this.execArgv=['--import',fileURLToPath(new URL('./worker-module-metadata-bootstrap.mjs',import.meta.url)),...this.execArgv]
       this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0',
         ...(boundaryProbe?{QUOD_NATIVE_CAPTURE_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON,
-          QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT:nativeTransport}:{})}
+          QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT:nativeTransport,QUOD_WORKER_SCALAR_OBSERVATION:scalarObservation}:{})}
       return Reflect.apply(original,this,args)
     }
   }
@@ -93,7 +96,8 @@ if(phase) {
     // timeouts and from the real product benchmark's speed target.
     const timeoutMs=boundaryProbe&&name!=='baseline'?900000:420000,started=performance.now()
     const r=spawnSync(process.execPath,[self,project,out,name],{cwd:project,encoding:'utf8',timeout:timeoutMs,maxBuffer:32*1024*1024})
-    write(path.join(out,name+'-phase.json'),{phase:name,nativeTransport:boundaryProbe&&name!=='baseline'?nativeTransport:null,timeoutMs,elapsedMs:performance.now()-started,
+    write(path.join(out,name+'-phase.json'),{phase:name,nativeTransport:boundaryProbe&&name!=='baseline'?nativeTransport:null,
+      scalarObservation:boundaryProbe&&name!=='baseline'?scalarObservation:null,timeoutMs,elapsedMs:performance.now()-started,
       status:r.status,signal:r.signal,errorCode:r.error?.code??null})
     fs.writeFileSync(path.join(out,name+'.log'),(r.stdout??'')+(r.stderr??''))
     assert.equal(r.error,undefined);assert.equal(r.status,0,name+' Vitest phase failed; see '+name+'.log')
@@ -236,8 +240,11 @@ if(phase) {
           assert(!x.transport.errors.length&&!x.transport.overflow&&x.transport.pending===0&&x.transport.unsettled===0)
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
-          assert(x.native.descriptors?.available&&!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage,
-            'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
+          assert(!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage)
+          if(scalarObservation==='native-data') {
+            assert.equal(x.native.descriptors.available,false,'direct scalar mode must declare the global descriptor census disabled')
+            assert.equal(x.native.descriptors.calls,0);assert.deepEqual(x.native.descriptors.entries,[])
+          }else assert(x.native.descriptors.available,'listed descriptor APIs must be observed in accessor mode')
           assert.equal(x.native.descriptors.argumentDiagnostics?.mode,'native-entry-arguments',
             'the combined diagnostic must report actual native arguments')
           validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
@@ -259,9 +266,12 @@ if(phase) {
           assert.equal(x.metadata.ownerGuardRequired,true)
           assert(x.boundary.seed?.ownerGuardRequired&&x.boundary.seed.ownerGuardPassed,
             'the seed owner must pass the native ordinary-object guard')
-          for(const record of x.metadata.metadata)for(const scalar of record.scalars)
+          for(const record of x.metadata.metadata)for(const scalar of record.scalars) {
             assert(scalar.ownerGuardRequired&&scalar.ownerGuardPassed,
               'every watched metadata scalar must pass the native owner guard')
+            if(scalarObservation==='native-data')validateNativeScalarEvidence(scalar,
+              x.metadata.events.filter(e=>e.metadata===record.id&&e.key===scalar.key))
+          }
           for(const entry of x.native.descriptors.entries)if(entry.argument.kind==='object') {
             const target=entry.argument.target
             if(target?.inspectionScope==='excluded-owner-type') {
@@ -280,13 +290,15 @@ if(phase) {
               target.watchedAccessorCount===target.watchedAccessorKeys.length,'scoped inspection must not claim an all-accessor count')
           }
           const evidence=x.native.descriptors.sourceEvidence
-          assert(evidence?.available&&evidence.scope==='frames-of-watched-accessor-targets',
-            'watched target call stacks must retain actual V8 source evidence')
-          assert.equal(evidence.collection,'at-native-entry')
-          const sourceIds=new Set(evidence.records.filter(r=>r.available&&r.code.encoding==='utf16le').map(r=>r.scriptId))
-          for(const entry of x.native.descriptors.entries)if(entry.argument.target?.watchedAccessorKeys.length)
-            assert(nativeEntryFrames(x.native.descriptors,entry).every(f=>sourceIds.has(f.location.scriptId)),
-              'every watched target frame must resolve by its actual script identity')
+          if(scalarObservation==='accessor') {
+            assert(evidence?.available&&evidence.scope==='frames-of-watched-accessor-targets',
+              'watched target call stacks must retain actual V8 source evidence')
+            assert.equal(evidence.collection,'at-native-entry')
+            const sourceIds=new Set(evidence.records.filter(r=>r.available&&r.code.encoding==='utf16le').map(r=>r.scriptId))
+            for(const entry of x.native.descriptors.entries)if(entry.argument.target?.watchedAccessorKeys.length)
+              assert(nativeEntryFrames(x.native.descriptors,entry).every(f=>sourceIds.has(f.location.scriptId)),
+                'every watched target frame must resolve by its actual script identity')
+          }else assert.equal(evidence.records.length,0,'disabled global descriptor census is not source evidence')
           assert(x.native.identity?.available&&x.native.identity.mode==='native-entry-arguments'&&x.native.identity.snapshotsRequested===0,
             'native argument observation must remain available without collecting heap snapshots')
           assert.equal(x.native.identity.calls,x.native.identity.cleared,'every diagnostic exception wrapper must be cleared')
@@ -294,7 +306,8 @@ if(phase) {
             'every native argument event must be attributed once')
           assert([...x.native.descriptors.entries,...x.native.proxy.entries].every(e=>e.argument.available&&e.argument.actualNativeEntry),
             'native argument evidence must not silently fall back to reconstructed caller expressions')
-          assert.equal(x.metadata.observation,'accessor')
+          assert.equal(x.metadata.observation,scalarObservation)
+          assert.equal(x.boundary.scalarObservation,scalarObservation)
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert.equal(x.boundary.compilation.debuggerScriptCacheBytes,0)
@@ -317,6 +330,7 @@ if(phase) {
           assert(x.boundary.config&&!x.boundary.config.overflow)
           assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,
             'scalar seed observation must remain installed and complete within its declared scope')
+          if(scalarObservation==='native-data')validateNativeScalarEvidence(x.boundary.seed)
         }
         comparisons.push({key:key(r),codeSequenceEqual:JSON.stringify(code(a.boundary.evaluation.events))===JSON.stringify(code(r.boundary.evaluation.events)),
           compiledSequenceEqual:JSON.stringify(compilationSequence(a.boundary.compilation))===JSON.stringify(compilationSequence(r.boundary.compilation)),
@@ -325,12 +339,14 @@ if(phase) {
           configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
           scalarSeedOperationsBefore:a.boundary.seed.events.reduce((n,e)=>n+e.count,0),
           scalarSeedOperationsAfter:r.boundary.seed.events.reduce((n,e)=>n+e.count,0),
+          nativeScalarCallsBefore:scalarObservation==='native-data'?a.boundary.seed.native.calls+a.metadata.metadata.reduce((n,m)=>n+m.scalars.reduce((n,s)=>n+s.native.calls,0),0):null,
+          nativeScalarCallsAfter:scalarObservation==='native-data'?r.boundary.seed.native.calls+r.metadata.metadata.reduce((n,m)=>n+m.scalars.reduce((n,s)=>n+s.native.calls,0),0):null,
           descriptorCallsBefore:a.native.descriptors.entries.reduce((n,e)=>n+e.count,0),
           descriptorCallsAfter:r.native.descriptors.entries.reduce((n,e)=>n+e.count,0),
           unknownDescriptorTargetsBefore:a.native.descriptors.entries.filter(e=>!e.argument.available).reduce((n,e)=>n+e.count,0),
           unknownDescriptorTargetsAfter:r.native.descriptors.entries.filter(e=>!e.argument.available).reduce((n,e)=>n+e.count,0)})
       }
-      const combined={replayEligible:false,completeOwnership:false,baseline,first,second,workers:comparisons.length,
+      const combined={replayEligible:false,completeOwnership:false,nativeTransport,scalarObservation,baseline,first,second,workers:comparisons.length,
         equalEvaluatorCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
         equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,comparisons,
         limitations:['Recorded code, configuration, transport and native observations coexist in these runs',

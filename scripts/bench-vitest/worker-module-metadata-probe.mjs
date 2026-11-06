@@ -10,15 +10,15 @@ const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty,ap
 const setSize=descriptor(Set.prototype,'size').get
 const watched=new Set(['tmp','invalidate'])
 export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,observation='proxy',ownerGuard=null}={}) {
-  if(!['proxy','accessor'].includes(observation))throw Error('unknown metadata observation mode')
+  if(!['proxy','accessor','native-data'].includes(observation))throw Error('unknown metadata observation mode')
   const nodes=new Map(),metadata=new Map(),proxyToRaw=new WeakMap(),events=new Map()
   const errors=[],gaps=new Set(),invalidations=[],restores=[]
   let overflow=false,assignments=0
-  function record(m,operation,key,sites,source) {
+  function record(m,operation,key,sites,source,sources) {
     if(sourceForScript&&!source?.available)gaps.add('metadata reader source unavailable')
     const origins=[...m.origins],id=JSON.stringify([m.id,operation,key,sites,origins])
     if(events.has(id))events.get(id).count++
-    else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,source,origins,count:1})
+    else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,source,...(sources?{sources}:{}),origins,count:1})
     else overflow=true
   }
   function ownData(value,key) {
@@ -48,14 +48,15 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     if(proto!==Object.prototype&&proto!==null){gaps.add('non-plain metadata');return value}
     if(metadata.size>=10000){overflow=true;return value}
     m={id:metadata.size,owners:new Set([owner]),origins:new Set([origin])}
-    if(observation==='accessor') {
+    if(observation==='accessor'||observation==='native-data') {
       // Keep the original object, including references retained before this
       // observer. Only existing scalar fields are changed: adding an absent
       // property would change `in`, ownKeys, and loader control flow.
       m.proxy=value;m.raw=value;m.scalars=new Map();metadata.set(value,m)
-      for(const key of watched)if(descriptor(value,key)) {
+      for(const key of watched)if(observation==='native-data'?Object.hasOwn(value,key):descriptor(value,key)) {
         const scalar=observeScalarProperty(value,key,{sourceForScript,ownerGuard,
-          onOperation:e=>record(m,e.operation,key,e.sites,e.source)})
+          observation,
+          onOperation:e=>record(m,e.operation,key,e.sites,e.source,e.sources)})
         m.scalars.set(key,scalar);restores.push(()=>scalar.close())
       }
       return value
@@ -119,13 +120,14 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
   }
   function scalarStatus(m) {
     if(!m.scalars)return []
-    for(const key of watched)if(!m.scalars.has(key)&&descriptor(m.raw,key))gaps.add('unobserved metadata field added: '+key)
+    for(const key of watched)if(!m.scalars.has(key)&&(observation==='native-data'?Object.hasOwn(m.raw,key):descriptor(m.raw,key)))gaps.add('unobserved metadata field added: '+key)
     return [...m.scalars].map(([key,p])=>{
       const r=p.report()
       if(!r.installed||!r.intact)gaps.add('metadata scalar descriptor unavailable: '+key)
       for(const gap of r.gaps)gaps.add(key+': '+gap)
       if(r.overflow)overflow=true
-      return {key,installed:r.installed,intact:r.intact,ownerGuardRequired:r.ownerGuardRequired,ownerGuardPassed:r.ownerGuardPassed}
+      return {key,installed:r.installed,intact:r.intact,ownerGuardRequired:r.ownerGuardRequired,ownerGuardPassed:r.ownerGuardPassed,
+        ...(observation==='native-data'?{observation:r.observation,native:r.native,recordedReads:r.recordedReads}: {})}
     })
   }
   function snapshot(raw) {
@@ -133,12 +135,14 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     if(!m?.scalars)return raw
     const copy=Object.create(Object.getPrototypeOf(raw))
     for(const key of Reflect.ownKeys(raw)) {
-      const d=descriptor(raw,key),scalar=m.scalars.get(key)
+      const scalar=m.scalars.get(key)
       if(scalar) {
         const current=scalar.currentValue()
         if(!current.available)throw Error('metadata scalar ownership unavailable')
-        define(copy,key,{value:current.value,enumerable:d.enumerable,configurable:true,writable:true})
+        const enumerable=observation==='native-data'?current.enumerable:descriptor(raw,key).enumerable
+        define(copy,key,{value:current.value,enumerable,configurable:true,writable:true})
       }else {
+        const d=descriptor(raw,key)
         if(!Object.hasOwn(d,'value'))throw Error('unowned metadata accessor')
         define(copy,key,d)
       }
@@ -155,7 +159,10 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     limitations:observation==='accessor'?[
       'Existing object aliases are observed, but earlier primitive copies are not',
       'Descriptors, native inspection, intermediate deletion and replacement remain observable gaps',
-      'Only existing tmp and invalidate scalar properties are instrumented; this is not complete ownership']:
+      'Only existing tmp and invalidate scalar properties are instrumented; this is not complete ownership']:observation==='native-data'?[
+      'Native scalar callbacks preserve ordinary data descriptors; initial ownership and earlier copies remain unproven',
+      'Callback loss invalidates observation; debugger/native/heap capabilities remain uncertified',
+      'Only existing tmp and invalidate scalar fields use native callbacks; the module-graph meta accessor is still observable']:
       ['Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it',
       'Original aliases, nested values and native target reads can bypass these proxies',
       'Installing metadata accessors and proxies is observable']}},

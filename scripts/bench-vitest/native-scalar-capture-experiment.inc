@@ -105,6 +105,26 @@ void NativeScalarReport(const FunctionCallbackInfo<Value>& info) {
       Put(context, result, "replayEligible", False(isolate))) info.GetReturnValue().Set(result);
 }
 
+void NativeScalarCurrent(const FunctionCallbackInfo<Value>& info) {
+  auto isolate = info.GetIsolate();
+  auto context = isolate->GetCurrentContext();
+  auto state = info.Data().As<Object>();
+  auto result = Object::New(isolate);
+  bool available = NativeScalarIntact(context, state) && !ScalarFlag(context, state, "failed");
+  Maybe<PropertyAttribute> attributes = Nothing<PropertyAttribute>();
+  if (available) {
+    attributes = ScalarState(context, state, "owner").As<Object>()->GetRealNamedPropertyAttributes(
+        context, ScalarState(context, state, "key").As<String>());
+    available = attributes.IsJust();
+  }
+  if (!Put(context, result, "available", Boolean::New(isolate, available))) return;
+  if (available && (!Put(context, result, "value", ScalarState(context, state, "value")) ||
+      !Put(context, result, "enumerable", Boolean::New(isolate, (attributes.FromJust() & DontEnum) == 0)) ||
+      !Put(context, result, "writable", Boolean::New(isolate, (attributes.FromJust() & ReadOnly) == 0)) ||
+      !Put(context, result, "configurable", Boolean::New(isolate, (attributes.FromJust() & DontDelete) == 0)))) return;
+  info.GetReturnValue().Set(result);
+}
+
 void NativeScalarClose(const FunctionCallbackInfo<Value>& info) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
@@ -165,10 +185,12 @@ void CreateNativeScalarObserver(const FunctionCallbackInfo<Value>& info) {
       !Put(context, state, "calls", Number::New(isolate, 0))) return;
   for (const char* flag : {"closed", "failed", "inFlight", "checking", "witness", "restored", "retained"})
     ScalarMark(context, state, flag, false);
-  Local<Function> report, close;
+  Local<Function> report, close, current;
   if (!Function::New(context, NativeScalarReport, state, 0, ConstructorBehavior::kThrow).ToLocal(&report) ||
       !Function::New(context, NativeScalarClose, state, 0, ConstructorBehavior::kThrow).ToLocal(&close) ||
-      !Put(context, result, "report", report) || !Put(context, result, "close", close)) return;
+      !Function::New(context, NativeScalarCurrent, state, 0, ConstructorBehavior::kThrow).ToLocal(&current) ||
+      !Put(context, result, "report", report) || !Put(context, result, "close", close) ||
+      !Put(context, result, "currentValue", current)) return;
   if (!info[0].As<Object>()->SetNativeDataProperty(context, info[1].As<String>(), NativeScalarRead,
       nullptr, state, attributes.FromJust()).FromMaybe(false)) return;
   info.GetReturnValue().Set(result);

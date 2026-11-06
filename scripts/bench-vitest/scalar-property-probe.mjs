@@ -2,11 +2,14 @@
 // property through its existing aliases. The descriptor changes, earlier
 // copies remain invisible, and native descriptor reads are not excluded.
 import {types,getCallSites} from 'node:util'
+import {observeNativeScalarProperty} from './native-scalar-property-probe.mjs'
 const isProxy=types.isProxy
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty
 const scalar=v=>v===null||!['object','function'].includes(typeof v)
-export function observeScalarProperty(target,key,{sourceForScript=null,onOperation=null,ownerGuard=null}={}) {
+export function observeScalarProperty(target,key,{sourceForScript=null,onOperation=null,ownerGuard=null,observation='accessor'}={}) {
+  if(!['accessor','native-data'].includes(observation))throw Error('unknown scalar observation mode')
+  if(observation==='native-data')return observeNativeScalarProperty(target,key,{sourceForScript,onOperation,ownerGuard})
   const events=new Map(),gaps=new Set()
   let installed=false,overflow=false,original,value,get,set,ownerGuardPassed=false
   function note(operation) {
