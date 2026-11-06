@@ -151,6 +151,18 @@ if(phase) {
     assert(reports.every(r=>!r.transport.replayEligible&&!r.transport.completeOwnership&&!r.transport.overflow&&
       !r.transport.errors.length&&r.transport.pending===0&&r.transport.unsettled===0),'transport observation must complete in every worker')
     const events=reports.flatMap(r=>r.metadata.events),invalidations=reports.flatMap(r=>r.metadata.invalidations)
+    assert(events.every(e=>e.source?.available),'every metadata operation must have executable source evidence')
+    const readerSources=new Map(),unmatchedReaderSources=[]
+    let readerCalls=0,matchedReaderCalls=0
+    for(const r of reports)for(const e of r.metadata.events) {
+      const s=e.source,key=JSON.stringify([s.script,s.code])
+      const matches=s.script.isModule&&!s.script.hasSourceURL&&r.expectedReaderSources.some(x=>x.url===s.script.url&&x.sha256===s.code.sha256)
+      readerCalls+=e.count
+      if(matches)matchedReaderCalls+=e.count
+      else unmatchedReaderSources.push({project:r.project,files:r.files,operation:e.operation,key:e.key,source:s,count:e.count})
+      if(!readerSources.has(key))readerSources.set(key,{script:s.script,code:s.code,count:0})
+      readerSources.get(key).count+=e.count
+    }
     const operations=Object.create(null),operationsByOrigin=Object.create(null),transportCounts=Object.create(null)
     for(const e of events){
       const k=e.operation+':'+e.key;operations[k]=(operations[k]??0)+e.count
@@ -171,6 +183,7 @@ if(phase) {
       fingerprint:first.fingerprint,plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
       nodes:reports.reduce((n,r)=>n+r.metadata.nodes,0),assignments:reports.reduce((n,r)=>n+r.metadata.assignments,0),
       metadataObjects:reports.reduce((n,r)=>n+r.metadata.metadata.length,0),operations,operationsByOrigin,transportCounts,
+      readerCalls,matchedReaderCalls,readerSources:[...readerSources.values()],unmatchedReaderSources,
       invalidations:invalidations.length,coldInvalidations:invalidations.filter(cold).length,
       nonColdInvalidations:invalidations.filter(x=>!cold(x)),
       workersWithReads:reports.filter(r=>r.metadata.events.some(e=>['get','has','descriptor','keys'].includes(e.operation))).length,

@@ -7,7 +7,7 @@ import {fingerprint} from './worker-input-probe.mjs'
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty,apply=Reflect.apply
 const setSize=descriptor(Set.prototype,'size').get
 const watched=new Set(['tmp','invalidate'])
-export function observeModuleMetadata(EvaluatedModules) {
+export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}) {
   const nodes=new Map(),metadata=new Map(),proxyToRaw=new WeakMap(),events=new Map()
   const errors=[],gaps=new Set(),invalidations=[],restores=[]
   let overflow=false,assignments=0
@@ -21,12 +21,14 @@ export function observeModuleMetadata(EvaluatedModules) {
   function note(m,operation,key) {
     if(!watched.has(key)&&operation!=='keys')return
     try {
-      const sites=getCallSites(8,{sourceMap:false}).slice(2).map(s=>({script:s.scriptName,
+      const sites=getCallSites(8,{sourceMap:false}).slice(2).map(s=>({scriptId:s.scriptId,script:s.scriptName,
         function:s.functionName,line:s.lineNumber,column:s.columnNumber}))
+      const source=sourceForScript?sourceForScript(sites[0]?.scriptId):null
+      if(sourceForScript&&!source?.available)gaps.add('metadata reader source unavailable')
       const origins=[...m.origins]
       const id=JSON.stringify([m.id,operation,key,sites,origins])
       if(events.has(id))events.get(id).count++
-      else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,origins,count:1})
+      else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,source,origins,count:1})
       else overflow=true
     }catch{gaps.add('metadata call sites unavailable')}
   }

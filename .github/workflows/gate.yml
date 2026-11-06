@@ -875,7 +875,7 @@ jobs:
         if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'
       - run: node --test scripts/bench-vitest/worker-module-probe.test.mjs
         if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures'
-      - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs scripts/bench-vitest/worker-transport-metadata-probe.test.mjs
+      - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs scripts/bench-vitest/worker-transport-metadata-probe.test.mjs scripts/bench-vitest/metadata-reader-source.test.mjs
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures'
       - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/hook-access-probe.test.mjs
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures'

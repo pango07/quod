@@ -18,9 +18,10 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={}) {
   const session=new Session()
-  const scripts=new Map()
+  const scripts=new Map(),scriptEvidence=new Map()
   session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
-    url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true}))
+    url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,
+    language:params.scriptLanguage??'JavaScript'}))
   let failure=null, closed=false
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
@@ -295,6 +296,25 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={})
     }catch(e){hookFailure=e.message}
   } catch(e) {failure=e.message}
   return {
+    sourceForScript(scriptId) {
+      // A filename or a Function#toString result can be forged. Resolve the
+      // actual V8 script identity from a native call site in this session.
+      if(failure||closed)return {available:false,reason:failure??'closed',replayEligible:false}
+      try {
+        if(typeof scriptId!=='string'||!scripts.has(scriptId))throw Error('unknown script identity')
+        if(scriptEvidence.has(scriptId))return scriptEvidence.get(scriptId)
+        if(scriptEvidence.size>=20000)throw Error('script evidence capacity exceeded')
+        const script=scripts.get(scriptId)
+        if(script.language!=='JavaScript')throw Error('non-JavaScript read site')
+        const source=post('Debugger.getScriptSource',{scriptId}).scriptSource
+        if(typeof source!=='string')throw Error('script source unavailable')
+        const evidence={available:true,scriptId,script:{...script},code:{encoding:'utf16le',
+          bytes:Buffer.byteLength(source,'utf16le'),sha256:createHash('sha256').update(source,'utf16le').digest('hex')},
+          replayEligible:false}
+        scriptEvidence.set(scriptId,evidence)
+        return evidence
+      }catch(e){return {available:false,reason:e.message,replayEligible:false}}
+    },
     hookAccess() {
       const current=hookSnapshot()
       return {available:hookAccess&&!failure&&!hookFailure&&current.available&&hookBreakpoints.size===9,
