@@ -8,9 +8,10 @@ import {randomBytes} from 'node:crypto'
 import {nativeOwnerGuard} from './native-owner-guard.mjs'
 import {observeScalarProperty} from './scalar-property-probe.mjs'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
+import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false}={}) {
+function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false,nativeSummary='packed',measureCaptureBytes=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
 import {types} from 'node:util';
@@ -21,7 +22,10 @@ function post(method,params={}){
  commands[method]=(commands[method]??0)+1;
  let done=false,error,result;
  session.post(method,params,(e,r)=>{done=true;error=e;result=r});
- if(!done||error)throw error??Error('asynchronous inspector response');return result;
+ if(!done||error)throw error??Error('asynchronous inspector response');
+ if(${JSON.stringify(measureCaptureBytes)}&&method==='Runtime.callFunctionOn'&&params.functionDeclaration==='function(payload){return(this(payload))}')
+   extra.captureResponseBytes=(extra.captureResponseBytes??0)+Buffer.byteLength(JSON.stringify(result));
+ return result;
 }
 session.connect();post('Runtime.enable');post('Debugger.enable');
 session.on('Debugger.paused',({params})=>{pauses.push(params.hitBreakpoints);post('Debugger.resume')});
@@ -37,7 +41,7 @@ function same(id,other){
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
 function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
- const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)},ordinaryOwners:${JSON.stringify(ordinaryOwners)}});
+ const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)},directArguments:${JSON.stringify(directArguments)},targetInspection:${JSON.stringify(targetInspection)},nativeCapture:${JSON.stringify(nativeCapture)},ordinaryOwners:${JSON.stringify(ordinaryOwners)},nativeSummary:${JSON.stringify(nativeSummary)}});
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
@@ -386,6 +390,7 @@ test('native data-field lookup agrees with descriptor baseline and never invokes
   const require=createRequire(import.meta.url),nonce='f'.repeat(64)
   const captures=[process.env.QUOD_NATIVE_CAPTURE_DESCRIPTOR_ADDON,process.env.QUOD_NATIVE_CAPTURE_ADDON]
     .map(file=>require(file).createCapture(nonce))
+  const packed=require(process.env.QUOD_NATIVE_CAPTURE_ADDON).createPackedCapture(nonce)
   const fields=['quodNativeEntry','api','argument','argumentCount','receiverBased','describeOwnAccessors']
   let gets=0,traps=0
   const target={get tmp(){gets++;throw Error('target getter')}}
@@ -403,8 +408,66 @@ test('native data-field lookup agrees with descriptor baseline and never invokes
   for(const make of cases) {
     const results=captures.map(capture=>capture(make()))
     assert.deepEqual(results[1],results[0])
+    assert.deepEqual(decodeNativeCaptureSummary(packed(make())),{...results[0]})
   }
   assert.equal(gets,0);assert.equal(traps,0)
+})
+
+test('packed native summaries preserve every inspected mask, rejection, arity and owner policy',()=>{
+  const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON),nonce='b'.repeat(64)
+  let gets=0,traps=0
+  const targets=[null,undefined,1,'text',Symbol('symbol'),()=>{},new Proxy({}, {get(){traps++;throw Error('trap')}})]
+  const revoked=Proxy.revocable({},{});revoked.revoke();targets.push(revoked.proxy)
+  for(let mask=0;mask<8;mask++) {
+    const object={}
+    for(const [i,name] of ['seed','tmp','invalidate'].entries())if(mask&(1<<i))
+      Object.defineProperty(object,name,{get(){gets++;throw Error('getter')}})
+    targets.push(object)
+  }
+  const host=addon.createNativeDataFixture(false,true);targets.push(host.target)
+  for(const ordinary of [false,true]) {
+    const legacy=addon.createCapture(nonce,ordinary),packed=addon.createPackedCapture(nonce,ordinary)
+    for(const target of targets)for(const receiver of [false,true])for(const describe of [false,true])
+      for(const count of [0,1,Number.MAX_SAFE_INTEGER,NaN,Infinity,-1,0.5,1n]) {
+        const make=()=>({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,argumentCount:count,
+          receiverBased:receiver,describeOwnAccessors:describe})
+        const a=make(),b=make(),expected=legacy(a),actual=decodeNativeCaptureSummary(packed(b))
+        assert.deepEqual(actual,{...expected})
+        assert.equal(a.argument,b.argument);assert.equal(a.api,b.api);assert.equal(a.quodNativeEntry,b.quodNativeEntry)
+      }
+    for(const value of [null,{},Object.create(null),{__proto__:null,quodNativeEntry:'wrong'}])
+      assert.deepEqual(decodeNativeCaptureSummary(packed(value)),{...legacy(value)})
+    assert.deepEqual(decodeNativeCaptureSummary(packed()),{...legacy()})
+  }
+  assert.equal(gets,0);assert.equal(traps,0);assert.equal(host.state.calls,0)
+})
+
+test('compare object and packed capture transport with equal native entries and complete compilation logs',t=>{
+  const compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
+    blocks=new URL('./compiled-block-log.mjs',import.meta.url).href,logs=new URL('./compiled-script-log.mjs',import.meta.url).href,rows=[]
+  for(const nativeSummary of ['object','packed','packed','object']) {
+    const data=fixture(`const {createCompiledScriptRecorder}=await import(${JSON.stringify(compiled)});
+const {blockCompiledScriptLog}=await import(${JSON.stringify(blocks)});
+const {validateCompilationCounts}=await import(${JSON.stringify(logs)});
+const log=blockCompiledScriptLog(),recorder=createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId}));
+session.on('Debugger.scriptParsed',({params})=>log.append(recorder.record(params)));
+session.on('Debugger.scriptFailedToParse',({params})=>log.append(recorder.record(params,true)));
+let observed=0,values=0;const calls=5000;
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]],entry=>{
+ if(entry.kind!=='object'||entry.target.watchedAccessorKeys.join(',')!=='tmp')throw Error('summary differs');observed++;
+});
+const started=performance.now();for(let i=0;i<calls;i++)if(typeof native(target,key).get==='function')values++;
+extra.elapsedMs=performance.now()-started;stop();extra.observed=observed;extra.values=values;
+const report=log.report();validateCompilationCounts(report);extra.compiledEvents=report.events;extra.commands={...commands};`,
+      {directArguments:true,nativeCapture:true,nativeSummary,measureCaptureBytes:true})
+    complete(data,5000);assert.equal(data.observed,5000);assert.equal(data.values,5000)
+    assert.equal(data.capture.released,5000);assert(data.compiledEvents>=10000)
+    assert.equal(data.capture.contextCapture.summaryEncoding,nativeSummary+'-v1')
+    rows.push({nativeSummary,calls:5000,elapsedMs:data.elapsedMs,responseBytes:data.captureResponseBytes,
+      compiledEvents:data.compiledEvents,cleared:data.capture.cleared,released:data.capture.released})
+  }
+  assert(rows.filter(r=>r.nativeSummary==='packed').every(r=>r.responseBytes<rows.find(r=>r.nativeSummary==='object').responseBytes))
+  t.diagnostic(JSON.stringify({nativeSummaryTransportMeasurements:rows,scope:'isolated Inspector capture with exact compilation logging; not workload or CI savings'}))
 })
 
 test('measure native payload validation without changing capture summaries',t=>{

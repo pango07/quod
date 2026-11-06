@@ -9,13 +9,14 @@ import {nativeCaptureInspector} from './native-capture-inspector.mjs'
 const hasOwn=Object.hasOwn,isSafeInteger=Number.isSafeInteger
 const own=(object,key)=>object&&hasOwn(object,key)?object[key]:undefined
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false,nativeSummary='packed'}={}) {
   if(!['protocol','watched','adaptive'].includes(targetInspection))throw Error('invalid target inspection mode')
   if(nativeCapture&&(!directArguments||handleGroups||targetInspection!=='protocol'))throw Error('native capture requires direct arguments and its own inspection mode')
   if(ordinaryOwners&&!nativeCapture)throw Error('ordinary owners require native capture')
+  if(!['object','packed'].includes(nativeSummary))throw Error('invalid native summary encoding')
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
-  const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce,{ordinaryOwners}):null
+  const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce,{ordinaryOwners,packed:nativeSummary==='packed'}):null
   const errors=[],failureSamples=[],failureCounts=new Map(),ignoredReasons=[0,0,0,0,0,0]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'

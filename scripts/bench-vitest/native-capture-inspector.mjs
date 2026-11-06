@@ -2,12 +2,13 @@
 // Inspector handle. Its native implementation returns no application values.
 import path from 'node:path'
 import {randomBytes} from 'node:crypto'
+import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 const integer=Number.isInteger
 const failureCodes=new WeakMap(),getFailure=Function.prototype.call.bind(WeakMap.prototype.get),
   setFailure=Function.prototype.call.bind(WeakMap.prototype.set)
 function failure(code){const error=new Error(code);setFailure(failureCodes,error,code);return error}
 
-export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false}={}) {
+export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false,packed=true}={}) {
   const addon=process.env.QUOD_NATIVE_CAPTURE_ADDON,group='quod-native-capture-'+nonce
   const contexts=new Map(),attemptedContexts=new Set()
   let handle=null,closed=false,contextQueries=0,contextQueryMs=0
@@ -46,7 +47,7 @@ export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false}={}) {
       if(closed)throw Error('native capture closed')
       if(handle)return
       if(process.versions.node!=='24.18.0'||!addon||!path.isAbsolute(addon))throw Error('native capture requires the pinned remote-built addon')
-      const expression=`process.getBuiltinModule('module').createRequire(${JSON.stringify(import.meta.url)})(${JSON.stringify(addon)}).createCapture(${JSON.stringify(nonce)},${JSON.stringify(ordinaryOwners)})`
+      const expression=`process.getBuiltinModule('module').createRequire(${JSON.stringify(import.meta.url)})(${JSON.stringify(addon)}).${packed?'createPackedCapture':'createCapture'}(${JSON.stringify(nonce)},${JSON.stringify(ordinaryOwners)})`
       const r=post('Runtime.evaluate',{expression,objectGroup:group,silent:true,generatePreview:false})
       if(r.exceptionDetails||r.result?.type!=='function'||!r.result.objectId)throw Error('native capture setup failed')
       handle=r.result.objectId
@@ -63,7 +64,11 @@ export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false}={}) {
         catch(error){throw getFailure(failureCodes,error)?error:failure('native capture context protocol request failed')}
       }
       if(r.exceptionDetails)throw failure('native capture evaluation failed')
-      const value=r.result?.value
+      let value=r.result?.value
+      if(packed) {
+        try{value=decodeNativeCaptureSummary(value)}
+        catch{throw failure('invalid packed native capture result')}
+      }
       if(!value||typeof value.owned!=='boolean'||typeof value.available!=='boolean'||typeof value.cleared!=='boolean')throw failure('invalid native capture result')
       if(!integer(value.rejection)||value.rejection<0||value.rejection>5)throw failure('invalid native rejection reason')
       if(typeof value.metadataValid!=='boolean'||!integer(value.failure)||value.failure<0||value.failure>6)throw failure('invalid native failure classification')
@@ -88,7 +93,8 @@ export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false}={}) {
       return value
     },
     failureReason(error){return getFailure(failureCodes,error)??null},
-    report:()=>({contexts:contexts.size,attemptedContexts:attemptedContexts.size,contextQueries,contextQueryMs}),
+    report:()=>({contexts:contexts.size,attemptedContexts:attemptedContexts.size,contextQueries,contextQueryMs,
+      summaryEncoding:packed?'packed-v1':'object-v1'}),
     close(){if(closed)return;closed=true;contexts.clear();if(handle)post('Runtime.releaseObjectGroup',{objectGroup:group})},
   }
 }

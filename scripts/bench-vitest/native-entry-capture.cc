@@ -81,13 +81,12 @@ bool Put(Local<Context> context, Local<Object> result, const char* name,
                                     value).FromMaybe(false);
 }
 
-void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners) {
+void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners,
+                 bool packed = false) {
   auto isolate = info.GetIsolate();
   HandleScope scope(isolate);
   auto context = isolate->GetCurrentContext();
   TryCatch caught(isolate);
-  auto result = Object::New(isolate);
-  if (!result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false)) return;
   bool owned = false, available = true, clearable = false, cleared = false;
   bool inspected = false, receiver = false, describe = false, metadata_valid = false;
   int failure = 0;  // 1 wrapper, 2 API wrapper, 3 interceptor, 4 lookup, 5 exception, 6 cleanup.
@@ -164,6 +163,27 @@ void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners) 
     if (!cleared) failure = 6;
     available = available && cleared;
   }
+  if (packed) {
+    // Versioned transport of the same sanitized summary. No application
+    // values enter the response; the API label and arity are validated data
+    // from our owned wrapper. Keep all rejection/failure/cleanup information.
+    const int flags = static_cast<int>(owned) |
+        (static_cast<int>(available) << 1) | (static_cast<int>(cleared) << 2) |
+        (static_cast<int>(metadata_valid) << 3) |
+        (static_cast<int>(receiver) << 4) | (static_cast<int>(describe) << 5) |
+        (static_cast<int>(inspected) << 6) | (kind << 7) | (mask << 9) |
+        (failure << 12) | (rejection << 15) | (excluded_owner << 18);
+    Local<Value> fields[] = {Integer::New(isolate, 1),
+                            Integer::New(isolate, flags),
+                            owned && metadata_valid ? api : Local<Value>(Null(isolate)),
+                            Number::New(isolate, owned && metadata_valid ? count : 0)};
+    auto result = Array::New(isolate, fields, 4);
+    if (result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false))
+      info.GetReturnValue().Set(result);
+    return;
+  }
+  auto result = Object::New(isolate);
+  if (!result->SetPrototypeV2(context, Null(isolate)).FromMaybe(false)) return;
   bool okay = Put(context, result, "owned", Boolean::New(isolate, owned)) &&
       Put(context, result, "available", Boolean::New(isolate, available)) &&
       Put(context, result, "cleared", Boolean::New(isolate, cleared)) &&
@@ -185,14 +205,17 @@ void CaptureImpl(const FunctionCallbackInfo<Value>& info, bool ordinary_owners) 
 
 void Capture(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false); }
 void CaptureOrdinary(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true); }
+void CapturePacked(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, false, true); }
+void CaptureOrdinaryPacked(const FunctionCallbackInfo<Value>& info) { CaptureImpl(info, true, true); }
 
 void IsInspectableOwner(const FunctionCallbackInfo<Value>& info) {
   info.GetReturnValue().Set(info.Length() == 1 && OrdinaryForInspection(info[0]));
 }
 
 void CreateContextCapture(const FunctionCallbackInfo<Value>& info);
+void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info);
 
-void CreateCapture(const FunctionCallbackInfo<Value>& info) {
+void CreateCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
   if (info.Length() < 1 || info.Length() > 2 ||
@@ -203,13 +226,17 @@ void CreateCapture(const FunctionCallbackInfo<Value>& info) {
   }
   Local<Function> capture, context_factory;
   bool ordinary_owners = info.Length() == 2 && info[1]->IsTrue();
-  if (Function::New(context, ordinary_owners ? CaptureOrdinary : Capture, info[0], 1, ConstructorBehavior::kThrow)
+  auto callback = packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
+                         : (ordinary_owners ? CaptureOrdinary : Capture);
+  if (Function::New(context, callback, info[0], 1, ConstructorBehavior::kThrow)
           .ToLocal(&capture) &&
-      Function::New(context, CreateContextCapture, Local<Value>(), 2,
+      Function::New(context, packed ? CreatePackedContextCapture : CreateContextCapture, Local<Value>(), 2,
                      ConstructorBehavior::kThrow).ToLocal(&context_factory) &&
       Put(context, capture, "createContextCapture", context_factory))
     info.GetReturnValue().Set(capture);
 }
+void CreateCapture(const FunctionCallbackInfo<Value>& info) { CreateCaptureImpl(info, false); }
+void CreatePackedCapture(const FunctionCallbackInfo<Value>& info) { CreateCaptureImpl(info, true); }
 
 // A foreign Inspector handle cannot be an argument to our root-context
 // function. Find a fresh, private holder by an unguessable own property name,
@@ -239,7 +266,7 @@ class HolderPredicate final : public QueryObjectPredicate {
   bool failed_ = false;
 };
 
-void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
+void CreateContextCaptureImpl(const FunctionCallbackInfo<Value>& info, bool packed) {
   auto isolate = info.GetIsolate();
   HandleScope scope(isolate);
   auto context = isolate->GetCurrentContext();
@@ -280,7 +307,9 @@ void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
     Context::Scope destination_scope(destination);
     Local<Function> capture;
     bool ordinary_owners = info.Length() == 3 && info[2]->IsTrue();
-    if (!Function::New(destination, ordinary_owners ? CaptureOrdinary : Capture, info[0], 1,
+    auto callback = packed ? (ordinary_owners ? CaptureOrdinaryPacked : CapturePacked)
+                           : (ordinary_owners ? CaptureOrdinary : Capture);
+    if (!Function::New(destination, callback, info[0], 1,
                        ConstructorBehavior::kThrow).ToLocal(&capture)) break;
     okay = holder->Set(destination, key, Null(isolate)).FromMaybe(false) &&
         holder->Set(destination, Key(isolate, "capture"), capture).FromMaybe(false);
@@ -288,6 +317,8 @@ void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
   if (caught.HasCaught()) { caught.Reset(); okay = false; }
   info.GetReturnValue().Set(Boolean::New(isolate, okay));
 }
+void CreateContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, false); }
+void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, true); }
 
 // Adversarial fixture: a host callback on an otherwise ordinary JS object.
 // Reading its descriptor invokes native code even though it looks like data.
@@ -334,6 +365,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
   if (Function::New(context, CreateCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createCapture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, CreatePackedCapture).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createPackedCapture"), factory)
         .FromMaybe(false);
   if (Function::New(context, CreateContextCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
