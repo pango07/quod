@@ -24,6 +24,8 @@ export function inspectPromiseObservers() {
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
+  const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
+    'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
   let opaqueInitial=null,opaqueFailure=null
   function post(method,params={}) {
     let done=false,result,error
@@ -155,6 +157,15 @@ export function inspectPromiseObservers() {
         ['dlopen',builtin('process.dlopen')],['linkedBinding',builtin('process._linkedBinding')],
         ['Process.spawn',prop(processPrototype,'spawn')?.objectId],
         ['spawnSync',prop(builtin("process.binding('spawn_sync')"),'spawn')?.objectId],
+        // Public V8 heap APIs do not open Inspector connections. Watch
+        // their actual native bindings so a cached wrapper remains visible.
+        // Resolving these private names is version-specific; missing shapes
+        // make the entire opaque observation unavailable, never clean.
+        ...[
+          ['queryObjects','_queryObjects'],['getHeapSnapshot','createHeapSnapshotStream'],
+          ['writeHeapSnapshot','triggerHeapSnapshot'],['setFlagsFromString','_setFlagsFromString'],
+          ['setHeapSnapshotNearHeapLimit','_setHeapSnapshotNearHeapLimit'],
+        ].map(([name,native])=>['v8.'+name,binding(builtin(`process.getBuiltinModule('v8').${name}`),native).objectId]),
       ]) {
         if(!fn)throw Error('missing opaque entry: '+name)
         const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
@@ -183,7 +194,7 @@ export function inspectPromiseObservers() {
   return {
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
-        counts:Object.fromEntries(['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync'].map(name=>
+        counts:Object.fromEntries(opaqueNames.map(name=>
           [name,opaqueEntries.filter(e=>e.entries.includes(name)).length])),
         reason:opaqueFailure,replayEligible:false}
     },

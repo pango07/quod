@@ -115,6 +115,8 @@ export function observeAsyncStat(project,{startup=null}={}) {
             observedConstructionFieldsAbsent:checkpoints.every(x=>x.native.constructionFieldsAbsent===true),
             observedNoOpaqueEntries:checkpoints.every(x=>x.opaque.available &&
               Object.values(x.opaque.counts).every(n=>n===0)),
+            observedNoHeapEntries:checkpoints.every(x=>x.opaque.available &&
+              Object.entries(x.opaque.counts).filter(([name])=>name.startsWith('v8.')).every(([,n])=>n===0)),
             observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
               x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}

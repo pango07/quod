@@ -92,6 +92,7 @@ const result={measurementScope:'Real planner/driver/workers with passive main-pr
   consumersWithConstructionFieldsAbsent:fileCalls.filter(c=>c.observedConstructionFieldsAbsent).length,
   consumersWithStartupNativeUnchanged:fileCalls.filter(c=>c.observedStartupNativeUnchanged).length,
   consumersWithNoOpaqueEntries:fileCalls.filter(c=>c.observedNoOpaqueEntries).length,
+  consumersWithNoHeapEntries:fileCalls.filter(c=>c.observedNoHeapEntries).length,
   startupAtAttach:trace.startupAtAttach,
   initialObservers:trace.initialObservers,nativeProvenance:trace.nativeStatProvenance,
   inspectorAccess:trace.inspectorAccess,
