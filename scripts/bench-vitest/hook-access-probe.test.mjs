@@ -3,21 +3,25 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
-for(const kind of ['none','promise','cached-promise','async','resource','binding']) {
+for(const kind of ['none','promise','before','after','settled','cached-promise','async','resource','binding']) {
   test('hook and async resource lifetime observation: '+kind,()=>{
     const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
 import {promiseHooks} from 'node:v8';
 import {createHook,executionAsyncResource} from 'node:async_hooks';
 const kind=${JSON.stringify(kind)},cachedOnInit=promiseHooks.onInit,cachedBinding=process.binding;
+const hookName={promise:'onInit',before:'onBefore',after:'onAfter',settled:'onSettled','cached-promise':'onInit'}[kind];
+const cachedHook=hookName&&promiseHooks[hookName];
 const captured=[],metadata={tmp:'private-metadata-value'};
 const p=inspectPromiseObservers({hookAccess:true});
 let rawRead=false,resourcePresent=false,bindingPresent=false;
-if(kind==='promise'||kind==='cached-promise') {
+if(hookName) {
   if(kind==='cached-promise')promiseHooks.onInit=()=>()=>{};
-  const stop=cachedOnInit(promise=>captured.push(promise));
-  Promise.resolve(metadata);stop();
-  const values=await Promise.all(captured.map(p=>p.then(v=>v,()=>null)));
-  rawRead=values.includes(metadata);
+  const stop=cachedHook(promise=>captured.push(promise));
+  if(kind==='promise'||kind==='cached-promise') {
+    Promise.resolve(metadata);stop();
+    const values=await Promise.all(captured.map(p=>p.then(v=>v,()=>null)));
+    rawRead=values.includes(metadata);
+  }else {await Promise.resolve(metadata);stop()}
   promiseHooks.onInit=cachedOnInit;
 }
 if(kind==='async') {
@@ -27,7 +31,7 @@ if(kind==='async') {
   rawRead=values.includes(metadata);
 }
 if(kind==='resource')resourcePresent=typeof executionAsyncResource()==='object';
-if(kind==='binding')bindingPresent=typeof cachedBinding('async_wrap')==='object';
+if(kind==='binding')bindingPresent=typeof cachedBinding('inspector')==='object';
 await Promise.resolve(1);
 const report=p.hookAccess();p.close();
 console.log(JSON.stringify({report,rawRead,resourcePresent,bindingPresent}));`
@@ -43,9 +47,9 @@ console.log(JSON.stringify({report,rawRead,resourcePresent,bindingPresent}));`
     assert.equal(report.current.asyncHooks.kTotals,0)
     const names=report.entries.flatMap(e=>e.entries)
     if(kind==='none')assert.deepEqual(names,[])
-    if(kind==='promise'||kind==='cached-promise') {
-      assert.equal(rawRead,true,'temporary hook must actually retain the raw result')
-      assert(names.includes('promiseHooks.onInit'))
+    if(['promise','before','after','settled','cached-promise'].includes(kind)) {
+      if(kind==='promise'||kind==='cached-promise')assert.equal(rawRead,true,'temporary hook must actually retain the raw result')
+      assert(names.includes('promiseHooks.register'))
       assert(names.includes('async_wrap.setPromiseHooks'))
     }
     if(kind==='async') {

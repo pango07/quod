@@ -265,8 +265,19 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={})
       const asyncPrototype=prop(asyncHook,'prototype')?.objectId
       const asyncWrap=binding(getHooks,'async_wrap').objectId
       const resource=builtin("process.getBuiltinModule('async_hooks').executionAsyncResource")
+      // V8 installs the function-call breakpoint at their shared code
+      // location: the four registration closures cannot get separate ones.
+      // Keep this a grouped observation, rather than mislabeling every call
+      // as onInit. Fixtures exercise each closure and cached references.
+      const registrationSource=functionSource(onInit)
+      if(!registrationSource.location)throw Error('promise registration source unavailable')
+      for(const kind of kinds) {
+        const name='on'+kind[0].toUpperCase()+kind.slice(1)
+        const source=functionSource(builtin(`process.getBuiltinModule('v8').promiseHooks.${name}`))
+        if(JSON.stringify(source)!==JSON.stringify(registrationSource))throw Error('promise registration source differs')
+      }
       for(const [name,fn] of [
-        ...kinds.map(kind=>{const name='on'+kind[0].toUpperCase()+kind.slice(1);return ['promiseHooks.'+name,builtin(`process.getBuiltinModule('v8').promiseHooks.${name}`)]}),
+        ['promiseHooks.register',onInit],
         ['async_wrap.setPromiseHooks',binding(update,'setPromiseHooks').objectId],
         ['AsyncHook.enable',prop(asyncPrototype,'enable')?.objectId],
         ['AsyncHook.disable',prop(asyncPrototype,'disable')?.objectId],
@@ -286,7 +297,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false}={})
   return {
     hookAccess() {
       const current=hookSnapshot()
-      return {available:hookAccess&&!failure&&!hookFailure&&current.available&&hookBreakpoints.size===12,
+      return {available:hookAccess&&!failure&&!hookFailure&&current.available&&hookBreakpoints.size===9,
         initial:hookInitial,current,entries:[...hookEntries.values()],sources:hookSources,
         overflow:hookOverflow,reason:failure??hookFailure,replayEligible:false,
         limitation:'Observed hook registrations, async resource access and private binding entry; not complete raw-object ownership or native capability exclusion'}
