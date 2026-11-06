@@ -78,7 +78,9 @@ test('live Inspector command sources reconcile with the unchanged complete compi
     const r=registry.compiledScriptReport();assert.deepEqual(r.errors,[])
     validateIssuedCompilationSources(r.issuedSources,r)
     assert(r.issuedSources.matchedEvents>0);assert(r.issuedSources.unmatchedEvents>0)
-    const code=record('function anonymous(\n) {\nreturn 432107\n}').code
+    // Node 24.18's CreateDynamicFunction compiles the enclosing expression,
+    // including parentheses, rather than Function.prototype.toString output.
+    const code=record('(function anonymous(\n) {\nreturn 432107\n})').code
     const anonymous=r.issuedSources.sources.find(s=>s.code.sha256===code.sha256)
     assert(anonymous&&anonymous.unmatchedEvents===1&&!anonymous.issued.length)
   }finally{registry.close()}
