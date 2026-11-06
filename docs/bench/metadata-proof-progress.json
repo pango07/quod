@@ -647,5 +647,18 @@
     "proxyUnwrapEntries": 0,
     "isProxyEntries": 8276,
     "replayEligible": false
+  },
+  "workerNativeArgumentsDiagnostic": {
+    "evidence": "worker-native-arguments.json",
+    "fullRun": 42177178825,
+    "privateFieldFixRun": 42177699152,
+    "fullRunTests": 36,
+    "fixedFixtureTests": 37,
+    "workers": 120,
+    "statesPerRun": 4131,
+    "proxyArguments": 0,
+    "unknownArgumentCalls": 3,
+    "workersWithoutTheseFlags": 116,
+    "replayEligible": false
   }
 }

@@ -164,3 +164,39 @@ unchanged. No speed or cost improvement is claimed from this diagnostic.
 [Result, call sites and artifact digests](worker-proxy-observations.json)
 preserve the evidence without storing native arguments or configuration
 values.
+
+## Bounded native arguments
+
+[42177178825](https://github.com/pango07/quod/actions/runs/42177178825)
+at `db85d26` passes 36 regressions and two full runs with the same 4,131
+states. The diagnostic reads the actual paused script, recognizes a direct
+one-argument call, verifies the callee's runtime identity, and follows only
+supported lexical bindings and own data properties. It never evaluates
+application expressions or invokes a getter to recover the argument.
+Bound calls, multiple arguments, spread arguments, proxy receivers and
+accessors stay unknown. Temporary Inspector handles are released after
+each observation.
+
+Of 8,276 `isProxy` entries, 7,688 arguments are observed objects and 585
+are primitives. None is observed as a proxy. Three calls remain unknown,
+one each in `Counter.injection.test.tsx`, `Counter.mock.test.tsx` and
+`react.test.ts`. Their stacks pass through `pretty-format` into Node's
+CommonJS loader; the required own data property is unavailable. The probe
+does not invoke an accessor to resolve those calls. The three unknown
+workers and the separate subprocess-using worker leave 116 workers with
+no flags from these particular checks. This grants no replay eligibility.
+
+Review then identified that private-field syntax must not be treated as a
+same-named public property. Fix `e1ef777` rejects it explicitly, with a
+fixture whose private field is a proxy and whose public property is an
+ordinary object. The short fixture gate
+[42177699152](https://github.com/pango07/quod/actions/runs/42177699152)
+passes 37 regressions. The full workload was not repeated for that fix;
+the two gate scopes remain separate in the evidence.
+
+Configuration ownership, other native channels, complete module and
+worker inputs, parent RPC state and side effects remain unresolved. No
+production key, published Action, or savings claim changes.
+[Evidence, source hashes and artifact digests](worker-native-arguments.json)
+preserve the native argument classifications without values or object
+references.

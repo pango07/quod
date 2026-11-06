@@ -1,0 +1,615 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42177178825",
+  "commit": "db85d26929e060b1a473b661d456f775e4dc53ff",
+  "conclusion": "success",
+  "regressionTests": 36,
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "node": "24.18.0",
+  "vitest": "5.0.0",
+  "statesPerRun": 4131,
+  "independentStateComparison": true,
+  "result": {
+    "replayEligible": false,
+    "workers": 120,
+    "workersObservingSeed": 0,
+    "observations": [],
+    "plainAndProbeFingerprintEqual": true,
+    "limitation": "Proxy observations cannot exclude native reads or prove that unobserved fields are irrelevant",
+    "native": {
+      "workers": 120,
+      "entryCounts": {
+        "spawnSync": 3
+      },
+      "workersWithOpaqueEntries": 1,
+      "workersWithInspectorEntries": 0,
+      "workersWithCachedNativeModules": 0,
+      "proxyEntryCounts": {
+        "util.types.isProxy": 8276
+      },
+      "nativeArgumentCounts": {
+        "object": 7688,
+        "primitive": 585,
+        "unknown: argument is not an own data property": 3
+      },
+      "workersWithProxyArguments": 0,
+      "workersWithUnknownArguments": 3,
+      "workersWithProxyUnwrapEntries": 0,
+      "replayEligible": false
+    }
+  },
+  "workersWithoutTheseFlags": 116,
+  "unknownArguments": [
+    {
+      "project": "convex-helpers",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react.test.ts"
+      ],
+      "entries": [
+        {
+          "entries": [
+            "util.types.isProxy"
+          ],
+          "frames": [
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1411,
+                "columnNumber": 16
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "wrapModuleLoad",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 254,
+                "columnNumber": 18
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1616,
+                "columnNumber": 11
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "require",
+              "location": {
+                "scriptId": "55",
+                "lineNumber": 152,
+                "columnNumber": 15
+              },
+              "script": {
+                "url": "node:internal/modules/helpers",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "2539",
+                "lineNumber": 9,
+                "columnNumber": 41
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/pretty-format/build/index.js",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1870,
+                "columnNumber": 13
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 2001,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1593,
+                "columnNumber": 31
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            }
+          ],
+          "argument": {
+            "available": false,
+            "reason": "argument is not an own data property",
+            "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+            "replayEligible": false
+          },
+          "count": 1
+        }
+      ]
+    },
+    {
+      "project": "example-ui",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx"
+      ],
+      "entries": [
+        {
+          "entries": [
+            "util.types.isProxy"
+          ],
+          "frames": [
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1411,
+                "columnNumber": 16
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "wrapModuleLoad",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 254,
+                "columnNumber": 18
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1616,
+                "columnNumber": 11
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "require",
+              "location": {
+                "scriptId": "55",
+                "lineNumber": 152,
+                "columnNumber": 15
+              },
+              "script": {
+                "url": "node:internal/modules/helpers",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "2623",
+                "lineNumber": 9,
+                "columnNumber": 41
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/pretty-format/build/index.js",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1870,
+                "columnNumber": 13
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 2001,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1593,
+                "columnNumber": 31
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            }
+          ],
+          "argument": {
+            "available": false,
+            "reason": "argument is not an own data property",
+            "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+            "replayEligible": false
+          },
+          "count": 1
+        }
+      ]
+    },
+    {
+      "project": "example-ui",
+      "files": [
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.injection.test.tsx"
+      ],
+      "entries": [
+        {
+          "entries": [
+            "util.types.isProxy"
+          ],
+          "frames": [
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1411,
+                "columnNumber": 16
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "wrapModuleLoad",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 254,
+                "columnNumber": 18
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1616,
+                "columnNumber": 11
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "require",
+              "location": {
+                "scriptId": "55",
+                "lineNumber": 152,
+                "columnNumber": 15
+              },
+              "script": {
+                "url": "node:internal/modules/helpers",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "2621",
+                "lineNumber": 9,
+                "columnNumber": 41
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/pretty-format/build/index.js",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1870,
+                "columnNumber": 13
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 2001,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "68",
+                "lineNumber": 1593,
+                "columnNumber": 31
+              },
+              "script": {
+                "url": "node:internal/modules/cjs/loader",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            }
+          ],
+          "argument": {
+            "available": false,
+            "reason": "argument is not an own data property",
+            "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+            "replayEligible": false
+          },
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "nativeArgumentSites": [
+    {
+      "script": "node:internal/modules/cjs/loader",
+      "line": 1412,
+      "classification": "object",
+      "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+      "count": 5339
+    },
+    {
+      "script": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-config-probe.cjs",
+      "line": 34,
+      "classification": "object",
+      "callerSourceSha256": "e3ff51659c55c917b6ee7ad5a31e46c722c04478342654ecee02f88b5573b870",
+      "count": 2157
+    },
+    {
+      "script": "node:internal/modules/cjs/loader",
+      "line": 1412,
+      "classification": "primitive",
+      "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+      "count": 585
+    },
+    {
+      "script": "node:internal/modules/cjs/loader",
+      "line": 1045,
+      "classification": "object",
+      "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+      "count": 101
+    },
+    {
+      "script": "node:internal/deps/undici/undici",
+      "line": 11495,
+      "classification": "object",
+      "callerSourceSha256": "05f87600c129195c685f43f6a90e5fb37316f1804ef1a881cfdb3ead7a672273",
+      "count": 61
+    },
+    {
+      "script": "node:internal/deps/undici/undici",
+      "line": 5086,
+      "classification": "object",
+      "callerSourceSha256": "05f87600c129195c685f43f6a90e5fb37316f1804ef1a881cfdb3ead7a672273",
+      "count": 30
+    },
+    {
+      "script": "node:internal/modules/cjs/loader",
+      "line": 1412,
+      "classification": "unknown: argument is not an own data property",
+      "callerSourceSha256": "8d3b743189c141f4a0946144cf7a395c0da7a8fa382f74b9cbf83db6afa570d0",
+      "count": 3
+    }
+  ],
+  "privateFieldFix": {
+    "commit": "e1ef77720f21c6da43b584192f905c03bfaaf3b7",
+    "run": "https://github.com/pango07/quod/actions/runs/42177699152",
+    "conclusion": "success",
+    "regressionTests": 37,
+    "fullWorkloadRepeated": false
+  },
+  "artifactsSha256": {
+    "after-inputs.json": "f95560c69649cf8ed0f06f81c941dbf681c438e55d2517f5287aca1a62997e20",
+    "after-tests.json": "7867cf683ee42679eb3eb794e50a6f22170d5efcfc6e4656bcee03b2b45ee754",
+    "before-inputs.json": "eb311db2f4ef37d94c64e51226da6bc147514eefcd76c1fc72655e7aa779f904",
+    "before-tests.json": "b90065ae960ad56b34597ddd20ca2d83bb9b51aad358596f2c0b8032baec830e",
+    "result.json": "0a70f1430c050fb786ac9e876f62d9106ff9b15c504b88bee8da85193069b3a8",
+    "worker-config/4064.json": "17f12e729782e33283f82c269e3e651a0f5fb10cd883e8063be54f402c7a0233",
+    "worker-config/4065.json": "4c238f85a4e58f88a06a1883e9c2d86ad7727822fb86435a13b33b47aaa11b67",
+    "worker-config/4071.json": "16c6ef7a6d88e796f24d64dcd8d96e3f2fd011ff030c82a0033cce64e09d2a15",
+    "worker-config/4128.json": "d26da07d3b3b057c74acd549b855b9dceac8843a6288a752d80986aaa8209d76",
+    "worker-config/4157.json": "7c90a179690974e729e24e6d0c673d123296096b88fad577bf6333efb4254ace",
+    "worker-config/4196.json": "f055e73a31e7ce672e4752d1ef59793fded676122fc44cf9a2bb910acaff10fc",
+    "worker-config/4217.json": "d88d055bcecab16882d168c7956be18f004c8a657f0359c887c04121073a2c88",
+    "worker-config/4235.json": "7392a022167da2c799a7f92060d511b08ba981a90e132d590560133ca85c4dff",
+    "worker-config/4245.json": "7ba5735fe3beeb35a342d944330531f7f1bf48ec2e7d6727a602eef7d5c1e18b",
+    "worker-config/4252.json": "3c8f911dcbf996fefa788178f5b41804462ee811dcefcd369bf28e8ec0fa7ed0",
+    "worker-config/4265.json": "530940a2fe9452d651f77735cedf9381446311db166a4809d515c83d537cb7db",
+    "worker-config/4272.json": "f59dfcbad12de7fccbf320d8f55d1e8d8a81a431e32c3349043c7010c9361399",
+    "worker-config/4281.json": "4a23155e0d2ccd9e173236c75770b2c8816ecfc84665432630de4cf27cb171df",
+    "worker-config/4289.json": "c16d2e1b580d5ee2e61403f861ad45308cea571fe5a591622ce68be6fcbe5f63",
+    "worker-config/4296.json": "c75019aa3d0a3c454664c478f2295cda12272d3ad942561493a9d6ea836ffb87",
+    "worker-config/4304.json": "65904a57e040a2150e45f2cbb2b0cdf9098fe5093a2deff130971bc66cbead82",
+    "worker-config/4312.json": "ede605570d0aaae07c79188141df4aec534363031cebe665b5a9cde7ee8496a4",
+    "worker-config/4321.json": "eaad54abf39916c3942a1002f732983df0169793cd96a8d8691d17fc0d8a2a42",
+    "worker-config/4330.json": "2a16bf6efafdd51df429c002f986c7554fdba0907d9cd628c47d2e0fbcdb089e",
+    "worker-config/4338.json": "34947983eed8ad07df2b67c948fc1ccec3e3b6fd11323a91dd3ab43ca7fd717f",
+    "worker-config/4350.json": "4fd8725003babf8d643eda519eda3c1ff7cc625ef15afa8b6774151db8aec56a",
+    "worker-config/4358.json": "6858d36f0a1fb67f957792391adb45d853124b956413c292049b5b8b20c6c427",
+    "worker-config/4367.json": "06d1d77d78772fefb61f29cf3af77b420a49de9bf2fd1c526009041183439e7a",
+    "worker-config/4375.json": "143f7a0faad829507e2bfae8f2929001bce7e320aa853bb9a913df8e2ab8c14f",
+    "worker-config/4383.json": "38385e6457b6d1fcef911821576e8a6ce3a22d5d4b98a0a06dea324cda544eb7",
+    "worker-config/4392.json": "253cdb96a4eadcbb9d80455c7b30a76a4597e4ae746ab5311d78c97b500470ff",
+    "worker-config/4400.json": "689784b472a904a2ab7957841402284ad3180431c626ed5cbf1a8a222d8680d5",
+    "worker-config/4408.json": "887da3f667f267470fd915e4bf73288f2100259e4dad43ab977bf9351365201b",
+    "worker-config/4417.json": "29edfabf5a0e952586d9310e28818abdc4e6fceac091c20918e5cfe3e4ad7b47",
+    "worker-config/4425.json": "9c3e34df60172898af46ef383e97e445abeb0be129a36f97ed0b62c2443e223a",
+    "worker-config/4433.json": "8729e2d5105261f6a2e7b9e5f640c0e470bf3a0adf2acbb0270ec25af828edc5",
+    "worker-config/4441.json": "a4062cb95117f187cc5da4775e23c1f963a18d503b93babf2e84d4a9e412ff2b",
+    "worker-config/4449.json": "f09578868c6d805b13cc5fd5c62d64c79a01a4bc13e60cbc39339aafa735c8aa",
+    "worker-config/4457.json": "2fb930e935e6536b810266d78bf4aaaa65383aa789442499bafadc0b4a999bf4",
+    "worker-config/4466.json": "9819ac5b8974125e8c980f7767be4ac56514f13261d75bab1e033f472edcaf81",
+    "worker-config/4474.json": "320e815e61ec0f54f48e3cd0fc4463cab343a4af56c39f4983aff38b51b03b81",
+    "worker-config/4482.json": "8279b44234fa882e7806f351135e6f089b4c78f597375c8a438dcfb46fc18e8f",
+    "worker-config/4490.json": "907f7ff3f33d1e79157194b0f3c81f50e7f86cd082ed514a8f1b220e5fc5983d",
+    "worker-config/4499.json": "07bbb367c6bcd091186005671cd21dd8151f1c82f8e1ca40b5f8b15d65ff78c5",
+    "worker-config/4510.json": "fd9eb47535d6dec4c946a41746b474febd4ff5815cee207f0caa7a1eaba5856d",
+    "worker-config/4518.json": "0e2442364e2f436e601bdb383e7f69d0ebefb71b84a8d17292778d6b148a66e9",
+    "worker-config/4526.json": "59e64fb91642d92bafa08224fa1b718336053206c67f593208a26be710d0b1a9",
+    "worker-config/4535.json": "feebf5f838da24e1cc86e42a055c9b27acaeca28dc9f46a9992b6eaed3b943fa",
+    "worker-config/4543.json": "4ad98c8fd3fad03b70604bca05d6a3bb8aec872c618a7f6a673d4b6f21ac2193",
+    "worker-config/4551.json": "dbc8531a5179efca3569c331e8d0bdbfd758b98b93993b68e07f0cae6e625d95",
+    "worker-config/4559.json": "db4475a192315b2b006e95340ad16e8a7343742d76108dd703fedbe821972d4c",
+    "worker-config/4567.json": "1a34ae0797766863a612fe3ee373284b7595622230d20d477bfb22374997a83f",
+    "worker-config/4575.json": "b3d081c42941ca3c9feeef5bb3141c194118b7922ac0a063fc32500c6d134725",
+    "worker-config/4583.json": "54d95b064cc19e24995b65216007a38617a834e6379871917c0898e612e9a473",
+    "worker-config/4591.json": "52fc0ee494373a790b33bb372dd7287434be19e92e419aa6238a8fba5e69bb26",
+    "worker-config/4599.json": "5edfc26cd82d20f986def5b6c7d0284c3d7e31a1279ef6589f149b804fea8987",
+    "worker-config/4607.json": "beb8af20191c324651404d090d8c644d5b4ed765af32fb3fa8b6222b10bdeae4",
+    "worker-config/4616.json": "b6cfb8b8a1126367c69224e06dc8bd8e1bdfb2a4a67c9e466e9f92bcd7a9ea40",
+    "worker-config/4624.json": "d64802d8147ef12fdcc6bfad61270fa921da5bb70e100c5d2f1055700c5ace56",
+    "worker-config/4631.json": "b2d7f696b9df316fe5719e57baa44fc55ed4ed0c158ec346a085cf04caa5fb17",
+    "worker-config/4639.json": "9fab20e7963346cfa0a5ea9b6f21a8d05ae21756d7b78aaa9a3729e7a111aed3",
+    "worker-config/4647.json": "e52cbc23689c8e26403422bfc8873d2688d1c9ff2c5d381c41468ed334120f7b",
+    "worker-config/4656.json": "3b2684ab5f461fb716e481f29bc803bef64f967a43a3e9facfb98d3cb2cf8629",
+    "worker-config/4664.json": "71c851b6bea96fc3fc83f5b00d3ad776d45a62553803d2bd50dc7db4155d4e09",
+    "worker-config/4673.json": "c400d18b8adcc81eb19710036f0ed895b83b0981de5844769660d70e75d78bcf",
+    "worker-config/4680.json": "71b3859e689aeabd82642aa075ea95fc3eddf3ff47a55813707c9622ff7423a2",
+    "worker-config/4689.json": "da38d0e68738529a671d2ed1cf08e2c813d739b8d1a438c06d604ac002f3237e",
+    "worker-config/4696.json": "2d383c16f894fca0f768d2c14f404f73c870f80189816254a1537e28e22378c8",
+    "worker-config/4705.json": "de9f406396c176f368a0ec95cd38e3e86df3027100ed90a10d1f8424891a933d",
+    "worker-config/4712.json": "154f05a086c2ceea69cd0a4bc9303f377bb378f654e0c98afea25bd2b73d1b39",
+    "worker-config/4721.json": "c2d157b6b2a00798f0379ba799e91d8c27639d0842c5b713e36e8ecb7d77e348",
+    "worker-config/4728.json": "d00174324c7690b8894442cd3326a93755d5b1ddb59fbf2e7aaa2015824fb26b",
+    "worker-config/4737.json": "61fc0958dc5fd735e8d2b043f1c061e1847580b5df202423fc411782f3460c03",
+    "worker-config/4745.json": "2c8eeeec1ac0d1a24d7df38987df2ee3037de34afa03b634aa3128c94543b4a0",
+    "worker-config/4753.json": "1a3fe520d89664853f4091d55795bcdc2cab8e338cf93ff71231edbc47b33236",
+    "worker-config/4761.json": "91939b96b1d228eb2d4d710298e5e484a255f6e8305b8c8198251236b2149ba8",
+    "worker-config/4769.json": "b4a5005c6df736ac2e8d1ae17708a7cc0cfd325a90eac590395d351448f30af0",
+    "worker-config/4778.json": "a38494440727653fbb73c570c5083411d493d33fda7fcf0d9fb34229d4f9874a",
+    "worker-config/4786.json": "1cd780153a43fe6417fb360e3a7496dd207add9601f0830e7c4b15bca498a94f",
+    "worker-config/4794.json": "2bf46b84cc6daf1836e8baf5a80a56277a1a0c9e840b7fb1052667e94e0c1aac",
+    "worker-config/4802.json": "1fab8a5d6041fa136a8142cdd5886516e61f1a7a8aba3d8f69d8a9bacf13d016",
+    "worker-config/4810.json": "1b4118a2f4b6fe900079a9c6724e6d6b2e6927dfd660b209daff3e601d2b40dd",
+    "worker-config/4818.json": "f71c5cc5133c504828d16174d2b7f9c58aa16b6a17b672fab599de4271a9a968",
+    "worker-config/4826.json": "1ffac71edc4541c65222b0a5923f646a54eb84cf7a25c1cc2a4204097e890448",
+    "worker-config/4834.json": "61a7056e3e2a6dd4fcd8cba0eb1b85fe385c848ba11e97c3ccca76e16326e1f4",
+    "worker-config/4843.json": "145f526a929f7138c0c6471af242c284089952317784b81dba7a39314d6e0130",
+    "worker-config/4852.json": "1d4945d8eba7825eaaef969b70afa8fb94727a23a62729fd83d283c86193ac6e",
+    "worker-config/4859.json": "e749545ff752f7d6a7be73c90393050f560a87814af68ad12b5973d3fbd8888b",
+    "worker-config/4869.json": "e17c9b4066dc98e90f2533d418c8fe471483c2731824fd81823ed13206c3cd36",
+    "worker-config/4876.json": "e7e41be27972c2e1f86fc4bcd1562110e7ba7872755a4c77efad4b24cc1b3d75",
+    "worker-config/4886.json": "b50bb85d8bb7d3d92f997fd8bec526328bc76077931d142c8cab670489146b2b",
+    "worker-config/4893.json": "a8d09015d5e7c13c3593edcf7dac1c2fcca884f53cc35a90a2ac8e66902e5457",
+    "worker-config/4902.json": "ff8030774e3a90bf0931d6d6b33d858248dfd245aa5b5b85db0e1a0f0002ee99",
+    "worker-config/4909.json": "109142d159f384bae0049ae365550d0af20193a3e45650414e2f6fc6e7164630",
+    "worker-config/4917.json": "61548794da2ac90d3ec904819041313160204c098dbe3d7885af2e4c8dc15f1d",
+    "worker-config/4925.json": "a1a351ec455ef09b0d2d67167e892a149310607b10f9356755a86dfdd9509a9d",
+    "worker-config/4933.json": "f754f6e0fed8e1da099077145fcec6920b51b93443cadbd101eb44c7014c7c51",
+    "worker-config/4941.json": "aaac80f62203ef904fa6d744b90a76ff66ae46707b370d79ca60bde482739b58",
+    "worker-config/4950.json": "08f89a58e9b5b00c7cd3e40f23d40f0082b8818d29980bff2a0e954680dbf8f6",
+    "worker-config/4956.json": "fa34321b38170e46080dc01d4dee49c6e7dd3a8d52c9228c08f4db96687ad042",
+    "worker-config/4966.json": "11bfe50f2745e04f3d56246120d1e8e4196a52bd88b9ff05ed143fadef1e25c9",
+    "worker-config/4973.json": "ecbbe4f30e48d0e1c36a78b3b9143a7d870ba0a4809f7a7bb4081dc01664dd07",
+    "worker-config/4982.json": "32051128da638c6655ea7aef5e9c6032f810a0c171d9f1db6818c7a61f68ec1b",
+    "worker-config/4989.json": "45abdbd1445d50ca74aef47d9debe8d542360a71684ba2085625f643d47ab411",
+    "worker-config/4997.json": "d411af4024682277409632716690d85e305ade2d3a678b33e18daa6150c3c4c4",
+    "worker-config/5005.json": "c6f6faf54a788e61d2c5c8fb80e34b47545a83971617a5df723729bba50b72c9",
+    "worker-config/5013.json": "8890c3d4b850b6142ada467c9a6e598f6e1afc022bb93db175c6dcb79a4fc67f",
+    "worker-config/5021.json": "245ec0444be3640c076874a024b6c1465b485d2b5071b1b92267f93dd0a6673e",
+    "worker-config/5030.json": "5edeb1665da2b320bc8c7e3f60c3918ab446694b7c4d92fd4879298183221714",
+    "worker-config/5036.json": "d981b0ef201b1acb9676e970788101b4314015a805a6d5c334ac217d430b051f",
+    "worker-config/5046.json": "19d14fd20329bf0a314a197dada60672638becb5fefb118a02b82581b31ba02f",
+    "worker-config/5053.json": "bfbe5f9771e14aa3bb14b5b577eff2e4d16d512bf7c3490b1f1f8f6c7414180e",
+    "worker-config/5065.json": "339d0d664645ac26c9147fa68d37642f76e24e2dd146a367e15fe89a7054ac5c",
+    "worker-config/5072.json": "3edd97fc119f4a70bc4e8b1de31903506be95681593fad282a358080c5f1221e",
+    "worker-config/5081.json": "70fdddf328349e181feb7aaa03021370d84552429537b6b179892ee6b84768d8",
+    "worker-config/5088.json": "fae4f196697faa53e8bf4dc16f867952dae2e5640e00590575c260ae5b2cedab",
+    "worker-config/5096.json": "db1fa2a12ff973c0f4564b0a9e3c3fcb9e14b7e12f8a9da14682e9cf81435d2b",
+    "worker-config/5105.json": "4f569e6ca3fdbc5f34b77510e4eb420517404983b0af0fb716dff4e8a69bc0cb",
+    "worker-config/5112.json": "8ca178b1b6e0542695448bba7b309412c34b94f8ae0c285e3477aa8ccadcf227",
+    "worker-config/5122.json": "404350a9b1a1aadad99cf7b5258f773845458f2327acda7987e0a725caf21473",
+    "worker-config/5128.json": "856caf37d90bce4bfafd0918779363ce44516babb5a80a59624151680a171d6f",
+    "worker-config/5139.json": "6e18e7f4a13f036b8fc0aa8ab7d9f918f1fbae9d55e0ed3a5153b79506618c7e",
+    "worker-config/5146.json": "721e58d22a753b881fdf1bdf7cb28d717c613e9eee1740341fa06d6cb0ffb4f0",
+    "worker-config/5155.json": "c0b4b5f7dc2fffd746b9150c788ac1cce99ed11121d765af2e4c4d6b930d5330",
+    "worker-config/5162.json": "79880d726e2068763f408792aff73edbd229168b6c7df9bde29db75756bc918e",
+    "worker-config-result.json": "85fbd3eeb26dda8a28ab2fc109473101c0c61a0e414b98aca0ebe9de0e6013e4"
+  },
+  "replayEligible": false,
+  "limitations": [
+    "The full workload run precedes the private-field rejection fix; its fixture gate passed separately.",
+    "Argument classifications cover the bounded native call shapes, not all native observations.",
+    "Complete configuration ownership and native channel coverage are still required.",
+    "Parent RPC state, module bytes actually consumed, worker inputs and side effects remain required.",
+    "No production replay or performance change."
+  ]
+}
