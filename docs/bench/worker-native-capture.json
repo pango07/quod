@@ -1566,6 +1566,410 @@
     "nativeBinarySha256": "a3eb050f948a2e4abc4524ad306e5a4132d4440d6441169c483236516060290a",
     "correctedFullGate": 42237280902,
     "correctedFullGateCommit": "4d18bf2",
-    "correctedFullGateStatus": "in_progress"
+    "correctedFullGateStatus": "completed",
+    "correctedFullGateConclusion": "failure",
+    "fullResult": "Native Error exclusion does not resolve the repeated protocol failures; stricter native target checks also produce unavailable owned captures."
+  },
+  "correctedFullDiagnostic": {
+    "commit": "4d18bf2",
+    "run": "https://github.com/pango07/quod/actions/runs/42237280902",
+    "job": 127958097343,
+    "conclusion": "failure",
+    "regressionsPassed": 210,
+    "failure": "before phase 420-second timeout; every retained worker report has unavailable native capture",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 119,
+        "descriptorCalls": 1160097,
+        "nativeCalls": 1255776,
+        "cleared": 1255776,
+        "released": 1272480,
+        "compilationEvents": 2570915,
+        "scopedInspections": 1160096,
+        "descriptorsRetainedCalls": 1160097,
+        "proxyRetainedCalls": 57586
+      },
+      "flags": {
+        "identity: native entry capture failed": 524,
+        "identity: native capture protocol request failed": 1856,
+        "identity unavailable": 119,
+        "descriptors unavailable": 119,
+        "proxy unavailable": 119
+      },
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 119,
+          "elapsedMs": 25.303838000000002
+        },
+        "Debugger.getScriptSource": {
+          "calls": 2592953,
+          "elapsedMs": 52425.25189700003
+        },
+        "Debugger.enable": {
+          "calls": 119,
+          "elapsedMs": 8864.689
+        },
+        "Runtime.evaluate": {
+          "calls": 5950,
+          "elapsedMs": 1459.1747319999995
+        },
+        "Runtime.getProperties": {
+          "calls": 17374,
+          "elapsedMs": 2450.4319309999996
+        },
+        "Runtime.queryObjects": {
+          "calls": 357,
+          "elapsedMs": 20870.416810000006
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1274860,
+          "elapsedMs": 187227.92629200005
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 5236,
+          "elapsedMs": 12756.846355999998
+        },
+        "Debugger.resume": {
+          "calls": 122,
+          "elapsedMs": 4.502492
+        },
+        "Runtime.releaseObject": {
+          "calls": 1272480,
+          "elapsedMs": 20874.939005000007
+        }
+      },
+      "watchedTargetCalls": 48306
+    },
+    "unfinishedCheckpoints": [
+      {
+        "file": "5071.json",
+        "project": "convex-helpers",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+        ],
+        "checkpoint": {
+          "calls": 1030000,
+          "apis": {
+            "Object.defineProperty": 516343,
+            "Object.getOwnPropertyDescriptor": 609,
+            "Object.freeze": 8,
+            "Object.defineProperties": 256093,
+            "Object.setPrototypeOf": 85,
+            "Object.getOwnPropertyDescriptors": 256046,
+            "Reflect.getOwnPropertyDescriptor": 793,
+            "Reflect.deleteProperty": 21,
+            "Reflect.defineProperty": 2
+          },
+          "arguments": {
+            "object": 1030000
+          },
+          "last": {
+            "name": "handleException",
+            "location": {
+              "scriptId": "175",
+              "lineNumber": 81,
+              "columnNumber": 56
+            },
+            "script": {
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+              "isModule": true,
+              "hasSourceURL": false,
+              "language": "JavaScript"
+            }
+          },
+          "overflow": false,
+          "nativeLog": {
+            "calls": 1030000,
+            "entries": 2813,
+            "frames": 2384,
+            "overflow": false
+          },
+          "stack": [
+            {
+              "name": "handleException",
+              "location": {
+                "scriptId": "175",
+                "lineNumber": 81,
+                "columnNumber": 56
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "153",
+                "lineNumber": 216,
+                "columnNumber": 75
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/promise-observers-probe.mjs",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "emit",
+              "location": {
+                "scriptId": "22",
+                "lineNumber": 508,
+                "columnNumber": 27
+              },
+              "script": {
+                "url": "node:events",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "#onMessage",
+              "location": {
+                "scriptId": "154",
+                "lineNumber": 99,
+                "columnNumber": 13
+              },
+              "script": {
+                "url": "node:inspector",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "154",
+                "lineNumber": 65,
+                "columnNumber": 66
+              },
+              "script": {
+                "url": "node:inspector",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "__name",
+              "location": {
+                "scriptId": "610",
+                "lineNumber": 2,
+                "columnNumber": 32
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "proxify",
+              "location": {
+                "scriptId": "610",
+                "lineNumber": 1625,
+                "columnNumber": 25
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "Assertion",
+              "location": {
+                "scriptId": "610",
+                "lineNumber": 1409,
+                "columnNumber": 11
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "expect",
+              "location": {
+                "scriptId": "610",
+                "lineNumber": 3272,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/chai/index.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "expect",
+              "location": {
+                "scriptId": "775",
+                "lineNumber": 8000,
+                "columnNumber": 22
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                "isModule": true,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "check",
+              "location": {
+                "scriptId": "8918",
+                "lineNumber": 229,
+                "columnNumber": 33
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            },
+            {
+              "name": "processTicksAndRejections",
+              "location": {
+                "scriptId": "32",
+                "lineNumber": 103,
+                "columnNumber": 4
+              },
+              "script": {
+                "url": "node:internal/process/task_queues",
+                "isModule": false,
+                "hasSourceURL": false,
+                "language": "JavaScript"
+              }
+            }
+          ],
+          "compilation": {
+            "events": 2062198,
+            "runs": 2062063,
+            "records": 415,
+            "overflow": false,
+            "failedToParse": 374
+          },
+          "argumentDiagnostics": {
+            "mode": "native-entry-arguments",
+            "available": false,
+            "calls": 1030627,
+            "ignored": 0,
+            "ignoredReasons": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "cleared": 1030627,
+            "released": 1030770,
+            "groupsReleased": 0,
+            "handleMode": "native-private-capture",
+            "argumentMode": "direct",
+            "targetAccessorsOnly": true,
+            "targetInspection": "native-watched",
+            "nativeCapture": true,
+            "scopedInspections": 1030000,
+            "adaptiveSites": 0,
+            "errors": [
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native entry capture failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed",
+              "native capture protocol request failed"
+            ],
+            "replayEligible": false,
+            "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+          },
+          "identity": {
+            "mode": "native-entry-arguments",
+            "snapshotsRequested": 0
+          },
+          "replayEligible": false
+        }
+      }
+    ],
+    "callerSourceVerification": {
+      "commit": "4d18bf2",
+      "counts": {
+        "workers": 119,
+        "sourceRecords": 2476,
+        "watchedCalls": 48306,
+        "callsMatchingCheckedInDiagnosticSource": 48306
+      },
+      "expectedSources": {
+        "scripts/bench-vitest/worker-config-probe.cjs": {
+          "sha256": "3021505e7161d2ddbbd89db27683f85d5e0fdac10a3f898996e2d170a0313578",
+          "bytes": 11108
+        },
+        "scripts/bench-vitest/worker-module-metadata-probe.mjs": {
+          "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf",
+          "bytes": 18704
+        },
+        "scripts/bench-vitest/scalar-property-probe.mjs": {
+          "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b",
+          "bytes": 6986
+        }
+      }
+    },
+    "artifact": {
+      "id": 13513770271,
+      "bytes": 13644028,
+      "sha256": "4b67a0df613688bfd27f5d6c803d63af70dea2e22a49123ff3701b6cf2685305"
+    },
+    "logSha256": "16b136978647711235a1f5329833fd2758d4825d2d1ae09837161e69420149b6",
+    "limitations": [
+      "All 119 retained worker reports have capture errors and cannot establish complete coverage.",
+      "Native calls exceed retained attributed events by 38093; rejected owned targets lacked attribution in this version.",
+      "Error samples remain capped at 20 per worker.",
+      "No full observed test result, after phase, replay certificate or product speedup established."
+    ]
+  },
+  "classifiedFailureFixture": {
+    "commit": "1921fe2",
+    "run": "https://github.com/pango07/quod/actions/runs/42240010882",
+    "job": 127967504613,
+    "conclusion": "success",
+    "testsPassed": 179,
+    "nativeBinarySha256": "f0cecdbc2d46e58dfa0f221bb905e9606e25138af7f38d9e0b36fbf65574d0ab",
+    "logSha256": "696d98c6a613950d1c511b002af379e5064c27b058fb8ef67df992716c7734ca",
+    "scope": "Rejected owned targets retain sanitized attribution with available=false; failure counts are uncapped and samples bounded. A real foreign-intrinsic condition reproduces protocol transport failure and remains unavailable.",
+    "fullGate": 42240251280,
+    "fullGateStatus": "in_progress"
   }
 }

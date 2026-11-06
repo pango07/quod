@@ -1208,7 +1208,26 @@ or silently accept an unknown capture.
 passes all 174 regressions at `4d18bf2`, including both native Error contexts,
 the forged foreign object and native callback/access-check fixtures. Corrected
 [full gate 42237280902](https://github.com/pango07/quod/actions/runs/42237280902)
-is running that commit. Its completion and coverage remain unproven.
+ran that commit. It passed 210 regressions and the plain baseline, then
+again timed out at 420 seconds in `before`. All 119 retained worker reports
+are unavailable: native Error exclusion did not resolve the repeated protocol
+failures, and stricter target checks introduce additional rejected captures.
+The diagnostic captures and clears 1,255,776 wrappers but retains only
+1,217,683 attributed native events, a gap of 38,093 rejected owned targets.
+The unfinished stream worker reaches 1,030,000 descriptor calls. No complete
+observed test result or `after` phase exists. The source check validates
+48,306 retained watched calls across 2,476 source records, but cannot account
+for the failed captures.
+
+Candidate `1921fe2` preserves sanitized metadata and call sites for unavailable
+owned captures, classifies their failure stage, and counts every failure
+separately from bounded samples. Foreign protocol failures retain bounded
+call stacks and context IDs. These additions expose the remaining cases;
+they do not make unknown captures available or permit reuse.
+[Gate 42240010882](https://github.com/pango07/quod/actions/runs/42240010882)
+passes 179 regressions. It also reproduces a foreign-intrinsic condition
+that fails protocol transport, confirming that a foreign capture failure
+cannot generally be dismissed as an unrelated application exception.
 
 ## Exact script metadata index
 
@@ -1231,3 +1250,8 @@ and the driver requires index event counts to agree with all parsed-script
 events. Progress checkpoints will record memory use in the next full run.
 [Both fixture samples and invariants](worker-script-metadata-index.json) are
 retained separately from full-workload evidence.
+
+[Full gate 42240251280](https://github.com/pango07/quod/actions/runs/42240251280)
+is running `1921fe2` with the compact index, memory checkpoints and classified
+capture failures. Complete coverage and any workload-time benefit remain
+unproven; no production key, replay eligibility or savings claim changes.

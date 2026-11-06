@@ -91,5 +91,11 @@
     "The isolated memory measurement is heap growth plus ArrayBuffer growth, not process RSS or CI cost.",
     "Insertion costs more than the ordinary Map in these samples.",
     "Full-workload coverage and elapsed-time benefit remain unproven."
-  ]
+  ],
+  "fullGate": {
+    "commit": "1921fe2",
+    "run": 42240251280,
+    "status": "in_progress",
+    "alsoChanges": "classified unavailable native captures and bounded failure call sites; memory checkpoints"
+  }
 }
