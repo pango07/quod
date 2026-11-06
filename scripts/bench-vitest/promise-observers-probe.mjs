@@ -45,7 +45,10 @@ export function inspectPromiseObservers() {
     fields=binding(getHooks,'async_hook_fields').objectId
     active=binding(getHooks,'active_hooks').objectId
     for(const name of ['kInit','kBefore','kAfter','kDestroy','kPromiseResolve','kTotals']) {
-      const index=binding(getHooks,name).value
+      // kTotals is used by the public AsyncHook enable/disable methods,
+      // and V8 may omit it from the internal function's lexical context.
+      // Read the actual binding; never assume a numeric field offset.
+      const index=binding(publicCreate,name).value
       if(!Number.isInteger(index)) throw Error('unknown hook field index')
       indices[name]=index
     }
