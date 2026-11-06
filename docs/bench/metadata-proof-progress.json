@@ -833,6 +833,20 @@
     "lexicalBindingFixtureTests": 93,
     "lexicalBindingCombinedCommit": "6751d1e",
     "lexicalBindingFullGate": 42205868477,
-    "lexicalBindingFullGateStatus": "in_progress"
+    "lexicalBindingFullGateStatus": "completed",
+    "calleeCorrectionCommit": "2d0f3dd",
+    "calleeCorrectionFixtureGate": 42206709275,
+    "calleeCorrectionFixtureTests": 96,
+    "calleeCorrectionFixtureConclusion": "success",
+    "capturedIntrinsicsCommit": "aac46f7",
+    "capturedIntrinsicsFixtureGate": 42206893389,
+    "capturedIntrinsicsFixtureTests": 97,
+    "capturedIntrinsicsFixtureConclusion": "success",
+    "lexicalBindingFullGateConclusion": "failure",
+    "lexicalBindingFullGateFailure": "before phase 420-second timeout",
+    "lexicalBindingFullGateCompletedWorkers": 11,
+    "privateCalleeExperimentRemoved": true,
+    "privateCalleeLastGate": 42209923638,
+    "freshModuleScopeLookupStatus": "awaiting remote regression gate"
   }
 }

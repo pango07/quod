@@ -20,7 +20,7 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,privateCalleeCache=false}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false}={}) {
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
@@ -43,11 +43,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
   let heapIdentityObserver=null
   const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post,
-    {moduleBindingEvaluation,privateCalleeCache,
-      canCachePrivateCallees:()=>!failure&&!inspectorFailure&&!opaqueFailure&&
-        inspectorInitial?.localConnectionObjects===1&&inspectorInitial.listenerOpen===false&&
-        opaqueInitial?.nativeWorkerObjects===0&&opaqueInitial.cachedNativeModules.length===0&&
-        inspectorEntries.length===0&&opaqueEntries.length===0,
+    {moduleBindingEvaluation,moduleBindingLookup,
       identityComparison:heapIdentity?(a,b)=>heapIdentityObserver?.compare(a,b)??{available:false,reason:'native heap identity not ready'}:null})
   let proxyFailure=null,proxyOverflow=false
   const descriptorBreakpoints=new Map(),descriptorFunctions=new Map(),descriptorEntries=new Map()
@@ -234,9 +230,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       // Exclude the prototype only if its exact identity appears. The
       // census does not establish which objects are live connected
       // sessions, so a raw count must not be used as such a count.
-      // MainThreadConnection.prototype inherits Connection.prototype and is
-      // included by queryObjects. Exclude it only by exact object identity,
-      // never by a description or an assumed baseline count.
+      // Check both prototypes by exact identity. The pinned fixture contains
+      // neither; its extra connection-shaped object is not a prototype.
+      // No description or assumed baseline count can certify a live session.
       const isPrototype=p=>same(p.value?.objectId,prototype)||same(p.value?.objectId,mainThreadPrototype)
       const prototypeObjects=objectsList.filter(isPrototype).length
       const sessionObjects=post('Runtime.queryObjects',{prototypeObjectId:sessionPrototype,

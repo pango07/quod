@@ -18,6 +18,14 @@ access exclusion certificate. The corrected combined run below leaves
 6,028 CommonJS property arguments unknown in each observed phase, across
 all 120 workers.
 
+**Native-callee correction:** the same ambiguity also applies to the
+function expression. A property getter can return a bound intrinsic, then
+replace its own property or owner with the unbound intrinsic before the
+pause. Comparing that later value can assign the wrong argument positions.
+Commit `2d0f3dd` therefore leaves all member callees unknown. Earlier member-
+callee classifications, including subsequent corpus diagnostics built
+before this correction, cannot establish actual argument identity.
+
 [Gate 42168453693](https://github.com/pango07/quod/actions/runs/42168453693)
 at `df8448c` passes three protocol/fingerprint regressions and two complete
 plain Vitest runs of convex-helpers c11. Between the runs, it changes the
@@ -681,3 +689,55 @@ is running at this revision. No production replay behavior or savings
 claim changes.
 [Raw checkpoint evidence and artifact digests](worker-descriptor-overhead.json)
 preserve partial results separately from complete worker reports.
+
+## Callee provenance correction
+
+[42206709275](https://github.com/pango07/quod/actions/runs/42206709275)
+at `2d0f3dd` passes 96 fixtures. Two new cases return a bound native
+descriptor function from a getter and replace either the property or the
+owner before the native pause. The original call returns the bound target's
+descriptor, while the member now contains the unbound intrinsic. Both stay
+unknown, as does an ordinary member call that cannot be distinguished from
+this history at the pause. Supported lexical callees still resolve their
+current identities. The earlier argument-property restrictions remain.
+
+Commit `aac46f7` captures `isProxy` in lexical bindings inside Quod's own
+diagnostic helpers. This prevents later public-property replacement from
+changing those helpers' inspection and avoids reconstructing their callees
+from a mutable member. [42206893389](https://github.com/pango07/quod/actions/runs/42206893389)
+passes 97 fixtures, including a public replacement that throws if called.
+Fingerprinting still identifies ordinary objects and rejects proxies;
+neither the replacement nor a proxy trap runs. Native-entry observations
+retain the actual captured calls. This does not certify initial runtime
+provenance, complete native coverage or replay safety.
+
+## Fresh module scope lookup replaces the blocked identity cache
+
+The lexical-evaluation full run [42205868477](https://github.com/pango07/quod/actions/runs/42205868477)
+finished with a 420-second timeout in the first observed phase. All 129
+regressions passed, and plain completed 120 instances / 4,131 states, but
+only 11 observed workers completed. The unfinished stream property worker
+reached 130,000 descriptor calls and 63,407 lexical evaluations. Transferring
+fewer module descriptors did not make this run fast enough. It also predates
+the member-callee correction, so its classifications cannot certify identity.
+
+The private-callee cache introduced at `a06d464` is removed. Its live positive
+fixture never passed: the guard correctly refused reuse because two native
+Connection-shaped objects appeared at startup. Neither was a prototype;
+only one matched a Session's private connection. The last failing gate was
+[42209923638](https://github.com/pango07/quod/actions/runs/42209923638) at `d413886`.
+[V8's template cache](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api-natives.cc#L261-L331)
+provides a plausible source of the extra object, not an identity proof.
+Increasing the allowed count would not resolve that uncertainty.
+
+The replacement experiment reads one binding from V8's fresh module scope
+object on every native pause, then compares its actual native identity.
+[ScopeObject](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-scopes.cc#L579-L621)
+materializes a null-prototype object with lexical values and throwing native
+accessors for unavailable bindings. Only a declared module binding on the
+pinned runtime qualifies; prior scopes are checked first. A side-effect-checked
+lookup uses that diagnostic scope object, never an application object. Values
+are not retained across pauses, and exceptions remain unknown. Mutation, live
+imports, shadowing, queued microtasks, foreign Inspector connections and
+same-source cross-context modules are retained as regressions. This candidate
+is awaiting its remote gate and is not enabled in the full workload or product.

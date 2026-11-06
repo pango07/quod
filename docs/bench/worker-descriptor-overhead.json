@@ -1373,6 +1373,122 @@
     "fixtureLogSha256": "a92fd7621e33c97f07653f1d634d6f807fb457ccdf316a8be3a06c9da3c70cec",
     "combinedCommit": "6751d1e",
     "fullRun": "https://github.com/pango07/quod/actions/runs/42205868477",
-    "fullRunStatus": "in_progress"
+    "fullRunStatus": "completed",
+    "fullRunConclusion": "failure",
+    "fullRunFailure": "before phase 420-second timeout",
+    "fullRunRegressionTests": 129,
+    "completedWorkers": 11,
+    "expectedWorkers": 120,
+    "fullRunLogSha256": "c1d73856ffa8590d5d750f5c104b32592dea6cd4ab62c49a57f5464a184d6a67",
+    "streamCheckpoint": {
+      "calls": 130000,
+      "apis": {
+        "Object.defineProperty": 66487,
+        "Object.getOwnPropertyDescriptor": 708,
+        "Object.freeze": 8,
+        "Object.defineProperties": 30981,
+        "Object.setPrototypeOf": 83,
+        "Object.getOwnPropertyDescriptors": 30935,
+        "Reflect.getOwnPropertyDescriptor": 775,
+        "Reflect.deleteProperty": 21,
+        "Reflect.defineProperty": 2
+      },
+      "arguments": {
+        "object": 66021,
+        "unknown: argument value unavailable": 344,
+        "unknown: native argument evaluation may have side effects": 31853,
+        "unknown: unsupported argument scope": 31628,
+        "unknown: native heap identity unavailable": 114,
+        "unknown: ambiguous native call location": 40
+      },
+      "last": {
+        "name": "setState",
+        "location": {
+          "scriptId": "273",
+          "lineNumber": 1614,
+          "columnNumber": 60
+        },
+        "script": {
+          "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+          "isModule": true,
+          "hasSourceURL": false,
+          "language": "JavaScript"
+        }
+      },
+      "overflow": false,
+      "compilation": {
+        "events": 63859,
+        "runs": 1205,
+        "overflow": false,
+        "failedToParse": 47
+      },
+      "argumentDiagnostics": {
+        "propertyRequests": {
+          "local": 161856,
+          "closure": 5935,
+          "object": 66354,
+          "block": 2184,
+          "module": 255
+        },
+        "propertyEntries": {
+          "local": 430024,
+          "closure": 180738,
+          "object": 251667,
+          "block": 10235,
+          "module": 19591
+        },
+        "skippedModuleScopes": 31317,
+        "moduleBindingEvaluation": true,
+        "moduleBindingEvaluations": 63407,
+        "moduleBindingEvaluationErrors": 0,
+        "replayEligible": false
+      },
+      "identity": {
+        "available": true,
+        "comparisons": 66484,
+        "unknown": 114,
+        "reason": null,
+        "replayEligible": false,
+        "mode": "heap-object-id",
+        "snapshotsRequested": 0,
+        "limitation": "Heap tracking and garbage collection can be observable; this comparison does not prove complete input ownership"
+      },
+      "replayEligible": false
+    }
+  },
+  "calleeCorrection": {
+    "commit": "2d0f3dd643b725e174e8c47e4db9c9f76ccd74c0",
+    "fixtureRun": "https://github.com/pango07/quod/actions/runs/42206709275",
+    "fixtureConclusion": "success",
+    "fixtureTests": 96,
+    "fixtureLogSha256": "a51fcc61f7cf0f051ee5a0a84d22eb26b53c789733e82502f4eec20db586bafb",
+    "reason": "A getter can return a bound intrinsic and replace the callee property or owner before the native pause; the current member value is not evidence of the evaluated callee. All member callees now remain unknown.",
+    "replayEligible": false
+  },
+  "capturedDiagnosticIntrinsics": {
+    "commit": "aac46f75a2ed198dd010216299a29841dd121741",
+    "fixtureRun": "https://github.com/pango07/quod/actions/runs/42206893389",
+    "fixtureConclusion": "success",
+    "fixtureTests": 97,
+    "fixtureLogSha256": "004160fde7a85b2dc3eab3a998f3feeef06e5f90631fcc6b5d483be0680f2b37",
+    "scope": "Worker diagnostics capture isProxy as a lexical reference; no production replay behavior changes.",
+    "replayEligible": false
+  },
+  "privateCalleeExperiment": {
+    "introducedCommit": "a06d464",
+    "lastCommit": "d413886",
+    "lastGate": 42209923638,
+    "conclusion": "failure",
+    "removed": true,
+    "reason": "Startup census contains an unidentified extra Connection-shaped object. Reuse never becomes eligible; do not relax the count. Fresh per-pause module binding lookup replaces this experiment.",
+    "replayEligible": false,
+    "sourceLead": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api-natives.cc#L261-L331"
+  },
+  "freshModuleScopeLookup": {
+    "status": "awaiting remote regression gate",
+    "enabledInCombinedWorkload": false,
+    "replayEligible": false,
+    "source": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-scopes.cc#L579-L621",
+    "scope": "Pinned Node 24.18.0 only. Single-name lookup on each newly materialized module scope object; values and native identities are checked on every call."
   }
 }
