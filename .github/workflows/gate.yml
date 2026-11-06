@@ -881,6 +881,11 @@ jobs:
             scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
           sha256sum "$RUNNER_TEMP/quod-native-capture.node"
           echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
+          c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
+            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            -DQUOD_CAPTURE_DESCRIPTOR_FIELDS scripts/bench-vitest/native-entry-capture.cc \
+            -o "$RUNNER_TEMP/quod-native-capture-descriptors.node"
+          echo "QUOD_NATIVE_CAPTURE_DESCRIPTOR_ADDON=$RUNNER_TEMP/quod-native-capture-descriptors.node" >> "$GITHUB_ENV"
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
         if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'

@@ -24,12 +24,17 @@ bool OrdinaryForInspection(Local<Value> value) {
 
 bool OwnDataKey(Local<Context> context, Local<Object> object, Local<Name> name,
              Local<Value>* value, bool writable = false) {
-  auto isolate = context->GetIsolate();
   // A native data callback can masquerade as a data descriptor and execute
-  // while GetOwnPropertyDescriptor fills its value. Owned fields must be real
-  // data, so reject every callback before requesting their descriptors.
+  // while its value is fetched. These owned payload/holder objects must have
+  // no prototype, interceptor or host access check. Then the lookup cannot
+  // fall through to another object, and callbacks are rejected before reads.
+  if (!OrdinaryForInspection(object) ||
+      !object->GetPrototypeV2()->IsNull()) return false;
   auto callback = object->HasRealNamedCallbackProperty(context, name);
   if (callback.IsNothing() || callback.FromJust()) return false;
+#ifdef QUOD_CAPTURE_DESCRIPTOR_FIELDS
+  // Remote microbenchmark baseline only: retain the prior allocation path.
+  auto isolate = context->GetIsolate();
   Local<Value> descriptor_value;
   if (!object->GetOwnPropertyDescriptor(context, name)
            .ToLocal(&descriptor_value) || !descriptor_value->IsObject())
@@ -45,6 +50,12 @@ bool OwnDataKey(Local<Context> context, Local<Object> object, Local<Name> name,
         !flag->IsTrue()) return false;
   }
   return true;
+#else
+  auto attributes = object->GetRealNamedPropertyAttributes(context, name);
+  if (attributes.IsNothing() ||
+      (writable && (attributes.FromJust() & ReadOnly) != 0)) return false;
+  return object->GetRealNamedProperty(context, name).ToLocal(value);
+#endif
 }
 
 bool OwnData(Local<Context> context, Local<Object> object, const char* name,

@@ -382,6 +382,50 @@ test('native capture rejects malformed owned wrappers and foreign getters withou
   assert(!Object.hasOwn(summary,'argument'));assert.equal(valid.argument,null)
 })
 
+test('native data-field lookup agrees with descriptor baseline and never invokes malformed fields',()=>{
+  const require=createRequire(import.meta.url),nonce='f'.repeat(64)
+  const captures=[process.env.QUOD_NATIVE_CAPTURE_DESCRIPTOR_ADDON,process.env.QUOD_NATIVE_CAPTURE_ADDON]
+    .map(file=>require(file).createCapture(nonce))
+  const fields=['quodNativeEntry','api','argument','argumentCount','receiverBased','describeOwnAccessors']
+  let gets=0,traps=0
+  const target={get tmp(){gets++;throw Error('target getter')}}
+  const fresh=()=>({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,
+    argumentCount:1,receiverBased:false,describeOwnAccessors:true})
+  const cases=[()=>fresh(),()=>Object.freeze(fresh()),()=>Object.create(fresh()),
+    ()=>new Proxy(fresh(),{getPrototypeOf(){traps++;throw Error('proxy')},getOwnPropertyDescriptor(){traps++;throw Error('proxy')}}),
+    ()=>{const p=fresh();for(const name of fields)Object.defineProperty(p,name,{enumerable:false,configurable:false});return p}]
+  for(const name of fields) {
+    cases.push(()=>{const p=fresh();delete p[name];return p})
+    cases.push(()=>{const p=fresh();Object.defineProperty(p,name,{writable:false});return p})
+    cases.push(()=>{const p=fresh();Object.defineProperty(p,name,{get(){gets++;throw Error('payload getter')}});return p})
+    cases.push(()=>{const p=fresh();Object.defineProperty(p,name,{get:undefined,set:undefined});return p})
+  }
+  for(const make of cases) {
+    const results=captures.map(capture=>capture(make()))
+    assert.deepEqual(results[1],results[0])
+  }
+  assert.equal(gets,0);assert.equal(traps,0)
+})
+
+test('measure native payload validation without changing capture summaries',t=>{
+  const measurements=[]
+  for(const mode of ['descriptors','real-data','real-data','descriptors']) {
+    const addon=mode==='descriptors'?process.env.QUOD_NATIVE_CAPTURE_DESCRIPTOR_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON
+    const source=`const {createCapture}=require(${JSON.stringify(addon)}),nonce='f'.repeat(64),capture=createCapture(nonce);
+let gets=0;const target={get tmp(){gets++;throw Error('getter')}};
+const payload=()=>({__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,argumentCount:1,receiverBased:false,describeOwnAccessors:true});
+for(let i=0;i<2000;i++)capture(payload());
+const calls=100000,started=performance.now();let matches=0;
+for(let i=0;i<calls;i++){const p=payload(),r=capture(p);if(r.owned&&r.available&&r.cleared&&r.metadataValid&&r.failure===0&&r.mask===2&&r.inspected&&r.kind===1&&p.argument===null&&p.api===null&&p.quodNativeEntry===null)matches++}
+console.log(JSON.stringify({mode:${JSON.stringify(mode)},calls,matches,gets,elapsedMs:performance.now()-started}));`
+    const result=spawnSync(process.execPath,['-e',source],{encoding:'utf8',timeout:20000})
+    assert.equal(result.status,0,result.stderr||String(result.error))
+    const row=JSON.parse(result.stdout);assert.equal(row.calls,100000);assert.equal(row.matches,row.calls);assert.equal(row.gets,0)
+    measurements.push(row)
+  }
+  t.diagnostic(JSON.stringify({nativePayloadValidationMeasurements:measurements,scope:'native helper only; not Inspector transport, workload or CI savings'}))
+})
+
 test('native context installation requires one exact writable private holder',()=>{
   const {createContextCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
   const nonce=randomBytes(32).toString('hex'),key=randomBytes(32).toString('hex')
