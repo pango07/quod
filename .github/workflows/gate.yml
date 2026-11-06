@@ -800,6 +800,35 @@ jobs:
           name: benchmark-driver-stat
           path: /tmp/quod-driver-stat
 
+  benchmark-unit-metadata:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-unit-metadata'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 1aa08cacec95f243aa12adafdf815f68213c2783
+          path: metadata-action
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: sudo apt-get update -qq && sudo apt-get install -y bubblewrap strace
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Test shipped unit replay against real metadata-only changes
+        run: |
+          mkdir -p /tmp/quod-unit-audit-bin
+          echo 'b31627739db6fe8ebdbed4d6aa54e7307e86665cefc677eca0bd7b3f93c95a9b  metadata-action/dist/quod/bin-081f20a.tar.gz' | sha256sum -c -
+          tar -xzf metadata-action/dist/quod/bin-081f20a.tar.gz -C /tmp/quod-unit-audit-bin
+          cc -std=c11 -Wall -Wextra -Werror -O2 scripts/bench-vitest/unit-metadata-fixture.c -o "$PWD/unit-metadata-fixture"
+          node scripts/bench-vitest/unit-metadata-audit.mjs /tmp/quod-unit-audit-bin/quod "$PWD/unit-metadata-fixture" /tmp/quod-unit-metadata stale
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: benchmark-unit-metadata
+          path: /tmp/quod-unit-metadata
+
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-worker-inputs'
     runs-on: ubuntu-latest
