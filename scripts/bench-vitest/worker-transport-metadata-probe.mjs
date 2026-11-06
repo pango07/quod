@@ -1,6 +1,7 @@
 // Diagnostic only: cover metadata delivery before assignment into the graph.
-// Proxies and an extra Promise reaction are observable, and earlier raw aliases
-// are not excluded. This never grants replay authority.
+// Metadata instrumentation is observable, and earlier raw aliases are not
+// excluded. Legacy reaction mode also adds a Promise reaction; consumer mode
+// uses the loader's existing continuation. Neither grants replay authority.
 import {types} from 'node:util'
 const isProxy=types.isProxy
 
@@ -18,11 +19,22 @@ function replace(object,key,value) {
   define(object,key,{...d,value})
 }
 
-export function observeTransportMetadata(VitestTransport,metadata) {
+export function observeTransportMetadata(VitestTransport,metadata,{delivery='reaction'}={}) {
+  if(!['reaction','consumer'].includes(delivery))throw Error('unknown transport delivery observation')
   const pending=new Map(),errors=[],counts={requests:0,responses:0,errorResponses:0,
     rpcMetadata:0,invocations:0,settled:0,transportMetadata:0,rejections:0}
   let overflow=false,closed=false
   const p=VitestTransport?.prototype,d=p&&descriptor(p,'invoke'),original=d?.value
+  function delivered(value) {
+    counts.settled++
+    if(closed)return false
+    try {
+      if(data(value,'error')!==undefined)return true
+      replace(value,'result',metadata.observeMetadata(data(value,'result'),'transport'))
+      counts.transportMetadata++
+      return true
+    }catch(e){errors.push(e.message);return false}
+  }
   function sent(message) {
     try {
       if(data(message,'t')!=='q')return
@@ -66,26 +78,25 @@ export function observeTransportMetadata(VitestTransport,metadata) {
     if(!fetch||closed)return result
     counts.invocations++
     if(!types.isPromise(result)){errors.push('transport did not return a native Promise');return result}
-    // Register before the caller receives the original promise. Preserve its
-    // identity, receiver, rejection and thrown-error behavior.
+    if(delivery==='consumer')return result
+    // Legacy diagnostic: retain the returned Promise identity, but add a
+    // reaction that can affect ordering and unhandled-rejection reporting.
     apply(then,result,[value=>{
-      counts.settled++
-      if(closed)return
-      try {
-        if(data(value,'error')!==undefined)return
-        replace(value,'result',metadata.observeMetadata(data(value,'result'),'transport'))
-        counts.transportMetadata++
-      }catch(e){errors.push(e.message)}
+      delivered(value)
     },()=>{counts.settled++;counts.rejections++}])
     return result
   }
   if(typeof original!=='function')errors.push('missing Vitest transport invoke')
   else define(p,'invoke',{...d,value:wrapper})
-  return {sent,received,
-    report:()=>({replayEligible:false,completeOwnership:false,counts:{...counts},pending:pending.size,
-      unsettled:counts.invocations-counts.settled,overflow,errors:[...errors],
+  return {sent,received,delivered,
+    report:()=>({replayEligible:false,completeOwnership:false,delivery,addsPromiseReaction:delivery==='reaction',
+      counts:{...counts,rejections:delivery==='consumer'?null:counts.rejections},pending:pending.size,
+      unsettled:counts.invocations-counts.settled,
+      settledMeaning:delivery==='consumer'?'observed consumer deliveries':'observed Promise settlements',
+      overflow,errors:[...errors],
       limitations:['An earlier IPC listener or a retained raw alias can bypass the observer',
-        'The observer adds a Promise reaction and changes metadata descriptors or identity before delivery',
+        delivery==='reaction'?'The observer adds a Promise reaction and changes metadata descriptors or identity before delivery':
+          'Only the pinned consumer continuation is observed; unsettled counts missing deliveries, not pending Promises; rejected Promises and other consumers remain unobserved',
         'Transport callback ownership and worker side effects are not certified']}),
     close(){closed=true;if(p&&descriptor(p,'invoke')?.value===wrapper)define(p,'invoke',d)}}
 }

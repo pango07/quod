@@ -39,7 +39,7 @@ if(transportSha256!=='9868c71ba3a06ca6f9890c60a9e6b298762b0fca74b09595a8f76340d3
 const expectedReaderSources=[entry,transportEntry].map(file=>({url:pathToFileURL(file).href,
   sha256:createHash('sha256').update(fs.readFileSync(file,'utf8'),'utf16le').digest('hex')}))
 const {b:VitestTransport}=await import(pathToFileURL(transportEntry).href)
-const transport=observeTransportMetadata(VitestTransport,observer)
+const transport=observeTransportMetadata(VitestTransport,observer,{delivery:combined?'consumer':'reaction'})
 const {observeConfig}=combined?createRequire(import.meta.url)('./worker-config-probe.cjs'):{}
 let evaluation=null,config=null,seed=null
 if(combined) {
@@ -63,13 +63,16 @@ function observeWorkerMessage(message) {
   if(message.type==='run'||message.type==='collect')files.push(...message.context.files.map(f=>f.filepath))
 }
 process.prependListener('message',observeWorkerMessage)
-if(combined)registry.captureMessageObserver()
+if(combined) {
+  registry.captureMessageObserver()
+  registry.captureTransportContinuation(pathToFileURL(entry).href)
+}
 process.send=function(...args) {
   const message=args[0]
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
+      boundary:combined?{scalarObservation,messageDispatch:registry.messageDispatch(),transportContinuation:registry.transportContinuation(),evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity(),timing:registry.inspectorTiming()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }

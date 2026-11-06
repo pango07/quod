@@ -197,7 +197,8 @@ if(phase) {
       const origin=JSON.stringify(e.origins),group=operationsByOrigin[origin]??=Object.create(null)
       group[k]=(group[k]??0)+e.count
     }
-    for(const r of reports)for(const [k,n] of Object.entries(r.transport.counts))transportCounts[k]=(transportCounts[k]??0)+n
+    for(const r of reports)for(const [k,n] of Object.entries(r.transport.counts))
+      transportCounts[k]=n===null||transportCounts[k]===null?null:(transportCounts[k]??0)+n
     const entryCounts=Object.create(null),argumentCounts=Object.create(null),hookEntryCounts=Object.create(null)
     for(const r of reports)for(const e of r.native.opaque.entries)for(const name of e.entries)entryCounts[name]=(entryCounts[name]??0)+1
     for(const r of reports)for(const e of r.native.proxy.entries) {
@@ -240,6 +241,19 @@ if(phase) {
         for(const x of [a,r]) {
           assert(!x.unknown.length&&!x.metadata.errors.length&&!x.metadata.gaps.length&&!x.metadata.overflow)
           assert(!x.transport.errors.length&&!x.transport.overflow&&x.transport.pending===0&&x.transport.unsettled===0)
+          assert.equal(x.transport.delivery,'consumer')
+          assert.equal(x.transport.addsPromiseReaction,false)
+          assert.equal(x.transport.counts.rejections,null,'unobserved Promise rejections remain unknown')
+          const continuation=x.boundary.transportContinuation
+          assert(continuation?.available&&continuation.installed&&!continuation.closed&&!continuation.replayEligible&&!continuation.completeOwnership,
+            'transport continuation observation must be available: '+JSON.stringify(continuation))
+          assert.deepEqual(continuation.errors,[])
+          assert.equal(continuation.failures,0)
+          assert.equal(continuation.addsPromiseReaction,false)
+          assert.equal(continuation.entries,x.transport.counts.invocations)
+          assert.equal(continuation.delivered,x.transport.counts.settled)
+          assert.equal(continuation.entries,continuation.delivered)
+          assert.equal(continuation.groupsCreated,continuation.groupsReleased)
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage)

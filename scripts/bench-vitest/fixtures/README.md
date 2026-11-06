@@ -4,6 +4,14 @@
 The dispatch regression deliberately verifies the exact source and the
 actual captured Node function, rather than trusting a wrapper's name.
 
+`vite-module-runner.mjs` is the exact `dist/node/module-runner.js` from the
+published `vite@8.2.0` package, SHA-256
+`9e3f0bc4ea6d01e55bb9a73ee3666c750e139340bb84fa46e35f92085f2535b7`.
+Its package license and bundled dependency notices are retained in
+`vite-module-runner-LICENSE.md`. The continuation regression executes the
+actual loader to compare Promise lifecycle and application ordering with
+and without observation; a source-name match alone is insufficient.
+
 Vitest is released under the MIT license:
 
 Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors

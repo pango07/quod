@@ -174,6 +174,15 @@ export function observeMessageDispatch(post,{pendingLimit=32}={}) {
     installed=true
   }catch(e){fail(e.message)}
   return {
+    transportDeliveryCallback() {
+      if(!installed||closed)throw Error('message observer unavailable for transport registration')
+      // The bootstrap's captured observer closes over its diagnostic transport.
+      // Resolve that exact callback without publishing a global bridge or
+      // transferring application values through the Inspector protocol.
+      const callback=data(fields(binding(observer,'transport')),'delivered')
+      if(callback.type!=='function'||callback.subtype==='proxy')throw Error('transport delivery callback unavailable')
+      return callback
+    },
     handlePause(params) {
       const hits=(params.hitBreakpoints??[]).map(id=>breakpoints.get(id)).filter(Boolean)
       if(!hits.length)return false
