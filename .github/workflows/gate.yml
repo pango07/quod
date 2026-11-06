@@ -855,6 +855,37 @@ jobs:
           name: benchmark-unit-metadata
           path: /tmp/quod-unit-metadata
 
+  benchmark-native-inspector:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-native-inspector'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - name: Build isolated native Inspector experiment
+        shell: bash
+        run: |
+          NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
+          HEADER_DIR="$RUNNER_TEMP/quod-inspector-headers"
+          mkdir -p "$HEADER_DIR"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/include/v8-inspector.h \
+            --output "$HEADER_DIR/v8-inspector.h"
+          echo "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28  $HEADER_DIR/v8-inspector.h" | sha256sum --check -
+          c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
+            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
+          c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
+            -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_inspector \
+            -DQUOD_NATIVE_INSPECTOR_EXPERIMENT scripts/bench-vitest/native-entry-capture.cc \
+            -ldl -o "$RUNNER_TEMP/quod-native-inspector.node"
+          echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
+          echo "QUOD_NATIVE_INSPECTOR_ADDON=$RUNNER_TEMP/quod-native-inspector.node" >> "$GITHUB_ENV"
+      - name: Verify direct capture and measure the two transports
+        run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs
+
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
     runs-on: ubuntu-latest

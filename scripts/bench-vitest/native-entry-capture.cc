@@ -6,6 +6,11 @@
 #include <cmath>
 #include <initializer_list>
 #include <vector>
+#ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
+#include <dlfcn.h>
+#include <string>
+#include <v8-inspector.h>
+#endif
 
 namespace {
 using namespace v8;
@@ -359,6 +364,10 @@ void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
       Put(context, result, "apiWrapper", Boolean::New(isolate, target->IsApiWrapper())))
     info.GetReturnValue().Set(result);
 }
+#ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
+#include "native-inspector-capture-experiment.inc"
+#endif
+
 void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
                 void*) {
   Local<Function> factory;
@@ -382,6 +391,12 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createNativeDataFixture"), factory)
         .FromMaybe(false);
+#ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
+  if (Function::New(context, CreateInspectorCapture).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createInspectorCapture"), factory)
+        .FromMaybe(false);
+#endif
 }
 }  // namespace
 
