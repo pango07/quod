@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body,{ballast=0,gc=false,handleGroups=false}={}) {
+function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
 import {types} from 'node:util';
@@ -31,7 +31,7 @@ function same(id,other){
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
 function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
- const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)}});
+ const capture=observeNativeEntryArguments(post,{onEntry,handleGroups:${JSON.stringify(handleGroups)},targetAccessorsOnly:${JSON.stringify(targetAccessorsOnly)}});
  const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
  const breakpoints=registrations.map(([api,expression,options])=>{
   const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
@@ -180,10 +180,23 @@ extra.collected=weak.every(w=>w.deref()===undefined);`,{gc:true,handleGroups:tru
   assert(data.collected&&data.originalHandleSurvives)
 })
 
-test('compare individual and grouped handle cleanup with complete compilation logging',t=>{
+test('accessor-only target inspection preserves all own accessor evidence without reading inherited or data properties',()=>{
+  const data=fixture(`let reads=0;
+const proto={get seed(){reads++;throw Error('inherited accessor')}};
+const value=Object.create(proto);
+Object.defineProperties(value,{tmp:{get(){reads++;throw Error('own getter')}},invalidate:{set(v){reads++;}},
+ seed:{value:123},data:{value:()=>42}});
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+extra.returned=typeof native(value,key).get;stop();extra.reads=reads;`,{targetAccessorsOnly:true})
+  complete(data,1);assert.equal(data.reads,0);assert.equal(data.returned,'function')
+  assert.equal(data.events[0].target.ownAccessorCount,2)
+  assert.deepEqual(data.events[0].target.watchedAccessorKeys.sort(),['invalidate','tmp'])
+})
+
+test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{
   const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
     logs=new URL('./compiled-script-log.mjs',import.meta.url).href
-  for(const handleGroups of [false,true]) {
+  for(const targetAccessorsOnly of [false,true])for(const handleGroups of [false,true]) {
     const data=fixture(`const {compiledScriptRecord}=await import(${JSON.stringify(compiled)});
 const {dictionaryCompiledScriptLog,validateCompilationCounts}=await import(${JSON.stringify(logs)});
 const log=dictionaryCompiledScriptLog();
@@ -198,12 +211,13 @@ const start=now();let values=0;
 for(let i=0;i<300;i++)if(typeof native(wide,key).get==='function')values++;
 extra.elapsedMs=now()-start;stop();extra.observed=observed;extra.values=values;
 const report=log.report();validateCompilationCounts(report);extra.compiledEvents=report.events;
-extra.commands={...commands};`,{ballast:2000,handleGroups})
+extra.commands={...commands};`,{ballast:2000,handleGroups,targetAccessorsOnly})
     complete(data,300);assert.equal(data.gets,0);assert.equal(data.values,300);assert.equal(data.observed,300)
     if(handleGroups){assert.equal(data.capture.groupsReleased,300);assert.equal(data.commands['Runtime.releaseObject'],300)}
+    else if(targetAccessorsOnly)assert(data.commands['Runtime.releaseObject']<3000)
     else assert(data.commands['Runtime.releaseObject']>24000)
     assert(data.compiledEvents>=600)
-    rows.push({handleGroups,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,compiledEvents:data.compiledEvents,
+    rows.push({handleGroups,targetAccessorsOnly,calls:300,elapsedMs:data.elapsedMs,commands:data.commands,compiledEvents:data.compiledEvents,
       capture:data.capture,replayEligible:false})
   }
   t.diagnostic(JSON.stringify({nativeHandleGroupMeasurements:rows}))

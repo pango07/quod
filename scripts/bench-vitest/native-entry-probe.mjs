@@ -5,7 +5,7 @@
 import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false}={}) {
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const errors=[]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false
@@ -22,10 +22,11 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       if(!supported||closed)return false
       const handles=new Set()
       let owned=false,payload=null,canClear=false,group=null,original=null
-      function properties(id) {
+      function properties(id,{accessorsOnly=false}={}) {
         if(!id)throw Error('entry object unavailable')
         handles.add(id)
-        const result=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false})
+        const result=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false,
+          ...(accessorsOnly?{accessorPropertiesOnly:true}:{})})
         if(result.exceptionDetails)throw Error('entry descriptors unavailable')
         for(const p of [...result.result??[],...result.internalProperties??[],...result.privateProperties??[]]) {
           for(const v of [p.value,p.get,p.set])if(v?.objectId)handles.add(v.objectId)
@@ -71,7 +72,8 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         const kind=argument.subtype==='proxy'?'proxy':argument.objectId?'object':'primitive'
         let target
         if(configuration.describeOwnAccessors&&kind==='object') {
-          const accessors=properties(argument.objectId).filter(p=>p.isOwn===true&&(p.get?.type==='function'||p.set?.type==='function'))
+          const accessors=properties(argument.objectId,{accessorsOnly:targetAccessorsOnly})
+            .filter(p=>p.isOwn===true&&(p.get?.type==='function'||p.set?.type==='function'))
           target={ownAccessorCount:accessors.length,
             watchedAccessorKeys:accessors.map(p=>p.name).filter(k=>['seed','tmp','invalidate'].includes(k))}
         }
@@ -101,7 +103,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       }
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
-      handleMode:handleGroups?'private-event-group':'individual',errors:[...errors],
+      handleMode:handleGroups?'private-event-group':'individual',targetAccessorsOnly,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),
     close(){closed=true},
   }
