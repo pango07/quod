@@ -17,8 +17,8 @@ const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect
 let project=null
 const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,heapIdentity:combined,
-  moduleBindingEvaluation:combined,
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
+  nativeEntries:combined,
   onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
     JSON.stringify({project,files,checkpoint})+'\n'):null})
 const require=createRequire(path.join(process.cwd(),'package.json'))

@@ -8,6 +8,7 @@ import {createRequire} from 'node:module'
 import {fileURLToPath,pathToFileURL} from 'node:url'
 import {spawnSync} from 'node:child_process'
 import {observeWorkerInputs} from './worker-input-probe.mjs'
+import {validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -18,11 +19,7 @@ const boundaryProbe=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
 const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'||boundaryProbe
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function checkCompilationCounts(report) {
-  assert.equal(report.encoding,'rle-v1')
-  assert(Number.isSafeInteger(report.events)&&report.events>=0)
-  assert(report.scripts.every(s=>Number.isSafeInteger(s.count)&&s.count>0))
-  assert.equal(report.scripts.reduce((n,s)=>n+s.count,0),report.events,
-    'the compressed trace must retain every observed compilation')
+  validateCompilationCounts(report)
 }
 function states(file) {
   const report=JSON.parse(fs.readFileSync(file))
@@ -223,10 +220,15 @@ if(phase) {
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(x.native.descriptors?.available&&!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage,
             'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
-          assert(x.native.descriptors.argumentDiagnostics?.moduleBindingEvaluation,
-            'the combined diagnostic must report its bounded lexical lookup mode')
-          assert(x.native.identity?.available&&x.native.identity.mode==='heap-object-id'&&x.native.identity.snapshotsRequested===0,
-            'native identity comparison must remain available without collecting heap snapshots')
+          assert.equal(x.native.descriptors.argumentDiagnostics?.mode,'native-entry-arguments',
+            'the combined diagnostic must report actual native arguments')
+          assert(x.native.identity?.available&&x.native.identity.mode==='native-entry-arguments'&&x.native.identity.snapshotsRequested===0,
+            'native argument observation must remain available without collecting heap snapshots')
+          assert.equal(x.native.identity.calls,x.native.identity.cleared,'every diagnostic exception wrapper must be cleared')
+          assert.equal(x.native.identity.calls,[...x.native.descriptors.entries,...x.native.proxy.entries].reduce((n,e)=>n+e.count,0),
+            'every native argument event must be attributed once')
+          assert([...x.native.descriptors.entries,...x.native.proxy.entries].every(e=>e.argument.available&&e.argument.actualNativeEntry),
+            'native argument evidence must not silently fall back to reconstructed caller expressions')
           assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
@@ -236,7 +238,7 @@ if(phase) {
             'scalar seed observation must remain installed and complete within its declared scope')
         }
         comparisons.push({key:key(r),codeSequenceEqual:JSON.stringify(code(a.boundary.evaluation.events))===JSON.stringify(code(r.boundary.evaluation.events)),
-          compiledSequenceEqual:JSON.stringify(a.boundary.compilation.scripts)===JSON.stringify(r.boundary.compilation.scripts),
+          compiledSequenceEqual:JSON.stringify(compilationSequence(a.boundary.compilation))===JSON.stringify(compilationSequence(r.boundary.compilation)),
           evaluatorBefore:a.boundary.evaluation.events.length,evaluatorAfter:r.boundary.evaluation.events.length,
           configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
           configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
@@ -320,7 +322,7 @@ if(phase) {
         metadataComparable,metadataFieldChanges,unknownMetadataFields,
         evaluatorSequenceEqual:metadataComparable?JSON.stringify(a.evaluation.events)===JSON.stringify(b.evaluation.events):null,
         codeSequenceEqual:JSON.stringify(body(a))===JSON.stringify(body(b)),
-        compiledSequenceEqual:JSON.stringify(a.compilation.scripts)===JSON.stringify(b.compilation.scripts),
+        compiledSequenceEqual:JSON.stringify(compilationSequence(a.compilation))===JSON.stringify(compilationSequence(b.compilation)),
         inlined:compare(a.evaluation.events.filter(e=>e.kind==='inline'),b.evaluation.events.filter(e=>e.kind==='inline')),
         compiled:compare(a.compilation.scripts,b.compilation.scripts)})
     }
