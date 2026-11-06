@@ -6,7 +6,7 @@ import {nativeStringTransport} from './native-string-transport.mjs'
 import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 
 export function observeNativeStringEntries(post,{onEntry,ordinaryOwners=false,targetAccessorsOnly=false}={}) {
-  const errors=[],failureCounts=new Map(),pendingContexts=[]
+  const errors=[],failureCounts=new Map(),pendingContexts=new Map()
   let initialized=false,closed=false,calls=0,cleared=0,scopedInspections=0
   const fail=reason=>{failureCounts.set(reason,(failureCounts.get(reason)??0)+1);if(errors.length<20)errors.push(reason)}
   const transport=nativeStringTransport(post,randomBytes(32).toString('hex'),{ordinaryOwners,onSummary(packed) {
@@ -38,17 +38,19 @@ export function observeNativeStringEntries(post,{onEntry,ordinaryOwners=false,ta
     contextCreated(context) {
       if(closed)return
       if(initialized)transport.contextCreated(context)
-      else if(pendingContexts.length<32)pendingContexts.push(context)
+      else if(pendingContexts.size<32)pendingContexts.set(context.id,context)
       else fail('primitive pending context capacity exceeded')
     },
+    contextDestroyed(id) {pendingContexts.delete(id);transport.contextDestroyed(id)},
+    contextsCleared() {pendingContexts.clear();transport.contextsCleared()},
     condition(api,options) {
       if(closed)throw Error('native entry observer closed')
       // Deliberately wait until the first watched entry is installed: the
       // enclosing observer must see the helper's dlopen during setup.
       if(!initialized) {
         transport.initialize();initialized=true
-        for(const context of pendingContexts)transport.contextCreated(context)
-        pendingContexts.length=0
+        for(const context of pendingContexts.values())transport.contextCreated(context)
+        pendingContexts.clear()
       }
       return transport.condition(api,{describeOwnAccessors:false,...options})
     },

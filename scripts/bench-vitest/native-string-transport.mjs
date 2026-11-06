@@ -5,13 +5,15 @@
 // survive close until the realm dies. This is not an ownership certificate.
 import path from 'node:path'
 import {randomBytes} from 'node:crypto'
+import {createRequire} from 'node:module'
 import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 const stringify=JSON.stringify,parse=JSON.parse
 
 export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}={}) {
   if(!/^[a-f0-9]{64}$/.test(nonce)||typeof onSummary!=='function'||typeof ordinaryOwners!=='boolean')throw Error('invalid primitive transport setup')
   const name='_quod_native_capture_'+nonce,group='quod-native-string-'+nonce,prefix=nonce+':'
-  const contexts=new Map(),attempted=new Set(),entries=new Map()
+  const contexts=new Map(),attempted=new Set(),retired=new Set(),entries=new Map()
+  let withContext=null
   let handle=null,closed=false,processing=false,notifications=0,delivered=0,ignored=0,failures=0,failure=null
   let contextQueries=0,bindings=0
   function fail(reason){failures++;failure??=reason}
@@ -30,11 +32,14 @@ export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}
       const value=evaluate(expression)
       if(value?.type!=='function'||!value.objectId)throw Error('primitive transport root helper unavailable')
       handle=value.objectId;bindings++
+      withContext=createRequire(import.meta.url)(addon).withInspectorContext
+      if(typeof withContext!=='function')throw Error('primitive transport context guard unavailable')
     },
     contextCreated(context) {
       if(closed)return
       try {
-        if(!handle||!Number.isInteger(context?.id)||context.id<=0||typeof context.auxData?.isDefault!=='boolean')
+        if(!handle||!Number.isInteger(context?.id)||context.id<=0||typeof context.auxData?.isDefault!=='boolean'||
+          typeof context.uniqueId!=='string'||!context.uniqueId)
           throw Error('primitive transport context unavailable')
         if(attempted.has(context.id))return
         if(attempted.size>=32)throw Error('primitive transport context capacity exceeded')
@@ -43,6 +48,7 @@ export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}
           if([...contexts.values()].includes('default'))throw Error('duplicate default context')
           contexts.set(context.id,'default');return
         }
+        const live=withContext(context.id,()=>{
         const key=randomBytes(32).toString('hex'),holderName='_quod_native_holder_'+key
         const holder=evaluate(`const ${holderName}=({__proto__:null,${stringify(key)}:true,capture:void 0});${holderName}`,context.id)
         bindings++
@@ -58,8 +64,13 @@ export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}
           if(value?.value!=='function')throw Error('primitive transport context binding unavailable')
           contexts.set(context.id,'foreign')
         }finally {post('Runtime.releaseObject',{objectId:holder.objectId})}
+        })
+        if(live===false)retired.add(context.id)
+        else if(live!==true)throw Error('primitive context guard result unavailable')
       }catch{fail('primitive transport context installation failed')}
     },
+    contextDestroyed(id) {contexts.delete(id);retired.add(id)},
+    contextsCleared() {contexts.clear();fail('primitive transport contexts cleared')},
     condition(api,{receiver=false,describeOwnAccessors=true}={}) {
       if(closed||!handle||typeof api!=='string'||entries.has(api)||typeof receiver!=='boolean'||typeof describeOwnAccessors!=='boolean')
         throw Error('invalid primitive entry registration')
@@ -93,7 +104,7 @@ export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}
       return true
     },
     report:()=>({transport:'primitive-string',enabled:handle!==null,closed,notifications,delivered,ignored,failures,failure,
-      contexts:contexts.size,attemptedContexts:attempted.size,contextQueries,persistentLexicalBindings:bindings,
+      contexts:contexts.size,attemptedContexts:attempted.size,retiredContexts:retired.size,contextQueries,persistentLexicalBindings:bindings,
       perEntryProtocolRequests:0,perEntryObjectHandles:0,replayEligible:false,
       limitation:'Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven'}),
     close() {

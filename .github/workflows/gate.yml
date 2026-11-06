@@ -898,8 +898,8 @@ jobs:
             --output "$HEADER_DIR/v8-inspector.h"
           echo "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28  $HEADER_DIR/v8-inspector.h" | sha256sum --check -
           c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
-            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
-            scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
+            -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            scripts/bench-vitest/native-entry-capture.cc -ldl -o "$RUNNER_TEMP/quod-native-capture.node"
           c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
             -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_inspector \
             -DQUOD_NATIVE_INSPECTOR_EXPERIMENT scripts/bench-vitest/native-entry-capture.cc \
@@ -910,7 +910,7 @@ jobs:
         if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string'
         env:
           QUOD_NATIVE_CAPTURE_TRANSPORT: ${{ inputs.only == 'benchmark-native-string' && 'string' || 'native' }}
-        run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs
+        run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs scripts/bench-vitest/native-context-guard.test.mjs
       - name: Exercise primitive transport through the integrated observer
         if: inputs.only == 'benchmark-native-string'
         env:
@@ -918,7 +918,7 @@ jobs:
         run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
       - name: Inventory native data-property semantics without enabling instrumentation
         if: inputs.only == 'benchmark-native-property'
-        run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs
+        run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs scripts/bench-vitest/native-context-guard.test.mjs
       - name: Capture native scalar integration crash backtrace
         if: failure() && inputs.only == 'benchmark-native-property'
         run: |
@@ -951,15 +951,21 @@ jobs:
         run: |
           NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
           test -f "$NODE_INCLUDE/node.h"
+          HEADER_DIR="$RUNNER_TEMP/quod-inspector-headers"
+          mkdir -p "$HEADER_DIR"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/include/v8-inspector.h \
+            --output "$HEADER_DIR/v8-inspector.h"
+          echo "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28  $HEADER_DIR/v8-inspector.h" | sha256sum --check -
           c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
-            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
-            scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
+            -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            scripts/bench-vitest/native-entry-capture.cc -ldl -o "$RUNNER_TEMP/quod-native-capture.node"
           sha256sum "$RUNNER_TEMP/quod-native-capture.node"
           echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
           c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
-            -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
             -DQUOD_CAPTURE_DESCRIPTOR_FIELDS scripts/bench-vitest/native-entry-capture.cc \
-            -o "$RUNNER_TEMP/quod-native-capture-descriptors.node"
+            -ldl -o "$RUNNER_TEMP/quod-native-capture-descriptors.node"
           echo "QUOD_NATIVE_CAPTURE_DESCRIPTOR_ADDON=$RUNNER_TEMP/quod-native-capture-descriptors.node" >> "$GITHUB_ENV"
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs scripts/bench-vitest/test-progress-reporter.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs

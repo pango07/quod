@@ -245,6 +245,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     session.connect()
     if(nativeEntryObserver) {
       if(nativeEntryObserver.contextCreated)session.on('Runtime.executionContextCreated',({params})=>nativeEntryObserver.contextCreated(params.context))
+      if(nativeEntryObserver.contextDestroyed)session.on('Runtime.executionContextDestroyed',({params})=>nativeEntryObserver.contextDestroyed(params.executionContextId))
+      if(nativeEntryObserver.contextsCleared)session.on('Runtime.executionContextsCleared',()=>nativeEntryObserver.contextsCleared())
       session.on('Runtime.exceptionThrown',({params})=>{
         const started=inspectorTiming?monotonicNow():null
         if(started!==null)nativeTiming.events++

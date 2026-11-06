@@ -6,10 +6,10 @@
 #include <cmath>
 #include <initializer_list>
 #include <vector>
-#ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
 #include <dlfcn.h>
-#include <string>
 #include <v8-inspector.h>
+#ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
+#include <string>
 #endif
 
 namespace {
@@ -342,6 +342,40 @@ void CreateContextCapture(const FunctionCallbackInfo<Value>& info) { CreateConte
 void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, true); }
 void CreateStringContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, false, true); }
 
+// Runtime.evaluate can dereference an empty context after GC but before the
+// asynchronous executionContextDestroyed notification. The pinned Inspector
+// contextById API returns a MaybeLocal without entering that context. Keep its
+// strong local handle throughout the synchronous callback, including nested
+// GC, so the callback's Inspector evaluations cannot race context collection.
+// No persistent root or application object escapes this dynamic extent.
+void WithInspectorContext(const FunctionCallbackInfo<Value>& info) {
+  auto isolate = info.GetIsolate();
+  HandleScope handles(isolate);
+  auto root = isolate->GetCurrentContext();
+  if (info.Length() != 2 || !info[0]->IsInt32() ||
+      info[0].As<Int32>()->Value() <= 0 || !info[1]->IsFunction()) {
+    isolate->ThrowException(Exception::TypeError(Key(isolate, "invalid context guard")));
+    return;
+  }
+  using GetInspector = v8_inspector::V8Inspector* (*)(Isolate*);
+  auto get_inspector = reinterpret_cast<GetInspector>(
+      dlsym(RTLD_DEFAULT, "_ZN2v85debug12GetInspectorEPNS_7IsolateE"));
+  auto inspector = get_inspector ? get_inspector(isolate) : nullptr;
+  if (!inspector) {
+    isolate->ThrowException(Exception::Error(Key(isolate, "context guard unavailable")));
+    return;
+  }
+  Local<Context> retained;
+  if (!inspector->contextById(info[0].As<Int32>()->Value()).ToLocal(&retained)) {
+    info.GetReturnValue().Set(false);
+    return;
+  }
+  MicrotasksScope microtasks(isolate, root->GetMicrotaskQueue(), MicrotasksScope::kDoNotRunMicrotasks);
+  Local<Value> ignored;
+  if (!info[1].As<Function>()->Call(root, Undefined(isolate), 0, nullptr).ToLocal(&ignored)) return;
+  info.GetReturnValue().Set(true);
+}
+
 // Adversarial fixture: a host callback on an otherwise ordinary JS object.
 // Reading its descriptor invokes native code even though it looks like data.
 void NativeDataRead(Local<Name>, const PropertyCallbackInfo<Value>& info) {
@@ -389,6 +423,10 @@ void CreateNativeDataFixture(const FunctionCallbackInfo<Value>& info) {
 void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
                 void*) {
   Local<Function> factory;
+  if (Function::New(context, WithInspectorContext).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "withInspectorContext"), factory)
+        .FromMaybe(false);
   if (Function::New(context, CreateCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createCapture"), factory)
