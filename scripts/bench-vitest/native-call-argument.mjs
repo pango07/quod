@@ -84,11 +84,6 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
       if(!p||p.get||p.set||!p.value)throw Error('argument is not an own data property')
       return p.value
     }
-    function own(object,key) {
-      if(!object?.objectId||object.subtype==='proxy')throw Error('proxy or unavailable property receiver')
-      const p=properties(object.objectId).find(p=>p.name===key&&p.isOwn===true)
-      return data(p)
-    }
     function binding(name) {
       for(const scope of frame.scopeChain) {
         if(!['local','block','closure','module','script','catch'].includes(scope.type))throw Error('unsupported argument scope')
@@ -117,12 +112,6 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
     function value(node) {
       if(node.type==='Identifier')return binding(node.name)
       if(node.type==='ThisExpression')return frame.this
-      if(node.type==='MemberExpression'&&!node.optional) {
-        const key=!node.computed?(node.property.type==='Identifier'?node.property.name:null):
-          node.property.type==='Literal'&&['string','number'].includes(typeof node.property.value)?String(node.property.value):null
-        if(key===null)throw Error('computed argument property')
-        return own(value(node.object),key)
-      }
       if(node.type==='Literal'&&(node.value===null||['string','number','boolean'].includes(typeof node.value))) {
         return {type:node.value===null?'object':typeof node.value,subtype:node.value===null?'null':undefined}
       }
@@ -168,6 +157,11 @@ export function observeNativeCallArguments(post,{identityComparison=null,moduleB
       if(!calls){calls=s.calls.filter(c=>c.callee.start<=offset&&offset<=c.callee.end);s.locations.set(offset,calls)}
       if(calls.length!==1)throw Error('ambiguous native call location')
       const call=calls[0]
+      // A property getter can return a bound intrinsic and replace itself
+      // (or its owner binding) with the unbound intrinsic before this pause.
+      // Matching the current property would then assign the wrong argument
+      // positions. Only a supported lexical binding or `this` is recoverable.
+      if(!['Identifier','ThisExpression'].includes(call.callee.type))throw Error('native callee expression may have changed during evaluation')
       // A second argument could mutate the first binding after it was
       // evaluated. Bound functions may inject a different first argument.
       if(call.optional||!call.arguments.length||(!pureAdditionalArguments&&call.arguments.length!==1))throw Error('unsupported native call arguments')

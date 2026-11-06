@@ -23,9 +23,11 @@ ${body}`
 for(const evaluate of [false,true]) {
 const suffix=evaluate?' (lexical evaluation)':' (descriptors)'
 test('a missing module binding skips a large scope and still leaves globals unknown'+suffix,()=>{
-  const data=fixture(`function invoke(target,key){return Object.getOwnPropertyDescriptor(target,key)}
+  const data=fixture(`const native=Object.getOwnPropertyDescriptor;
+globalThis.__quodNativeScopeTarget=target;
+function invoke(key){return native(__quodNativeScopeTarget,key)}
 const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE});
-const value=invoke(target,key);const report=p.descriptorAccess();p.close();
+const value=invoke(key);const report=p.descriptorAccess();p.close();delete globalThis.__quodNativeScopeTarget;
 console.log(JSON.stringify({report,gets,found:typeof value.get==='function'}));`,evaluate)
   assert.equal(data.found,true)
   assert.equal(data.report.calls,1)

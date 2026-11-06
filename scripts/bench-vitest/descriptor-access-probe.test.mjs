@@ -63,6 +63,29 @@ const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,g
   assert(event);assert.equal(event.argument.available,false)
 })
 
+for(const replaceOwner of [false,true])test('a callee getter returning a bound intrinsic stays unknown: '+(replaceOwner?'owner replacement':'property replacement'),()=>{
+  const data=fixture(`const native=Object.getOwnPropertyDescriptor,define=Object.defineProperty;let calls=0;
+let box={get native(){calls++;${replaceOwner?"box={native}":"define(this,'native',{value:native})"};return native.bind(null,target)}};
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:true});
+const result=box.native(key);const report=p.descriptorAccess();p.close();
+console.log(JSON.stringify({report,gets,calls,found:typeof result.get==='function',replaced:box.native===native}));`)
+  assert.equal(data.found,true);assert.equal(data.replaced,true);assert.equal(data.calls,1)
+  const entries=data.report.entries.filter(e=>e.entries.includes('Object.getOwnPropertyDescriptor'))
+  assert.equal(entries.length,1)
+  assert.equal(entries[0].argument.available,false,
+    'the current unbound property is not the function that received this call')
+  assert.equal(entries[0].argument.reason,'native callee expression may have changed during evaluation')
+})
+
+test('an ordinary member callee also stays unknown because its earlier descriptor is unavailable',()=>{
+  const data=fixture(`const box={native:Object.getOwnPropertyDescriptor};
+const p=inspectPromiseObservers({descriptorAccess:true});const result=box.native(target,key);
+const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets,found:typeof result.get==='function'}));`)
+  assert.equal(data.found,true)
+  assert.equal(data.report.entries[0].argument.available,false)
+  assert.equal(data.report.entries[0].argument.reason,'native callee expression may have changed during evaluation')
+})
+
 test('direct syntax deletion remains an explicit uncovered channel',()=>{
   const data=fixture(`const p=inspectPromiseObservers({descriptorAccess:true});delete target.tmp;
 const report=p.descriptorAccess();p.close();console.log(JSON.stringify({report,gets,present:'tmp' in target}));`)
