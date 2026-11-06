@@ -1839,3 +1839,54 @@ silently discarding them. [Full evidence](worker-native-scalar-full.json)
 includes all 261 artifact digests and phase timings. There are no product
 hits, lineage promotions or audits in this diagnostic; the product savings
 bar remains unmet.
+
+## Exact Inspector-source accounting
+
+`7dd2d80` records exact UTF-16 source digests for Inspector commands before
+issuing them. Anonymous compilation events are partitioned by whether their
+source had already been issued. Every event remains in the complete log;
+counts and order are reconciled independently. A source match is explicitly
+not an ownership certificate: application code can compile identical text.
+The regression suite checks that a later issued command cannot retrospectively
+claim an earlier compilation. `0886d0b` corrects a fixture to include V8's
+enclosing parentheses around a dynamically constructed function.
+
+[Full run 42289443308](https://github.com/pango07/quod/actions/runs/42289443308)
+passes all 359 preflight tests and all three complete workload phases. The
+baseline takes 78.271 seconds; observation takes 112.902 seconds before the
+metadata edit and 112.117 seconds afterward. Each phase retains all 120
+file/project instances and the same 4,131 test states: 4,130 passed, one
+skipped. Both observed phases reconcile 2,581 scalar reads, with no recorded
+gaps or transport failures.
+
+| Anonymous compilation events | Before | After |
+| --- | ---: | ---: |
+| Complete log | 59,997 | 59,936 |
+| Exact source matched a prior Inspector command | 53,927 | 53,866 |
+| Source did not match a prior Inspector command | 6,070 | 6,070 |
+
+The unmatched anonymous sequence agrees in all 120 workers, preserving exact
+records, multiplicity and order. Across all script kinds, the remaining event
+multisets agree in 120 workers and the exact combined sequences agree in 59.
+Removing WebAssembly events for an exploratory comparison gives matching
+remaining sequences in all 120. The first order difference in the other 61
+pairs is between one identical 48,643-byte WebAssembly compilation and
+Vitest's identical `node.Es9ukMGX.js` snapshot-environment module. The Wasm
+origin is not established. No event is removed from the evidence or any
+replay key; neither this partition nor the observed ordering difference is
+permission to ignore application effects.
+
+[Machine-readable evidence](worker-issued-compilation-sources.json) includes
+all 261 artifact digests and the per-worker comparisons. Reproduce the
+partition with `node docs/bench/analyze-issued-sources.mjs <artifact-directory>`.
+Complete compilation sequences and RPC transcripts still differ in all 120
+workers. There are no product hits or new savings claims.
+
+`387fef3` removes the JavaScript `meta` getter/setter from the native scalar
+diagnostic. The graph retains its ordinary data property; evaluation snapshots
+reject watched fields that were not already observed before transport
+delivery. Assignment coverage is reported as unavailable, and intermediate
+assignments remain an explicit gap. The refinement passes
+[25 native regressions](https://github.com/pango07/quod/actions/runs/42290495231)
+and [259 shared regressions](https://github.com/pango07/quod/actions/runs/42290495140).
+Its full workload is running separately; it changes no production replay rule.
