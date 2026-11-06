@@ -1,0 +1,135 @@
+{
+  "commit": "31bbd31c6a4301d0bd4319cb35bc853c25a56df5",
+  "run": "https://github.com/pango07/quod/actions/runs/42166985276",
+  "conclusion": "success",
+  "runner": {
+    "image": "ubuntu-26.04",
+    "version": "20261101.186.1"
+  },
+  "node": "24.18.0",
+  "observerTests": 45,
+  "productionProofTests": 65,
+  "nativeFixtureTests": 1,
+  "nativeFixtureScenarios": [
+    "known",
+    "unknown",
+    "changed",
+    "replaced",
+    "restore",
+    "during-load",
+    "failure"
+  ],
+  "driver": {
+    "measurementScope": "Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay",
+    "files": 120,
+    "states": 4131,
+    "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+    "replayed": 0,
+    "metadata": {
+      "sm": 299,
+      "sl": 257,
+      "st": 104
+    },
+    "sizeConsumers": 120,
+    "consumersWithNoHeapEntries": 120,
+    "consumersWithNativeArtifactsMatched": 120,
+    "nativeArtifacts": {
+      "available": true,
+      "loads": 1,
+      "matchedArtifacts": 1,
+      "reasons": [],
+      "replayEligible": false,
+      "records": [
+        {
+          "file": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node",
+          "sha256": "09efa62dc8d03fb62f06ab2aadbbc26bde416acb7da20a927f7d53b2bd440322",
+          "expectedDigest": true,
+          "noAtimeRead": true,
+          "before": {
+            "dev": "66305",
+            "ino": "5773095",
+            "mode": "33188",
+            "nlink": "1",
+            "size": "19336888",
+            "mtimeNs": "1793941952265908422",
+            "ctimeNs": "1793941952265908422"
+          },
+          "after": {
+            "dev": "66305",
+            "ino": "5773095",
+            "mode": "33188",
+            "nlink": "1",
+            "size": "19336888",
+            "mtimeNs": "1793941952265908422",
+            "ctimeNs": "1793941952265908422"
+          },
+          "mappings": [
+            {
+              "start": "74ef99c00000",
+              "end": "74ef99cee000",
+              "permissions": "r--p",
+              "offset": "00000000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            },
+            {
+              "start": "74ef99cee000",
+              "end": "74ef9aa5d000",
+              "permissions": "r-xp",
+              "offset": "000ee000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            },
+            {
+              "start": "74ef9aa5d000",
+              "end": "74ef9adc7000",
+              "permissions": "r--p",
+              "offset": "00e5d000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            },
+            {
+              "start": "74ef9adc7000",
+              "end": "74ef9adc8000",
+              "permissions": "---p",
+              "offset": "011c7000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            },
+            {
+              "start": "74ef9adc8000",
+              "end": "74ef9ae6c000",
+              "permissions": "r--p",
+              "offset": "011c7000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            },
+            {
+              "start": "74ef9ae6c000",
+              "end": "74ef9ae72000",
+              "permissions": "rw-p",
+              "offset": "0126b000",
+              "inode": "5773095",
+              "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+            }
+          ],
+          "mappedIdentity": true,
+          "unchanged": true,
+          "loadReturned": true,
+          "reason": null,
+          "replayEligible": false
+        }
+      ],
+      "limitations": [
+        "file identity at load and checkpoints does not exclude transient concurrent writes",
+        "mapped inode identity does not prove private memory pages were never modified",
+        "digest matches do not establish native capabilities or authorize replay"
+      ]
+    },
+    "replayEligible": false
+  },
+  "nativeCapabilityCertified": false,
+  "asyncSizeKeyEnabled": false,
+  "productionEngineChanged": false,
+  "correctedWindowSavingsEstablished": false
+}

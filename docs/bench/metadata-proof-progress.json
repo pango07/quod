@@ -531,5 +531,21 @@
     ],
     "capabilityCertified": false,
     "asyncSizeKeyEnabled": false
+  },
+  "nativeLoadIdentityDiagnostic": {
+    "evidence": "native-load-identity.json",
+    "commit": "31bbd31c6a4301d0bd4319cb35bc853c25a56df5",
+    "run": 42166985276,
+    "observerTests": 45,
+    "productionProofTests": 65,
+    "nativeFixtureTests": 1,
+    "nativeFixtureScenarios": 7,
+    "states": 4131,
+    "sizeConsumers": 120,
+    "consumersWithNativeArtifactsMatched": 120,
+    "matchedNativeArtifacts": 1,
+    "replayed": 0,
+    "capabilityCertified": false,
+    "asyncSizeKeyEnabled": false
   }
 }
