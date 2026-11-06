@@ -4,10 +4,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const [binaryArg, fixtureArg, outputArg, expectation] = process.argv.slice(2)
+const [binaryArg, fixtureArg, outputArg, expectation, legacyArg] = process.argv.slice(2)
 assert(['stale', 'correct'].includes(expectation), 'usage: binary fixture output-dir stale|correct')
 assert.equal(process.platform, 'linux')
 const binary = fs.realpathSync(binaryArg)
+const legacy = legacyArg ? fs.realpathSync(legacyArg) : null
 const fixture = fs.realpathSync(fixtureArg)
 const output = path.resolve(outputArg)
 fs.mkdirSync(output, { recursive: true })
@@ -56,8 +57,8 @@ for (const [name, method, kind] of cases) {
   const args = [method, relative]
   const plainBefore = run(root, fixture, args)
   assert.equal(plainBefore.status, 0, JSON.stringify(plainBefore))
-  const quod = () => run(root, binary, ['unit', '--dir', ledger, '--root', root, '--', fixture, ...args])
-  const warm = [quod(), quod(), quod()]
+  const quod = (engine = binary) => run(root, engine, ['unit', '--dir', ledger, '--root', root, '--', fixture, ...args])
+  const warm = [quod(legacy ?? binary), quod(legacy ?? binary), quod(legacy ?? binary)]
   for (const result of warm) {
     assert.equal(result.status, plainBefore.status, JSON.stringify(result))
     assert.equal(result.stdout, plainBefore.stdout, JSON.stringify(result))
@@ -83,9 +84,12 @@ for (const [name, method, kind] of cases) {
   fs.writeFileSync(path.join(output, `${name}.json`), JSON.stringify(result, null, 2) + '\n')
   console.log(JSON.stringify({ name, warmedReplay: result.warmedReplay, replayedAfterChange: result.replayedAfterChange, stale }))
 }
-const summary = { binarySha256: hash(binary), fixtureSha256: hash(fixture), expectation, cases: results.length, stale: results.filter(r => r.stale).length, results }
+const summary = { binarySha256: hash(binary), legacyBinarySha256: legacy ? hash(legacy) : null, fixtureSha256: hash(fixture), expectation, cases: results.length, stale: results.filter(r => r.stale).length, results }
 fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(summary, null, 2) + '\n')
-if (expectation === 'correct') assert.equal(summary.stale, 0, 'metadata-only edits must not return stale output')
+if (expectation === 'correct') {
+  assert.equal(summary.stale, 0, 'metadata-only edits must not return stale output')
+  assert(results.find(r => r.name === 'file-mtime').warmedReplay, 'unchanged full-metadata inputs should still replay')
+}
 else {
   const file = results.find(r => r.name === 'file-mtime')
   assert(file.warmedReplay && file.replayedAfterChange && file.stale, 'the shipped-binary counterexample was not reproduced')

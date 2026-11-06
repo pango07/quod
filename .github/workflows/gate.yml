@@ -459,6 +459,27 @@ jobs:
           git diff -- '*.rs' > /tmp/benchmark-fmt.patch
       - name: CLI unit tests and recorder regressions
         run: cargo test --locked -p quod-cli --bin quod --test vitest_recorder --test unit_e2e
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: always()
+        with:
+          repository: pango07/quod-action
+          ref: 1aa08cacec95f243aa12adafdf815f68213c2783
+          path: unit-baseline-action
+      - name: Unit metadata regression against the newly built binary
+        if: always()
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 scripts/bench-vitest/unit-metadata-fixture.c -o "$PWD/unit-metadata-fixture"
+          mkdir -p /tmp/quod-unit-baseline
+          echo 'b31627739db6fe8ebdbed4d6aa54e7307e86665cefc677eca0bd7b3f93c95a9b  unit-baseline-action/dist/quod/bin-081f20a.tar.gz' | sha256sum -c -
+          tar -xzf unit-baseline-action/dist/quod/bin-081f20a.tar.gz -C /tmp/quod-unit-baseline
+          node scripts/bench-vitest/unit-metadata-audit.mjs /tmp/quod-unit-baseline/quod "$PWD/unit-metadata-fixture" /tmp/quod-unit-metadata/baseline stale
+          node scripts/bench-vitest/unit-metadata-audit.mjs "$PWD/target/debug/quod" "$PWD/unit-metadata-fixture" /tmp/quod-unit-metadata/fixed correct
+          node scripts/bench-vitest/unit-metadata-audit.mjs "$PWD/target/debug/quod" "$PWD/unit-metadata-fixture" /tmp/quod-unit-metadata/upgrade correct /tmp/quod-unit-baseline/quod
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: unit-metadata-fixed
+          path: /tmp/quod-unit-metadata
       - name: config names proof adversarial regressions
         run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: clippy

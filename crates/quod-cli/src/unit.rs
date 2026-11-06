@@ -6,6 +6,7 @@
 //! as path events) and the **keyer** (how each read is keyed): the trace
 //! comes from `strace -f --seccomp-bpf` on the first witness; the keys are
 //! `quod vitest`'s (`vitest::state`): `f:` content, `e:` existence and type,
+//! `sm:`/`sl:` full stat/lstat metadata (never a package substitution),
 //! `p:` an installed package (its package.json and lockfile entry), `d:` a
 //! directory's names, `envall:` the environment but its per-run names, and
 //! `host:` the kernel and the image. The hit path hashes those keys and
@@ -45,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use crate::vitest;
 
 /// Bumped when a record made before would be read differently.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 /// Records kept per unit (newest first).
 const KEEP: usize = 3;
 /// Disagreeing second witnesses before a unit always runs.
@@ -1003,7 +1004,7 @@ const SANDBOX: &[&str] = &[
     "--die-with-parent",
 ];
 
-const TRACE_SET: &str = "trace=%file,%process,getdents64,getdents,%network,io_uring_setup,io_uring_enter,io_uring_register";
+const TRACE_SET: &str = "trace=%file,%process,fstat,fstatfs,fgetxattr,flistxattr,getdents64,getdents,%network,io_uring_setup,io_uring_enter,io_uring_register";
 
 fn sandboxed(bwrap: &str, cwd: &Path, argv: &[String], trace: Option<&Path>) -> Vec<String> {
     let mut v: Vec<String> = vec![bwrap.into()];
@@ -1041,7 +1042,8 @@ fn sandboxed(bwrap: &str, cwd: &Path, argv: &[String], trace: Option<&Path>) -> 
 enum Op {
     /// opened for reading, or executed
     Read,
-    /// stat, access, readlink, xattr, a watch: existence and type
+    /// lookup, metadata, access, readlink, or a watch; Ev::metadata keeps
+    /// the richer dependency when the syscall returned more than a lookup.
     Stat,
     /// getdents
     List,
@@ -1065,6 +1067,9 @@ struct Ev {
     ok: bool,
     /// for a successful stat: "file" | "dir" | "link" | "other", when shown
     kind: Option<&'static str>,
+    /// sm/sl: full metadata; e: a readlink's exact target. These survive
+    /// package substitution and cannot be inferred from file contents.
+    metadata: Option<&'static str>,
 }
 
 #[derive(Debug, Default)]
@@ -1182,8 +1187,9 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
         let ok = ok || (name == "execve" && ret.starts_with('?'));
         let at = |dirfd: &str, p: &str| -> String { join(&base(dirfd, &here), p) };
         let path0 = || args.first().and_then(|a| unquote(a));
+        let metadata = metadata_key(name, &args)?;
         let mut push = |path: String, op: Op, ok: bool, kind: Option<&'static str>| {
-            t.evs.push(Ev { path, op, ok, kind });
+            t.evs.push(Ev { path, op, ok, kind, metadata });
         };
         match name {
             "io_uring_setup" => {
@@ -1275,22 +1281,27 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 let p = p.ok_or("an access path was not decoded")?;
                 push(p, Op::Stat, ok, Some(kind));
             }
-            "stat" | "lstat" | "stat64" | "lstat64" | "readlink" | "statfs" | "getxattr"
-            | "lgetxattr" | "listxattr" | "llistxattr" => {
-                if let Some(p) = path0() {
-                    let kind = stat_kind(&args);
-                    push(join(&here, &p), Op::Stat, ok, kind);
-                }
+            "stat" | "lstat" | "stat64" | "lstat64" | "readlink" => {
+                let p = path0().ok_or("a metadata path was not decoded")?;
+                push(join(&here, &p), Op::Stat, ok, stat_kind(&args));
             }
-            "newfstatat" | "fstatat64" | "statx" | "readlinkat" => {
-                let Some(p) = args.get(1).and_then(|a| unquote(a)) else {
-                    continue;
-                };
+            "fstat" | "fstat64" => {
+                let p = metadata_fd(args.first().map(String::as_str))?;
+                push(p, Op::Stat, ok, stat_kind(&args));
+            }
+            "newfstatat" | "fstatat64" | "readlinkat" => {
+                let p = args.get(1).and_then(|a| unquote(a))
+                    .ok_or("a metadata path was not decoded")?;
                 if p.is_empty() {
-                    continue; // AT_EMPTY_PATH: the fd itself, opened already
+                    let p = metadata_fd(args.first().map(String::as_str))?;
+                    push(p, Op::Stat, ok, stat_kind(&args));
+                } else {
+                    // An unknown dirfd must not silently become cwd.
+                    if !p.starts_with('/') && args[0] != "AT_FDCWD" && fd_path(&args[0]).is_none() {
+                        return Err("a metadata directory descriptor was not decoded".into());
+                    }
+                    push(at(&args[0], &p), Op::Stat, ok, stat_kind(&args));
                 }
-                let kind = stat_kind(&args);
-                push(at(&args[0], &p), Op::Stat, ok, kind);
             }
             "inotify_add_watch" => {
                 if let Some(p) = args.get(1).and_then(|a| unquote(a)) {
@@ -1429,6 +1440,42 @@ fn access_kind(mode: &str, flags: &str) -> Result<&'static str, String> {
         "AT_EACCESS" => Ok(["ae0", "ae1", "ae2", "ae3", "ae4", "ae5", "ae6", "ae7"][mask]),
         _ => Err("access uses unsupported flags".into()),
     }
+}
+
+/// Native code can inspect every returned field. No type-only inference
+/// is possible from strace. statx has fields beyond Node's Stats key;
+/// filesystem and xattr queries also need their own state representation.
+/// Until those are implemented, they run plain instead of trusting e:/f:.
+fn metadata_key(name: &str, args: &[String]) -> Result<Option<&'static str>, String> {
+    let key = match name {
+        "stat" | "stat64" => "sm",
+        "lstat" | "lstat64" => "sl",
+        "fstat" | "fstat64" => if stat_kind(args) == Some("link") { "sl" } else { "sm" },
+        "newfstatat" | "fstatat64" => {
+            let flags = args.get(3).ok_or("stat flags were not decoded")?;
+            for flag in flags.split('|') {
+                if !matches!(flag.trim(), "0" | "AT_SYMLINK_NOFOLLOW" | "AT_EMPTY_PATH" | "AT_NO_AUTOMOUNT") {
+                    return Err("stat uses unsupported flags".into());
+                }
+            }
+            if flags.contains("AT_SYMLINK_NOFOLLOW") || stat_kind(args) == Some("link") { "sl" } else { "sm" }
+        }
+        "readlink" | "readlinkat" => "e",
+        "statx" | "statfs" | "statfs64" | "fstatfs" | "fstatfs64"
+        | "getxattr" | "lgetxattr" | "fgetxattr" | "listxattr" | "llistxattr" | "flistxattr" => {
+            return Err(format!("{name} returns metadata without a complete replay key"));
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(key))
+}
+
+fn metadata_fd(arg: Option<&str>) -> Result<String, String> {
+    let p = arg.and_then(fd_path).ok_or("metadata on a descriptor without a stable pathname")?;
+    if p.ends_with(" (deleted)") {
+        return Err("metadata on an unlinked descriptor".into());
+    }
+    Ok(p)
 }
 
 fn stat_kind(args: &[String]) -> Option<&'static str> {
@@ -1852,6 +1899,17 @@ fn keyer(
     };
     let parent = |p: &str| -> String { p.rsplit_once('/').map_or("/", |x| x.0).to_string() };
 
+    // Post-run metadata cannot stand in for metadata the command saw
+    // before a write, or for a fresh output's inode/timestamps next time.
+    // A directory's metadata changes when an entry is created/removed too.
+    for (p, evs) in &by {
+        if evs.iter().any(|e| e.ok && e.metadata.is_some())
+            && (written.contains_key(p) || own(p) || written.keys().any(|w| parent(w) == *p))
+        {
+            return Err(format!("it observes metadata of {} that it changes", rel(p)));
+        }
+    }
+
     let mut keys: BTreeMap<String, Option<String>> = BTreeMap::new();
     let mut key = |k: String, pre: Option<String>| {
         keys.entry(k).or_insert(pre);
@@ -1876,6 +1934,9 @@ fn keyer(
             continue;
         }
         for e in evs {
+            if let Some(kind) = e.metadata {
+                key(format!("{kind}:{}", rel(p)), None);
+            }
             if let Some(kind) = e.kind.filter(|k| k.starts_with('a')) {
                 key(format!("{kind}:{}", rel(p)), None);
             }
@@ -1998,6 +2059,47 @@ mod tests {
     }
 
     #[test]
+    fn native_metadata_keeps_full_keys_including_packages_and_descriptors() {
+        let root = Path::new("/work");
+        let text = r#"1 stat("file", {st_mode=S_IFREG|0644}, 0) = 0
+1 lstat("link", {st_mode=S_IFLNK|0777}, 0) = 0
+1 newfstatat(AT_FDCWD, "node_modules/tool/file", {st_mode=S_IFREG|0644}, 0) = 0
+1 newfstatat(AT_FDCWD, "directory", {st_mode=S_IFDIR|0755}, AT_SYMLINK_NOFOLLOW) = 0
+1 newfstatat(3</work/fd-file>, "", {st_mode=S_IFREG|0644}, AT_EMPTY_PATH) = 0
+1 fstat(4</work/other-file>, {st_mode=S_IFREG|0644}) = 0
+1 readlink("node_modules/tool/link", "target", 4096) = 6
+"#;
+        let (keys, _) = keys_of(root, text).unwrap();
+        for expected in ["sm:file", "sl:link", "sm:node_modules/tool/file", "sl:directory", "sm:fd-file", "sm:other-file", "e:node_modules/tool/link"] {
+            assert!(keys.iter().any(|(k, _)| k == expected), "missing {expected}: {keys:?}");
+        }
+        for text in [
+            "1 fstat(3, {st_mode=S_IFREG|0644}) = 0\n",
+            "1 fstat(3</work/gone (deleted)>, {st_mode=S_IFREG|0644}) = 0\n",
+            "1 newfstatat(3, \"\", {st_mode=S_IFREG|0644}, AT_EMPTY_PATH) = 0\n",
+            "1 newfstatat(3, \"relative\", {st_mode=S_IFREG|0644}, 0) = 0\n",
+            "1 newfstatat(AT_FDCWD, \"file\", {}, 0x40000000) = 0\n",
+            "1 stat(\"truncated\"..., {}) = 0\n",
+            "1 statx(AT_FDCWD, \"file\", 0, STATX_ALL, {}) = 0\n",
+            "1 statfs(\"file\", {}) = 0\n",
+            "1 fgetxattr(3</work/file>, \"user.key\", \"x\", 1) = 1\n",
+        ] {
+            assert!(parse(text, root).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
+    fn metadata_of_written_paths_is_not_reconstructed_from_post_run_state() {
+        for text in [
+            "1 stat(\"file\", {st_mode=S_IFREG|0644}) = 0\n1 openat(AT_FDCWD, \"file\", O_WRONLY|O_TRUNC) = 3</work/file>\n",
+            "1 stat(\".\", {st_mode=S_IFDIR|0755}) = 0\n1 mkdir(\"new\", 0755) = 0\n",
+            "1 mkdir(\"new\", 0755) = 0\n1 stat(\"new\", {st_mode=S_IFDIR|0755}) = 0\n",
+        ] {
+            assert!(keys_of(Path::new("/work"), text).is_err(), "accepted {text}");
+        }
+    }
+
+    #[test]
     fn missing_and_corrupt_blobs_are_not_empty_witnesses() {
         let t = tempfile::tempdir().unwrap();
         let hash = put_blob(t.path(), b"original output").unwrap();
@@ -2054,7 +2156,7 @@ mod tests {
         let text = format!(
             r#"100 openat(AT_FDCWD, "src/a.ts", O_RDONLY|O_CLOEXEC) = 3<{r}/src/a.ts>
 100 newfstatat(AT_FDCWD, "{r}/missing.ts", 0x7ffc, 0) = -1 ENOENT (No such file or directory)
-100 statx(AT_FDCWD, "{r}/node_modules/typescript/lib/tsc.js", AT_STATX_SYNC_AS_STAT, STATX_ALL, {{stx_mask=STATX_BASIC_STATS, stx_mode=S_IFREG|0644}}) = 0
+100 newfstatat(AT_FDCWD, "{r}/node_modules/typescript/lib/tsc.js", {{st_mode=S_IFREG|0644}}, 0) = 0
 100 openat(AT_FDCWD, "{r}/node_modules/@scope/pkg/index.js", O_RDONLY) = 3<{r}/node_modules/@scope/pkg/index.js>
 100 getdents64(4<{r}/src>, 0x5 /* 3 entries */, 32768) = 80
 100 clone3({{flags=CLONE_VFORK|CLONE_VM, exit_signal=SIGCHLD}}, 88 <unfinished ...>
@@ -2075,6 +2177,7 @@ mod tests {
             "f:src/a.ts",
             "e:missing.ts",
             "p:node_modules/typescript",
+            "sm:node_modules/typescript/lib/tsc.js",
             "p:node_modules/@scope/pkg",
             "d:src",
             "f:sub/x.txt",

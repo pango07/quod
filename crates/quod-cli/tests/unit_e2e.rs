@@ -20,6 +20,10 @@ fn usable(prog: &str, args: &[&str]) -> bool {
 }
 
 fn unit(dir: &Path, root: &Path, script: &str) -> Output {
+    unit_command(dir, root, &["sh", "-c", script])
+}
+
+fn unit_command(dir: &Path, root: &Path, argv: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_quod"))
         .current_dir(root)
         .arg("unit")
@@ -29,7 +33,8 @@ fn unit(dir: &Path, root: &Path, script: &str) -> Output {
         .arg(root)
         .arg("--mark")
         .arg(dir.join("recorded"))
-        .args(["--", "sh", "-c", script])
+        .arg("--")
+        .args(argv)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -59,7 +64,7 @@ fn unit(dir: &Path, root: &Path, script: &str) -> Output {
             let _ = child.wait();
             let err = e.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
             panic!(
-                "`quod unit -- sh -c {script:?}` still running after 120 s; stderr:\n{}",
+                "`quod unit -- {argv:?}` still running after 120 s; stderr:\n{}",
                 String::from_utf8_lossy(&err)
             );
         }
@@ -67,11 +72,11 @@ fn unit(dir: &Path, root: &Path, script: &str) -> Output {
     };
     let left = || deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(5);
     let stderr = e.recv_timeout(left()).unwrap_or_else(|_| {
-        panic!("`sh -c {script:?}`: quod exited ({status}) but its stderr is still open: a process it started outlives it")
+        panic!("`{argv:?}`: quod exited ({status}) but its stderr is still open: a process it started outlives it")
     });
     let stdout = o.recv_timeout(left()).unwrap_or_else(|_| {
         panic!(
-            "`sh -c {script:?}`: quod exited ({status}) but its stdout is still open; stderr:\n{}",
+            "`{argv:?}`: quod exited ({status}) but its stdout is still open; stderr:\n{}",
             String::from_utf8_lossy(&stderr)
         )
     });
@@ -114,13 +119,23 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     let root = fs::canonicalize(base.path()).unwrap().join("repo");
     let dir = fs::canonicalize(base.path()).unwrap().join("units");
     fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(root.join("out")).unwrap();
     fs::write(root.join("in.txt"), "one\n").unwrap();
-    let script = "mkdir -p out && cat in.txt > out/o.txt && echo built";
+    // A content-only copier with no stat of freshly generated outputs or
+    // anonymous stdout descriptors. Those metadata observations are now
+    // conservatively uncacheable; they cannot be proved by a content key.
+    let fixture = base.path().join("unit-fixture");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/bench-vitest/unit-metadata-fixture.c");
+    let compiled = Command::new("cc").args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(source).arg("-o").arg(&fixture).output().unwrap();
+    assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stderr));
+    let copy = || unit_command(&dir, &root, &[fixture.to_str().unwrap(), "copy", "in.txt"]);
     let err = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
     let out = |o: &Output| String::from_utf8_lossy(&o.stdout).into_owned();
 
     // 1. Traced, recorded.
-    let o = unit(&dir, &root, script);
+    let o = copy();
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "built\n");
     if err(&o).contains("cannot reach the checkout as this user can") {
@@ -139,42 +154,52 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     assert_eq!(fs::read_to_string(root.join("out/o.txt")).unwrap(), "one\n");
 
     // 2. A fresh checkout: the plain second witness agrees.
-    fs::remove_dir_all(root.join("out")).unwrap();
-    let o = unit(&dir, &root, script);
+    fs::remove_file(root.join("out/o.txt")).unwrap();
+    let o = copy();
     assert!(o.status.success(), "{}", err(&o));
     assert!(err(&o).contains("second witness agrees"), "{}", err(&o));
 
     // 3. Answered: nothing runs, the output is printed and out/ restored.
-    fs::remove_dir_all(root.join("out")).unwrap();
-    let o = unit(&dir, &root, script);
+    fs::remove_file(root.join("out/o.txt")).unwrap();
+    let o = copy();
     assert!(o.status.success(), "{}", err(&o));
     assert!(err(&o).contains("answered from its record"), "{}", err(&o));
     assert_eq!(out(&o), "built\n");
     assert_eq!(fs::read_to_string(root.join("out/o.txt")).unwrap(), "one\n");
 
     // 4. An input changed: it runs (and records) again.
-    fs::remove_dir_all(root.join("out")).unwrap();
+    fs::remove_file(root.join("out/o.txt")).unwrap();
     fs::write(root.join("in.txt"), "two\n").unwrap();
-    let o = unit(&dir, &root, script);
+    let o = copy();
     assert!(o.status.success(), "{}", err(&o));
     assert!(!err(&o).contains("answered"), "{}", err(&o));
     assert_eq!(fs::read_to_string(root.join("out/o.txt")).unwrap(), "two\n");
 
     // E2: changed contents with the exact same read names and result
     // are a traced second witness, without an extra plain execution.
-    let count = "wc -c < in.txt";
-    let o = unit(&dir, &root, count);
+    let count = || unit_command(&dir, &root, &[fixture.to_str().unwrap(), "count", "in.txt"]);
+    let o = count();
     assert!(err(&o).contains("recorded (first witness"), "{}", err(&o));
     fs::write(root.join("in.txt"), "six\n").unwrap();
-    let o = unit(&dir, &root, count);
+    let o = count();
     assert!(
         err(&o).contains("agrees with another traced record"),
         "{}",
         err(&o)
     );
-    let o = unit(&dir, &root, count);
+    let o = count();
     assert!(err(&o).contains("answered from its record"), "{}", err(&o));
-    assert_eq!(out(&o).trim(), "4");
+    assert_eq!(out(&o).trim(), "COUNT=4");
+
+    // The ordinary shell copier still executes correctly when metadata
+    // observations prevent replay; do not silently remove its coverage.
+    let shell_copy = "mkdir -p out && cat in.txt > out/shell.txt && echo built";
+    for _ in 0..2 {
+        let o = unit(&dir, &root, shell_copy);
+        assert!(o.status.success(), "{}", err(&o));
+        assert_eq!(out(&o), "built\n");
+        assert_eq!(fs::read_to_string(root.join("out/shell.txt")).unwrap(), "six\n");
+    }
 
     // 5. A unit that reaches for the network always runs.
     let net = "cat in.txt; bash -c 'exec 3<>/dev/tcp/140.82.112.3/443' 2>/dev/null; true";
