@@ -83,7 +83,11 @@ for(const kind of ['normal','self-removing','once','same-source','nested','unpai
       }
       if(kind==='nested'){assert.equal(report.paired,2);assert.deepEqual(r.delivered,[456,123])}
       if(kind==='removed'){assert.equal(report.pending,1);assert.equal(report.callbacks,0)}
-      if(kind==='overflow'){assert.equal(report.pending,32);assert(report.errors.includes('pending message capacity exceeded'))}
+      if(kind==='overflow') {
+        assert.equal(report.pending,32)
+        assert.equal(report.failureCounts['pending message capacity exceeded'],1)
+        assert.equal(report.errors.length,20,'error samples remain bounded while counters retain every failure')
+      }
       if(kind==='unpaired'||kind==='alternate-dispatch')assert(report.errors.includes('observer callback has no matching message dispatch'),JSON.stringify(report))
       if(kind==='getter')assert.equal(r.getterCalls,1,'only original emit executes the getter')
       if(kind==='proxy')assert.equal(r.traps,1,'only original emit reads the proxy')
