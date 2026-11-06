@@ -223,17 +223,23 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const inspector=builtin("process.binding('inspector')")
       const connection=prop(inspector,'Connection')?.objectId
       const prototype=prop(connection,'prototype')?.objectId
+      const mainThreadPrototype=prop(prop(inspector,'MainThreadConnection')?.objectId,'prototype')?.objectId
+      if(!prototype||!mainThreadPrototype)throw Error('native inspector prototypes unavailable')
       const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
       const objectsList=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
       // Exclude the prototype only if its exact identity appears. The
       // census does not establish which objects are live connected
       // sessions, so a raw count must not be used as such a count.
-      const prototypeObjects=objectsList.filter(p=>same(p.value?.objectId,prototype)).length
+      // MainThreadConnection.prototype inherits Connection.prototype and is
+      // included by queryObjects. Exclude it only by exact object identity,
+      // never by a description or an assumed baseline count.
+      const isPrototype=p=>same(p.value?.objectId,prototype)||same(p.value?.objectId,mainThreadPrototype)
+      const prototypeObjects=objectsList.filter(isPrototype).length
       inspectorInitial={localConnectionObjects:objectsList.length-prototypeObjects,prototypeObjects,
         objects:objectsList.map(p=>({description:p.value?.description,
           properties:properties(p.value?.objectId).result.map(v=>v.name),
-          isPrototype:same(p.value?.objectId,prototype)})),
+          isPrototype:isPrototype(p)})),
         listenerOpen:post('Runtime.callFunctionOn',{objectId:prop(inspector,'isEnabled').objectId,
           functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
       if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
