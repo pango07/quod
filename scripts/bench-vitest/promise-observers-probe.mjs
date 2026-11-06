@@ -83,8 +83,10 @@ export function inspectPromiseObservers() {
         const ctor=binding(convert,'Stats').objectId
         const native=binding(stat,'binding').objectId
         const nativeStat=prop(native,'stat')
+        const publicCtor=builtin("process.getBuiltinModule('fs').Stats")
         return {available:true,stat:functionSource(stat),convert:functionSource(convert),constructor:functionSource(ctor),
-          publicConstructorMatches:same(ctor,builtin("process.getBuiltinModule('fs').Stats")),
+          publicConstructor:functionSource(publicCtor),publicConstructorMatches:same(ctor,publicCtor),
+          publicPrototypeMatches:same(prop(ctor,'prototype')?.objectId,prop(publicCtor,'prototype')?.objectId),
           bindingStat:functionSource(nativeStat?.objectId),
           bindingStatDescriptionSha256:createHash('sha256').update(nativeStat?.description??'').digest('hex'),
           replayEligible:false}

@@ -29,7 +29,10 @@ test('passive stat tracing preserves native Stats and adds no then reaction',()=
   assert.equal(r.report.nativeStatProvenance.available,true,JSON.stringify(r.report.nativeStatProvenance))
   assert.equal(r.report.nativeStatProvenance.stat.script.url,'node:internal/fs/promises')
   assert.equal(r.report.nativeStatProvenance.stat.script.hasSourceURL,false)
-  assert.equal(r.report.nativeStatProvenance.publicConstructorMatches,true)
+  // Node 24 exposes a deprecated public constructor wrapper. Native stat
+  // uses the internal constructor, while both share the Stats prototype.
+  assert.equal(r.report.nativeStatProvenance.publicConstructorMatches,false)
+  assert.equal(r.report.nativeStatProvenance.publicPrototypeMatches,true)
   assert.equal(op.rootSettledFromOwnReaction,true)
   assert.equal(op.observedOnlyOwnedHooks,true)
   assert.ok(op.promises.some(p=>!p.nativeCall),'the awaiting consumer must also be observed')
