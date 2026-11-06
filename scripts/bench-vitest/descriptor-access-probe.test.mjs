@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
+import {validateCompilationCounts} from './compiled-script-log.mjs'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
 function fixture(body) {
@@ -17,6 +18,71 @@ ${body}`
   assert(!JSON.stringify(data.report).includes('private-value'))
   return data
 }
+
+test('integrated native arguments observe every listed descriptor API without full debugger pauses',()=>{
+  const data=fixture(`const operations=[
+    ['Object.getOwnPropertyDescriptor',t=>Object.getOwnPropertyDescriptor(t,key)],
+    ['Object.getOwnPropertyDescriptors',t=>Object.getOwnPropertyDescriptors(t)],
+    ['Reflect.getOwnPropertyDescriptor',t=>Reflect.getOwnPropertyDescriptor(t,key)],
+    ['Object.defineProperty',t=>Object.defineProperty(t,key,change)],
+    ['Object.defineProperties',t=>Object.defineProperties(t,changes)],
+    ['Reflect.defineProperty',t=>Reflect.defineProperty(t,key,change)],
+    ['Reflect.deleteProperty',t=>Reflect.deleteProperty(t,key)],
+    ['Object.freeze',t=>Object.freeze(t)],['Object.seal',t=>Object.seal(t)],
+    ['Object.preventExtensions',t=>Object.preventExtensions(t)],['Reflect.preventExtensions',t=>Reflect.preventExtensions(t)],
+    ['Object.isFrozen',t=>Object.isFrozen(t)],['Object.isSealed',t=>Object.isSealed(t)],
+    ['Object.setPrototypeOf',t=>Object.setPrototypeOf(t,null)],['Reflect.setPrototypeOf',t=>Reflect.setPrototypeOf(t,null)],
+    ['Object.prototype.__defineGetter__',t=>Object.prototype.__defineGetter__.call(t,key,()=>2)],
+    ['Object.prototype.__defineSetter__',t=>Object.prototype.__defineSetter__.call(t,key,()=>{})],
+    ['Object.prototype.__lookupGetter__',t=>Object.prototype.__lookupGetter__.call(t,key)],
+    ['Object.prototype.__lookupSetter__',t=>Object.prototype.__lookupSetter__.call(t,key)],
+  ];
+const checkpoints=[],p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true,compiledScripts:true,inspectorTiming:true,
+  descriptorCheckpointEvery:5,onDescriptorCheckpoint:c=>checkpoints.push(c)});
+for(const [,call] of operations)call({get tmp(){gets++;return 'private-value'}});
+const report=p.descriptorAccess(),compilation=p.compiledScriptReport(),timing=p.inspectorTiming(),identity=p.nativeIdentity();p.close();
+console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,names:operations.map(([name])=>name)}));`)
+  assert.equal(data.gets,0);assert.equal(data.report.calls,19)
+  assert.equal(data.timing.pauses.calls,0);assert.equal(data.identity.mode,'native-entry-arguments')
+  assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
+  assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
+  assert.deepEqual(data.checkpoints.map(c=>c.calls),[5,10,15])
+  assert.deepEqual(data.report.entries.flatMap(e=>e.entries).sort(),data.names.sort())
+  assert(data.report.entries.every(e=>e.count===1&&e.argument.actualNativeEntry&&e.argument.available&&
+    e.argument.target.watchedAccessorKeys.includes('tmp')))
+  assert.equal(data.compilation.encoding,'dictionary-v1');assert.deepEqual(data.compilation.errors,[])
+  validateCompilationCounts(data.compilation)
+})
+
+test('integrated native arguments retain the passed target through bound replacing callees and later mutations',()=>{
+  const data=fixture(`const native=Object.getOwnPropertyDescriptor,define=Object.defineProperty;let calls=0,first=target;
+let box={get native(){calls++;define(this,'native',{value:native});return native.bind(null,target)}};
+const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true,compiledScripts:true});
+const a=box.native(key),b=native(first,(first={},key));
+const report=p.descriptorAccess();p.close();
+console.log(JSON.stringify({report,gets,calls,found:[typeof a.get,typeof b.get]}));`)
+  assert.equal(data.calls,1);assert.equal(data.gets,0);assert.deepEqual(data.found,['function','function'])
+  const entries=data.report.entries.filter(e=>e.entries.includes('Object.getOwnPropertyDescriptor'))
+  assert.equal(entries.reduce((n,e)=>n+e.count,0),2)
+  assert(entries.every(e=>e.argument.actualNativeEntry&&e.argument.target.watchedAccessorKeys.includes('tmp')))
+})
+
+test('integrated native arguments preserve native errors and do not invoke proxy traps',()=>{
+  const data=fixture(`const isProxy=process.getBuiltinModule('util').types.isProxy;
+let traps=0,failed=false;
+const proxy=new Proxy({}, {getOwnPropertyDescriptor(){traps++;return undefined}});
+const p=inspectPromiseObservers({descriptorAccess:true,proxyAccess:true,nativeEntries:true});
+const detected=isProxy(proxy);Object.getOwnPropertyDescriptor(proxy,key);
+try{Object.getOwnPropertyDescriptor()}catch(e){failed=e instanceof TypeError}
+const report=p.descriptorAccess(),proxyReport=p.proxyAccess(),identity=p.nativeIdentity();p.close();
+console.log(JSON.stringify({report,gets,traps,failed,detected,proxyReport,identity}));`)
+  assert.equal(data.traps,1,'only the application descriptor call may trigger the trap')
+  assert(data.failed&&data.detected&&data.proxyReport.available&&data.identity.available)
+  assert.deepEqual(data.report.entries.map(e=>e.argument.kind),['proxy','primitive'])
+  assert.equal(data.report.entries[1].argument.argumentCount,0)
+  assert.equal(data.proxyReport.entries.length,1);assert.equal(data.proxyReport.entries[0].argument.kind,'proxy')
+  assert.equal(data.identity.calls,3);assert.equal(data.identity.cleared,3)
+})
 
 for(const [api,args] of [
   ['Object.getOwnPropertyDescriptor','target,key'],['Reflect.getOwnPropertyDescriptor','target,key'],

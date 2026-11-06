@@ -4,9 +4,46 @@ import vm from 'node:vm'
 import {createHash} from 'node:crypto'
 import {fingerprint} from './worker-input-probe.mjs'
 import {observeCompiledScripts,observeModuleEvaluation} from './worker-module-probe.mjs'
-import {compiledScriptLog} from './compiled-script-log.mjs'
+import {compiledScriptLog,dictionaryCompiledScriptLog,validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
 
 const sha=s=>createHash('sha256').update(s,'utf16le').digest('hex')
+test('dictionary compilation log preserves alternating events, complete fields and order',()=>{
+  const a={identity:{hash:'same'},code:{sha256:'a'},language:'JavaScript'},b={...a,code:{sha256:'b'}}
+  const input=Array.from({length:40001},(_,i)=>i%2?a:b)
+  input.push({...a,language:'WebAssembly'})
+  const log=dictionaryCompiledScriptLog(3,input.length)
+  for(const row of input)log.append(row)
+  const report=log.report();validateCompilationCounts(report)
+  assert.equal(report.scripts.length,3);assert.equal(report.runs.length,input.length)
+  assert.equal(report.events,input.length);assert.equal(report.overflow,false)
+  const restored=report.runs.flatMap(([id,count])=>{
+    const {count:total,...row}=report.scripts[id]
+    return Array.from({length:count},()=>row)
+  })
+  assert.deepEqual(restored,input)
+  const reordered={...report,runs:[...report.runs].reverse()}
+  validateCompilationCounts(reordered)
+  assert.notDeepEqual(compilationSequence(report),compilationSequence(reordered))
+})
+
+test('compilation dictionary and run limits fail closed without presenting a partial trace as complete',()=>{
+  for(const log of [dictionaryCompiledScriptLog(1,5),dictionaryCompiledScriptLog(5,1),compiledScriptLog(1)]) {
+    log.append({code:'a'});log.append({code:'b'})
+    assert.equal(log.report().overflow,true)
+    assert.throws(()=>validateCompilationCounts(log.report()))
+  }
+})
+
+test('compilation validation rejects missing events, invalid references and inconsistent dictionary totals',()=>{
+  const log=dictionaryCompiledScriptLog();log.append({code:'a'});log.append({code:'b'});log.append({code:'a'})
+  const report=log.report();validateCompilationCounts(report)
+  for(const change of [r=>r.events++,r=>r.runs[0][0]=2,r=>r.runs[0][1]=0,
+    r=>r.runs[0][1]++,r=>r.scripts[0].count--,r=>delete r.runs,r=>r.runs[0][0]=0.5]) {
+    const invalid=structuredClone(report);change(invalid)
+    assert.throws(()=>validateCompilationCounts(invalid))
+  }
+})
+
 test('compiled trace compression preserves order, multiplicity and differing record fields',()=>{
   const a={identity:{hash:'same'},code:{sha256:'a'},language:'JavaScript'},b={...a,code:{sha256:'b'}}
   const input=[a,a,b,a,{...a,language:'WebAssembly'},a,a],log=compiledScriptLog(5)
