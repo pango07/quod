@@ -2025,3 +2025,48 @@ Primary V8 source also confirms the earlier comparator-format observation:
 compiles `"(" + expression + ")"`. Current source accounting still retains
 those parenthesized events as unmatched. A separately tested accounting change
 is required; matching the format would not establish ownership or replay safety.
+
+## Transport observation without an additional Promise reaction
+
+`4335e45` moves combined-mode transport observation into Vite's existing
+`await` continuation. The exact `vite@8.2.0` loader source, Node version and
+continuation location are pinned. The observer receives the existing result
+through an Inspector handle and calls the captured diagnostic callback;
+it does not register another Promise reaction or expose a global bridge.
+Legacy reaction mode remains available for the earlier diagnostics and as a
+positive control. Rejected Promises are explicitly unobserved (`null`), and
+the consumer-mode `unsettled` count means missing deliveries, not pending
+Promises. Matching counts do not establish per-Promise ownership.
+
+The regression executes an exact licensed copy of the actual Vite loader.
+It compares complete V8 Promise lifecycle traces and application ordering,
+including concurrent deliveries, errors, rejected and unhandled Promises,
+original Promise identity, accessors, proxies, callback failure, missing
+source and cleanup. The [initial gate](https://github.com/pango07/quod/actions/runs/42307036582)
+passes the lifecycle checks but rejects a fixture that expected two proxy
+accesses: `Promise.resolve` also reads `then`. `25cf039` checks the exact
+`get then`, `has error`, `get result` sequence against the uninstrumented
+run and preserves the no-additional-access requirement.
+
+The [full gate](https://github.com/pango07/quod/actions/runs/42307286501)
+passes all 407 preflight tests, including 11 new continuation regressions.
+All three phases retain 120 file/project instances and the same 4,131 states
+(4,130 passed, one skipped), including after 39 content-preserving mtime
+changes. Baseline takes 48.734 seconds; observed runs take 70.225 and 69.830
+seconds (1.441x and 1.433x baseline). These are diagnostic execution timings;
+different baselines prevent attributing cross-run changes to this patch.
+
+Each observed phase records all 2,640 transport deliveries and releases all
+2,640 transient continuation groups, with zero failures. The existing
+dispatch checks pair 1,765 and 1,759 messages and release their 10,572 groups.
+All 240 workers retain their original configuration with zero seed reads;
+each phase reconciles 2,581 native scalar reads without gaps. Evaluator code
+sequences match in all workers, while complete compilation and RPC sequences
+still differ in all workers. The source partition retains 31,005 and 30,939
+unmatched anonymous events. Exact counts and verified artifact digests are
+recorded in [the evidence record](worker-message-dispatch.json).
+
+This removes the extra reaction from combined-mode observation. Earlier
+consumers, Vitest's intermediate metadata copies, per-Promise ownership,
+complete worker inputs and parent effects remain unproven. No production
+replay predicate changes; there are no product hits or lineage audits here.
