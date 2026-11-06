@@ -132,10 +132,15 @@ if(phase) {
       assert(reports.every(r=>r.native?.opaque.available&&r.native.inspector.available),'native observation must be available in every worker')
       const entries=reports.flatMap(r=>r.native.opaque.entries.flatMap(e=>e.entries))
       const counts=Object.fromEntries([...new Set(entries)].sort().map(k=>[k,entries.filter(e=>e===k).length]))
+      assert(reports.every(r=>r.native.proxy.available&&!r.native.proxy.overflow),'proxy entry observation must be complete in every worker')
+      const proxyCounts={}
+      for(const r of reports)for(const e of r.native.proxy.entries)for(const name of e.entries)proxyCounts[name]=(proxyCounts[name]??0)+e.count
       configResult.native={workers:reports.length,entryCounts:counts,
         workersWithOpaqueEntries:reports.filter(r=>r.native.opaque.entries.length>0).length,
         workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
         workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
+        proxyEntryCounts:proxyCounts,
+        workersWithProxyUnwrapEntries:reports.filter(r=>r.native.proxy.entries.some(e=>e.entries.includes('util.getProxyDetails'))).length,
         replayEligible:false}
     }
     write(path.join(out,'worker-config-result.json'),configResult)

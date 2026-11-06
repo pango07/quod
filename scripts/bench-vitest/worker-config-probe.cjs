@@ -94,7 +94,8 @@ function installProcessProbe(observerRegistry = null) {
   const flush = () => {
     try {
       write(reportFile, JSON.stringify({ replayEligible: false, unknown,
-        native: observerRegistry ? { opaque: observerRegistry.opaqueAccess(), inspector: observerRegistry.inspectorAccess() } : null,
+        native: observerRegistry ? { opaque: observerRegistry.opaqueAccess(), inspector: observerRegistry.inspectorAccess(),
+          proxy: observerRegistry.proxyAccess() } : null,
         reports: reports.map(r => ({ project: r.project, files: r.files, ...r.observer.report() })) }) + '\n')
     } catch { /* missing evidence makes the parent check fail */ }
   }

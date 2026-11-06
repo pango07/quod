@@ -15,7 +15,7 @@ const nativeSources={
 const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
-export function inspectPromiseObservers() {
+export function inspectPromiseObservers({proxyAccess=false}={}) {
   const session=new Session()
   const scripts=new Map()
   session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
@@ -24,6 +24,8 @@ export function inspectPromiseObservers() {
   const inspectorBreakpoints=new Map(), inspectorEntries=[]
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
+  const proxyBreakpoints=new Map(),proxyEntries=new Map()
+  let proxyFailure=null,proxyOverflow=false
   const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
     'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
   let opaqueInitial=null,opaqueFailure=null
@@ -98,13 +100,22 @@ export function inspectPromiseObservers() {
     session.on('Debugger.paused',({params})=>{
       const inspector=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
       const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
-      if(inspector.length||opaque.length) {
+      const proxy=(params.hitBreakpoints??[]).map(id=>proxyBreakpoints.get(id)).filter(Boolean)
+      if(inspector.length||opaque.length||proxy.length) {
         const frames=params.callFrames.slice(0,8).map(f=>({
           name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
         if(inspector.length)inspectorEntries.push({entries:inspector,frames})
         if(opaque.length)opaqueEntries.push({entries:opaque,frames})
-        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure='could not resume watched entry'}
-      } else inspectorFailure=opaqueFailure='unrelated debugger pause'
+        if(proxy.length) {
+          // Count all calls, including the config probe's own isProxy checks.
+          // Do not retain arguments, targets or raw values in the diagnostic.
+          const key=JSON.stringify([proxy,frames])
+          if(proxyEntries.has(key))proxyEntries.get(key).count++
+          else if(proxyEntries.size<10000)proxyEntries.set(key,{entries:proxy,frames,count:1})
+          else proxyOverflow=true
+        }
+        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure='could not resume watched entry'}
+      } else inspectorFailure=opaqueFailure=proxyFailure='unrelated debugger pause'
     })
     // An Inspector connection can inspect a fulfilled promise or heap
     // object without appearing in either JavaScript hook registry. This
@@ -190,8 +201,28 @@ export function inspectPromiseObservers() {
       if(!Number.isInteger(index)) throw Error('unknown hook field index')
       indices[name]=index
     }
+    if(proxyAccess)try {
+      // Node's native getProxyDetails unwraps a Proxy without invoking its
+      // traps; isProxy exposes the instrumentation itself. Observe actual
+      // function identities so references cached before observation count.
+      // This covers these two entries only, not every native observation.
+      for(const [name,fn] of [
+        ['util.types.isProxy',builtin("process.getBuiltinModule('util').types.isProxy")],
+        ['util.getProxyDetails',binding(builtin("process.getBuiltinModule('util').inspect"),'getProxyDetails').objectId],
+      ]) {
+        if(!fn)throw Error('missing proxy observation entry: '+name)
+        const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
+        proxyBreakpoints.set(breakpointId,name)
+      }
+    }catch(e){proxyFailure=e.message}
   } catch(e) {failure=e.message}
   return {
+    proxyAccess() {
+      return {available:proxyAccess&&!failure&&!proxyFailure&&proxyBreakpoints.size===2,
+        entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow,
+        reason:failure??proxyFailure,replayEligible:false,
+        limitation:'Observes isProxy and getProxyDetails only; other native observers are not excluded'}
+    },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
         counts:Object.fromEntries(opaqueNames.map(name=>
@@ -336,6 +367,9 @@ export function inspectPromiseObservers() {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       for(const breakpointId of opaqueBreakpoints.keys()) {
+        try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
+      }
+      for(const breakpointId of proxyBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       try {post('Runtime.releaseObjectGroup',{objectGroup:'quod-observer-diagnostic'})} catch {}

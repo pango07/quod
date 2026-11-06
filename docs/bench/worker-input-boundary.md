@@ -104,3 +104,36 @@ transport filenames. It does not permit dropping external-module inputs,
 masking the seed/worker IDs, ignoring request order, or assuming identical
 parent side effects. [Evidence and artifact digests](worker-module-bytes.json)
 preserve the comparison and its limits.
+
+## Configuration observations inside workers
+
+[42173150531](https://github.com/pango07/quod/actions/runs/42173150531)
+(`2d8d253`) and
+[42174016009](https://github.com/pango07/quod/actions/runs/42174016009)
+(`3288f8c`) each pass a plain run and an observed run across the same 39
+metadata-only edits. Every run has 120 file/project instances and 4,131
+states with the established fingerprint. The second gate also passes the
+opaque-entry and heap-observer regressions.
+
+The observed workers receive a proxy around their actual IPC configuration.
+None of the 120 workers records a `sequence.seed` read. This is not enough
+to remove the seed: a regression demonstrates that `util.inspect()` reads
+the target without invoking the proxy traps, while `util.types.isProxy()`
+exposes the instrumentation. No replay is authorized.
+
+The native capability diagnostic finds no cached native addons or native
+Worker objects at initialization in any worker, no addon loads, no new
+Inspector entries and no watched heap API entries. One worker, for
+`cli/openApiSpec.test.ts`, makes three synchronous subprocess calls.
+All other 119 workers have no watched opaque entries. This is a narrower
+observed capability set than the parent process, which loads Rolldown's
+native addon. It does not exclude every native observation channel.
+
+The only reported proxy wrapping gap is the later-created
+`snapshotOptions.snapshotEnvironment` instance in 119 workers. That gap
+and the native proxy inspection gap require treatment before a worker
+configuration projection could be safe. The follow-up adds native entry
+observation for `isProxy` and `getProxyDetails`; it still grants no replay.
+These runs are diagnostics, not speed or cost measurements.
+[Evidence and artifact digests](worker-config-observations.json) retain
+the results and subprocess call locations.

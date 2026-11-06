@@ -1,0 +1,691 @@
+{
+  "replayEligible": false,
+  "productionChanges": false,
+  "runs": [
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42173150531",
+      "commit": "2d8d253",
+      "result": {
+        "replayEligible": false,
+        "workers": 120,
+        "workersObservingSeed": 0,
+        "observations": [],
+        "plainAndProbeFingerprintEqual": true,
+        "limitation": "Proxy observations cannot exclude native reads or prove that unobserved fields are irrelevant"
+      },
+      "before": {
+        "files": 120,
+        "states": 4131,
+        "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
+      },
+      "after": {
+        "files": 120,
+        "states": 4131,
+        "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
+      },
+      "metadataOnlyChanges": 39,
+      "gaps": [],
+      "opaqueEntries": [],
+      "artifactsSha256": {
+        "after-inputs.json": "8bd4849752b373b18dc54323f1f2885311d9566831ea412d641ad2d5b259f076",
+        "after-tests.json": "3baaceb3137dc7ab3f867ece540008d5ceffc64ae343c3bffff1752165fdb6f6",
+        "before-inputs.json": "d6e18aae13a29aa9d0d20af96b2545baead484f67ef2aa8e887b8b32cde4aa90",
+        "before-tests.json": "394ec0ed60c152173c852644e5a2b2830e83cde92cf5a4913f0b5c922df51ab5",
+        "result.json": "095ee7db8801a6771876fb269387c47ba84bb41a64d2ad317a376e30bab37901",
+        "worker-config/4209.json": "5475e98edd7bbf78c5d97f1222030507aede3943075e7def46a760d2e9199d8d",
+        "worker-config/4210.json": "4529a7aa107d93cb9a2a4a3c6af5a75b45b0a38425226dc7a35fe99ff3e662a8",
+        "worker-config/4216.json": "995fb8664906072cd0e8efa0b15738fbaf53868d6e284575ab52424acc4027f9",
+        "worker-config/4259.json": "b17291d33e9c4893065f1aacaff68c2c1f568896bf82404a8361458ec7b23fef",
+        "worker-config/4279.json": "9e0b2867c7c287e3136a37eb29ffb19b48abfab1347945d0cdcd6fdb32dfdf5a",
+        "worker-config/4308.json": "3cf8211c57d93ad13aed4dc39edf45d12988677d0a0ebdef582a802ad908dc5e",
+        "worker-config/4326.json": "205f99a83b17d1496a0a32bcae29267599b7baebf9a00200a48bcfcd2f8b4b3a",
+        "worker-config/4346.json": "58eecdb47832416790a3328439fa7e994052a833f75fcf99edcadaa713aa014e",
+        "worker-config/4367.json": "91ec773ef2f18723ac87338dbff8e326b938640e0cd008ff1f00cad7bbf7db2b",
+        "worker-config/4384.json": "8829ca37925c520fb70ff7e763fc299aadaa65d234776a074b527737030e905a",
+        "worker-config/4408.json": "0a8ac26588a458e265c5385833842e18a36f5d2de201ef98d525c1caa3f93266",
+        "worker-config/4416.json": "f476089bbdea0e1afb257204f444e2724a0d21e7158ce655689c4a3456e8ac7b",
+        "worker-config/4424.json": "026cf7af6bf2a0e47c60eb5c9760dd2afc0c4a08866c5abf6aafe2dbde3ea0a6",
+        "worker-config/4432.json": "080af346b2391245251e41506f25921b4ee55b03be3ef32d2023aa6a123bdf7c",
+        "worker-config/4439.json": "a54382e2b1ee5dc979187851d9491e5fc6170e7c0de19a5da9fb2db9341df642",
+        "worker-config/4448.json": "d78c4a6156274dd662ea7e9781250969a2e985cf09a31c228cb88ca88fcd2953",
+        "worker-config/4456.json": "181a304fba8799f625812b097ca938add78239a8ecf99c0836193bfa6e5a93b6",
+        "worker-config/4464.json": "13ef6265b2b6332a8e9c352c379b9fa5f7cf6959365fe9db3508f6c90af98929",
+        "worker-config/4472.json": "827c55b4e9375325ae472afa421efcdba433028250178971e1c68304421489f9",
+        "worker-config/4484.json": "3d86ed3aa32de7774268f937273ed8b3510b84fcf868f3543a0269b219a2a1ef",
+        "worker-config/4491.json": "20007b8509dbef33d7ff51e483437a8e028ffe20fbd00b5c445c0fff9c512b4e",
+        "worker-config/4501.json": "17ff8c8db1c80df1213eab753c7104a6af3e5ea8bba61dbab54c57a29ddbd823",
+        "worker-config/4508.json": "60194894c215d14d6dfecb247b1f2d5a39fb9a791ed9bca96634660fc210c4fb",
+        "worker-config/4517.json": "6997787923e568a81ede67d73e22630d8274df945723ad6a177dd1386c29a697",
+        "worker-config/4524.json": "0570213fd9c537caf84dd04aff7ccf31b9116fbe8e01a5b68cbd8247a613ab35",
+        "worker-config/4533.json": "5409986473f9b632bcfb5b1dab61d11628ee4f30d20b22b7a37605fcaf8d6e4e",
+        "worker-config/4539.json": "f5884c92c589d29033e690d285d371d124107cd65ad252ae208b042185a87a64",
+        "worker-config/4549.json": "7aca57494fcefc02274050ddd857b066cf07cd2039e42649d5437bf73b3ce816",
+        "worker-config/4556.json": "e34a127ab2ed3d6780b0fa49557855021d669c4a30eea6a3b851962433bc88e2",
+        "worker-config/4566.json": "09069e8bfba474afcc62732097466937c283cf5434dd30f7a5714c071f53cfb3",
+        "worker-config/4573.json": "735488c781883629c0f6e212fca1ca2ae10d984c54e34be2d1e109ea78dbebd0",
+        "worker-config/4583.json": "1ee2da5677a90922b91b40579a1ec27f6efd5b2ea579303abd94167c69f78eab",
+        "worker-config/4590.json": "3b2193aca2a50551bf3a4b5ece38c652cdf935ef08feb56ae2a8f01369ae0123",
+        "worker-config/4599.json": "7087f3d82f032524fe519f4e726ec54e06fa1b214d91ba7a5a01315bbb8f4d75",
+        "worker-config/4605.json": "867b8fd5dbabce94a69013702f48cd1657b4f6e4cf6a4a1ae9b988c3f3e71702",
+        "worker-config/4615.json": "6d34ffe624ecf2dafa42ccfdb4effe24c1bfc013d18ec66142bd944d44187ba4",
+        "worker-config/4622.json": "8fb342281686bf719870184d653bf9594954271aac0a54ed8dd95d820a7a987d",
+        "worker-config/4630.json": "461f0cf4e70a4031baf641382ef77be4876419e7e705d1cae59f6f4f683dd9fa",
+        "worker-config/4639.json": "d3e6d1bc3326561b932371e4f87c252ebd2c04962051d7e9a01a1a0d7f723e93",
+        "worker-config/4647.json": "2e5379d7f2099c7e050ee57bfcc89e9b06796040228d51441e2ab6ad39b189a2",
+        "worker-config/4655.json": "0d61321789a7a0541f66fff4d7c63ad1afad6d7f1ca56ef412dd47b10ca79545",
+        "worker-config/4663.json": "36a4897abdbf7653a2cec1cbf8fc68c367b0320e7aade3cbbadf32e234378740",
+        "worker-config/4669.json": "14e7dcdea23c4487be5619046656bd771ddb99aeb88a9877fe1c79b6dd94a290",
+        "worker-config/4679.json": "200f9629006b044cea4fbe929669051c0ce7bef92c44c467f91c0aed9741c934",
+        "worker-config/4685.json": "84deced4ab3cdd69acf7d879c54458cb7cdbada866e00aa5fe47c4b0fe4335a6",
+        "worker-config/4695.json": "c014f80389c7643373fa9c5901421c01742788c20cb4c0ed3112fecef1409a7d",
+        "worker-config/4702.json": "13aea33072234ca75932be78421dacff15dea4e3dfa9b6f9ce75b47130c15682",
+        "worker-config/4711.json": "9dac0235be9fb4059c8c7fa5e0a95d6e4f15cc515d63299d1fdcb4ed16085d71",
+        "worker-config/4718.json": "967d948b9536aa7ff631152b0556a856f65afddb15c339c2000afb0311525f22",
+        "worker-config/4727.json": "121356bb4903ce6e76148667938f2e010308dc4a47fa4c9a55a8df674bef3753",
+        "worker-config/4735.json": "555c6fb6e974702625b2397e14e44d28146c8500c739a080de7c243276bf7d9b",
+        "worker-config/4741.json": "c9a16863b5ccdb5de043b83d9812478c2243fa95feefa7672abdb56b92461953",
+        "worker-config/4751.json": "78e2f90896ec6a95fee991d5b153d8bf03757249bc15322bf4ce13da6698d759",
+        "worker-config/4758.json": "72a1a031ecd3a544c0e03dace9cff853cb8a0ec69192663ffcfb635738bf0cad",
+        "worker-config/4767.json": "b0a28440f021ddaa0fc89504468dc449747883b2e44222819262ac1257ade1c0",
+        "worker-config/4774.json": "e34e27bab4cbb4785416406c83b704aba518689224b3aab345199b820b3572e5",
+        "worker-config/4783.json": "fd56348c0db30d5d500a4feca95d5c31fc171d1e4a35ed765efe2d7e5372dd76",
+        "worker-config/4789.json": "9dace525bdf82b906ecf50541024e5fc175f514d3dde631a83868be4ea3b257b",
+        "worker-config/4799.json": "1d001a4f559deae68f4f24b1736260d693d92e7a3e8c70cdbbb72520d515fd32",
+        "worker-config/4806.json": "ae4278c6cfaa7e378423ac92222c9232e7c4fd825b42afac9d9d3f92fc52a927",
+        "worker-config/4815.json": "a7b5f874a66f9166b5b2c5049b78a082e7446ab182c0aaab65c9f240170be1f0",
+        "worker-config/4822.json": "e2d8d2c87489522bacb4a47bb6fc646386c88da44d0ed100e7d236a7438ce6aa",
+        "worker-config/4831.json": "b10ae83580b5440da99b82317d5687513a3da4cd723664360a02b58d1b463870",
+        "worker-config/4838.json": "714c42f5cbc83d8a3ea1b5982962b3800bbe60eeede596c45b397b7e4695cee8",
+        "worker-config/4847.json": "0e2b999341ff33a21495588e50ecbbe061b8da6639c1f2ce75cfe4a37a238b49",
+        "worker-config/4854.json": "d285b1b9c40a6cc5e9a661b3f9d9a912fa8a2d05d17a07ac6c0d88c4c71f010c",
+        "worker-config/4863.json": "915322c5b7c4076f45887825639debeaf316f77d99a9507a7c68cc4811ce5edf",
+        "worker-config/4869.json": "e7a8435c4dea3e70e9b554f64f8f9018d84b4927689569a89b013fb7c86417a3",
+        "worker-config/4880.json": "1288b12642ea4d469e26d469645e8fbc4073b04d3147be5d02612f5de27b4391",
+        "worker-config/4886.json": "d07fa79e2df88ee1d764ab4d2ab04c6a7049bd5139bfd05de57f32bf37b447da",
+        "worker-config/4896.json": "6596636f28b9e94bd44aaaf0efc94b15c9e587b70ece4bd4f5f5597ef7794815",
+        "worker-config/4903.json": "989ef0eea04561895f2ca55c79db20bc34fec4bfc4a9ab3a694fb8255e93d529",
+        "worker-config/4912.json": "cf76635f6520b749788e70a706d218ad019b0a039a853e8d62174973a8961554",
+        "worker-config/4918.json": "e6970a9c63954fa68dd41a00cdc95d7c0d105638c2fe0b5bd490b28da95030b6",
+        "worker-config/4928.json": "329e43456f788ae7b85b52bb0d9e4a2439c46b5af5034e86ebcfb99abe53fb1a",
+        "worker-config/4935.json": "20b1d5c5950f540f2ef762c648e4469621c98275f8239b2221216c09cc84543d",
+        "worker-config/4944.json": "d3fe0169da22bc8682554c442f0690b212e2195f5bfed6a2da177574de523a7c",
+        "worker-config/4950.json": "f485142c8fbca7bd9670b54c2a2649e25184ba2bf51dd2914d304f0d3f866ac6",
+        "worker-config/4960.json": "87f7c7158b98bf44bf3e65077a6ddeecdc6ffa537b0a2a2bf81223c3b6b6bbd9",
+        "worker-config/4962.json": "289328062c019c2101135eda94595dc222b2d83de484c248482b7736e07af50c",
+        "worker-config/4976.json": "1ebfb0bd2c18e3843155a6d1a5bcb432a743c113f2b615ccdd146cf0f46a8b59",
+        "worker-config/4978.json": "7489492cea67fa1d69e22a75b25a307c96bafb8a433115b558d1d600c1b3dd28",
+        "worker-config/4992.json": "7f5a2d7d65ceef574f32dd1e33225fb2911db06b462d58ec361bc6054c3a185a",
+        "worker-config/4999.json": "4d71ee66b6edd51769df7b5761033f8ec94d2f721501dbfed56e9b378237ad32",
+        "worker-config/5008.json": "701e0cce056e9c68cd70f9c5ceed05327fad2ef91073a31a3c1265f000e49569",
+        "worker-config/5014.json": "85f46d36fc86f3f0b03d121864feb41d8b9a51aee6b3c89fef6d1e3bee724a89",
+        "worker-config/5024.json": "0d0d961729bad7868f36b1bf2d0557fdc25735fc3c0abe978fe5266a0c3e4b1d",
+        "worker-config/5031.json": "e4dc98aea871fd7e98822bfb094ff5196ce6a41e0d8d3b0cc8962d83344a153a",
+        "worker-config/5040.json": "1a0953c49a6e19df2d957cf73194ca9651bbdcbefd67950c8012191d79095187",
+        "worker-config/5047.json": "c3ff40860cccaea9beba61f22edc5135ae8c7d86cbf473d01d7a5cccf69d17f5",
+        "worker-config/5056.json": "710f8a9db0e570dcce5d16ef8af3494c3831a67c895c83a42e59eea86c7fac0d",
+        "worker-config/5063.json": "d8ef26f0baa90ed7b7dd16a7df0b8b381e2e799390a9a10d6d3eef5407acdfd0",
+        "worker-config/5072.json": "d7ec403dc9211312d12258599ac0336c5e4a7d01d1e2df50d7e293bdf560c6a7",
+        "worker-config/5079.json": "469c5abe73d6febff246ed994a72b465a28cf44488a8837c963c10ca68ac744d",
+        "worker-config/5088.json": "c9e3e314dbd6b79ce69f6f1aebc228e8885fd07b8d24064b098817e6d2b47275",
+        "worker-config/5095.json": "7213e30fe33e06b0724555b6662639497bf566399fc66d188b7e5827880494e3",
+        "worker-config/5104.json": "7fa377a1f723ebd16132280ebff43e4a5ea0ec8f0a31ec2dba3ee3f78d5c461f",
+        "worker-config/5110.json": "cffd49f3325101455c37631fb6e5013ef8775234c99108e81734e0ed3ce3d814",
+        "worker-config/5120.json": "a834f1b64a0478ae66371e85daff3fa9925f09571dd9a45fa0c6686accca8fb1",
+        "worker-config/5127.json": "b47ecee5e015a347b816a9ebd71ec426c5644188d9d6ca8f61bc576b01211c2b",
+        "worker-config/5136.json": "1ecffd24d4fbbff57df56635f0d446f9ca81439c65a825984872254430c74304",
+        "worker-config/5143.json": "6ad82c9a00ec42e86d7d2ed821a44c3f22826e5f09c38aaea923c3fc8c374526",
+        "worker-config/5152.json": "146906b643a8fd55ab74db5dcc1e4eb076621cf47b5c271ef842972922f4cac7",
+        "worker-config/5159.json": "162bb820a7c13a378175384e95714ea2ddd7a6368638bc619fe12cb93809d386",
+        "worker-config/5168.json": "4efc6c36b90344bece7bcc5f6358828d337007e96eeb6cb6f851d5ec0ce37796",
+        "worker-config/5174.json": "b3221d01e09dea5441488ac405e02c36a3f272e225a01c60aaa01d3c29654730",
+        "worker-config/5184.json": "c7a7569c11a3ebf348f4bc9494e73bad97334c0a3ce9cb7b33ba0aec587634a3",
+        "worker-config/5190.json": "e8a80a8a331635f0dc43f0c726bc94298999b844edf57f40ea966fb70a7a024c",
+        "worker-config/5200.json": "b998a9683783811a34c66b194db5776171d4b3485a64edbc4b1430aba65538a1",
+        "worker-config/5206.json": "1eca75e39ae871eb4a85d15a08a0f6f28f39639d68155761e4b24e75c4150fde",
+        "worker-config/5216.json": "667fe6ca7e0c553f7715219b5acfb8b38187a058355b8a5a34cacdc281372261",
+        "worker-config/5223.json": "9faa330c177f0780b7f3052dabd5833c1f233e5346a7be10f0da741c55f18fba",
+        "worker-config/5232.json": "3772ec517ba15b3c4134b039d42c50510a867fce2ed7892d3df2adf146ed9e3f",
+        "worker-config/5238.json": "c11ac199394fcc48ab867e4ddb887504ffabed77dfa51dd27c55e37c8004d001",
+        "worker-config/5249.json": "089d7368046635ea4e41f6e16bb059b80b5bd841eb8b584cb29aaffdc4b388de",
+        "worker-config/5255.json": "0d356510027bdd14c585e90cdb749283ef0b8d5d6fc9f6f7513318f60a990438",
+        "worker-config/5265.json": "1ecd37e07c9747e2f478e192ae06a6f04c6ff6e5f609e1d20d77ba76e1d2806a",
+        "worker-config/5271.json": "17158321b1472653f37fff86dcfdd3e2f243e1aa7e54737771ae72ab22c03b3c",
+        "worker-config/5281.json": "b44ee7f7b4684004287364cac16663323a4298b0d31b795a9a8af6b53defe3e8",
+        "worker-config/5288.json": "cd7c0b97dffa7a1cd071bd092167c9b05353917c08a840472a91da7a212284e9",
+        "worker-config-result.json": "7d6cc4a7bf76447b0933136d94003981e81cd715a1554bf02d8298fefd92d751"
+      }
+    },
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42174016009",
+      "commit": "3288f8c",
+      "result": {
+        "replayEligible": false,
+        "workers": 120,
+        "workersObservingSeed": 0,
+        "observations": [],
+        "plainAndProbeFingerprintEqual": true,
+        "limitation": "Proxy observations cannot exclude native reads or prove that unobserved fields are irrelevant",
+        "native": {
+          "workers": 120,
+          "entryCounts": {
+            "spawnSync": 3
+          },
+          "workersWithOpaqueEntries": 1,
+          "workersWithInspectorEntries": 0,
+          "workersWithCachedNativeModules": 0,
+          "replayEligible": false
+        }
+      },
+      "before": {
+        "files": 120,
+        "states": 4131,
+        "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
+      },
+      "after": {
+        "files": 120,
+        "states": 4131,
+        "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd"
+      },
+      "metadataOnlyChanges": 39,
+      "gaps": [
+        {
+          "path": [
+            "snapshotOptions",
+            "snapshotEnvironment"
+          ],
+          "reason": "non-plain object",
+          "workers": 119
+        }
+      ],
+      "opaqueEntries": [
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts"
+          ],
+          "entries": [
+            "spawnSync"
+          ],
+          "frames": [
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "88",
+                "lineNumber": 1128,
+                "columnNumber": 28
+              },
+              "script": {
+                "url": "node:internal/child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 910,
+                "columnNumber": 23
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "execSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 991,
+                "columnNumber": 14
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "324",
+                "lineNumber": 23,
+                "columnNumber": 50
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 1627,
+                "columnNumber": 34
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 2782,
+                "columnNumber": 25
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3318,
+                "columnNumber": 19
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "runWithCancel",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3313,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            }
+          ]
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts"
+          ],
+          "entries": [
+            "spawnSync"
+          ],
+          "frames": [
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "88",
+                "lineNumber": 1128,
+                "columnNumber": 28
+              },
+              "script": {
+                "url": "node:internal/child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 910,
+                "columnNumber": 23
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "execSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 991,
+                "columnNumber": 14
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "324",
+                "lineNumber": 51,
+                "columnNumber": 50
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 1627,
+                "columnNumber": 34
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 2782,
+                "columnNumber": 25
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3318,
+                "columnNumber": 19
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "runWithCancel",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3313,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            }
+          ]
+        },
+        {
+          "project": "convex-helpers",
+          "files": [
+            "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts"
+          ],
+          "entries": [
+            "spawnSync"
+          ],
+          "frames": [
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "88",
+                "lineNumber": 1128,
+                "columnNumber": 28
+              },
+              "script": {
+                "url": "node:internal/child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "spawnSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 910,
+                "columnNumber": 23
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "execSync",
+              "location": {
+                "scriptId": "87",
+                "lineNumber": 991,
+                "columnNumber": 14
+              },
+              "script": {
+                "url": "node:child_process",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "324",
+                "lineNumber": 112,
+                "columnNumber": 51
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts",
+                "isModule": false,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 1627,
+                "columnNumber": 34
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 2782,
+                "columnNumber": 25
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3318,
+                "columnNumber": 19
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            },
+            {
+              "name": "runWithCancel",
+              "location": {
+                "scriptId": "197",
+                "lineNumber": 3313,
+                "columnNumber": 9
+              },
+              "script": {
+                "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/run.CQOUYP-x.js",
+                "isModule": true,
+                "hasSourceURL": false
+              }
+            }
+          ]
+        }
+      ],
+      "artifactsSha256": {
+        "after-inputs.json": "aa14d6ba4ff422d7d015992b570cfd04ae739f0dc4619cad87c9de30d1f934c4",
+        "after-tests.json": "f516513c0957f36e29f3c540724bf638008a377425817e751aaf025e28e04976",
+        "before-inputs.json": "33854c80aff05ecc3ad4dcb75aa562acb09c432d4175f988f91c5a13647fc402",
+        "before-tests.json": "4ac0de654497375a1ca3a2e9f3f9b52a89f8e2d6a6011f749a67e526c33ac32e",
+        "result.json": "1bc1bf65154118acedcfa21d5f58cf090aac745d8d0b8fb65bc08527ebfae5b5",
+        "worker-config/4034.json": "08651bbad96aa6e59da7a461108dc1258348ff19f24d3050665bd14f13e8751b",
+        "worker-config/4035.json": "7ca2d3c1f3db0ce3a180ff1d5e4d631604526060779305d757129ecc6e1d532e",
+        "worker-config/4041.json": "7835c3f8776a56ba5ff8abfb143b1dd1dcf153fb982c06c97e495154714abdb5",
+        "worker-config/4109.json": "07cedec4e0430674452e97a4f0b7da7b068b6f7189dc00e59a9e192932f8100e",
+        "worker-config/4132.json": "956538b4383e6bb4b485d5dc0d36745fcb1a5ae3fe101dc399dab9dade39cbca",
+        "worker-config/4159.json": "2e91f3017feba3a83b73b5da05c081ca28ed4e7c20a633745190afa847c73ec7",
+        "worker-config/4186.json": "5212299d10786e839d697a11a8e2d843cc1a8006adbc4b9cfa38ce60de79e69a",
+        "worker-config/4206.json": "5160772326c7fe705b1c458a3fadc933673c14d14fb511a4f09ecbd74209b564",
+        "worker-config/4213.json": "00b90dd3871c16a54b2a44c29e2b379c117216f930eee61996dbba1803f4c260",
+        "worker-config/4222.json": "8c156a652cebad50dacbaf19a5c63edfe86266b2fe1a011cec1acbdc4cf0fe49",
+        "worker-config/4231.json": "dbfeb91351b029f9d89e3f3dcfae82c6166ffe8403d54391e2b8bddd412f64ae",
+        "worker-config/4238.json": "958705ae69ed839e87529b3a618763ecf2ed514c22d216afd840ec16f5135c5b",
+        "worker-config/4251.json": "29c92b0cde6870c81ecbcdeeb24fabfb36009ffb4fbc720411002739ed252474",
+        "worker-config/4258.json": "cd6399a22f396f9ba545f9de31ac80453c8d2936e880f029c9f97d743d989076",
+        "worker-config/4267.json": "a8fa1fb3c69e921c0edec4e6bbd98d0866f502dac32ca1052693a600642f77a0",
+        "worker-config/4275.json": "da5af28cbf25028ddb953de3183bf93a5295e922b607f71018331844e2bb4197",
+        "worker-config/4284.json": "0e7d49ea31a94d7fbf8655b70ea8945f76406826e98e1c20d4c446ec82eeb170",
+        "worker-config/4291.json": "71eab0672d3dd64bdd27de378cfb3ce1bc1bdbef6c003fb08d2e40c78c941579",
+        "worker-config/4300.json": "81e525531be42fcc82e296a765012ed16b0478e8cc19338dacbffa28c502fde4",
+        "worker-config/4307.json": "94da3513d56bcfd3ef34ba2b850b139154e3e97cc1991133e05b0c6730ca5b13",
+        "worker-config/4316.json": "7739495333bd8a26eb739fc196a0721b98d0805d0ae33168fe585a3268e6c67d",
+        "worker-config/4323.json": "ed912474848896fd6853dc1317c4d73deea068e21cb708e3a1c9cba2bf1f0599",
+        "worker-config/4332.json": "5f767834586bd3b8f9d3bf47928cdeec96c7e13cc1a0e4ba1e8a9cb9357ab2a1",
+        "worker-config/4345.json": "19304b614171e7fa0f8414f69b3e7dd186639bf3aa8a0abeeaf708a0768924d7",
+        "worker-config/4352.json": "fce35b4446344c1ae17c91d9cf672e73544146b87986562cbfe3a1c88b5ab0b5",
+        "worker-config/4360.json": "e3848a76a90e7263cd72d15c009bc4aa8bf81f4a36d616de8112b32bf16d103a",
+        "worker-config/4368.json": "3501abb9fa78c0aad95e7f054251938c12d5036bd92679f3d5e592164b00d286",
+        "worker-config/4376.json": "06b1fcbb7146e55aa198ee2e42b308553bcdca87bfcc134b1b7fc9c33bc8861f",
+        "worker-config/4384.json": "7cdfda3296b5b494373053cb8d993c69abd38313d6ab6c8a64e2901a46436d09",
+        "worker-config/4392.json": "c2b830e1759d54310b2290393417d6abca343ea2c5c1f5c47df6be9cde0dbdb8",
+        "worker-config/4400.json": "45f41c15efb4ad325ab62ddb2c1072588100fc7ee2d103c3b7dd4ef1724337ec",
+        "worker-config/4408.json": "ec684a9e3b3d889b0e8c401f1224dbedc6d734cee69086280603d2e7c24984b7",
+        "worker-config/4417.json": "d6bda18147e51016bb3293c5f23255d05049f5ae50e086c7ca13e676a791f2c4",
+        "worker-config/4424.json": "1c6a1be12be16dfdf998b5b5e116b57c262a535cd0392eed368c6bfb73355a3d",
+        "worker-config/4433.json": "6db460f00ca32d13db54920f8f8e35c9bd3668c7a95f7295517a80a5e273eb88",
+        "worker-config/4440.json": "ad7ef7179254cb82be1cc813d409f596874b3a3abf8afa2889488d0bc8ce0a35",
+        "worker-config/4448.json": "e36cb75a5ef8f42f9ab831b7e2565cb996c01f8c7f857e5f12d26705572e6482",
+        "worker-config/4457.json": "f6c1ba94eab3e636215cecf42e86ee7f6c9e3fd0a154cc8e24ef5c9ea3afa8df",
+        "worker-config/4464.json": "7dacc9c844768f130ae3f32c73e188f79862741f206c0aad99a8d5f4a2cc337b",
+        "worker-config/4473.json": "339b4a0499da11fcd2229a0bad85bca65c38a02120ef5bc7485ec7a66802ea0b",
+        "worker-config/4480.json": "3ca8c8284e08b685c4d50dbc79ff749f266fedbf15cf7f53cff36b0dd6dca609",
+        "worker-config/4491.json": "1aa62e8406b4eed61d32e16d334a822fc0d591daeb59137bbf700a462a96e6e0",
+        "worker-config/4498.json": "8b0b28f18f72b2c14ba2ff72b53c129cc28915416497aa0ab764d27244be5362",
+        "worker-config/4507.json": "4ddf3d0425ac6fdc8ddc0141594aa59980798207e07775d0375442a387794ab6",
+        "worker-config/4514.json": "6c4c5f4f98df5445c98ae4a1623456c14b032f3500725b7b7548f5807ca95897",
+        "worker-config/4522.json": "2580098fe376dd334ffee7a345c7aee60a8fd9c4a6b81858bc7776f06856fd60",
+        "worker-config/4530.json": "ede6f3b004e798541d9a957cd619ab6fb91a44855b7c07f4ed05be1601a84a19",
+        "worker-config/4538.json": "041a4d46c90f66dbae7cc367df2aba8de672c17c0654d38d948bc63e1e2b09e8",
+        "worker-config/4546.json": "1f34a9c72f83988251dfa11d8800884450f367a2123c971f92add95b55c73d23",
+        "worker-config/4554.json": "8b701bcbd15eb33e89c74b4ac1a01934ffae9a522c88314b118656022a2564a3",
+        "worker-config/4562.json": "404a700e86f6332ea5121a51e3d94300bf7ee5b31edd127d392e0c275bb99c85",
+        "worker-config/4572.json": "96727ac36e4b1b5857a71e0536ecbdf4cc68c0acfeb2c5895c9c4b9d8cf38f4e",
+        "worker-config/4579.json": "7f1fc717420dd8d6727aa2c65e363624d513996c2d9da67bc57553234fa5fb08",
+        "worker-config/4589.json": "57c6cbbcbd38e8e8422e6d7b1946705ad115b0f50475046abe2f4dc8f0a84562",
+        "worker-config/4596.json": "608995d3b218eddd933bdae250fd45bae32b100c8144126c3f8804c85bb2d45a",
+        "worker-config/4605.json": "e9053199a5634ebb24f2c94a9fe5ce2f8f642fefc0deb7b95b41ce80618fb8e9",
+        "worker-config/4612.json": "c31d4e6a381b8110d3be58da9800e1bd749f16e9879b39a01c4bef65a3cf8c79",
+        "worker-config/4621.json": "d78d8e1987a9661fc4b2b9d36b33d7a7edcd3a7c8175cfd37bb7032bf4783a30",
+        "worker-config/4628.json": "dd3bcba4592411c2a0cc0e5486ce8af4330094d4722f1db5227cc5388a932595",
+        "worker-config/4637.json": "cdfa115a1be0e4aefe01cfa4a9470f2ade71ce2eb3d5a2999c06b0ed6dfaad3d",
+        "worker-config/4644.json": "90624c66778cbb2b7eb33c01ab2915372703c8e6ab53aebe9428e1ae5c7819a4",
+        "worker-config/4653.json": "f469015c8aa3df68b3246d57a6108bc9f733ce7de221844d8451efbd75ca25fe",
+        "worker-config/4660.json": "12d32884767b5f84734498b15e183a922f78f30c34c5f6cdbe2bb659f5bc7f7f",
+        "worker-config/4669.json": "b12fc956bc9a6f9a4335185a8a9a31a39d695b8f3f573b2cefc383f6f63f9404",
+        "worker-config/4676.json": "466b2e7e294e08179c86a840175eba2fa9c9bdb141b47f212eae193385fbd2e4",
+        "worker-config/4684.json": "d7a76cc6686275e390fa4186fc53504d5a351cfefbf838727e19b0a3b7c5dbf7",
+        "worker-config/4692.json": "e41bccfb2187e495e8d39f40a1b18ff60f088088143a0aae96eac97af819cf02",
+        "worker-config/4700.json": "0f361293fd05f99ebf3ec546439fa2340e3a3b61c620bc6d7b37b9f29d395e0e",
+        "worker-config/4708.json": "4822147e0d4fc43968a2cb06530368124dd265ec5c60bf8b663b43e0da4a4cba",
+        "worker-config/4717.json": "a8ae30de311efb5f185458f7eb7bca93725a31eaefc495212a9d776c34665295",
+        "worker-config/4724.json": "bee39fa95845f7bc4b282c7ca2c8e22a730929dd614e35cb8cd34e1b0b81c5b2",
+        "worker-config/4732.json": "9cf3e62f44ef14e5d27978d4496a1381922d95cecf4b8240a2d7fa7a71c2e8af",
+        "worker-config/4740.json": "7301662713b57d472df07543ad8d9cea6ebe3fd3b801f12f35df0c174af86795",
+        "worker-config/4749.json": "28bdfba971918f1e59a2d728e2d96830561f343c57357cfa17ba01579c7b2a48",
+        "worker-config/4756.json": "a067a01856838687457df3fd68e87be7ae8c7b564a75904dd3932a0b21aace4d",
+        "worker-config/4765.json": "1ebf598ed0ae952e0eb8257be944a5b1dc8a8dcfecd8e14da880d0fe8717ae08",
+        "worker-config/4772.json": "50630c8c90717586b863a78524b9fe9d19ba5706b20c0c6b2b7315d35d23bb50",
+        "worker-config/4780.json": "f463cadd2ffe01ada52148f0d76e9403346ba8600074973dc71440e7f05f6b88",
+        "worker-config/4788.json": "eef02187c7e9d475b296d6f66c5b177fde16cc0290cb7fa4e02d572c90d94d7e",
+        "worker-config/4796.json": "06e2c219f3a233c1183a3304789c05b1c571c0ab8ad7b2ea0559b337034d6d96",
+        "worker-config/4804.json": "88bebfb57094673b585a735dc2a5564f550941ae6fdca71928cf4d3d7d4060f0",
+        "worker-config/4812.json": "69694325f0d67fdbef7b6471bd8b721188aa711b6e063ac7be56afd7161122d8",
+        "worker-config/4820.json": "12243d1bc7834794cc45ae92d63dc70731bc0f3163e9e3c83a96a8785b2c8846",
+        "worker-config/4828.json": "591bdf379846a4dd492038e6175493d4aa5b701039faed55c7859c8f38722d05",
+        "worker-config/4836.json": "55e748d64dbbf62c3bef70f266a6a4e8c1385eed1d8fa106419c50f5aa1ca2d3",
+        "worker-config/4844.json": "1cde8b9049dfbfbcc48b8c7b26e61019fe42eeeb9270681cd06bb5a00b8f1f3a",
+        "worker-config/4853.json": "b51122beb0745c7cdacd18161e32b55633e16301e2f9088e5b36932008ae1567",
+        "worker-config/4860.json": "eb2b50e69cda262245c5afd04e055119f3337f8b503444fb3fc58e5f7eaaa8f7",
+        "worker-config/4870.json": "91b2a82fd10c7c1594ee73dae236b6c12479a7cb69bfb3b936a4d0dbfde7595c",
+        "worker-config/4877.json": "84c0a3ad89c7b8e9b0001994eead1fb832a92fe93cd6233e1bcbc6563e027a86",
+        "worker-config/4886.json": "2da177c9ad97043ed18df48aa911be1d73b4d76051102bbca8bcbe5efe196861",
+        "worker-config/4893.json": "22e277bcabe977cc752132abbbe28c7893f3f7c264fa6289428ddaa498047f0a",
+        "worker-config/4902.json": "326f75d09f03f6606904e190ff530e6bd541f4bbc1e6cd5e8cdc9d925f4aa2e9",
+        "worker-config/4909.json": "92651279452f7c8358e052cc922ebdd6ff442bb2373ce6fff7013893df9b0fe7",
+        "worker-config/4918.json": "06109cefd8a3387a86bd15d94fca78fa779a9034e43e2ada6b1883051e31554f",
+        "worker-config/4925.json": "34417e148ce24edea03787b2c13e69a75440bf00a891cf73e3d654579a4b0caa",
+        "worker-config/4935.json": "961ede2f17a64548a9ff3cf768b907c108c3bb83c1537630ffec49a37ae8c2f8",
+        "worker-config/4942.json": "dc074995f53550c6c546b71c91deb18febcf96364a664b4e20737c74c87c96ed",
+        "worker-config/4951.json": "8a1e55b562263fc7e9dc9b100bb6fb4bfdf72718acb5fa8bb0ec77755c415f40",
+        "worker-config/4958.json": "d075da590e72a7cb142d4fc647d78a26295679d9b19dc5b121c887ed29e56d6d",
+        "worker-config/4967.json": "a1d7cde987beaf94aeb3faa1ba805149845902475a1599806cefb593f021dfcb",
+        "worker-config/4973.json": "36503f28b1f3e0c446ccecd422e4cad5b25a6721f9a79a107a410538435e5355",
+        "worker-config/4983.json": "4b5fbb98fa63db5bb40744c371cc2496ab86125be7abb1a62407c4bee21058be",
+        "worker-config/4990.json": "3ab52049f2f44194a704aeccc97ff025cd4ca233fc50d17222cc4243bc0cae87",
+        "worker-config/4999.json": "beb8619ec66b2f09ab467d85fc06532395c5f25e35c95bb19cb0653d511e6732",
+        "worker-config/5006.json": "0291d75a9fa89fff62d13f14d15dcc242cdcef753a2e132f0b467ee8f6a59797",
+        "worker-config/5015.json": "6da073e7fe937618d6b59204b206c93745492636d7ce7dfafb4e1477400eb5e1",
+        "worker-config/5022.json": "04372d148702dc6dff4543164f732235cedd23b19783ed05e19b958a90582d8c",
+        "worker-config/5031.json": "186d5379d4b9eb048ee5d8777f6b10ee191f27fd723aec313ad08d0a77fb0d59",
+        "worker-config/5038.json": "a94ee4b2d79cf308dadcd384caa8364c54cb2d5ad9d1a0ac1f7b884296ee9026",
+        "worker-config/5047.json": "796c2d6b83740cef6453aff313fa21da21ed561e37c856c68840b381ec918218",
+        "worker-config/5054.json": "1b3c5312a17200c92e83fae713e1047ada08b8adcefeefdc1efcd6cb9b35542a",
+        "worker-config/5063.json": "ce3270246df9cd2b45e44b649758028d534aad06c2753d269c2aecec2806a059",
+        "worker-config/5070.json": "ad9a5fff08eead332e821251a1d8bc85dd881d643fac697182c7eb66e49ac19a",
+        "worker-config/5079.json": "8a7a68f816d12823c6f261a6faa832f4dbe580d625261a626fc02fefb73e9133",
+        "worker-config/5086.json": "3594986105c1c1d19c8db2f4d9700be2e1434f5097a1fbc963cef806d5bc0ab9",
+        "worker-config/5095.json": "4a0f61fc2f482ff2e667dc2479cb4f5adabdbd2a2886021ebfce2fd0af88d886",
+        "worker-config/5102.json": "01fd97155f54b05127f32e70a76e9001e7b6986c71f822f88a550c0df7f217b4",
+        "worker-config/5111.json": "d0c5a0620b07892103b3f886d3286ec0c2285875a6fdcd379fc8fc7e0ca763f9",
+        "worker-config/5117.json": "96b3bf4b15054513b06cf581744a4de95e1934110d2ecb5f5e9e5c3abd9c7645",
+        "worker-config-result.json": "47d1cc6c430394f197414b111ede2ea27c3348298cca2034be02afda60a8c986"
+      },
+      "initialOpaqueStates": [
+        {
+          "state": {
+            "cachedNativeModules": [],
+            "nativeWorkerObjects": 0
+          },
+          "workers": 120
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Native isProxy/getProxyDetails not watched by these runs.",
+    "Proxy instrumentation is observable and does not prove absence of reads.",
+    "Matching states do not prove complete worker inputs, RPC side effects or replay soundness."
+  ]
+}

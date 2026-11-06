@@ -624,5 +624,16 @@
     "sameWindowBenchmarked": false,
     "pilotUnitReplayRecommended": false,
     "productionSignOff": false
+  },
+  "workerConfigDiagnostic": {
+    "evidence": "worker-config-observations.json",
+    "configRun": 42173150531,
+    "nativeRun": 42174016009,
+    "workers": 120,
+    "statesPerRun": 4131,
+    "workersObservingSeed": 0,
+    "workersWithOpaqueEntries": 1,
+    "nativeAddonLoads": 0,
+    "replayEligible": false
   }
 }
