@@ -130,7 +130,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         // Keep all bounded frames for now; no filename grants provenance.
         note({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{})},frames)
         return true
-      }catch {fail('native entry capture failed');return owned}
+      }catch(error) {fail(nativeInspector?.failureReason(error)??'native entry capture failed');return owned}
       finally {
         if(owned&&payload&&canClear)try {
           // V8's console storage retains condition exceptions. Clear only

@@ -374,6 +374,20 @@ test('native capture rejects API wrappers before any host access check',()=>{
   assert(state.calls>=2,'the ordinary cross-context read must exercise the host access check and getter')
 })
 
+for(const foreign of [false,true])test('native capture distinguishes foreign execution-context exceptions: '+foreign,()=>{
+  const data=fixture(`let contextId;
+session.on('Runtime.executionContextCreated',({params})=>{if(params.context.name==='quod-foreign-exception')contextId=params.context.id});
+const context=vm.createContext({}, {name:'quod-foreign-exception'});
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+const outcome=post('Runtime.evaluate',{expression:'throw new Error("unrelated fixture exception")',silent:false,
+  ...(${JSON.stringify(foreign)}?{contextId}:{})});
+extra.exceptionObserved=!!outcome.exceptionDetails;
+native(target,key);stop();`,{directArguments:true,nativeCapture:true})
+  assert(data.exceptionObserved)
+  complete(data,1)
+  assert.equal(data.capture.ignored,1)
+})
+
 test('compare complete and accessor-only target descriptors with both cleanup modes and compilation logging',t=>{
   const rows=[],compiled=new URL('./worker-module-probe.mjs',import.meta.url).href,
     logs=new URL('./compiled-script-log.mjs',import.meta.url).href
