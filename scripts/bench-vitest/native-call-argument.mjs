@@ -4,7 +4,7 @@
 import {parse} from '../../crates/quod-cli/src/vitest/acorn.mjs'
 import {createHash} from 'node:crypto'
 
-export function observeNativeCallArguments(post) {
+export function observeNativeCallArguments(post,{identityComparison=null}={}) {
   const sources=new Map()
   // Pinned Node 24.18.0 puts paused scopes/receivers in "backtrace";
   // getProperties children inherit that group and Debugger.resume releases
@@ -128,10 +128,16 @@ export function observeNativeCallArguments(post) {
       }
       const callee=value(call.callee)
       if(callee.type!=='function'||!callee.objectId||callee.subtype==='proxy')throw Error('native callee unavailable')
-      const match=post('Runtime.callFunctionOn',{objectId:callee.objectId,
-        functionDeclaration:'function(other){return this===other}',arguments:[{objectId:nativeFunction}],
-        returnByValue:true,silent:true})
-      if(match.exceptionDetails||match.result?.value!==true)throw Error('native callee identity differs')
+      if(identityComparison) {
+        const match=identityComparison(callee.objectId,nativeFunction)
+        if(!match.available)throw Error(match.reason??'native identity comparison unavailable')
+        if(match.same!==true)throw Error('native callee identity differs')
+      }else {
+        const match=post('Runtime.callFunctionOn',{objectId:callee.objectId,
+          functionDeclaration:'function(other){return this===other}',arguments:[{objectId:nativeFunction}],
+          returnByValue:true,silent:true})
+        if(match.exceptionDetails||match.result?.value!==true)throw Error('native callee identity differs')
+      }
       // A getter can return a proxy, replace itself with an ordinary data
       // property, and finish before this pause. The current descriptor is
       // therefore not evidence of the value evaluated as the argument.

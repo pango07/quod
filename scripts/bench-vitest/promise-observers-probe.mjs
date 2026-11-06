@@ -5,6 +5,7 @@ import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
 import {observeNativeCallArguments} from './native-call-argument.mjs'
 import {compiledScriptRecord} from './worker-module-probe.mjs'
+import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -18,7 +19,7 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false}={}) {
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
@@ -40,7 +41,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
-  const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post)
+  let heapIdentityObserver=null
+  const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post,
+    {identityComparison:heapIdentity?(a,b)=>heapIdentityObserver?.compare(a,b)??{available:false,reason:'native heap identity not ready'}:null})
   let proxyFailure=null,proxyOverflow=false
   const descriptorBreakpoints=new Map(),descriptorFunctions=new Map(),descriptorEntries=new Map()
   let descriptorFailure=null,descriptorOverflow=false
@@ -150,6 +153,10 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   try {
     session.connect()
     post('Debugger.enable')
+    if(heapIdentity) {
+      heapIdentityObserver=observeHeapNativeIdentity(post)
+      if(!heapIdentityObserver.report().available)throw Error('native heap identity setup failed')
+    }
     session.on('Debugger.paused',({params})=>{
       const inspector=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
       const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
@@ -392,6 +399,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         replayEligible:false,completeDescriptorCoverage:false,
         limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
     },
+    nativeIdentity() {
+      return heapIdentityObserver?.report()??{mode:'compiled-comparison',replayEligible:false}
+    },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
         counts:Object.fromEntries(opaqueNames.map(name=>
@@ -506,6 +516,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     snapshot:hookSnapshot,
     close() {
       closed=true
+      heapIdentityObserver?.close()
       for(const breakpointId of inspectorBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
