@@ -80,16 +80,20 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   bool owned = false, available = true, clearable = false, cleared = false;
   bool inspected = false, receiver = false, describe = false;
   int kind = 0, mask = 0;  // 0 primitive, 1 ordinary object, 2 proxy.
+  int rejection = 0;  // Foreign-wrapper classification, never target data.
   double count = 0;
   Local<Object> payload;
   Local<Value> api = Undefined(isolate);
   do {
-    if (info.Length() != 1 || !OrdinaryForInspection(info[0])) break;
+    if (info.Length() != 1) { rejection = 1; break; }
+    if (!OrdinaryForInspection(info[0])) { rejection = 2; break; }
     payload = info[0].As<Object>();
-    if (!payload->GetPrototypeV2()->IsNull()) break;
+    if (!payload->GetPrototypeV2()->IsNull()) { rejection = 3; break; }
     Local<Value> marker;
-    if (!OwnData(context, payload, "quodNativeEntry", &marker) ||
-        !marker->StrictEquals(info.Data())) break;
+    if (!OwnData(context, payload, "quodNativeEntry", &marker)) {
+      rejection = 4; break;
+    }
+    if (!marker->StrictEquals(info.Data())) { rejection = 5; break; }
     owned = true;
     available = false;
     Local<Value> argument, count_value, receiver_value, describe_value;
@@ -138,7 +142,8 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   }
   bool okay = Put(context, result, "owned", Boolean::New(isolate, owned)) &&
       Put(context, result, "available", Boolean::New(isolate, available)) &&
-      Put(context, result, "cleared", Boolean::New(isolate, cleared));
+      Put(context, result, "cleared", Boolean::New(isolate, cleared)) &&
+      Put(context, result, "rejection", Integer::New(isolate, rejection));
   if (owned && available) {
     okay = okay && Put(context, result, "api", api) &&
         Put(context, result, "argumentCount", Number::New(isolate, count)) &&

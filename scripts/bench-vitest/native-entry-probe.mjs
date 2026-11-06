@@ -15,7 +15,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
   const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce):null
-  const errors=[]
+  const errors=[],ignoredReasons=[0,0,0,0,0,0]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false,scopedInspections=0
   const supported=process.versions.node==='24.18.0'
   function fail(reason) {if(errors.length<20)errors.push(reason)}
@@ -61,6 +61,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
           const value=nativeInspector.capture(remote.objectId)
           if(!value.owned) {
             if(!value.available)throw Error('native exception inspection unavailable')
+            ignoredReasons[value.rejection]++
             ignored++;return false
           }
           owned=true;calls++
@@ -149,7 +150,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         catch {fail('native entry original handle cleanup failed')}
       }
     },
-    report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
+    report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,ignoredReasons:[...ignoredReasons],cleared,released,groupsReleased,
       handleMode:nativeCapture?'native-private-capture':handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
       targetAccessorsOnly,targetInspection:nativeCapture?'native-watched':targetInspection,nativeCapture,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),

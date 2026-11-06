@@ -879,6 +879,7 @@ jobs:
           c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
             -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
             scripts/bench-vitest/native-entry-capture.cc -o "$RUNNER_TEMP/quod-native-capture.node"
+          sha256sum "$RUNNER_TEMP/quod-native-capture.node"
           echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs

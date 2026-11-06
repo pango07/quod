@@ -23,6 +23,7 @@ export function nativeCaptureInspector(post,nonce) {
       if(r.exceptionDetails)throw Error('native capture failed')
       const value=r.result?.value
       if(!value||typeof value.owned!=='boolean'||typeof value.available!=='boolean'||typeof value.cleared!=='boolean')throw Error('invalid native capture result')
+      if(!integer(value.rejection)||value.rejection<0||value.rejection>5)throw Error('invalid native rejection reason')
       if(value.owned&&value.available) {
         if(!integer(value.kind)||value.kind<0||value.kind>2||!integer(value.mask)||value.mask<0||value.mask>7||
           typeof value.inspected!=='boolean')throw Error('invalid native argument summary')

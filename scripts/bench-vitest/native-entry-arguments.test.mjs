@@ -53,7 +53,7 @@ console.log(JSON.stringify({gets,memberGets,pauses:pauses.length,events,errors,.
 
 function complete(data,calls) {
   assert.equal(data.pauses,0);assert.equal(data.capture.available,true,JSON.stringify(data.capture))
-  assert.equal(data.capture.calls,calls);assert.equal(data.capture.cleared,calls)
+  assert.equal(data.capture.calls,calls,JSON.stringify(data.capture));assert.equal(data.capture.cleared,calls)
   assert.deepEqual(data.capture.errors,[]);assert.equal(data.capture.replayEligible,false)
 }
 
