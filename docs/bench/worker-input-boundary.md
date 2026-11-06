@@ -1252,6 +1252,45 @@ events. Progress checkpoints will record memory use in the next full run.
 retained separately from full-workload evidence.
 
 [Full gate 42240251280](https://github.com/pango07/quod/actions/runs/42240251280)
-is running `1921fe2` with the compact index, memory checkpoints and classified
-capture failures. Complete coverage and any workload-time benefit remain
-unproven; no production key, replay eligibility or savings claim changes.
+at `1921fe2` passed 215 regressions and the 120-file / 4,131-state baseline,
+then timed out at 420 seconds in `before`. Its 119 retained worker reports
+capture, attribute and clear all 1,252,907 owned native calls. They remain
+unavailable: 38,093 targets are rejected as API wrappers, and 16,704 events
+fail cross-context protocol transport. The latter's bounded stacks point
+to Edge Runtime setup in context 2. Most rejected target calls come from
+Vitest's global-environment setup. These call sites are investigation leads,
+not ownership exemptions.
+
+The unfinished stream property test reaches 1,880,000 descriptor calls and
+3,761,885 compilation events, versus 1,030,000 descriptor calls previously.
+Its checkpoint RSS is 2,557,988,864 bytes. There is still no complete observed
+phase, so this progress is not a workload-speed result. One retained worker
+also records 20 capped script-index errors; their cause remains unresolved.
+Index event totals alone cannot establish successful indexing. The source
+check validates all 48,278 retained watched calls against actual checked-in
+diagnostic bytes across 2,476 source records, without certifying failed calls.
+
+## Private native capture across execution contexts
+
+Candidate `5350601` creates a private holder in an affected Inspector context,
+finds exactly one holder by a fresh random own property name, then creates the
+native capture function in that holder's creation context. The bounded heap
+predicate checks property presence only; it reads no values or descriptors.
+Full descriptor validation and function allocation occur after heap iteration.
+No public global bridge or persistent application reference is installed.
+Missing, duplicate, malformed or inaccessible holders remain unavailable.
+Each context is attempted once, with a 32-context cap; close releases the
+private Inspector object group.
+
+[Gate 42241986122](https://github.com/pango07/quod/actions/runs/42241986122)
+passes 183 regressions. Six foreign-native calls are captured and cleared
+with one context query. Getter-backed holders, duplicate holders, proxy
+traps, realm identity, wrapper cleanup and unchanged global keys are covered.
+Foreign Error-like plain objects receive native inspection; their labels do
+not grant an exemption. Native API-wrapper targets still fail closed.
+
+The pinned V8 [heap query implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/profiler/heap-profiler.cc)
+collects garbage and clears feedback vectors. Its full-workload cost remains
+unmeasured. Resolve the rejected targets and script-index errors before the
+next full boundary gate. This remains diagnostic work with replay eligibility
+false; no production key or savings claim changes.

@@ -95,7 +95,16 @@
   "fullGate": {
     "commit": "1921fe2",
     "run": 42240251280,
-    "status": "in_progress",
-    "alsoChanges": "classified unavailable native captures and bounded failure call sites; memory checkpoints"
+    "status": "completed",
+    "alsoChanges": "classified unavailable native captures and bounded failure call sites; memory checkpoints",
+    "conclusion": "failure",
+    "evidence": "worker-native-capture.json#classifiedFullDiagnostic",
+    "streamCheckpointCalls": 1880000,
+    "streamCheckpointRssBytes": 2557988864,
+    "completeObservedPhase": false,
+    "indexErrorsObserved": true,
+    "indexErrorWorkers": 1,
+    "indexErrorSamples": 20,
+    "indexErrorSamplesCapped": true
   }
 }

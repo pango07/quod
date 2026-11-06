@@ -806,10 +806,10 @@
     "syntaxCacheFixtureGate": 42198746560,
     "syntaxCacheFixtureConclusion": "success",
     "progressCheckpointCommit": "1e14732",
-    "latestFullGate": 42237280902,
+    "latestFullGate": 42240251280,
     "latestFullGateStatus": "completed",
     "latestFullGateConclusion": "failure",
-    "latestFullGateFailure": "before phase 420-second timeout; native capture unavailable in all 119 retained worker reports",
+    "latestFullGateFailure": "before phase 420-second timeout; 119 unavailable native reports and one worker with script-index errors",
     "latestFullGateCompletedWorkers": 119,
     "descriptorOverheadEvidence": "worker-descriptor-overhead.json",
     "moduleScopeCommit": "2092649",
@@ -854,7 +854,7 @@
     "freshModuleScopeLookupLatestFixtureTests": 110,
     "freshModuleScopeLookupLatestFixtureConclusion": "success",
     "freshModuleScopeLookupEnabledInCombinedWorkload": false,
-    "descriptorOverheadNextAction": "Inspect full gate 42240251280 at 1921fe2. It combines the compact metadata index, memory checkpoints, rejected-target attribution, and bounded protocol failure call sites. Resolve actual unavailable classes and foreign contexts; no unknown capture may authorize reuse.",
+    "descriptorOverheadNextAction": "Resolve native API-wrapper target coverage without invoking host callbacks; diagnose the script-index errors from worker 5846. The private context bridge passes 183 fixtures but has not been measured on the full workload. Batch a full boundary gate once these gaps are addressed; do not promote partial diagnostics into replay authority.",
     "nativeEntryArgumentsFixtureGate": 42216738359,
     "nativeEntryArgumentsFixtureTests": 122,
     "nativeEntryArgumentsFixtureConclusion": "success",
@@ -948,6 +948,12 @@
     "nativeCaptureClassifiedFailureGateConclusion": "success",
     "nativeCaptureClassifiedFailureGateTests": 179,
     "nativeCaptureClassifiedFullGate": 42240251280,
-    "nativeCaptureClassifiedFullGateStatus": "in_progress"
+    "nativeCaptureClassifiedFullGateStatus": "completed",
+    "nativeCaptureClassifiedFullGateConclusion": "failure",
+    "nativeCaptureClassifiedFullGateTests": 215,
+    "nativeCaptureContextBridgeCommit": "5350601",
+    "nativeCaptureContextBridgeGate": 42241986122,
+    "nativeCaptureContextBridgeGateConclusion": "success",
+    "nativeCaptureContextBridgeGateTests": 183
   }
 }

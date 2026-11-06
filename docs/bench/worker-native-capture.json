@@ -1971,5 +1971,639 @@
     "scope": "Rejected owned targets retain sanitized attribution with available=false; failure counts are uncapped and samples bounded. A real foreign-intrinsic condition reproduces protocol transport failure and remains unavailable.",
     "fullGate": 42240251280,
     "fullGateStatus": "in_progress"
+  },
+  "classifiedFullDiagnostic": {
+    "commit": "1921fe2",
+    "run": "https://github.com/pango07/quod/actions/runs/42240251280",
+    "job": 127968345397,
+    "conclusion": "failure",
+    "regressionsPassed": 215,
+    "failure": "before phase 420-second timeout; all 119 retained native reports unavailable; one worker also reports script metadata index errors",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 119,
+        "descriptorCalls": 1196771,
+        "nativeCalls": 1252907,
+        "cleared": 1252907,
+        "released": 1269611,
+        "compilationEvents": 2565284,
+        "scopedInspections": 1158677,
+        "descriptorsRetainedCalls": 1196771,
+        "proxyRetainedCalls": 56136
+      },
+      "flags": {
+        "identity: native capture unavailable: api-wrapper": 524,
+        "identity: native capture protocol request failed": 1856,
+        "identity unavailable": 119,
+        "descriptors unavailable": 119,
+        "proxy unavailable": 119,
+        "compilation: script metadata indexing failed": 20
+      },
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 119,
+          "elapsedMs": 21.859296
+        },
+        "Debugger.getScriptSource": {
+          "calls": 2587334,
+          "elapsedMs": 31350.37079900005
+        },
+        "Debugger.enable": {
+          "calls": 119,
+          "elapsedMs": 6630.182813000002
+        },
+        "Runtime.evaluate": {
+          "calls": 5950,
+          "elapsedMs": 1204.715421
+        },
+        "Runtime.getProperties": {
+          "calls": 17374,
+          "elapsedMs": 1826.4077410000007
+        },
+        "Runtime.queryObjects": {
+          "calls": 357,
+          "elapsedMs": 17822.076088999995
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1271991,
+          "elapsedMs": 112325.71613999999
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 5236,
+          "elapsedMs": 10762.674663000005
+        },
+        "Debugger.resume": {
+          "calls": 122,
+          "elapsedMs": 3.8728409999999993
+        },
+        "Runtime.releaseObject": {
+          "calls": 1269611,
+          "elapsedMs": 11124.073293999987
+        }
+      },
+      "watchedTargetCalls": 48278
+    },
+    "classifiedFailures": {
+      "native capture unavailable: api-wrapper": 38093,
+      "native capture protocol request failed": 16704
+    },
+    "unavailableApis": {
+      "Object.defineProperty": 33433,
+      "Object.getOwnPropertyDescriptor": 4651,
+      "Object.setPrototypeOf": 6,
+      "Object.defineProperties": 3
+    },
+    "unavailableCallers": [
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 9,
+            "line": 1091,
+            "name": "populateGlobal",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 27955
+      },
+      {
+        "record": {
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "column": 29,
+            "line": 1083,
+            "name": "populateGlobal",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 2856
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 38,
+            "line": 1158,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 2784
+      },
+      {
+        "record": {
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "column": 31,
+            "line": 85,
+            "name": "assertNotBrowser",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/convex/dist/esm/server/impl/registration_impl.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 1763
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 11,
+            "line": 25,
+            "name": "exports.mixin",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/jsdom/lib/jsdom/utils.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 333
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 11,
+            "line": 170,
+            "name": "installEventHandlers",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/jsdom/lib/jsdom/browser/Window.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 318
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 13,
+            "line": 66,
+            "name": "exports.createWindow",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/jsdom/lib/jsdom/browser/Window.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 198
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 11,
+            "line": 14,
+            "name": "define",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/jsdom/lib/jsdom/utils.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 165
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 8,
+            "line": 1590,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 8,
+            "line": 1594,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 8,
+            "line": 1602,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 7,
+            "line": 8061,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 8,
+            "line": 15,
+            "name": "provideWorkerState",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/utils.DYj33du9.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 14,
+            "line": 529,
+            "name": "VitestModuleRunner",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 8,
+            "line": 24,
+            "name": "setupGlobalEnv",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/base.BTS5G301.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 119
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 13,
+            "line": 11177,
+            "name": "setGlobalDispatcher",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/@edge-runtime/primitives/dist/load.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 116
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 38,
+            "line": 1379,
+            "name": "",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 72
+      },
+      {
+        "record": {
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "column": 51,
+            "line": 5255,
+            "name": "hijackMethod",
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 32
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 13,
+            "line": 9909,
+            "name": "setGlobalDispatcher2",
+            "url": "node:internal/deps/undici/undici"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 3
+      },
+      {
+        "record": {
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "column": 13,
+            "line": 9915,
+            "name": "setGlobalDispatcher2",
+            "url": "node:internal/deps/undici/undici"
+          },
+          "reason": "native capture unavailable: api-wrapper"
+        },
+        "count": 3
+      }
+    ],
+    "protocolFailureSamples": [
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 317,
+          "line": 1,
+          "name": "a",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 1392
+      },
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 524,
+          "line": 1,
+          "name": "Lr",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 116
+      },
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 843,
+          "line": 1,
+          "name": "Tr",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 116
+      },
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 694,
+          "line": 1,
+          "name": "ir",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 116
+      },
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 659,
+          "line": 1,
+          "name": "ir",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 116
+      },
+      {
+        "reason": "native capture protocol request failed",
+        "context": 2,
+        "caller": {
+          "column": 1118,
+          "line": 1,
+          "name": "__export",
+          "scriptId": "4587",
+          "scriptName": ""
+        },
+        "count": 116
+      }
+    ],
+    "scriptIndexTotals": {
+      "events": 2565284,
+      "entries": 2565254,
+      "metadata": 49490,
+      "chunks": 689,
+      "denseBytes": 11288576,
+      "sparseEntries": 0
+    },
+    "largestCheckpoints": [
+      {
+        "file": "5156.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+        ],
+        "calls": 1880000,
+        "memory": {
+          "rss": 2557988864,
+          "heapTotal": 640331776,
+          "heapUsed": 481305304,
+          "external": 19358683,
+          "arrayBuffers": 15318368
+        },
+        "compilation": {
+          "events": 3761885,
+          "runs": 3761750,
+          "records": 416,
+          "overflow": false,
+          "failedToParse": 644
+        },
+        "nativeLog": {
+          "calls": 1880000,
+          "entries": 2841,
+          "frames": 2430,
+          "overflow": false
+        }
+      },
+      {
+        "file": "5305.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ],
+        "calls": 20000,
+        "memory": {
+          "rss": 280584192,
+          "heapTotal": 213999616,
+          "heapUsed": 80415936,
+          "external": 4483090,
+          "arrayBuffers": 441650
+        },
+        "compilation": {
+          "events": 41653,
+          "runs": 41518,
+          "records": 509,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "nativeLog": {
+          "calls": 20000,
+          "entries": 9072,
+          "frames": 3631,
+          "overflow": false
+        }
+      },
+      {
+        "file": "6227.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ],
+        "calls": 20000,
+        "memory": {
+          "rss": 324145152,
+          "heapTotal": 221163520,
+          "heapUsed": 96606120,
+          "external": 4548926,
+          "arrayBuffers": 507662
+        },
+        "compilation": {
+          "events": 41558,
+          "runs": 41423,
+          "records": 510,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "nativeLog": {
+          "calls": 20000,
+          "entries": 9091,
+          "frames": 3636,
+          "overflow": false
+        }
+      },
+      {
+        "file": "5607.json",
+        "files": [
+          "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+        ],
+        "calls": 20000,
+        "memory": {
+          "rss": 327041024,
+          "heapTotal": 220962816,
+          "heapUsed": 130463288,
+          "external": 4631911,
+          "arrayBuffers": 587665
+        },
+        "compilation": {
+          "events": 41684,
+          "runs": 41549,
+          "records": 482,
+          "overflow": false,
+          "failedToParse": 0
+        },
+        "nativeLog": {
+          "calls": 20000,
+          "entries": 12490,
+          "frames": 3692,
+          "overflow": false
+        }
+      }
+    ],
+    "sourceVerification": {
+      "workers": 119,
+      "sourceRecords": 2476,
+      "watchedCalls": 48278,
+      "callsMatchingCheckedInDiagnosticSource": 48278
+    },
+    "artifact": {
+      "id": 13515895701,
+      "bytes": 14169839,
+      "sha256": "824d1ee7bd67593e07ba149c54552ff1996cdde9852a3fc78248ba99f09d1fca"
+    },
+    "limitations": [
+      "Failure counts cover retained worker reports; the timed-out stream worker is separate.",
+      "Source verification covers retained watched calls, not unknown captures.",
+      "Twenty capped script-index error samples in worker 5846 remain unexplained; matching event totals do not certify indexing success.",
+      "The increased stream checkpoint count is not a completed-workload speed comparison.",
+      "No complete before or after result exists; replay eligibility remains false."
+    ]
+  },
+  "contextBridgeFixture": {
+    "commit": "5350601",
+    "run": "https://github.com/pango07/quod/actions/runs/42241986122",
+    "job": 127974351738,
+    "conclusion": "success",
+    "regressionsPassed": 183,
+    "nativeBinarySha256": "9c06992ce005fa58109913870ad35f266e2e48dd4ab869f9129e6b2df99c0951",
+    "implementation": "Private Inspector holder in each context; native heap-presence query locates one exact holder, validates it, and creates the native capture callback in its creation context. No application globals or values are exposed.",
+    "regressions": [
+      "Six foreign-native calls captured and cleared with one context query.",
+      "Foreign plain object getters do not run; Error-like labels grant no exemption.",
+      "Missing, duplicate, consumed and getter-backed holders are rejected.",
+      "Proxy traps are not invoked during discovery.",
+      "Callback has the holder realm Function prototype; target references clear.",
+      "Global own keys remain unchanged."
+    ],
+    "limits": {
+      "contexts": 32,
+      "candidatesRetainedPerQuery": 2
+    },
+    "limitations": [
+      "Heap queries collect garbage and clear V8 feedback; their full-workload cost is not measured.",
+      "Unknown contexts, failed setup and unsupported targets remain unavailable.",
+      "The native API-wrapper target gap and script-index errors are unresolved.",
+      "No production replay decision or benchmark savings change."
+    ],
+    "sources": [
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/injected-script.cc",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/profiler/heap-profiler.cc",
+      "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/objects/js-objects.cc"
+    ],
+    "replayEligible": false
   }
 }
