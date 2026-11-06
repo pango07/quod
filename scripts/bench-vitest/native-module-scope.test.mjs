@@ -4,7 +4,9 @@ import {spawnSync} from 'node:child_process'
 
 const observer=new URL('./promise-observers-probe.mjs',import.meta.url).href
 function fixture(body) {
-  const ballast=Array.from({length:2000},(_,i)=>`const unused${i}=${i};`).join('\n')
+  // Export the ballast so V8 cannot omit unused bindings from the module
+  // context; the regression must exercise an actually large scope.
+  const ballast=Array.from({length:2000},(_,i)=>`export const unused${i}=${i};`).join('\n')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(observer)};
 ${ballast}
 let gets=0;const target={get tmp(){gets++;return 'do-not-read'}},plain={tmp:7},key='tmp';
@@ -45,7 +47,7 @@ console.log(JSON.stringify({report,gets,values:[typeof a.get,b.value,typeof c.ge
   assert(entries.some(e=>e.entries.includes('Reflect.getOwnPropertyDescriptor')&&e.argument.target.watchedAccessorKeys.length===0))
   assert(entries.some(e=>e.entries.includes('Object.getOwnPropertyDescriptor')&&e.argument.target.watchedAccessorKeys.includes('tmp')))
   assert(data.report.argumentDiagnostics.propertyEntries.module>2000,
-    'declared bindings must still use current module descriptors')
+    'declared bindings must still use current module descriptors: '+JSON.stringify(data.report.argumentDiagnostics))
 })
 
 test('destructuring declarations and imported live aliases remain visible',()=>{
