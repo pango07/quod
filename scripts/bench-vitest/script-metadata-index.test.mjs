@@ -36,6 +36,67 @@ test('index limits remain unavailable instead of silently dropping new identitie
   }
 })
 
+test('nested insertion during metadata freezing cannot alias two dictionary slots',()=>{
+  const url=new URL('./script-metadata-index.mjs',import.meta.url).href
+  const source=`const freeze=Object.freeze;let index,entered=false;
+const a={url:'a',isModule:true,hasSourceURL:false,language:'JavaScript'},b={...a,url:'b'};
+Object.freeze=value=>{if(index&&!entered){entered=true;index.set('2',b)}return freeze(value)};
+const {scriptMetadataIndex}=await import(${JSON.stringify(url)});
+index=scriptMetadataIndex();index.set('1',a);Object.freeze=freeze;
+console.log(JSON.stringify({a:index.get('1'),b:index.get('2'),counts:index.counts()}));`
+  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
+  assert.equal(data.a.url,'a');assert.equal(data.b.url,'b')
+  assert.equal(data.counts.entries,2);assert.equal(data.counts.metadata,2);assert.equal(data.counts.events,2)
+  assert.equal(data.counts.failures,0)
+})
+
+test('nested insertion rechecks capacity and updates to the same identity',()=>{
+  const url=new URL('./script-metadata-index.mjs',import.meta.url).href
+  for(const sameId of [false,true]) {
+    const source=`const freeze=Object.freeze;let index,entered=false;
+const a={url:'a',isModule:true,hasSourceURL:false,language:'JavaScript'},b={...a,url:'b'};
+Object.freeze=value=>{if(index&&!entered){entered=true;index.set(${sameId?"'1'":"'2'"},b)}return freeze(value)};
+const {scriptMetadataIndex}=await import(${JSON.stringify(url)});
+index=scriptMetadataIndex({entryLimit:1});const result=index.set('1',a);Object.freeze=freeze;
+console.log(JSON.stringify({result,a:index.get('1')??null,b:index.get('2')??null,counts:index.counts()}));`
+    const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+    assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
+    assert.equal(data.counts.entries,1);assert.equal(data.counts.events,2)
+    assert.equal(data.result,sameId);assert.equal(data.counts.overflow,!sameId)
+    if(sameId){assert.equal(data.a.url,'a');assert.equal(data.b,null)}
+    else{assert.equal(data.a,null);assert.equal(data.b.url,'b')}
+  }
+})
+
+test('application intrinsic changes and inherited toJSON cannot alter index keys',()=>{
+  const url=new URL('./script-metadata-index.mjs',import.meta.url).href
+  const source=`import {scriptMetadataIndex} from ${JSON.stringify(url)};
+const original={freeze:Object.freeze,keys:Reflect.ownKeys,own:Object.hasOwn,descriptor:Object.getOwnPropertyDescriptor,
+ get:Map.prototype.get,set:Map.prototype.set,floor:Math.floor,integer:Number.isSafeInteger};
+let poisonCalls=0;const poison=()=>{poisonCalls++;throw Error('application intrinsic')};
+const index=scriptMetadataIndex();
+Object.freeze=Reflect.ownKeys=Object.hasOwn=Object.getOwnPropertyDescriptor=Map.prototype.get=Map.prototype.set=Math.floor=Number.isSafeInteger=poison;
+Array.prototype.toJSON=Object.prototype.toJSON=poison;
+let record,counts;
+try {index.set('1',{url:'a|10|1:x',isModule:true,hasSourceURL:false,language:'JavaScript'});record=index.get('1');counts=index.counts()}
+finally {Object.freeze=original.freeze;Reflect.ownKeys=original.keys;Object.hasOwn=original.own;Object.getOwnPropertyDescriptor=original.descriptor;
+Map.prototype.get=original.get;Map.prototype.set=original.set;Math.floor=original.floor;Number.isSafeInteger=original.integer;
+delete Array.prototype.toJSON;delete Object.prototype.toJSON}
+console.log(JSON.stringify({record,counts,poisonCalls}));`
+  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
+  assert.equal(data.poisonCalls,0);assert.equal(data.record.url,'a|10|1:x');assert.equal(data.counts.failures,0)
+})
+
+test('invalid metadata records a failure stage without executing its accessor',()=>{
+  const index=scriptMetadataIndex();let reads=0
+  assert.throws(()=>index.set('1',{...metadata(0),get url(){reads++;throw Error('getter')}}))
+  assert.equal(reads,0);assert.equal(index.counts().failures,1)
+  assert.equal(index.counts().failureStages.validation,1);assert.equal(index.counts().entries,0)
+  assert(index.set('1',metadata(0)));assert.equal(index.counts().failures,1)
+})
+
 test('compare exact script metadata indexes with isolated memory measurements',t=>{
   const url=new URL('./script-metadata-index.mjs',import.meta.url).href,rows=[]
   for(const mode of ['map','compact']) {
