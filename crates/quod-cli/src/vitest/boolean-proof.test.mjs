@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { certifyBooleanReads, certifyStatTypeReads, certifyAsyncStatSizeReads } from './boolean-proof.mjs'
 
 test('async size consumers require a private immediate primitive sink and ignored errors',()=>{
@@ -113,7 +114,7 @@ test('modified parser intrinsics fail closed', () => {
   assert.deepEqual(run('globalThis.pkg.exports ? 1 : 0', {prelude:'const prior=Object.values; Object.values=function(x){return prior(x)};'}).reads, [false])
 })
 
-function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false, statEnabled=enabled, startup=''} = {}) {
+function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false, statEnabled=enabled, startup='', origin=true, nodeOptions=process.env.NODE_OPTIONS} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-boolean-recorder-'))
   try {
     fs.writeFileSync(path.join(dir,'package.json'), JSON.stringify({name:'x', exports:{'.':'./a.js'}, devDependencies:{unused:'1'}}))
@@ -139,12 +140,47 @@ const keys=[...settledKeys(r)].filter(k=>k.includes('/package.json')).map(k=>k.r
 statProof?.close(); if(booleanProof!==statProof)booleanProof?.close(); namesProof?.close(); console.log(JSON.stringify({keys,value:m.value,stats:statProof?.stats}));`)
     const preload=path.join(dir,'startup.cjs')
     if(startup) fs.writeFileSync(preload,startup)
-    const result=spawnSync(process.execPath,[...(startup?['--require',preload]:[]),runner],{cwd:dir,encoding:'utf8',timeout:10000})
+    const env={...process.env}
+    if(nodeOptions===undefined)delete env.NODE_OPTIONS
+    else env.NODE_OPTIONS=nodeOptions
+    if(origin) {
+      const filename=fileURLToPath(new URL('./origin-preload.cjs',import.meta.url))
+      const marker='--require="'+filename.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"'
+      env.NODE_OPTIONS=marker+(env.NODE_OPTIONS===undefined?'':' '+env.NODE_OPTIONS)
+    }
+    const result=spawnSync(process.execPath,[...(startup?['--require',preload]:[]),runner],{cwd:dir,env,encoding:'utf8',timeout:10000})
     assert.equal(result.status,0,result.stderr || String(result.error))
     return JSON.parse(result.stdout)
   } finally {fs.rmSync(dir,{recursive:true,force:true})}
 }
 const query = result => result.keys.filter(k=>k.startsWith('pjq:')).map(k=>JSON.parse(k.split('\0')[1]))
+test('missing early startup provenance conservatively retains stat metadata',()=>{
+  const result=recorded('!!pkg.exports',{origin:false,prelude:"const isFile=fs.statSync('package.json').isFile();"})
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
+test('production preload restores absent and empty NODE_OPTIONS before user code',()=>{
+  for(const nodeOptions of [undefined,'']) {
+    const result=recorded('process.env.NODE_OPTIONS??null',{
+      nodeOptions,startup:'globalThis.originalOptions=process.env.NODE_OPTIONS;',
+      extra:'if(globalThis.originalOptions!==process.env.NODE_OPTIONS)throw Error("preload saw a different environment");',
+    })
+    assert.equal(result.value,nodeOptions??null)
+  }
+})
+test('unsupported startup flags conservatively retain metadata',()=>{
+  const result=recorded('!!pkg.exports',{nodeOptions:'--trace-warnings',prelude:"const isFile=fs.statSync('package.json').isFile();"})
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
+test('a replaced native stat binding conservatively retains metadata',()=>{
+  const result=recorded('!!pkg.exports',{
+    startup:"const b=process.binding('fs'),stat=b.stat;b.stat=function(...args){return Reflect.apply(stat,this,args)}",
+    prelude:"const isFile=fs.statSync('package.json').isFile();",
+  })
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
 test('a Stats method replaced by a user preload retains complete metadata',()=>{
   const result=recorded('!!pkg.exports',{
     startup:"require('node:fs').Stats.prototype.isFile=function(){return this.mtimeMs>0}",
@@ -159,6 +195,16 @@ test('a public stat replacement installed by a user preload retains complete met
     prelude:"const isFile=fs.statSync('package.json').isFile();",
   })
   assert.ok(result.keys.includes('sm:package.json'),'the initial stat wrapper exposes metadata')
+  assert.equal(result.keys.includes('st:package.json'),false)
+})
+test('editing the CJS cache after startup cannot replace the captured origin',()=>{
+  const module=fileURLToPath(new URL('./stat-origin.cjs',import.meta.url))
+  const result=recorded('!!pkg.exports',{
+    startup:`require('node:fs').Stats.prototype.isFile=function(){return this.mtimeMs>0};
+require.cache[require.resolve(${JSON.stringify(module)})].exports={permitsStatSync(){return true}};`,
+    prelude:"const isFile=fs.statSync('package.json').isFile();",
+  })
+  assert.ok(result.keys.includes('sm:package.json'))
   assert.equal(result.keys.includes('st:package.json'),false)
 })
 test('resolver boolean reads replace the broad key only after a watched parse', () => {

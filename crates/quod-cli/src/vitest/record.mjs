@@ -484,7 +484,8 @@ export function patchFs(r, { sync = true } = {}) {
   // establishes that only its file/directory type is consumed.
   wrap(fs, 'stat', (a) => r.add('sm', a[0]))
   wrap(P, 'stat', (a) => r.add('sm', a[0]))
-  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.statProof?.statType(a) ? 'st' : 'sm', a[0]))
+  const nativeStatSync = fs.statSync
+  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.statProof?.statType(a, nativeStatSync) ? 'st' : 'sm', a[0]))
   both(['lstat'], (a) => r.add('sl', a[0]))
   both(['access'], (a) => {
     const mode = a[1] ?? 0

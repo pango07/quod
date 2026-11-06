@@ -63,6 +63,8 @@ const CHILD: &str = include_str!("vitest/child.mjs");
 const DENY: &str = include_str!("vitest/deny.mjs");
 const NAMES_PROOF: &str = include_str!("vitest/names-proof.mjs");
 const BOOLEAN_PROOF: &str = include_str!("vitest/boolean-proof.mjs");
+const ORIGIN_PRELOAD: &str = include_str!("vitest/origin-preload.cjs");
+const STAT_ORIGIN: &str = include_str!("vitest/stat-origin.cjs");
 const ACORN: &str = include_str!("vitest/acorn.mjs");
 const ACORN_LICENSE: &str = include_str!("vitest/acorn-LICENSE");
 
@@ -85,6 +87,8 @@ fn js() -> &'static [(&'static str, String)] {
             ("deny.mjs", DENY),
             ("names-proof.mjs", NAMES_PROOF),
             ("boolean-proof.mjs", BOOLEAN_PROOF),
+            ("origin-preload.cjs", ORIGIN_PRELOAD),
+            ("stat-origin.cjs", STAT_ORIGIN),
             ("acorn.mjs", ACORN),
             ("acorn-LICENSE", ACORN_LICENSE),
         ]
@@ -1191,6 +1195,20 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     } else {
         Command::new(&a.node)
     };
+    if plan["hooks"] != serde_json::json!(false)
+        && ["QUOD_VITEST_NAMES_PROOF", "QUOD_VITEST_BOOLEAN_PROOF"]
+            .iter()
+            .any(|name| std::env::var(name).is_ok_and(|value| value == "1"))
+    {
+        // Only the Node child sees the prefix. The planner keys the original
+        // environment; the preload restores it before any user code runs.
+        if let Some(options) = origin_node_options(
+            &code.join("origin-preload.cjs"),
+            std::env::var_os("NODE_OPTIONS").as_deref(),
+        ) {
+            cmd.env("NODE_OPTIONS", options);
+        }
+    }
     let status = without_credentials(&mut cmd)
         .env("QUOD_VITEST_HIDE", hidden_env(&a))
         .arg(code.join("driver.mjs"))
@@ -2980,6 +2998,18 @@ fn bwrap_net_ok() -> bool {
             .is_ok_and(|s| s.success())
 }
 
+fn origin_node_options(preload: &Path, previous: Option<&std::ffi::OsStr>) -> Option<String> {
+    // Node exposes environment strings as UTF-8. Do not rewrite an invalid
+    // value that its JS preload could not restore byte-for-byte.
+    let preload = preload.to_str()?.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut options = format!("--require=\"{preload}\"");
+    if let Some(previous) = previous {
+        options.push(' ');
+        options.push_str(previous.to_str()?);
+    }
+    Some(options)
+}
+
 fn without_credentials(c: &mut Command) -> &mut Command {
     for k in CREDENTIALS {
         c.env_remove(k);
@@ -3882,6 +3912,19 @@ fn relativize_file(f: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn origin_prefix_preserves_absence_empty_and_quoted_original_options() {
+        use std::ffi::OsStr;
+        let p = Path::new("/tmp/quoted \"path\"/origin-preload.cjs");
+        let prefix = "--require=\"/tmp/quoted \\\"path\\\"/origin-preload.cjs\"";
+        assert_eq!(origin_node_options(p, None).as_deref(), Some(prefix));
+        assert_eq!(origin_node_options(p, Some(OsStr::new(""))), Some(format!("{prefix} ")));
+        let original = "--require=\"/tmp/user preload.cjs\" --import=data:text/javascript,void%200";
+        assert_eq!(origin_node_options(p, Some(OsStr::new(original))), Some(format!("{prefix} {original}")));
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(origin_node_options(p, Some(OsStr::from_bytes(&[0xff]))), None);
+    }
 
     #[test]
     fn access_keys_see_permission_changes_without_content_changes() {

@@ -7,6 +7,7 @@ import { getCallSites } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { unchangedIntrinsics } from './names-proof.mjs'
 import fs from 'node:fs'
+import statOrigin from './stat-origin.cjs'
 
 const ownFile = fileURLToPath(import.meta.url)
 const plainFile = name => name?.startsWith('file:') ? fileURLToPath(name) : name
@@ -316,9 +317,10 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
       stats[proved ? 'boolean' : 'whole']++
       return proved
     },
-    statType(args) {
+    statType(args, nativeFunction) {
       let proved=false
-      if (typeof args[0]==='string' && (args.length===1 || args.length===2) && unchangedIntrinsics() && pristineStats()) {
+      if (typeof args[0]==='string' && (args.length===1 || args.length===2) &&
+          statOrigin.permitsStatSync(nativeFunction) && unchangedIntrinsics() && pristineStats()) {
         const [helper,caller]=frames()
         const source=load(helper,'@stat')
         if (helper && source) {

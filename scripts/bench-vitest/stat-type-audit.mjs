@@ -97,7 +97,33 @@ const startupChanged=run('startup-metadata-change'),startupPlain=run('startup-me
 assert.equal(startupChanged.summary.replayed,0,'startup setter must retain its hidden metadata observation')
 assert.equal(startupPlain.states.length,2)
 assert.deepEqual(startupChanged.states,startupPlain.states)
+const originRegressions=[]
+for(const kind of ['method','public-wrapper']) {
+  fs.utimesSync(input,1577836800,1577836800)
+  fs.writeFileSync(startup,kind==='method' ? `const fs=require('node:fs');
+const target=fs.statSync('stat-type-input').ino,original=fs.Stats.prototype.isFile;
+fs.Stats.prototype.isFile=function(){return this.ino===target ? this.mtimeMs<1600000000000 : Reflect.apply(original,this,[])};
+` : `const fs=require('node:fs'),original=fs.statSync;
+fs.statSync=function(...args){const s=Reflect.apply(original,this,args);if(args[0]==='stat-type-input')globalThis.earlyStat=s.mtimeMs<1600000000000;return s};
+`)
+  fs.writeFileSync(path.join(project,'vitest.config.mjs'),`import fs from 'node:fs';
+const isFile=fs.statSync('stat-type-input').isFile();
+const selected=isFile${kind==='public-wrapper'?' && globalThis.earlyStat':''};
+export default {css:{postcss:{}},test:{include:selected ? ['tests/add.test.js'] : ['tests/*.test.js']}};
+`)
+  const before=run(kind+'-plain-before',true)
+  assert.equal(before.states.length,1)
+  for(const phase of ['record','confirm','warm']) assert.deepEqual(run(kind+'-'+phase).states,before.states)
+  assert.equal(runs.at(-1).summary.replayed,1)
+  fs.utimesSync(input,1609459200,1609459200)
+  const changed=run(kind+'-metadata-change'),plain=run(kind+'-metadata-plain',true)
+  assert.equal(changed.summary.replayed,0,'startup '+kind+' must retain metadata')
+  assert.equal(plain.states.length,2)
+  assert.deepEqual(changed.states,plain.states)
+  originRegressions.push({kind,replayed:changed.summary.replayed,selectedTests:plain.states.length,wrong:0})
+}
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({wrong:0,metadataReplayed:metadata.summary.replayed,
   typeChangeReplayed:changed.summary.replayed,selectedTests:plain.states.length,
   prototypeMetadataReplayed:prototypeChanged.summary.replayed,prototypeSelectedTests:prototypePlain.states.length,
-  startupMetadataReplayed:startupChanged.summary.replayed,startupSelectedTests:startupPlain.states.length},null,2))
+  startupMetadataReplayed:startupChanged.summary.replayed,startupSelectedTests:startupPlain.states.length,
+  originRegressions},null,2))
