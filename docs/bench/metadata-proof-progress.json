@@ -806,11 +806,11 @@
     "syntaxCacheFixtureGate": 42198746560,
     "syntaxCacheFixtureConclusion": "success",
     "progressCheckpointCommit": "1e14732",
-    "latestFullGate": 42250940190,
+    "latestFullGate": 42253196341,
     "latestFullGateStatus": "completed",
     "latestFullGateConclusion": "failure",
-    "latestFullGateFailure": "before phase 420-second timeout; 115 retained workers pass scoped checks, no complete observed test-state report",
-    "latestFullGateCompletedWorkers": 115,
+    "latestFullGateFailure": "before phase 900-second timeout; unfinished stream worker exceeded compilation-run capacity; no complete observed test-state report or after phase",
+    "latestFullGateCompletedWorkers": 119,
     "descriptorOverheadEvidence": "worker-descriptor-overhead.json",
     "moduleScopeCommit": "2092649",
     "moduleScopeFixtureGate": 42204149648,
@@ -993,11 +993,15 @@
     "injectiveSourceCacheFullGateTests": 236,
     "injectiveSourceCacheFullGateAvailableWorkers": 115,
     "extendedBoundaryFullGate": 42253196341,
-    "extendedBoundaryFullGateStatus": "in_progress",
+    "extendedBoundaryFullGateStatus": "completed",
     "extendedBoundaryFullGateCommit": "567e91e",
     "nativeDataFieldCommit": "5750e67",
     "nativeDataFieldFixtureGate": 42255029030,
     "nativeDataFieldFixtureConclusion": "success",
-    "nativeDataFieldFixtureTests": 202
+    "nativeDataFieldFixtureTests": 202,
+    "extendedBoundaryFullGateConclusion": "failure",
+    "extendedBoundaryFullGateTests": 236,
+    "extendedBoundaryFullGateAvailableWorkers": 119,
+    "extendedBoundaryStreamCompilationOverflow": true
   }
 }

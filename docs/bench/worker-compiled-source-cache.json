@@ -212,11 +212,526 @@
     "commit": "567e91e288291d2ccedcc43dd689de513e1ae466",
     "run": "https://github.com/pango07/quod/actions/runs/42253196341",
     "job": 128013419250,
-    "status": "in_progress",
+    "status": "completed",
     "observedPhaseLimitSeconds": 900,
     "jobLimitMinutes": 35,
     "testTimeoutsChanged": false,
     "productTargetsChanged": false,
-    "replayEligible": false
+    "replayEligible": false,
+    "conclusion": "failure",
+    "regressionsPassed": 236,
+    "failure": "before phase 900-second timeout; unfinished stream worker exceeded compilation-run capacity; no complete observed test-state report or after phase",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "baseline": {
+      "success": true,
+      "fileProjectInstances": 120,
+      "testStates": 4131
+    },
+    "phaseResults": {
+      "baseline": {
+        "phase": "baseline",
+        "timeoutMs": 420000,
+        "elapsedMs": 48724.332833,
+        "status": 0,
+        "signal": null,
+        "errorCode": null
+      },
+      "before": {
+        "phase": "before",
+        "timeoutMs": 900000,
+        "elapsedMs": 900084.16584,
+        "status": 143,
+        "signal": null,
+        "errorCode": "ETIMEDOUT"
+      }
+    },
+    "before": {
+      "testResult": null,
+      "counts": {
+        "workers": 119,
+        "descriptorCalls": 1213166,
+        "nativeCalls": 1269076,
+        "cleared": 1269076,
+        "released": 1269076,
+        "compilationEvents": 2581413,
+        "scopedInspections": 1174840,
+        "descriptorsRetainedCalls": 1213166,
+        "proxyRetainedCalls": 55910
+      },
+      "flags": {},
+      "inclusiveCommandTimings": {
+        "Runtime.enable": {
+          "calls": 119,
+          "elapsedMs": 23.125592
+        },
+        "Debugger.getScriptSource": {
+          "calls": 65763,
+          "elapsedMs": 8117.754191000001
+        },
+        "Debugger.enable": {
+          "calls": 119,
+          "elapsedMs": 6668.250512000002
+        },
+        "Runtime.evaluate": {
+          "calls": 6066,
+          "elapsedMs": 1293.690209
+        },
+        "Runtime.getProperties": {
+          "calls": 17374,
+          "elapsedMs": 1761.7132959999992
+        },
+        "Runtime.queryObjects": {
+          "calls": 357,
+          "elapsedMs": 16908.917651999996
+        },
+        "Runtime.callFunctionOn": {
+          "calls": 1271804,
+          "elapsedMs": 107648.61583799997
+        },
+        "Debugger.setBreakpointOnFunctionCall": {
+          "calls": 5236,
+          "elapsedMs": 10493.965948000003
+        },
+        "Debugger.resume": {
+          "calls": 122,
+          "elapsedMs": 3.951799999999999
+        },
+        "Runtime.releaseObject": {
+          "calls": 1269192,
+          "elapsedMs": 12704.451499000008
+        }
+      },
+      "watchedTargetCalls": 48292
+    },
+    "retainedWorkerChecks": {
+      "scope": "retained worker reports only; no complete observed test-state result",
+      "counts": {
+        "guardedMetadataScalars": 3892,
+        "cache_events": 2581413,
+        "cache_sourceReads": 61978,
+        "cache_cacheHits": 2519435,
+        "cache_entries": 7791,
+        "contextBridges": 116,
+        "excludedOwnerCalls": 38325,
+        "workers": 119,
+        "guardedSeeds": 119
+      },
+      "replayEligible": false
+    },
+    "callerSourceChecks": {
+      "workers": 119,
+      "sourceRecords": 2476,
+      "watchedCalls": 48292,
+      "callsMatchingCheckedInDiagnosticSource": 48292
+    },
+    "streamCheckpoint": {
+      "calls": 5450000,
+      "apis": {
+        "Object.defineProperty": 2726191,
+        "Object.getOwnPropertyDescriptor": 841,
+        "Object.freeze": 8,
+        "Object.defineProperties": 1360806,
+        "Object.setPrototypeOf": 113,
+        "Object.getOwnPropertyDescriptors": 1360759,
+        "Reflect.getOwnPropertyDescriptor": 1259,
+        "Reflect.deleteProperty": 21,
+        "Reflect.defineProperty": 2
+      },
+      "memory": {
+        "rss": 554151936,
+        "heapTotal": 271355904,
+        "heapUsed": 83588152,
+        "external": 84337470,
+        "arrayBuffers": 80297267
+      },
+      "arguments": {
+        "object": 5450000
+      },
+      "last": {
+        "name": "handleException",
+        "location": {
+          "scriptId": "175",
+          "lineNumber": 80,
+          "columnNumber": 23
+        },
+        "script": {
+          "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+          "isModule": true,
+          "hasSourceURL": false,
+          "language": "JavaScript"
+        }
+      },
+      "overflow": false,
+      "nativeLog": {
+        "calls": 5450000,
+        "entries": 3043,
+        "frames": 2626,
+        "overflow": false
+      },
+      "stack": [
+        {
+          "name": "handleException",
+          "location": {
+            "scriptId": "175",
+            "lineNumber": 80,
+            "columnNumber": 23
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "",
+          "location": {
+            "scriptId": "153",
+            "lineNumber": 235,
+            "columnNumber": 75
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/promise-observers-probe.mjs",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "emit",
+          "location": {
+            "scriptId": "22",
+            "lineNumber": 508,
+            "columnNumber": 27
+          },
+          "script": {
+            "url": "node:events",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "#onMessage",
+          "location": {
+            "scriptId": "154",
+            "lineNumber": 99,
+            "columnNumber": 13
+          },
+          "script": {
+            "url": "node:inspector",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "",
+          "location": {
+            "scriptId": "154",
+            "lineNumber": 65,
+            "columnNumber": 66
+          },
+          "script": {
+            "url": "node:inspector",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "setState",
+          "location": {
+            "scriptId": "777",
+            "lineNumber": 1614,
+            "columnNumber": 21
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "expect",
+          "location": {
+            "scriptId": "777",
+            "lineNumber": 7999,
+            "columnNumber": 2
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+            "isModule": true,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "check",
+          "location": {
+            "scriptId": "9070",
+            "lineNumber": 236,
+            "columnNumber": 33
+          },
+          "script": {
+            "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        },
+        {
+          "name": "processTicksAndRejections",
+          "location": {
+            "scriptId": "32",
+            "lineNumber": 103,
+            "columnNumber": 4
+          },
+          "script": {
+            "url": "node:internal/process/task_queues",
+            "isModule": false,
+            "hasSourceURL": false,
+            "language": "JavaScript"
+          }
+        }
+      ],
+      "compilation": {
+        "events": 10902958,
+        "runs": 4000000,
+        "records": 420,
+        "overflow": true,
+        "runStorage": "chunked-f64",
+        "runStorageBytes": 64028672,
+        "failedToParse": 1859,
+        "sourceCache": {
+          "policy": "pinned-injective-ascii",
+          "enabled": true,
+          "events": 10902958,
+          "sourceReads": 1160,
+          "cacheHits": 10901798,
+          "entries": 66,
+          "capacity": 256
+        }
+      },
+      "argumentDiagnostics": {
+        "mode": "native-entry-arguments",
+        "available": true,
+        "calls": 5450334,
+        "ignored": 0,
+        "ignoredReasons": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "cleared": 5450334,
+        "released": 5450333,
+        "groupsReleased": 0,
+        "failureCounts": {},
+        "failureSamples": [],
+        "contextCapture": {
+          "contexts": 1,
+          "attemptedContexts": 1,
+          "contextQueries": 1,
+          "contextQueryMs": 102.457418
+        },
+        "ownerPolicy": "native-ordinary",
+        "handleMode": "native-private-capture",
+        "argumentMode": "direct",
+        "targetAccessorsOnly": true,
+        "targetInspection": "native-watched",
+        "nativeCapture": true,
+        "scopedInspections": 5449580,
+        "adaptiveSites": 0,
+        "errors": [],
+        "replayEligible": false,
+        "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+      },
+      "identity": {
+        "mode": "native-entry-arguments",
+        "snapshotsRequested": 0
+      },
+      "replayEligible": false
+    },
+    "artifact": {
+      "id": 13523275817,
+      "bytes": 14065940,
+      "sha256": "1d89f97d7b4d420eb642c7a1fffdc2ac23d04cd8538e24ad9b9ef980e1be68df"
+    },
+    "evidenceSha256": {
+      "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+      "baseline-phase.json": "893df44993c4c38fe6b969e44f9ba015e11db8d016ff07ee05b0cd2dd03c8842",
+      "baseline-tests.json": "bfc1e54b23fde074a268ac8625c269b7bd35a2e3dd97fe272dd2e8ece16221ec",
+      "baseline.log": "e7e753def80e4a56a5bd45a9d0c8e9c5fae388d3bbb0fe29eaf6546df6bba55f",
+      "before-phase.json": "b78d69614c59d184dd0fd05898a2b8317b2b335d46df742f84d26ca83ed8d5a8",
+      "before.log": "73b59fe31eb89e3d88720da1cf14f453df347858b1990f702eae28d597921243",
+      "worker-boundary/before/5159.json": "04e3e218251902cdde735d1bae7671124e6a4f7a73f6d72861328585635c0459",
+      "worker-boundary/before/5165.json": "91d1ce9a7f2d6812ba00b74cbe59aec33ac690c8e57282f9025553daac0ceb35",
+      "worker-boundary/before/5221.json": "80ebe8f98c7428fe5d5842375022a98db33d42609e9489cfcb8d39b7ab20afc8",
+      "worker-boundary/before/5300.json": "4601ca2987e7626e3716dedbddea77be0f1cc62169e1af7fb76f1cf843ed5469",
+      "worker-boundary/before/5312.json": "064853836ac1517ed5ab10801ba9ff367150232a8f42b6800b598dee324d05ff",
+      "worker-boundary/before/5321.json": "9680a760ac48d3544b10961e2f863dd8399840644d6b086c7b96603ca3cc5b44",
+      "worker-boundary/before/5329.json": "35f89ce972591891dc795719e2ccaa746a9ce5b491465b88b52ddf0740d865c7",
+      "worker-boundary/before/5338.json": "abd27ce016f6e5b97a876cff43fbfb7bd80af86197fa70928e2b0a2e71d29ab1",
+      "worker-boundary/before/5350.json": "719af13a461605abd14f7bc90a2a7c1719131ffa9243623a9f41cf699b2b460e",
+      "worker-boundary/before/5359.json": "b6462ebf10ea48c0e89d8f0c29735098b5966d2af0ff258643e328db0eab3484",
+      "worker-boundary/before/5367.json": "044c6e82df764c37a92f1e15694c2e3052382fe1da946935a10758150dbcda3a",
+      "worker-boundary/before/5374.json": "393c1dc5fed06b1d9c52101acfa9951304856ebd4e2523bd0ee43dfc38ffe2d8",
+      "worker-boundary/before/5383.json": "8d9fcde19b7c17817a010cea1f138a4bdf7aa602e88d7d04e8f6f55a62a689bb",
+      "worker-boundary/before/5390.json": "b684631bc8b983382ba011fd01a1c7747378399749db41cbb07702279c095496",
+      "worker-boundary/before/5400.json": "69c4651a3bb70948160e261adb1daa4b46c2c39970ee7564288ce3453934419a",
+      "worker-boundary/before/5408.json": "798ed5042cc2cb43ff6ff58cc60f9154cd289cc1ae510ad5e2e303dc057b2e20",
+      "worker-boundary/before/5417.json": "04f2f725d171f00bf6bd5df0e1142ce5afa4cd3d2fec02490f4c87fd9e65fa3d",
+      "worker-boundary/before/5429.json": "6c029c4b5360a0820d111970ffbe6d9f4cc47318a06f6aafbb2ca997a5193602",
+      "worker-boundary/before/5438.json": "7affbc06786f7a93a1a97a0308d42c1f99834b90d1b986b7024f1649addf7dee",
+      "worker-boundary/before/5445.json": "50c878036fa989672f317bb5a7b4d645191babbb6fb126b81c891e0c53b6851b",
+      "worker-boundary/before/5454.json": "12849101f3c71e16c9760f4ba1dbb8572451363d28b27b7055bfbe7de5a6dcd5",
+      "worker-boundary/before/5462.json": "03a22ca30b8e19578f29fe57d165429d325d1256c22f524fbbd9d6ee362c739e",
+      "worker-boundary/before/5469.json": "3e2d4810a6c89e3c447f59d3d8688f26635219a24a0260081fc93d9c2ba9da5b",
+      "worker-boundary/before/5479.json": "11b305e545b77fba4518b34a4894049336ec441d6d45d617cf91282fc520c38c",
+      "worker-boundary/before/5488.json": "ca8a10aaacfe87b6e02fec0d089ab82670ca84920bdb93659f4f40e7d4718692",
+      "worker-boundary/before/5496.json": "bf7889d9e9e47c7ff918eaa6995c0c1da6dc1e0e1fd249985d77a9c89024f7e0",
+      "worker-boundary/before/5504.json": "9b76dd289ac767a5c255f1abb011f3439fb573dbd54b89d9b0ac785cee071b4e",
+      "worker-boundary/before/5511.json": "49baf506ac25f9141db0738540b445b5474309ee5797d48b688285a36712acc1",
+      "worker-boundary/before/5520.json": "6e692c55c9ea0cb3bd7ab244f1292b3d3a74b2260b09a59ce01ea4645409e907",
+      "worker-boundary/before/5528.json": "3a454d568edc09b48ea4749ec278f4ea8e6d517eb13d662c8daac376282b1341",
+      "worker-boundary/before/5535.json": "cca31639309e1fc2866cb0bc8e2027ac23d344156ac414a4c70f8ae80a618297",
+      "worker-boundary/before/5544.json": "c1f3445d680c9b2b91d303bfc51f9b33bf6d94fa50986216fdd7d682675c268e",
+      "worker-boundary/before/5552.json": "da405836f2324e97a0d5680c9ee6898f14d36d96eeeaca229176ff3beecd7d93",
+      "worker-boundary/before/5561.json": "1f8f3bb8c3c2512a3266ce735430ef26791535cf3fb9b5d7ed7ac1f2e7293cc4",
+      "worker-boundary/before/5569.json": "c5cd6dfbb3abc007c639fce72983598a26915dfebb024beb9cebe38def0c76ac",
+      "worker-boundary/before/5577.json": "3d23cb29004d1772aeb750fcbeda60c196d8b762f3cbd467ffd5d1a087f88a3a",
+      "worker-boundary/before/5586.json": "1ddd1296f9d371a9d70c3e1a724c27e0eadd3cc622357406076962bfec75faad",
+      "worker-boundary/before/5595.json": "5d6293cf9f4ecd320e34f14ddf508910c6a0d2ebabdb7cec02966f22e43eb7a6",
+      "worker-boundary/before/5604.json": "23ccf05285404df53e5353e0ea1aff6fe93017d51fabedf0346c72df0d96edbb",
+      "worker-boundary/before/5613.json": "fd864408583a8fbee672588b3cfd299e3f62daa58108636b1c449b24f7ca5801",
+      "worker-boundary/before/5621.json": "2be2e6459dcb320d6aaa31a67aee247fdc36081306550ee5a79e8716a9d8bbdc",
+      "worker-boundary/before/5628.json": "3dce66c20320ffcf597997f86bb312a3ffa4912c66020363e52144f7f3885146",
+      "worker-boundary/before/5637.json": "ad8088b9a2a4bc7f09279d4e526218b86023cb0b884b7b7a498910b4dcf7c85e",
+      "worker-boundary/before/5645.json": "1930f95df0cab1062abefad6bac0c0503d53fcb93e703368a2f119a461a393a8",
+      "worker-boundary/before/5652.json": "a11381542b96a5303d85d1d5e4111fda9a7c46fbc743d6d4d2a1e9689d4dce46",
+      "worker-boundary/before/5662.json": "9f89972ef50e817e9dce34018ffaf1e1faf2387268a7534cbc82ce5b3d8a2551",
+      "worker-boundary/before/5668.json": "b227d852c6d3ade438e35e788f0e02fc8c22b8445880633575b4e52322b7e247",
+      "worker-boundary/before/5679.json": "2e3a3ca734a1c646d5f268b0366c1608d9c918d075994384a47bdca04794ea2b",
+      "worker-boundary/before/5686.json": "84ed19ddddd85fefa882f3c19d02f9db6cc87795898b0541a6b07ed459de78f7",
+      "worker-boundary/before/5695.json": "7940cb58d8e85256f2a367f9052da20e811423cc6ea398d28cefa6a7431c222a",
+      "worker-boundary/before/5702.json": "ab36647ba076c6406d7c4d98e70b11179d5c7937eb4f087d3a91e91b04b75efc",
+      "worker-boundary/before/5711.json": "a6fb3b420e9a9b679eea18fafab334d112c453df9a8f407d5a742dd61a1be27d",
+      "worker-boundary/before/5718.json": "3e48872b0553ea00601ec60f5431199cf20c5438eead2825e49ad95c4384855b",
+      "worker-boundary/before/5728.json": "8c5e2c3a3bdae41c2e432dde4b2b17d517410a7b7c7702d9d2d1763e4cc1bf91",
+      "worker-boundary/before/5735.json": "67fce9fe62baa1530a14a601edec40bb8d096ec1f840239b85886b1acc36df9f",
+      "worker-boundary/before/5744.json": "5526fabb0269a57653b15704974e2754f181424becd1382100d01244e8dbcb0a",
+      "worker-boundary/before/5751.json": "4c01d493699a7734b1f93800136c954c6a80c2be5a6c28d778f00c309976ad79",
+      "worker-boundary/before/5761.json": "c92405c2353942ef3dba1ec6d51071652516611afb545180a1f666504ae0df72",
+      "worker-boundary/before/5768.json": "82924a6fd90d0cb688cf8c826fe4da69180f03f8f39e666c2d88d7580a838137",
+      "worker-boundary/before/5777.json": "5410cd9db1989835c96312e9fb8878310889cff4eac9240ec5c21a2d50bd2db1",
+      "worker-boundary/before/5784.json": "0881927160d7e52cde3a137c5f0aa81a0996fffc6bfb0124375936cd14e042a6",
+      "worker-boundary/before/5793.json": "bf1ad96f2a22da4967c50e106347850134967962e6156b35fb89f0e15702c33c",
+      "worker-boundary/before/5801.json": "4493353350f5c61719c9ce1b1b9a6794a7dd093e3064472d7d6363e89254e059",
+      "worker-boundary/before/5810.json": "4503dd32050d3d2fb090de65fcbc8b997db4bff8112565cc0743441ba824a856",
+      "worker-boundary/before/5817.json": "bf4eefb826a44849984f55b2e82d6e6683a63ef643053193098a781d813eb821",
+      "worker-boundary/before/5828.json": "70b22320906ec48f3314d3f1ad1f5ab70d131a41d74257b064be52eb3530d586",
+      "worker-boundary/before/5835.json": "11dfa17e6b63b9a0a412fe474dbaa3faea32f225e400e76e5d4c7c7773ff0ef1",
+      "worker-boundary/before/5844.json": "199e9784f4b4a69a19faf35d2bf926d38fe2977208d4210b2b65b403729ffd66",
+      "worker-boundary/before/5851.json": "5f5a14b10025ad5a64254cff9c0eb7351329ba1510f217badd608545e9a2edc8",
+      "worker-boundary/before/5860.json": "6a33b1c8b00fab3d4ebe2e4be59381b410fba02ecab49fdb5e29c556631fc50a",
+      "worker-boundary/before/5867.json": "b4294d1b7a180ee460a16f4e55ca3657e67c40a95e050259078262f071d27cf3",
+      "worker-boundary/before/5876.json": "65b7d80e7c02635b2f10e220821ffb3b2a7b126c3aaf47eff535a0e22231b15a",
+      "worker-boundary/before/5883.json": "76acaa6c69f3fa3fa2bf7e88e7833ad3d6955fa341ba1823b9c4159dd0517c2e",
+      "worker-boundary/before/5894.json": "a1c24a8e36f469306d9a35420639b8c202c81a1b516171df651909c46d257aa1",
+      "worker-boundary/before/5901.json": "18ee38887389192c5a520e66e3659802e95d65df78991350fce5706069d92f32",
+      "worker-boundary/before/5910.json": "a746ecf1aec88d3506f410098986dbb2ddda81c1982a3f645d745bec5ef5dba7",
+      "worker-boundary/before/5917.json": "5a3a46421e8356ee7f8308c229838f7ac41c3f38a9a6ceba09ad471e1bd4679a",
+      "worker-boundary/before/5927.json": "1019f737d6501b43ba64aff69bde0f5b4cd399d3b31bbdfc1435323de76bf86b",
+      "worker-boundary/before/5934.json": "f2d2e82a66c3cc38448ce9d4cdb877d9c3d93b843779c8a36c4e29c28b277791",
+      "worker-boundary/before/5943.json": "412588a7f8fcd43b1aa49dfbc7451ecba21ed0b249aff7a0f0d898dad8232d86",
+      "worker-boundary/before/5951.json": "0187b5779828d8fff8d3bba3e4e5c36627610c23d2e3c4ba09d946478cd757c2",
+      "worker-boundary/before/5960.json": "24ef6df4356b503e3a9a352521344f36f0520c0ddeacbe430eab9b58a069f16e",
+      "worker-boundary/before/5967.json": "9b93a639f705e72788ec149171860f7858a5cf08cf37efed1da187e73b1aee42",
+      "worker-boundary/before/5977.json": "5dba489e6e44e873f504d20bca92ba16e0ee19f70552f7625802afaffe9c5df3",
+      "worker-boundary/before/5984.json": "03de649166c5237340798a936acf114898f6cc933ab66935de3da0e035aee302",
+      "worker-boundary/before/5993.json": "8893afc3830b1a872f15500dc14ab08fc3b4cc7254c0ae38028edd37f5684a2b",
+      "worker-boundary/before/6000.json": "621e0ac094d3e6b7ff3d8c8203e30f35f5867304e8f428a94dfdce920d82e206",
+      "worker-boundary/before/6009.json": "aab1d18ad7095d10101a236d40c5b266953bf96eb19a8190063f1f4b8b94cdb1",
+      "worker-boundary/before/6016.json": "35056810ce03b501456d5ef16bc5742f99412c5a84e668d7003a2958c2cc5d26",
+      "worker-boundary/before/6026.json": "d8fa8f48a68d7395d66a0f20e748e76cbda7f53bdeff9ee40c0b5990bf268a9e",
+      "worker-boundary/before/6033.json": "e1edf508d6f37005a6fa67d88cdec034f1b9b624bbdf0ff45f2da6b444e77b3c",
+      "worker-boundary/before/6043.json": "1b8a2db9a4ba42581b2f1ff690286cf478d60d393ad9b79441996c256e2e6a80",
+      "worker-boundary/before/6050.json": "705e349cb1254711d39d3e60036db6c47924f38a510b3fcabdb628670ab514de",
+      "worker-boundary/before/6062.json": "3d377df02db69d30274b3cd9d5be01521999e6bd8df5edf600dd961e837c6d49",
+      "worker-boundary/before/6069.json": "7be4a9fb0e1bcbc5b613a05f1eb994817d7bd06f15a359342e44ee22f7cda325",
+      "worker-boundary/before/6078.json": "89d08e1175bec9f2c30c0514c30814a9bb6bdab7309762e0399d51b29458d04c",
+      "worker-boundary/before/6085.json": "a0823e50f7fdd38cee14a2fe961f9b2cf87499638814530b301a279d38324767",
+      "worker-boundary/before/6102.json": "e2c5dc841af67095faddb5173a02ce6955294395f9ee6c7398441ab42280eab3",
+      "worker-boundary/before/6110.json": "c6b656e646f6e468440840b369773e529484ac296cc0e5344a99df8e48dec68d",
+      "worker-boundary/before/6120.json": "d76f21a5cb7595ff4e10262e45f33048c4bf71138dfa46418ba9f830e7bb7f2d",
+      "worker-boundary/before/6144.json": "75738c078b831315cf2e01e3dff603f040a66a85fca2bc7182d45a44b1a64fb8",
+      "worker-boundary/before/6151.json": "66348a4d6f9d75f81128d9c2b4238660647c440874b8518424a239a54bd5393c",
+      "worker-boundary/before/6165.json": "2f049aa0794a31274fc3601446db2fc6065056f4590de740459af98f02f384e5",
+      "worker-boundary/before/6172.json": "9339aeb6267f9c462e102d7c73fce593c0bf08154bcf9ddfd56897b911cb2380",
+      "worker-boundary/before/6181.json": "55e3b24ae7352360aa981f7e8f983f809b857aa66c980ff8f84e7b0af6d99a71",
+      "worker-boundary/before/6188.json": "5a8f33d44df3105353b4bff16f030eab13acc8d0a9d394f54f255596ca264019",
+      "worker-boundary/before/6198.json": "8c61472808ceb0e357f07ee3a69e8e4f23ea8e9fd021340018ad13c2144dee1a",
+      "worker-boundary/before/6205.json": "38ad8f914446ac61d89cdf057202b25ffed7bf0c2d78f7a7cf8c0db6394e6ece",
+      "worker-boundary/before/6214.json": "4eb256b813ba1f5033fe180ec161838ce50e685c45db310cd8d07ee047333e42",
+      "worker-boundary/before/6222.json": "aa5b269a8f036715ddb5efc383a40943268a54d90e38dc4fecea913083815a2d",
+      "worker-boundary/before/6231.json": "58388068db2edace5460251e10bd743748c0d50d0a21f674b22ecb63a5be72da",
+      "worker-boundary/before/6239.json": "007a80604d4a8b54d8492bcc867e02c14eb9b216dacaec8108cbfb51d2366c0b",
+      "worker-boundary/before/6247.json": "9f0756429ef190e610ce21c426330921f04cf205e77d55d1f85c036afc9692f7",
+      "worker-boundary/before/6255.json": "762337d114fce3821d66564fb2c39106a79d5016a8f222f09b89cf85eb04ba17",
+      "worker-boundary/before/6264.json": "b35a36e25c6e381cb4803add68bd620dd3eeff7473fc4cbafaf1d6cb6884b62d",
+      "worker-boundary/before/6273.json": "3cfdf15465fed084a57c2ee1ebe65e1eba33057b490e6b874ab3722f0684ab19",
+      "worker-boundary/before/6282.json": "67c3fd49731d989229ea55916f2e18143ae2f7c5064bc6616dd5d60e28c3b964",
+      "worker-boundary/before/6289.json": "7c92c20b02f9b518d971f96a0e0cae60ca848ab4408fb26100b74342c72794f6",
+      "worker-boundary/before/6300.json": "a044582c6e52bca9503e21ef8fcfb81eb7f1dc0a4bedf79d7dd5ab097df81895",
+      "worker-boundary/before/progress/5158.json": "29043ce4f81c8c6e5241f11afccf168c5b06b0d50214e17375ec02b30ae2102c",
+      "worker-boundary/before/progress/5165.json": "54f9a947c048674bceaf1db44d56578b8f0ee7a914a990458f3d133615829a3b",
+      "worker-boundary/before/progress/5300.json": "7a0911b31e9625ddad8029d6299624c56514d8ec07c6dcda1b9d49540272ef83",
+      "worker-boundary/before/progress/5312.json": "197f840a7a33a69a717a017cc6771e1384f6f260555f45e0df056bc6321b2ecf",
+      "worker-boundary/before/progress/5350.json": "2577378fe4f9c1994929ffca77b39f0722429aaf60afcad76e8a1fe64f88e7d6",
+      "worker-boundary/before/progress/5367.json": "408720a1cc0aebb18082f175f5398035f72aff02241f0e52cab1f96b8a4063a7",
+      "worker-boundary/before/progress/5383.json": "05e3b5af47c962715a22a0f4eb81378f178de1ec7638ce2f0c024d4206c209de",
+      "worker-boundary/before/progress/5417.json": "cd9614ec5214acdf298f8f038c2234c2003180e06246951e805ef5ce8b02bd5e",
+      "worker-boundary/before/progress/5462.json": "0024fc8c8db85ee6b20c38f8963e353c36609df37c5c7a071c25221127880efc",
+      "worker-boundary/before/progress/5469.json": "bd246e0e06bf5aaae553a7419af3b68d652b0666e00fa662d18f54ed18d11edf",
+      "worker-boundary/before/progress/5586.json": "74ca4a396c611230702c10a32a723e9bf3b4606200a7a4e4aadc8dafc88f8801",
+      "worker-boundary/before/progress/5595.json": "ded8c8e960fbebad57799a7a3c200fffd58ca2a656651253155f6a4fe06ea5ca",
+      "worker-boundary/before/progress/5604.json": "0f0a4c9dc04d73b105335031bfeee60f821c55b0b8ab9261e6501808540493b6",
+      "worker-boundary/before/progress/5613.json": "50413d9279541028ce6ae8b411e502fd9d0aa6b470c2c0367ed42ec20fe0166e",
+      "worker-boundary/before/progress/5621.json": "26c448e42ee3b700e60ee70140a60606d81650f7d241487db4f720e8e575bd70",
+      "worker-boundary/before/progress/5679.json": "05f60263f511ce349e590a5b212fde2e98a8e2fcbd089d4fe3ddcc153bd7350c",
+      "worker-boundary/before/progress/5686.json": "ca194992fc31bda5decc92f7cac4a573605396cc083ef41b91df4207c2f7228a",
+      "worker-boundary/before/progress/5695.json": "a529a6e9fdd1259b77cc992bea35942fb2fbe172a45c5a58e27027f85d9f9432",
+      "worker-boundary/before/progress/5777.json": "d3673fc2048f95a63ca9a38e1bfbcc4145fa3ea5b2a891de37b37598a6522702",
+      "worker-boundary/before/progress/5784.json": "da104260c54e4f3fbf777b71ed983d50bdb3b5c8741aba003a99c8f903c9aa7b",
+      "worker-boundary/before/progress/5793.json": "8f0747377239ef0a11f2ada9481349e06d25c29ed607471d82dc2e7bbf5c9694",
+      "worker-boundary/before/progress/5876.json": "dc0a5a1ba91a422a7ef01f056f58094ae4f0a6529e7255a94493d8f0737a0ec2",
+      "worker-boundary/before/progress/5883.json": "d881c5d4bec715c26cb1682fdc3b86a465187787ddcf85097f617cadc979e62d",
+      "worker-boundary/before/progress/5894.json": "06a77f043c4f5f6056e3194b3857d6b1b053b828c50f7b1f77a5a36311bc04ac",
+      "worker-boundary/before/progress/5977.json": "81999c1b6b474a6925e4b5a510e4ad11411c85ddf19250af031e80869cef0fd7",
+      "worker-boundary/before/progress/5984.json": "90ebe45a7e7d029386d0b53428b25380cde5b9217e5b72e8e45d9cfbd23d5487",
+      "worker-boundary/before/progress/6000.json": "2c92718fa23e6e39289897481c01d8c0fd1dd4539faab6ecd444e2da05d065d8",
+      "worker-boundary/before/progress/6078.json": "1faa9fd0928633e8c53079866d85cf0813f87a11b136238146d0cfff32b84d30",
+      "worker-boundary/before/progress/6085.json": "c14befc783f941377692a61b2c13f44b8d5f5a482ebc76dd00f0a415b1688a5b",
+      "worker-boundary/before/progress/6110.json": "a1368a8f17bd8ceca4b1324d72d15e806992f45e7fd925cd931f48f85b9ed684",
+      "worker-boundary/before/progress/6120.json": "21176ab1083009967036d096f6c23a5779ad33710a12fa17a423c022b5e551a6",
+      "worker-boundary/before/progress/6144.json": "9c4cf0d02d939978c0fee9a9ad318345f7e8a0c0e433f700373d048b30fb8366",
+      "worker-boundary/before/progress/6151.json": "866cacb910ac66782f901a12a06d9173d7db882aed0dce056dc9f10f9fe20261",
+      "worker-boundary/before/progress/6205.json": "15b91a17af285637bda93faf8c4787fa6ad864854347a305ee2f231368143e02",
+      "worker-boundary/before/progress/6214.json": "3fcc90ced9824b69f1d2cb15c04ec6c6e533c7de92ae1a9ce0ec7732ddb65de4",
+      "worker-boundary/before/progress/6222.json": "78c73fc694d1398996463fb6b5ebf4d2ab697eaf663b10302e9a5055b6e247f5",
+      "worker-boundary/before/progress/6247.json": "40e44a2882107028581db7af53b8a4c7b7ed192975f21e1b1fce362552992d8a",
+      "worker-boundary/before/progress/6255.json": "8c4a4ea067afec3a8dd03a7646d53f375f1279bc45f6958af754ffdaa40dce35",
+      "worker-boundary/before/progress/6264.json": "333aeb3f28d362e4c8c6c1530096ad421c61df7f32577189e9b9bf7c22cf3fd6"
+    },
+    "limitations": [
+      "119 retained workers pass scoped checks; the unfinished stream worker has compilation overflow and cannot establish complete coverage.",
+      "Baseline passed 120 file/project instances and 4,131 states; complete observed states and the metadata-only after comparison are missing.",
+      "The native data-field helper at 5750e67 was not included in this run.",
+      "No production replay authority or savings claim changes."
+    ]
   }
 }

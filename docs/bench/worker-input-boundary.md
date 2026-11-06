@@ -1440,13 +1440,27 @@ limit to 900 seconds, with a 35-minute workflow cap. The original Vitest
 test timeouts, test scope and product targets remain unchanged. Phase
 duration/status and source-cache checkpoint counts are now saved explicitly.
 The [extended full gate 42253196341](https://github.com/pango07/quod/actions/runs/42253196341)
-is running. No production replay authority or savings claim changes.
+passed 236 regressions and the complete 120-file / 4,131-state baseline,
+then timed out after 900 seconds in `before`. All 119 retained worker
+reports pass scoped checks: 1,269,076 native calls cleared and released,
+zero capture/index failures, 3,892 guarded metadata scalars and 119 guarded
+seeds. All 48,292 retained watched calls match actual checked-in source.
+
+The unfinished stream worker reaches 5,450,000 descriptor calls and
+10,902,958 compilation events. Its ordered compilation log reaches the
+4,000,000-run limit and reports overflow; complete coverage cannot be
+claimed. Its checkpoint RSS is 554,151,936 bytes. The baseline phase took
+48.72 seconds; observed collection reached 900.08 seconds. No complete
+observed test-state result or after comparison exists. Extending collection
+alone did not complete this diagnostic, and the log-capacity issue must be
+resolved before a complete comparison can pass. No production replay
+authority or savings claim changes.
 [Machine-readable evidence](worker-compiled-source-cache.json) retains the
 cache restrictions, measured counts and gate scope.
 
 ## Native payload data lookup
 
-While the extended full diagnostic runs, `5750e67` removes descriptor-object
+Separately, `5750e67` removes descriptor-object
 allocation from owned native payload/holder validation. The helper first
 requires an ordinary object with a null prototype and no host wrapper or
 interceptor, then rejects callback properties before checking attributes and
@@ -1464,5 +1478,5 @@ host access-check, foreign-context and lifetime cases also pass.
 Four isolated 100,000-call measurements retain 100,000 matching summaries
 each. Descriptor validation takes 721.42 / 567.43 ms; direct data validation
 takes 409.21 / 532.67 ms. These measure the native helper alone, excluding
-Inspector transport and full-workload time. The active full run still uses
+Inspector transport and full-workload time. The extended full run above used
 the earlier helper. No production savings or replay authority changes.

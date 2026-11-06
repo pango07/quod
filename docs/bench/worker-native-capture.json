@@ -3094,17 +3094,6 @@
     "conclusion": "success",
     "regressionsPassed": 199
   },
-  "pendingFullDiagnostic": {
-    "commit": "567e91e288291d2ccedcc43dd689de513e1ae466",
-    "run": "https://github.com/pango07/quod/actions/runs/42253196341",
-    "job": 128013419250,
-    "status": "in_progress",
-    "observedPhaseLimitSeconds": 900,
-    "jobLimitMinutes": 35,
-    "testTimeoutsChanged": false,
-    "productTargetsChanged": false,
-    "replayEligible": false
-  },
   "injectiveSourceCacheFullDiagnostic": {
     "commit": "3db47e4",
     "run": "https://github.com/pango07/quod/actions/runs/42250940190",
@@ -3168,5 +3157,23 @@
       "The active full run 42253196341 still uses the earlier native helper at 567e91e.",
       "This fixture does not certify initial runtime integrity, complete native coverage or replay ownership."
     ]
+  },
+  "extendedFullDiagnostic": {
+    "commit": "567e91e288291d2ccedcc43dd689de513e1ae466",
+    "run": "https://github.com/pango07/quod/actions/runs/42253196341",
+    "job": 128013419250,
+    "status": "completed",
+    "observedPhaseLimitSeconds": 900,
+    "jobLimitMinutes": 35,
+    "testTimeoutsChanged": false,
+    "productTargetsChanged": false,
+    "replayEligible": false,
+    "conclusion": "failure",
+    "regressionsPassed": 236,
+    "retainedWorkers": 119,
+    "retainedScopedObservationErrors": 0,
+    "unfinishedStreamCompilationOverflow": true,
+    "failure": "before phase 900-second timeout; unfinished stream worker exceeded compilation-run capacity; no complete observed test-state report or after phase",
+    "evidence": "worker-compiled-source-cache.json#extendedFullDiagnostic"
   }
 }
