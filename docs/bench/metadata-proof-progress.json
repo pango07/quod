@@ -594,12 +594,17 @@
     "fixCommit": "f9d8153",
     "gate": 42171117245,
     "gateStatus": "completed",
-    "shipped": false,
+    "shipped": true,
     "gateConclusion": "success",
     "binaryVersion": "bin-f9d8153",
     "binaryArchiveSha256": "e133b009115afd10c255d2e67f43a80bcf5c61e6853992c84290a0a56afd92d8",
     "actionSource": "1a0ec88bdce9c6fdb587285baf1c099d3f94f77d",
-    "actionGateStatus": "pending"
+    "actionGateStatus": "completed",
+    "packagedReleaseGate": 42171847388,
+    "packagedReleaseConclusion": "success",
+    "actionGate": 42171847717,
+    "actionGateConclusion": "success",
+    "action": "e7098a6b5e5b8d460d0f63af782b25aaa23d4934"
   },
   "workerModuleByteDiagnostic": {
     "evidence": "worker-module-bytes.json",
@@ -608,5 +613,16 @@
     "equalBodyIdentities": 1063,
     "unpairedIdentities": 506,
     "replayEligible": false
+  },
+  "latestRelease": {
+    "engine": "f9d8153063207763aed129753a61d4de3874a80d",
+    "binaryGate": 42171117245,
+    "action": "e7098a6b5e5b8d460d0f63af782b25aaa23d4934",
+    "binaryArchiveSha256": "e133b009115afd10c255d2e67f43a80bcf5c61e6853992c84290a0a56afd92d8",
+    "bundleMainSha256": "5c31f8dbaa14dfcd79b0d1477f39ca4e5b277a89c4c03dd74199fe6932c3c38a",
+    "futureHarness": "d248023",
+    "sameWindowBenchmarked": false,
+    "pilotUnitReplayRecommended": false,
+    "productionSignOff": false
   }
 }

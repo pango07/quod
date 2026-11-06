@@ -39,9 +39,18 @@ counter. The shell copier remains covered for correct execution. Its
 metadata observations can now make it uncacheable. This is not evidence
 that ordinary npm build scripts retain their old hit rate.
 
-The remote Rust tests, lint and release build passed. Packaged-release checks
-and the Action bundle build are pending. The published action pin remains
-`1aa08cacec95f243aa12adafdf815f68213c2783`; pilots must set job-level
+The remote Rust tests (101 CLI, 1 unit integration, 16 recorder), 65 proof
+regressions, lint and release build passed. The optimized binary also
+passes all nine fresh-record and nine legacy-upgrade cases in
+[42171847388](https://github.com/pango07/quod/actions/runs/42171847388).
+The exact Action bundle passes
+[42171847717](https://github.com/pango07/quod/actions/runs/42171847717),
+including two lineage promotions, one plain audit and zero disagreements.
+
+The new experimental action pin is
+`e7098a6b5e5b8d460d0f63af782b25aaa23d4934`, bundling `bin-f9d8153`.
+Only the remotely built bytes were published. No main branch or tag moved.
+Broader native-input auditing remains incomplete; pilots should still set job-level
 `QUOD_UNITS: '0'` and keep plain CI required. These fixtures do not establish
 complete soundness for every syscall, ambient input, or output side effect.
 See [exact case evidence](unit-metadata-audit.json).
