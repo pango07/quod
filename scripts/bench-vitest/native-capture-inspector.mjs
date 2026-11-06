@@ -38,7 +38,7 @@ export function nativeCaptureInspector(post,nonce,{ordinaryOwners=false}={}) {
     }finally {post('Runtime.releaseObject',{objectId:holder.result.objectId})}
   }
   function invoke(functionId,objectId) {
-    return post('Runtime.callFunctionOn',{objectId:functionId,functionDeclaration:'function(payload){return this(payload)}',
+    return post('Runtime.callFunctionOn',{objectId:functionId,functionDeclaration:'function(payload){return(this(payload))}',
       arguments:[{objectId}],returnByValue:true,silent:true,generatePreview:false})
   }
   return {

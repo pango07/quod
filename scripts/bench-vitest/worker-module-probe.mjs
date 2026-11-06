@@ -8,6 +8,9 @@ const isProxy=types.isProxy
 import {fingerprint} from './worker-input-probe.mjs'
 
 const apply=Reflect.apply,descriptor=Object.getOwnPropertyDescriptor
+const mapGet=Function.prototype.call.bind(Map.prototype.get),mapSet=Function.prototype.call.bind(Map.prototype.set),
+  freeze=Object.freeze,charCodeAt=Function.prototype.call.bind(String.prototype.charCodeAt)
+const pinnedSourceHash=process.versions.node==='24.18.0'
 // JS source is a sequence of UTF-16 code units. UTF-8 encoding replaces lone
 // surrogates, which would conflate distinct source strings and test results.
 const sourceDigest=value=>({encoding:'utf16le',bytes:Buffer.byteLength(value,'utf16le'),
@@ -80,6 +83,11 @@ export function compiledScriptRecord(params,source,failedParse=false) {
     if(typeof source.scriptSource!=='string')throw Error('compiled source unavailable')
     code=sourceDigest(source.scriptSource)
   }
+  return compiledRecordWithCode(params,code,failedParse)
+}
+
+function compiledRecordWithCode(params,code,failedParse) {
+  const language=params.scriptLanguage??'JavaScript'
   if(params.url!==undefined&&typeof params.url!=='string')throw Error('unsupported compiled URL')
   // The protocol supplies these primitives. Encode the same fingerprint
   // without calling the observed native isProxy from an Inspector event.
@@ -88,6 +96,57 @@ export function compiledScriptRecord(params,source,failedParse=false) {
     value===undefined?['undefined']:[typeof value,value]])]
   return {identity:{available:true,hash:createHash('sha256').update(JSON.stringify(identity)).digest('hex')},
     code,language,kind:language==='WebAssembly'?'wasm':params.url?.startsWith('node:')?'builtin':params.url?.startsWith('file:')?'file':params.url?'named':'anonymous'}
+}
+
+// Node 24.18's Script::GetScriptHash hashes String::ToCString(), which maps
+// NUL to space and encodes UTF-16 as UTF-8. It is NOT an exact-source digest.
+// For a source consisting only of non-NUL ASCII, with no spaces, that
+// conversion has a unique preimage. Admit a cache entry only after fetching
+// the complete source and checking this restriction, its length and hash.
+// Every other source (including Wasm) keeps the complete-source path.
+export function createCompiledScriptRecorder(readSource,{maxCachedSources=256}={}) {
+  if(!Number.isSafeInteger(maxCachedSources)||maxCachedSources<0||maxCachedSources>4096)throw Error('invalid compiled source cache limit')
+  const cache=new Map()
+  let entries=0,events=0,sourceReads=0,cacheHits=0
+  function key(params) {
+    if(!pinnedSourceHash||params.isLiveEdit||(params.scriptLanguage??'JavaScript')!=='JavaScript'||
+      typeof params.hash!=='string'||params.hash.length!==64||!Number.isSafeInteger(params.length)||params.length<0)return null
+    return params.length+':'+params.hash
+  }
+  function memo(params,failedParse,record) {
+    return {url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,failedParse,
+      record:freeze({...record,identity:freeze(record.identity),code:freeze(record.code)})}
+  }
+  return {
+    record(params,failedParse=false) {
+      events++
+      const id=key(params),cached=id===null?undefined:mapGet(cache,id)
+      if(cached) {
+        cacheHits++
+        const last=cached.last
+        if(last.url!==params.url||last.isModule!==(params.isModule===true)||
+          last.hasSourceURL!==(params.hasSourceURL===true)||last.failedParse!==failedParse)
+          cached.last=memo(params,failedParse,compiledRecordWithCode(params,cached.code,failedParse))
+        return cached.last.record
+      }
+      sourceReads++
+      const source=readSource(params.scriptId),record=compiledScriptRecord(params,source,failedParse)
+      if(id!==null&&entries<maxCachedSources&&typeof source.scriptSource==='string'&&source.scriptSource.length===params.length) {
+        let injective=true
+        for(let i=0;i<source.scriptSource.length;i++) {
+          const c=charCodeAt(source.scriptSource,i)
+          if(c===0||c===32||c>127){injective=false;break}
+        }
+        if(injective&&createHash('sha256').update(source.scriptSource,'utf8').digest('hex')===params.hash) {
+          const last=memo(params,failedParse,record)
+          mapSet(cache,id,{code:last.record.code,last});entries++
+          return last.record
+        }
+      }
+      return record
+    },
+    counts:()=>({policy:'pinned-injective-ascii',enabled:pinnedSourceHash,events,sourceReads,cacheHits,entries,capacity:maxCachedSources}),
+  }
 }
 
 export function observeCompiledScripts() {

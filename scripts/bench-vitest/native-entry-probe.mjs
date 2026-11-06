@@ -30,7 +30,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       scoped?.initialize()
       nativeInspector?.initialize()
       entries.set(api,{receiver,describeOwnAccessors})
-      if(nativeCapture)return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void 0'},argumentCount:arguments.length,receiverBased:${JSON.stringify(receiver)},describeOwnAccessors:${JSON.stringify(describeOwnAccessors)}}})()`
+      if(nativeCapture)return `(()=>{throw({__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void(0)'},argumentCount:arguments.length,receiverBased:${JSON.stringify(receiver)},describeOwnAccessors:${JSON.stringify(describeOwnAccessors)}})})()`
       if(directArguments)return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},argument:${receiver?'this':'arguments.length?arguments[0]:void 0'},argumentCount:arguments.length}})()`
       return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},args:arguments,receiver:this}})()`
     },

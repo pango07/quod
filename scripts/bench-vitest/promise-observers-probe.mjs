@@ -4,7 +4,7 @@
 import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
 import {observeNativeCallArguments} from './native-call-argument.mjs'
-import {compiledScriptRecord} from './worker-module-probe.mjs'
+import {compiledScriptRecord,createCompiledScriptRecorder} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
@@ -34,11 +34,13 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   // one worker. Leave room for the faster complete run without dropping
   // condition/cleanup compilations; both dictionary dimensions stay bounded.
   const compilationLog=nativeEntries?dictionaryCompiledScriptLog(20000,4000000):compiledScriptLog(),compilationErrors=[]
+  const compilationRecorder=nativeEntries?createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId})):null
   let failedToParse=0
   function compiledEvent(params,failedParse) {
     if(!compiledScripts)return
     if(failedParse)failedToParse++
-    try{compilationLog.append(compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
+    try{compilationLog.append(compilationRecorder?compilationRecorder.record(params,failedParse):
+      compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
     catch(e){compilationErrors.push(e.message)}
   }
   session.on('Debugger.scriptParsed',({params})=>{
@@ -474,6 +476,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
         ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
         debuggerScriptCacheBytes:nativeEntries&&compiledScripts?0:null,
+        ...(compilationRecorder?{sourceCache:compilationRecorder.counts()}:{}),
         ...(nativeEntries?{scriptMetadataIndex:scripts.counts()}:{}),
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },
