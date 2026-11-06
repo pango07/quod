@@ -144,7 +144,11 @@ test('native scalar evidence rejects missing events, missing source frames and m
 test('direct scalar reads coexist with actual native proxy arguments and exact compiled source capture',()=>{
   fs.writeSync(2,'native scalar combined: registry setup\n')
   const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:true,
-    nativeEntries:true,ordinaryOwners:true,nativeTransport:'string',descriptorAccess:false})
+    nativeEntries:true,ordinaryOwners:true,nativeTransport:'string',descriptorAccess:false,
+    onInspectorCommand(command){
+      if(['Runtime.evaluate','Runtime.queryObjects'].includes(command.method))
+        fs.writeSync(2,`native scalar combined command: ${JSON.stringify(command)}\n`)
+    }})
   fs.writeSync(2,'native scalar combined: registry ready\n')
   const target={seed:123},p=observeScalarProperty(target,'seed',{observation,ownerGuard,sourceForScript:registry.sourceForScript})
   fs.writeSync(2,'native scalar combined: scalar installed\n')

@@ -26,7 +26,7 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false,nativeEntries=false,ordinaryOwners=false,nativeTransport='protocol'}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false,nativeEntries=false,ordinaryOwners=false,nativeTransport='protocol',onInspectorCommand=null}={}) {
   if(ordinaryOwners&&!nativeEntries)throw Error('ordinary owner scope requires native entry observation')
   if(!['protocol','string'].includes(nativeTransport)||nativeTransport==='string'&&!nativeEntries)throw Error('invalid native transport')
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
@@ -143,8 +143,10 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   function post(method,params={}) {
     const started=inspectorTiming?monotonicNow():null
     try {
+      onInspectorCommand?.({method,contextId:params.contextId??null,phase:'start'})
       let done=false,result,error
       session.post(method,params,(e,r)=>{done=true;error=e;result=r})
+      onInspectorCommand?.({method,contextId:params.contextId??null,phase:'end'})
       if (!done || error) throw Error(!done ? 'asynchronous inspector response' : 'inspector request failed')
       return result
     }finally {
