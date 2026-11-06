@@ -14,6 +14,8 @@ import {validateCompilationCounts} from './compiled-script-log.mjs'
 import {validateNativeEntryLog} from './native-entry-log.mjs'
 
 const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+test.beforeEach(t=>fs.writeSync(2,`native scalar fixture start: ${t.name}\n`))
+test.afterEach(t=>fs.writeSync(2,`native scalar fixture end: ${t.name}\n`))
 const ownerGuard=nativeOwnerGuard(),observation='native-data'
 const ownSourceHash=createHash('sha256').update(fs.readFileSync(new URL(import.meta.url),'utf8'),'utf16le').digest('hex')
 function graph() {
