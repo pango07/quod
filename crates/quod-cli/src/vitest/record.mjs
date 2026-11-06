@@ -49,7 +49,7 @@ const NPM_HOME = process.env.HOME ? path.join(process.env.HOME, '.npm') : null
 const NPM_OWN = NPM_HOME ? path.join(NPM_HOME, '_logs') : null
 const SKIP_NM = ['/node_modules/.vite/', '/node_modules/.vitest/', '/node_modules/.cache/']
 
-export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null, booleanProof = null }) {
+export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = null, namesProof = null, booleanProof = null, statProof = booleanProof }) {
   const keys = new Set()
   // A made directory's other spelling (its real path, and back), when they differ.
   const alias = new Map()
@@ -69,6 +69,7 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     mode, // 'main' | 'worker'
     namesProof,
     booleanProof,
+    statProof,
     keys,
     writes: new Set(),
     // paths first written while absent (scratch() drops those gone again)
@@ -483,7 +484,7 @@ export function patchFs(r, { sync = true } = {}) {
   // establishes that only its file/directory type is consumed.
   wrap(fs, 'stat', (a) => r.add('sm', a[0]))
   wrap(P, 'stat', (a) => r.add('sm', a[0]))
-  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.booleanProof?.statType(a) ? 'st' : 'sm', a[0]))
+  wrap(fs, 'statSync', (a) => r.add(r.mode === 'main' && r.statProof?.statType(a) ? 'st' : 'sm', a[0]))
   both(['lstat'], (a) => r.add('sl', a[0]))
   both(['access'], (a) => {
     const mode = a[1] ?? 0

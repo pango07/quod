@@ -5,9 +5,10 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 
-const [projectArg, binary] = process.argv.slice(2)
+const [projectArg, binary, proofMode = 'off'] = process.argv.slice(2)
+assert.ok(['off', 'names', 'all'].includes(proofMode))
 const project = path.resolve(projectArg)
-const out = '/tmp/quod-stat-audit/evidence'
+const out = `/tmp/quod-stat-audit/evidence${proofMode === 'off' ? '' : '-'+proofMode}`
 fs.mkdirSync(out, { recursive: true })
 const input = path.join(project, 'metadata-input.txt')
 fs.writeFileSync(input, 'These bytes never change.\n')
@@ -29,14 +30,16 @@ test('callback mtime', async () => {
 test('lstat mtime', () => expect(fs.lstatSync(file).mtimeMs).toBe(1577836800000));
 test('mode', () => expect(fs.statSync(file).mode & 0o777).toBe(0o644));
 `)
-const env = { ...process.env, QUOD_VITEST_LINEAGE: '0', QUOD_VITEST_TIMING: 'off' }
+const env = { ...process.env, QUOD_VITEST_LINEAGE: '0', QUOD_VITEST_TIMING: 'off',
+  QUOD_VITEST_NAMES_PROOF: proofMode === 'off' ? '0' : '1',
+  QUOD_VITEST_BOOLEAN_PROOF: proofMode === 'all' ? '1' : '0' }
 const runs = []
 function run(label, plain = false) {
   const report = path.join(out, `${label}-report.json`)
   const summary = path.join(out, `${label}-summary.json`)
   const args = plain
     ? ['node', 'node_modules/vitest/vitest.mjs', 'run', '--reporter=json', `--outputFile=${report}`]
-    : [binary, 'vitest', '--dir', '/tmp/quod-stat-audit/state', '--audits', '0',
+    : [binary, 'vitest', '--dir', `/tmp/quod-stat-audit/state-${proofMode}`, '--audits', '0',
       '--report', report, '--summary', summary, '--', 'run']
   const result = spawnSync(args[0], args.slice(1), { cwd: project, env, encoding: 'utf8', timeout: 90000 })
   fs.writeFileSync(path.join(out, `${label}.log`), (result.stdout ?? '') + (result.stderr ?? ''))

@@ -81,9 +81,14 @@ const nearFactor = Number.isFinite(Number(plan.nearTimeout)) && Number(plan.near
 // correctness and benefit. The flag is an input even when disabled.
 const namesProof = hooks && process.env.QUOD_VITEST_NAMES_PROOF === '1'
   ? (await import('./names-proof.mjs')).createNamesProof() : null
-const booleanProof = hooks && process.env.QUOD_VITEST_BOOLEAN_PROOF === '1'
+const booleanEnabled = hooks && process.env.QUOD_VITEST_BOOLEAN_PROOF === '1'
+// File-type proofs apply to both manifest refinements. Keeping them
+// separate prevents enabling names-only refinement from also enabling
+// the experimental truthiness refinement of manifest values.
+const statProof = namesProof || booleanEnabled
   ? (await import('./boolean-proof.mjs')).createBooleanProof({internalFiles:[new URL('./record.mjs', import.meta.url).href]}) : null
-const r = createRecorder({ stateDir, codeDir, mode: 'main', namesProof, booleanProof })
+const booleanProof = booleanEnabled ? statProof : null
+const r = createRecorder({ stateDir, codeDir, mode: 'main', namesProof, booleanProof, statProof })
 r.keys.add('env:QUOD_VITEST_NAMES_PROOF')
 r.keys.add('env:QUOD_VITEST_BOOLEAN_PROOF')
 r.on = hooks
@@ -646,9 +651,9 @@ if (namesProof) {
   namesProof.close()
   console.error(`[quod] config names proof ${JSON.stringify(namesProof.stats)}`)
 }
-if (booleanProof) {
-  booleanProof.close()
-  console.error(`[quod] config boolean proof ${JSON.stringify(booleanProof.stats)}`)
+if (statProof) {
+  statProof.close()
+  console.error(`[quod] config ${booleanEnabled ? 'boolean' : 'stat'} proof ${JSON.stringify(statProof.stats)}`)
 }
 
 // Results and records of the files that ran.

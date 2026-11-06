@@ -55,7 +55,7 @@ test('modified parser intrinsics fail closed', () => {
   assert.deepEqual(run('globalThis.pkg.exports ? 1 : 0', {prelude:'const prior=Object.values; Object.values=function(x){return prior(x)};'}).reads, [false])
 })
 
-function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false} = {}) {
+function recorded(expression, {extra='', prelude='', enabled=true, resolver=true, names=false, statEnabled=enabled} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quod-boolean-recorder-'))
   try {
     fs.writeFileSync(path.join(dir,'package.json'), JSON.stringify({name:'x', exports:{'.':'./a.js'}, devDependencies:{unused:'1'}}))
@@ -73,11 +73,12 @@ ${extra}`)
 import {createBooleanProof} from ${JSON.stringify(new URL('./boolean-proof.mjs', import.meta.url).href)};
 import {createNamesProof} from ${JSON.stringify(new URL('./names-proof.mjs', import.meta.url).href)};
 const booleanProof = ${enabled} ? createBooleanProof({internalFiles:[${JSON.stringify(recordUrl)}]}) : null;
+const statProof = ${statEnabled} ? booleanProof ?? createBooleanProof({internalFiles:[${JSON.stringify(recordUrl)}]}) : null;
 const namesProof = ${names} ? createNamesProof() : null;
-const r=createRecorder({stateDir:'/nonexistent-state',mode:'main',booleanProof,namesProof}); patchFs(r);
+const r=createRecorder({stateDir:'/nonexistent-state',mode:'main',booleanProof,namesProof,statProof}); patchFs(r);
 const m=await import(${JSON.stringify(config)});
 const keys=[...settledKeys(r)].filter(k=>k.includes('/package.json')).map(k=>k.replace(process.cwd()+'/', ''));
-booleanProof?.close(); namesProof?.close(); console.log(JSON.stringify({keys,value:m.value,stats:booleanProof?.stats}));`)
+statProof?.close(); if(booleanProof!==statProof)booleanProof?.close(); namesProof?.close(); console.log(JSON.stringify({keys,value:m.value,stats:statProof?.stats}));`)
     const result=spawnSync(process.execPath,[runner],{cwd:dir,encoding:'utf8',timeout:10000})
     assert.equal(result.status,0,result.stderr || String(result.error))
     return JSON.parse(result.stdout)
@@ -119,6 +120,21 @@ test('the names proof remains conservative when the object has another use', () 
 })
 
 const statHelper = 'function tryStatSync(file) { try { return fs.statSync(file, {throwIfNoEntry:false}); } catch {} }'
+test('names-only mode can prove a stat type without refining manifest truthiness', () => {
+  const result=recorded('!!pkg.exports',{enabled:false,statEnabled:true,names:true,
+    prelude:`${statHelper}\nconst file='package.json'; export const type=tryStatSync(file)?.isFile();`})
+  assert.ok(result.keys.includes('st:package.json'))
+  assert.ok(result.keys.includes('pj:package.json'))
+  assert.deepEqual(query(result),[])
+  assert.equal(result.stats.boolean,0)
+})
+test('names-only mode keeps full metadata for an unknown stat consumer', () => {
+  const result=recorded('!!pkg.exports',{enabled:false,statEnabled:true,names:true,
+    prelude:`${statHelper}\nconst file='package.json'; export const time=tryStatSync(file).mtimeMs;`})
+  assert.ok(result.keys.includes('sm:package.json'))
+  assert.equal(result.keys.includes('st:package.json'),false)
+  assert.deepEqual(query(result),[])
+})
 test('only an immediate native file-type consumer qualifies for stat narrowing', () => {
   for (const expression of ['tryStatSync(file)?.isFile()', 'tryStatSync(file).isDirectory()', '!tryStatSync(file)', 'tryStatSync(file) ? 1 : 0']) {
     const proof=certifyStatTypeReads(`${statHelper}\nconst value=${expression}`)
