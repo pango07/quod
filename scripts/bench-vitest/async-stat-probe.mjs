@@ -4,8 +4,11 @@ import fs from 'node:fs'
 import {promiseHooks} from 'node:v8'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 
 export function observeAsyncStat(project) {
+  const observerRegistry=inspectPromiseObservers()
+  const initialObservers=observerRegistry.snapshot()
   const original=fs.promises.stat, NativeStats=fs.Stats
   const descriptors=Object.getOwnPropertyDescriptors, descriptor=Object.getOwnPropertyDescriptor
   const getPrototypeOf=Object.getPrototypeOf, ownKeys=Reflect.ownKeys, apply=Reflect.apply
@@ -38,7 +41,7 @@ export function observeAsyncStat(project) {
     before(p) {
       stack.push({promise:p,prior:active});active=p
       const state=promises.get(p)
-      if(state) state.before.push({pristine:pristine(),asyncHooks:counts()})
+      if(state) state.before.push({pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()})
     },
     after(p) {
       const frame=stack.pop()
@@ -49,12 +52,12 @@ export function observeAsyncStat(project) {
       const state=promises.get(p)
       if(!state) return
       const creator=active && promises.get(active)
-      state.settled={insidePromise:creator?.id??null,insideOperation:creator?.op??null,pristine:pristine(),asyncHooks:counts()}
+      state.settled={insidePromise:creator?.id??null,insideOperation:creator?.op??null,pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()}
     },
   })
   fs.promises.stat=function stat(...args) {
     const op={id:calls.length+1,path:typeof args[0]==='string'?path.relative(project,path.resolve(args[0])):'<non-string>',
-      stack:new Error().stack.split('\n').slice(2,10).join('\n'),before:{pristine:pristine(),asyncHooks:counts()},promises:[],root:null}
+      stack:new Error().stack.split('\n').slice(2,10).join('\n'),before:{pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()},promises:[],root:null}
     calls.push(op)
     const prior=scope;scope=op
     try {
@@ -67,7 +70,7 @@ export function observeAsyncStat(project) {
   }
   return {
     report() {
-      return {replayEligible:false,eventMismatch,
+      return {replayEligible:false,eventMismatch,initialObservers,
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
@@ -79,6 +82,6 @@ export function observeAsyncStat(project) {
         }),
         unvalidated:['other promise observers','preload effects','native bindings','all result consumers','outcome and error projection']}
     },
-    close(){stop()},
+    close(){stop();observerRegistry.close()},
   }
 }

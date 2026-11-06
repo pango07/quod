@@ -777,6 +777,9 @@ jobs:
       - name: Boolean-context proof adversarial regressions
         if: inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs
+      - name: Passive promise observer diagnostic regressions
+        if: inputs.only == 'benchmark-query-runtime-stat'
+        run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs
       - name: Config proof regression tests
         if: inputs.only == 'benchmark-config'
         run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs
