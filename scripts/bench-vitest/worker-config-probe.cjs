@@ -11,9 +11,14 @@ const apply = Reflect.apply
 const write = fs.writeFileSync
 
 function observeConfig(config) {
-  const cache = new WeakMap(), events = new Map(), gaps = new Set(), stacks = []
+  const cache = new WeakMap(), events = new Map(), gaps = new Set(), gapPaths = new Map(), stacks = []
   let overflow = false
   const segment = key => typeof key === 'symbol' ? `[symbol:${key.description ?? ''}]` : key
+  const gap = (reason, keys) => {
+    gaps.add(reason)
+    if (gapPaths.size < 10000) gapPaths.set(JSON.stringify([reason, keys]), { reason, path: keys })
+    else overflow = true
+  }
   function note(operation, keys) {
     const id = JSON.stringify([operation, keys])
     if (events.has(id)) events.get(id).count++
@@ -26,10 +31,10 @@ function observeConfig(config) {
   function wrap(value, keys) {
     if (!value || typeof value !== 'object') return value
     if (cache.has(value)) return cache.get(value)
-    if (types.isProxy(value)) { gaps.add('existing proxy'); return value }
+    if (types.isProxy(value)) { gap('existing proxy', keys); return value }
     const p = getPrototype(value)
     if (p !== Object.prototype && p !== Array.prototype && p !== null) {
-      gaps.add('non-plain object'); return value
+      gap('non-plain object', keys); return value
     }
     const canReplace = (target, key) => {
       const d = getDescriptor(target, key)
@@ -41,7 +46,7 @@ function observeConfig(config) {
         note('get', next)
         const v = Reflect.get(target, key, receiver)
         if (!canReplace(target, key)) {
-          if (v && typeof v === 'object') gaps.add('fixed object property')
+          if (v && typeof v === 'object') gap('fixed object property', next)
           return v
         }
         return wrap(v, next)
@@ -52,7 +57,7 @@ function observeConfig(config) {
         note('descriptor', [...keys, segment(key)])
         const d = getDescriptor(target, key)
         if (d && own(d, 'value') && d.value && typeof d.value === 'object') {
-          if (!d.configurable) { gaps.add('fixed descriptor object'); return d }
+          if (!d.configurable) { gap('fixed descriptor object', [...keys, segment(key)]); return d }
           return { ...d, value: wrap(d.value, [...keys, segment(key)]) }
         }
         return d
@@ -77,19 +82,19 @@ function observeConfig(config) {
   return {
     value,
     report: () => ({ replayEligible: false, proxyObservable: true, nativeReadsExcluded: false,
-      overflow, gaps: [...gaps], events: [...events.values()], seedStacks: stacks }),
+      overflow, gaps: [...gaps], gapPaths: [...gapPaths.values()], events: [...events.values()], seedStacks: stacks }),
   }
 }
 
-module.exports = { observeConfig }
-
-const reportDir = process.env.QUOD_WORKER_CONFIG_REPORT_DIR
-if (reportDir && path.isAbsolute(reportDir) && typeof process.send === 'function') {
+function installProcessProbe(observerRegistry = null) {
+  const reportDir = process.env.QUOD_WORKER_CONFIG_REPORT_DIR
+  if (!reportDir || !path.isAbsolute(reportDir) || typeof process.send !== 'function') return
   const reports = [], unknown = [], originalSend = process.send
   const reportFile = path.join(reportDir, `${process.pid}.json`)
   const flush = () => {
     try {
       write(reportFile, JSON.stringify({ replayEligible: false, unknown,
+        native: observerRegistry ? { opaque: observerRegistry.opaqueAccess(), inspector: observerRegistry.inspectorAccess() } : null,
         reports: reports.map(r => ({ project: r.project, files: r.files, ...r.observer.report() })) }) + '\n')
     } catch { /* missing evidence makes the parent check fail */ }
   }
@@ -115,3 +120,6 @@ if (reportDir && path.isAbsolute(reportDir) && typeof process.send === 'function
     return apply(originalSend, this, args)
   }
 }
+
+module.exports = { observeConfig, installProcessProbe }
+if (process.env.QUOD_WORKER_CONFIG_NATIVE_PROBE !== '1') installProcessProbe()

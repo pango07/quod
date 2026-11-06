@@ -36,8 +36,9 @@ if(phase) {
     fs.mkdirSync(directory,{recursive:true})
     const original=V.ForksPoolWorker.prototype.start
     V.ForksPoolWorker.prototype.start=function(...args) {
-      this.execArgv=['--require',fileURLToPath(new URL('./worker-config-probe.cjs',import.meta.url)),...this.execArgv]
-      this.env={...this.env,QUOD_WORKER_CONFIG_REPORT_DIR:directory}
+      const native=process.env.QUOD_WORKER_CONFIG_NATIVE_PROBE==='1'
+      this.execArgv=[native?'--import':'--require',fileURLToPath(new URL(native?'./worker-config-bootstrap.mjs':'./worker-config-probe.cjs',import.meta.url)),...this.execArgv]
+      this.env={...this.env,QUOD_WORKER_CONFIG_REPORT_DIR:directory,QUOD_WORKER_CONFIG_NATIVE_PROBE:native?'1':'0'}
       return Reflect.apply(original,this,args)
     }
   }
@@ -127,6 +128,16 @@ if(phase) {
       observations:seedReads.flatMap(w=>w.events.filter(e=>e.path.join('.')==='sequence.seed').map(e=>({project:w.project,files:w.files,...e}))),
       plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
       limitation:'Proxy observations cannot exclude native reads or prove that unobserved fields are irrelevant'}
+    if(process.env.QUOD_WORKER_CONFIG_NATIVE_PROBE==='1') {
+      assert(reports.every(r=>r.native?.opaque.available&&r.native.inspector.available),'native observation must be available in every worker')
+      const entries=reports.flatMap(r=>r.native.opaque.entries.flatMap(e=>e.entries))
+      const counts=Object.fromEntries([...new Set(entries)].sort().map(k=>[k,entries.filter(e=>e===k).length]))
+      configResult.native={workers:reports.length,entryCounts:counts,
+        workersWithOpaqueEntries:reports.filter(r=>r.native.opaque.entries.length>0).length,
+        workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
+        workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
+        replayEligible:false}
+    }
     write(path.join(out,'worker-config-result.json'),configResult)
     console.log(JSON.stringify(configResult,null,2))
   }
