@@ -1,0 +1,3131 @@
+{
+  "commit": "df8448c",
+  "run": "https://github.com/pango07/quod/actions/runs/42168453693",
+  "conclusion": "success",
+  "regressionTests": 3,
+  "runner": {
+    "image": "ubuntu-26.04",
+    "version": "20261101.186.1"
+  },
+  "node": "v24.18.0",
+  "vitest": "5.0.0",
+  "artifactHashes": {
+    "before-inputs.json": "0b80cbfb8396df9be7158981755104274a863d598c945b172d4ce4b3b5037a0b",
+    "after-inputs.json": "0c9f94f8aaedfd4d63b757afd3b589cdb30b620dc9ea9aebd39cf9ee1be70119",
+    "result.json": "7f19c91076e18b730b59397b42e965f238066f538c0d93a753bece086a127552"
+  },
+  "loaderOnly": {
+    "equalWorkerTranscripts": 0,
+    "methods": {
+      "fetch": {
+        "beforeRequests": 414,
+        "afterRequests": 417,
+        "sameArguments": 363,
+        "sameResponse": 79
+      },
+      "fetchWarmModules": {
+        "beforeRequests": 118,
+        "afterRequests": 118,
+        "sameArguments": 118,
+        "sameResponse": 0
+      },
+      "resolve": {
+        "beforeRequests": 122,
+        "afterRequests": 122,
+        "sameArguments": 122,
+        "sameResponse": 122
+      },
+      "resolveSnapshotPath": {
+        "beforeRequests": 119,
+        "afterRequests": 119,
+        "sameArguments": 119,
+        "sameResponse": 119
+      }
+    }
+  },
+  "changedFields": {
+    "configChanged": {
+      "sequence": 120
+    },
+    "startPacketChanged": {
+      "context": 120,
+      "poolId": 93,
+      "workerId": 78
+    },
+    "startContextChanged": {
+      "config": 120
+    },
+    "runContextChanged": {
+      "workerId": 78
+    }
+  },
+  "result": {
+    "replayEligible": false,
+    "metadataOnly": true,
+    "changes": [
+      {
+        "file": "example-ui/src/components/Counter.injection.test.tsx",
+        "contentSha256": "12935b21556514d13ce12f36e3daf534677a18aee5cacc7e9eeee6594ad1f6bd",
+        "mtimeChanged": true
+      },
+      {
+        "file": "example-ui/src/components/Counter.mock.test.tsx",
+        "contentSha256": "38fb1fa05bc48cc75cf5dd4013a8056dc6732301bae2fd2c2f71ad0afc096827",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/browser.test.ts",
+        "contentSha256": "7ddc21e36493d08c848bea3fd195f8766df0ab5bed397083049d1832bede73e9",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/cli/functions.test.ts",
+        "contentSha256": "45a1dabe32a854281db3ef4dee7afbaee086671bcdcf8d4c210dbdbde6a37b07",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/cli/openApiSpec.test.ts",
+        "contentSha256": "0a9be5c3ace176b743d00510dd677c803f4fcf589c67b9a84d38818316e31a42",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "contentSha256": "fb22ef5b071334b186fbdebfbae0f8c595cfec0fbe120e06004d4905a09fc8ad",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/functionReferences.test.ts",
+        "contentSha256": "09544a8dd35b40754de45d058ccb5627f86c7248c12ba3ce1a55c6ad3dd65fa6",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/index.test.ts",
+        "contentSha256": "06e78a6fd8e397384c1c2d8b1e38939755882d8ba0d6017d5946cdb468564b2f",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/react.test.ts",
+        "contentSha256": "4bb81122439a3d033cab091ec5919dd3e4c12d7b17bab30ca758b68aab1879e3",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/react/sessions.test.ts",
+        "contentSha256": "f62392316f5c7c07cd1f6f9b459bc177d6e1fe387e00168c982aa9d948e449bf",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/cors.test.ts",
+        "contentSha256": "b015e8f4a6c9954af616da6df8b7f650f81c6f975fb91264b46fffabc0e5b0c1",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/crud.test.ts",
+        "contentSha256": "e96f180e490e9852aadab217b48a4d3c05726a334a48a1ae3ffc881a0f2f485a",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/customFunctions.test.ts",
+        "contentSha256": "5cc42ffbbf1a6c75256fc76eaea9c08d52d4d4623a2e436cf575beccfb0fb56f",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/filter.test.ts",
+        "contentSha256": "f92471c5d18cfd91d56653f88c23468d00f490424d99496dab375061e551aab1",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/pagination.test.ts",
+        "contentSha256": "9accbc990a0c7ff1af495959a8306d185f5e679ef76c0e3f99b463c3b85576f5",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/rateLimit.test.ts",
+        "contentSha256": "332ef7ea393eb5f887081b75a77203ba47b20a0534d1eaa3023db27750d8e764",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/relationships.test.ts",
+        "contentSha256": "f29b2fe06edc0273bc08b38f23b6ce7c4d8296c09167ff4f5b7b6036d7ea9677",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/rowLevelSecurity.test.ts",
+        "contentSha256": "862c207707c2b93ce02a0be744503a5fb3aae17f6901ec88d215131498cdcc00",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/setup.test.ts",
+        "contentSha256": "3d160ef1f404281582ce5a5de1581c84000a2eadfd4038186eed73a54e2c6568",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/stream.distinct.test.ts",
+        "contentSha256": "b44ad0fa43ba8a206b2979bee91f1515885531178a8f6c93fc6e98465940848d",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/stream.flatmap.test.ts",
+        "contentSha256": "f1da1be613112c860a9d8807e90217c9c47bea238cd72e936d6548ac1fa317f4",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/stream.property.test.ts",
+        "contentSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/stream.test.ts",
+        "contentSha256": "4ff20b9795efcb7dea914694b8966353a5ec70fa2a1baebb26fea25570d0184e",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/table.test.ts",
+        "contentSha256": "439b4d8a9e6041dbf4bbb875a234b0ad07f9c04e50d9125f8f3ef7e2dbf8033d",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/triggers.test.ts",
+        "contentSha256": "4b8388f228a54d0cce42fc4ee5785ecd82d3e11ec8adadbcfb7a570c8330a99c",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/validators.test.ts",
+        "contentSha256": "d6440ee9111693d733a88642ac9543b46b3f0fa74f4fde8519ff7824a84b63b0",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "contentSha256": "25989a642972a08e2772b8c200bf0b16413a5a3cb2358513978bb81419822af4",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "contentSha256": "74f160651834674835a813eabffb7d471aeb1a7fb369669ef8d3ef85f7186b13",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "contentSha256": "3b1c5b740dfe5772e11436cdee02273be26c168bfcb6b431df1a04075ea17e51",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "contentSha256": "3d247262e7a463b0ca936bfdbf3272116b6e9f1ce8904a5f9da016a4b71c7231",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "contentSha256": "e45bbcf97a3908d3278142702121bca0f1d7eadfb91e57e17b5085f9fcb6e4f7",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "contentSha256": "3ccfd49b3d5668695c94027bfab7b837ffdd2d0710da5af5fbd0b6d75ce11ffd",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "contentSha256": "22352bbe72745b88e61329803df09990f00da15074569eed4b9de8c2aa3b94ac",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "contentSha256": "79cd463d75d2205a8ce2be3301e64b53f8edc0d02ac64b26bc3e04eee861d172",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "contentSha256": "9e061e33ee8c4b1281f6e2ef251d87a154b352a745fdefd5db9c3fed306a689b",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "contentSha256": "918cf518abc11ba61029fbaff2ade966bba819fd6be913ed748bbbee831a3f67",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "contentSha256": "6cdd7ffb87e304800c38b617402dce185cf9293cd02d5e0d5780df29ed272e49",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "contentSha256": "6c770600859023792bf7b39316bbff129064f358497f9781d37d67d9c4760a37",
+        "mtimeChanged": true
+      },
+      {
+        "file": "packages/convex-helpers/validators.test.ts",
+        "contentSha256": "ee04a82b67a41fca8fd23a1ec5c19613c3ff3254ada2bd5ae1a684f126feda99",
+        "mtimeChanged": true
+      }
+    ],
+    "first": {
+      "files": 120,
+      "states": 4131,
+      "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "paths": [
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.injection.test.tsx",
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/browser.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/functions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/functionReferences.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/index.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react/sessions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/cors.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/crud.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/customFunctions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/filter.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/pagination.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rateLimit.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/relationships.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rowLevelSecurity.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/setup.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.distinct.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.flatmap.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/table.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/triggers.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/validators.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/validators.test.ts"
+      ]
+    },
+    "second": {
+      "files": 120,
+      "states": 4131,
+      "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "paths": [
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.injection.test.tsx",
+        "/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/browser.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/functions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/functionReferences.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/index.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react/sessions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/cors.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/crud.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/customFunctions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/filter.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/pagination.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rateLimit.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/relationships.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rowLevelSecurity.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/setup.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.distinct.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.flatmap.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/table.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/triggers.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/validators.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts",
+        "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/validators.test.ts"
+      ]
+    },
+    "before": {
+      "workers": 120,
+      "runs": 120,
+      "methods": {
+        "onQueued": 120,
+        "resolve": 122,
+        "fetch": 414,
+        "fetchWarmModules": 118,
+        "onCollected": 120,
+        "resolveSnapshotPath": 119,
+        "onTaskUpdate": 286,
+        "snapshotSaved": 119
+      },
+      "unsupported": {},
+      "pending": 0,
+      "unknown": 0,
+      "errors": [],
+      "failures": []
+    },
+    "after": {
+      "workers": 120,
+      "runs": 120,
+      "methods": {
+        "onQueued": 120,
+        "resolve": 122,
+        "fetch": 417,
+        "fetchWarmModules": 118,
+        "onCollected": 120,
+        "resolveSnapshotPath": 119,
+        "onTaskUpdate": 284,
+        "snapshotSaved": 119
+      },
+      "unsupported": {},
+      "pending": 0,
+      "unknown": 0,
+      "errors": [],
+      "failures": []
+    },
+    "pairedWorkers": 120,
+    "comparableRpcWorkers": 120,
+    "equalRpcWorkers": 0,
+    "comparisons": [
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 18,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 19,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 33,
+        "requestsAfter": 35
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/validators.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/relationships.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/customFunctions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/pagination.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.distinct.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/cors.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rateLimit.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/rowLevelSecurity.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/crud.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/functionReferences.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 21,
+        "requestsAfter": 17
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/validators.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/triggers.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.flatmap.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 8,
+        "requestsAfter": 8
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react/sessions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/openApiSpec.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 18,
+        "requestsAfter": 19
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/table.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/react.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 18,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/browser.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/index.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/filter.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/tsApiSpec.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 12,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"f71596c0510554e85b01d9d1296fb715dfdaa4c71ecdb60ed3746e410228065e\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/setup.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 8,
+        "requestsAfter": 8
+      },
+      {
+        "key": "[\"7139e95376c277e538517f5d2bff246f1a95e2e572a88bdefe3018657f1737db\",[[\"/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.mock.test.tsx\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 19,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"7139e95376c277e538517f5d2bff246f1a95e2e572a88bdefe3018657f1737db\",[[\"/home/runner/work/quod/quod/profile-project/example-ui/src/components/Counter.injection.test.tsx\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 20
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 17,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"0031aac6e724b58e1f96cc2631e52ef024165eef75c125c64eb4355f4e372506\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 20
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"5d0cf18ff2390a9baa6fd67148d17d401eb3aaf2f23283d41b7683e23b6a596d\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 20
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 18,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"4d65bfc709bed9a6005c1160cf9a52efd08f2843e4d81ec5d8e0196a8ffee55b\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 19
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 17,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 19
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"47cb699e9b657cd046fa5a6008cfe0a41ef1b6561786769af671335adfef2d4c\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 20
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 14,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 10
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"daee77d43ad785a51bcfd061d3900b2da33ca57b015b176100392346aa0f3579\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 20,
+        "requestsAfter": 20
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 12
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"bbb01ef743c9ffb69a13dc24550511c0d9ea8085db895618bcf0c97cf1cfc924\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 19,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 18,
+        "requestsAfter": 18
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 10,
+        "requestsAfter": 11
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.convextozod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 15,
+        "requestsAfter": 15
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.zod41.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId",
+          "workerId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [
+          "workerId"
+        ],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 9,
+        "requestsAfter": 9
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/standardSchema.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context",
+          "poolId"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 13,
+        "requestsAfter": 13
+      },
+      {
+        "key": "[\"30ea4674b11d9122fe0b0463956923c6c2022fd2e8f43ad73ed5934f4c6e26f1\",[[\"/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zodVersion.test.ts\"]]]",
+        "matched": true,
+        "configChanged": [
+          "sequence"
+        ],
+        "startPacketChanged": [
+          "context"
+        ],
+        "startContextChanged": [
+          "config"
+        ],
+        "runContextChanged": [],
+        "envEqual": true,
+        "execArgvEqual": true,
+        "rpcComparable": true,
+        "rpcEqual": false,
+        "requestsBefore": 11,
+        "requestsAfter": 11
+      }
+    ],
+    "limitations": [
+      "unobserved worker channels and side effects are not excluded",
+      "hashing a temporary-module pathname does not hash its contents",
+      "RPC validation must preserve ordering and stateful parent behavior",
+      "matching packets alone do not prove worker dependency completeness"
+    ]
+  }
+}

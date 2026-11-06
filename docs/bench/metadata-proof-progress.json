@@ -547,5 +547,33 @@
     "replayed": 0,
     "capabilityCertified": false,
     "asyncSizeKeyEnabled": false
+  },
+  "workerInputDiagnostic": {
+    "evidence": "worker-input-boundary.json",
+    "run": 42168453693,
+    "commit": "df8448c",
+    "regressionTests": 3,
+    "statesPerRun": 4131,
+    "runs": 2,
+    "testFilesWithMetadataChanged": 39,
+    "workersPerRun": 120,
+    "equalLoaderTranscripts": 0,
+    "replayEligible": false
+  },
+  "correctedWindow": {
+    "run": 42167641326,
+    "status": "in_progress",
+    "harness": "62a5c2d80e061cc89e16fbd17b7ece4dcfb668fd",
+    "action": "1aa08cacec95f243aa12adafdf815f68213c2783",
+    "engine": "081f20a8ec1c8f1c05b0dc1d9ece4139342eae95",
+    "commits": 12,
+    "end": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+    "variants": [
+      "floor",
+      "plain",
+      "quod-proof",
+      "quod-ts-proof"
+    ],
+    "warm_first": false
   }
 }
