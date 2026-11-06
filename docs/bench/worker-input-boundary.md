@@ -1889,4 +1889,25 @@ delivery. Assignment coverage is reported as unavailable, and intermediate
 assignments remain an explicit gap. The refinement passes
 [25 native regressions](https://github.com/pango07/quod/actions/runs/42290495231)
 and [259 shared regressions](https://github.com/pango07/quod/actions/runs/42290495140).
-Its full workload is running separately; it changes no production replay rule.
+Its [full workload](https://github.com/pango07/quod/actions/runs/42290701594)
+also passes: 362 preflight tests, all 120 file/project instances in each phase,
+and the same 4,131 states. The plain baseline takes 51.778 seconds; the
+observed phases take 70.275 and 69.314 seconds (1.357x and 1.339x baseline).
+Different baseline performance prevents attributing the absolute difference
+from the previous run to this code change.
+
+All workers confirm unchanged graph data properties and unavailable assignment
+counts. Each phase still reconciles 2,581 scalar reads, with zero seed reads,
+recorded metadata errors/gaps or transport failures. Evaluator code sequences
+match in all 120 workers. The exact-source partition has 6,070 unmatched
+anonymous events per phase and matching unmatched sequences in every worker.
+Combined remaining event sequences match in 78 workers; their multisets and
+non-Wasm sequences match in all 120. These are diagnostic comparisons, not
+replay predicates. [Evidence and artifact digests](worker-graph-data-full.json)
+retain the complete measurement. No production replay rule changes.
+
+The next implementation barrier is initial ownership: proving that the
+configuration and transport metadata reached the observer before application
+code could copy their values. The configuration proxy and added Promise
+reaction also remain observable. Worker filesystem/environment inputs and
+parent RPC effects must still be accounted for before enabling reuse.
