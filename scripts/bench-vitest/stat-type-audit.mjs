@@ -18,10 +18,10 @@ export default {css:{postcss:{}},test:{include:isFile ? ['tests/add.test.js'] : 
 `)
 const env={...process.env,QUOD_VITEST_NAMES_PROOF:'1',QUOD_VITEST_BOOLEAN_PROOF:'0',QUOD_VITEST_LINEAGE:'0',QUOD_VITEST_TIMING:'off'}
 const runs=[]
-function run(label,plain=false) {
+function run(label,plain=false,noRecord=false) {
   const report=path.join(out,label+'-report.json'), summary=path.join(out,label+'-summary.json')
   const args=plain ? ['node','node_modules/vitest/vitest.mjs','run','--reporter=json',`--outputFile=${report}`]
-    : [binary,'vitest','--dir',path.join(out,'state'),'--audits','0','--report',report,'--summary',summary,'--','run']
+    : [binary,'vitest',...(noRecord?['--no-record']:[]),'--dir',path.join(out,'state'),'--audits','0','--report',report,'--summary',summary,'--','run']
   const r=spawnSync(args[0],args.slice(1),{cwd:project,env,encoding:'utf8',timeout:90000})
   fs.writeFileSync(path.join(out,label+'.log'),(r.stdout??'')+(r.stderr??''))
   assert.equal(r.error,undefined)
@@ -122,8 +122,15 @@ export default {css:{postcss:{}},test:{include:selected ? ['tests/add.test.js'] 
   assert.deepEqual(changed.states,plain.states)
   originRegressions.push({kind,replayed:changed.summary.replayed,selectedTests:plain.states.length,wrong:0})
 }
+delete env.NODE_OPTIONS
+fs.writeFileSync(path.join(project,'vitest.config.mjs'),`
+if((process._preload_modules??[]).some(p=>p.endsWith('/origin-preload.cjs')))throw Error('plain mode loaded the proof bootstrap');
+export default {css:{postcss:{}},test:{include:['tests/add.test.js']}};
+`)
+const noRecord=run('no-record-without-proof-preload',false,true)
+assert.deepEqual(noRecord.states,run('no-record-plain-comparison',true).states)
 fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({wrong:0,metadataReplayed:metadata.summary.replayed,
   typeChangeReplayed:changed.summary.replayed,selectedTests:plain.states.length,
   prototypeMetadataReplayed:prototypeChanged.summary.replayed,prototypeSelectedTests:prototypePlain.states.length,
   startupMetadataReplayed:startupChanged.summary.replayed,startupSelectedTests:startupPlain.states.length,
-  originRegressions},null,2))
+  originRegressions,noRecordPreloadAbsent:true},null,2))

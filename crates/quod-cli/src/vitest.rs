@@ -1195,7 +1195,8 @@ pub fn cli(a: VitestArgs) -> Result<u8> {
     } else {
         Command::new(&a.node)
     };
-    if plan["hooks"] != serde_json::json!(false)
+    if plan["record"] != serde_json::json!(false)
+        && plan["hooks"] != serde_json::json!(false)
         && ["QUOD_VITEST_NAMES_PROOF", "QUOD_VITEST_BOOLEAN_PROOF"]
             .iter()
             .any(|name| std::env::var(name).is_ok_and(|value| value == "1"))
@@ -3919,11 +3920,20 @@ mod tests {
         let p = Path::new("/tmp/quoted \"path\"/origin-preload.cjs");
         let prefix = "--require=\"/tmp/quoted \\\"path\\\"/origin-preload.cjs\"";
         assert_eq!(origin_node_options(p, None).as_deref(), Some(prefix));
-        assert_eq!(origin_node_options(p, Some(OsStr::new(""))), Some(format!("{prefix} ")));
+        assert_eq!(
+            origin_node_options(p, Some(OsStr::new(""))),
+            Some(format!("{prefix} "))
+        );
         let original = "--require=\"/tmp/user preload.cjs\" --import=data:text/javascript,void%200";
-        assert_eq!(origin_node_options(p, Some(OsStr::new(original))), Some(format!("{prefix} {original}")));
+        assert_eq!(
+            origin_node_options(p, Some(OsStr::new(original))),
+            Some(format!("{prefix} {original}"))
+        );
         use std::os::unix::ffi::OsStrExt;
-        assert_eq!(origin_node_options(p, Some(OsStr::from_bytes(&[0xff]))), None);
+        assert_eq!(
+            origin_node_options(p, Some(OsStr::from_bytes(&[0xff]))),
+            None
+        );
     }
 
     #[test]
