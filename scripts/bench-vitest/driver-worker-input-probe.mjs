@@ -217,12 +217,16 @@ if(phase) {
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert(x.boundary.config&&!x.boundary.config.overflow)
+          assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,
+            'scalar seed observation must remain installed and complete within its declared scope')
         }
         comparisons.push({key:key(r),codeSequenceEqual:JSON.stringify(code(a.boundary.evaluation.events))===JSON.stringify(code(r.boundary.evaluation.events)),
           compiledSequenceEqual:JSON.stringify(a.boundary.compilation.scripts)===JSON.stringify(r.boundary.compilation.scripts),
           evaluatorBefore:a.boundary.evaluation.events.length,evaluatorAfter:r.boundary.evaluation.events.length,
           configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
-          configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0)})
+          configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
+          scalarSeedOperationsBefore:a.boundary.seed.events.reduce((n,e)=>n+e.count,0),
+          scalarSeedOperationsAfter:r.boundary.seed.events.reduce((n,e)=>n+e.count,0)})
       }
       const combined={replayEligible:false,completeOwnership:false,baseline,first,second,workers:comparisons.length,
         equalEvaluatorCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,

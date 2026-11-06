@@ -8,6 +8,7 @@ import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 import {observeTransportMetadata} from './worker-transport-metadata-probe.mjs'
 import {observeModuleEvaluation} from './worker-module-probe.mjs'
+import {observeScalarProperty} from './scalar-property-probe.mjs'
 
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
@@ -28,7 +29,7 @@ const expectedReaderSources=[entry,transportEntry].map(file=>({url:pathToFileURL
 const {b:VitestTransport}=await import(pathToFileURL(transportEntry).href)
 const transport=observeTransportMetadata(VitestTransport,observer)
 const {observeConfig}=combined?createRequire(import.meta.url)('./worker-config-probe.cjs'):{}
-let evaluation=null,config=null
+let evaluation=null,config=null,seed=null
 if(combined) {
   const {VitestModuleEvaluator}=await import(pathToFileURL(path.join(path.dirname(vitestPackage),'dist/module-evaluator.js')).href)
   evaluation=observeModuleEvaluation(VitestModuleEvaluator,{metadataForNode:observer.metadataForNode})
@@ -43,6 +44,9 @@ process.prependListener('message',message=>{
     if(project!==null)unknown.push('reused worker')
     project=message.context?.config?.name??''
     if(combined) {
+      const sequence=Object.getOwnPropertyDescriptor(message.context.config,'sequence')
+      seed=observeScalarProperty(sequence&&Object.hasOwn(sequence,'value')?sequence.value:null,'seed',
+        {sourceForScript:registry.sourceForScript})
       config=observeConfig(message.context.config)
       message.context.config=config.value
     }
@@ -54,7 +58,7 @@ process.send=function(...args) {
   transport.sent(message)
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
-      boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null}:null,
+      boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
       metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }

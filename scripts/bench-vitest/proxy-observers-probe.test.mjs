@@ -39,13 +39,16 @@ console.log(JSON.stringify({value,traps,report}));`
   })
 }
 
-for(const kind of ['plain','primitive','bound','getter','proxy-receiver','multiple','spread','call','private-field']) {
+for(const kind of ['plain','primitive','bound','getter','self-replacing-getter','changed-binding-getter','plain-member','proxy-receiver','multiple','spread','call','private-field']) {
   test('native argument identity remains bounded: '+kind,()=>{
     const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
 import {types} from 'node:util';
 const kind=${JSON.stringify(kind)},native=types.isProxy,proxy=new Proxy({},{}),plain={};
 let getters=0,traps=0,first=plain;
 const box={get value(){getters++;return proxy}},receiver=new Proxy({value:proxy},{get(t,k){traps++;return t[k]}});
+const replacing={get value(){getters++;Object.defineProperty(this,'value',{value:plain});return proxy}};
+let changing={get value(){getters++;changing={value:plain};return proxy}};
+const ordinary={value:plain};
 const bound=native.bind(null,proxy),args=[proxy];
 class Private {#value=proxy;value=plain;inspect(){return native(this.#value)}}
 const p=inspectPromiseObservers({proxyAccess:true});
@@ -54,6 +57,9 @@ if(kind==='plain')result=native(plain);
 if(kind==='primitive')result=native(1);
 if(kind==='bound')result=bound(plain);
 if(kind==='getter')result=native(box.value);
+if(kind==='self-replacing-getter')result=native(replacing.value);
+if(kind==='changed-binding-getter')result=native(changing.value);
+if(kind==='plain-member')result=native(ordinary.value);
 if(kind==='proxy-receiver')result=native(receiver.value);
 if(kind==='multiple')result=native(first,first=proxy);
 if(kind==='spread')result=native(...args);
@@ -64,8 +70,8 @@ const report=p.proxyAccess();p.close();console.log(JSON.stringify({report,result
     assert.equal(r.status,0,r.stderr||String(r.error))
     const data=JSON.parse(r.stdout)
     assert.equal(data.report.available,true,JSON.stringify(data.report))
-    assert.equal(data.result,!['plain','primitive','multiple'].includes(kind))
-    assert.equal(data.getters,kind==='getter'?1:0,'diagnostic must not invoke an accessor')
+    assert.equal(data.result,!['plain','primitive','plain-member','multiple'].includes(kind))
+    assert.equal(data.getters,['getter','self-replacing-getter','changed-binding-getter'].includes(kind)?1:0,'diagnostic must not invoke an accessor')
     assert.equal(data.traps,kind==='proxy-receiver'?1:0,'diagnostic must not invoke a receiver proxy')
     const entries=data.report.entries.filter(e=>e.entries.includes('util.types.isProxy'))
     assert(entries.length>0)

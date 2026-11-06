@@ -88,6 +88,10 @@ export function observeNativeCallArguments(post) {
         functionDeclaration:'function(other){return this===other}',arguments:[{objectId:nativeFunction}],
         returnByValue:true,silent:true})
       if(match.exceptionDetails||match.result?.value!==true)throw Error('native callee identity differs')
+      // A getter can return a proxy, replace itself with an ordinary data
+      // property, and finish before this pause. The current descriptor is
+      // therefore not evidence of the value evaluated as the argument.
+      if(call.arguments[0].type==='MemberExpression')throw Error('argument property may have changed during evaluation')
       const arg=value(call.arguments[0])
       // An optimized-away binding can appear as undefined. Do not infer a
       // harmless primitive from an unavailable/undefined runtime binding.
