@@ -7,6 +7,17 @@ unobservable: run preparation afresh, then compare the inputs delivered to
 each isolated test worker. No production behavior or replay eligibility
 changes here.
 
+**Native-argument correction:** earlier reports reconstructed property
+arguments from their descriptors after argument evaluation. A getter can
+return a proxy and replace its property before that observation. Therefore
+those earlier object/primitive classifications are not evidence of the
+actual passed value for member expressions. Commit `e35bbb1` rejects such
+arguments as unknown and adds self-replacing-getter regressions. The
+historical counts below remain recorded diagnostic output, not a native
+access exclusion certificate. The corrected combined run below leaves
+6,028 CommonJS property arguments unknown in each observed phase, across
+all 120 workers.
+
 [Gate 42168453693](https://github.com/pango07/quod/actions/runs/42168453693)
 at `df8448c` passes three protocol/fingerprint regressions and two complete
 plain Vitest runs of convex-helpers c11. Between the runs, it changes the
@@ -482,3 +493,45 @@ the shared metadata dependencies. Production replay and savings claims
 remain unchanged.
 [Independent phase counts, raw comparisons and artifact digests](worker-combined-boundary.json)
 retain the complete combined result.
+
+## Scalar aliases and corrected native arguments
+
+[Gate 42192515306](https://github.com/pango07/quod/actions/runs/42192515306)
+at `e35bbb1` passes 82 regressions and three full runs. Independent
+comparison confirms the same 120 file/project instances and 4,131 test
+states in the baseline and both observed phases. All 120 workers retain
+the installed seed accessor and record zero scalar seed operations in
+both phases. The runtime and runner image are unchanged.
+
+The new scalar observer installs an accessor on the original sequence
+object instead of relying solely on a proxy. A regression reads through
+an earlier object alias and through a class holding that alias; both reads
+are observed without replacing the sequence object's identity. Ordinary
+own writes and restoration preserve the tested value behavior. Six
+regressions also retain the limits explicitly: a primitive copied before
+installation is invisible, descriptors/native inspection can distinguish
+the accessor, intermediate descriptor replacement can evade a final
+intact check, and alternate write receivers or object-valued replacement
+are unsupported. A zero-read result still grants no replay permission.
+
+The native-argument correction is separate and necessary. A getter can
+return a proxy, replace its property with an ordinary value, and finish
+before the native-call breakpoint. Inspecting the later own data property
+then misidentifies what was passed. The revised observer rejects property
+arguments instead of reconstructing them from that later state. Three
+new regressions cover replacement of the getter, replacement of its owner
+binding, and an ordinary property argument that must also remain unknown.
+
+In each full observed phase, **6,028 calls from Node's CommonJS loader
+remain unknown across all 120 workers**. The earlier reports' smaller
+unknown counts cannot support exclusion of native proxy observations.
+Direct supported bindings still have their actual runtime identity checked.
+
+This suggests observing metadata fields on their original objects, with
+separate checks for descriptor access, rather than depending on proxy
+identity remaining invisible. Such a check must account for native
+descriptor queries, property mutation and values copied before observation;
+the accessor alone is not a complete solution. No Action or production key
+changes, and no new savings measurement is claimed.
+[Independent scalar, argument and combined-run evidence](worker-scalar-seed.json)
+preserve the corrected counts and remaining gaps.

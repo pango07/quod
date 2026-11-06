@@ -763,5 +763,19 @@
     "configurationSeedOperations": 0,
     "completeOwnership": false,
     "replayEligible": false
+  },
+  "scalarSeedDiagnostic": {
+    "evidence": "worker-scalar-seed.json",
+    "run": 42192515306,
+    "commit": "e35bbb1",
+    "regressionTests": 82,
+    "runs": 3,
+    "statesPerRun": 4131,
+    "workersPerObservedPhase": 120,
+    "scalarSeedOperationsPerPhase": 0,
+    "unknownNativePropertyArgumentsPerPhase": 6028,
+    "workersWithUnknownNativeArgumentsPerPhase": 120,
+    "completeOwnership": false,
+    "replayEligible": false
   }
 }
