@@ -21,7 +21,7 @@ ${body}`
   return data
 }
 
-test('integrated native arguments observe every listed descriptor API without full debugger pauses',()=>{
+test('integrated native arguments retain the addon load and add no per-call debugger pauses',()=>{
   const data=fixture(`const operations=[
     ['Object.getOwnPropertyDescriptor',t=>Object.getOwnPropertyDescriptor(t,key)],
     ['Object.getOwnPropertyDescriptors',t=>Object.getOwnPropertyDescriptors(t)],
@@ -41,9 +41,10 @@ test('integrated native arguments observe every listed descriptor API without fu
   ];
 const checkpoints=[],p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true,compiledScripts:true,inspectorTiming:true,
   descriptorCheckpointEvery:5,onDescriptorCheckpoint:c=>checkpoints.push(c)});
+const setupTiming=p.inspectorTiming(),setupOpaque=p.opaqueAccess();
 for(const [,call] of operations)call({get tmp(){gets++;return 'private-value'}});
 const report=p.descriptorAccess(),compilation=p.compiledScriptReport(),timing=p.inspectorTiming(),identity=p.nativeIdentity();p.close();
-console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,names:operations.map(([name])=>name)}));`)
+console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaque,identity,checkpoints,names:operations.map(([name])=>name)}));`)
   assert.equal(data.gets,0);assert.equal(data.report.calls,19)
   validateNativeEntryLog(data.report)
   assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
@@ -59,7 +60,10 @@ console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,
     const source=sources.get(f.location.scriptId)
     assert(source?.available&&source.code.encoding==='utf16le'&&source.code.sha256.length===64)
   }
-  assert.equal(data.timing.pauses.calls,0);assert.equal(data.identity.mode,'native-entry-arguments')
+  assert.equal(data.setupTiming.pauses.calls,1,'the diagnostic addon load must remain observed')
+  assert.deepEqual(data.setupOpaque.entries.flatMap(e=>e.entries),['dlopen'])
+  assert.equal(data.timing.pauses.calls,data.setupTiming.pauses.calls,'descriptor calls must add no full pauses')
+  assert.equal(data.identity.mode,'native-entry-arguments')
   assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
   assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
   assert.deepEqual(data.checkpoints.map(c=>c.calls),[5,10,15])
