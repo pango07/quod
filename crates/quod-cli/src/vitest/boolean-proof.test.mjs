@@ -4,7 +4,65 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { certifyBooleanReads, certifyStatTypeReads } from './boolean-proof.mjs'
+import { certifyBooleanReads, certifyStatTypeReads, certifyAsyncStatSizeReads } from './boolean-proof.mjs'
+
+test('async size consumers require a private immediate primitive sink and ignored errors',()=>{
+  for(const source of [
+    'async function size(file){try{const s=await stat(file);return s.size}catch{}}',
+    'class Cache{async update(file,key){try{const stats=await fs.promises.stat(file);this.cache.set(key,{size:stats.size})}catch{}}}',
+  ]) assert.equal(certifyAsyncStatSizeReads(source).length,1,source)
+  for(const body of [
+    'const s=await stat(file);return s;',
+    'const s=await stat(file);return s.mtimeMs;',
+    'const s=await stat(file);save({size:s.size,metadata:s});',
+    'const s=await stat(file);save({...s});',
+    'const s=await stat(file);save(()=>s.size);',
+    'const s=await stat(file);return eval("s.mtimeMs");',
+    'const s=await stat(file);s.size=1;return s.size;',
+    'let s=await stat(file);return s.size;',
+    'const {size}=await stat(file);return size;',
+    'const raw=stat(file);const s=await raw;return s.size;',
+    'const s=await stat(file,{bigint:true});return s.size;',
+    'const s=await stat(file,{throwIfNoEntry:false});return s.size;',
+    'const s=await stat(getPath());return s.size;',
+    'const s=await getStat()(file);return s.size;',
+    'const s=await stat(file);return s["size"];',
+    'const s=await stat(file);save(s.size,other());',
+    'const s=await stat(file);save(s.size,{get other(){return s.mode}});',
+    'const s=await stat(file);save(s.size,{[s.mtimeMs]:true});',
+    'const s=await stat(file);return s.size + s.mode;',
+  ]) assert.deepEqual(certifyAsyncStatSizeReads(`async function size(file){try{${body}}catch{}}`),[],body)
+  for(const tail of ['catch(e){}','catch{log()}','catch{}finally{log()}'])
+    assert.deepEqual(certifyAsyncStatSizeReads(`async function size(file){try{const s=await stat(file);return s.size}${tail}}`),[],tail)
+})
+
+function asyncConsumer(source,{rewrite=false,evalSource=false}={}) {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quod-stat-consumer-'))
+  try {
+    const config=path.join(dir,'consumer.mjs'),runner=path.join(dir,'runner.mjs')
+    fs.writeFileSync(path.join(dir,'input'),'native bytes')
+    fs.writeFileSync(config,`import fs from 'node:fs';\n${rewrite ? `fs.writeFileSync(import.meta.filename,'async function size(file){try{const s=await stat(file);return s.size}catch{}}');` : ''}\n${source}\n`)
+    fs.writeFileSync(runner,`import fs from 'node:fs';
+import {createBooleanProof} from ${JSON.stringify(new URL('./boolean-proof.mjs',import.meta.url).href)};
+const p=createBooleanProof({internalFiles:[import.meta.url]});const stat=fs.promises.stat,sites=[];
+fs.promises.stat=function(...args){sites.push(p.statSizeConsumer(args));return Reflect.apply(stat,this,args)};
+${evalSource ? `await eval(${JSON.stringify(source+'\n//# sourceURL=consumer.mjs')});` : `await import('./consumer.mjs');`}
+p.close();console.log(JSON.stringify(sites));`)
+    const r=spawnSync(process.execPath,[runner],{cwd:dir,encoding:'utf8',timeout:10000})
+    assert.equal(r.status,0,r.stderr||String(r.error));return JSON.parse(r.stdout)
+  } finally {fs.rmSync(dir,{recursive:true,force:true})}
+}
+test('actual V8 source binds the awaited native stat consumer',()=>{
+  assert.deepEqual(asyncConsumer(`async function size(file){try{const s=await fs.promises.stat(file);return s.size}catch{}} await size('input');`),[true])
+  assert.deepEqual(asyncConsumer(`async function size(file){try{const s=await fs.promises.stat(file);return s.mtimeMs}catch{}} await size('input');`,{rewrite:true}),[false])
+  assert.deepEqual(asyncConsumer(`(async function size(file){try{const s=await fs.promises.stat(file);return s.size}catch{}})('input')`,{evalSource:true}),[false])
+})
+
+test('a local async size certificate alone never removes complete metadata',()=>{
+  const r=recorded('!!pkg.exports',{prelude:`async function size(file){try{const s=await fs.promises.stat(file);return s.size}catch{}} await size('package.json');`})
+  assert.ok(r.keys.includes('sm:package.json'))
+  assert.equal(r.keys.some(k=>k.startsWith('ss:')||k.startsWith('sz:')),false)
+})
 
 test('accepts only reads consumed by language truthiness', () => {
   for (const expression of ['if (pkg.exports) x()', 'const x = !pkg.exports',

@@ -31,7 +31,7 @@ export function observeAsyncStat(project) {
     return result
   }
   const calls=[], promises=new WeakMap(), stack=[]
-  let scope=null, active=null, nextPromise=0, eventMismatch=false
+  let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null
   const stop=promiseHooks.createHook({
     init(p,parent) {
       if(!scope) return
@@ -57,6 +57,7 @@ export function observeAsyncStat(project) {
   })
   fs.promises.stat=function stat(...args) {
     const op={id:calls.length+1,path:typeof args[0]==='string'?path.relative(project,path.resolve(args[0])):'<non-string>',
+      sizeConsumer:consumerProof?.statSizeConsumer(args)===true,
       stack:new Error().stack.split('\n').slice(2,10).join('\n'),before:{pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()},promises:[],root:null}
     calls.push(op)
     const prior=scope;scope=op
@@ -69,6 +70,7 @@ export function observeAsyncStat(project) {
     } finally {scope=prior}
   }
   return {
+    setConsumerProof(proof){consumerProof=proof},
     report() {
       return {replayEligible:false,eventMismatch,initialObservers,
         preloadModules:[...(process._preload_modules??[])],

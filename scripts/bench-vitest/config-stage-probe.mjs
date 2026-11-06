@@ -95,7 +95,8 @@ if (mode) {
     }
     const R = await import(recorderUrl.href)
     if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
-    if (queryProbe) statProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
+    if (queryProbe) statProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href,...(asyncStatSites?[new URL('./async-stat-probe.mjs',import.meta.url).href]:[])]})
+    asyncStats?.setConsumerProof(statProof)
     // Match the names-only policy in the real-job metadata probe.
     booleanProof = runtimeSites ? null : statProof
     recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof, statProof })

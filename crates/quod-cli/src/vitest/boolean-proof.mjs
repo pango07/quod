@@ -34,6 +34,70 @@ function inBooleanContext(n, parents) {
   return ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(p.type) && p.test === n
 }
 
+// Consumer-side certificate only. An await does not keep a Stats result
+// private from promise observers. This must never, by itself, remove sm:.
+// Accept a private const followed immediately by a primitive-size sink in
+// a try block whose catch ignores every error. No Stats reference escapes.
+export function certifyAsyncStatSizeReads(source) {
+  if (typeof source!=='string' || source.length>2_000_000) return []
+  let tree
+  try {tree=parse(source,{ecmaVersion:'latest',sourceType:'module'})} catch {return []}
+  const nodes=[],parents=new Map()
+  function visit(n,parent=null) {
+    if (!n || typeof n!=='object') return
+    if(n.type) {nodes.push(n);parents.set(n,parent)}
+    for(const value of Object.values(n)) {
+      if(Array.isArray(value)) for(const child of value) visit(child,n)
+      else if(value && typeof value==='object') visit(value,n)
+    }
+  }
+  visit(tree)
+  const simple=n=>n?.type==='Identifier' || n?.type==='ThisExpression' ||
+    n?.type==='MemberExpression' && !n.computed && !n.optional && simple(n.object)
+  const functions=new Set(['FunctionDeclaration','FunctionExpression','ArrowFunctionExpression'])
+  const out=[]
+  for(const declaration of nodes) {
+    if(declaration.type!=='VariableDeclaration' || declaration.kind!=='const' || declaration.declarations.length!==1) continue
+    const d=declaration.declarations[0],awaited=d.init,call=awaited?.argument
+    if(d.id.type!=='Identifier' || awaited?.type!=='AwaitExpression' || call?.type!=='CallExpression' || call.optional ||
+       !simple(call.callee) || call.arguments.length!==1 ||
+       !(simple(call.arguments[0]) || call.arguments[0].type==='Literal' && typeof call.arguments[0].value==='string')) continue
+    const block=parents.get(declaration),attempt=parents.get(block)
+    if(block?.type!=='BlockStatement' || block.body.length!==2 || block.body[0]!==declaration ||
+       attempt?.type!=='TryStatement' || attempt.block!==block || attempt.finalizer || !attempt.handler ||
+       attempt.handler.param || attempt.handler.body.body.length) continue
+    let fn=parents.get(attempt)
+    while(fn && !functions.has(fn.type)) fn=parents.get(fn)
+    if(!fn?.async || fn.generator) continue
+    const name=d.id.name,allowed=new Set([d.id]),reads=[]
+    function value(n) {
+      if(!n) return false
+      if(n.type==='MemberExpression' && !n.computed && !n.optional && n.object.type==='Identifier' &&
+         n.object.name===name && n.property.name==='size') {
+        allowed.add(n.object);reads.push(n);return true
+      }
+      if(n.type==='Identifier') return n.name!==name && n.name!=='eval'
+      if(n.type==='Literal') return n.value===null || ['string','number','boolean'].includes(typeof n.value)
+      return n.type==='ObjectExpression' && n.properties.every(p=>p.type==='Property' && !p.computed &&
+        !p.method && !p.shorthand && p.kind==='init' && ['Identifier','Literal'].includes(p.key.type) && value(p.value))
+    }
+    const sink=block.body[1]
+    let valid=false
+    if(sink.type==='ReturnStatement') valid=value(sink.argument)
+    else if(sink.type==='ExpressionStatement') {
+      const c=sink.expression
+      valid=c.type==='CallExpression' && !c.optional && simple(c.callee) && c.arguments.every(value)
+    }
+    if(!valid || !reads.length) continue
+    // Reject shadowing, aliases, nested closures, writes, shorthand fields
+    // and direct eval, even when a suspicious branch is currently untaken.
+    if(nodes.some(n=>n.start>=block.start && n.end<=block.end && n.type==='Identifier' &&
+       (n.name==='eval' || n.name===name && !allowed.has(n)))) continue
+    out.push({start:call.start,end:call.end,reads:reads.map(n=>({start:n.start,end:n.end})),scope:{start:block.start,end:block.end}})
+  }
+  return out
+}
+
 // The only accepted helper returns native statSync directly through an
 // empty catch. The caller immediately consumes it through .isFile() or
 // .isDirectory(), or tests whether stat succeeded in a boolean context,
@@ -178,7 +242,7 @@ export function certifyBooleanReads(source, property = 'exports') {
 export function createBooleanProof({ internalFiles = [] } = {}) {
   const skip = new Set([ownFile, ...internalFiles.map(plainFile)])
   const parsed = new Map(), sources = new Map()
-  const stats = {boolean:0, whole:0, sources:0, statType:0, statWhole:0}
+  const stats = {boolean:0, whole:0, sources:0, statType:0, statWhole:0, statSizeConsumer:0, statSizeUnknown:0}
   let session = null, post = null, disabled = false
   try {
     session = new Session()
@@ -209,7 +273,8 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
           if (err || typeof result?.scriptSource !== 'string') return
           try {
             const source = result.scriptSource
-            const sites = property==='@stat' ? certifyStatTypeReads(source) : certifyBooleanReads(source, property)
+            const sites = property==='@stat' ? certifyStatTypeReads(source) :
+              property==='@stat-size' ? certifyAsyncStatSizeReads(source) : certifyBooleanReads(source, property)
             const lines = [0]
             for (let i=0; i<source.length; i++) if (source[i] === '\n') lines.push(i+1)
             sources.set(key, {sites, lines}); stats.sources++
@@ -254,6 +319,20 @@ export function createBooleanProof({ internalFiles = [] } = {}) {
         }
       }
       stats[proved ? 'statType' : 'statWhole']++
+      return proved
+    },
+    // This reports a local consumer, not native result provenance or
+    // observer exclusion. The recorder deliberately does not use it yet.
+    statSizeConsumer(args) {
+      let proved=false
+      if(args.length===1 && typeof args[0]==='string' && unchangedIntrinsics() && pristineStats()) {
+        const [caller]=frames(),source=load(caller,'@stat-size')
+        if(caller && source) {
+          const at=offset(caller,source)
+          proved=source.sites.some(c=>c.start<=at && at<c.end)
+        }
+      }
+      stats[proved?'statSizeConsumer':'statSizeUnknown']++
       return proved
     },
     close() { disabled = true; try { session?.disconnect() } catch {} },
