@@ -1,0 +1,517 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42186718807",
+  "commit": "c6a28736f6511b246603a1034afe3693b705ccd9",
+  "conclusion": "success",
+  "regressionTests": 57,
+  "node": "24.18.0",
+  "vitest": "5.0.0",
+  "vite": "8.2.0",
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "corpusCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "independentStateComparison": true,
+  "independentObservationCounts": true,
+  "runs": 2,
+  "statesPerRun": 4131,
+  "fileProjectInstancesPerRun": 120,
+  "metadataOnlyFilesChanged": 39,
+  "result": {
+    "replayEligible": false,
+    "completeOwnership": false,
+    "workers": 120,
+    "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+    "plainAndProbeFingerprintEqual": true,
+    "nodes": 1208,
+    "assignments": 1494,
+    "metadataObjects": 4452,
+    "operations": {
+      "get:tmp": 1290,
+      "keys:null": 645,
+      "descriptor:tmp": 645,
+      "descriptor:invalidate": 645,
+      "get:invalidate": 1291,
+      "has:invalidate": 1258,
+      "has:tmp": 665
+    },
+    "operationsByOrigin": {
+      "[\"rpc:fetch\"]": {
+        "get:tmp": 628,
+        "keys:null": 314,
+        "descriptor:tmp": 314,
+        "descriptor:invalidate": 314,
+        "get:invalidate": 314
+      },
+      "[\"transport\"]": {
+        "has:invalidate": 823,
+        "get:invalidate": 646
+      },
+      "[\"rpc:fetch\",\"transport\"]": {
+        "has:invalidate": 101
+      },
+      "[\"rpc:warm\"]": {
+        "has:tmp": 665,
+        "get:tmp": 662,
+        "keys:null": 331,
+        "descriptor:tmp": 331,
+        "descriptor:invalidate": 331,
+        "get:invalidate": 331
+      },
+      "[\"rpc:warm\",\"transport\"]": {
+        "has:invalidate": 334
+      }
+    },
+    "transportCounts": {
+      "requests": 533,
+      "responses": 533,
+      "errorResponses": 0,
+      "rpcMetadata": 3222,
+      "invocations": 2640,
+      "settled": 2640,
+      "transportMetadata": 2640,
+      "rejections": 0
+    },
+    "invalidations": 235,
+    "coldInvalidations": 235,
+    "nonColdInvalidations": [],
+    "workersWithReads": 120,
+    "workersWithStoredReads": 0,
+    "gaps": [],
+    "native": {
+      "entryCounts": {
+        "spawnSync": 3
+      },
+      "argumentCounts": {
+        "object": 43725,
+        "primitive": 585,
+        "unknown: argument is not an own data property": 3
+      },
+      "hookEntryCounts": {},
+      "workersWithInitialHooks": 0,
+      "workersWithFinalHooks": 0,
+      "workersWithHookAccess": 0,
+      "workersWithInspectorEntries": 0,
+      "workersWithCachedNativeModules": 0,
+      "workersWithProxyUnwrapEntries": 0
+    },
+    "limitations": [
+      "Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it",
+      "Original aliases, nested values and native target reads can bypass these proxies",
+      "Installing metadata accessors and proxies is observable",
+      "An earlier IPC listener or a retained raw alias can bypass the observer",
+      "The observer adds a Promise reaction and changes metadata identity before delivery",
+      "Transport callback ownership and worker side effects are not certified"
+    ]
+  },
+  "operationSites": [
+    {
+      "event": [
+        [
+          "transport"
+        ],
+        "has",
+        "invalidate",
+        {
+          "column": 23,
+          "function": "getModuleInformation",
+          "line": 1216,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+        }
+      ],
+      "count": 823
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "has",
+        "tmp",
+        {
+          "column": 33,
+          "function": "fetchModule",
+          "line": 783,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 665
+    },
+    {
+      "event": [
+        [
+          "transport"
+        ],
+        "get",
+        "invalidate",
+        {
+          "column": 57,
+          "function": "getModuleInformation",
+          "line": 1216,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+        }
+      ],
+      "count": 646
+    },
+    {
+      "event": [
+        [
+          "rpc:warm",
+          "transport"
+        ],
+        "has",
+        "invalidate",
+        {
+          "column": 23,
+          "function": "getModuleInformation",
+          "line": 1216,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+        }
+      ],
+      "count": 334
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "get",
+        "tmp",
+        {
+          "column": 39,
+          "function": "fetchModule",
+          "line": 785,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "keys",
+        null,
+        {
+          "column": 12,
+          "function": "fetchModule",
+          "line": 786,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "descriptor",
+        "tmp",
+        {
+          "column": 12,
+          "function": "fetchModule",
+          "line": 786,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "get",
+        "tmp",
+        {
+          "column": 12,
+          "function": "fetchModule",
+          "line": 786,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "descriptor",
+        "invalidate",
+        {
+          "column": 12,
+          "function": "fetchModule",
+          "line": 786,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:warm"
+        ],
+        "get",
+        "invalidate",
+        {
+          "column": 12,
+          "function": "fetchModule",
+          "line": 786,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 331
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "get",
+        "tmp",
+        {
+          "column": 33,
+          "function": "fetchModule",
+          "line": 794,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "keys",
+        null,
+        {
+          "column": 10,
+          "function": "fetchModule",
+          "line": 795,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "descriptor",
+        "tmp",
+        {
+          "column": 10,
+          "function": "fetchModule",
+          "line": 795,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "get",
+        "tmp",
+        {
+          "column": 10,
+          "function": "fetchModule",
+          "line": 795,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "descriptor",
+        "invalidate",
+        {
+          "column": 10,
+          "function": "fetchModule",
+          "line": 795,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch"
+        ],
+        "get",
+        "invalidate",
+        {
+          "column": 10,
+          "function": "fetchModule",
+          "line": 795,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.1_nbEjJY.js"
+        }
+      ],
+      "count": 314
+    },
+    {
+      "event": [
+        [
+          "rpc:fetch",
+          "transport"
+        ],
+        "has",
+        "invalidate",
+        {
+          "column": 23,
+          "function": "getModuleInformation",
+          "line": 1216,
+          "script": "file:///home/runner/work/quod/quod/profile-project/node_modules/vite/dist/node/module-runner.js"
+        }
+      ],
+      "count": 101
+    }
+  ],
+  "artifactsSha256": {
+    "after-inputs.json": "dd477638316ece464d363dc003bc2590368a2830827cc2dbc37293b5537b970f",
+    "after-tests.json": "ce1df9b00928b66174a1f54f72b271bb24462782ac10725f1d6a02e13c0564ac",
+    "before-inputs.json": "e13a4423af14d21ff66e96b60d2662fd9c78b2faa62d7a7352d3c758c207e8a8",
+    "before-tests.json": "a5b9725f41569165b789f5e6f8bb2593a1af7d23bb5c81d0fe799fe4d3312bdc",
+    "result.json": "9652b2f94d36fd5e79fd52d0e76e3d00c8c9a1c681e23fe367f1c4894403f230",
+    "worker-module-metadata/4271.json": "8b859a25c3f3bfed84dc1a580c87761497ade5aecde80d0fcc22e5980818081f",
+    "worker-module-metadata/4272.json": "b1e6db101753272b1ad5e91a44bbc7977161916afc257b5e71139229ce6e1b63",
+    "worker-module-metadata/4278.json": "958ef6c150338f890fcde4417a77449831b6f21830f25e94125c0f5b548f5cb9",
+    "worker-module-metadata/4329.json": "0a0a4d0dbc7d6942ad3020422af08ed3efe16d9dfec3f230e2bb6727ae9c5f1f",
+    "worker-module-metadata/4379.json": "db4747c96b419de31e0a36b0b046fbfbf17b6f5417d2880671a95d0f63e2fbc9",
+    "worker-module-metadata/4421.json": "832d0275e3ffe1af0ed303029eeff2f62c90c2c7ddda6930f036e60ba36c44d0",
+    "worker-module-metadata/4432.json": "b917eea62ee78f53565315876bedcd4a64206f5b589ceb515e8d147ee6eb2179",
+    "worker-module-metadata/4446.json": "d38352632a6c615e28f40a7a0379fe0a9788a34aaf8c41ee22babbecab14d8c4",
+    "worker-module-metadata/4455.json": "2d449f268888886b3a461976dd535e60e3050aae276a0a91b0da1f0221fa86e9",
+    "worker-module-metadata/4464.json": "27037d74c54f11d88e7838db020197285c4e568d7129b4787e2e4ecad4aeef77",
+    "worker-module-metadata/4471.json": "6c526802742772059e12961c419b9c531e08530895c60cad8ce2204046001120",
+    "worker-module-metadata/4480.json": "2d4278e44ff84a44b47f15194646887080d198f88ddc559d6195b577c9a6ffb0",
+    "worker-module-metadata/4487.json": "bc738b589be87f709f73c526c71d61868598be7b4e175662167f923bbed15ae7",
+    "worker-module-metadata/4497.json": "7441165b2b01798dc13d5a99e5645ec9ea2d927c099281576db733a71c4c584c",
+    "worker-module-metadata/4505.json": "51162c1ecf2f7ccbad20f57602d7dc5e874ddaad959f4e0ad57a7c9d44db7998",
+    "worker-module-metadata/4513.json": "b41cb403a7d3ad9d9e50ef8f5d97186e9a135ad02656233041a0d075eb8b71a8",
+    "worker-module-metadata/4521.json": "9d07ad29af80efe46a9e342391e4aa8456b1832a575ccfc5e3b109b7264daded",
+    "worker-module-metadata/4533.json": "9b1bbf4dec68606079ef79dd651f48fa1130cd3d27b3fc1f0677ec3b99c89a4a",
+    "worker-module-metadata/4542.json": "78c2a9591db0fe518a44178fbc45715f1f4115fb3c5e15b93a8fbeabe7b3e358",
+    "worker-module-metadata/4550.json": "673b4d3e3fb8a97cf57623c5905bd91af384f1e987caf80c519d5065e5c7c3b5",
+    "worker-module-metadata/4558.json": "0f55163fe6589754d0e048ba4cf3d1c2eaa0601026f72e265afb53edd9809fe9",
+    "worker-module-metadata/4566.json": "05f5f383ccfe3f0ecc512121fafb0b0f3983d76757727ef646f934a4d459d7d0",
+    "worker-module-metadata/4574.json": "f393911a07806d88592736adbe8f9e1c992bdf691b0e6abc2c23bd45eb588474",
+    "worker-module-metadata/4582.json": "4ea4a0fd8b4826911846f9e5dba017ab9471baa2a8dd90f22ba1354a56cf1c28",
+    "worker-module-metadata/4590.json": "f46d66d9a6a4bdfc9a4605ecaa7a62cd5d1d0834ba201bd547fad4cd893a06a4",
+    "worker-module-metadata/4599.json": "8542e704ae2ea244759186967f6666c49f65b4f44a5a781bedd6c641dee521f6",
+    "worker-module-metadata/4607.json": "053eeabb24459e22e045bdfd57563b4e863f41f9ed9e0133dff1c018366f03de",
+    "worker-module-metadata/4616.json": "1796a7ec17afc8427800250200b0cbf08afb8151af42a6d959f9988c7728659d",
+    "worker-module-metadata/4625.json": "d1ca046cbe189806bd8a634b344d7430051edc83a7f6aad50466a1106795760c",
+    "worker-module-metadata/4633.json": "ae685691bd62bcb29ada4d56bdf0193303f085808b6840abe151f4e28a57de54",
+    "worker-module-metadata/4641.json": "7712e5d85f4c83b503be138491c9ef2fd61656321a5ee738ac58dc814020c523",
+    "worker-module-metadata/4648.json": "c59241ea9c6256f84db8a5831d87e6822698f4238d7fa5c53665ffa9f222e034",
+    "worker-module-metadata/4657.json": "cee9927b787d79dfb66f7aef72a19dd6176d9af4538885fc8941ef137fb739b4",
+    "worker-module-metadata/4664.json": "add7516628cf59c119111828e8905af0e3de07be2fce02ec89cdbe79e4b3046c",
+    "worker-module-metadata/4673.json": "cd82d27c97a3f406838cbb445a4f1a200fd960c1c50c04fd6b131021a39e7909",
+    "worker-module-metadata/4681.json": "cf06d243bc9a3ec3bd2edd46631477285a8f0f92c3d768082ab2563b56a62ab5",
+    "worker-module-metadata/4688.json": "8658c9ed0e4fc047b4a288e2d18ea347c4b4d63edbe5acceef2eb0670e036f15",
+    "worker-module-metadata/4697.json": "ecd7d61dbcdc48c6146f9bc6f9baf3f2efc0fdb9760ef4c697c7a4058ba263ab",
+    "worker-module-metadata/4704.json": "a9d3304aa3996c7a825eb9af8607a4517bd2aa0f5eb32164b3c59be557f288ef",
+    "worker-module-metadata/4720.json": "b32181cdf2c6acf708ad08368ecfa6285047bd7a1568508f9cd6b33c2d50f092",
+    "worker-module-metadata/4727.json": "01fa07db88cd236dbcf90767b1bb1c816166f8b5566d0c51e4ff394c80ccfc8a",
+    "worker-module-metadata/4736.json": "82b8fc04169982aedfc1cd90b26d74c9bf83ac402192d282b9a4611dc5b7af9a",
+    "worker-module-metadata/4743.json": "f346f3c1516139f01d04c55b2a8c68718f9223822511e44e9c83a4d439804cc5",
+    "worker-module-metadata/4753.json": "ffa66066c738d59830a1300f784ac90718e68021bdce1d1e69541898be158b85",
+    "worker-module-metadata/4760.json": "3bbde154edf9926e2be8db1174909af85a823e2cdd37a47cb381e88ad6fa1edb",
+    "worker-module-metadata/4769.json": "65fac076e36ed24fb11b3d95d0d6034fa54158830c98bd4e68103746177c0100",
+    "worker-module-metadata/4776.json": "7513b06c291b63ea855634db53a90d19a45c8f1ea3846a5015d2fedbc28b145a",
+    "worker-module-metadata/4785.json": "186efcba69cb104e65bc75a2163a9fc61fd32d4eafb58ed6447ec7d3282c31ff",
+    "worker-module-metadata/4786.json": "9e132665674e566e442efa0ef92dfe14cbb4e25d6f6ea90bd0faebf7af147b12",
+    "worker-module-metadata/4801.json": "869636fbe99a60f3e075f687aa2ea2bc0003a0926303f0c0e6203e69fa386400",
+    "worker-module-metadata/4808.json": "99de4f18bbab1e6231b5a516f0b6ee941bd6062d8876840e15f8bb3174081bcc",
+    "worker-module-metadata/4818.json": "b9a1a8bb5b48b6a2b13266922733b0cecb317efc61b5f0c4537370e5e64ade7a",
+    "worker-module-metadata/4825.json": "3c5ac1516bf899c9af7052cf14e6fd01a69960da91938fbb1a1825dd15258bd1",
+    "worker-module-metadata/4834.json": "7680dbb8105700d4866df9fd045df871d103c0cda5c77cc2ea7c80bedbb633b6",
+    "worker-module-metadata/4842.json": "b74fb847ca084b39c27a6255baff13f6d5637ff8c19f13d327bdfc2dd1dd0ea9",
+    "worker-module-metadata/4849.json": "da9045441806d0f6baa0ee6594aadec8c3dde8a90122cd6b1b3689553a144c09",
+    "worker-module-metadata/4858.json": "68c9a7e56e6d73ec18aecfd409032b3ed827b760cd9bd13427b2658250373aea",
+    "worker-module-metadata/4865.json": "4996be1c090ac9b80588b62c527bed4ddaaac10a5cf6ae93c33fbac66362433a",
+    "worker-module-metadata/4874.json": "b9b272f689025f1e532fb5c9bdd0991115d6c143983856ab0e87353e8251a96b",
+    "worker-module-metadata/4881.json": "e930741f8da5fe7b81807371423ca64380046b80ac3a2522192a4e41da3b4b23",
+    "worker-module-metadata/4891.json": "ca368a97f9cee2f530f297ade4daca77fb893eae1e1b758ecd0225ef52add35b",
+    "worker-module-metadata/4899.json": "525e94b076210c5e651a1b13988791aa53228686f68fa35a80db09f7fb02a268",
+    "worker-module-metadata/4915.json": "c44d9296a85345171412e461c2d540d84e8593a64ae701f476df091771eea719",
+    "worker-module-metadata/4923.json": "3b463ff25cbafb927071a8c19a364f91d555c1e6afaab88d912cdd1b99025bd2",
+    "worker-module-metadata/4930.json": "bc7c0f31d11020d439def12c271495e35a87dbdc18abbffbd4c410987f1e94a7",
+    "worker-module-metadata/4940.json": "28a98b6590b7e703ec2a7cf23e9e5876f50f71a4ab9dcb0555ffcce0c3290f15",
+    "worker-module-metadata/4947.json": "3d80043b8a11643ea794971c17121f53ef12dd4d7861382ed98b94eef6d78359",
+    "worker-module-metadata/4956.json": "f23ab35ecc0fcc54552f95815dea87b2300eb9e80165cc353c6efda0951a7784",
+    "worker-module-metadata/4963.json": "a4032792fc9f82dcf35b7e4a2d0792e5cae6e490197fa596de18689635bd0b3f",
+    "worker-module-metadata/4972.json": "284c4690473edfc63ff184e17169014f8c68f78cfba70e9d0b36a02b2fffcde3",
+    "worker-module-metadata/4980.json": "65a769355ede82145b507c8c1fdc35e7bbc46ae278d262d2bd62ad60e39a5f68",
+    "worker-module-metadata/4987.json": "9d9f9066963a862ab97771118aa4464b01e723db0dd84c16e8209f4362d97771",
+    "worker-module-metadata/4997.json": "5dc2f30bf28f80b8acf3c74157adfef67d7a9563d14b49635cd6de74cc19a165",
+    "worker-module-metadata/5005.json": "26bf776ba9b58ae4ae5f45ee526a531ffdf55686b35773a188f706153eaf1547",
+    "worker-module-metadata/5014.json": "7b0eb259b09135c45ee06544be49882cef24ce08bddba222e507b740fea8db4a",
+    "worker-module-metadata/5021.json": "b9ba51ddfaf6c2e95b8acbc0b1515958210f1b04505785b77d0c386e6a678c67",
+    "worker-module-metadata/5031.json": "d8e823e8ab119b0e36a87898e8a3290bc04f237fb7210647a5079a780eac5938",
+    "worker-module-metadata/5039.json": "30aa4f6ff866f2788d4adc6d596d2fa7cccae5a3f075246c64130223700dd51c",
+    "worker-module-metadata/5046.json": "f88346d1d35bc889c83290af6ef786fae7d1e281fa3e8c41cf005209689c2609",
+    "worker-module-metadata/5055.json": "51f1c1d953b852925aa88240a6ad34de35c55dece475fb60aef84267bc386a89",
+    "worker-module-metadata/5063.json": "2afaba1e2ebde18c264a0c64d3afdacf933ddc41bc24066b0fc8b73518b05c16",
+    "worker-module-metadata/5071.json": "21d5baf0e4ad3ce5f9b6682e744bd33a74c91e38fbabb63aeca0a7bf478ad8ae",
+    "worker-module-metadata/5079.json": "3f961f3720461429402e53b7400d299804430168352702cdbd19b6b33f3bcd9b",
+    "worker-module-metadata/5087.json": "a63a1cffbd32703bcc7de48697853cc3540f49e5e14edb0c860607cba936fe57",
+    "worker-module-metadata/5094.json": "506bb30115550384dd90ae5742587258601ef87cfaf69f2ade3e42853da6bd31",
+    "worker-module-metadata/5103.json": "c02b5702b5a0f83695f890e8832a0af5aed013e8a1818a28091fdf14116473c4",
+    "worker-module-metadata/5110.json": "ffd52e27f908f6fec2c8e4f9351cdf7bbb8dd809dce663913302dde8e0150ae6",
+    "worker-module-metadata/5119.json": "ea74a1787c8899f8711f3fbe26ab953ac22e6293e72f607a86711254df6b3495",
+    "worker-module-metadata/5129.json": "8864b8e260c6cc60c11558b846c971dd2d0418551b90abb7e6312e5600e80ec1",
+    "worker-module-metadata/5137.json": "5f11160d7b3f6192ab526e53e5a06125352daf90d9ecfdc980a4284d350927c7",
+    "worker-module-metadata/5145.json": "d7d2d49f247d51e1c77073a86857a262b1295191930b4c2ff0144c5e854577b2",
+    "worker-module-metadata/5152.json": "484ae9fcaae66112330f0792996283272ac37f4d6693a5ffd1c2407b142f795c",
+    "worker-module-metadata/5161.json": "ef92e4dceadfb11333fa25cdd73d09750efb27cb3efc81598035df82d8dd0a64",
+    "worker-module-metadata/5171.json": "91d362591e2df8d0f0d0bea39d5331353465e1c9c7f76a0e1e514e6ac7575b10",
+    "worker-module-metadata/5179.json": "f9cd9c192643588c29a67910be0d5137edb897c4935534510b49144d0c8cb771",
+    "worker-module-metadata/5189.json": "c281ddc1cb17a58c471cd983841f068544b670ca8451c2594abdaa7a9f9cfaa8",
+    "worker-module-metadata/5196.json": "001a2b32e29c4023a0f28347150fa44f0a3e20dcbc8681aab71f1be9718942c6",
+    "worker-module-metadata/5205.json": "670b345a415ea1d383b611e4c18ff3ab29e62c12996f7cf1d1908a0afb3f3d01",
+    "worker-module-metadata/5212.json": "4e88056d67b046daa3d3ff991223685a78b4ffc1e8b6a23b22946c4bca9e505d",
+    "worker-module-metadata/5221.json": "e40b6bd696c35b9e5f1b64057f4529293bca3809383b93f5fe3aa9f4ff88f6b4",
+    "worker-module-metadata/5228.json": "089aee314f738ba89de0b2e29469e31c3d7cf8d86035cf22293304a20aa3bcdc",
+    "worker-module-metadata/5237.json": "1bde52fc89fa2d7913b0855bf0006f543f8e6462772ccdff6156daeb7d492331",
+    "worker-module-metadata/5244.json": "9045774bd0d2b7c4fde2b820ea2f4520700cc08de069101d04a99b48002a7904",
+    "worker-module-metadata/5253.json": "3edff75b363e08534d5ba5f31c93d4850eae68e2165ec0e126422d2305aa62bb",
+    "worker-module-metadata/5260.json": "c30d64d88ca452d41427de302800387553ea1c358aabd2f79aaea3d06cebc7b8",
+    "worker-module-metadata/5270.json": "aceebdc5edc2fd052ea1a946802784bd628ba59497d205f60fcab28c31ca84d8",
+    "worker-module-metadata/5277.json": "f1fb3a442dc928dc323a0d5a08034e7be0510c0ad8112ab830d5e88ff5efd762",
+    "worker-module-metadata/5286.json": "e155afd4e15bbb01f8196a5f53d45b9adba32df7e8e29326e836919ba8c29584",
+    "worker-module-metadata/5293.json": "7092ff203a424b7397a67e30f1106269f1e1e4954c1640af2258bc124040fb3f",
+    "worker-module-metadata/5300.json": "de6d1f1dd2cceb33b8433f33bdfd82bec4e4f81d9926352213851f30d5a1355c",
+    "worker-module-metadata/5311.json": "1c4405b6a7d79dee6d6356b7631217fc6fc95ff5be79878ed0f017ce4e24028a",
+    "worker-module-metadata/5318.json": "45e26d476e805fd0450371ba9551d47bd911009b9bf6cddfae1f1a5c8470b31c",
+    "worker-module-metadata/5326.json": "7c3ee963ca35c3b1ef58d8697d34db794e010c8c4cef1b11074c4150eef1528b",
+    "worker-module-metadata/5334.json": "a38b20584f677979dc8bae1a3864dfce5e6a2f234ab3aa8f987fc5f83fb47145",
+    "worker-module-metadata/5343.json": "8107a681515af95e2111beaf774615e1b25f3a7cf5b8b023bf561edc5e0a7f82",
+    "worker-module-metadata/5350.json": "1fd45209e07e470fde7a8f60e832f61111051000f8ee1f4e674c5b69b9d62b3f",
+    "worker-module-metadata/5359.json": "a4be5548462cfda43e383dcd6f7f4f054cb1b57bf285766a11956a1d38502e1e",
+    "worker-module-metadata/5367.json": "866655b8eed311ad75a8ab522421c1885b1c32fe5f16d628fc1d231f6e2d6659",
+    "worker-module-metadata/5375.json": "39005d1b75c8d4f5498db946c8808bdae989bd1e11619563b10c3c9d508fdaef",
+    "worker-module-metadata/5384.json": "3356f3ce8499f7b3f572f0513dc42cee69812fdf8be9b1091014c86a9fb56d30",
+    "worker-module-metadata-result.json": "40531550768a4a75d4c6b534422db3138e6df07b5519288afdc8e6fb311d47eb"
+  },
+  "replayEligible": false,
+  "completeOwnership": false,
+  "gateLogSha256": "56cc39323935a0edeec6cc4c889952c6f46f60e7cd11c25f394918ac77f17c21",
+  "limitations": [
+    "Reported call sites match the pinned loader source, but this probe does not independently establish executable script identity for every read.",
+    "Earlier IPC listeners, raw aliases and custom transport callbacks remain outside complete ownership.",
+    "Module-byte equality was measured in a separate gate; this run does not combine it with configuration and complete filesystem/environment coverage.",
+    "No production replay, metadata projection, Action packaging or new performance measurement is enabled."
+  ]
+}

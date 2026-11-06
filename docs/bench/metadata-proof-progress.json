@@ -715,5 +715,23 @@
     "workersWithInitialHooks": 0,
     "workersWithFinalHooks": 0,
     "coldInvalidations": 235
+  },
+  "workerTransportMetadataDiagnostic": {
+    "evidence": "worker-transport-metadata.json",
+    "run": 42186718807,
+    "commit": "c6a28736f6511b246603a1034afe3693b705ccd9",
+    "regressionTests": 57,
+    "runs": 2,
+    "statesPerRun": 4131,
+    "workers": 120,
+    "rpcRequests": 533,
+    "rpcResponses": 533,
+    "transportInvocations": 2640,
+    "storedMetadataReads": 0,
+    "invalidations": 235,
+    "coldInvalidations": 235,
+    "hookEntries": 0,
+    "completeOwnership": false,
+    "replayEligible": false
   }
 }

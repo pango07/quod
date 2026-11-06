@@ -348,3 +348,54 @@ remains Node 24.18.0, Vitest 5.0.0, Vite 8.2.0 on
 `ubuntu-26.04/20261101.186.1`.
 [Independent verification and artifact digests](worker-hook-lifetime.json)
 preserve the completed run and failed predecessor scope.
+
+## Metadata from transport delivery
+
+[Gate 42186718807](https://github.com/pango07/quod/actions/runs/42186718807)
+at `c6a2873` passes 57 regressions and two complete runs across the same
+39 timestamp-only changes. Independent artifact analysis confirms all
+120 file/project instances and 4,131 test states agree. The runtime and
+runner image match the preceding hook-lifetime gate.
+
+The observer now wraps fetch metadata when the worker receives its RPC
+response, and wraps the derived result before the awaiting Vite loader
+receives it. The transport wrapper returns the original Promise and
+preserves its receiver, thrown errors and rejections. Five new regressions
+cover these properties, shared warm-result aliases, descriptors, early raw
+aliases, unsupported thenables and accessors.
+
+| Observation | Result |
+| --- | ---: |
+| Module RPC requests / responses | 533 / 533 |
+| RPC metadata objects delivered, including warm batches | 3,222 |
+| Transport invocations / settled results | 2,640 / 2,640 |
+| Unique observed metadata objects | 4,452 |
+| Workers with metadata reads before graph assignment | 120 |
+| Workers with observed reads after graph assignment | 0 |
+| Invalidation calls / invalidations of empty state | 235 / 235 |
+| Hook registrations or watched async-resource accesses | 0 |
+
+The 533 responses also equal the independently recorded parent-side fetch
+and warm-fetch request count. No response or transport Promise is left
+pending. All observed `tmp` accesses have call sites in the pinned Vitest
+loader: checking for a temporary file, reading its contents, or spreading
+the response into a new object. The `invalidate` field is copied there and
+checked by Vite's `getModuleInformation`; every ensuing invalidation has
+no previous state to clear. The zero-read result from the earlier probe
+therefore applied only to metadata already stored in the graph, not its
+whole lifetime.
+
+These reported call sites match the inspected source; this probe does not
+independently authenticate the executable script identity of each read.
+Earlier IPC listeners, retained raw aliases and custom transport callbacks
+remain explicit ownership gaps. Three native arguments are still unknown,
+and the OpenAPI test worker still invokes three subprocesses. Actual module
+byte equality was established in a separate run and has not been combined
+here with configuration and complete non-code input coverage.
+
+The next implementation step must combine these observations and reject
+unaccounted channels before removing shared metadata dependencies. This is
+still a diagnostic, with `replayEligible: false`; the Action and savings
+claims are unchanged.
+[Independent counts, call sites and artifact digests](worker-transport-metadata.json)
+preserve the evidence.
