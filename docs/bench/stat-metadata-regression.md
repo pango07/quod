@@ -286,3 +286,15 @@ matched all test states again, but replayed no Vitest files. The same-commit
 reuse attempt still had 47 changed inputs and took 140 seconds against a
 166-second plain job; both rounded to three minutes. This is not a full
 window or evidence of current 40–50% cost savings.
+
+## Startup setters and production-driver observations
+
+The subsequent [async stat and real-driver evidence](async-stat-driver-proof.md)
+adds native result inspection, binding-identity checks and a constructor-field
+guard. Engine `7ff2b2f` fixes a startup-setter escape, passes 173 tests and
+the compiled timestamp-only regression, and is packaged in Action `7a029b7`.
+The actual planner/driver/worker diagnostic identifies 39 successful shared
+metadata dependencies, all from test-file size consumers, plus seven
+successful metadata dependencies owned only by `cli/openApiSpec.test.ts`.
+Its 4,131 states agree with the benchmark. It still emits no size-only keys
+and supplies no new whole-job savings or hit measurement.

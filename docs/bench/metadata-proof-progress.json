@@ -1,8 +1,8 @@
 {
-  "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
+  "engine": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
   "packaged": true,
-  "binaryGate": "https://github.com/pango07/quod/actions/runs/42149721287",
-  "binaryArchiveSha256": "98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0",
+  "binaryGate": "https://github.com/pango07/quod/actions/runs/42153386167",
+  "binaryArchiveSha256": "113849356097d1859d02855eb784ec68980d76aafa32cccc7cb53a366728b40a",
   "metadataRegressions": {
     "evidence": {
       "wrong": 0,
@@ -32,7 +32,9 @@
     "typeChangeReplayed": 0,
     "selectedTests": 2,
     "prototypeMetadataReplayed": 0,
-    "prototypeSelectedTests": 2
+    "prototypeSelectedTests": 2,
+    "startupMetadataReplayed": 0,
+    "startupSelectedTests": 2
   },
   "runtimeBefore": {
     "run": 42139029246,
@@ -294,16 +296,16 @@
     "scope": "Baseline demonstrates incorrect key classification. Fixed binary regression demonstrates timestamp-only changes rerun and match plain Vitest."
   },
   "latestRuntime": {
-    "commit": "4d993190050f71ec10a6c825328807b14c415b7a",
-    "run": "https://github.com/pango07/quod/actions/runs/42149546225",
+    "commit": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
+    "run": "https://github.com/pango07/quod/actions/runs/42153389848",
     "conclusion": "success",
-    "proofRegressionsPassed": 31,
-    "observerRegressionsPassed": 8,
+    "proofRegressionsPassed": 32,
+    "observerRegressionsPassed": 11,
     "calls": 354,
-    "checkpoints": 5190,
-    "ownCallbacksAtEveryObservedCheckpoint": 354,
-    "nativeContinuations": 354,
-    "sizeConsumers": 120,
+    "nativeUnchanged": 354,
+    "constructionFieldsAbsent": 354,
+    "sizeOutcomes": 120,
+    "ignoredErrors": 234,
     "metadataKeys": {
       "sl": 12,
       "sm": 285,
@@ -313,18 +315,18 @@
     "replayEligible": false
   },
   "action": {
-    "commit": "d2bb917792130dcaf3fafec066b481bec5c2f674",
-    "gate": "https://github.com/pango07/quod/actions/runs/42150430450",
+    "commit": "7a029b726084db6682e1a44ff19c8334d01b99a0",
+    "gate": "https://github.com/pango07/quod/actions/runs/42153886571",
     "conclusion": "success",
-    "binaryVersion": "bin-4d99319",
-    "bundleMainSha256": "c46e5ef77a5f388e29e4e7d7b23d1677be895a47ee541b0ac56f001a7068b7af",
+    "binaryVersion": "bin-7ff2b2f",
+    "bundleMainSha256": "2eeae143d844287be27e800f025ad9bad1f047d194522a4582645245b692a67b",
+    "harnessCommit": "ac4d9c6d72df6cf50eab299a87dbc3acdce451d6",
+    "freshRunnerSavingsEstablished": false,
     "lineageFixture": {
       "promotions": 2,
       "plainAudits": 1,
       "disagreed": 0
-    },
-    "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
-    "freshRunnerSavingsEstablished": false
+    }
   },
   "latestRealJobProbe": {
     "evidence": "metadata-native-guard-probe.json",
@@ -356,5 +358,58 @@
     "lineageDisagreements": 0,
     "fullWindow": false,
     "performanceBarMet": false
+  },
+  "previousPackagedEngine": {
+    "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
+    "binaryGate": "https://github.com/pango07/quod/actions/runs/42149721287",
+    "binaryArchiveSha256": "98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0",
+    "action": {
+      "commit": "d2bb917792130dcaf3fafec066b481bec5c2f674",
+      "gate": "https://github.com/pango07/quod/actions/runs/42150430450",
+      "conclusion": "success",
+      "binaryVersion": "bin-4d99319",
+      "bundleMainSha256": "c46e5ef77a5f388e29e4e7d7b23d1677be895a47ee541b0ac56f001a7068b7af",
+      "lineageFixture": {
+        "promotions": 2,
+        "plainAudits": 1,
+        "disagreed": 0
+      },
+      "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
+      "freshRunnerSavingsEstablished": false
+    }
+  },
+  "startupSetterRegression": {
+    "baselineCommit": "4cb139c",
+    "baselineGate": "https://github.com/pango07/quod/actions/runs/42153208302",
+    "baselineConclusion": "failure",
+    "baselineFailure": "A constructor field setter installed before the initial prototype snapshot exposed Stats metadata, but the type proof emitted st:.",
+    "fixCommit": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
+    "gate": "https://github.com/pango07/quod/actions/runs/42153386167",
+    "conclusion": "success",
+    "testsPassed": 173,
+    "builtBinaryResult": {
+      "wrong": 0,
+      "metadataReplayed": 1,
+      "typeChangeReplayed": 0,
+      "selectedTests": 2,
+      "prototypeMetadataReplayed": 0,
+      "prototypeSelectedTests": 2,
+      "startupMetadataReplayed": 0,
+      "startupSelectedTests": 2
+    }
+  },
+  "realDriverDiagnostic": {
+    "evidence": "async-stat-driver-proof.json",
+    "run": "https://github.com/pango07/quod/actions/runs/42153708463",
+    "conclusion": "success",
+    "consumers": 120,
+    "knownSizeOutcomes": 120,
+    "ownObservers": 120,
+    "nativeBindingsUnchanged": 120,
+    "constructorFieldsAbsent": 120,
+    "sharedSuccessfulFullMetadataPaths": 39,
+    "otherSuccessfulFullMetadataPaths": 7,
+    "otherMetadataOwner": "packages/convex-helpers/cli/openApiSpec.test.ts",
+    "replayEligible": false
   }
 }

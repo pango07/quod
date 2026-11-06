@@ -1,0 +1,214 @@
+{
+  "measurementScope": "Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay",
+  "files": 120,
+  "states": 4131,
+  "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+  "replayed": 0,
+  "metadata": {
+    "sm": 299,
+    "sl": 257,
+    "st": 104
+  },
+  "calls": 354,
+  "sizeConsumers": 120,
+  "consumersWithSizeOutcome": 120,
+  "consumersWithOnlyOwnedHooks": 120,
+  "consumersWithNativeUnchanged": 120,
+  "consumersWithConstructionFieldsAbsent": 120,
+  "initialObservers": {
+    "available": true,
+    "promiseHooks": {
+      "init": 0,
+      "before": 0,
+      "after": 0,
+      "settled": 0
+    },
+    "asyncHooks": {
+      "kInit": 0,
+      "kBefore": 0,
+      "kAfter": 0,
+      "kDestroy": 0,
+      "kPromiseResolve": 0,
+      "kTotals": 0
+    },
+    "pendingAsyncHookEdit": false,
+    "onlyOwnedPromiseHooks": null,
+    "replayEligible": false
+  },
+  "nativeProvenance": {
+    "available": true,
+    "stat": {
+      "location": {
+        "scriptId": "103",
+        "lineNumber": 1036,
+        "columnNumber": 19
+      },
+      "script": {
+        "url": "node:internal/fs/promises",
+        "isModule": false,
+        "hasSourceURL": false
+      },
+      "sourceSha256": "6a3d853657112c197bab3b06d1d179840310eb1ec10205ab84d2a2c7eced2dd1"
+    },
+    "convert": {
+      "location": {
+        "scriptId": "53",
+        "lineNumber": 547,
+        "columnNumber": 28
+      },
+      "script": {
+        "url": "node:internal/fs/utils",
+        "isModule": false,
+        "hasSourceURL": false
+      },
+      "sourceSha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+    },
+    "constructor": {
+      "location": {
+        "scriptId": "53",
+        "lineNumber": 519,
+        "columnNumber": 14
+      },
+      "script": {
+        "url": "node:internal/fs/utils",
+        "isModule": false,
+        "hasSourceURL": false
+      },
+      "sourceSha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+    },
+    "baseConstructor": {
+      "location": {
+        "scriptId": "53",
+        "lineNumber": 378,
+        "columnNumber": 18
+      },
+      "script": {
+        "url": "node:internal/fs/utils",
+        "isModule": false,
+        "hasSourceURL": false
+      },
+      "sourceSha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+    },
+    "construction": {
+      "knownSources": true,
+      "fieldsAbsent": true,
+      "replayEligible": false
+    },
+    "publicConstructor": {
+      "location": {
+        "scriptId": "13",
+        "lineNumber": 188,
+        "columnNumber": 21
+      },
+      "script": {
+        "url": "node:internal/util",
+        "isModule": false,
+        "hasSourceURL": false
+      },
+      "sourceSha256": "4aa900feab2a6cdb84060c0358c569578d31b6f0831224792868ece9b8899951"
+    },
+    "publicConstructorMatches": false,
+    "publicPrototypeMatches": true,
+    "bindingStat": {
+      "location": null
+    },
+    "bindingStatDescriptionSha256": "027837b87183b1d43bf4da2a0c70f9653c6d5babec06542ad1716ddc0ecec91a",
+    "replayEligible": false
+  },
+  "preloadModules": [
+    "/tmp/quod-driver-stat/bench-vitest-report.cjs"
+  ],
+  "replayEligible": false,
+  "unvalidated": [
+    "non-registry observation channels",
+    "initial preload state",
+    "native binding origin",
+    "all result consumers",
+    "production integration"
+  ],
+  "run": "https://github.com/pango07/quod/actions/runs/42153708463",
+  "commit": "4c317a463e957fcb11a50cb1924a04f29d2978c0",
+  "binaryEngine": "4d993190050f71ec10a6c825328807b14c415b7a",
+  "sourceOverrideEngine": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
+  "ledgerInputs": [
+    {
+      "scope": "shared",
+      "metadataCounts": {
+        "st:success": 55,
+        "st:error": 49,
+        "sm:error": 242,
+        "sm:success": 39,
+        "sl:error": 254
+      },
+      "successfulFullMetadataKeys": [
+        "sm:example-ui/src/components/Counter.injection.test.tsx",
+        "sm:example-ui/src/components/Counter.mock.test.tsx",
+        "sm:packages/convex-helpers/browser.test.ts",
+        "sm:packages/convex-helpers/cli/functions.test.ts",
+        "sm:packages/convex-helpers/cli/openApiSpec.test.ts",
+        "sm:packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "sm:packages/convex-helpers/functionReferences.test.ts",
+        "sm:packages/convex-helpers/index.test.ts",
+        "sm:packages/convex-helpers/react.test.ts",
+        "sm:packages/convex-helpers/react/sessions.test.ts",
+        "sm:packages/convex-helpers/server/cors.test.ts",
+        "sm:packages/convex-helpers/server/crud.test.ts",
+        "sm:packages/convex-helpers/server/customFunctions.test.ts",
+        "sm:packages/convex-helpers/server/filter.test.ts",
+        "sm:packages/convex-helpers/server/pagination.test.ts",
+        "sm:packages/convex-helpers/server/rateLimit.test.ts",
+        "sm:packages/convex-helpers/server/relationships.test.ts",
+        "sm:packages/convex-helpers/server/rowLevelSecurity.test.ts",
+        "sm:packages/convex-helpers/server/setup.test.ts",
+        "sm:packages/convex-helpers/server/stream.distinct.test.ts",
+        "sm:packages/convex-helpers/server/stream.flatmap.test.ts",
+        "sm:packages/convex-helpers/server/stream.property.test.ts",
+        "sm:packages/convex-helpers/server/stream.test.ts",
+        "sm:packages/convex-helpers/server/table.test.ts",
+        "sm:packages/convex-helpers/server/triggers.test.ts",
+        "sm:packages/convex-helpers/server/validators.test.ts",
+        "sm:packages/convex-helpers/server/zod.test.ts",
+        "sm:packages/convex-helpers/server/zod3.test.ts",
+        "sm:packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "sm:packages/convex-helpers/server/zod4.functions.test.ts",
+        "sm:packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zod3.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "sm:packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "sm:packages/convex-helpers/server/zodVersion.test.ts",
+        "sm:packages/convex-helpers/standardSchema.test.ts",
+        "sm:packages/convex-helpers/validators.test.ts"
+      ]
+    },
+    {
+      "scope": "file-only",
+      "metadataCounts": {
+        "sm:success": 7,
+        "sm:error": 11,
+        "sl:error": 3
+      },
+      "successfulFullMetadataKeys": [
+        "sm:",
+        "sm:/opt/hostedtoolcache/node/24.18.0/x64/bin/node",
+        "sm:/opt/hostedtoolcache/node/24.18.0/x64/bin/npm",
+        "sm:/opt/hostedtoolcache/node/24.18.0/x64/bin/npx",
+        "sm:/usr/bin/sh",
+        "sm:node_modules/.bin/redocly",
+        "sm:package.json"
+      ]
+    }
+  ],
+  "successfulFileMetadataOwners": [
+    "packages/convex-helpers/cli/openApiSpec.test.ts"
+  ],
+  "otherMetadataOwnerDetails": [
+    {
+      "file": "packages/convex-helpers/cli/openApiSpec.test.ts",
+      "durationMs": 6062.923236,
+      "net": true,
+      "nearTimeout": false
+    }
+  ]
+}
