@@ -2,11 +2,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
+const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
-function fixture(body) {
+function fixture(body,{ballast=0,gc=false}={}) {
   const source=`import {Session} from 'node:inspector';
 import vm from 'node:vm';
-const session=new Session(),errors=[],pauses=[],events=[];
+import {types} from 'node:util';
+import {observeNativeEntryArguments} from ${JSON.stringify(probe)};
+${Array.from({length:ballast},(_,i)=>`export const unused${i}=${i};`).join('\n')}
+const session=new Session(),errors=[],pauses=[],events=[],extra={};
 function post(method,params={}){
  let done=false,error,result;
  session.post(method,params,(e,r)=>{done=true;error=e;result=r});
@@ -25,14 +29,30 @@ function same(id,other){
  if(r.exceptionDetails)throw Error('identity comparison failed');return r.result.value;
 }
 function props(id){return post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false}).result}
+function captureEntries(registrations,onEntry=entry=>events.push(entry)) {
+ const capture=observeNativeEntryArguments(post,{onEntry});
+ const listener=({params})=>capture.handleException(params);session.on('Runtime.exceptionThrown',listener);
+ const breakpoints=registrations.map(([api,expression,options])=>{
+  const fn=post('Runtime.evaluate',{expression,objectGroup:'quod-entry-fixture'}).result.objectId;
+  return post('Debugger.setBreakpointOnFunctionCall',{objectId:fn,condition:capture.condition(api,options)}).breakpointId;
+ });
+ return ()=>{for(const breakpointId of breakpoints)post('Debugger.removeBreakpoint',{breakpointId});
+   session.removeListener('Runtime.exceptionThrown',listener);extra.capture=capture.report();capture.close()};
+}
 ${body}
 post('Runtime.releaseObjectGroup',{objectGroup:'quod-entry-fixture'});session.disconnect();delete globalThis.__quodEntryFixture;
-console.log(JSON.stringify({gets,memberGets,pauses:pauses.length,events,errors}));`
-  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+console.log(JSON.stringify({gets,memberGets,pauses:pauses.length,events,errors,...extra}));`
+  const r=spawnSync(process.execPath,[...(gc?['--expose-gc']:[]),'--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
   assert.equal(r.status,0,r.stderr||String(r.error))
   const data=JSON.parse(r.stdout)
   assert.equal(data.gets,0);assert.deepEqual(data.errors,[])
   return data
+}
+
+function complete(data,calls) {
+  assert.equal(data.pauses,0);assert.equal(data.capture.available,true,JSON.stringify(data.capture))
+  assert.equal(data.capture.calls,calls);assert.equal(data.capture.cleared,calls)
+  assert.deepEqual(data.capture.errors,[]);assert.equal(data.capture.replayEligible,false)
 }
 
 test('native entry conditions see actual arguments through wrappers, binding and replacing getters',t=>{
@@ -80,4 +100,63 @@ if(applicationExceptions!==0||results.filter(r=>typeof r.get==='function').lengt
   assert.deepEqual(data.events.map(e=>e.target),[true,false,true,true,true,true])
   assert(data.events.every(e=>e.length===2&&e.key==='tmp'))
   t.diagnostic(JSON.stringify({case:'non-pausing-native-arguments',...data,replayEligible:false}))
+})
+
+test('actual native capture handles C++ proxy checks and receiver-based descriptor APIs',()=>{
+  const data=fixture(`let traps=0;const proxy=new Proxy({}, {get(){traps++;throw Error('trap')},getOwnPropertyDescriptor(){traps++;throw Error('trap')}});
+const isProxy=types.isProxy,lookup=Object.prototype.__lookupGetter__;
+const stop=captureEntries([
+ ['util.types.isProxy','process.getBuiltinModule("util").types.isProxy',{}],
+ ['Object.prototype.__lookupGetter__','Object.prototype.__lookupGetter__',{receiver:true,describeOwnAccessors:true}]
+]);
+extra.values=[isProxy(proxy),isProxy(plain),typeof lookup.call(target,key),typeof lookup.bind(target)(key)];
+stop();extra.traps=traps;`)
+  complete(data,4);assert.equal(data.traps,0)
+  assert.deepEqual(data.values,[true,false,'function','function'])
+  assert.deepEqual(data.events.map(e=>e.kind),['proxy','object','object','object'])
+  assert(data.events.slice(2).every(e=>e.receiverBased&&e.target.watchedAccessorKeys.includes('tmp')))
+})
+
+test('native capture sees current arguments without running getters, conversion hooks or queued microtasks',()=>{
+  const data=fixture(`let keyConversions=0,microtasks=0;const objectKey={toString(){keyConversions++;return key}};
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+let current=target;queueMicrotask(()=>{current=plain;microtasks++});
+function originalCaller(value,k){return native(value,k)}
+const a=originalCaller(current,objectKey);current=plain;const b=originalCaller(current,key);
+extra.during=microtasks;extra.values=[typeof a.get,b.value];extra.keyConversions=keyConversions;
+stop();await Promise.resolve();extra.after=microtasks;`)
+  complete(data,2);assert.equal(data.during,0);assert.equal(data.after,1)
+  assert.equal(data.keyConversions,1);assert.deepEqual(data.values,['function',7])
+  assert.deepEqual(data.events.map(e=>e.target.watchedAccessorKeys),[['tmp'],[]])
+  assert(data.events.every(e=>e.frames.some(f=>f.name==='originalCaller'&&typeof f.scriptId==='string')),
+    'native call-site capture must preserve the actual caller without materializing lexical scopes')
+})
+
+test('clearing owned exception wrappers does not retain application arguments',()=>{
+  const data=fixture(`const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+function temporary(){const value={tmp:1};const weak=new WeakRef(value);native(value,key);return weak}
+const weak=temporary();stop();
+await new Promise(resolve=>setImmediate(resolve));
+for(let i=0;i<4;i++)globalThis.gc();extra.collected=weak.deref()===undefined;`,{gc:true})
+  complete(data,1);assert.equal(data.collected,true,'the Inspector console must retain only a cleared diagnostic wrapper')
+})
+
+test('compare native argument capture against an empty full-pause handler',t=>{
+  const rows=[]
+  for(const mode of ['pause','capture']) {
+    const data=fixture(`const now=performance.now.bind(performance);now();
+let observed=0,withGetter=0,callerSeen=false;
+const stop=${mode==='capture'?`captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]],entry=>{
+ observed++;if(entry.target.watchedAccessorKeys.includes('tmp'))withGetter++;callerSeen||=entry.frames.some(f=>f.name==='invoke');
+})`:`(()=>{const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:watched});return ()=>post('Debugger.removeBreakpoint',{breakpointId})})()`};
+function invoke(value,k){return native(value,k)}
+let accessorCount=0,valueCount=0;const start=now();
+for(let i=0;i<300;i++){const r=invoke(i%2?target:plain,key);if(r.get)accessorCount++;else valueCount+=r.value}
+extra.elapsedMs=now()-start;stop();Object.assign(extra,{observed,withGetter,callerSeen,accessorCount,valueCount});`,{ballast:2000})
+    assert.equal(data.accessorCount,150);assert.equal(data.valueCount,1050)
+    if(mode==='capture'){complete(data,300);assert.equal(data.observed,300);assert.equal(data.withGetter,150);assert(data.callerSeen)}
+    else assert.equal(data.pauses,300)
+    rows.push({mode,calls:300,elapsedMs:data.elapsedMs,pauses:data.pauses,argumentsCaptured:data.observed,replayEligible:false})
+  }
+  t.diagnostic(JSON.stringify({nativeEntryMeasurements:rows}))
 })
