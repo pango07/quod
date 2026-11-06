@@ -1,0 +1,121 @@
+{
+  "scope": "Production native stat startup guard; not an async size replay or savings result",
+  "baseline": {
+    "commit": "eed0373",
+    "run": "https://github.com/pango07/quod/actions/runs/42159856708",
+    "failedNewRegressions": 2,
+    "previousProductionProofTestsPassed": 58,
+    "observerTestsPassed": 28
+  },
+  "candidate": {
+    "commit": "081f20a",
+    "run": "https://github.com/pango07/quod/actions/runs/42160729489",
+    "conclusion": "success",
+    "unitTests": 99,
+    "unitIntegrationTests": 1,
+    "recorderRegressions": 16,
+    "proofTests": 65,
+    "formatPatchBytes": 0,
+    "clippy": "success",
+    "binarySha256": "b31627739db6fe8ebdbed4d6aa54e7307e86665cefc677eca0bd7b3f93c95a9b",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "builtBinaryResult": {
+      "wrong": 0,
+      "metadataReplayed": 1,
+      "typeChangeReplayed": 0,
+      "selectedTests": 2,
+      "prototypeMetadataReplayed": 0,
+      "prototypeSelectedTests": 2,
+      "startupMetadataReplayed": 0,
+      "startupSelectedTests": 2,
+      "originRegressions": [
+        {
+          "kind": "method",
+          "replayed": 0,
+          "selectedTests": 2,
+          "wrong": 0
+        },
+        {
+          "kind": "public-wrapper",
+          "replayed": 0,
+          "selectedTests": 2,
+          "wrong": 0
+        }
+      ],
+      "noRecordPreloadAbsent": true
+    }
+  },
+  "diagnosticCompatibility": {
+    "commit": "6a8c184",
+    "run": "https://github.com/pango07/quod/actions/runs/42160884373",
+    "conclusion": "success",
+    "observerTests": 29,
+    "proofTests": 65
+  },
+  "asyncSizeKeyEnabled": false,
+  "newFullWindowMeasured": false,
+  "performanceBarEstablished": false,
+  "action": {
+    "commit": "1aa08cacec95f243aa12adafdf815f68213c2783",
+    "sourceCommit": "17427a7fec623d595553a3c20b31454a2f707cbe",
+    "gate": "https://github.com/pango07/quod/actions/runs/42161209539",
+    "conclusion": "success",
+    "binaryVersion": "bin-081f20a",
+    "bundleMainSha256": "76296a7e7e4c15431fe5667aee8bbb57faea8e7385db61a09ebeea66ea0dbebe",
+    "unitTestsPassed": 5,
+    "lineageFixture": {
+      "promotions": 2,
+      "plainAudits": 1,
+      "disagreed": 0
+    },
+    "harnessCommit": "62a5c2d80e061cc89e16fbd17b7ece4dcfb668fd",
+    "freshRunnerSavingsEstablished": false
+  },
+  "driver": {
+    "commit": "b486d42",
+    "run": "https://github.com/pango07/quod/actions/runs/42161262009",
+    "conclusion": "success",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "result": {
+      "measurementScope": "Real planner/driver/workers with passive main-process diagnostics and the benchmark report preload; no replay",
+      "files": 120,
+      "states": 4131,
+      "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "replayed": 0,
+      "metadata": {
+        "sm": 299,
+        "sl": 257,
+        "st": 104
+      },
+      "calls": 354,
+      "sizeConsumers": 120,
+      "consumersWithSizeOutcome": 120,
+      "consumersWithOnlyOwnedHooks": 120,
+      "consumersWithNativeUnchanged": 120,
+      "consumersWithConstructionFieldsAbsent": 120,
+      "consumersWithStartupNativeUnchanged": 120,
+      "startupAtAttach": {
+        "startup": {
+          "firstPreload": false,
+          "precededByProductionOrigin": true,
+          "prefixed": true,
+          "supportedOptions": true,
+          "available": true,
+          "replayEligible": false
+        },
+        "nativeBindingUnchanged": true,
+        "publicSyncUnchanged": true,
+        "publicAsyncUnchanged": true,
+        "prototypeUnchanged": true,
+        "replayEligible": false
+      },
+      "preloadModules": [
+        "/home/runner/work/quod/quod/profile-project/node_modules/.quod-vitest/origin-preload.cjs",
+        "/home/runner/work/quod/quod/scripts/bench-vitest/startup-stat-probe.cjs",
+        "/tmp/quod-driver-stat/bench-vitest-report.cjs"
+      ],
+      "replayEligible": false
+    },
+    "observedNewNativeConnections": 2
+  }
+}

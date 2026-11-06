@@ -1,8 +1,8 @@
 {
-  "engine": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
+  "engine": "081f20a8ec1c8f1c05b0dc1d9ece4139342eae95",
   "packaged": true,
-  "binaryGate": "https://github.com/pango07/quod/actions/runs/42153386167",
-  "binaryArchiveSha256": "113849356097d1859d02855eb784ec68980d76aafa32cccc7cb53a366728b40a",
+  "binaryGate": "https://github.com/pango07/quod/actions/runs/42160729489",
+  "binaryArchiveSha256": "b31627739db6fe8ebdbed4d6aa54e7307e86665cefc677eca0bd7b3f93c95a9b",
   "metadataRegressions": {
     "evidence": {
       "wrong": 0,
@@ -315,18 +315,20 @@
     "replayEligible": false
   },
   "action": {
-    "commit": "7a029b726084db6682e1a44ff19c8334d01b99a0",
-    "gate": "https://github.com/pango07/quod/actions/runs/42153886571",
+    "commit": "1aa08cacec95f243aa12adafdf815f68213c2783",
+    "sourceCommit": "17427a7fec623d595553a3c20b31454a2f707cbe",
+    "gate": "https://github.com/pango07/quod/actions/runs/42161209539",
     "conclusion": "success",
-    "binaryVersion": "bin-7ff2b2f",
-    "bundleMainSha256": "2eeae143d844287be27e800f025ad9bad1f047d194522a4582645245b692a67b",
-    "harnessCommit": "ac4d9c6d72df6cf50eab299a87dbc3acdce451d6",
-    "freshRunnerSavingsEstablished": false,
+    "binaryVersion": "bin-081f20a",
+    "bundleMainSha256": "76296a7e7e4c15431fe5667aee8bbb57faea8e7385db61a09ebeea66ea0dbebe",
+    "unitTestsPassed": 5,
     "lineageFixture": {
       "promotions": 2,
       "plainAudits": 1,
       "disagreed": 0
-    }
+    },
+    "harnessCommit": "62a5c2d80e061cc89e16fbd17b7ece4dcfb668fd",
+    "freshRunnerSavingsEstablished": false
   },
   "latestRealJobProbe": {
     "evidence": "metadata-native-guard-probe.json",
@@ -360,22 +362,22 @@
     "performanceBarMet": false
   },
   "previousPackagedEngine": {
-    "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
-    "binaryGate": "https://github.com/pango07/quod/actions/runs/42149721287",
-    "binaryArchiveSha256": "98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0",
+    "engine": "7ff2b2f2f24c506a1a72184530a71a62bfcf4d0b",
+    "binaryGate": "https://github.com/pango07/quod/actions/runs/42153386167",
+    "binaryArchiveSha256": "113849356097d1859d02855eb784ec68980d76aafa32cccc7cb53a366728b40a",
     "action": {
-      "commit": "d2bb917792130dcaf3fafec066b481bec5c2f674",
-      "gate": "https://github.com/pango07/quod/actions/runs/42150430450",
+      "commit": "7a029b726084db6682e1a44ff19c8334d01b99a0",
+      "gate": "https://github.com/pango07/quod/actions/runs/42153886571",
       "conclusion": "success",
-      "binaryVersion": "bin-4d99319",
-      "bundleMainSha256": "c46e5ef77a5f388e29e4e7d7b23d1677be895a47ee541b0ac56f001a7068b7af",
+      "binaryVersion": "bin-7ff2b2f",
+      "bundleMainSha256": "2eeae143d844287be27e800f025ad9bad1f047d194522a4582645245b692a67b",
+      "harnessCommit": "ac4d9c6d72df6cf50eab299a87dbc3acdce451d6",
+      "freshRunnerSavingsEstablished": false,
       "lineageFixture": {
         "promotions": 2,
         "plainAudits": 1,
         "disagreed": 0
-      },
-      "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
-      "freshRunnerSavingsEstablished": false
+      }
     }
   },
   "startupSetterRegression": {
@@ -440,5 +442,61 @@
     "states": 4131,
     "replayed": 0,
     "replayEligible": false
-  }
+  },
+  "nativeStartupGuard": {
+    "evidence": "native-startup-guard.json",
+    "candidateCommit": "081f20a",
+    "binaryGate": 42160729489,
+    "conclusion": "success",
+    "builtBinaryResult": {
+      "wrong": 0,
+      "metadataReplayed": 1,
+      "typeChangeReplayed": 0,
+      "selectedTests": 2,
+      "prototypeMetadataReplayed": 0,
+      "prototypeSelectedTests": 2,
+      "startupMetadataReplayed": 0,
+      "startupSelectedTests": 2,
+      "originRegressions": [
+        {
+          "kind": "method",
+          "replayed": 0,
+          "selectedTests": 2,
+          "wrong": 0
+        },
+        {
+          "kind": "public-wrapper",
+          "replayed": 0,
+          "selectedTests": 2,
+          "wrong": 0
+        }
+      ],
+      "noRecordPreloadAbsent": true
+    },
+    "asyncSizeKeyEnabled": false,
+    "actionGate": 42161209539,
+    "realDriverRun": 42161262009,
+    "packaged": true
+  },
+  "olderPackagedEngines": [
+    {
+      "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
+      "binaryGate": "https://github.com/pango07/quod/actions/runs/42149721287",
+      "binaryArchiveSha256": "98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0",
+      "action": {
+        "commit": "d2bb917792130dcaf3fafec066b481bec5c2f674",
+        "gate": "https://github.com/pango07/quod/actions/runs/42150430450",
+        "conclusion": "success",
+        "binaryVersion": "bin-4d99319",
+        "bundleMainSha256": "c46e5ef77a5f388e29e4e7d7b23d1677be895a47ee541b0ac56f001a7068b7af",
+        "lineageFixture": {
+          "promotions": 2,
+          "plainAudits": 1,
+          "disagreed": 0
+        },
+        "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
+        "freshRunnerSavingsEstablished": false
+      }
+    }
+  ]
 }
