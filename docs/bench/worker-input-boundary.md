@@ -1049,3 +1049,60 @@ driver requires source evidence for every relevant frame. This closes an
 attribution gap in the diagnostic; other unobserved channels still prevent
 a replay certificate. [Evidence](worker-native-caller-sources.json) records
 the gate and its scope separately from the full workload.
+
+## Scoped target inspection and remaining protocol cost
+
+Commit `4d3a3e0` adds an optional private Inspector helper that uses captured
+intrinsics to inspect only own accessors named `seed`, `tmp` and `invalidate`.
+It returns a primitive mask without reading their values or exporting a
+public bridge. Proxy targets remain outside descriptor inspection. Reports
+declare whether they inspected all own accessors or only the watched fields;
+a scoped report never claims an all-accessor count. Adaptive selection is a
+performance hint keyed by call site. Both paths inspect the current target
+again on every call, including after target replacement or property edits.
+
+[Fixture gate 42227725928](https://github.com/pango07/quod/actions/runs/42227725928)
+passes 154 tests. For 300 calls on a target with 2,248 own accessors, protocol
+inspection takes 8,935 ms and adaptive inspection 264 ms. On a one-accessor
+target, the times are 139 and 148 ms. A target with 81 accessors also favors
+scoped inspection (280 versus 449 ms), so integration commit `084a381`
+selects the scoped path after a site observes at least 64 accessors. This
+threshold changes implementation choice, not which watched fields are checked.
+The fixture keeps complete compilation logging, including the additional
+condition evaluations triggered by the helper's captured descriptor calls.
+
+[Full gate 42228027307](https://github.com/pango07/quod/actions/runs/42228027307)
+passes 191 regressions, including target garbage collection while the helper
+remains active, but again hits the 420-second `before` phase limit. It retains
+93 completed workers, 872,179 descriptor calls and 47,389 proxy calls, with
+all 919,568 wrappers cleared and no reported capture error or dropped record
+in those completed reports. The unfinished stream worker reaches 620,000
+descriptor calls without overflow. There is no complete observed phase or
+metadata-only before/after comparison.
+
+The same 93 file/project instances in the preceding partial run required
+15,906,657 handle releases, versus 3,680,889 with adaptive inspection. Their
+native call counts differ (917,260 versus 919,568), so this is a comparison
+of command volume, not an elapsed-time speedup. The plain stream property
+file itself took 101,415 ms on the latest runner, versus 68,139 ms previously.
+Its pinned source defaults to fixed seeds and 24 cases; the diagnostic has
+not changed those tests or seed settings. This variation prevents treating
+93 versus 104 completed workers as an isolated measure of the code change.
+
+An independent source check validates all 1,940 source records used by
+watched-property stacks in the 93 completed workers. All 37,594 watched calls
+have immediate caller source bytes matching the checked-in diagnostic at
+the measured commit, with the actual V8 script ID, module/sourceURL flags
+and synchronous stack shape checked. This is stronger than matching names;
+it still does not establish initial runtime integrity, closure ownership,
+unobserved native channels or coverage of the missing workers.
+
+The next experiment is a pinned-Node native helper that validates the owned
+exception wrapper, inspects actual arguments and clears the wrapper in one
+private Inspector call. It must preserve side-effect, proxy, receiver,
+foreign-exception and lifetime checks, and retain complete compilation
+evidence. The existing JavaScript helper triggers additional traced calls
+inside Inspector; a native implementation may avoid that cost. It must be
+built and tested remotely before use. No production input keys or replay
+eligibility have changed. [Samples, source verification and artifact
+digests](worker-native-scoped-inspection.json) retain the exact evidence.

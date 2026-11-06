@@ -1,0 +1,2712 @@
+{
+  "fixture": {
+    "commit": "4d3a3e0",
+    "run": "https://github.com/pango07/quod/actions/runs/42227725928",
+    "job": 127925388588,
+    "conclusion": "success",
+    "testsPassed": 154,
+    "adaptiveThreshold": 128,
+    "logSha256": "a6b53dfc83781287dca47dd5f4cf88300f6fa07ffea006f593b207ba1e57429b",
+    "measurements": [
+      {
+        "width": 0,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 139.259292,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 900,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 0,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 273.352571,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 0,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 147.927171,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 611,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 900,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 611,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 448.828045,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 24900,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 24900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 279.86612,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 409.91478300000006,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 611,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 24900,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 611,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 24900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 8934.994988999999,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 675000,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 675000,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 238.97815,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 264.459091,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2106,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 301,
+          "Runtime.callFunctionOn": 599,
+          "Runtime.releaseObject": 2848,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2106,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 2848,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 299,
+          "adaptiveSites": 1,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      }
+    ]
+  },
+  "fullWorkload": {
+    "commit": "084a3812fc30523a15773f611839572555531443",
+    "run": "https://github.com/pango07/quod/actions/runs/42228027307",
+    "job": 127926405558,
+    "conclusion": "failure",
+    "failure": "before phase 420-second timeout",
+    "testsPassed": 191,
+    "adaptiveThreshold": 64,
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "artifact": {
+      "id": 13507037946,
+      "bytes": 10253074,
+      "sha256": "d706f3db22d4670627a9061b9f1f0d290c5f8401ad0cb284b925f99d7fa00fd5"
+    },
+    "logSha256": "ec330cefe0b5837e3acf53498475c6fa22ff507172a8fa426e14ec6928128ca6",
+    "measurements": [
+      {
+        "width": 0,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 210.803985,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 900,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 0,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 500.1340220000001,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 0,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 191.88204,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 611,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 900,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 611,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 669.0424790000001,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 24900,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 24900,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 355.483332,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 80,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 361.599745,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2106,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 301,
+          "Runtime.callFunctionOn": 599,
+          "Runtime.releaseObject": 681,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2106,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 681,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 299,
+          "adaptiveSites": 1,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "protocol",
+        "calls": 300,
+        "elapsedMs": 11187.780316,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 4,
+          "Debugger.getScriptSource": 610,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 600,
+          "Runtime.callFunctionOn": 300,
+          "Runtime.releaseObject": 675000,
+          "Debugger.removeBreakpoint": 2
+        },
+        "compiledEvents": 610,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 675000,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "protocol",
+          "scopedInspections": 0,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "watched",
+        "calls": 300,
+        "elapsedMs": 341.042389,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2111,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 300,
+          "Runtime.callFunctionOn": 600,
+          "Runtime.releaseObject": 600,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2111,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 600,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "watched",
+          "scopedInspections": 300,
+          "adaptiveSites": 0,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      },
+      {
+        "width": 2247,
+        "targetInspection": "adaptive",
+        "calls": 300,
+        "elapsedMs": 367.806605,
+        "commands": {
+          "Runtime.enable": 1,
+          "Debugger.enable": 1,
+          "Runtime.evaluate": 5,
+          "Debugger.getScriptSource": 2106,
+          "Debugger.setBreakpointOnFunctionCall": 2,
+          "Runtime.getProperties": 301,
+          "Runtime.callFunctionOn": 599,
+          "Runtime.releaseObject": 2848,
+          "Debugger.removeBreakpoint": 2,
+          "Runtime.releaseObjectGroup": 1
+        },
+        "compiledEvents": 2106,
+        "capture": {
+          "available": true,
+          "calls": 300,
+          "ignored": 0,
+          "cleared": 300,
+          "released": 2848,
+          "groupsReleased": 0,
+          "handleMode": "individual",
+          "argumentMode": "direct",
+          "targetAccessorsOnly": true,
+          "targetInspection": "adaptive",
+          "scopedInspections": 299,
+          "adaptiveSites": 1,
+          "errors": [],
+          "replayEligible": false,
+          "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+        },
+        "replayEligible": false
+      }
+    ],
+    "phases": {
+      "baseline": {
+        "testResult": {
+          "success": true,
+          "fileProjectInstances": 120,
+          "testStates": 4131
+        },
+        "counts": {},
+        "argumentModes": {},
+        "flags": {},
+        "inclusiveCommandTimings": {},
+        "watchedTargetCalls": 0,
+        "watchedTargetCallers": [],
+        "checkpoints": []
+      },
+      "before": {
+        "testResult": null,
+        "counts": {
+          "workers": 93,
+          "descriptorCalls": 872179,
+          "nativeCalls": 919568,
+          "cleared": 919568,
+          "released": 3680889,
+          "compilationEvents": 2042908,
+          "scopedInspections": 34106,
+          "descriptorsRetainedCalls": 872179,
+          "proxyRetainedCalls": 47389
+        },
+        "argumentModes": {
+          "direct": 93
+        },
+        "flags": {},
+        "inclusiveCommandTimings": {
+          "Runtime.enable": {
+            "calls": 93,
+            "elapsedMs": 26.648118999999998
+          },
+          "Debugger.getScriptSource": {
+            "calls": 2060426,
+            "elapsedMs": 59298.85010499992
+          },
+          "Debugger.enable": {
+            "calls": 93,
+            "elapsedMs": 9242.193876999998
+          },
+          "Runtime.evaluate": {
+            "calls": 4650,
+            "elapsedMs": 1235.726247
+          },
+          "Runtime.getProperties": {
+            "calls": 1771218,
+            "elapsedMs": 129532.60987200004
+          },
+          "Runtime.queryObjects": {
+            "calls": 279,
+            "elapsedMs": 22193.874139999993
+          },
+          "Runtime.callFunctionOn": {
+            "calls": 955534,
+            "elapsedMs": 178871.61545999988
+          },
+          "Debugger.setBreakpointOnFunctionCall": {
+            "calls": 4092,
+            "elapsedMs": 12942.592903999994
+          },
+          "Runtime.releaseObject": {
+            "calls": 3680889,
+            "elapsedMs": 50778.895113000355
+          },
+          "Debugger.resume": {
+            "calls": 3,
+            "elapsedMs": 0.255649
+          }
+        },
+        "watchedTargetCalls": 37594,
+        "watchedTargetCallers": [
+          {
+            "record": {
+              "apis": [
+                "Reflect.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 16,
+                  "lineNumber": 40,
+                  "scriptId": "520"
+                },
+                "name": "canReplace",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": false,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-config-probe.cjs"
+                }
+              },
+              "keys": [
+                "seed"
+              ]
+            },
+            "count": 20437
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 12,
+                  "lineNumber": 49,
+                  "scriptId": "179"
+                },
+                "name": "intact",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+                }
+              },
+              "keys": [
+                "tmp",
+                "invalidate"
+              ]
+            },
+            "count": 8276
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 14,
+                  "lineNumber": 134,
+                  "scriptId": "178"
+                },
+                "name": "snapshot",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+                }
+              },
+              "keys": [
+                "tmp",
+                "invalidate"
+              ]
+            },
+            "count": 3968
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 34,
+                  "lineNumber": 54,
+                  "scriptId": "178"
+                },
+                "name": "wrap",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+                }
+              },
+              "keys": [
+                "tmp"
+              ]
+            },
+            "count": 1573
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 13,
+                  "lineNumber": 27,
+                  "scriptId": "179"
+                },
+                "name": "observeScalarProperty",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+                }
+              },
+              "keys": [
+                "tmp"
+              ]
+            },
+            "count": 1573
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.defineProperty"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 4,
+                  "lineNumber": 44,
+                  "scriptId": "179"
+                },
+                "name": "observeScalarProperty",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+                }
+              },
+              "keys": [
+                "tmp"
+              ]
+            },
+            "count": 1573
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 12,
+                  "lineNumber": 49,
+                  "scriptId": "179"
+                },
+                "name": "intact",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+                }
+              },
+              "keys": [
+                "seed"
+              ]
+            },
+            "count": 186
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 53,
+                  "lineNumber": 120,
+                  "scriptId": "178"
+                },
+                "name": "scalarStatus",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+                }
+              },
+              "keys": [
+                "invalidate"
+              ]
+            },
+            "count": 4
+          },
+          {
+            "record": {
+              "apis": [
+                "Object.getOwnPropertyDescriptor"
+              ],
+              "callerCandidate": {
+                "location": {
+                  "columnNumber": 12,
+                  "lineNumber": 49,
+                  "scriptId": "179"
+                },
+                "name": "intact",
+                "script": {
+                  "hasSourceURL": false,
+                  "isModule": true,
+                  "language": "JavaScript",
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+                }
+              },
+              "keys": [
+                "invalidate"
+              ]
+            },
+            "count": 4
+          }
+        ],
+        "checkpoints": [
+          {
+            "file": "5139.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+            ],
+            "calls": 620000,
+            "nativeLog": {
+              "calls": 620000,
+              "entries": 2683,
+              "frames": 1819,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 1242503,
+              "runs": 1242019,
+              "records": 415,
+              "overflow": false,
+              "failedToParse": 252
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 620331,
+              "ignored": 0,
+              "cleared": 620330,
+              "released": 1407991,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 233,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5146.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 4057,
+              "frames": 2258,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22545,
+              "runs": 21905,
+              "records": 410,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10284,
+              "ignored": 0,
+              "cleared": 10283,
+              "released": 35496,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 311,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5295.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 9462,
+              "frames": 3120,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 50768,
+              "runs": 47106,
+              "records": 508,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20569,
+              "ignored": 0,
+              "cleared": 20568,
+              "released": 86431,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 1822,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5318.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6112,
+              "frames": 2354,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22242,
+              "runs": 21836,
+              "records": 482,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10389,
+              "ignored": 0,
+              "cleared": 10388,
+              "released": 40023,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5334.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/cli/tsApiSpec.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 3022,
+              "frames": 1913,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 46355,
+              "runs": 36227,
+              "records": 391,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10338,
+              "ignored": 0,
+              "cleared": 10337,
+              "released": 40909,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 5055,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5343.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 4513,
+              "frames": 2406,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 26124,
+              "runs": 24238,
+              "records": 510,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10466,
+              "ignored": 0,
+              "cleared": 10465,
+              "released": 72486,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 934,
+              "adaptiveSites": 7,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5391.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 4534,
+              "frames": 2341,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 26405,
+              "runs": 24367,
+              "records": 474,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10434,
+              "ignored": 0,
+              "cleared": 10433,
+              "released": 58630,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 1010,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5408.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.functions.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 4055,
+              "frames": 2386,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 27231,
+              "runs": 24985,
+              "records": 509,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10570,
+              "ignored": 0,
+              "cleared": 10569,
+              "released": 52143,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 1114,
+              "adaptiveSites": 7,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5417.json",
+            "project": "convex-helpers",
+            "files": [],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 5986,
+              "frames": 1870,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 47798,
+              "runs": 45968,
+              "records": 1399,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20927,
+              "ignored": 0,
+              "cleared": 20926,
+              "released": 68644,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 906,
+              "adaptiveSites": 3,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5616.json",
+            "project": "example-ui",
+            "files": [],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 5986,
+              "frames": 1870,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 47798,
+              "runs": 45968,
+              "records": 1399,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20927,
+              "ignored": 0,
+              "cleared": 20926,
+              "released": 68644,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 906,
+              "adaptiveSites": 3,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5624.json",
+            "project": "example-ui",
+            "files": [],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 5986,
+              "frames": 1870,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 47798,
+              "runs": 45968,
+              "records": 1399,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20927,
+              "ignored": 0,
+              "cleared": 20926,
+              "released": 68644,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 906,
+              "adaptiveSites": 3,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5639.json",
+            "project": "zod-4.0",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6379,
+              "frames": 2397,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22320,
+              "runs": 21914,
+              "records": 454,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10442,
+              "ignored": 0,
+              "cleared": 10441,
+              "released": 35831,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5647.json",
+            "project": "zod-4.0",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 12835,
+              "frames": 3124,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 42539,
+              "runs": 42133,
+              "records": 481,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20538,
+              "ignored": 0,
+              "cleared": 20537,
+              "released": 59140,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5656.json",
+            "project": "zod-4.0",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6093,
+              "frames": 2661,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22881,
+              "runs": 22387,
+              "records": 483,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10598,
+              "ignored": 0,
+              "cleared": 10597,
+              "released": 37543,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 238,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5715.json",
+            "project": "zod-4.1",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6143,
+              "frames": 2288,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22426,
+              "runs": 22020,
+              "records": 484,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10480,
+              "ignored": 0,
+              "cleared": 10479,
+              "released": 36515,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5737.json",
+            "project": "zod-4.1",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6270,
+              "frames": 2371,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22185,
+              "runs": 21779,
+              "records": 457,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10373,
+              "ignored": 0,
+              "cleared": 10372,
+              "released": 35778,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5820.json",
+            "project": "zod-4.2",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6132,
+              "frames": 2289,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22425,
+              "runs": 22019,
+              "records": 487,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10478,
+              "ignored": 0,
+              "cleared": 10477,
+              "released": 36539,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5831.json",
+            "project": "zod-4.2",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6242,
+              "frames": 2366,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22196,
+              "runs": 21790,
+              "records": 460,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10377,
+              "ignored": 0,
+              "cleared": 10376,
+              "released": 35809,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5923.json",
+            "project": "zod-4.3",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6156,
+              "frames": 2322,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22415,
+              "runs": 22009,
+              "records": 489,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10472,
+              "ignored": 0,
+              "cleared": 10471,
+              "released": 36686,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5930.json",
+            "project": "zod-4.3",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 5649,
+              "frames": 2791,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 23067,
+              "runs": 22573,
+              "records": 496,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10684,
+              "ignored": 0,
+              "cleared": 10683,
+              "released": 39550,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 238,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "5940.json",
+            "project": "zod-4.3",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6269,
+              "frames": 2393,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22194,
+              "runs": 21788,
+              "records": 462,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10375,
+              "ignored": 0,
+              "cleared": 10374,
+              "released": 35797,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "6024.json",
+            "project": "zod-4.4",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 6239,
+              "frames": 2388,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22339,
+              "runs": 21933,
+              "records": 465,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10446,
+              "ignored": 0,
+              "cleared": 10445,
+              "released": 36688,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "6031.json",
+            "project": "zod-4.4",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zodtoconvex.test.ts"
+            ],
+            "calls": 20000,
+            "nativeLog": {
+              "calls": 20000,
+              "entries": 12493,
+              "frames": 3269,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 42811,
+              "runs": 42405,
+              "records": 493,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 20668,
+              "ignored": 0,
+              "cleared": 20667,
+              "released": 95632,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 194,
+              "adaptiveSites": 5,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          },
+          {
+            "file": "6041.json",
+            "project": "zod-4.4",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/zod4.zod3.test.ts"
+            ],
+            "calls": 10000,
+            "nativeLog": {
+              "calls": 10000,
+              "entries": 5992,
+              "frames": 2705,
+              "overflow": false
+            },
+            "compilation": {
+              "events": 22889,
+              "runs": 22395,
+              "records": 495,
+              "overflow": false,
+              "failedToParse": 0
+            },
+            "argumentDiagnostics": {
+              "mode": "native-entry-arguments",
+              "available": true,
+              "calls": 10596,
+              "ignored": 0,
+              "cleared": 10595,
+              "released": 61265,
+              "groupsReleased": 0,
+              "handleMode": "individual",
+              "argumentMode": "direct",
+              "targetAccessorsOnly": true,
+              "targetInspection": "adaptive",
+              "scopedInspections": 238,
+              "adaptiveSites": 6,
+              "errors": [],
+              "replayEligible": false,
+              "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+            }
+          }
+        ],
+        "streamPropertyCheckpoint": [
+          {
+            "file": "5139.json",
+            "project": "convex-helpers",
+            "files": [
+              "/home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts"
+            ],
+            "checkpoint": {
+              "calls": 620000,
+              "apis": {
+                "Object.defineProperty": 311262,
+                "Object.getOwnPropertyDescriptor": 684,
+                "Object.freeze": 6,
+                "Object.defineProperties": 153627,
+                "Object.setPrototypeOf": 21,
+                "Object.getOwnPropertyDescriptors": 153619,
+                "Reflect.getOwnPropertyDescriptor": 775,
+                "Reflect.deleteProperty": 4,
+                "Reflect.defineProperty": 2
+              },
+              "arguments": {
+                "object": 620000
+              },
+              "last": {
+                "name": "handleException",
+                "location": {
+                  "scriptId": "175",
+                  "lineNumber": 86,
+                  "columnNumber": 21
+                },
+                "script": {
+                  "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+                  "isModule": true,
+                  "hasSourceURL": false,
+                  "language": "JavaScript"
+                }
+              },
+              "overflow": false,
+              "nativeLog": {
+                "calls": 620000,
+                "entries": 2683,
+                "frames": 1819,
+                "overflow": false
+              },
+              "stack": [
+                {
+                  "name": "handleException",
+                  "location": {
+                    "scriptId": "175",
+                    "lineNumber": 86,
+                    "columnNumber": 21
+                  },
+                  "script": {
+                    "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/native-entry-probe.mjs",
+                    "isModule": true,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "",
+                  "location": {
+                    "scriptId": "153",
+                    "lineNumber": 216,
+                    "columnNumber": 75
+                  },
+                  "script": {
+                    "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/promise-observers-probe.mjs",
+                    "isModule": true,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "emit",
+                  "location": {
+                    "scriptId": "22",
+                    "lineNumber": 508,
+                    "columnNumber": 27
+                  },
+                  "script": {
+                    "url": "node:events",
+                    "isModule": false,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "#onMessage",
+                  "location": {
+                    "scriptId": "154",
+                    "lineNumber": 99,
+                    "columnNumber": 13
+                  },
+                  "script": {
+                    "url": "node:inspector",
+                    "isModule": false,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "",
+                  "location": {
+                    "scriptId": "154",
+                    "lineNumber": 65,
+                    "columnNumber": 66
+                  },
+                  "script": {
+                    "url": "node:inspector",
+                    "isModule": false,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "setState",
+                  "location": {
+                    "scriptId": "774",
+                    "lineNumber": 1614,
+                    "columnNumber": 60
+                  },
+                  "script": {
+                    "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                    "isModule": true,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "expect",
+                  "location": {
+                    "scriptId": "774",
+                    "lineNumber": 7999,
+                    "columnNumber": 2
+                  },
+                  "script": {
+                    "url": "file:///home/runner/work/quod/quod/profile-project/node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+                    "isModule": true,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "check",
+                  "location": {
+                    "scriptId": "8593",
+                    "lineNumber": 234,
+                    "columnNumber": 33
+                  },
+                  "script": {
+                    "url": "file:///home/runner/work/quod/quod/profile-project/packages/convex-helpers/server/stream.property.test.ts",
+                    "isModule": false,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                },
+                {
+                  "name": "processTicksAndRejections",
+                  "location": {
+                    "scriptId": "32",
+                    "lineNumber": 103,
+                    "columnNumber": 4
+                  },
+                  "script": {
+                    "url": "node:internal/process/task_queues",
+                    "isModule": false,
+                    "hasSourceURL": false,
+                    "language": "JavaScript"
+                  }
+                }
+              ],
+              "compilation": {
+                "events": 1242503,
+                "runs": 1242019,
+                "records": 415,
+                "overflow": false,
+                "failedToParse": 252
+              },
+              "argumentDiagnostics": {
+                "mode": "native-entry-arguments",
+                "available": true,
+                "calls": 620331,
+                "ignored": 0,
+                "cleared": 620330,
+                "released": 1407991,
+                "groupsReleased": 0,
+                "handleMode": "individual",
+                "argumentMode": "direct",
+                "targetAccessorsOnly": true,
+                "targetInspection": "adaptive",
+                "scopedInspections": 233,
+                "adaptiveSites": 6,
+                "errors": [],
+                "replayEligible": false,
+                "limitation": "Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven"
+              },
+              "identity": {
+                "mode": "native-entry-arguments",
+                "snapshotsRequested": 0
+              },
+              "replayEligible": false
+            }
+          }
+        ]
+      },
+      "after": {
+        "testResult": null,
+        "counts": {},
+        "argumentModes": {},
+        "flags": {},
+        "inclusiveCommandTimings": {},
+        "watchedTargetCalls": 0,
+        "watchedTargetCallers": [],
+        "checkpoints": []
+      }
+    }
+  },
+  "commonCompletedWorkerComparison": {
+    "commonCompletedWorkers": 93,
+    "direct": {
+      "calls": 917260,
+      "released": 15906657,
+      "descriptors": 870900,
+      "scopedInspections": 0
+    },
+    "adaptive": {
+      "calls": 919568,
+      "released": 3680889,
+      "descriptors": 872179,
+      "scopedInspections": 34106
+    },
+    "workersWithDifferentNativeCallCounts": 73,
+    "scope": "Matched file/project instances from partial runs; source changes and host load differ, so command reductions are not a paired elapsed-time benchmark."
+  },
+  "callerSourceVerification": {
+    "commit": "084a381",
+    "counts": {
+      "workers": 93,
+      "sourceRecords": 1940,
+      "watchedCalls": 37594,
+      "callsMatchingCheckedInDiagnosticSource": 37594
+    },
+    "expectedSources": {
+      "scripts/bench-vitest/worker-config-probe.cjs": {
+        "sha256": "3021505e7161d2ddbbd89db27683f85d5e0fdac10a3f898996e2d170a0313578",
+        "bytes": 11108
+      },
+      "scripts/bench-vitest/worker-module-metadata-probe.mjs": {
+        "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf",
+        "bytes": 18704
+      },
+      "scripts/bench-vitest/scalar-property-probe.mjs": {
+        "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b",
+        "bytes": 6986
+      }
+    },
+    "callers": [
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 11108,
+              "encoding": "utf16le",
+              "sha256": "3021505e7161d2ddbbd89db27683f85d5e0fdac10a3f898996e2d170a0313578"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": false,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-config-probe.cjs"
+            },
+            "scriptId": "520"
+          },
+          "api": [
+            "Reflect.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 16,
+              "lineNumber": 40,
+              "scriptId": "520"
+            },
+            "name": "canReplace",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": false,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-config-probe.cjs"
+            }
+          },
+          "keys": [
+            "seed"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 20437
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 6986,
+              "encoding": "utf16le",
+              "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            },
+            "scriptId": "179"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 12,
+              "lineNumber": 49,
+              "scriptId": "179"
+            },
+            "name": "intact",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            }
+          },
+          "keys": [
+            "tmp",
+            "invalidate"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 8276
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 18704,
+              "encoding": "utf16le",
+              "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            },
+            "scriptId": "178"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 14,
+              "lineNumber": 134,
+              "scriptId": "178"
+            },
+            "name": "snapshot",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            }
+          },
+          "keys": [
+            "tmp",
+            "invalidate"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 3968
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 18704,
+              "encoding": "utf16le",
+              "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            },
+            "scriptId": "178"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 34,
+              "lineNumber": 54,
+              "scriptId": "178"
+            },
+            "name": "wrap",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            }
+          },
+          "keys": [
+            "tmp"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 1573
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 6986,
+              "encoding": "utf16le",
+              "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            },
+            "scriptId": "179"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 13,
+              "lineNumber": 27,
+              "scriptId": "179"
+            },
+            "name": "observeScalarProperty",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            }
+          },
+          "keys": [
+            "tmp"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 1573
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 6986,
+              "encoding": "utf16le",
+              "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            },
+            "scriptId": "179"
+          },
+          "api": [
+            "Object.defineProperty"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 4,
+              "lineNumber": 44,
+              "scriptId": "179"
+            },
+            "name": "observeScalarProperty",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            }
+          },
+          "keys": [
+            "tmp"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 1573
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 6986,
+              "encoding": "utf16le",
+              "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            },
+            "scriptId": "179"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 12,
+              "lineNumber": 49,
+              "scriptId": "179"
+            },
+            "name": "intact",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            }
+          },
+          "keys": [
+            "seed"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 186
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 18704,
+              "encoding": "utf16le",
+              "sha256": "01a1c50482b29f3e6368104a85f0ee6c1915c01ff77c77911a81f358e9d9b3bf"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            },
+            "scriptId": "178"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 53,
+              "lineNumber": 120,
+              "scriptId": "178"
+            },
+            "name": "scalarStatus",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/worker-module-metadata-probe.mjs"
+            }
+          },
+          "keys": [
+            "invalidate"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 4
+      },
+      {
+        "record": {
+          "actualSource": {
+            "available": true,
+            "code": {
+              "bytes": 6986,
+              "encoding": "utf16le",
+              "sha256": "f2a585c8e0ea2f4ab466b14e452b5663a005aa06bdd6d9e03aceaf6ee313512b"
+            },
+            "replayEligible": false,
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            },
+            "scriptId": "179"
+          },
+          "api": [
+            "Object.getOwnPropertyDescriptor"
+          ],
+          "caller": {
+            "location": {
+              "columnNumber": 12,
+              "lineNumber": 49,
+              "scriptId": "179"
+            },
+            "name": "intact",
+            "script": {
+              "hasSourceURL": false,
+              "isModule": true,
+              "language": "JavaScript",
+              "url": "file:///home/runner/work/quod/quod/scripts/bench-vitest/scalar-property-probe.mjs"
+            }
+          },
+          "keys": [
+            "invalidate"
+          ],
+          "matchesCheckedInSource": true
+        },
+        "count": 4
+      }
+    ],
+    "unmatched": [],
+    "scope": "Completed worker reports only. Actual source equality and synchronous stack-shape verification; not initial runtime integrity, closure ownership or complete native coverage.",
+    "replayEligible": false
+  },
+  "propertyWorkload": {
+    "source": "https://github.com/get-convex/convex-helpers/blob/5eaa7e5160736054d53f8b71e2c522835eb427e0/packages/convex-helpers/server/stream.property.test.ts",
+    "gitBlob": "903407aacffc7e408e06b83e11abeb0a742c41b0",
+    "sourceSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+    "defaultSeeds": [
+      1,
+      12648430,
+      3735928559
+    ],
+    "defaultCases": 24,
+    "plainTestStates": 47,
+    "previousPlainDurationMs": 68139.36938476562,
+    "latestPlainDurationMs": 101415.17993164062,
+    "scope": "Pinned source defaults and the baseline reports; tests and seed settings were not changed."
+  },
+  "nextAction": "Prototype a private pinned-Node native helper that validates the owned wrapper, inspects actual arguments, returns sanitized watched-field evidence and clears the wrapper in one Inspector call. Build only on GitHub and gate side-effect, proxy, receiver, foreign-exception, active-lifetime and complete-compilation regressions before full use. No breakpoint suppression or source filtering.",
+  "measurementScope": "Partial completed-worker counts and inclusive command timings, not job elapsed time or CI savings. No complete observed phase or after comparison.",
+  "replayEligible": false,
+  "completeOwnership": false,
+  "productionSavingsChanged": false,
+  "artifactsSha256": {
+    "baseline-inputs.json": "1259f0bbfaa3289a435fc0ba6289b2c4c42e5566e89782a6f8e577c12311346a",
+    "baseline-tests.json": "a886a292ce13e32c7f2f5c876571fd6cab55953889c52c02664ca4c2ffb980c1",
+    "baseline.log": "12d0419cd51b519c59ba029c868fb50007045ac8956fec335f65ba8dbcf37f96",
+    "before.log": "9ba9215cc7077c119a9e343dac35e07644849d1aae43187dad619e2ef76196fc",
+    "worker-boundary/before/5140.json": "030aafd2362c7d4a4f41b1cee4da12572844c94c6a1399d53d3c603ffe1ffbda",
+    "worker-boundary/before/5146.json": "437ddc450ef0f27403f3681d71c11f3fe545ff7b46e87fe74e68dc328730e40b",
+    "worker-boundary/before/5262.json": "5b9a8b1a9550c74380716fb4e5008a212f157de6a6bcb2c465b88f7a1336e00a",
+    "worker-boundary/before/5285.json": "c123fc9965429b92c8de5f69a3ac760e08377386c2dc70262eb442f61e3928bb",
+    "worker-boundary/before/5295.json": "31e63b20f0d289860c81c94abe56a716e794bf2070a1f1af5b339532e6b7e493",
+    "worker-boundary/before/5308.json": "7ae5bd778830faa5ad837281c3dec09003c661f100bd71fa80c7833448c81de9",
+    "worker-boundary/before/5318.json": "5e926595e55670245f692178fc4d5229ba36d308f6c99de508a0b7ef4d0c16d4",
+    "worker-boundary/before/5327.json": "dbc596d841aa713cf8c09bd871d95b93ed3c64885fc17f8c6cd41c3f42bba278",
+    "worker-boundary/before/5334.json": "d4a9bd540caa6ba75f43c26ca3fa911103ce70c6ddf7973ba18f1f2a83835842",
+    "worker-boundary/before/5343.json": "3c5a10314349ea937392a3043c446e5dce1b731d36a656f4e1e4835a14d9918f",
+    "worker-boundary/before/5352.json": "31e1cab1c20d26b0475c0b4f071291bffe8ca58eb4e23d8b93e1db1c8ac0fbf7",
+    "worker-boundary/before/5361.json": "7ec3b76d27e2f84c192e88d9d3c2397b68a95aded61cc299224427a92343758a",
+    "worker-boundary/before/5369.json": "a958ce9c9f757561a1e9dfe87daae85246247d414d690e357e472775fac1fcbb",
+    "worker-boundary/before/5384.json": "5a9332b1a9adfec7d6557a1ba89e5c5328571f0ea31aa59077e0091df145a4eb",
+    "worker-boundary/before/5391.json": "15240f6d118a45984fa67a9daab6aa991459a83921b65c2081fa2702eb604aa2",
+    "worker-boundary/before/5400.json": "8f7ad4887fa0ccfbd1ed3345d1f7768ecb8b7d30c819de61388e3172e5b7c1b3",
+    "worker-boundary/before/5408.json": "e955400a430575dfe356ee7327e964a196b0caf35e51759dae39a91a966e313d",
+    "worker-boundary/before/5417.json": "814ed49e5df5433a1e679aeb9782d6fe8ac1a4ef492600bd3132f2d20801c847",
+    "worker-boundary/before/5439.json": "5a7d7b6e305ec84c7235acd72b19ac55d757abf292140078289f555fead5f4d5",
+    "worker-boundary/before/5463.json": "0a9eaa6759f9667f1dff7274d12b0c2f2f0a3de46af948a44d1dc18ca286343a",
+    "worker-boundary/before/5476.json": "64d00f5c7b6ae8ca8370966c569f2b11b668f244facd14c4e8dd037f352b82a6",
+    "worker-boundary/before/5487.json": "26e491cbaa261f958f0b0675171745fc882f4df55e73f2a3712e8410fbc213be",
+    "worker-boundary/before/5497.json": "fdde993ac472823bda1ed51d2ec763bc223729bbe4a134bea7374b82cf54679b",
+    "worker-boundary/before/5506.json": "dddc15c1fa352fdfcce225c7177ecd0605877550af4dcd1a1588070c40f4b5d0",
+    "worker-boundary/before/5513.json": "987a88c0c8861027ecc0aba7e913efd912ba4841e994835e1e123fad660ced3e",
+    "worker-boundary/before/5522.json": "8152213e16d4989fd197b394569693fe506cee9f78323d783cd2392327a6f2ce",
+    "worker-boundary/before/5530.json": "0238ac7a47bee1e693e541e0e6e55b443f376b87446dd0f57467c6a0684d17b9",
+    "worker-boundary/before/5539.json": "df6ace6dbb2e00690322433d183434933a46626a10f77f84301458e8604dbc1a",
+    "worker-boundary/before/5547.json": "04dbb7d818637ff71cfb4f1dc7e7715dda6dc45071478460b80ba8700aafa4a0",
+    "worker-boundary/before/5557.json": "ff673ef538f3b6e55611bbfe98d3a0c25344fd63a9e22f47164c10394d65bc6e",
+    "worker-boundary/before/5566.json": "be804e6b7493efacb9bfcb31892914c4db87193ea529da42be8fc74c26e8b24a",
+    "worker-boundary/before/5574.json": "556d61f0e90e2bd29c14de0a9211d03b157815206a9b94447d71313d84a5a823",
+    "worker-boundary/before/5581.json": "fe90293045cbe6890d736efc27a42993e83bf7762d11fbd4a262582618a3407a",
+    "worker-boundary/before/5590.json": "767ef31e7ea61a19edb39d4c5b3c660099ae6444d72f731fb20c86738283026f",
+    "worker-boundary/before/5600.json": "2f2518886d0fecf461ff2e80b408a4a22e63973820c514fee4693d917d14ec1d",
+    "worker-boundary/before/5607.json": "86fa32997c4fc210cb28aa6003839fdb1ecfd4e7b6f538e102a82fbcb16e6475",
+    "worker-boundary/before/5616.json": "b9082705a2999e95960e4082255ff8e5b6bf8cee27d8f5b9ef9229d45c12d039",
+    "worker-boundary/before/5624.json": "8cea4d1c6692967eae2c65d592b462d3db6d7a2ec35543e6e91e5dc28d94b8a5",
+    "worker-boundary/before/5639.json": "dc88c80566804647c281bd0b923e192453608464dead09577cbd96012dfdfa4a",
+    "worker-boundary/before/5647.json": "a2c8a535b11a5788d2bf9ab7ef2f0d5af37edd2883d8ec224b06477def06da63",
+    "worker-boundary/before/5656.json": "4c6c756cb312a7216e4a5e6795eed25cc20d0627bd7789b501fa44cd268d2d8e",
+    "worker-boundary/before/5664.json": "456557f60eba193622898fb5e7be9b02212df91e107c698a73e30398babec69b",
+    "worker-boundary/before/5673.json": "65516f0938da8d96037cdc3c1f645d332341dd7302b64732d227f8f45a9c0607",
+    "worker-boundary/before/5681.json": "5789a433811088a8af0bc311c7cfb627939cf0177f5cf024260184b221cea359",
+    "worker-boundary/before/5691.json": "734a2ba2d3f6bd633a57cd9e3d81f71590fa3b97ce8a816cccb255f38682c5b4",
+    "worker-boundary/before/5700.json": "1ee05b1a8174b248c3ecb69d2552e609cd2b221141f1d8d09eedf93ef1fbc83b",
+    "worker-boundary/before/5708.json": "8d95555f1383320b667afd21fe95e774ae8aa759315cf182f956a392a395c4de",
+    "worker-boundary/before/5715.json": "db40fdb73cc956541bd74cf167232267884ef7629cee82fc8083b489b9864ed4",
+    "worker-boundary/before/5728.json": "1bbed331cd9de753367b3d7473f2a0d0cd86185cf3899725549bc2fda076aeab",
+    "worker-boundary/before/5737.json": "6b58150471edadea748adfc8d57c07bc5aa351f3c04b870a23ff6e0c80f427f4",
+    "worker-boundary/before/5744.json": "ab2484777faeaaf84608877bc7d44d5ea17c4924f76d3f0afa65a5c9048f7a66",
+    "worker-boundary/before/5756.json": "fb34058054a0392b130e4ac4d27c636b52aa230a71227c7fc6171119aa8e07ed",
+    "worker-boundary/before/5763.json": "8baeca91609370472ee46c1ee5505a4a288558eda42250c99405abfc4e821619",
+    "worker-boundary/before/5772.json": "e9aa0d68b353558630bdda5b387dff62f28f89d57ab33a7e2ecac7156a52645d",
+    "worker-boundary/before/5780.json": "103c3caf19570e10e89900940ed348c1f0ffcbfdef9a9b944bf1a85eaef0d69d",
+    "worker-boundary/before/5788.json": "16bd44743077e2c595f26a29c965d473136f6fdb58fc48fdc2f450b11c4d2a23",
+    "worker-boundary/before/5796.json": "499610bf8d3860f1bb1950273eb61bc986c6cef49e79a6f3512b632a04756f21",
+    "worker-boundary/before/5804.json": "3beed7f21030dfa27cdab88a2c4bbf03f70a1136d9b6fb8bc8cbfaa061f07d27",
+    "worker-boundary/before/5813.json": "199c656dc427f49079a9df800004966e8bad90e72e1b6c9902a7614d9920c403",
+    "worker-boundary/before/5820.json": "00e0bcd3768caff941ad1f93f0dc85e3d08564b0f274c98447bc81074be1d3cc",
+    "worker-boundary/before/5831.json": "2c54059f065f1298118f0df267961ec6b3792c65d22fd1af919b7911fa69b809",
+    "worker-boundary/before/5839.json": "e7d7312de6d68e262ffad3a43307acc8aec3d205e4ab923780d081be22057388",
+    "worker-boundary/before/5847.json": "5743269b593f9d5e2630c6d0a49f4f6dc1e449bcb53bc29cb52b3899e3f02cca",
+    "worker-boundary/before/5856.json": "5a0ae85eadc5502579c042d41b4d4e1d3bd2c073044bb7fd36a993ed23a53f3b",
+    "worker-boundary/before/5863.json": "98575be6224c439c57a3243a75fb91a6b627a5e36400f0cd1da7122b4985f6d3",
+    "worker-boundary/before/5873.json": "f2d7b797721828a390b3d9305c98e7e2ead94ff81eeabc5b0badf597065ddfe8",
+    "worker-boundary/before/5881.json": "808ede65b2751d29df2b52b28f2265e14e83ed47eefde427b117ff9fed6f07b8",
+    "worker-boundary/before/5890.json": "f337f5505c912798a1ed12b31fd6f8609c5dad03a0fee451c9e5beeec6ad3ebf",
+    "worker-boundary/before/5897.json": "25638de11f7261453460ac50c803b9168b5c8eeb1a74e0b40df9dad86d21b4d2",
+    "worker-boundary/before/5906.json": "9bc6044f15d9b31f46cd9a1b5d9741e9abe8cc17565c5c8228816c689b5af7a6",
+    "worker-boundary/before/5913.json": "0b1eb3eb1cb3673092241bb755ecd4e2e5088c9419c8afb0a7344c2d67bdb920",
+    "worker-boundary/before/5923.json": "0f190ec3fb42a53eca2e23f428074dd94d837340856c7d3e9daf0e21f4bde938",
+    "worker-boundary/before/5930.json": "eedcb99904fac2a1e38270d6778b83edda06278c99047b2f14a2fecdb1f91eb9",
+    "worker-boundary/before/5940.json": "52b9fef2999db67596fcec816d5fb8f7034766b53464423f5d06cbca1689c3b7",
+    "worker-boundary/before/5949.json": "c5b1005031eef132f7daa154e092327ec5fbfa48a0328e27dcc818549b8ca5df",
+    "worker-boundary/before/5957.json": "126d7d1aa49d529289f67ff60f8889e5aaa45c6e0e1973313b13a852f9573b77",
+    "worker-boundary/before/5964.json": "1e5f26bf5dc448be40b62cc86596633f1a47ffa29c0e2017897d4974d182cddd",
+    "worker-boundary/before/5974.json": "d08bbc31de544a23eff0e107c914df4398f2f94ac47bbd9d5d05d5598b39bf4f",
+    "worker-boundary/before/5982.json": "96d557fcf7d432c71493296f2c628affc5d06a664ed2bd1549ba90f9169d7274",
+    "worker-boundary/before/5992.json": "fc3f551e480918d30a5f6483093ef370fd2861f21f71ccfd8acb991da60a954e",
+    "worker-boundary/before/6000.json": "821484ed145e664ec37c56670efd7a3fbed4ce8e1b8c4d4b69d9ac58de4be8d9",
+    "worker-boundary/before/6008.json": "be311a5cdefd3a3f8e8bd7b00027f070c44838833b221e7f3a48b3ad138814d8",
+    "worker-boundary/before/6016.json": "0200b03a0e543e499394c74b84254a5130fa447e363cac8afa8fc18239fcfc95",
+    "worker-boundary/before/6024.json": "476d83d2c25198e80acab323d434c64e6ee1da8f1e779dbc3831b00c16a11b75",
+    "worker-boundary/before/6031.json": "022a0761c1c608108df58b697260935adfcf248e8861310751167569a118ec68",
+    "worker-boundary/before/6041.json": "7def7d6d5a646076699d48d3f731d0be94bf7d3af134ec7d2e9f45b0d599587e",
+    "worker-boundary/before/6057.json": "04402397c7969cc6b5d3349d9606b8b45c012e6af6ed143848d44f1fb30feb4f",
+    "worker-boundary/before/6066.json": "76e0977278d187075349ac8d60c3778fa7b283c9d8eab37246e5fcd356fb48d5",
+    "worker-boundary/before/6075.json": "b7c099d52fc2a1276b60a8354af1066896ca24ff93a1258f4eb819311f46c690",
+    "worker-boundary/before/6084.json": "e8857eed333cffd215cd72009791c9e1e3d43451a9861ed0d49a17799be445d5",
+    "worker-boundary/before/6093.json": "6f258f0a66a8b0c891d437ebdc1c27c54b196ed2b3dacace9efc166a37f1ec0f",
+    "worker-boundary/before/6102.json": "ff1b15c0b91c5b51744e34f68a01cbb6cfaf4202c3c68cb536f3484216403c1b",
+    "worker-boundary/before/6110.json": "edf2ed56a0ff5835ce4ab01cfc7c6d7e4b4256946b3ee84a8120061ee8fa52d8",
+    "worker-boundary/before/progress/5139.json": "3fb3b2fbf61306f2187d4c93a03d3ba527e512f4c4f04ef1dbdbfd46801bfd4f",
+    "worker-boundary/before/progress/5146.json": "100b3ee6c4b36ce70b92469a481fd8c5537a994488cc2d432ac2231fc5b4a239",
+    "worker-boundary/before/progress/5295.json": "a52b25e73a841896625aa3ec39d89355bc018be9519f775bcf0beb88beb70a50",
+    "worker-boundary/before/progress/5318.json": "394162222a9785adc19fc9e63a92a903c22804cc6cb136f95e1b261f7e876ef8",
+    "worker-boundary/before/progress/5334.json": "3c0d6a19ed5dcce34a095dd6909d4b474807023e8605861d2070d7cbb65d9cae",
+    "worker-boundary/before/progress/5343.json": "31b5fb6353d65b538c1f9a91350595933bfa432e333b9f71d4e41a0c783ee1f3",
+    "worker-boundary/before/progress/5391.json": "d5c42ad7f96ace73f3681b74fc2c2ffb85fd8d390faf3fb5cd1b708e93825a4f",
+    "worker-boundary/before/progress/5408.json": "bd80ca6168f969fdd8508f20b6b08648a6e80bb93c0a87225d64f3153eed34c8",
+    "worker-boundary/before/progress/5417.json": "77f6718d790e1e40e10d0ba02e782e0d712e7dec1a218ed7541d8c8e0ca170ba",
+    "worker-boundary/before/progress/5616.json": "ed8dd92a3c483e898dbcf2ebb7ee5db226b353d99c0e6bfd44b724eb9a63440c",
+    "worker-boundary/before/progress/5624.json": "ed8dd92a3c483e898dbcf2ebb7ee5db226b353d99c0e6bfd44b724eb9a63440c",
+    "worker-boundary/before/progress/5639.json": "44790e6c57cc3cd87a6da69be253c066d5e22cc260397c4888f86882ff641dc2",
+    "worker-boundary/before/progress/5647.json": "f84be1324943ac5cbbb78ee4ead5d02446b8e4930c3ecaff8c0f74234d2d0947",
+    "worker-boundary/before/progress/5656.json": "fb776415be30dd628cc012e5c5b532c74081a1ad548489170cdde7e4cb32b129",
+    "worker-boundary/before/progress/5715.json": "90bb57fb659fe0b36e674a8a0e3574beeebfc0051d0e3ecc7d56fd4a8c176034",
+    "worker-boundary/before/progress/5737.json": "599e3492bb14f8ffb6ba2fbdfc5b3ca4fc7bdebe72dccf153a0478307191cbfa",
+    "worker-boundary/before/progress/5820.json": "047bb3b721720e96116b8cd515ce212291733c0151bb32272270734aad19cb9d",
+    "worker-boundary/before/progress/5831.json": "e0f3cc836222649335987f73ce3cdf62baf37fd391c64f1f586de05ae5f0193e",
+    "worker-boundary/before/progress/5923.json": "8f925615936696867129660e81790dcc13a5bac9d0321818b4bafea57f0fec5e",
+    "worker-boundary/before/progress/5930.json": "39b62a2b6c46c5ca08864aaedd9638ce5d21d0e5299fd8ef967979db28529949",
+    "worker-boundary/before/progress/5940.json": "f177954983c2af0c41186e03d8f32c3a7a6622f8786c07d8584c43e73fc344d9",
+    "worker-boundary/before/progress/6024.json": "36b90952a01b71b9716dbd8e0c61c75aa3e5e80ec8851b5c5e41b3301a7e5b69",
+    "worker-boundary/before/progress/6031.json": "5c47a2f1267e4cff5123105cd586aedd93694cb5a4b6795fbda5f22ed9e038d0",
+    "worker-boundary/before/progress/6041.json": "f8d6cc3c06ebfd1bdabb10504698cb31767d34a25abbff46ae08155938e92957"
+  }
+}
