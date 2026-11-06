@@ -5,9 +5,10 @@
 const FloatArray=Float64Array,MapType=Map,stringify=JSON.stringify,parse=JSON.parse,
   safe=Number.isSafeInteger,floor=Math.floor
 const mapGet=Function.prototype.call.bind(Map.prototype.get),mapSet=Function.prototype.call.bind(Map.prototype.set)
-export function blockCompiledScriptLog({recordLimit=20000,pairLimit=4000000,blockSize=256}={}) {
+export function blockCompiledScriptLog({recordLimit=20000,pairLimit=4000000,blockSize=256,ownedRecordKey=null}={}) {
   if(!safe(recordLimit)||recordLimit<1||!safe(pairLimit)||pairLimit<1||
-    !safe(blockSize)||blockSize<1||blockSize>4096)throw Error('invalid compilation block limits')
+    !safe(blockSize)||blockSize<1||blockSize>4096||
+    ownedRecordKey!==null&&typeof ownedRecordKey!=='function')throw Error('invalid compilation block limits')
   const scriptKeys=[],counts=[],recordIds=new MapType(),blocks=[],blockIds=new MapType(),chunks=[],chunkRuns=4096
   let tail=[],events=0,runs=0,overflow=false,storedRuns=0,blockRunCount=0
   function lastBlockRun() {
@@ -45,7 +46,7 @@ export function blockCompiledScriptLog({recordLimit=20000,pairLimit=4000000,bloc
       if(events===Number.MAX_SAFE_INTEGER){overflow=true;return}
       events++
       if(overflow)return
-      const key=stringify(record)
+      const key=ownedRecordKey?.(record)??stringify(record)
       let id=mapGet(recordIds,key)
       if(id===undefined) {
         if(scriptKeys.length>=recordLimit){overflow=true;return}

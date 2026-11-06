@@ -9,7 +9,9 @@ import {fingerprint} from './worker-input-probe.mjs'
 
 const apply=Reflect.apply,descriptor=Object.getOwnPropertyDescriptor
 const mapGet=Function.prototype.call.bind(Map.prototype.get),mapSet=Function.prototype.call.bind(Map.prototype.set),
-  freeze=Object.freeze,charCodeAt=Function.prototype.call.bind(String.prototype.charCodeAt)
+  freeze=Object.freeze,charCodeAt=Function.prototype.call.bind(String.prototype.charCodeAt),
+  weakGet=Function.prototype.call.bind(WeakMap.prototype.get),weakSet=Function.prototype.call.bind(WeakMap.prototype.set),
+  stringify=JSON.stringify
 const pinnedSourceHash=process.versions.node==='24.18.0'
 // JS source is a sequence of UTF-16 code units. UTF-8 encoding replaces lone
 // surrogates, which would conflate distinct source strings and test results.
@@ -106,7 +108,7 @@ function compiledRecordWithCode(params,code,failedParse) {
 // Every other source (including Wasm) keeps the complete-source path.
 export function createCompiledScriptRecorder(readSource,{maxCachedSources=256}={}) {
   if(!Number.isSafeInteger(maxCachedSources)||maxCachedSources<0||maxCachedSources>4096)throw Error('invalid compiled source cache limit')
-  const cache=new Map()
+  const cache=new Map(),serializations=new WeakMap()
   let entries=0,events=0,sourceReads=0,cacheHits=0
   function key(params) {
     if(!pinnedSourceHash||params.isLiveEdit||(params.scriptLanguage??'JavaScript')!=='JavaScript'||
@@ -114,8 +116,17 @@ export function createCompiledScriptRecorder(readSource,{maxCachedSources=256}={
     return params.length+':'+params.hash
   }
   function memo(params,failedParse,record) {
+    const owned=freeze({...record,identity:freeze(record.identity),code:freeze(record.code)})
+    // Only our deeply frozen scalar record can reuse a serialized key.
+    // Null-prototype mirrors prevent inherited toJSON from changing the
+    // representation of these owned fields. Mutable records keep the full
+    // serialization path in the log.
+    weakSet(serializations,owned,stringify({__proto__:null,
+      identity:{__proto__:null,available:owned.identity.available,hash:owned.identity.hash},
+      code:{__proto__:null,encoding:owned.code.encoding,bytes:owned.code.bytes,sha256:owned.code.sha256},
+      language:owned.language,kind:owned.kind}))
     return {url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true,failedParse,
-      record:freeze({...record,identity:freeze(record.identity),code:freeze(record.code)})}
+      record:owned}
   }
   return {
     record(params,failedParse=false) {
@@ -149,6 +160,7 @@ export function createCompiledScriptRecorder(readSource,{maxCachedSources=256}={
       }
       return record
     },
+    cachedKey:record=>weakGet(serializations,record),
     counts:()=>({policy:'pinned-injective-ascii',enabled:pinnedSourceHash,events,sourceReads,cacheHits,entries,capacity:maxCachedSources}),
   }
 }

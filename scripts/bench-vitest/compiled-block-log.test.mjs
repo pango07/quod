@@ -3,11 +3,50 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {blockCompiledScriptLog,blockCompilationRuns} from './compiled-block-log.mjs'
 import {validateCompilationCounts,compilationSequence,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
+import {createCompiledScriptRecorder} from './worker-module-probe.mjs'
+import {createHash} from 'node:crypto'
 
 const record=i=>({identity:{available:true,hash:'identity-'+i},code:{encoding:'utf16le',bytes:2,sha256:'code-'+i},language:'JavaScript'})
 const restore=report=>Array.from(blockCompilationRuns(report)).flatMap(([id,count])=>{
   const {count:total,...row}=report.scripts[id]
   return Array.from({length:count},()=>row)
+})
+
+test('owned serialization and mutable fallback retain identical full compilation records',()=>{
+  const source='1+1',params={scriptId:'1',length:source.length,hash:createHash('sha256').update(source).digest('hex')}
+  const recorder=createCompiledScriptRecorder(()=>({scriptSource:source})),cached=blockCompiledScriptLog({ownedRecordKey:recorder.cachedKey}),plain=blockCompiledScriptLog()
+  const owned=recorder.record(params),mutable={...owned,code:{...owned.code}},input=[]
+  for(let i=0;i<1027;i++) {
+    mutable.code.bytes=i
+    const row=i%2?owned:mutable
+    input.push(structuredClone(row));cached.append(row);plain.append(row)
+  }
+  validateCompilationCounts(cached.report());assert.deepEqual(cached.report(),plain.report())
+  assert.deepEqual(restore(cached.report()),input)
+})
+
+test('compare repeated owned compilation serialization while preserving every event',t=>{
+  const moduleURL=new URL('./worker-module-probe.mjs',import.meta.url).href,logURL=new URL('./compiled-block-log.mjs',import.meta.url).href,
+    validateURL=new URL('./compiled-script-log.mjs',import.meta.url).href,rows=[]
+  for(const cached of [false,true,true,false]) {
+    const source=`import {createHash} from 'node:crypto';
+import {createCompiledScriptRecorder} from ${JSON.stringify(moduleURL)};
+import {blockCompiledScriptLog} from ${JSON.stringify(logURL)};
+import {validateCompilationCounts} from ${JSON.stringify(validateURL)};
+const code=['1+1','2+2'],recorder=createCompiledScriptRecorder(id=>({scriptSource:code[Number(id)]}));
+const records=code.map((source,i)=>recorder.record({scriptId:String(i),length:source.length,hash:createHash('sha256').update(source).digest('hex')}));
+const log=blockCompiledScriptLog(${cached?'{ownedRecordKey:recorder.cachedKey}':'{}'}),start=performance.now();
+for(let i=0;i<2000000;i++)log.append(records[i%2]);
+const elapsedMs=performance.now()-start,report=log.report();validateCompilationCounts(report);
+const serialized=JSON.stringify(report);console.log(JSON.stringify({cached:${cached},elapsedMs,counts:log.counts(),serializedBytes:Buffer.byteLength(serialized),sha256:createHash('sha256').update(serialized).digest('hex')}));`
+    const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:30000})
+    assert.equal(r.status,0,r.stderr||String(r.error));const row=JSON.parse(r.stdout)
+    assert.equal(row.counts.events,2000000);assert.equal(row.counts.runs,2000000);assert.equal(row.counts.records,2)
+    assert.equal(row.counts.overflow,false)
+    if(rows.length){assert.equal(row.sha256,rows[0].sha256);assert.equal(row.serializedBytes,rows[0].serializedBytes)}
+    rows.push(row)
+  }
+  t.diagnostic(JSON.stringify({compiledRecordKeyMeasurements:rows,scope:'isolated exact record serialization/logging; not workload or CI savings'}))
 })
 
 test('blocks preserve every record field, event and position through interrupted repeated patterns',()=>{

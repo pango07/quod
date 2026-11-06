@@ -15,6 +15,7 @@ test('source cache retains exact code and every identity field across repeated c
     for(const failed of [false,true]) {
       const p=params(source,extra),actual=recorder.record(p,failed)
       assert.deepEqual(actual,compiledScriptRecord(p,{scriptSource:source},failed))
+      assert.equal(recorder.cachedKey(actual),JSON.stringify(actual),'cached serialization must retain every record field')
       assert.throws(()=>{actual.code.sha256='changed'},TypeError)
       assert.throws(()=>{actual.identity.hash='changed'},TypeError)
     }
@@ -36,6 +37,21 @@ test('space/NUL collisions and non-ASCII source always fetch complete source',()
     }
     assert.equal(reads,4);assert.equal(recorder.counts().cacheHits,0);assert.equal(recorder.counts().entries,0)
   }
+})
+
+test('cached serialization is limited to owned immutable records and ignores later inherited hooks',()=>{
+  const recorder=createCompiledScriptRecorder(()=>({scriptSource:'1+1'}))
+  const owned=recorder.record(params('1+1')),expected=JSON.stringify(owned),copy={...owned,code:{...owned.code}}
+  assert.equal(recorder.cachedKey(copy),undefined)
+  assert.equal(recorder.cachedKey(Object.freeze(copy)),undefined,'freezing an unrelated record cannot grant ownership')
+  assert.equal(recorder.cachedKey(null),undefined)
+  let calls=0;const original=Object.getOwnPropertyDescriptor(Object.prototype,'toJSON')
+  Object.defineProperty(Object.prototype,'toJSON',{configurable:true,get(){calls++;throw Error('inherited hook')}})
+  try{assert.equal(recorder.cachedKey(owned),expected)}
+  finally{if(original)Object.defineProperty(Object.prototype,'toJSON',original);else delete Object.prototype.toJSON}
+  assert.equal(calls,0)
+  const fallback=createCompiledScriptRecorder(()=>({scriptSource:'1 + 1'})).record(params('1 + 1'))
+  assert.equal(recorder.cachedKey(fallback),undefined)
 })
 
 test('nested source acquisition cannot count the same cached source twice',()=>{

@@ -35,8 +35,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   // Repeated condition/capture pairs exceeded four million ordered runs.
   // Intern exact blocks while retaining every event and its position; the
   // four-million-pair bound now applies to the stored representation.
-  const compilationLog=nativeEntries?blockCompiledScriptLog():compiledScriptLog(),compilationErrors=[]
   const compilationRecorder=nativeEntries?createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId})):null
+  const compilationLog=nativeEntries?blockCompiledScriptLog({ownedRecordKey:compilationRecorder.cachedKey}):compiledScriptLog(),compilationErrors=[]
   let failedToParse=0
   function compiledEvent(params,failedParse) {
     if(!compiledScripts)return
