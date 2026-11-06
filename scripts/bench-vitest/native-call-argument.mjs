@@ -33,15 +33,20 @@ export function observeNativeCallArguments(post,{identityComparison=null}={}) {
     sources.set(scriptId,result);return result
   }
   return (frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
-    const handles=new Set()
+    const handles=new Set(),pauseProperties=new Map()
     let callerSourceSha256=null
     function properties(id) {
       if(!id)throw Error('missing runtime object')
+      // In native identity mode this invocation uses descriptor reads and
+      // native ID queries only. Reuse a paused scope's descriptors within
+      // this invocation, never across calls/resumes or JS identity evaluation.
+      if(identityComparison&&pauseProperties.has(id))return pauseProperties.get(id)
       const r=post('Runtime.getProperties',{objectId:id,ownProperties:true,generatePreview:false})
       if(r.exceptionDetails)throw Error('runtime descriptors unavailable')
       if(!releaseOnResume)for(const p of [...r.result??[],...r.internalProperties??[],...r.privateProperties??[]]) {
         for(const v of [p.value,p.get,p.set])if(v?.objectId)handles.add(v.objectId)
       }
+      if(identityComparison)pauseProperties.set(id,r.result)
       return r.result
     }
     function data(p) {

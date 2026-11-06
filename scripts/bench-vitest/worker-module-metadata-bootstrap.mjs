@@ -17,7 +17,7 @@ const files=[],unknown=[],send=process.send,write=fs.writeFileSync,apply=Reflect
 let project=null
 const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,heapIdentity:combined,
   onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
     JSON.stringify({project,files,checkpoint})+'\n'):null})
 const require=createRequire(path.join(process.cwd(),'package.json'))
@@ -63,7 +63,7 @@ process.send=function(...args) {
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
       boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
-      metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess()}})+'\n')}
+      metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess(),identity:registry.nativeIdentity()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }
   return apply(send,this,args)

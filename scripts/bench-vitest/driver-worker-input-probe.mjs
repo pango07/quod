@@ -216,6 +216,8 @@ if(phase) {
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(x.native.descriptors?.available&&!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage,
             'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
+          assert(x.native.identity?.available&&x.native.identity.mode==='heap-object-id'&&x.native.identity.snapshotsRequested===0,
+            'native identity comparison must remain available without collecting heap snapshots')
           assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)

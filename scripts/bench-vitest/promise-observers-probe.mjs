@@ -198,7 +198,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
           descriptorArgumentCounts.set(kind,(descriptorArgumentCounts.get(kind)??0)+1)
           if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
             onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
-              arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,replayEligible:false})
+              arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,
+              compilation:{events:compiled.length,overflow:compilationOverflow,failedToParse},
+              identity:heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
           }catch{descriptorFailure='descriptor progress checkpoint failed'}
         }
         try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='could not resume watched entry'}

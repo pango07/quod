@@ -53,17 +53,21 @@ test('heap identities distinguish aliases and identical-source closures without 
 })
 
 test('native descriptor recovery uses heap identity and still rejects bound callees',()=>{
-  const native=Object.getOwnPropertyDescriptor,target={get tmp(){throw Error('must not read')}},key='tmp'
+  const native=Object.getOwnPropertyDescriptor,target={get tmp(){throw Error('must not read')}},plain={tmp:7},key='tmp'
   const bound=native.bind(null,target)
   const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true})
   try {
-    assert.equal(typeof native(target,key).get,'function')
+    const values=[]
+    for(const current of [target,plain,target])values.push(native(current,key))
+    assert.equal(typeof values[0].get,'function');assert.equal(values[1].value,7)
     assert.equal(typeof bound(key).get,'function')
     const report=p.descriptorAccess(),identity=p.nativeIdentity()
     assert.equal(report.available,true,JSON.stringify(report));assert.equal(identity.available,true,JSON.stringify(identity))
     const entries=report.entries.filter(e=>e.entries.includes('Object.getOwnPropertyDescriptor'))
-    assert.equal(entries.length,2)
+    assert.equal(entries.reduce((n,e)=>n+e.count,0),4)
     assert(entries.some(e=>e.argument.available&&e.argument.target.watchedAccessorKeys.includes('tmp')))
+    assert(entries.some(e=>e.argument.available&&e.argument.target.watchedAccessorKeys.length===0),
+      'a new invocation at the same source location must resolve its current target')
     assert(entries.some(e=>!e.argument.available&&['native callee identity differs','native heap identity unavailable'].includes(e.argument.reason)))
     assert.equal(identity.mode,'heap-object-id');assert.equal(identity.snapshotsRequested,0);assert.equal(identity.replayEligible,false)
   }finally{p.close()}
