@@ -32,17 +32,21 @@ test('unknown module identity is explicit without invoking diagnostic getters or
   assert.equal(calls,0);assert.equal(p.report().errors.length,2);assert.equal(p.report().events.length,0)
   p.close()
 })
-test('V8 source hashes retain actual compiled bytes, including compiled but unexecuted scripts',()=>{
+test('V8 source hashes retain exact bytes when vm scripts are bound, without claiming complete compilation coverage',()=>{
   const p=observeCompiledScripts(),url='quod-compiled-module-fixture',a='1 + 1',b='40 + 2'
   const first=new vm.Script(a,{filename:url}),second=new vm.Script(b,{filename:url})
   assert.equal(first.runInThisContext(),2)
   const expected=fingerprint({url,isModule:false,hasSourceURL:false,failedParse:false}).hash
+  const hashes=()=>p.report().scripts.filter(s=>s.identity.hash===expected).map(s=>s.code.sha256)
+  // Node 24's Inspector does not report the unbound second vm.Script yet.
+  // An error-free observation must not be interpreted as complete coverage.
+  assert.deepEqual(hashes(),[sha(a)])
+  assert.equal(second.runInThisContext(),42)
+  assert.deepEqual(hashes(),[sha(a),sha(b)])
   const report=p.report();p.close()
   assert.deepEqual(report.errors,[])
-  const scripts=report.scripts.filter(s=>s.identity.hash===expected)
-  assert.deepEqual(scripts.map(s=>s.code.sha256),[sha(a),sha(b)])
+  assert.equal(report.completeCompilationCoverage,false)
   assert.equal(report.replayEligible,false)
-  assert.equal(second.runInThisContext(),42)
 })
 test('failed compilation is observed explicitly',()=>{
   const p=observeCompiledScripts(),code='const = invalid'

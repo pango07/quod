@@ -1,5 +1,5 @@
-// Diagnostic only: observe evaluator inputs and actual V8 compilation bytes.
-// Compilation need not execute code; neither observation permits replay.
+// Diagnostic only: observe evaluator inputs and debugger-reported source bytes.
+// Unbound vm.Script compilations may be absent; neither observation permits replay.
 import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
 import {types} from 'node:util'
@@ -69,7 +69,7 @@ export function observeCompiledScripts() {
   session.on('Debugger.scriptParsed',({params})=>observe(params,false))
   session.on('Debugger.scriptFailedToParse',({params})=>observe(params,true))
   try{session.connect();post('Debugger.enable')}catch(e){errors.push(e.message)}
-  return {report:()=>({replayEligible:false,scripts,errors,overflow,failedToParse,
-    limitation:'Compiled scripts are not an execution trace or complete module dependency certificate'}),
+  return {report:()=>({replayEligible:false,completeCompilationCoverage:false,scripts,errors,overflow,failedToParse,
+    limitation:'Debugger-reported scripts can omit unbound vm.Script compilations; this is neither an execution trace nor a complete module dependency certificate'}),
     close(){try{session.disconnect()}catch{}}}
 }
