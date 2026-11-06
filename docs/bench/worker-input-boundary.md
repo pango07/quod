@@ -137,3 +137,30 @@ observation for `isProxy` and `getProxyDetails`; it still grants no replay.
 These runs are diagnostics, not speed or cost measurements.
 [Evidence and artifact digests](worker-config-observations.json) retain
 the results and subprocess call locations.
+
+## Native proxy inspection follow-up
+
+[42175546182](https://github.com/pango07/quod/actions/runs/42175546182)
+at `9da3c27` passes 28 regressions and two complete 120-instance /
+4,131-state runs. Six new regressions verify that native proxy inspection
+is observed even through cached function references, including nested
+proxy inspection that reads the seed without firing JavaScript read traps.
+The independent comparison of raw per-test names and states agrees.
+
+The real workers make zero observed `getProxyDetails` calls. They make
+8,276 `isProxy` calls: 6,028 from Node's CommonJS loader, 2,157 from this
+probe, and 91 from Undici. The probe records call sites and counts, not
+the argument identities. These calls therefore cannot simply be dismissed
+as unrelated to the tracked configuration. The initial native-capability
+findings remain unchanged, including the three subprocess calls in one
+worker. The seed still has no observed JavaScript reads.
+
+This narrows a concrete obstacle to worker input projection. It does not
+yet supply a safe projection: original configuration ownership, native
+argument identities and other observation channels, worker identity and
+module inputs, parent RPC state and side effects remain unresolved.
+Production uses the existing full keys, and the published Action pin is
+unchanged. No speed or cost improvement is claimed from this diagnostic.
+[Result, call sites and artifact digests](worker-proxy-observations.json)
+preserve the evidence without storing native arguments or configuration
+values.

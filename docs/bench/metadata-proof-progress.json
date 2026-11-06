@@ -635,5 +635,17 @@
     "workersWithOpaqueEntries": 1,
     "nativeAddonLoads": 0,
     "replayEligible": false
+  },
+  "workerProxyDiagnostic": {
+    "evidence": "worker-proxy-observations.json",
+    "run": 42175546182,
+    "commit": "9da3c27",
+    "regressionTests": 28,
+    "workers": 120,
+    "statesPerRun": 4131,
+    "workersObservingSeed": 0,
+    "proxyUnwrapEntries": 0,
+    "isProxyEntries": 8276,
+    "replayEligible": false
   }
 }
