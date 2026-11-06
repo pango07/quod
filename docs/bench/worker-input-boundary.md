@@ -260,3 +260,60 @@ are consumed, along with the already identified seed and worker identities.
 No production key, published Action or savings claim changes.
 [Independent comparison and artifact digests](worker-module-consumption.json)
 preserve this result and both failed-gate scopes.
+
+## Stored metadata and invalidation state
+
+[Gate 42182839376](https://github.com/pango07/quod/actions/runs/42182839376)
+at `9b1b699` passes 38 regressions and two runs with the same
+39 timestamp-only edits. Both runs observe parent RPC traffic; only the
+second installs the metadata/native observer inside workers.
+Both full runs retain all 120 file/project
+instances and 4,131 test states. Independent raw-state and observation-count
+checks agree. The runtime is Node 24.18.0, Vitest 5.0.0, Vite 8.2.0 on
+`ubuntu-26.04/20261101.186.1`.
+
+The pinned Vite module-runner source consumes `invalidate` before assigning
+the fetched object to `module.meta`. The diagnostic therefore observes two
+different things: the node state immediately before `invalidateModule`,
+and later access to `tmp`/`invalidate` through stored module metadata. It
+checks the actual module-runner source digest before installing its hooks.
+The regressions cover cold and populated invalidations, read/descriptor/
+enumeration operations, shared metadata identity, mutation, restoration,
+unsupported descriptors, original exceptions and raw/native read bypasses.
+
+| Observation | Result |
+| --- | ---: |
+| Observed workers | 120 |
+| Module nodes / stored metadata objects | 1,208 / 1,259 |
+| Metadata assignments, including invalidation clears | 1,493 |
+| Invalidation calls | 234 |
+| Invalidations with no prior state to clear | 234 |
+| Later observed reads/enumerations of the varying stored fields | 0 |
+| Proxy-unwrapping calls / proxy arguments | 0 / 0 |
+| Unknown native argument calls | 3 |
+| Synchronous subprocess calls | 3, in one worker |
+
+At each observed invalidation, the node was not evaluated, had no metadata,
+map, promise or exports, and had an empty imports set. These are the fields
+the pinned invalidator clears. No later `get`, `has`, descriptor or key
+enumeration event was observed through the installed metadata proxies.
+
+The three unknown native arguments remain in `react.test.ts`,
+`Counter.mock.test.tsx` and `Counter.injection.test.tsx`; the separate
+subprocess-using worker is `cli/openApiSpec.test.ts`. This leaves 116 workers
+without these particular flags, not 116 replay-eligible workers. There are
+no observed addon loads, cached native addons, new Inspector entries or
+watched heap-reader entries in this combined metadata/native diagnostic.
+
+Stored-object observation is not complete ownership. The original fetched
+object exists before assignment into the graph, and retained aliases or
+Promise/transport observers could read it without these traps. Earlier
+transport reads are also outside the observation. The successful fixture
+demonstrates that raw and native reads can bypass the proxy; no projection
+is enabled by a zero-read result. The next proof must account for the
+object's lifetime from transport delivery, along with worker configuration,
+data inputs and parent-side behavior.
+
+[Evidence and per-artifact digests](worker-module-metadata.json) retain the
+full scope. Production keys, the Action pin and performance claims remain
+unchanged.

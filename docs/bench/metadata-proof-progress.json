@@ -682,5 +682,23 @@
     },
     "completeCompilationCoverage": false,
     "replayEligible": false
+  },
+  "workerModuleMetadataDiagnostic": {
+    "evidence": "worker-module-metadata.json",
+    "run": 42182839376,
+    "commit": "9b1b699",
+    "regressionTests": 38,
+    "runs": 2,
+    "statesPerRun": 4131,
+    "workers": 120,
+    "nodes": 1208,
+    "metadataObjects": 1259,
+    "invalidations": 234,
+    "coldInvalidations": 234,
+    "workersWithStoredMetadataReads": 0,
+    "unknownNativeArgumentCalls": 3,
+    "workersWithoutTheseFlags": 116,
+    "completeOwnership": false,
+    "replayEligible": false
   }
 }
