@@ -79,7 +79,7 @@ const finalGlobalProperties=Reflect.ownKeys(globalThis);
 extra.globalPropertiesUnchanged=globalProperties.length===finalGlobalProperties.length&&globalProperties.every((key,i)=>key===finalGlobalProperties[i]);
 post('Runtime.releaseObjectGroup',{objectGroup:'quod-native-session-fixture'});session.disconnect();
 console.log(JSON.stringify({mode,events,summaries,cleared,pauses,commands,...extra}));`
-  const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout,maxBuffer:16*1024*1024})
+  const r=spawnSync(process.execPath,['--expose-gc','--input-type=module','-e',source],{encoding:'utf8',timeout,maxBuffer:16*1024*1024})
   assert.equal(r.status,0,r.stderr||String(r.error))
   return JSON.parse(r.stdout)
 }
@@ -154,6 +154,27 @@ extra.${flag}=true;extra.value=native(target,'tmp').value;stop();`)
     if(directMode==='native')assert.equal(data.bridge.verifiedHandleReleases,1)
     assert.equal(data.closedBridge.closed,true);assert.equal(data.bridge.replayEligible,false)
   }
+})
+
+test('primitive condition exceptions do not retain application argument objects',()=>{
+  if(directMode!=='string')return
+  const data=fixture('string',`const native=Object.getOwnPropertyDescriptor;
+watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');
+function invoke(){const target={get tmp(){return 7}};native(target,'tmp');return new WeakRef(target)}
+const reference=invoke();await new Promise(resolve=>setImmediate(resolve));
+for(let i=0;i<5;i++)globalThis.gc();extra.collected=reference.deref()===undefined;stop();`)
+  complete(data,1);assert.equal(data.collected,true)
+})
+
+test('primitive context installation failure remains unavailable after a native call',()=>{
+  if(directMode!=='string')return
+  const data=fixture('string',`const native=Object.getOwnPropertyDescriptor;
+watch('Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor');
+bridge.contextCreated({id:99999999,auxData:{isDefault:false}});
+extra.value=native({tmp:7},'tmp').value;stop();`)
+  assert.equal(data.value,7);assert.equal(data.summaries,1);assert.equal(data.bridge.failures,1)
+  assert.equal(data.bridge.failure,'primitive transport context installation failed')
+  assert.equal(data.bridge.replayEligible,false);assert.equal(data.closedBridge.closed,true)
 })
 
 test('direct native session and protocol transport retain every repeated observation',t=>{

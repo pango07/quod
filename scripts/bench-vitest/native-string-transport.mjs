@@ -8,8 +8,8 @@ import {randomBytes} from 'node:crypto'
 import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 const stringify=JSON.stringify,parse=JSON.parse
 
-export function nativeStringTransport(post,nonce,{onSummary}={}) {
-  if(!/^[a-f0-9]{64}$/.test(nonce)||typeof onSummary!=='function')throw Error('invalid primitive transport setup')
+export function nativeStringTransport(post,nonce,{onSummary,ordinaryOwners=true}={}) {
+  if(!/^[a-f0-9]{64}$/.test(nonce)||typeof onSummary!=='function'||typeof ordinaryOwners!=='boolean')throw Error('invalid primitive transport setup')
   const name='_quod_native_capture_'+nonce,group='quod-native-string-'+nonce,prefix=nonce+':'
   const contexts=new Map(),attempted=new Set(),entries=new Map()
   let handle=null,closed=false,processing=false,notifications=0,delivered=0,ignored=0,failures=0,failure=null
@@ -26,7 +26,7 @@ export function nativeStringTransport(post,nonce,{onSummary}={}) {
       if(closed||handle)throw Error('primitive transport initialization state')
       const addon=process.env.QUOD_NATIVE_CAPTURE_ADDON
       if(process.versions.node!=='24.18.0'||!addon||!path.isAbsolute(addon))throw Error('primitive transport requires pinned native helper')
-      const expression=`const ${name}=process.getBuiltinModule('module').createRequire(${stringify(import.meta.url)})(${stringify(addon)}).createStringCapture(${stringify(nonce)},true);${name}`
+      const expression=`const ${name}=process.getBuiltinModule('module').createRequire(${stringify(import.meta.url)})(${stringify(addon)}).createStringCapture(${stringify(nonce)},${ordinaryOwners});${name}`
       const value=evaluate(expression)
       if(value?.type!=='function'||!value.objectId)throw Error('primitive transport root helper unavailable')
       handle=value.objectId;bindings++
@@ -50,8 +50,8 @@ export function nativeStringTransport(post,nonce,{onSummary}={}) {
         try {
           contextQueries++
           const installed=post('Runtime.callFunctionOn',{objectId:handle,
-            functionDeclaration:'function(nonce,key){return this.createContextCapture(nonce,key,true)}',
-            arguments:[{value:nonce},{value:key}],returnByValue:true,silent:true,generatePreview:false})
+            functionDeclaration:'function(nonce,key,ordinary){return this.createContextCapture(nonce,key,ordinary)}',
+            arguments:[{value:nonce},{value:key},{value:ordinaryOwners}],returnByValue:true,silent:true,generatePreview:false})
           if(installed.exceptionDetails||installed.result?.value!==true)throw Error('primitive transport context helper unavailable')
           const value=evaluate(`const ${name}=${holderName}.capture;${holderName}.capture=null;typeof ${name}`,context.id)
           bindings++
@@ -77,10 +77,14 @@ export function nativeStringTransport(post,nonce,{onSummary}={}) {
         if(remote.objectId||!contexts.has(params.exceptionDetails.executionContextId))throw Error('primitive context unknown')
         const packed=parse(remote.value.slice(prefix.length)),value=decodeNativeCaptureSummary(packed)
         const config=entries.get(value.api)
-        if(!value.owned||!value.available||!value.cleared||!value.metadataValid||value.failure!==0||!config||
+        if(!value.owned||!value.cleared||!value.metadataValid||!config||
           value.receiverBased!==config.receiver||value.describeOwnAccessors!==config.describeOwnAccessors)
           throw Error('primitive summary unavailable')
         onSummary(packed);delivered++
+        // Preserve the sanitized failed capture for diagnostic accounting,
+        // while retaining an explicit transport failure. Never promote an
+        // unsupported native owner to a successful observation.
+        if(!value.available||value.failure!==0)fail('native summary reported a capture failure')
       }catch{fail('primitive summary callback or validation failed')}
       finally {processing=false}
       return true

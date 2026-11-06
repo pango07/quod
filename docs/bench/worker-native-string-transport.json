@@ -1,0 +1,195 @@
+{
+  "backend": {
+    "commit": "c91d12392cb4455b9df8d0e72c69171dd9f83391",
+    "run": "https://github.com/pango07/quod/actions/runs/42274440392",
+    "job": 128087024457,
+    "conclusion": "success",
+    "tests": 251
+  },
+  "transport": {
+    "commit": "b996649aa486031aef268a14ba05437873744cd1",
+    "run": "https://github.com/pango07/quod/actions/runs/42275119640",
+    "job": 128089360609,
+    "conclusion": "success",
+    "tests": 7,
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "node": "24.18.0",
+    "equivalence": {
+      "case": "native-session-equivalence",
+      "calls": 9,
+      "nativeBridge": {
+        "transport": "primitive-string",
+        "enabled": true,
+        "closed": false,
+        "notifications": 9,
+        "delivered": 9,
+        "ignored": 0,
+        "failures": 0,
+        "failure": null,
+        "contexts": 2,
+        "attemptedContexts": 2,
+        "contextQueries": 1,
+        "persistentLexicalBindings": 3,
+        "perEntryProtocolRequests": 0,
+        "perEntryObjectHandles": 0,
+        "replayEligible": false,
+        "limitation": "Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven"
+      },
+      "nativeCommands": {
+        "Debugger.enable": 1,
+        "Runtime.evaluate": 6,
+        "Runtime.enable": 1,
+        "Debugger.setBreakpointOnFunctionCall": 3,
+        "Runtime.callFunctionOn": 1,
+        "Runtime.releaseObject": 1,
+        "Debugger.removeBreakpoint": 3,
+        "Runtime.releaseObjectGroup": 2
+      },
+      "protocolCommands": {
+        "Debugger.enable": 1,
+        "Runtime.enable": 1,
+        "Runtime.evaluate": 4,
+        "Debugger.setBreakpointOnFunctionCall": 3,
+        "Runtime.callFunctionOn": 9,
+        "Runtime.releaseObject": 9,
+        "Debugger.removeBreakpoint": 3,
+        "Runtime.releaseObjectGroup": 2
+      },
+      "replayEligible": false
+    },
+    "measurements": {
+      "nativeInspectorTransportMeasurements": [
+        {
+          "mode": "protocol",
+          "elapsedMs": 571.2007570000001,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.enable": 1,
+            "Runtime.evaluate": 2,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": null,
+          "compiledEvents": 10000,
+          "entryCommands": {
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000
+          },
+          "minimumFrames": 7,
+          "maximumFrames": 7
+        },
+        {
+          "mode": "string",
+          "elapsedMs": 262.713935,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.evaluate": 2,
+            "Runtime.enable": 1,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": {
+            "transport": "primitive-string",
+            "enabled": true,
+            "closed": false,
+            "notifications": 5000,
+            "delivered": 5000,
+            "ignored": 0,
+            "failures": 0,
+            "failure": null,
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 0,
+            "persistentLexicalBindings": 1,
+            "perEntryProtocolRequests": 0,
+            "perEntryObjectHandles": 0,
+            "replayEligible": false,
+            "limitation": "Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven"
+          },
+          "compiledEvents": 5000,
+          "entryCommands": {},
+          "minimumFrames": 8,
+          "maximumFrames": 8
+        },
+        {
+          "mode": "string",
+          "elapsedMs": 268.06482700000004,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.evaluate": 2,
+            "Runtime.enable": 1,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": {
+            "transport": "primitive-string",
+            "enabled": true,
+            "closed": false,
+            "notifications": 5000,
+            "delivered": 5000,
+            "ignored": 0,
+            "failures": 0,
+            "failure": null,
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 0,
+            "persistentLexicalBindings": 1,
+            "perEntryProtocolRequests": 0,
+            "perEntryObjectHandles": 0,
+            "replayEligible": false,
+            "limitation": "Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven"
+          },
+          "compiledEvents": 5000,
+          "entryCommands": {},
+          "minimumFrames": 8,
+          "maximumFrames": 8
+        },
+        {
+          "mode": "protocol",
+          "elapsedMs": 635.152786,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.enable": 1,
+            "Runtime.evaluate": 2,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": null,
+          "compiledEvents": 10000,
+          "entryCommands": {
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000
+          },
+          "minimumFrames": 7,
+          "maximumFrames": 7
+        }
+      ],
+      "scope": "isolated transport, summaries and bounded stacks; not workload or CI savings",
+      "replayEligible": false
+    }
+  },
+  "replayEligible": false,
+  "integratedWorkerMeasurement": null,
+  "limitations": [
+    "Isolated transport measurement only; not workload or CI savings",
+    "Foreign context creation uses one native heap query; this is not a per-operation request",
+    "Realm lexical bindings survive until realm destruction and are observable through debugger capabilities",
+    "Initial ownership, complete native coverage and whole-suite agreement remain unproven"
+  ]
+}

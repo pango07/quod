@@ -6,14 +6,18 @@ import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
 import {watchedAccessorInspector} from './watched-accessor-inspector.mjs'
 import {nativeCaptureInspector} from './native-capture-inspector.mjs'
+import {observeNativeStringEntries} from './native-string-entry.mjs'
 const hasOwn=Object.hasOwn,isSafeInteger=Number.isSafeInteger
 const own=(object,key)=>object&&hasOwn(object,key)?object[key]:undefined
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false,nativeSummary='packed'}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false,ordinaryOwners=false,nativeSummary='packed',nativeTransport='protocol'}={}) {
   if(!['protocol','watched','adaptive'].includes(targetInspection))throw Error('invalid target inspection mode')
   if(nativeCapture&&(!directArguments||handleGroups||targetInspection!=='protocol'))throw Error('native capture requires direct arguments and its own inspection mode')
   if(ordinaryOwners&&!nativeCapture)throw Error('ordinary owners require native capture')
   if(!['object','packed'].includes(nativeSummary))throw Error('invalid native summary encoding')
+  if(!['protocol','string'].includes(nativeTransport)||nativeTransport==='string'&&(!nativeCapture||nativeSummary!=='packed'))
+    throw Error('invalid native transport')
+  if(nativeTransport==='string')return observeNativeStringEntries(post,{onEntry,ordinaryOwners,targetAccessorsOnly})
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const scoped=targetInspection==='protocol'?null:watchedAccessorInspector(post,nonce),wideSites=new Set()
   const nativeInspector=nativeCapture?nativeCaptureInspector(post,nonce,{ordinaryOwners,packed:nativeSummary==='packed'}):null

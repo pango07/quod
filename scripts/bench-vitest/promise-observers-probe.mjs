@@ -26,8 +26,9 @@ const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino'
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
 export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false,
-  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false,nativeEntries=false,ordinaryOwners=false}={}) {
+  onDescriptorCheckpoint=null,descriptorCheckpointEvery=10000,heapIdentity=false,moduleBindingEvaluation=false,moduleBindingLookup=false,inspectorTiming=false,nativeEntries=false,ordinaryOwners=false,nativeTransport='protocol'}={}) {
   if(ordinaryOwners&&!nativeEntries)throw Error('ordinary owner scope requires native entry observation')
+  if(!['protocol','string'].includes(nativeTransport)||nativeTransport==='string'&&!nativeEntries)throw Error('invalid native transport')
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
   const scripts=nativeEntries?scriptMetadataIndex({storage:'ranges'}):new Map(),scriptEvidence=new Map()
@@ -88,7 +89,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
       replayEligible:false,limitation:'Inclusive command and callback timings overlap through synchronous notifications'}
   }
-  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,ordinaryOwners,onEntry(entry) {
+  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,ordinaryOwners,nativeTransport,onEntry(entry) {
     // Resolve every watched frame while it is still live. Retired Inspector
     // source caches may then be bounded without losing deferred report proof.
     // Missing source is an observation failure, never an ownership exemption.
@@ -241,6 +242,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   try {
     session.connect()
     if(nativeEntryObserver) {
+      if(nativeEntryObserver.contextCreated)session.on('Runtime.executionContextCreated',({params})=>nativeEntryObserver.contextCreated(params.context))
       session.on('Runtime.exceptionThrown',({params})=>{
         const started=inspectorTiming?monotonicNow():null
         if(started!==null)nativeTiming.events++

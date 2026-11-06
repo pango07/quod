@@ -1630,8 +1630,42 @@ durations overlap and cannot be summed as job elapsed time.
 passes 249 regressions, including all 19 descriptor operations, settled
 callback counts and per-checkpoint in-flight/release accounting.
 
-The next [full diagnostic 42267064963](https://github.com/pango07/quod/actions/runs/42267064963)
-is running at `aaed633` with the exact-key cache, incremental test journal
-and timing checkpoints. It preserves the full 120-file / 4,131-state scope,
-39 metadata-only edits, original timeouts and 900-second observed-phase limit.
-No complete result or new product savings has been established for this run.
+The [full diagnostic 42267064963](https://github.com/pango07/quod/actions/runs/42267064963)
+at `aaed633` timed out after 900 seconds. Its incremental journal retains
+two test-state differences and 23 missing baseline states; the planned
+39-file metadata mutation was not reached. See the
+[complete retained-evidence analysis](worker-native-progress.md). This is
+not a passing whole-suite comparison or a product savings measurement.
+
+## Primitive native-summary transport
+
+The private native Inspector experiment could compile but could not start:
+the pinned Node binary does not export `v8::debug::GetInspector`. The
+[recorded failure and symbol inventory](worker-native-inspector-experiment.json)
+rule out that approach on the current runner.
+
+`c91d123` instead encodes the existing validated capture summary as a
+primitive string, using V8's JSON serializer over a null-prototype array
+of validated primitives. The payload is cleared before serialization.
+[Gate 42274440392](https://github.com/pango07/quod/actions/runs/42274440392)
+passes 251 regressions, including poisoned JavaScript serialization hooks,
+foreign contexts and exact equivalence with object and packed summaries.
+
+`b996649` calls this helper inside the native breakpoint condition through
+a realm-local lexical binding. Only the sanitized string reaches Inspector.
+[Gate 42275119640](https://github.com/pango07/quod/actions/runs/42275119640)
+passes seven tests. Its protocol/string/string/protocol 5,000-call comparison
+takes 571.20 / 262.71 / 268.06 / 635.15 ms. Each run retains all observations,
+cleanup confirmations and bounded stacks. The string loops issue zero
+Inspector commands, compared with 5,000 captures plus 5,000 releases for
+the protocol loops; compilation events fall from 10,000 to 5,000.
+
+These are isolated transport timings, not workload or CI savings. Global
+object property names remain unchanged, but the new lexical bindings are
+observable through debugger capabilities and persist until realm destruction.
+Foreign realms still require a one-time native heap-query bridge. Neither
+transport proves initial ownership, complete observer coverage or replay
+eligibility. [Machine-readable evidence](worker-native-string-transport.json)
+records the measurements. The optional integrated worker transport is being
+gated separately with all 19 watched descriptor operations, source lifetime,
+native-error and application-object lifetime checks.

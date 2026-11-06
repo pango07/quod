@@ -901,6 +901,11 @@ jobs:
         env:
           QUOD_NATIVE_CAPTURE_TRANSPORT: ${{ inputs.only == 'benchmark-native-string' && 'string' || 'native' }}
         run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs
+      - name: Exercise primitive transport through the integrated observer
+        if: inputs.only == 'benchmark-native-string'
+        env:
+          QUOD_TEST_NATIVE_CAPTURE_TRANSPORT: string
+        run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
 
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')

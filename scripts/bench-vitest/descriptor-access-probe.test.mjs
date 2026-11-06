@@ -6,8 +6,11 @@ import {validateCompilationCounts} from './compiled-script-log.mjs'
 import {nativeEntryFrames,validateNativeEntryLog} from './native-entry-log.mjs'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
+const stringTransport=process.env.QUOD_TEST_NATIVE_CAPTURE_TRANSPORT==='string'
+const observerImport=`import {inspectPromiseObservers as originalObserver} from ${JSON.stringify(module)};
+const inspectPromiseObservers=options=>originalObserver({...options,...(options.nativeEntries?{nativeTransport:${JSON.stringify(stringTransport?'string':'protocol')}}:{})});`
 function fixture(body) {
-  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+  const source=`${observerImport}
 let gets=0;
 const target={get tmp(){gets++;return 'private-value'}},key='tmp',change={value:42,configurable:true},changes={tmp:change};
 ${body}`
@@ -52,7 +55,7 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
   assert.equal(data.identity.argumentMode,'direct')
   assert.equal(data.identity.targetInspection,'native-watched')
   assert.equal(data.identity.nativeCapture,true)
-  assert.equal(data.identity.handleMode,'native-private-capture')
+  assert.equal(data.identity.handleMode,stringTransport?'native-primitive-string':'native-private-capture')
   assert.equal(data.report.sourceEvidence.available,true)
   assert.equal(data.report.sourceEvidence.scope,'frames-of-watched-accessor-targets')
   const sources=new Map(data.report.sourceEvidence.records.map(r=>[r.scriptId,r]))
@@ -74,8 +77,14 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
     assert.equal(timing.enabled,true)
     assert.equal(timing.nativeCallbacks.events,timing.nativeCallbacks.completed+1,'current callback remains in flight at its checkpoint')
     assert(timing.nativeCallbacks.completed<data.timing.nativeCallbacks.completed)
-    assert(timing.commands['Runtime.callFunctionOn'].calls>=checkpoint.calls)
-    assert(timing.commands['Runtime.releaseObject'].calls>=checkpoint.calls-1)
+    if(stringTransport) {
+      for(const method of ['Runtime.callFunctionOn','Runtime.releaseObject'])
+        assert.equal(timing.commands[method]?.calls??0,data.setupTiming.commands[method]?.calls??0,
+          'primitive capture must add no per-entry object commands')
+    }else {
+      assert(timing.commands['Runtime.callFunctionOn'].calls>=checkpoint.calls)
+      assert(timing.commands['Runtime.releaseObject'].calls>=checkpoint.calls-1)
+    }
   }
   assert(data.checkpoints[0].timing.nativeCallbacks.events<data.checkpoints.at(-1).timing.nativeCallbacks.events)
   assert.deepEqual(data.report.entries.flatMap(e=>e.entries).sort(),data.names.sort())
@@ -93,7 +102,7 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
 
 test('watched caller evidence survives collection without any late source request',()=>{
   const code='return Object.getOwnPropertyDescriptor(value,"tmp")',filename='quod-collected-watched-caller'
-  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+  const source=`${observerImport}
 import {Session} from 'node:inspector';import vm from 'node:vm';
 let gets=0;const target={get tmp(){gets++;return 'private-value'}};
 const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true,compiledScripts:true});
@@ -184,7 +193,7 @@ console.log(JSON.stringify({report,gets,traps,failed,detected,proxyReport,identi
 })
 
 test('integrated native capture rejects an interceptor target without retaining its wrapper',()=>{
-  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+  const source=`${observerImport}
 const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true});
 const key='QUOD_NATIVE_CAPTURE_ADDON',before=Object.getOwnPropertyDescriptor(process.env,key);
 const report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
