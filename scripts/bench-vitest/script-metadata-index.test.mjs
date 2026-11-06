@@ -1,8 +1,12 @@
-import test from 'node:test'
+import nodeTest from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
-import {scriptMetadataIndex} from './script-metadata-index.mjs'
+import {scriptMetadataIndex as createIndex} from './script-metadata-index.mjs'
 const metadata=i=>({url:'file:///source'+i+'.mjs',isModule:!!(i&1),hasSourceURL:!!(i&2),language:i&4?'WebAssembly':'JavaScript'})
+
+for(const storage of ['dense','ranges']) {
+const test=(name,body)=>nodeTest(storage+': '+name,body)
+const scriptMetadataIndex=(options={})=>createIndex({...options,storage})
 
 test('script metadata index preserves dense, sparse and noncanonical IDs and overwrites',()=>{
   const index=scriptMetadataIndex(),expected=new Map()
@@ -42,7 +46,7 @@ test('nested insertion during metadata freezing cannot alias two dictionary slot
 const a={url:'a',isModule:true,hasSourceURL:false,language:'JavaScript'},b={...a,url:'b'};
 Object.freeze=value=>{if(index&&!entered){entered=true;index.set('2',b)}return freeze(value)};
 const {scriptMetadataIndex}=await import(${JSON.stringify(url)});
-index=scriptMetadataIndex();index.set('1',a);Object.freeze=freeze;
+index=scriptMetadataIndex({storage:${JSON.stringify(storage)}});index.set('1',a);Object.freeze=freeze;
 console.log(JSON.stringify({a:index.get('1'),b:index.get('2'),counts:index.counts()}));`
   const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
   assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
@@ -58,7 +62,7 @@ test('nested insertion rechecks capacity and updates to the same identity',()=>{
 const a={url:'a',isModule:true,hasSourceURL:false,language:'JavaScript'},b={...a,url:'b'};
 Object.freeze=value=>{if(index&&!entered){entered=true;index.set(${sameId?"'1'":"'2'"},b)}return freeze(value)};
 const {scriptMetadataIndex}=await import(${JSON.stringify(url)});
-index=scriptMetadataIndex({entryLimit:1});const result=index.set('1',a);Object.freeze=freeze;
+index=scriptMetadataIndex({storage:${JSON.stringify(storage)},entryLimit:1});const result=index.set('1',a);Object.freeze=freeze;
 console.log(JSON.stringify({result,a:index.get('1')??null,b:index.get('2')??null,counts:index.counts()}));`
     const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
     assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
@@ -75,7 +79,7 @@ test('application intrinsic changes and inherited toJSON cannot alter index keys
 const original={freeze:Object.freeze,keys:Reflect.ownKeys,own:Object.hasOwn,descriptor:Object.getOwnPropertyDescriptor,
  get:Map.prototype.get,set:Map.prototype.set,floor:Math.floor,integer:Number.isSafeInteger};
 let poisonCalls=0;const poison=()=>{poisonCalls++;throw Error('application intrinsic')};
-const index=scriptMetadataIndex();
+const index=scriptMetadataIndex({storage:${JSON.stringify(storage)}});
 Object.freeze=Reflect.ownKeys=Object.hasOwn=Object.getOwnPropertyDescriptor=Map.prototype.get=Map.prototype.set=Math.floor=Number.isSafeInteger=poison;
 Array.prototype.toJSON=Object.prototype.toJSON=poison;
 let record,counts;
@@ -97,7 +101,7 @@ test('invalid metadata records a failure stage without executing its accessor',(
   assert(index.set('1',metadata(0)));assert.equal(index.counts().failures,1)
 })
 
-test('compare exact script metadata indexes with isolated memory measurements',t=>{
+if(storage==='dense')test('compare exact script metadata indexes with isolated memory measurements',t=>{
   const url=new URL('./script-metadata-index.mjs',import.meta.url).href,rows=[]
   for(const mode of ['map','compact']) {
     const source=`import {scriptMetadataIndex} from ${JSON.stringify(url)};
@@ -115,3 +119,4 @@ console.log(JSON.stringify({mode:${JSON.stringify(mode)},entries:250000,matches,
   }
   t.diagnostic(JSON.stringify({scriptMetadataIndexMeasurements:rows}))
 })
+}

@@ -1,6 +1,7 @@
-// Exact script-ID lookup with interned metadata and bounded dense storage.
+// Exact script-ID lookup with interned metadata and bounded dense/range storage.
 // This compresses the observer's lookup table, never compilation events.
 import {types} from 'node:util'
+import {scriptIdRanges} from './script-id-ranges.mjs'
 const call=Function.prototype.call.bind(Function.prototype.call)
 const mapGet=Map.prototype.get,mapSet=Map.prototype.set,
   mapSize=Object.getOwnPropertyDescriptor(Map.prototype,'size').get,MapType=Map
@@ -9,20 +10,23 @@ const freeze=Object.freeze,keys=Reflect.ownKeys,descriptor=Object.getOwnProperty
   floor=Math.floor,Uint32=Uint32Array,ErrorType=Error
 const get=(map,key)=>call(mapGet,map,key),set=(map,key,value)=>call(mapSet,map,key,value),
   size=map=>call(mapSize,map)
-export function scriptMetadataIndex({entryLimit=4000000,metadataLimit=20000,denseLimit=4194304}={}) {
+export function scriptMetadataIndex({storage='dense',entryLimit=storage==='ranges'?9007199254740991:4000000,
+  metadataLimit=20000,denseLimit=4194304,rangeLimit=65536,sparseLimit=65536}={}) {
   if(!safeInteger(entryLimit)||entryLimit<=0||!safeInteger(metadataLimit)||metadataLimit<=0||
-    !safeInteger(denseLimit)||denseLimit<=0||metadataLimit>=0xffffffff||denseLimit>4194304)
+    !safeInteger(denseLimit)||denseLimit<=0||metadataLimit>=0xffffffff||denseLimit>4194304||
+    !['dense','ranges'].includes(storage)||!safeInteger(sparseLimit)||sparseLimit<1)
     throw new ErrorType('invalid script metadata limits')
   const chunks=new MapType(),sparse=new MapType(),dictionary=new MapType(),values=new MapType(),chunkSize=4096
+  const ranges=storage==='ranges'?scriptIdRanges(rangeLimit):null
   const failureStages={validation:0,copy:0,lookup:0,commit:0}
   let entries=0,events=0,overflow=false,failures=0
   function denseId(id) {
     const number=numberOf(id)
-    return safeInteger(number)&&number>=0&&number<denseLimit&&stringOf(number)===id?number:null
+    return safeInteger(number)&&number>=0&&(ranges||number<denseLimit)&&stringOf(number)===id?number:null
   }
   function lookup(id) {
     const number=denseId(id)
-    return number===null?get(sparse,id):get(chunks,floor(number/chunkSize))?.[number%chunkSize]
+    return number===null?get(sparse,id):ranges?ranges.get(number):get(chunks,floor(number/chunkSize))?.[number%chunkSize]
   }
   function field(metadata,key,type,optional=false) {
     const d=descriptor(metadata,key)
@@ -57,22 +61,25 @@ export function scriptMetadataIndex({entryLimit=4000000,metadataLimit=20000,dens
         stage='lookup'
         const exists=!!lookup(id),number=denseId(id)
         if(!exists&&entries>=entryLimit){overflow=true;return false}
+        if(ranges&&number===null&&!exists&&size(sparse)>=sparseLimit){overflow=true;return false}
         if(overflow)return false
         value=get(dictionary,key)
         if(value===undefined&&size(dictionary)>=metadataLimit){overflow=true;return false}
         stage='commit'
         let chunk
-        if(number!==null) {
+        if(number!==null&&!ranges) {
           const chunkId=floor(number/chunkSize)
           chunk=get(chunks,chunkId)
           if(!chunk){chunk=new Uint32(chunkSize);set(chunks,chunkId,chunk)}
         }
-        if(value===undefined) {
-          value=size(values)+1
+        const fresh=value===undefined
+        if(fresh)value=size(values)+1
+        if(number!==null&&ranges&&!ranges.set(number,value)){overflow=true;return false}
+        if(fresh) {
           set(values,value,copy);set(dictionary,key,value)
         }
         if(number===null)set(sparse,id,value)
-        else chunk[number%chunkSize]=value
+        else if(!ranges)chunk[number%chunkSize]=value
         if(!exists)entries++
         return true
       }catch(error) {
@@ -82,7 +89,7 @@ export function scriptMetadataIndex({entryLimit=4000000,metadataLimit=20000,dens
     },
     get(id){return typeof id==='string'?get(values,lookup(id)):undefined},
     has(id){return typeof id==='string'&&!!lookup(id)},
-    counts:()=>({events,entries,metadata:size(dictionary),chunks:size(chunks),
+    counts:()=>({events,entries,metadata:size(dictionary),storage,...(ranges?ranges.counts():{}),chunks:size(chunks),
       denseBytes:size(chunks)*chunkSize*4,sparseEntries:size(sparse),overflow,failures,failureStages:{...failureStages}}),
   }
 }

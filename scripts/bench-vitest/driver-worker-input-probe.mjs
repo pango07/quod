@@ -279,12 +279,18 @@ if(phase) {
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert.equal(x.boundary.compilation.debuggerScriptCacheBytes,0)
+          assert.equal(x.boundary.compilation.encoding,'block-dictionary-v1')
+          assert.equal(x.boundary.compilation.storage.pairLimit,4000000)
+          assert(x.boundary.compilation.storage.storedPairs<=x.boundary.compilation.storage.pairLimit)
           const sourceCache=x.boundary.compilation.sourceCache
           assert(sourceCache?.enabled&&sourceCache.policy==='pinned-injective-ascii')
           assert.equal(sourceCache.events,x.boundary.compilation.events)
           assert.equal(sourceCache.events,sourceCache.sourceReads+sourceCache.cacheHits)
           assert(sourceCache.entries<=sourceCache.capacity&&sourceCache.capacity===256)
           assert(x.boundary.compilation.scriptMetadataIndex&&!x.boundary.compilation.scriptMetadataIndex.overflow)
+          assert.equal(x.boundary.compilation.scriptMetadataIndex.storage,'ranges')
+          assert(x.boundary.compilation.scriptMetadataIndex.ranges<=65536)
+          assert(x.boundary.compilation.scriptMetadataIndex.sparseEntries<=65536)
           assert.equal(x.boundary.compilation.scriptMetadataIndex.failures,0)
           assert.equal(x.boundary.compilation.scriptMetadataIndex.events+x.boundary.compilation.failedToParse,
             x.boundary.compilation.events,'every parsed script must reach the exact metadata index')

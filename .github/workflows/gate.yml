@@ -889,7 +889,7 @@ jobs:
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
         if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'
-      - run: node --test scripts/bench-vitest/worker-module-probe.test.mjs scripts/bench-vitest/script-metadata-index.test.mjs scripts/bench-vitest/compiled-source-cache.test.mjs scripts/bench-vitest/compiled-block-log.test.mjs
+      - run: node --test scripts/bench-vitest/worker-module-probe.test.mjs scripts/bench-vitest/script-metadata-index.test.mjs scripts/bench-vitest/script-id-ranges.test.mjs scripts/bench-vitest/compiled-source-cache.test.mjs scripts/bench-vitest/compiled-block-log.test.mjs
         if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs scripts/bench-vitest/worker-transport-metadata-probe.test.mjs scripts/bench-vitest/metadata-reader-source.test.mjs
         if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-boundary'

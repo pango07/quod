@@ -30,7 +30,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   if(ordinaryOwners&&!nativeEntries)throw Error('ordinary owner scope requires native entry observation')
   if(onDescriptorCheckpoint&&(!Number.isSafeInteger(descriptorCheckpointEvery)||descriptorCheckpointEvery<1))throw Error('invalid descriptor checkpoint interval')
   const session=new Session()
-  const scripts=nativeEntries?scriptMetadataIndex():new Map(),scriptEvidence=new Map()
+  const scripts=nativeEntries?scriptMetadataIndex({storage:'ranges'}):new Map(),scriptEvidence=new Map()
   // Repeated condition/capture pairs exceeded four million ordered runs.
   // Intern exact blocks while retaining every event and its position; the
   // four-million-pair bound now applies to the stored representation.
@@ -476,7 +476,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   return {
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
-        ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
+        ...compilationLog.report(),storage:compilationLog.counts(),errors:[...compilationErrors],failedToParse,
         debuggerScriptCacheBytes:nativeEntries&&compiledScripts?0:null,
         ...(compilationRecorder?{sourceCache:compilationRecorder.counts()}:{}),
         ...(nativeEntries?{scriptMetadataIndex:scripts.counts()}:{}),
