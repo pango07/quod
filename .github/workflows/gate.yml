@@ -856,7 +856,7 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-worker-inputs:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata')
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -872,11 +872,13 @@ jobs:
           node-version: '24.18.0'
       - run: node --test scripts/bench-vitest/worker-input-probe.test.mjs
       - run: node --test scripts/bench-vitest/worker-config-probe.test.mjs
-        if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures'
+        if: inputs.only != 'benchmark-worker-inputs' && inputs.only != 'benchmark-worker-modules' && inputs.only != 'benchmark-worker-module-fixtures' && inputs.only != 'benchmark-worker-module-metadata'
       - run: node --test scripts/bench-vitest/worker-module-probe.test.mjs
         if: inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures'
+      - run: node --test scripts/bench-vitest/worker-module-metadata-probe.test.mjs
+        if: inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-module-fixtures'
       - run: node --test scripts/bench-vitest/opaque-observers-probe.test.mjs scripts/bench-vitest/heap-observers-probe.test.mjs scripts/bench-vitest/proxy-observers-probe.test.mjs
-        if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments'
+        if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata'
       - run: npm ci
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'
         working-directory: profile-project
@@ -886,6 +888,7 @@ jobs:
           QUOD_WORKER_CONFIG_PROBE: ${{ (inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities') && '1' || '0' }}
           QUOD_WORKER_CONFIG_NATIVE_PROBE: ${{ inputs.only == 'benchmark-worker-capabilities' && '1' || '0' }}
           QUOD_WORKER_MODULE_PROBE: ${{ inputs.only == 'benchmark-worker-modules' && '1' || '0' }}
+          QUOD_WORKER_MODULE_METADATA_PROBE: ${{ inputs.only == 'benchmark-worker-module-metadata' && '1' || '0' }}
         run: node scripts/bench-vitest/driver-worker-input-probe.mjs "$PWD/profile-project" /tmp/quod-worker-inputs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always() && inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'

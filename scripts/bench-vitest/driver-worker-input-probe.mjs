@@ -14,6 +14,7 @@ const project=path.resolve(projectArg),out=path.resolve(outArg)
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex')
 const self=fileURLToPath(import.meta.url)
 const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
+const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function states(file) {
   const report=JSON.parse(fs.readFileSync(file))
@@ -32,6 +33,16 @@ if(phase) {
   const nodeEntry=pkg.exports['./node'],relative=typeof nodeEntry==='string'?nodeEntry:nodeEntry.import??nodeEntry.default
   const entry=path.join(path.dirname(packageFile),relative)
   const V=await import(pathToFileURL(entry).href)
+  if(moduleMetadataProbe&&phase==='after') {
+    const directory=path.join(out,'worker-module-metadata')
+    fs.mkdirSync(directory,{recursive:true})
+    const original=V.ForksPoolWorker.prototype.start
+    V.ForksPoolWorker.prototype.start=function(...args) {
+      this.execArgv=['--import',fileURLToPath(new URL('./worker-module-metadata-bootstrap.mjs',import.meta.url)),...this.execArgv]
+      this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory}
+      return Reflect.apply(original,this,args)
+    }
+  }
   if(moduleProbe&&phase!=='baseline') {
     const directory=path.join(out,'worker-modules',phase)
     fs.mkdirSync(directory,{recursive:true})
@@ -128,6 +139,40 @@ if(phase) {
     equalRpcWorkers:comparisons.filter(c=>c.rpcEqual===true).length,
     comparisons,limitations:before.limitations}
   write(path.join(out,'result.json'),result)
+  if(moduleMetadataProbe) {
+    const directory=path.join(out,'worker-module-metadata')
+    const reports=fs.readdirSync(directory).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(directory,f))))
+    assert.equal(reports.length,120,'every worker must report module metadata')
+    assert.equal(new Set(reports.map(r=>JSON.stringify([r.project,r.files]))).size,120)
+    assert(reports.every(r=>!r.replayEligible&&!r.unknown.length&&r.files.length===1))
+    assert(reports.every(r=>!r.metadata.replayEligible&&!r.metadata.completeOwnership&&!r.metadata.overflow&&!r.metadata.errors.length&&r.metadata.nodes>0))
+    assert(reports.every(r=>r.native.opaque.available&&r.native.inspector.available&&r.native.proxy.available&&!r.native.proxy.overflow))
+    const events=reports.flatMap(r=>r.metadata.events),invalidations=reports.flatMap(r=>r.metadata.invalidations)
+    const operations=Object.create(null)
+    for(const e of events){const k=e.operation+':'+e.key;operations[k]=(operations[k]??0)+e.count}
+    const entryCounts=Object.create(null),argumentCounts=Object.create(null)
+    for(const r of reports)for(const e of r.native.opaque.entries)for(const name of e.entries)entryCounts[name]=(entryCounts[name]??0)+1
+    for(const r of reports)for(const e of r.native.proxy.entries) {
+      const k=e.argument.available?e.argument.kind:'unknown: '+e.argument.reason
+      argumentCounts[k]=(argumentCounts[k]??0)+e.count
+    }
+    const cold=x=>!x.evaluated&&!x.hasMeta&&!x.hasMap&&!x.hasPromise&&!x.hasExports&&x.imports===0
+    const metadataResult={replayEligible:false,completeOwnership:false,workers:reports.length,
+      fingerprint:first.fingerprint,plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
+      nodes:reports.reduce((n,r)=>n+r.metadata.nodes,0),assignments:reports.reduce((n,r)=>n+r.metadata.assignments,0),
+      metadataObjects:reports.reduce((n,r)=>n+r.metadata.metadata.length,0),operations,
+      invalidations:invalidations.length,coldInvalidations:invalidations.filter(cold).length,
+      nonColdInvalidations:invalidations.filter(x=>!cold(x)),
+      workersWithReads:reports.filter(r=>r.metadata.events.some(e=>['get','has','descriptor','keys'].includes(e.operation))).length,
+      gaps:[...new Set(reports.flatMap(r=>r.metadata.gaps))],
+      native:{entryCounts,argumentCounts,
+        workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
+        workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
+        workersWithProxyUnwrapEntries:reports.filter(r=>r.native.proxy.entries.some(e=>e.entries.includes('util.getProxyDetails'))).length},
+      limitations:reports[0].metadata.limitations}
+    write(path.join(out,'worker-module-metadata-result.json'),metadataResult)
+    console.log(JSON.stringify(metadataResult,null,2))
+  }
   if(moduleProbe) {
     function loadModules(phase) {
       const directory=path.join(out,'worker-modules',phase)
