@@ -12,6 +12,7 @@ import {validateCompilationCounts,compilationSequence} from './compiled-script-l
 import {validateNativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 import {testProgressReporter} from './test-progress-reporter.mjs'
 import {validateNativeScalarEvidence} from './native-scalar-evidence.mjs'
+import {validateIssuedCompilationSources} from './issued-compilation-sources.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -327,6 +328,7 @@ if(phase) {
           assert.equal(x.boundary.compilation.scriptMetadataIndex.events+x.boundary.compilation.failedToParse,
             x.boundary.compilation.events,'every parsed script must reach the exact metadata index')
           checkCompilationCounts(x.boundary.compilation)
+          validateIssuedCompilationSources(x.boundary.compilation.issuedSources,x.boundary.compilation)
           assert(x.boundary.config&&!x.boundary.config.overflow)
           assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,
             'scalar seed observation must remain installed and complete within its declared scope')

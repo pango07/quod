@@ -11,6 +11,7 @@ import {blockCompiledScriptLog} from './compiled-block-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
 import {nativeEntryLog,nativeEntryFrames,nativeFrameMapper} from './native-entry-log.mjs'
 import {scriptMetadataIndex} from './script-metadata-index.mjs'
+import {issuedCompilationSources} from './issued-compilation-sources.mjs'
 const monotonicNow=process.hrtime.bigint
 const memoryUsage=process.memoryUsage
 
@@ -38,12 +39,16 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   // four-million-pair bound now applies to the stored representation.
   const compilationRecorder=nativeEntries?createCompiledScriptRecorder(scriptId=>post('Debugger.getScriptSource',{scriptId})):null
   const compilationLog=nativeEntries?blockCompiledScriptLog({ownedRecordKey:compilationRecorder.cachedKey}):compiledScriptLog(),compilationErrors=[]
+  const issuedSources=compiledScripts?issuedCompilationSources():null
   let failedToParse=0
   function compiledEvent(params,failedParse) {
     if(!compiledScripts)return
     if(failedParse)failedToParse++
-    try{compilationLog.append(compilationRecorder?compilationRecorder.record(params,failedParse):
-      compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse))}
+    try{
+      const record=compilationRecorder?compilationRecorder.record(params,failedParse):
+        compiledScriptRecord(params,post('Debugger.getScriptSource',{scriptId:params.scriptId}),failedParse)
+      compilationLog.append(record);issuedSources.observe(record)
+    }
     catch(e){compilationErrors.push(e.message)}
   }
   session.on('Debugger.scriptParsed',({params})=>{
@@ -143,6 +148,11 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   function post(method,params={}) {
     const started=inspectorTiming?monotonicNow():null
     try {
+      if(issuedSources) {
+        if(method==='Runtime.evaluate'||method==='Debugger.evaluateOnCallFrame')issuedSources.issue(method,params.expression)
+        else if(method==='Runtime.callFunctionOn')issuedSources.issue(method,params.functionDeclaration)
+        else if(method==='Debugger.setBreakpointOnFunctionCall'&&typeof params.condition==='string')issuedSources.issue(method,params.condition)
+      }
       onInspectorCommand?.({method,contextId:params.contextId??null,phase:'start'})
       let done=false,result,error
       session.post(method,params,(e,r)=>{done=true;error=e;result=r})
@@ -497,6 +507,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         ...compilationLog.report(),storage:compilationLog.counts(),errors:[...compilationErrors],failedToParse,
         debuggerScriptCacheBytes:nativeEntries&&compiledScripts?0:null,
         ...(compilationRecorder?{sourceCache:compilationRecorder.counts()}:{}),
+        ...(issuedSources?{issuedSources:issuedSources.report()}:{}),
         ...(nativeEntries?{scriptMetadataIndex:scripts.counts()}:{}),
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },

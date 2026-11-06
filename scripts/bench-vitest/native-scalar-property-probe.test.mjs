@@ -12,6 +12,7 @@ import {nativeOwnerGuard} from './native-owner-guard.mjs'
 import {validateNativeScalarEvidence} from './native-scalar-evidence.mjs'
 import {validateCompilationCounts} from './compiled-script-log.mjs'
 import {validateNativeEntryLog} from './native-entry-log.mjs'
+import {validateIssuedCompilationSources} from './issued-compilation-sources.mjs'
 
 const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
 test.beforeEach(t=>fs.writeSync(2,`native scalar fixture start: ${t.name}\n`))
@@ -171,6 +172,7 @@ test('direct scalar reads coexist with actual native proxy arguments and exact c
     assert.equal(identity.contextCapture.failures,0)
     assert(registry.hookAccess().available&&registry.opaqueAccess().available&&registry.inspectorAccess().available)
     const compiled=registry.compiledScriptReport();validateCompilationCounts(compiled)
+    validateIssuedCompilationSources(compiled.issuedSources,compiled)
     assert(compiled.enabled&&!compiled.overflow&&!compiled.errors.length&&!compiled.replayEligible)
   }finally{fs.writeSync(2,'native scalar combined: cleanup\n');p.close();registry.close()}
 })
