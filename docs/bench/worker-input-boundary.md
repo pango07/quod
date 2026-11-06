@@ -642,7 +642,42 @@ declarations. Commit `e412386` exports those bindings to retain the large
 scope. [42204149648](https://github.com/pango07/quod/actions/runs/42204149648)
 then passes all 86 fixture tests. The full comparison,
 [42204247885](https://github.com/pango07/quod/actions/runs/42204247885),
-is running at this evidence revision. Fixture success establishes no new
-full-suite or runner-time claim.
+passes 122 regressions but reaches the same 420-second timeout, with only
+19 worker reports complete. The property-test worker reaches 370,000
+descriptor calls, versus 150,000 in the preceding heap-identity attempt.
+Its checkpoint records 183,619 module-scope descriptor requests returning
+23,949,683 entries, after avoiding 91,322 absent-name lookups. These partial
+counts locate the remaining cost; they are not a complete workload timing.
+
+Commit `48910d1` stores compiled-script records with lossless run-length
+encoding (`rle-v1`). Every field, occurrence count and sequence position
+remains significant; only adjacent identical records merge. The existing
+20,000-entry cap now bounds runs, and any overflow still fails the
+diagnostic. Weighted comparisons and independent verification count
+occurrences rather than compressed rows. [42205036879](https://github.com/pango07/quod/actions/runs/42205036879)
+passes 88 fixtures, including 20,005 repeated live compilations followed by
+a different body and the original body. All occurrences and ordering
+survive, without overflow. This avoids dropping evidence from repeated
+Inspector evaluations; it does not change Inspector's coverage limits.
+
+Commit `beffe3b` adds optional lookup of a bare identifier declared directly
+in the actual module source. It first inspects preceding supported scopes,
+then uses `Debugger.evaluateOnCallFrame` with side-effect checking and the
+backtrace object group on pinned Node 24.18.0. Global/member expressions,
+unknown scopes and lookup errors remain unknown. Values are never cached;
+descriptor reuse stops after evaluation. [Module binding semantics](https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html#sec-module-environment-records-getbindingvalue-n-s)
+and the pinned [Inspector implementation](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-debugger-agent-impl.cc#L1573)
+inform the experiment, without providing a general replay certificate.
+
+[42205726797](https://github.com/pango07/quod/actions/runs/42205726797)
+passes 93 fixtures. Changed module aliases, live imports, destructuring,
+shadowed/dynamic locals and target getters retain their checked behavior.
+The module-alias fixture performs three current-value lookups with zero
+module-scope enumerations. A queued microtask that replaces the target
+does not run during the native pause and runs normally afterward.
+Commit `6751d1e` enables the path in the combined diagnostic;
+[42205868477](https://github.com/pango07/quod/actions/runs/42205868477)
+is running at this revision. No production replay behavior or savings
+claim changes.
 [Raw checkpoint evidence and artifact digests](worker-descriptor-overhead.json)
 preserve partial results separately from complete worker reports.

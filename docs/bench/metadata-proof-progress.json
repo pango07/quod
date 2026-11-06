@@ -819,6 +819,20 @@
     "moduleScopeFixtureTests": 86,
     "moduleScopeFixtureCorrectionCommit": "e412386",
     "moduleScopeFullGate": 42204247885,
-    "moduleScopeFullGateStatus": "in_progress"
+    "moduleScopeFullGateStatus": "completed",
+    "moduleScopeFullGateConclusion": "failure",
+    "moduleScopeFullGateCompletedWorkers": 19,
+    "compiledTraceCompressionCommit": "48910d1",
+    "compiledTraceCompressionFixtureGate": 42205036879,
+    "compiledTraceCompressionFixtureTests": 88,
+    "compiledTraceCompressionFixtureConclusion": "success",
+    "lexicalBindingCommit": "beffe3b",
+    "lexicalBindingFixtureGate": 42205726797,
+    "lexicalBindingFixtureStatus": "completed",
+    "lexicalBindingFixtureConclusion": "success",
+    "lexicalBindingFixtureTests": 93,
+    "lexicalBindingCombinedCommit": "6751d1e",
+    "lexicalBindingFullGate": 42205868477,
+    "lexicalBindingFullGateStatus": "in_progress"
   }
 }
