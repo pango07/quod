@@ -13,6 +13,7 @@ import {validateNativeScalarEvidence} from './native-scalar-evidence.mjs'
 import {validateCompilationCounts} from './compiled-script-log.mjs'
 import {validateNativeEntryLog} from './native-entry-log.mjs'
 import {validateIssuedCompilationSources} from './issued-compilation-sources.mjs'
+import {observeStartConfiguration} from './worker-start-input-probe.mjs'
 
 const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
 test.beforeEach(t=>fs.writeSync(2,`native scalar fixture start: ${t.name}\n`))
@@ -25,6 +26,39 @@ function graph() {
     invalidateModule(){}
   }
 }
+
+test('native start observation leaves configuration identity and ordinary nested objects unchanged',()=>{
+  const registry=inspectPromiseObservers(),config={name:'project',sequence:{seed:123},deps:{moduleDirectories:['node_modules']}}
+  const sequence=config.sequence,deps=config.deps,original=Object.getOwnPropertyDescriptor(sequence,'seed')
+  const p=observeStartConfiguration(config,{observation,ownerGuard,sourceForScript:registry.sourceForScript,
+    observeConfig(){throw Error('native start observation must not create a configuration proxy')}})
+  try {
+    assert.equal(p.value,config);assert.equal(p.value.sequence,sequence);assert.equal(p.value.deps,deps)
+    assert.equal(types.isProxy(p.value),false);assert.equal(types.isProxy(p.value.sequence),false)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(p.value.sequence,'seed'),original)
+    assert.equal(p.seed.report().recordedReads,1,'the descriptor read is observed on the original sequence object')
+    assert.equal(sequence.seed,123)
+    assert.equal(p.value.sequence.seed,123)
+    assert.equal(p.seed.report().recordedReads,3)
+    validateNativeScalarEvidence(p.seed.report())
+    const report=p.report()
+    assert.equal(report.events,null);assert.equal(report.configurationAccessObserved,false)
+    assert.equal(report.observation,'unchanged-object');assert.equal(report.replayEligible,false)
+    assert.equal(report.completeOwnership,false)
+  }finally{p.seed.close();registry.close()}
+  assert.deepEqual(Object.getOwnPropertyDescriptor(sequence,'seed'),original)
+})
+
+test('native start observation does not invoke a configuration sequence getter',()=>{
+  let gets=0
+  const config={get sequence(){gets++;return {seed:123}}}
+  const p=observeStartConfiguration(config,{observation,ownerGuard})
+  try {
+    assert.equal(p.value,config);assert.equal(gets,0)
+    assert.equal(p.seed.report().installed,false)
+    assert.equal(p.report().events,null)
+  }finally{p.seed.close()}
+})
 
 test('native scalar adapter retains actual caller source across aliases, descriptors and foreign realms',()=>{
   const registry=inspectPromiseObservers(),target={seed:123},original=Object.getOwnPropertyDescriptor(target,'seed')

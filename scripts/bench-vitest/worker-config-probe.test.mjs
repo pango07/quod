@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { types, inspect } from 'node:util'
+import { observeStartConfiguration } from './worker-start-input-probe.mjs'
 const { observeConfig } = createRequire(import.meta.url)('./worker-config-probe.cjs')
 
 test('distinguishes unused seed, direct reads, descriptor reads and enumeration', () => {
@@ -40,4 +41,22 @@ test('native inspection can bypass traps, so absence of reads is never replay au
   assert.equal(p.report().nativeReadsExcluded, false)
   assert.equal(p.report().proxyObservable, true)
   assert.equal(p.report().replayEligible, false)
+})
+
+test('legacy start observation retains proxy reporting and cleans up a failed wrapper', () => {
+  const config = { sequence: { seed: 123 } }, original = Object.getOwnPropertyDescriptor(config.sequence, 'seed')
+  const p = observeStartConfiguration(config, { observation: 'accessor', observeConfig })
+  try {
+    assert.equal(types.isProxy(p.value), true)
+    assert.equal(p.value.sequence.seed, 123)
+    assert.equal(p.report().observation, 'proxy')
+    assert.equal(p.report().configurationAccessObserved, true)
+    assert(p.report().events.some(e => e.path.join('.') === 'sequence.seed'))
+    assert.equal(p.seed.report().events.reduce((n, e) => n + e.count, 0), 1)
+  } finally { p.seed.close() }
+  assert.deepEqual(Object.getOwnPropertyDescriptor(config.sequence, 'seed'), original)
+  assert.throws(() => observeStartConfiguration(config, {
+    observation: 'accessor', observeConfig() { throw Error('wrapper failed') },
+  }), /wrapper failed/)
+  assert.deepEqual(Object.getOwnPropertyDescriptor(config.sequence, 'seed'), original)
 })

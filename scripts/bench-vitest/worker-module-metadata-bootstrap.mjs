@@ -8,7 +8,7 @@ import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 import {observeTransportMetadata} from './worker-transport-metadata-probe.mjs'
 import {observeModuleEvaluation} from './worker-module-probe.mjs'
-import {observeScalarProperty} from './scalar-property-probe.mjs'
+import {observeStartConfiguration} from './worker-start-input-probe.mjs'
 import {nativeOwnerGuard} from './native-owner-guard.mjs'
 
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
@@ -54,11 +54,10 @@ function observeWorkerMessage(message) {
     if(project!==null)unknown.push('reused worker')
     project=message.context?.config?.name??''
     if(combined) {
-      const sequence=Object.getOwnPropertyDescriptor(message.context.config,'sequence')
-      seed=observeScalarProperty(sequence&&Object.hasOwn(sequence,'value')?sequence.value:null,'seed',
-        {sourceForScript:registry.sourceForScript,ownerGuard,observation:scalarObservation})
-      config=observeConfig(message.context.config)
-      message.context.config=config.value
+      config=observeStartConfiguration(message.context.config,
+        {sourceForScript:registry.sourceForScript,ownerGuard,observation:scalarObservation,observeConfig})
+      seed=config.seed
+      if(config.value!==message.context.config)message.context.config=config.value
     }
   }
   if(message.type==='run'||message.type==='collect')files.push(...message.context.files.map(f=>f.filepath))

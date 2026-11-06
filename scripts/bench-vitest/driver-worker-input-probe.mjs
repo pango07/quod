@@ -342,6 +342,12 @@ if(phase) {
           checkCompilationCounts(x.boundary.compilation)
           validateIssuedCompilationSources(x.boundary.compilation.issuedSources,x.boundary.compilation)
           assert(x.boundary.config&&!x.boundary.config.overflow)
+          if(scalarObservation==='native-data') {
+            assert.equal(x.boundary.config.observation,'unchanged-object')
+            assert.equal(x.boundary.config.proxyObservable,false)
+            assert.equal(x.boundary.config.configurationAccessObserved,false)
+            assert.equal(x.boundary.config.events,null,'unobserved configuration accesses are unknown, not zero')
+          }else assert.equal(x.boundary.config.observation,'proxy')
           assert(x.boundary.seed?.installed&&x.boundary.seed.intact&&!x.boundary.seed.overflow&&!x.boundary.seed.gaps.length,
             'scalar seed observation must remain installed and complete within its declared scope')
           if(scalarObservation==='native-data')validateNativeScalarEvidence(x.boundary.seed)
@@ -350,8 +356,8 @@ if(phase) {
           compiledSequenceEqual:JSON.stringify(compilationSequence(a.boundary.compilation))===JSON.stringify(compilationSequence(r.boundary.compilation)),
           messageDispatchesBefore:a.boundary.messageDispatch.dispatches,messageDispatchesAfter:r.boundary.messageDispatch.dispatches,
           evaluatorBefore:a.boundary.evaluation.events.length,evaluatorAfter:r.boundary.evaluation.events.length,
-          configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
-          configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
+          configSeedReadsBefore:a.boundary.config.events?.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0)??null,
+          configSeedReadsAfter:r.boundary.config.events?.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0)??null,
           scalarSeedOperationsBefore:a.boundary.seed.events.reduce((n,e)=>n+e.count,0),
           scalarSeedOperationsAfter:r.boundary.seed.events.reduce((n,e)=>n+e.count,0),
           nativeScalarCallsBefore:scalarObservation==='native-data'?a.boundary.seed.native.calls+a.metadata.metadata.reduce((n,m)=>n+m.scalars.reduce((n,s)=>n+s.native.calls,0),0):null,
