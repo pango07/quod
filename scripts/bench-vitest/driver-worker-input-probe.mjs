@@ -166,9 +166,24 @@ if(phase) {
       const b=right.get(key);assert(b,'workers must pair by project and file')
       const body=r=>r.evaluation.events.map(({kind,identity,code})=>({kind,identity,code}))
       const metadataComparable=[a,b].every(r=>r.evaluation.events.every(e=>e.identity.available&&(e.kind==='external'||e.meta.available)))
+      const metadataFieldChanges=Object.create(null)
+      let unknownMetadataFields=0
+      for(let i=0;i<Math.max(a.evaluation.events.length,b.evaluation.events.length);i++) {
+        const x=a.evaluation.events[i],y=b.evaluation.events[i]
+        if(x?.kind!=='inline'&&y?.kind!=='inline')continue
+        if(x?.kind!=='inline'||y?.kind!=='inline'||!x.identity.available||!y.identity.available||x.identity.hash!==y.identity.hash||!x.metaFields?.available||!y.metaFields?.available) {
+          unknownMetadataFields++;continue
+        }
+        for(const name of new Set([...Object.keys(x.metaFields.fields),...Object.keys(y.metaFields.fields)])) {
+          const l=Object.hasOwn(x.metaFields.fields,name)?x.metaFields.fields[name]:undefined
+          const r=Object.hasOwn(y.metaFields.fields,name)?y.metaFields.fields[name]:undefined
+          if(l?.available===false||r?.available===false){unknownMetadataFields++;continue}
+          if(JSON.stringify(l)!==JSON.stringify(r))metadataFieldChanges[name]=(metadataFieldChanges[name]??0)+1
+        }
+      }
       comparisons.push({key,before:{evaluations:a.evaluation.events.length,scripts:a.compilation.scripts.length},
         after:{evaluations:b.evaluation.events.length,scripts:b.compilation.scripts.length},
-        metadataComparable,
+        metadataComparable,metadataFieldChanges,unknownMetadataFields,
         evaluatorSequenceEqual:metadataComparable?JSON.stringify(a.evaluation.events)===JSON.stringify(b.evaluation.events):null,
         codeSequenceEqual:JSON.stringify(body(a))===JSON.stringify(body(b)),
         compiledSequenceEqual:JSON.stringify(a.compilation.scripts)===JSON.stringify(b.compilation.scripts),
@@ -177,12 +192,14 @@ if(phase) {
     }
     const totals={}
     for(const kind of ['inlined','compiled'])totals[kind]=Object.fromEntries(['paired','unpaired','differentBodies','differentMultiplicity','differentBodyMultisets'].map(k=>[k,comparisons.reduce((n,c)=>n+c[kind][k],0)]))
-    const moduleResult={replayEligible:false,baselineFingerprint:baseline.fingerprint,workers:comparisons.length,
+    const moduleResult={replayEligible:false,completeCompilationCoverage:false,baselineFingerprint:baseline.fingerprint,workers:comparisons.length,
       equalEvaluatorSequences:comparisons.filter(c=>c.evaluatorSequenceEqual).length,
       equalCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
       equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,totals,comparisons,
       unknownMetadataWorkers:comparisons.filter(c=>!c.metadataComparable).length,
-      limitation:'Module code observations do not prove configuration, non-JavaScript data, external inputs, parent RPC state or side effects'}
+      wasmBefore:[...left.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').length,0),
+      wasmAfter:[...right.values()].reduce((n,r)=>n+r.compilation.scripts.filter(s=>s.language==='WebAssembly').length,0),
+      limitation:'Debugger coverage can omit unbound scripts; module code observations do not prove configuration, non-code data, Wasm imports, external inputs, parent RPC state or side effects'}
     write(path.join(out,'worker-module-result.json'),moduleResult)
     console.log(JSON.stringify({...moduleResult,comparisons:comparisons.length},null,2))
   }
