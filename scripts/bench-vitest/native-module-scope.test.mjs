@@ -116,12 +116,14 @@ function invoke(target,key){return native(target,key)}
 const now=performance.now.bind(performance);now();
 const p=inspectPromiseObservers({descriptorAccess:true,compiledScripts:true,inspectorTiming:true,heapIdentity:HEAP,moduleBindingEvaluation:EVALUATE,moduleBindingLookup:LOOKUP});
 const before=p.inspectorTiming().commands;
+const beforePauses=p.inspectorTiming().pauses;
 let accessorCount=0,valueCount=0;const start=now();
 for(let i=0;i<300;i++) {const value=invoke(i%2?target:plain,key);if(value.get)accessorCount++;else valueCount+=value.value}
 const elapsedMs=now()-start,report=p.descriptorAccess(),identity=p.nativeIdentity(),compilation=p.compiledScriptReport();
 const commands=Object.fromEntries(Object.entries(p.inspectorTiming().commands).map(([name,row])=>[name,{
-  calls:row.calls-(before[name]?.calls??0),elapsedMs:row.elapsedMs-(before[name]?.elapsedMs??0)}]).filter(([,row])=>row.calls));p.close();
-console.log(JSON.stringify({report,identity,compilation,commands,gets,accessorCount,valueCount,elapsedMs}));`,mode,heap)
+  calls:row.calls-(before[name]?.calls??0),elapsedMs:row.elapsedMs-(before[name]?.elapsedMs??0)}]).filter(([,row])=>row.calls));
+const pauses=p.inspectorTiming().pauses;pauses.calls-=beforePauses.calls;pauses.elapsedMs-=beforePauses.elapsedMs;p.close();
+console.log(JSON.stringify({report,identity,compilation,commands,pauses,gets,accessorCount,valueCount,elapsedMs}));`,mode,heap)
     assert.equal(data.accessorCount,150);assert.equal(data.valueCount,1050)
     assert.equal(data.report.calls,300)
     const counters=data.report.argumentDiagnostics
@@ -131,13 +133,14 @@ console.log(JSON.stringify({report,identity,compilation,commands,gets,accessorCo
     assert(data.report.entries.every(e=>e.argument.available),JSON.stringify(data.report))
     assert(data.compilation.enabled&&!data.compilation.overflow&&!data.compilation.errors.length)
     assert.equal(data.commands['Debugger.resume'].calls,300)
+    assert.equal(data.pauses.calls,300)
     if(mode==='descriptors')assert(counters.propertyEntries.module>=600000)
     else {
       assert.equal(counters.propertyRequests.module??0,0)
       assert.equal(counters[mode==='evaluate'?'moduleBindingEvaluations':'moduleBindingLookups'],300)
     }
     measurements.push({mode,heapIdentity:heap,calls:data.report.calls,elapsedMs:data.elapsedMs,identityChecks,
-      transferredModuleEntries:counters.propertyEntries.module??0,commands:data.commands,compiledScripts:true,replayEligible:false})
+      transferredModuleEntries:counters.propertyEntries.module??0,commands:data.commands,pauses:data.pauses,compiledScripts:true,replayEligible:false})
   }
   // Timing is evidence, not a flaky pass/fail threshold or product claim.
   t.diagnostic(JSON.stringify({scopeReadMeasurements:measurements}))

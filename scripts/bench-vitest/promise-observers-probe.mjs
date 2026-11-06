@@ -63,6 +63,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
   let opaqueInitial=null,opaqueFailure=null
   const commandTiming=new Map()
+  const pauseTiming={calls:0,elapsedMs:0}
   function post(method,params={}) {
     const started=inspectorTiming?monotonicNow():null
     try {
@@ -170,6 +171,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       if(!heapIdentityObserver.report().available)throw Error('native heap identity setup failed')
     }
     session.on('Debugger.paused',({params})=>{
+      const started=inspectorTiming?monotonicNow():null
+      try {
       const inspector=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
       const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
       const proxy=(params.hitBreakpoints??[]).map(id=>proxyBreakpoints.get(id)).filter(Boolean)
@@ -218,6 +221,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         }
         try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='could not resume watched entry'}
       } else inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='unrelated debugger pause'
+      }finally {
+        if(started!==null) {pauseTiming.calls++;pauseTiming.elapsedMs+=Number(monotonicNow()-started)/1e6}
+      }
     })
     // An Inspector connection can inspect a fulfilled promise or heap
     // object without appearing in either JavaScript hook registry. This
@@ -438,7 +444,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       return heapIdentityObserver?.report()??{mode:'compiled-comparison',replayEligible:false}
     },
     inspectorTiming() {
-      return {enabled:inspectorTiming,commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
+      return {enabled:inspectorTiming,pauses:{...pauseTiming},commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
         replayEligible:false,limitation:'Inclusive command timings can overlap through synchronous notifications'}
     },
     opaqueSnapshot() {
