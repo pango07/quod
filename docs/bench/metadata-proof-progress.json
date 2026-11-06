@@ -510,5 +510,26 @@
     "consumersWithNoOpaqueEntries": 0,
     "nativeAddonLoadsBeforeSizeReads": 1,
     "asyncSizeKeyEnabled": false
+  },
+  "nativeSymbolAndHeapDiagnostic": {
+    "evidence": "native-symbol-and-heap-audit.json",
+    "nativeGate": 42164764622,
+    "nativeCommit": "364aa67",
+    "nativeFixtureTestsPassed": 1,
+    "heapRegressionRun": 42165376974,
+    "heapDriverRun": 42165380136,
+    "heapCommit": "0a7501d",
+    "observerTests": 45,
+    "productionProofTests": 65,
+    "states": 4131,
+    "sizeConsumers": 120,
+    "consumersWithNoHeapEntries": 120,
+    "nativeDynamicSymbols": 126,
+    "fixedNapiLoaderSymbolsObserved": 125,
+    "otherDynamicSymbols": [
+      "__pthread_get_minstack"
+    ],
+    "capabilityCertified": false,
+    "asyncSizeKeyEnabled": false
   }
 }

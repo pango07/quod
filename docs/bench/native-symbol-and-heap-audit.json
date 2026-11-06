@@ -1,0 +1,1275 @@
+{
+  "scope": "Native symbol and heap-observer diagnostics; async size keys remain disabled",
+  "nativeGate": {
+    "run": 42164764622,
+    "url": "https://github.com/pango07/quod/actions/runs/42164764622",
+    "commit": "364aa67",
+    "conclusion": "success",
+    "nativeFixtureTestsPassed": 1,
+    "runnerImage": "ubuntu-26.04/20261101.186.1"
+  },
+  "workload": {
+    "files": 120,
+    "states": 4131,
+    "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+    "replayed": 0,
+    "metadata": {
+      "sm": 299,
+      "sl": 257,
+      "st": 104
+    },
+    "sizeConsumers": 120,
+    "consumersWithSizeOutcome": 120,
+    "consumersWithOnlyOwnedHooks": 120,
+    "consumersWithNativeUnchanged": 120,
+    "consumersWithConstructionFieldsAbsent": 120,
+    "consumersWithStartupNativeUnchanged": 120
+  },
+  "nativeSymbols": {
+    "schema": 1,
+    "replayEligible": false,
+    "files": 141,
+    "processes": 1,
+    "events": 163,
+    "addons": [
+      {
+        "path": "/home/runner/work/quod/quod/profile-project/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node",
+        "postRunSha256": "09efa62dc8d03fb62f06ab2aadbbc26bde416acb7da20a927f7d53b2bd440322",
+        "postRunBytes": 19336888,
+        "postRunHashError": null,
+        "pids": [
+          2799
+        ],
+        "dynamicSymbols": [
+          "__pthread_get_minstack",
+          "napi_acquire_threadsafe_function",
+          "napi_add_env_cleanup_hook",
+          "napi_adjust_external_memory",
+          "napi_async_destroy",
+          "napi_async_init",
+          "napi_call_function",
+          "napi_call_threadsafe_function",
+          "napi_cancel_async_work",
+          "napi_close_callback_scope",
+          "napi_close_escapable_handle_scope",
+          "napi_close_handle_scope",
+          "napi_coerce_to_bool",
+          "napi_coerce_to_number",
+          "napi_coerce_to_object",
+          "napi_coerce_to_string",
+          "napi_create_array",
+          "napi_create_array_with_length",
+          "napi_create_arraybuffer",
+          "napi_create_async_work",
+          "napi_create_buffer",
+          "napi_create_buffer_copy",
+          "napi_create_dataview",
+          "napi_create_double",
+          "napi_create_error",
+          "napi_create_external",
+          "napi_create_external_arraybuffer",
+          "napi_create_external_buffer",
+          "napi_create_function",
+          "napi_create_int32",
+          "napi_create_int64",
+          "napi_create_object",
+          "napi_create_promise",
+          "napi_create_range_error",
+          "napi_create_reference",
+          "napi_create_string_latin1",
+          "napi_create_string_utf16",
+          "napi_create_string_utf8",
+          "napi_create_symbol",
+          "napi_create_threadsafe_function",
+          "napi_create_type_error",
+          "napi_create_typedarray",
+          "napi_create_uint32",
+          "napi_define_class",
+          "napi_define_properties",
+          "napi_delete_async_work",
+          "napi_delete_element",
+          "napi_delete_property",
+          "napi_delete_reference",
+          "napi_escape_handle",
+          "napi_fatal_error",
+          "napi_fatal_exception",
+          "napi_get_and_clear_last_exception",
+          "napi_get_array_length",
+          "napi_get_arraybuffer_info",
+          "napi_get_boolean",
+          "napi_get_buffer_info",
+          "napi_get_cb_info",
+          "napi_get_dataview_info",
+          "napi_get_element",
+          "napi_get_global",
+          "napi_get_last_error_info",
+          "napi_get_named_property",
+          "napi_get_new_target",
+          "napi_get_node_version",
+          "napi_get_null",
+          "napi_get_property",
+          "napi_get_property_names",
+          "napi_get_prototype",
+          "napi_get_reference_value",
+          "napi_get_threadsafe_function_context",
+          "napi_get_typedarray_info",
+          "napi_get_undefined",
+          "napi_get_uv_event_loop",
+          "napi_get_value_bool",
+          "napi_get_value_double",
+          "napi_get_value_external",
+          "napi_get_value_int32",
+          "napi_get_value_int64",
+          "napi_get_value_string_latin1",
+          "napi_get_value_string_utf16",
+          "napi_get_value_string_utf8",
+          "napi_get_value_uint32",
+          "napi_get_version",
+          "napi_has_element",
+          "napi_has_named_property",
+          "napi_has_own_property",
+          "napi_has_property",
+          "napi_instanceof",
+          "napi_is_array",
+          "napi_is_arraybuffer",
+          "napi_is_buffer",
+          "napi_is_dataview",
+          "napi_is_error",
+          "napi_is_exception_pending",
+          "napi_is_promise",
+          "napi_is_typedarray",
+          "napi_make_callback",
+          "napi_module_register",
+          "napi_new_instance",
+          "napi_open_callback_scope",
+          "napi_open_escapable_handle_scope",
+          "napi_open_handle_scope",
+          "napi_queue_async_work",
+          "napi_ref_threadsafe_function",
+          "napi_reference_ref",
+          "napi_reference_unref",
+          "napi_reject_deferred",
+          "napi_release_threadsafe_function",
+          "napi_remove_env_cleanup_hook",
+          "napi_remove_wrap",
+          "napi_resolve_deferred",
+          "napi_run_script",
+          "napi_set_element",
+          "napi_set_named_property",
+          "napi_set_property",
+          "napi_strict_equals",
+          "napi_throw",
+          "napi_throw_error",
+          "napi_throw_range_error",
+          "napi_throw_type_error",
+          "napi_typeof",
+          "napi_unref_threadsafe_function",
+          "napi_unwrap",
+          "napi_wrap",
+          "uv_run"
+        ],
+        "linkedSymbols": [
+          "_Unwind_Resume",
+          "__fxstat64",
+          "__fxstatat64",
+          "__lxstat64",
+          "__memcpy_chk",
+          "__memset_chk",
+          "__stack_chk_fail",
+          "__tls_get_addr",
+          "__xstat64",
+          "fputs",
+          "getrusage",
+          "madvise",
+          "mmap",
+          "prctl",
+          "pthread_mutex_destroy",
+          "pthread_mutex_lock",
+          "pthread_mutex_unlock",
+          "sleep",
+          "strtol",
+          "sysinfo"
+        ],
+        "providers": [
+          "",
+          "/lib64/ld-linux-x86-64.so.2",
+          "/usr/lib/x86_64-linux-gnu/libc.so.6",
+          "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1"
+        ],
+        "bindings": [
+          {
+            "symbol": "_Unwind_Resume",
+            "provider": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+            "dynamic": false
+          },
+          {
+            "symbol": "__fxstat64",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__fxstatat64",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__lxstat64",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__memcpy_chk",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__memset_chk",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__pthread_get_minstack",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": true
+          },
+          {
+            "symbol": "__stack_chk_fail",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "__tls_get_addr",
+            "provider": "/lib64/ld-linux-x86-64.so.2",
+            "dynamic": false
+          },
+          {
+            "symbol": "__xstat64",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "fputs",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "getrusage",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "madvise",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "mmap",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "napi_acquire_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_add_env_cleanup_hook",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_adjust_external_memory",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_async_destroy",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_async_init",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_call_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_call_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_cancel_async_work",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_close_callback_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_close_escapable_handle_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_close_handle_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_coerce_to_bool",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_coerce_to_number",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_coerce_to_object",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_coerce_to_string",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_array",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_array_with_length",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_arraybuffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_async_work",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_buffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_buffer_copy",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_dataview",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_double",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_external",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_external_arraybuffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_external_buffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_int32",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_int64",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_object",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_promise",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_range_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_reference",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_string_latin1",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_string_utf16",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_string_utf8",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_symbol",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_type_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_typedarray",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_create_uint32",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_define_class",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_define_properties",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_delete_async_work",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_delete_element",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_delete_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_delete_reference",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_escape_handle",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_fatal_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_fatal_exception",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_and_clear_last_exception",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_array_length",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_arraybuffer_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_boolean",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_buffer_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_cb_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_dataview_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_element",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_global",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_last_error_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_named_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_new_target",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_node_version",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_null",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_property_names",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_prototype",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_reference_value",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_threadsafe_function_context",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_typedarray_info",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_undefined",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_uv_event_loop",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_bool",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_double",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_external",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_int32",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_int64",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_string_latin1",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_string_utf16",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_string_utf8",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_value_uint32",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_get_version",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_has_element",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_has_named_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_has_own_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_has_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_instanceof",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_array",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_arraybuffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_buffer",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_dataview",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_exception_pending",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_promise",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_is_typedarray",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_make_callback",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_module_register",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_new_instance",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_open_callback_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_open_escapable_handle_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_open_handle_scope",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_queue_async_work",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_ref_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_reference_ref",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_reference_unref",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_reject_deferred",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_release_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_remove_env_cleanup_hook",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_remove_wrap",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_resolve_deferred",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_run_script",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_set_element",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_set_named_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_set_property",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_strict_equals",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_throw",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_throw_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_throw_range_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_throw_type_error",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_typeof",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_unref_threadsafe_function",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_unwrap",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "napi_wrap",
+            "provider": "",
+            "dynamic": true
+          },
+          {
+            "symbol": "prctl",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "pthread_mutex_destroy",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "pthread_mutex_lock",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "pthread_mutex_unlock",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "sleep",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "strtol",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "sysinfo",
+            "provider": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+            "dynamic": false
+          },
+          {
+            "symbol": "uv_run",
+            "provider": "",
+            "dynamic": true
+          }
+        ]
+      }
+    ],
+    "limitations": [
+      "successful symbol bindings, not invocation counts",
+      "failed lookups, direct/static calls and raw memory access are not observed",
+      "post-run digests do not prove loaded bytes were immutable",
+      "matching names or digests alone does not certify a native addon"
+    ]
+  },
+  "sourceReview": {
+    "rolldownTag": "v1.2.2",
+    "rolldownCommit": "872b98ac7476eb7d5892a2913e4ba010d124c6ac",
+    "rustToolchain": "1.97.1",
+    "sources": [
+      {
+        "package": "napi-sys-3.3.0",
+        "archiveSha256": "85fbf1fa9f1babfe396d74bbbf52b3643770243e8f5b0b46715d4caf7f0dfc9a",
+        "matchesRolldownLockfile": true
+      },
+      {
+        "package": "napi-3.12.0",
+        "archiveSha256": "6f71d6bc097c4a6eb853c3f24991ab8c9f50f57d1f719e305175541482217e36",
+        "matchesRolldownLockfile": true
+      },
+      {
+        "package": "libloading-0.9.0",
+        "archiveSha256": "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60",
+        "matchesRolldownLockfile": true
+      }
+    ],
+    "additionalLockedSources": [
+      {
+        "name": "napi-derive",
+        "version": "3.6.2",
+        "checksum": "6d9002b2940f0184444754546e0fcd15182f56948e6f381968b019d549387c42",
+        "url": "https://static.crates.io/crates/napi-derive/napi-derive-3.6.2.crate",
+        "files": 13
+      },
+      {
+        "name": "napi-derive-backend",
+        "version": "6.1.1",
+        "checksum": "d60b5d773ad46c698c8cc2cd9fde0b283d39cbb7f71c04bee633c7bdba4423bd",
+        "url": "https://static.crates.io/crates/napi-derive-backend/napi-derive-backend-6.1.1.crate",
+        "files": 19
+      },
+      {
+        "name": "oxc_minify_napi",
+        "version": "0.142.0",
+        "checksum": "7631fe1bff4ab272e59d37f8b67efdea25dbcce2e2692807e1e99c765f7f3827",
+        "url": "https://static.crates.io/crates/oxc_minify_napi/oxc_minify_napi-0.142.0.crate",
+        "files": 6
+      },
+      {
+        "name": "oxc_napi",
+        "version": "0.142.0",
+        "checksum": "def1407bc80e56123d87186c5d8f185a8dfefb93985e20c0d14f22ccc8c2bb72",
+        "url": "https://static.crates.io/crates/oxc_napi/oxc_napi-0.142.0.crate",
+        "files": 7
+      },
+      {
+        "name": "oxc_parser_napi",
+        "version": "0.142.0",
+        "checksum": "60892ea45672e744a9f37c5d48af063b6572544053988761aba4804c3a53d817",
+        "url": "https://static.crates.io/crates/oxc_parser_napi/oxc_parser_napi-0.142.0.crate",
+        "files": 12
+      },
+      {
+        "name": "oxc_resolver_napi",
+        "version": "11.24.2",
+        "checksum": "da3ef56d27983937b3d58ac268bb43fd8c2c8df860cbd09b4191a2d4f25c97e9",
+        "url": "https://static.crates.io/crates/oxc_resolver_napi/oxc_resolver_napi-11.24.2.crate",
+        "files": 7
+      },
+      {
+        "name": "oxc_sourcemap",
+        "version": "8.1.2",
+        "checksum": "b415102a94b483bbd76d13e850fe87961197e5795c79a8523ebec5d82025f94f",
+        "url": "https://static.crates.io/crates/oxc_sourcemap/oxc_sourcemap-8.1.2.crate",
+        "files": 16
+      },
+      {
+        "name": "oxc_transform_napi",
+        "version": "0.142.0",
+        "checksum": "55d5a0aa674cc545e35ce7ef9b91dca3b9344a22e412e126240170cf8903e571",
+        "url": "https://static.crates.io/crates/oxc_transform_napi/oxc_transform_napi-0.142.0.crate",
+        "files": 7
+      }
+    ],
+    "fixedNapiLoaderSymbols": [
+      "napi_acquire_threadsafe_function",
+      "napi_add_async_cleanup_hook",
+      "napi_add_env_cleanup_hook",
+      "napi_add_finalizer",
+      "napi_adjust_external_memory",
+      "napi_async_destroy",
+      "napi_async_init",
+      "napi_call_function",
+      "napi_call_threadsafe_function",
+      "napi_cancel_async_work",
+      "napi_check_object_type_tag",
+      "napi_close_callback_scope",
+      "napi_close_escapable_handle_scope",
+      "napi_close_handle_scope",
+      "napi_coerce_to_bool",
+      "napi_coerce_to_number",
+      "napi_coerce_to_object",
+      "napi_coerce_to_string",
+      "napi_create_array",
+      "napi_create_array_with_length",
+      "napi_create_arraybuffer",
+      "napi_create_async_work",
+      "napi_create_bigint_int64",
+      "napi_create_bigint_uint64",
+      "napi_create_bigint_words",
+      "napi_create_buffer",
+      "napi_create_buffer_copy",
+      "napi_create_dataview",
+      "napi_create_date",
+      "napi_create_double",
+      "napi_create_error",
+      "napi_create_external",
+      "napi_create_external_arraybuffer",
+      "napi_create_external_buffer",
+      "napi_create_function",
+      "napi_create_int32",
+      "napi_create_int64",
+      "napi_create_object",
+      "napi_create_promise",
+      "napi_create_range_error",
+      "napi_create_reference",
+      "napi_create_string_latin1",
+      "napi_create_string_utf16",
+      "napi_create_string_utf8",
+      "napi_create_symbol",
+      "napi_create_threadsafe_function",
+      "napi_create_type_error",
+      "napi_create_typedarray",
+      "napi_create_uint32",
+      "napi_define_class",
+      "napi_define_properties",
+      "napi_delete_async_work",
+      "napi_delete_element",
+      "napi_delete_property",
+      "napi_delete_reference",
+      "napi_detach_arraybuffer",
+      "napi_escape_handle",
+      "napi_fatal_error",
+      "napi_fatal_exception",
+      "napi_get_all_property_names",
+      "napi_get_and_clear_last_exception",
+      "napi_get_array_length",
+      "napi_get_arraybuffer_info",
+      "napi_get_boolean",
+      "napi_get_buffer_info",
+      "napi_get_cb_info",
+      "napi_get_dataview_info",
+      "napi_get_date_value",
+      "napi_get_element",
+      "napi_get_global",
+      "napi_get_instance_data",
+      "napi_get_last_error_info",
+      "napi_get_named_property",
+      "napi_get_new_target",
+      "napi_get_node_version",
+      "napi_get_null",
+      "napi_get_property",
+      "napi_get_property_names",
+      "napi_get_prototype",
+      "napi_get_reference_value",
+      "napi_get_threadsafe_function_context",
+      "napi_get_typedarray_info",
+      "napi_get_undefined",
+      "napi_get_uv_event_loop",
+      "napi_get_value_bigint_int64",
+      "napi_get_value_bigint_uint64",
+      "napi_get_value_bigint_words",
+      "napi_get_value_bool",
+      "napi_get_value_double",
+      "napi_get_value_external",
+      "napi_get_value_int32",
+      "napi_get_value_int64",
+      "napi_get_value_string_latin1",
+      "napi_get_value_string_utf16",
+      "napi_get_value_string_utf8",
+      "napi_get_value_uint32",
+      "napi_get_version",
+      "napi_has_element",
+      "napi_has_named_property",
+      "napi_has_own_property",
+      "napi_has_property",
+      "napi_instanceof",
+      "napi_is_array",
+      "napi_is_arraybuffer",
+      "napi_is_buffer",
+      "napi_is_dataview",
+      "napi_is_date",
+      "napi_is_detached_arraybuffer",
+      "napi_is_error",
+      "napi_is_exception_pending",
+      "napi_is_promise",
+      "napi_is_typedarray",
+      "napi_make_callback",
+      "napi_module_register",
+      "napi_new_instance",
+      "napi_object_freeze",
+      "napi_object_seal",
+      "napi_open_callback_scope",
+      "napi_open_escapable_handle_scope",
+      "napi_open_handle_scope",
+      "napi_queue_async_work",
+      "napi_ref_threadsafe_function",
+      "napi_reference_ref",
+      "napi_reference_unref",
+      "napi_reject_deferred",
+      "napi_release_threadsafe_function",
+      "napi_remove_async_cleanup_hook",
+      "napi_remove_env_cleanup_hook",
+      "napi_remove_wrap",
+      "napi_resolve_deferred",
+      "napi_run_script",
+      "napi_set_element",
+      "napi_set_instance_data",
+      "napi_set_named_property",
+      "napi_set_property",
+      "napi_strict_equals",
+      "napi_throw",
+      "napi_throw_error",
+      "napi_throw_range_error",
+      "napi_throw_type_error",
+      "napi_type_tag_object",
+      "napi_typeof",
+      "napi_unref_threadsafe_function",
+      "napi_unwrap",
+      "napi_wrap",
+      "node_api_create_buffer_from_arraybuffer",
+      "node_api_create_external_string_latin1",
+      "node_api_create_external_string_utf16",
+      "node_api_create_object_with_properties",
+      "node_api_create_property_key_latin1",
+      "node_api_create_property_key_utf16",
+      "node_api_create_property_key_utf8",
+      "node_api_create_syntax_error",
+      "node_api_get_module_file_name",
+      "node_api_post_finalizer",
+      "node_api_symbol_for",
+      "node_api_throw_syntax_error",
+      "uv_run"
+    ],
+    "observedOutsideNapiLoader": [
+      "__pthread_get_minstack"
+    ],
+    "outsideSymbolSource": "https://github.com/rust-lang/rust/blob/1.97.1/library/std/src/sys/thread/unix.rs",
+    "npmRegistryProvenanceStatement": {
+      "_type": "https://in-toto.io/Statement/v1",
+      "subject": [
+        {
+          "name": "pkg:npm/%40rolldown/binding-linux-x64-gnu@1.2.2",
+          "digest": {
+            "sha512": "43ff8723f4e825a7d9d620aa1a05505d4124223b9f1c24c5d20050d9ae68ddc83b189da1d2acaade7bef4a653e6c675adbfef2817a536384ccea03bd3a143464"
+          }
+        }
+      ],
+      "predicateType": "https://slsa.dev/provenance/v1",
+      "predicate": {
+        "buildDefinition": {
+          "buildType": "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+          "externalParameters": {
+            "workflow": {
+              "ref": "refs/heads/main",
+              "repository": "https://github.com/rolldown/rolldown",
+              "path": ".github/workflows/publish-to-npm.yml"
+            }
+          },
+          "internalParameters": {
+            "github": {
+              "event_name": "push",
+              "repository_id": "693187866",
+              "repository_owner_id": "94954945"
+            }
+          },
+          "resolvedDependencies": [
+            {
+              "uri": "git+https://github.com/rolldown/rolldown@refs/heads/main",
+              "digest": {
+                "gitCommit": "872b98ac7476eb7d5892a2913e4ba010d124c6ac"
+              }
+            }
+          ]
+        },
+        "runDetails": {
+          "builder": {
+            "id": "https://github.com/actions/runner/github-hosted"
+          },
+          "metadata": {
+            "invocationId": "https://github.com/rolldown/rolldown/actions/runs/30801837729/attempts/1"
+          }
+        }
+      }
+    },
+    "provenanceSignaturesIndependentlyVerified": false,
+    "capabilityCertified": false
+  },
+  "heapRegressionGate": {
+    "run": 42165376974,
+    "url": "https://github.com/pango07/quod/actions/runs/42165376974",
+    "commit": "0a7501d",
+    "conclusion": "success",
+    "observerTestsPassed": 45,
+    "productionProofTestsPassed": 65,
+    "newHeapFixtures": 7,
+    "runnerImage": "ubuntu-26.04/20261101.186.1"
+  },
+  "asyncSizeKeyEnabled": false,
+  "performanceBarEstablished": false,
+  "unvalidated": [
+    "source-level native capability contract and load-time artifact integrity",
+    "lifetime exclusion of every other metadata observer",
+    "production integration and Rust size-key query equivalence",
+    "corrected same 12-commit window and floor-relative hit timing"
+  ],
+  "heapDriverGate": {
+    "run": 42165380136,
+    "url": "https://github.com/pango07/quod/actions/runs/42165380136",
+    "commit": "0a7501d",
+    "conclusion": "success",
+    "runnerImage": "ubuntu-26.04/20261101.186.1",
+    "files": 120,
+    "states": 4131,
+    "fingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+    "replayed": 0,
+    "metadata": {
+      "sm": 299,
+      "sl": 257,
+      "st": 104
+    },
+    "sizeConsumers": 120,
+    "consumersWithNoHeapEntries": 120,
+    "consumersWithNoOpaqueEntries": 0,
+    "consumersWithStartupNativeUnchanged": 120,
+    "wholeRunOpaqueEntries": {
+      "dlopen": 1,
+      "Process.spawn": 120
+    }
+  }
+}
