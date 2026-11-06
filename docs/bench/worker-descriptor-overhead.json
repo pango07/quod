@@ -1485,10 +1485,15 @@
     "sourceLead": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/api/api-natives.cc#L261-L331"
   },
   "freshModuleScopeLookup": {
-    "status": "awaiting remote regression gate",
+    "status": "regressions passed; throughput comparison pending",
     "enabledInCombinedWorkload": false,
     "replayEligible": false,
     "source": "https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/debug/debug-scopes.cc#L579-L621",
-    "scope": "Pinned Node 24.18.0 only. Single-name lookup on each newly materialized module scope object; values and native identities are checked on every call."
+    "scope": "Pinned Node 24.18.0 only. Single-name lookup on each newly materialized module scope object; values and native identities are checked on every call.",
+    "fixtureCommit": "b025766e3af5370ae1c1cb6604e44dceab0f78cf",
+    "fixtureGate": 42211683490,
+    "fixtureConclusion": "success",
+    "fixtureTests": 109,
+    "fixtureLogSha256": "fdf2e299523fa792561932fc66834df0d3eeb3e095a62197391892dd19e6b457"
   }
 }

@@ -740,4 +740,7 @@ lookup uses that diagnostic scope object, never an application object. Values
 are not retained across pauses, and exceptions remain unknown. Mutation, live
 imports, shadowing, queued microtasks, foreign Inspector connections and
 same-source cross-context modules are retained as regressions. This candidate
-is awaiting its remote gate and is not enabled in the full workload or product.
+passes 109 regressions in [42211683490](https://github.com/pango07/quod/actions/runs/42211683490)
+at `b025766`. It is not enabled in the full workload or product. A bounded
+300-call comparison will measure each approach with identical values and
+one native identity comparison per call before another full workload run.

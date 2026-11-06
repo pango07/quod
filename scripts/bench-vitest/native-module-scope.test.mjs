@@ -107,3 +107,30 @@ console.log(JSON.stringify({report,gets,during,after:microtasks,moved:first===pl
   assert(data.report.argumentDiagnostics[count]>0)
   assert.equal(data.report.argumentDiagnostics[errors],0)
 })
+
+test('compare scope-read overhead with equal calls, values and native identity checks',t=>{
+  const measurements=[]
+  for(const mode of ['descriptors','evaluate','lookup']) {
+    const data=fixture(`const native=Object.getOwnPropertyDescriptor;
+function invoke(target,key){return native(target,key)}
+const p=inspectPromiseObservers({descriptorAccess:true,heapIdentity:true,moduleBindingEvaluation:EVALUATE,moduleBindingLookup:LOOKUP});
+let accessorCount=0,valueCount=0;const start=performance.now();
+for(let i=0;i<300;i++) {const value=invoke(i%2?target:plain,key);if(value.get)accessorCount++;else valueCount+=value.value}
+const elapsedMs=performance.now()-start,report=p.descriptorAccess(),identity=p.nativeIdentity();p.close();
+console.log(JSON.stringify({report,identity,gets,accessorCount,valueCount,elapsedMs}));`,mode)
+    assert.equal(data.accessorCount,150);assert.equal(data.valueCount,1050)
+    assert.equal(data.report.calls,300);assert.equal(data.identity.comparisons,300)
+    assert.equal(data.identity.unknown,0)
+    assert(data.report.entries.every(e=>e.argument.available),JSON.stringify(data.report))
+    const counters=data.report.argumentDiagnostics
+    if(mode==='descriptors')assert(counters.propertyEntries.module>=600000)
+    else {
+      assert.equal(counters.propertyRequests.module??0,0)
+      assert.equal(counters[mode==='evaluate'?'moduleBindingEvaluations':'moduleBindingLookups'],300)
+    }
+    measurements.push({mode,calls:data.report.calls,elapsedMs:data.elapsedMs,identityChecks:data.identity.comparisons,
+      transferredModuleEntries:counters.propertyEntries.module??0,replayEligible:false})
+  }
+  // Timing is evidence, not a flaky pass/fail threshold or product claim.
+  t.diagnostic(JSON.stringify({scopeReadMeasurements:measurements}))
+})

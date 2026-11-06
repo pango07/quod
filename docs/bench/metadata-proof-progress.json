@@ -847,6 +847,8 @@
     "lexicalBindingFullGateCompletedWorkers": 11,
     "privateCalleeExperimentRemoved": true,
     "privateCalleeLastGate": 42209923638,
-    "freshModuleScopeLookupStatus": "awaiting remote regression gate"
+    "freshModuleScopeLookupStatus": "regressions passed; throughput comparison pending",
+    "freshModuleScopeLookupFixtureGate": 42211683490,
+    "freshModuleScopeLookupFixtureTests": 109
   }
 }
