@@ -1,0 +1,95 @@
+{
+  "replayEligible": false,
+  "scope": "Lossless metadata lookup compression; compilation events and source evidence are retained.",
+  "fixtures": [
+    {
+      "commit": "d82ce60",
+      "run": "https://github.com/pango07/quod/actions/runs/42238135774",
+      "job": 127961069037,
+      "conclusion": "success",
+      "testsPassed": 178,
+      "measurements": [
+        {
+          "mode": "map",
+          "entries": 250000,
+          "matches": 250000,
+          "insertMs": 132.500148,
+          "lookupMs": 86.68778600000002,
+          "heapDelta": 43458848,
+          "arrayBufferDelta": 0,
+          "counts": null
+        },
+        {
+          "mode": "compact",
+          "entries": 250000,
+          "matches": 250000,
+          "insertMs": 208.414359,
+          "lookupMs": 29.77808300000001,
+          "heapDelta": 164952,
+          "arrayBufferDelta": 1015808,
+          "counts": {
+            "events": 250000,
+            "entries": 250000,
+            "metadata": 32,
+            "chunks": 62,
+            "denseBytes": 1015808,
+            "sparseEntries": 0,
+            "overflow": false
+          }
+        }
+      ],
+      "logSha256": "5be94c9d5def07a2bd16b6c92c12c76a2e4b26fd2e3b1acadb912d845fb1d071"
+    },
+    {
+      "commit": "acf478a",
+      "run": "https://github.com/pango07/quod/actions/runs/42238375600",
+      "job": 127961892884,
+      "conclusion": "success",
+      "testsPassed": 178,
+      "measurements": [
+        {
+          "mode": "map",
+          "entries": 250000,
+          "matches": 250000,
+          "insertMs": 111.97481800000001,
+          "lookupMs": 143.617785,
+          "heapDelta": 43458848,
+          "arrayBufferDelta": 0,
+          "counts": null
+        },
+        {
+          "mode": "compact",
+          "entries": 250000,
+          "matches": 250000,
+          "insertMs": 183.254412,
+          "lookupMs": 32.049498,
+          "heapDelta": 165464,
+          "arrayBufferDelta": 1015808,
+          "counts": {
+            "events": 250000,
+            "entries": 250000,
+            "metadata": 32,
+            "chunks": 62,
+            "denseBytes": 1015808,
+            "sparseEntries": 0,
+            "overflow": false
+          }
+        }
+      ],
+      "logSha256": "fd761a834423205876e641132d9054e205a89019b1c1ac563cd74203b9952669"
+    }
+  ],
+  "invariants": [
+    "Canonical numeric IDs use bounded chunk storage; every other ID remains an exact string key.",
+    "Every metadata field is preserved, including undefined versus empty URL and lone UTF-16 surrogates.",
+    "Later updates replace the same identity; distinct IDs do not alias.",
+    "Capacity exhaustion is explicit and invalidates observation.",
+    "All 250000 synthetic lookups are checked, not sampled.",
+    "All compilation events, order, counts and code hashes remain in the original compilation log."
+  ],
+  "limitations": [
+    "The isolated memory measurement is heap growth plus ArrayBuffer growth, not process RSS or CI cost.",
+    "Insertion costs more than the ordinary Map in these samples.",
+    "Full-workload coverage and elapsed-time benefit remain unproven."
+  ]
+}

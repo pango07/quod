@@ -1209,3 +1209,25 @@ passes all 174 regressions at `4d18bf2`, including both native Error contexts,
 the forged foreign object and native callback/access-check fixtures. Corrected
 [full gate 42237280902](https://github.com/pango07/quod/actions/runs/42237280902)
 is running that commit. Its completion and coverage remain unproven.
+
+## Exact script metadata index
+
+The observer previously kept a separate metadata object for every parsed
+script ID. Millions of generated conditions share the same metadata. The
+index at `d82ce60` interns the complete metadata tuple, uses bounded typed
+array chunks for canonical numeric IDs, and keeps every other ID as an exact
+string key. It preserves later updates, undefined versus empty URLs, language
+and module/sourceURL flags, and UTF-16 strings. Capacity exhaustion makes the
+observation unavailable. This changes the lookup table only: no compilation
+event, code digest, order or occurrence count is removed.
+
+[Integration gate 42238375600](https://github.com/pango07/quod/actions/runs/42238375600)
+at `acf478a` passes 178 regressions. For 250,000 entries, isolated heap plus
+ArrayBuffer growth falls from 43.46 MB to 1.18 MB. Every lookup is independently
+checked. Insertion takes 183 ms versus 112 ms for the ordinary Map, while
+lookup takes 32 ms versus 144 ms. These are synthetic samples, not process RSS
+or CI savings. Native capture's actual source-evidence checks still pass,
+and the driver requires index event counts to agree with all parsed-script
+events. Progress checkpoints will record memory use in the next full run.
+[Both fixture samples and invariants](worker-script-metadata-index.json) are
+retained separately from full-workload evidence.

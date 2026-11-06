@@ -11,6 +11,7 @@ import {observeNativeEntryArguments} from './native-entry-probe.mjs'
 import {nativeEntryLog,nativeEntryFrames} from './native-entry-log.mjs'
 import {scriptMetadataIndex} from './script-metadata-index.mjs'
 const monotonicNow=process.hrtime.bigint
+const memoryUsage=process.memoryUsage
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -109,6 +110,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     descriptorArgumentCounts.set(kind,(descriptorArgumentCounts.get(kind)??0)+1)
     if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
       onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
+        memory:memoryUsage(),
         arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],
         overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
         ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),

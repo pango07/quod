@@ -932,6 +932,13 @@
     "nativeCaptureErrorExclusionFixtureTests": 174,
     "nativeCaptureErrorExclusionFixtureConclusion": "success",
     "nativeCaptureCorrectedFullGate": 42237280902,
-    "nativeCaptureCorrectedFullGateStatus": "in_progress"
+    "nativeCaptureCorrectedFullGateStatus": "in_progress",
+    "scriptMetadataIndexCommit": "d82ce60",
+    "scriptMetadataIndexFixtureGate": 42238135774,
+    "scriptMetadataIndexFixtureTests": 178,
+    "scriptMetadataIndexIntegrationCommit": "acf478a",
+    "scriptMetadataIndexIntegrationGate": 42238375600,
+    "scriptMetadataIndexIntegrationConclusion": "success",
+    "scriptMetadataIndexEvidence": "worker-script-metadata-index.json"
   }
 }
