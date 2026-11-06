@@ -872,3 +872,38 @@ also needs to resolve the detailed-entry cap without discarding frames.
 preserve this failed attempt. Complete native coverage, framework-object
 ownership and production replay safety remain unproven; the packaged
 Action and 12-commit savings result are unchanged.
+
+The private-group experiment at `6902679` passes 125 regressions in
+[42218887590](https://github.com/pango07/quod/actions/runs/42218887590).
+Actual arguments, receivers, native errors and queued microtasks retain
+their behavior. An argument object and its accessor's captured object are
+collectible after cleanup, while an unrelated Inspector handle remains
+usable. With full compilation logging and 80 function-valued target
+properties, 300 calls take 661 ms with individual releases and 571 ms with
+private groups. Release commands fall from 26,700 to 600, but the extra
+group-transfer evaluation adds 300 compilations. The 13.7% measured gain
+alone does not justify another full run. This mode remains disabled in
+the combined workload. `04a797c` next measures requesting only the target
+accessors that the diagnostic records, avoiding unused data-property
+handles without discarding any retained accessor evidence.
+
+[42219141965](https://github.com/pango07/quod/actions/runs/42219141965)
+at `04a797c` passes 126 regressions. Accessor-only target inspection retains
+both own getter and setter evidence, excludes inherited accessors and data
+fields, and invokes no accessor. All 300 calls in each measured mode retain
+the same target evidence and application result with complete compilation
+logging:
+
+| Target inspection | Cleanup | 300 calls, ms | Release commands | Compilation events |
+| --- | --- | ---: | ---: | ---: |
+| All properties | Individual | 637.7 | 26,700 | 609 |
+| All properties | Private group | 484.0 | 600 | 909 |
+| Accessors only | Individual | 320.5 | 2,400 | 609 |
+| Accessors only | Private group | 343.5 | 600 | 909 |
+
+Accessor-only inspection with individual cleanup reduces this diagnostic
+microbenchmark's elapsed time by 49.7%. It is still disabled in the combined
+workload pending integration with lossless stack-frame compression to
+resolve the five overflowing logs. Do not translate this bounded diagnostic
+result into a product savings percentage. No new production replay or
+12-commit measurement has run.

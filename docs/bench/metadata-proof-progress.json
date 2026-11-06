@@ -854,7 +854,7 @@
     "freshModuleScopeLookupLatestFixtureTests": 110,
     "freshModuleScopeLookupLatestFixtureConclusion": "success",
     "freshModuleScopeLookupEnabledInCombinedWorkload": false,
-    "descriptorOverheadNextAction": "Measure private per-event Inspector object groups to reduce millions of release commands; preserve exact frame evidence with compression before another full attempt.",
+    "descriptorOverheadNextAction": "Integrate accessor-only target descriptors with individual cleanup, and losslessly compress repeated stack frames to resolve the detailed-event cap. Gate both before another full workload attempt.",
     "nativeEntryArgumentsFixtureGate": 42216738359,
     "nativeEntryArgumentsFixtureTests": 122,
     "nativeEntryArgumentsFixtureConclusion": "success",
@@ -863,6 +863,11 @@
     "nativeEntryArgumentsFullGateStatus": "completed",
     "nativeEntryArgumentsFullGateConclusion": "failure",
     "nativeEntryArgumentsFullGateTests": 158,
-    "nativeEntryArgumentsFullGateCompletedWorkers": 43
+    "nativeEntryArgumentsFullGateCompletedWorkers": 43,
+    "nativeEntryAccessorOnlyFixtureGate": 42219141965,
+    "nativeEntryAccessorOnlyFixtureTests": 126,
+    "nativeEntryAccessorOnlyFixtureConclusion": "success",
+    "nativeEntryAccessorOnlyCommit": "04a797c",
+    "nativeEntryAccessorOnlyEnabledInCombinedWorkload": false
   }
 }
