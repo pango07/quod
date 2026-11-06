@@ -1,0 +1,137 @@
+{
+  "commit": "6c7d5df",
+  "fixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42262070111",
+    "job": 128044324555,
+    "conclusion": "success",
+    "regressionsPassed": 237
+  },
+  "measurements": {
+    "hotScriptMetadataMeasurements": [
+      {
+        "lookupLimit": 0,
+        "matches": 2000000,
+        "elapsedMs": 525.4130660000001,
+        "heapDelta": 69944,
+        "counts": {
+          "events": 4002,
+          "entries": 4002,
+          "metadata": 65,
+          "storage": "ranges",
+          "ranges": 2049,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "lookupEntries": 0,
+          "lookupLimit": 0,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        }
+      },
+      {
+        "lookupLimit": 2048,
+        "matches": 2000000,
+        "elapsedMs": 65.739699,
+        "heapDelta": 65968,
+        "counts": {
+          "events": 4002,
+          "entries": 4002,
+          "metadata": 65,
+          "storage": "ranges",
+          "ranges": 2049,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "lookupEntries": 128,
+          "lookupLimit": 2048,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        }
+      },
+      {
+        "lookupLimit": 2048,
+        "matches": 2000000,
+        "elapsedMs": 80.23387399999999,
+        "heapDelta": 67368,
+        "counts": {
+          "events": 4002,
+          "entries": 4002,
+          "metadata": 65,
+          "storage": "ranges",
+          "ranges": 2049,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "lookupEntries": 128,
+          "lookupLimit": 2048,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        }
+      },
+      {
+        "lookupLimit": 0,
+        "matches": 2000000,
+        "elapsedMs": 531.452668,
+        "heapDelta": 75416,
+        "counts": {
+          "events": 4002,
+          "entries": 4002,
+          "metadata": 65,
+          "storage": "ranges",
+          "ranges": 2049,
+          "rangeLimit": 65536,
+          "rangeStorageBytes": 98304,
+          "chunks": 0,
+          "denseBytes": 0,
+          "sparseEntries": 0,
+          "lookupEntries": 0,
+          "lookupLimit": 0,
+          "overflow": false,
+          "failures": 0,
+          "failureStages": {
+            "validation": 0,
+            "copy": 0,
+            "lookup": 0,
+            "commit": 0
+          }
+        }
+      }
+    ],
+    "scope": "isolated repeated lookups; not workload or CI savings"
+  },
+  "semantics": [
+    "Only successful public reads fill the cache; dynamic compilation insertions do not fill or evict it.",
+    "The range-mode cache retains at most 2,048 exact immutable metadata records by script ID.",
+    "Successful overwrites update an existing cache entry after the full index commit; validation, dictionary or range capacity failures preserve the old record.",
+    "Noncanonical IDs, missing IDs, nested validation updates and changed metadata remain distinct; lookupLimit=0 preserves uncached comparison."
+  ],
+  "replayEligible": false,
+  "limitations": [
+    "Isolated lookup timings are not full-workload or CI savings.",
+    "No production engine or Action changes."
+  ]
+}

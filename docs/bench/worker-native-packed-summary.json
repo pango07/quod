@@ -1,0 +1,81 @@
+{
+  "commit": "4299ddd8241343078d17b46c48ea511a4f447dad",
+  "correction": "1e51c85",
+  "fixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42260710701",
+    "job": 128039592672,
+    "conclusion": "success",
+    "regressionsPassed": 229,
+    "runnerImage": "ubuntu-26.04/20261101.186.1"
+  },
+  "firstAttempt": {
+    "run": "https://github.com/pango07/quod/actions/runs/42260202776",
+    "job": 128037832373,
+    "conclusion": "failure",
+    "cause": "Array destructuring requested an iterator from deliberately null-prototype native arrays.",
+    "correction": "Read the four owned summary slots directly; regression verifies null-prototype arrays and no Symbol.iterator getter invocation."
+  },
+  "encoding": {
+    "name": "packed-v1",
+    "slots": [
+      "version",
+      "flags",
+      "apiOrNull",
+      "argumentCountOrZero"
+    ],
+    "fields": "All existing capture ownership, availability, cleanup, metadata validity, receiver, description, inspection, kind, accessor mask, failure, rejection and excluded-owner fields are retained."
+  },
+  "measurements": {
+    "nativeSummaryTransportMeasurements": [
+      {
+        "nativeSummary": "object",
+        "calls": 5000,
+        "elapsedMs": 1710.670065,
+        "responseBytes": 1455000,
+        "compiledEvents": 10013,
+        "cleared": 5000,
+        "released": 5000
+      },
+      {
+        "nativeSummary": "packed",
+        "calls": 5000,
+        "elapsedMs": 1534.4691540000001,
+        "responseBytes": 405000,
+        "compiledEvents": 10013,
+        "cleared": 5000,
+        "released": 5000
+      },
+      {
+        "nativeSummary": "packed",
+        "calls": 5000,
+        "elapsedMs": 1521.950174,
+        "responseBytes": 405000,
+        "compiledEvents": 10013,
+        "cleared": 5000,
+        "released": 5000
+      },
+      {
+        "nativeSummary": "object",
+        "calls": 5000,
+        "elapsedMs": 1748.346074,
+        "responseBytes": 1455000,
+        "compiledEvents": 10013,
+        "cleared": 5000,
+        "released": 5000
+      }
+    ],
+    "scope": "isolated Inspector capture with exact compilation logging; not workload or CI savings"
+  },
+  "regressions": [
+    "Packed results equal the separately compiled descriptor baseline over ordinary, proxy, revoked-proxy, native access-check, invalid-wrapper, foreign-nonce and invalid-arity cases.",
+    "All eight watched accessor masks retain exact summaries and zero getter/proxy/host-callback calls.",
+    "Malformed, unsupported and overflowing encodings fail validation.",
+    "Each transport measurement observes and clears/releases 5,000 calls with 10,013 exact compilation events."
+  ],
+  "replayEligible": false,
+  "limitations": [
+    "Isolated transport timings are not full-workload or CI savings.",
+    "No production engine or Action update is authorized by these diagnostic checks.",
+    "Complete worker-input ownership and native coverage remain unproven."
+  ]
+}

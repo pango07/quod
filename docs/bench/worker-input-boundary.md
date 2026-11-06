@@ -1511,9 +1511,69 @@ takes 6.63 seconds. These isolated storage measurements do not establish
 full-workload speed or CI savings.
 
 The [full diagnostic 42259109908](https://github.com/pango07/quod/actions/runs/42259109908)
-is running at `199e978`, including the earlier `5750e67` native data-field
-helper. It preserves all 120 file/project instances, 4,131 test states,
-39 metadata-only edits, original test timeouts and the 900-second observed
-collection limit. No production replay is authorized.
+at `199e978`, including the earlier `5750e67` native data-field helper,
+passes 260 regressions and the 120-file / 4,131-state baseline, then times
+out at 900 seconds in `before`. All 119 retained worker reports pass the
+scoped checks: 1,271,348 native calls cleared and released, 3,876 guarded
+metadata scalars and 119 seeds; zero capture, index or log failures. All
+48,236 retained watched calls match actual checked-in caller source.
+
+The unfinished stream worker reaches 3,040,000 descriptor calls and
+6,082,144 compilation events without overflow. It uses 96,750 stored
+compilation pairs and 1,523 script metadata intervals, with 447,094,784
+bytes RSS. Compression fixes the previous capacity failure but does not
+complete collection. The baseline takes 68.38 seconds. Complete observed
+test states and the after phase remain missing, so there is no full
+wrong=0 comparison or new CI savings result. No production replay is authorized.
 [Machine-readable evidence](worker-compressed-diagnostic-storage.json)
 records the gates, storage limits, measurements and remaining proof gaps.
+
+## Compact native summaries and repeated caller lookups
+
+`4299ddd` encodes the native capture result in four fields while retaining
+every ownership, validity, cleanup, kind, mask, failure, rejection and owner
+classification. The initial gate caught array destructuring of the native
+null-prototype array. `1e51c85` reads owned slots directly and tests that an
+iterator is never invoked. The corrected
+[gate 42260710701](https://github.com/pango07/quod/actions/runs/42260710701)
+passes 229 regressions. Four isolated 5,000-call comparisons preserve equal
+capture and cleanup results plus 10,013 exact compilation events each.
+Inspector response bytes fall from 1,455,000 to 405,000; object-format
+measurements take 1,710.67 / 1,748.35 ms versus 1,534.47 / 1,521.95 ms packed.
+These are transport measurements, not workload or CI savings.
+[Evidence](worker-native-packed-summary.json) includes the failed first gate.
+
+`6c7d5df` caches at most 2,048 successful caller-metadata lookups. Only
+public reads fill it, so millions of compilation insertions cannot displace
+frequently inspected caller IDs. Cached records are immutable owned values;
+successful overwrites update the cache after commit. Failed updates keep
+the earlier value, and nested validation activity rechecks the index state.
+[Gate 42262070111](https://github.com/pango07/quod/actions/runs/42262070111)
+passes 237 regressions. Four isolated two-million-lookup measurements check
+all metadata fields while inserting new script IDs. Uncached times are
+525.41 / 531.45 ms; cached times are 65.74 / 80.23 ms, retaining 128 entries.
+[Evidence](worker-hot-caller-metadata.json) records the exact counts and
+correctness cases. Full-workload time remains unmeasured for these changes.
+
+`e9255f0` also reuses immutable mapped native frames instead of repeatedly
+serializing identical caller fields. Only private, registered script metadata
+can enter this cache. Unknown/mutable metadata and cache exhaustion keep
+fresh mapping; metadata replacements, missing IDs, exact UTF-16 fields and
+frame order remain significant. Cached frames and locations are frozen,
+owned serialization reads only checked primitives, and cache capacity is
+rechecked after freezing in case of nested Inspector activity.
+
+[Gate 42263280155](https://github.com/pango07/quod/actions/runs/42263280155)
+passes 243 regressions. Four 100,000-call measurements with 24 frames per
+call produce byte-identical 302,475-byte reports containing all 100,000
+occurrences, 1,536 frames and 64 distinct entries. Fresh mapping/logging
+takes 2,618.42 / 2,684.75 ms; cached mapping takes 1,254.62 / 1,377.50 ms.
+The cache retains 1,536 frames and 24 metadata identities, below its 20,000
+limit. These are isolated mapping/logging timings, not new product gains.
+[Evidence](worker-native-frame-cache.json) records the complete comparison.
+
+The combined [full diagnostic 42263493464](https://github.com/pango07/quod/actions/runs/42263493464)
+is running at `e9255f0` with packed capture, caller-metadata caching and
+frame reuse together. Test scope, expected states, metadata-only mutation,
+native coverage, collection limits and original Vitest timeouts are unchanged.
+Its result is pending; production replay authority and savings claims remain unchanged.

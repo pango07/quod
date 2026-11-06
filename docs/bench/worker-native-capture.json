@@ -3176,13 +3176,36 @@
     "failure": "before phase 900-second timeout; unfinished stream worker exceeded compilation-run capacity; no complete observed test-state report or after phase",
     "evidence": "worker-compiled-source-cache.json#extendedFullDiagnostic"
   },
-  "pendingFullDiagnostic": {
+  "compressedStorageFullDiagnostic": {
     "commit": "199e9782d349fad4f746fa5be30e09551b74f97d",
     "run": "https://github.com/pango07/quod/actions/runs/42259109908",
     "job": 128034080087,
-    "status": "in_progress",
+    "status": "completed",
     "evidence": "worker-compressed-diagnostic-storage.json",
     "nativeDataFieldHelperIncluded": true,
+    "replayEligible": false,
+    "conclusion": "failure",
+    "regressionsPassed": 260,
+    "retainedWorkers": 119,
+    "failure": "900-second before timeout; no complete observed test-state report or after phase",
+    "streamCompilationOverflow": false
+  },
+  "pendingFullDiagnostic": {
+    "commit": "e9255f0e69d605953947c7cdc785f2a090212b28",
+    "run": "https://github.com/pango07/quod/actions/runs/42263493464",
+    "status": "in_progress",
+    "changes": [
+      "packed native summaries",
+      "bounded exact caller-metadata lookup cache",
+      "immutable native frame cache"
+    ],
+    "fixture": "https://github.com/pango07/quod/actions/runs/42263280155",
+    "regressionsPassed": 243,
+    "expectedWorkers": 120,
+    "expectedStatesPerPhase": 4131,
+    "expectedMetadataOnlyChangedPaths": 39,
+    "observedPhaseLimitSeconds": 900,
+    "testTimeoutsChanged": false,
     "replayEligible": false
   }
 }

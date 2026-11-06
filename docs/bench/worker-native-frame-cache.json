@@ -1,0 +1,92 @@
+{
+  "commit": "e9255f0e69d605953947c7cdc785f2a090212b28",
+  "fixture": {
+    "run": "https://github.com/pango07/quod/actions/runs/42263280155",
+    "job": 128048514169,
+    "conclusion": "success",
+    "regressionsPassed": 243
+  },
+  "measurements": {
+    "nativeFrameMappingMeasurements": [
+      {
+        "cacheLimit": 0,
+        "elapsedMs": 2618.422282,
+        "calls": 100000,
+        "frames": 1536,
+        "entries": 64,
+        "sha256": "e1b41c983f8ad852e438fe283eaee427cbebb2b7514baef1eff0323d02cdb22c",
+        "serializedBytes": 302475,
+        "cache": {
+          "entries": 0,
+          "limit": 0,
+          "metadataIdentities": 0
+        }
+      },
+      {
+        "cacheLimit": 20000,
+        "elapsedMs": 1254.616806,
+        "calls": 100000,
+        "frames": 1536,
+        "entries": 64,
+        "sha256": "e1b41c983f8ad852e438fe283eaee427cbebb2b7514baef1eff0323d02cdb22c",
+        "serializedBytes": 302475,
+        "cache": {
+          "entries": 1536,
+          "limit": 20000,
+          "metadataIdentities": 24
+        }
+      },
+      {
+        "cacheLimit": 20000,
+        "elapsedMs": 1377.496295,
+        "calls": 100000,
+        "frames": 1536,
+        "entries": 64,
+        "sha256": "e1b41c983f8ad852e438fe283eaee427cbebb2b7514baef1eff0323d02cdb22c",
+        "serializedBytes": 302475,
+        "cache": {
+          "entries": 1536,
+          "limit": 20000,
+          "metadataIdentities": 24
+        }
+      },
+      {
+        "cacheLimit": 0,
+        "elapsedMs": 2684.749676,
+        "calls": 100000,
+        "frames": 1536,
+        "entries": 64,
+        "sha256": "e1b41c983f8ad852e438fe283eaee427cbebb2b7514baef1eff0323d02cdb22c",
+        "serializedBytes": 302475,
+        "cache": {
+          "entries": 0,
+          "limit": 0,
+          "metadataIdentities": 0
+        }
+      }
+    ],
+    "scope": "isolated exact frame mapping/logging; not workload or CI savings"
+  },
+  "semantics": [
+    "Native stack depth, frame order, mapped frame fields, metadata fields and all call counts remain unchanged.",
+    "Only module-private registered immutable script metadata enables frame reuse; mutable or unknown metadata falls back to the original mapping.",
+    "At most 20,000 mapped frames and metadata identities are retained. Cache exhaustion falls back without dropping observations.",
+    "Unknown script IDs are distinct from later resolved metadata; changed metadata gives a distinct frame; old snapshots stay immutable.",
+    "Owned frame serialization uses checked primitives, excluding inherited toJSON hooks. Mixed legacy and cached frames deduplicate identical records.",
+    "Cache membership/capacity are rechecked after freezing to handle nested Inspector notifications."
+  ],
+  "regressions": [
+    "Every field, frame order, UTF-16 distinction and metadata overwrite matches the original mapping.",
+    "Mutable/unowned metadata and capacity fallback preserve every recorded field.",
+    "Mixed legacy/cached input deduplicates identical serializations, including missing URL values.",
+    "Inherited serialization hooks are never called when creating an owned cached frame.",
+    "Nested freezing cannot exceed cache capacity.",
+    "Four 100,000-entry comparisons with 24 frames per call produce byte-identical complete logs."
+  ],
+  "replayEligible": false,
+  "limitations": [
+    "Isolated frame mapping/logging timings are not whole-workload or CI savings.",
+    "Initial runtime integrity, complete native coverage and complete worker-input ownership remain unproven.",
+    "Production engine and Action pin remain unchanged."
+  ]
+}
