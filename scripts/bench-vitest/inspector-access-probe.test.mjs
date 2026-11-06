@@ -1,9 +1,12 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
+import {certifyAsyncStatSizeReads} from '../../crates/quod-cli/src/vitest/boolean-proof.mjs'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
+const consumer='async function size(file){try{const s=await fs.promises.stat(file);sink(s.size)}catch{}}'
 function run(kind) {
+  assert.equal(certifyAsyncStatSizeReads(consumer).length,1,'exercise an accepted local consumer')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
 import {Session} from 'node:inspector';import fs from 'node:fs';
 const kind=${JSON.stringify(kind)};
@@ -23,8 +26,9 @@ function post(method,params={}){
  let result,error;foreign.post(method,params,(e,r)=>{error=e;result=r});
  if(error||!result)throw Error('session dispatch failed');return result;
 }
-let sawMetadata=false;
+let sawMetadata=false,sizeValue=null;
 function sink(size){
+ sizeValue=size;
  if(!foreign)return size;
  const prototype=post('Runtime.evaluate',{expression:"process.getBuiltinModule('fs').Stats.prototype"}).result.objectId;
  const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype}).objects.objectId;
@@ -37,8 +41,8 @@ function sink(size){
 }
 // The lexical consumer exposes only a primitive. Inspector can still
 // obtain the live Stats through the heap while the sink executes.
-async function size(file){try{const s=await fs.promises.stat(file);return sink(s.size)}catch{}}
-const sizeValue=await size(${JSON.stringify(new URL('./inspector-access-probe.test.mjs',import.meta.url).pathname)});
+${consumer}
+await size(${JSON.stringify(new URL('./inspector-access-probe.test.mjs',import.meta.url).pathname)});
 if(foreign)foreign.disconnect();
 const after=p.inspectorAccess(),afterRegistries=p.snapshot();p.close();
 console.log(JSON.stringify({before,after,registries,afterRegistries,sawMetadata,sizeValue}));`

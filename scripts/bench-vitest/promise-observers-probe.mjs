@@ -106,8 +106,8 @@ export function inspectPromiseObservers() {
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
       const objectsList=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
       // Exclude the prototype only if its exact identity appears. The
-      // census includes native template objects, so a raw count must not
-      // be interpreted as a count of live connected sessions.
+      // census does not establish which objects are live connected
+      // sessions, so a raw count must not be used as such a count.
       const prototypeObjects=objectsList.filter(p=>same(p.value?.objectId,prototype)).length
       inspectorInitial={localConnectionObjects:objectsList.length-prototypeObjects,prototypeObjects,
         objects:objectsList.map(p=>({description:p.value?.description,
