@@ -31,6 +31,11 @@ on:
         description: "bench-real's arguments (scripts/bench-real.sh), e.g. --repos go --n 5"
         required: false
         default: ''
+      native_transport:
+        description: Optional worker-boundary diagnostic capture transport; does not enable replay
+        type: choice
+        options: [protocol, string]
+        default: protocol
 
 concurrency:
   # A dispatch is grouped by what it runs too, so dispatching bench-real (or
@@ -951,6 +956,12 @@ jobs:
         if: inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary'
       - run: node --test scripts/bench-vitest/worker-boundary-probe.test.mjs scripts/bench-vitest/scalar-property-probe.test.mjs scripts/bench-vitest/descriptor-access-probe.test.mjs scripts/bench-vitest/native-handle-lifetime.test.mjs scripts/bench-vitest/heap-native-identity-probe.test.mjs scripts/bench-vitest/native-module-scope.test.mjs scripts/bench-vitest/native-module-identity.test.mjs scripts/bench-vitest/native-entry-arguments.test.mjs scripts/bench-vitest/native-entry-log.test.mjs scripts/bench-vitest/native-capture-summary.test.mjs
         if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures'
+      - name: Verify selected primitive transport before the full workload
+        if: inputs.only == 'benchmark-worker-boundary' && inputs.native_transport == 'string'
+        env:
+          QUOD_TEST_NATIVE_CAPTURE_TRANSPORT: string
+          QUOD_NATIVE_CAPTURE_TRANSPORT: string
+        run: node --test scripts/bench-vitest/native-inspector-capture.test.mjs scripts/bench-vitest/descriptor-access-probe.test.mjs
       - run: npm ci
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'
         working-directory: profile-project
@@ -958,6 +969,7 @@ jobs:
         if: inputs.only != 'benchmark-worker-arguments' && inputs.only != 'benchmark-worker-module-fixtures'
         env:
           QUOD_WORKER_BOUNDARY_PROBE: ${{ inputs.only == 'benchmark-worker-boundary' && '1' || '0' }}
+          QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT: ${{ inputs.native_transport || 'protocol' }}
           QUOD_WORKER_CONFIG_PROBE: ${{ (inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities') && '1' || '0' }}
           QUOD_WORKER_CONFIG_NATIVE_PROBE: ${{ inputs.only == 'benchmark-worker-capabilities' && '1' || '0' }}
           QUOD_WORKER_MODULE_PROBE: ${{ inputs.only == 'benchmark-worker-modules' && '1' || '0' }}

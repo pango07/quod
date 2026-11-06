@@ -20,6 +20,7 @@ const progressDirectory=path.join(directory,'progress')
 if(combined)fs.mkdirSync(progressDirectory,{recursive:true})
 const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined,
   nativeEntries:combined,inspectorTiming:combined,ordinaryOwners:combined,
+  nativeTransport:combined?(process.env.QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT??'protocol'):'protocol',
   onDescriptorCheckpoint:combined?checkpoint=>write(path.join(progressDirectory,`${process.pid}.json`),
     JSON.stringify({project,files,checkpoint})+'\n'):null})
 const require=createRequire(path.join(process.cwd(),'package.json'))

@@ -1666,6 +1666,20 @@ observable through debugger capabilities and persist until realm destruction.
 Foreign realms still require a one-time native heap-query bridge. Neither
 transport proves initial ownership, complete observer coverage or replay
 eligibility. [Machine-readable evidence](worker-native-string-transport.json)
-records the measurements. The optional integrated worker transport is being
-gated separately with all 19 watched descriptor operations, source lifetime,
-native-error and application-object lifetime checks.
+records the measurements. The optional integrated observer at `2d1b1ed`
+passes [49 transport/integration checks](https://github.com/pango07/quod/actions/runs/42276529577)
+and [251 existing regressions](https://github.com/pango07/quod/actions/runs/42276533939).
+All 19 watched descriptor operations retain their actual targets and caller
+sources. The helper's own native load remains observed; unknown native
+owners and failed context installation remain explicit failures. A garbage
+collection check confirms that primitive exceptions do not retain their
+application argument object. The repeated isolated timing comparison is
+1,330.89 / 614.18 / 613.53 / 1,322.78 ms, again with every observation retained.
+
+The full worker-boundary gate can now select `native_transport=string`.
+The default stays on the existing protocol transport. Both retain the
+120-file / 4,131-state workload, original test timeouts, seeds and 39-file
+metadata mutation. The phase artifact identifies the chosen transport;
+primitive captures must account for every summary without claiming object
+handle releases. Whole-suite agreement and runtime remain unmeasured for
+the integrated string transport.

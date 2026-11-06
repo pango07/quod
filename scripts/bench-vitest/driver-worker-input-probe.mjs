@@ -18,6 +18,8 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex')
 const self=fileURLToPath(import.meta.url)
 const moduleProbe=process.env.QUOD_WORKER_MODULE_PROBE==='1'
 const boundaryProbe=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
+const nativeTransport=process.env.QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT??'protocol'
+assert(['protocol','string'].includes(nativeTransport),'unknown diagnostic capture transport')
 const moduleMetadataProbe=process.env.QUOD_WORKER_MODULE_METADATA_PROBE==='1'||boundaryProbe
 function write(file,data){fs.writeFileSync(file,JSON.stringify(data,null,2)+'\n')}
 function checkCompilationCounts(report) {
@@ -47,7 +49,8 @@ if(phase) {
     V.ForksPoolWorker.prototype.start=function(...args) {
       this.execArgv=['--import',fileURLToPath(new URL('./worker-module-metadata-bootstrap.mjs',import.meta.url)),...this.execArgv]
       this.env={...this.env,QUOD_WORKER_MODULE_METADATA_REPORT_DIR:directory,QUOD_WORKER_BOUNDARY_PROBE:boundaryProbe?'1':'0',
-        ...(boundaryProbe?{QUOD_NATIVE_CAPTURE_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON}:{})}
+        ...(boundaryProbe?{QUOD_NATIVE_CAPTURE_ADDON:process.env.QUOD_NATIVE_CAPTURE_ADDON,
+          QUOD_WORKER_NATIVE_CAPTURE_TRANSPORT:nativeTransport}:{})}
       return Reflect.apply(original,this,args)
     }
   }
@@ -90,7 +93,7 @@ if(phase) {
     // timeouts and from the real product benchmark's speed target.
     const timeoutMs=boundaryProbe&&name!=='baseline'?900000:420000,started=performance.now()
     const r=spawnSync(process.execPath,[self,project,out,name],{cwd:project,encoding:'utf8',timeout:timeoutMs,maxBuffer:32*1024*1024})
-    write(path.join(out,name+'-phase.json'),{phase:name,timeoutMs,elapsedMs:performance.now()-started,
+    write(path.join(out,name+'-phase.json'),{phase:name,nativeTransport:boundaryProbe&&name!=='baseline'?nativeTransport:null,timeoutMs,elapsedMs:performance.now()-started,
       status:r.status,signal:r.signal,errorCode:r.error?.code??null})
     fs.writeFileSync(path.join(out,name+'.log'),(r.stdout??'')+(r.stderr??''))
     assert.equal(r.error,undefined);assert.equal(r.status,0,'plain Vitest failed; see '+name+'.log')
@@ -242,7 +245,16 @@ if(phase) {
           assert.equal(x.native.identity?.argumentMode,'direct','the combined diagnostic must use the gated direct argument transport')
           assert.equal(x.native.identity?.targetInspection,'native-watched','the combined diagnostic must use the gated native inspection')
           assert.equal(x.native.identity?.nativeCapture,true)
-          assert.equal(x.native.identity?.handleMode,'native-private-capture')
+          assert.equal(x.native.identity?.handleMode,nativeTransport==='string'?'native-primitive-string':'native-private-capture')
+          if(nativeTransport==='string') {
+            const capture=x.native.identity.contextCapture
+            assert(capture.enabled&&!capture.closed&&capture.failures===0&&capture.failure===null)
+            assert.equal(capture.transport,'primitive-string')
+            assert.equal(capture.notifications,x.native.identity.calls)
+            assert.equal(capture.delivered,x.native.identity.calls)
+            assert.equal(capture.perEntryObjectHandles,0);assert.equal(capture.perEntryProtocolRequests,0)
+            assert.equal(x.native.identity.released,0,'primitive exceptions must not claim object-handle releases')
+          }else assert.equal(x.native.identity.calls,x.native.identity.released)
           assert.equal(x.native.identity?.ownerPolicy,'native-ordinary')
           assert.equal(x.metadata.ownerGuardRequired,true)
           assert(x.boundary.seed?.ownerGuardRequired&&x.boundary.seed.ownerGuardPassed,

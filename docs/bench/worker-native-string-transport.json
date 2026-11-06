@@ -191,5 +191,155 @@
     "Foreign context creation uses one native heap query; this is not a per-operation request",
     "Realm lexical bindings survive until realm destruction and are observable through debugger capabilities",
     "Initial ownership, complete native coverage and whole-suite agreement remain unproven"
-  ]
+  ],
+  "integratedGate": {
+    "commit": "2d1b1ed740ab936b32aac13f9c35ae0dcb249637",
+    "run": "https://github.com/pango07/quod/actions/runs/42276529577",
+    "job": 128094162665,
+    "conclusion": "success",
+    "tests": 49,
+    "coverage": [
+      "All 19 descriptor entries, zero additional pauses and zero per-entry capture/release commands",
+      "Native helper dlopen remains observed",
+      "Bound/replacing callees and actual argument targets",
+      "Native errors and interceptor rejection remain explicit",
+      "Foreign contexts and forged filenames retain actual caller source",
+      "Caller source remains available after collection without late source requests",
+      "Primitive capture does not retain application argument objects",
+      "A failed context installation remains unavailable"
+    ],
+    "measurements": {
+      "nativeInspectorTransportMeasurements": [
+        {
+          "mode": "protocol",
+          "elapsedMs": 1330.88669,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.enable": 1,
+            "Runtime.evaluate": 2,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": null,
+          "compiledEvents": 10000,
+          "entryCommands": {
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000
+          },
+          "minimumFrames": 7,
+          "maximumFrames": 7
+        },
+        {
+          "mode": "string",
+          "elapsedMs": 614.1783720000001,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.evaluate": 2,
+            "Runtime.enable": 1,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": {
+            "transport": "primitive-string",
+            "enabled": true,
+            "closed": false,
+            "notifications": 5000,
+            "delivered": 5000,
+            "ignored": 0,
+            "failures": 0,
+            "failure": null,
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 0,
+            "persistentLexicalBindings": 1,
+            "perEntryProtocolRequests": 0,
+            "perEntryObjectHandles": 0,
+            "replayEligible": false,
+            "limitation": "Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven"
+          },
+          "compiledEvents": 5000,
+          "entryCommands": {},
+          "minimumFrames": 8,
+          "maximumFrames": 8
+        },
+        {
+          "mode": "string",
+          "elapsedMs": 613.5298409999999,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.evaluate": 2,
+            "Runtime.enable": 1,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": {
+            "transport": "primitive-string",
+            "enabled": true,
+            "closed": false,
+            "notifications": 5000,
+            "delivered": 5000,
+            "ignored": 0,
+            "failures": 0,
+            "failure": null,
+            "contexts": 1,
+            "attemptedContexts": 1,
+            "contextQueries": 0,
+            "persistentLexicalBindings": 1,
+            "perEntryProtocolRequests": 0,
+            "perEntryObjectHandles": 0,
+            "replayEligible": false,
+            "limitation": "Realm lexical bindings remain observable through debugger capabilities and persist until realm destruction; initial ownership and complete coverage remain unproven"
+          },
+          "compiledEvents": 5000,
+          "entryCommands": {},
+          "minimumFrames": 8,
+          "maximumFrames": 8
+        },
+        {
+          "mode": "protocol",
+          "elapsedMs": 1322.783084,
+          "calls": 5000,
+          "cleared": 5000,
+          "commands": {
+            "Debugger.enable": 1,
+            "Runtime.enable": 1,
+            "Runtime.evaluate": 2,
+            "Debugger.setBreakpointOnFunctionCall": 1,
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000,
+            "Debugger.removeBreakpoint": 1,
+            "Runtime.releaseObjectGroup": 2
+          },
+          "bridge": null,
+          "compiledEvents": 10000,
+          "entryCommands": {
+            "Runtime.callFunctionOn": 5000,
+            "Runtime.releaseObject": 5000
+          },
+          "minimumFrames": 7,
+          "maximumFrames": 7
+        }
+      ],
+      "scope": "isolated transport, summaries and bounded stacks; not workload or CI savings",
+      "replayEligible": false
+    }
+  },
+  "regressionGate": {
+    "commit": "2d1b1ed740ab936b32aac13f9c35ae0dcb249637",
+    "run": "https://github.com/pango07/quod/actions/runs/42276533939",
+    "job": 128094178713,
+    "conclusion": "success",
+    "tests": 251
+  }
 }
