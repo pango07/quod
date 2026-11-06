@@ -1,0 +1,69 @@
+{
+  "commit": "e3b30de98795e589cdd1ee9083a3e1b7bb44a6c0",
+  "integrationCommit": "52a201ef57b234a4988a180ecf3a164d9f9559f9",
+  "scope": "Direct native scalar reads integrated with the existing worker diagnostic; no product replay authority",
+  "node": "24.18.0",
+  "runnerImage": "ubuntu-26.04/20261101.186.1",
+  "gates": [
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42285505730",
+      "job": 128125156665,
+      "scope": "Native property inventory, scalar observer, JS integration and context lifetime regressions",
+      "tests": 22,
+      "passed": 22,
+      "failed": 0,
+      "conclusion": "success"
+    },
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42285509338",
+      "job": 128125169553,
+      "scope": "Primitive transport and integrated descriptor observation",
+      "tests": 54,
+      "passed": 54,
+      "failed": 0,
+      "conclusion": "success"
+    },
+    {
+      "run": "https://github.com/pango07/quod/actions/runs/42285514615",
+      "job": 128125187788,
+      "scope": "Existing shared worker regressions",
+      "tests": 251,
+      "passed": 251,
+      "failed": 0,
+      "conclusion": "success"
+    }
+  ],
+  "startupCrash": {
+    "reproducerRun": "https://github.com/pango07/quod/actions/runs/42284696816",
+    "job": 128122375436,
+    "signal": "SIGSEGV",
+    "lastCommand": {
+      "method": "Runtime.evaluate",
+      "contextId": 2,
+      "phase": "start"
+    },
+    "nativeFrames": [
+      "v8::Context::Enter",
+      "v8_inspector::InjectedScript::Scope::initialize",
+      "v8_inspector::V8RuntimeAgentImpl::evaluate"
+    ],
+    "stage": "Inspector setup after heap queries, before the combined scalar observer was installed",
+    "relatedUpstreamReport": "https://github.com/nodejs/node/issues/67138",
+    "rejectedGuardRun": "https://github.com/pango07/quod/actions/runs/42285192643",
+    "rejectedGuardReason": "The pinned Node binary does not export v8::debug::GetInspector",
+    "fix": "Public V8 context-ID lookup over live heap objects, retaining at most one matching object and its context for a synchronous setup callback; retire collected contexts without Runtime.evaluate; consume destruction/clear notifications"
+  },
+  "fullWorkloadRun": "https://github.com/pango07/quod/actions/runs/42285754294",
+  "fullWorkloadStatus": "success",
+  "replayEligible": false,
+  "completeOwnership": false,
+  "limitations": [
+    "Gate totals include shared coverage; they are not counts of unique scenarios.",
+    "The global descriptor census is explicitly disabled only in native-data mode; native scalar counts must reconcile with read events and exact caller source evidence.",
+    "Proxy, hook, opaque capability, Inspector, transport and compilation checks remain enabled.",
+    "Native callbacks, lexical helper bindings, heap collection and Inspector use remain observable.",
+    "Initial ownership, earlier copies and complete filesystem/environment/parent coverage remain unproven.",
+    "No product performance or savings result follows from these regression gates."
+  ],
+  "fullWorkloadEvidence": "worker-native-scalar-full.json"
+}

@@ -1774,3 +1774,68 @@ is not integrated into the workload and grants no replay authority. The
 next step is a separately gated worker diagnostic using its direct read
 evidence, with callback loss rejecting incomplete observations and the
 same complete test scope and original timeouts.
+
+## Integrated direct scalar diagnostic
+
+`52a201e` integrates native scalar reads into the worker diagnostic behind
+`scalar_observation=native-data`. It retains metadata identity and snapshots
+without counting private integrity checks as application reads. Every native
+read must reconcile with a recorded event and the exact source of each
+retained caller frame. Missing source, callback loss or added unobserved
+fields make the evidence unavailable. This mode explicitly disables the
+global descriptor census and retains the proxy, hook, opaque capability,
+Inspector, transport and compilation checks. It does not enable replay.
+
+The combined regression exposed a startup SIGSEGV before scalar installation.
+[The trace](https://github.com/pango07/quod/actions/runs/42284696816) ends at
+`Runtime.evaluate` for an old foreign context after heap queries; GDB shows
+`Context::Enter` inside Inspector's `InjectedScript::Scope::initialize`.
+This matches the failure described in
+[Node issue 67138](https://github.com/nodejs/node/issues/67138): collection can
+empty a context before the asynchronous destruction notification arrives.
+
+`e3b30de` guards foreign-context setup with V8's public context-ID API and a
+heap lookup that retains at most one matching object. Its native handle
+scope keeps the context alive throughout the synchronous callback, including
+nested collection. Collected contexts are counted as retired and never sent
+an evaluation; active foreign contexts still receive the helper. Destruction
+notifications remove retired contexts, and a registry-clear event remains an
+explicit observation failure. No context or application object is retained
+after the callback. The first attempt used an unavailable private Inspector
+accessor and failed its gate; the final guard uses the public exported API.
+
+The corrected integration passes 22 focused tests, 54 transport/descriptor
+tests and 251 existing shared regressions. The tests include collection before
+setup, collection inside the guarded callback, subsequent release, errors,
+and a live realm after a retired one. [Detailed gate evidence](worker-native-scalar-integration.json)
+records commits and run URLs. The complete workload is dispatched at the
+same code revision, with 120 file/project instances, 4,131 test states,
+39 metadata-only edits and unchanged test timeouts.
+
+[Full run 42285754294](https://github.com/pango07/quod/actions/runs/42285754294)
+passes all 351 preflight tests and all three workload phases. The plain
+baseline takes 68.028 seconds; direct scalar observation takes 93.532 seconds
+before the metadata edit and 92.078 seconds afterward (1.375x and 1.354x the
+baseline). Each phase has 4,130 passed tests and one skipped test, with the
+same semantic fingerprint. There are no test timeouts. The earlier diagnostic
+used a different observer, lacked the exact-source cache fix, and had a
+46.691-second baseline, so its 538.419-second observed phase is not a paired
+estimate of product savings.
+
+Each observed phase reconciles all 2,581 native scalar reads with recorded
+events and caller source evidence. The 120 workers report no scalar gaps or
+transport failures. Proxy captures total 50,016 before and 49,914 afterward;
+the global descriptor census is explicitly disabled. Evaluator code sequences
+match in all 120 workers. Full compilation sequences and RPC observations
+still differ in every worker, including a changed configuration seed.
+
+An exploratory compilation breakdown preserves exact records, multiplicity
+and order within each kind. File, builtin and named sequences match in all
+120 workers; WebAssembly sequences match in all 117 workers that have them.
+Anonymous scripts differ in all 120. This classification does not certify
+interleaving, anonymous script ownership or complete inputs, and it changes
+no replay predicate. The next work is to identify those differences without
+silently discarding them. [Full evidence](worker-native-scalar-full.json)
+includes all 261 artifact digests and phase timings. There are no product
+hits, lineage promotions or audits in this diagnostic; the product savings
+bar remains unmet.
