@@ -108,3 +108,8 @@ initial snapshot, local consumer or successful benchmark alone is not enough.
 The current constructor-field guard does not attest every possible earlier
 preload modification. Production replay integration and a fresh-runner hit
 remain unverified, followed by the required complete 12-commit window.
+
+The subsequent [Inspector observer regressions](inspector-stat-observers.md)
+cover heap readers outside the JavaScript hook registries and report their
+native entry points in the real driver. They also leave size-only replay
+disabled.

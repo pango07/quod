@@ -411,5 +411,21 @@
     "otherSuccessfulFullMetadataPaths": 7,
     "otherMetadataOwner": "packages/convex-helpers/cli/openApiSpec.test.ts",
     "replayEligible": false
+  },
+  "inspectorAccessDiagnostic": {
+    "evidence": "inspector-stat-observers.json",
+    "regressionRun": 42156860657,
+    "driverRun": 42156552821,
+    "observerTests": 15,
+    "productionProofTests": 58,
+    "observedNewNativeConnections": 2,
+    "observedConnectionCallers": [
+      "createBooleanProof",
+      "names-proof.start"
+    ],
+    "states": 4131,
+    "replayed": 0,
+    "replayEligible": false,
+    "startupCensusClassified": false
   }
 }
