@@ -23,6 +23,7 @@ const asyncSites = process.env.QUOD_CONFIG_ASYNC_SITES === '1'
 // Runtime metadata diagnostics use the current checkout, execute the full
 // suite, and observe only the main process. They never produce a ledger.
 const runtimeSites = process.env.QUOD_CONFIG_RUNTIME_SITES === '1'
+const asyncStatSites = process.env.QUOD_CONFIG_ASYNC_STAT_SITES === '1'
 const runSuite = booleanProbe && (!querySites || runtimeSites)
 const workspacePkg = path.join(project, 'packages/convex-helpers/package.json')
 const workspaceOriginal = fs.existsSync(workspacePkg) ? fs.readFileSync(workspacePkg, 'utf8') : null
@@ -64,6 +65,7 @@ if (mode) {
   const readSites = new Map()
   const metadataSites = new Map()
   let asyncReads = null
+  const asyncStats = asyncStatSites ? (await import('./async-stat-probe.mjs')).observeAsyncStat(project) : null
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1' || resolverProbe) {
     let recorderUrl = new URL('../../crates/quod-cli/src/vitest/record.mjs', import.meta.url)
     if (resolverProbe && !queryProbe) {
@@ -169,13 +171,14 @@ if (mode) {
       booleanStats: booleanProof?.stats,
       statStats: statProof?.stats,
       asyncReads: asyncReads?.report(),
+      asyncStats: asyncStats?.report(),
     } : null
     const record = { mode, probeSeed, vitest: vp.version, runtimeSites, observationScope:'main process only', configure_ms: configured-start, selection_ms: selected-configured, run_ms:performance.now()-selected, projects, files, proof,
       configHash: hash(projects.map(({name, workerConfig, context}) => ({name, workerConfig, context}))), filesHash: hash(files),
       replayEligible: false, unvalidated: ['plugin closures and outputs', 'transformed modules and resolution', 'global setup effects', 'runtime observations'] }
     fs.mkdirSync(out, { recursive: true })
     fs.writeFileSync(path.join(out, mode+'.json'), JSON.stringify(record, null, 2))
-  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close(); if(statProof!==booleanProof)statProof?.close(); asyncReads?.close() }
+  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close(); if(statProof!==booleanProof)statProof?.close(); asyncReads?.close(); asyncStats?.close() }
 } else {
   let cases = resolverProbe ? [
     ['c3-before-exports', '03ffe84ef'], ['c4-exports', '6b17e1514'], ['c5-workspace-removed', '49a82e544'],
