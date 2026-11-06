@@ -2,6 +2,7 @@
 // Captured identities are never a replay certificate on their own.
 'use strict'
 const fs=require('node:fs')
+const path=require('node:path')
 const descriptor=Object.getOwnPropertyDescriptor,descriptors=Object.getOwnPropertyDescriptors
 const getPrototypeOf=Object.getPrototypeOf,ownKeys=Reflect.ownKeys,same=Object.is
 const freeze=Object.freeze
@@ -9,6 +10,16 @@ const marker='--require="'+__filename.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+
 const originalOptions=process.env.NODE_OPTIONS
 const prefixed=originalOptions===marker||originalOptions?.startsWith(marker+' ')
 const firstPreload=module.isPreloading===true && process._preload_modules?.[0]===__filename
+// A current production binary prepends its own native-origin bootstrap.
+// Accept this diagnostic immediately after that known sibling of the
+// driver only if its already-loaded origin still recognizes native stat.
+// This is diagnostic ordering evidence, never a replay certificate.
+const driverDirectory=process.argv[1]&&path.dirname(path.resolve(process.argv[1]))
+const productionPreload=driverDirectory&&path.join(driverDirectory,'origin-preload.cjs')
+const productionOrigin=driverDirectory&&require.cache[path.join(driverDirectory,'stat-origin.cjs')]?.exports
+const precededByProductionOrigin=module.isPreloading===true &&
+  process._preload_modules?.[0]===productionPreload && process._preload_modules?.[1]===__filename &&
+  productionOrigin?.permitsStatSync(fs.statSync)===true
 // Restore the observable environment before the following user preloads
 // run. Absence and an explicitly empty string remain distinct, and child
 // processes do not inherit the main-process diagnostic accidentally.
@@ -39,7 +50,8 @@ function ordinaryPreloads(args) {
   return true
 }
 const supportedOptions=ordinaryPreloads(words(process.env.NODE_OPTIONS??'')) && ordinaryPreloads(process.execArgv)
-const startup=freeze({firstPreload,prefixed,supportedOptions,available:firstPreload&&prefixed&&supportedOptions,replayEligible:false})
+const startup=freeze({firstPreload,precededByProductionOrigin,prefixed,supportedOptions,
+  available:(firstPreload||precededByProductionOrigin)&&prefixed&&supportedOptions,replayEligible:false})
 const binding=process.binding('fs'),nativeStat=binding.stat,nativeSync=fs.statSync,nativeAsync=fs.promises.stat
 const publicStats=fs.Stats,prototype=publicStats.prototype,constructor=descriptor(prototype,'constructor')?.value
 const shapes=[]

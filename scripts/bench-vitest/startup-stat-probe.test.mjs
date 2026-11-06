@@ -28,6 +28,14 @@ function run(kind) {
     const env={...process.env};delete env.NODE_OPTIONS
     if(kind==='late') {original=undefined}
     else env.NODE_OPTIONS=kind==='prior'?`${original} ${marker}`:marker+(original===undefined?'':' '+original)
+    if(kind==='production') {
+      // Stage the real production modules beside the entry, just as the
+      // Rust launcher does. Its preload must remain the first one.
+      const source=fileURLToPath(new URL('../../crates/quod-cli/src/vitest/',import.meta.url))
+      for(const name of fs.readdirSync(source)) if(/\.(mjs|cjs)$/.test(name))
+        fs.copyFileSync(path.join(source,name),path.join(dir,name))
+      env.NODE_OPTIONS='--require="'+path.join(dir,'origin-preload.cjs')+'" '+env.NODE_OPTIONS
+    }
     fs.writeFileSync(entry,`const fs=require('node:fs'),early=require(${JSON.stringify(bootstrap)});
 const before=early.snapshot(),native=early.observerRegistry.nativeStatSnapshot();
 const options=process.env.NODE_OPTIONS,visibleInPreload=globalThis.observedStartupOptions;
@@ -40,11 +48,12 @@ console.log(JSON.stringify({before,native,foreign,options,hasOptions:Object.hasO
   } finally {fs.rmSync(dir,{recursive:true,force:true})}
 }
 
-for(const kind of ['none','empty','report','import','method','poisoned','setter','binding','promise','inspector','prior','late','unsupported'])
+for(const kind of ['none','empty','report','import','method','poisoned','setter','binding','promise','inspector','prior','late','unsupported','production'])
 test('first-preload origin diagnostic: '+kind,()=>{
   const {result:r,original}=run(kind),s=r.before
   assert.equal(s.replayEligible,false)
   assert.equal(s.startup.available,!['prior','late','unsupported'].includes(kind),JSON.stringify(r))
+  assert.equal(s.startup.precededByProductionOrigin,kind==='production')
   if(kind!=='prior') {
     assert.equal(r.options,original,'restore the exact original NODE_OPTIONS before user code')
     assert.equal(r.hasOptions,original!==undefined)
