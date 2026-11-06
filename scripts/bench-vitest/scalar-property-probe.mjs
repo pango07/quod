@@ -5,7 +5,7 @@ import {types,getCallSites} from 'node:util'
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty
 const scalar=v=>v===null||!['object','function'].includes(typeof v)
-export function observeScalarProperty(target,key,{sourceForScript=null}={}) {
+export function observeScalarProperty(target,key,{sourceForScript=null,onOperation=null}={}) {
   const events=new Map(),gaps=new Set()
   let installed=false,overflow=false,original,value,get,set
   function note(operation) {
@@ -18,6 +18,7 @@ export function observeScalarProperty(target,key,{sourceForScript=null}={}) {
       if(events.has(id))events.get(id).count++
       else if(events.size<10000)events.set(id,{operation,sites,source,count:1})
       else overflow=true
+      if(onOperation)onOperation({operation,sites,source})
     }catch{gaps.add('scalar read observation unavailable')}
   }
   try {
@@ -49,6 +50,9 @@ export function observeScalarProperty(target,key,{sourceForScript=null}={}) {
     return d?.get===get&&d?.set===set&&d?.enumerable===original.enumerable&&d?.configurable===original.configurable
   }
   return {value:target,
+    // Read our own closed-over value, never an application accessor. Used
+    // only to reconstruct diagnostic fingerprints after instrumentation.
+    currentValue:()=>intact()?{available:true,value}:{available:false},
     report:()=>({replayEligible:false,completeOwnership:false,installed,intact:intact(),overflow,
       descriptorObservable:true,earlierCopiesExcluded:false,nativeReadsExcluded:false,
       events:[...events.values()],gaps:[...gaps],

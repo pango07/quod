@@ -13,13 +13,13 @@ import {observeScalarProperty} from './scalar-property-probe.mjs'
 const directory=process.env.QUOD_WORKER_MODULE_METADATA_REPORT_DIR
 if(!directory||!path.isAbsolute(directory)||typeof process.send!=='function')throw Error('metadata probe requires an isolated worker')
 const combined=process.env.QUOD_WORKER_BOUNDARY_PROBE==='1'
-const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined})
+const registry=inspectPromiseObservers({proxyAccess:true,hookAccess:true,compiledScripts:combined,descriptorAccess:combined})
 const require=createRequire(path.join(process.cwd(),'package.json'))
 const entry=require.resolve('vite/module-runner')
 const entrySha256=createHash('sha256').update(fs.readFileSync(entry)).digest('hex')
 if(entrySha256!=='9e3f0bc4ea6d01e55bb9a73ee3666c750e139340bb84fa46e35f92085f2535b7')throw Error('review module graph interface before changing Vite')
 const {EvaluatedModules}=await import(pathToFileURL(entry).href)
-const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript})
+const observer=observeModuleMetadata(EvaluatedModules,{sourceForScript:registry.sourceForScript,observation:combined?'accessor':'proxy'})
 const vitestPackage=require.resolve('vitest/package.json')
 const transportEntry=path.join(path.dirname(vitestPackage),'dist/chunks/index.1_nbEjJY.js')
 const transportSha256=createHash('sha256').update(fs.readFileSync(transportEntry)).digest('hex')
@@ -59,7 +59,7 @@ process.send=function(...args) {
   if(message?.__vitest_worker_response__===true&&['testfileFinished','stopped'].includes(message.type)) {
     try{write(output,JSON.stringify({replayEligible:false,project,files,unknown,entrySha256,transportSha256,expectedReaderSources,
       boundary:combined?{evaluation:evaluation.report(),compilation:registry.compiledScriptReport(),config:config?.report()??null,seed:seed?.report()??null}:null,
-      metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess()}})+'\n')}
+      metadata:observer.report(),transport:transport.report(),native:{opaque:registry.opaqueAccess(),inspector:registry.inspectorAccess(),proxy:registry.proxyAccess(),hooks:registry.hookAccess(),descriptors:registry.descriptorAccess()}})+'\n')}
     catch{/* absent evidence fails the parent check */}
   }
   return apply(send,this,args)

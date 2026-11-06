@@ -3,14 +3,23 @@
 // these proxies, and accessor installation is observable: never replay authority.
 import {types,getCallSites} from 'node:util'
 import {fingerprint} from './worker-input-probe.mjs'
+import {observeScalarProperty} from './scalar-property-probe.mjs'
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty,apply=Reflect.apply
 const setSize=descriptor(Set.prototype,'size').get
 const watched=new Set(['tmp','invalidate'])
-export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}) {
+export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,observation='proxy'}={}) {
+  if(!['proxy','accessor'].includes(observation))throw Error('unknown metadata observation mode')
   const nodes=new Map(),metadata=new Map(),proxyToRaw=new WeakMap(),events=new Map()
   const errors=[],gaps=new Set(),invalidations=[],restores=[]
   let overflow=false,assignments=0
+  function record(m,operation,key,sites,source) {
+    if(sourceForScript&&!source?.available)gaps.add('metadata reader source unavailable')
+    const origins=[...m.origins],id=JSON.stringify([m.id,operation,key,sites,origins])
+    if(events.has(id))events.get(id).count++
+    else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,source,origins,count:1})
+    else overflow=true
+  }
   function ownData(value,key) {
     if(!value||typeof value!=='object'||types.isProxy(value))throw Error('unsupported module node')
     const d=descriptor(value,key)
@@ -24,12 +33,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}
       const sites=getCallSites(8,{sourceMap:false}).slice(2).map(s=>({scriptId:s.scriptId,script:s.scriptName,
         function:s.functionName,line:s.lineNumber,column:s.columnNumber}))
       const source=sourceForScript?sourceForScript(sites[0]?.scriptId):null
-      if(sourceForScript&&!source?.available)gaps.add('metadata reader source unavailable')
-      const origins=[...m.origins]
-      const id=JSON.stringify([m.id,operation,key,sites,origins])
-      if(events.has(id))events.get(id).count++
-      else if(events.size<10000)events.set(id,{metadata:m.id,operation,key,sites,source,origins,count:1})
-      else overflow=true
+      record(m,operation,key,sites,source)
     }catch{gaps.add('metadata call sites unavailable')}
   }
   function wrap(value,owner,origin='stored') {
@@ -42,6 +46,18 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}
     if(proto!==Object.prototype&&proto!==null){gaps.add('non-plain metadata');return value}
     if(metadata.size>=10000){overflow=true;return value}
     m={id:metadata.size,owners:new Set([owner]),origins:new Set([origin])}
+    if(observation==='accessor') {
+      // Keep the original object, including references retained before this
+      // observer. Only existing scalar fields are changed: adding an absent
+      // property would change `in`, ownKeys, and loader control flow.
+      m.proxy=value;m.raw=value;m.scalars=new Map();metadata.set(value,m)
+      for(const key of watched)if(descriptor(value,key)) {
+        const scalar=observeScalarProperty(value,key,{sourceForScript,
+          onOperation:e=>record(m,e.operation,key,e.sites,e.source)})
+        m.scalars.set(key,scalar);restores.push(()=>scalar.close())
+      }
+      return value
+    }
     const proxy=new Proxy(value,{
       get(target,key,receiver){note(m,'get',key);return Reflect.get(target,key,receiver)},
       has(target,key){note(m,'has',key);return Reflect.has(target,key)},
@@ -99,19 +115,56 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null}={}
     define(p,method,{...d,value:wrapper})
     restores.push(()=>{if(descriptor(p,method)?.value===wrapper)define(p,method,d)})
   }
-  return {report:()=>({replayEligible:false,completeOwnership:false,overflow,assignments,
-    nodes:nodes.size,metadata:[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners],origins:[...m.origins]})),
+  function scalarStatus(m) {
+    if(!m.scalars)return []
+    for(const key of watched)if(!m.scalars.has(key)&&descriptor(m.raw,key))gaps.add('unobserved metadata field added: '+key)
+    return [...m.scalars].map(([key,p])=>{
+      const r=p.report()
+      if(!r.installed||!r.intact)gaps.add('metadata scalar descriptor unavailable: '+key)
+      for(const gap of r.gaps)gaps.add(key+': '+gap)
+      if(r.overflow)overflow=true
+      return {key,installed:r.installed,intact:r.intact}
+    })
+  }
+  function snapshot(raw) {
+    const m=metadata.get(raw)
+    if(!m?.scalars)return raw
+    const copy=Object.create(Object.getPrototypeOf(raw))
+    for(const key of Reflect.ownKeys(raw)) {
+      const d=descriptor(raw,key),scalar=m.scalars.get(key)
+      if(scalar) {
+        const current=scalar.currentValue()
+        if(!current.available)throw Error('metadata scalar ownership unavailable')
+        define(copy,key,{value:current.value,enumerable:d.enumerable,configurable:true,writable:true})
+      }else {
+        if(!Object.hasOwn(d,'value'))throw Error('unowned metadata accessor')
+        define(copy,key,d)
+      }
+    }
+    // Deletion must not turn an owned field into an apparently valid snapshot.
+    for(const scalar of m.scalars.values())if(!scalar.currentValue().available)throw Error('metadata scalar ownership unavailable')
+    return copy
+  }
+  return {report:()=>{
+    const records=[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners],origins:[...m.origins],scalars:scalarStatus(m)}))
+    return {replayEligible:false,completeOwnership:false,observation,overflow,assignments,
+    nodes:nodes.size,metadata:records,
     events:[...events.values()],invalidations,errors,gaps:[...gaps],
-    limitations:['Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it',
+    limitations:observation==='accessor'?[
+      'Existing object aliases are observed, but earlier primitive copies are not',
+      'Descriptors, native inspection, intermediate deletion and replacement remain observable gaps',
+      'Only existing tmp and invalidate scalar properties are instrumented; this is not complete ownership']:
+      ['Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it',
       'Original aliases, nested values and native target reads can bypass these proxies',
-      'Installing metadata accessors and proxies is observable']}),
+      'Installing metadata accessors and proxies is observable']}},
     observeMetadata(value,origin) {
       try{return wrap(value,origin,origin)}catch(e){errors.push(e.message);return value}
     },
     metadataForNode(node) {
       const tracked=nodes.get(node),d=tracked&&descriptor(node,'meta')
       if(!tracked||d?.get!==tracked.get||d?.set!==tracked.set)return {available:false}
-      return {available:true,value:tracked.raw()}
+      try{return {available:true,value:snapshot(tracked.raw())}}
+      catch{return {available:false}}
     },
     close(){for(const restore of restores.reverse())restore()}}
 }

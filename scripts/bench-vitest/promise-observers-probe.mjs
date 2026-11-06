@@ -17,7 +17,7 @@ const nativeSources={
 const constructedFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','size','blocks',
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 
-export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false}={}) {
+export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,compiledScripts=false,descriptorAccess=false}={}) {
   const session=new Session()
   const scripts=new Map(),scriptEvidence=new Map()
   const compiled=[],compilationErrors=[]
@@ -40,6 +40,14 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
   const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post)
   let proxyFailure=null,proxyOverflow=false
+  const descriptorBreakpoints=new Map(),descriptorFunctions=new Map(),descriptorEntries=new Map()
+  let descriptorFailure=null,descriptorOverflow=false
+  const descriptorNames=['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptors','Reflect.getOwnPropertyDescriptor',
+    'Object.defineProperty','Object.defineProperties','Reflect.defineProperty','Reflect.deleteProperty',
+    'Object.freeze','Object.seal','Object.preventExtensions','Reflect.preventExtensions',
+    'Object.isFrozen','Object.isSealed','Object.setPrototypeOf','Reflect.setPrototypeOf',
+    'Object.prototype.__defineGetter__','Object.prototype.__defineSetter__',
+    'Object.prototype.__lookupGetter__','Object.prototype.__lookupSetter__']
   const hookBreakpoints=new Map(),hookEntries=new Map(),hookSources={}
   let hookInitial=null,hookFailure=null,hookOverflow=false
   const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
@@ -143,7 +151,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       const opaque=(params.hitBreakpoints??[]).map(id=>opaqueBreakpoints.get(id)).filter(Boolean)
       const proxy=(params.hitBreakpoints??[]).map(id=>proxyBreakpoints.get(id)).filter(Boolean)
       const hooks=(params.hitBreakpoints??[]).map(id=>hookBreakpoints.get(id)).filter(Boolean)
-      if(inspector.length||opaque.length||proxy.length||hooks.length) {
+      const descriptors=(params.hitBreakpoints??[]).map(id=>descriptorBreakpoints.get(id)).filter(Boolean)
+      if(inspector.length||opaque.length||proxy.length||hooks.length||descriptors.length) {
         const frames=params.callFrames.slice(0,8).map(f=>({
           name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))
         if(inspector.length)inspectorEntries.push({entries:inspector,frames})
@@ -163,8 +172,18 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
           else if(proxyEntries.size<10000)proxyEntries.set(key,{entries:proxy,frames,argument,count:1})
           else proxyOverflow=true
         }
-        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure='could not resume watched entry'}
-      } else inspectorFailure=opaqueFailure=proxyFailure=hookFailure='unrelated debugger pause'
+        if(descriptors.length) {
+          const name=descriptors[0]
+          const argument=name.startsWith('Object.prototype.')?
+            {available:false,reason:'receiver-based descriptor API',replayEligible:false}:
+            nativeArgument(params.callFrames[0],descriptorFunctions.get(name),{pureAdditionalArguments:true,describeOwnAccessors:true})
+          const key=JSON.stringify([descriptors,frames,argument])
+          if(descriptorEntries.has(key))descriptorEntries.get(key).count++
+          else if(descriptorEntries.size<10000)descriptorEntries.set(key,{entries:descriptors,frames,argument,count:1})
+          else descriptorOverflow=true
+        }
+        try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='could not resume watched entry'}
+      } else inspectorFailure=opaqueFailure=proxyFailure=hookFailure=descriptorFailure='unrelated debugger pause'
     })
     // An Inspector connection can inspect a fulfilled promise or heap
     // object without appearing in either JavaScript hook registry. This
@@ -305,6 +324,17 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         hookBreakpoints.set(breakpointId,name)
       }
     }catch(e){hookFailure=e.message}
+    if(descriptorAccess)try {
+      // Native function breakpoints also observe aliases captured before
+      // installation. No replacement of Object/Reflect exports is required.
+      // This remains a finite API census, not complete descriptor coverage.
+      for(const name of descriptorNames) {
+        const fn=builtin(name)
+        if(!fn)throw Error('missing descriptor entry: '+name)
+        const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
+        descriptorBreakpoints.set(breakpointId,name);descriptorFunctions.set(name,fn)
+      }
+    }catch(e){descriptorFailure=e.message}
   } catch(e) {failure=e.message}
   return {
     compiledScriptReport() {
@@ -343,6 +373,12 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow,
         reason:failure??proxyFailure,replayEligible:false,
         limitation:'Observes isProxy and getProxyDetails with bounded caller argument diagnostics; other native observers are not excluded'}
+    },
+    descriptorAccess() {
+      return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length,
+        entries:[...descriptorEntries.values()],overflow:descriptorOverflow,reason:failure??descriptorFailure,
+        replayEligible:false,completeDescriptorCoverage:false,
+        limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
     },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
@@ -468,6 +504,9 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       for(const breakpointId of hookBreakpoints.keys()) {
+        try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
+      }
+      for(const breakpointId of descriptorBreakpoints.keys()) {
         try {post('Debugger.removeBreakpoint',{breakpointId})} catch {}
       }
       try {post('Runtime.releaseObjectGroup',{objectGroup:'quod-observer-diagnostic'})} catch {}

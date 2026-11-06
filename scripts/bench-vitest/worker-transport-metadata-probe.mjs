@@ -84,7 +84,7 @@ export function observeTransportMetadata(VitestTransport,metadata) {
     report:()=>({replayEligible:false,completeOwnership:false,counts:{...counts},pending:pending.size,
       unsettled:counts.invocations-counts.settled,overflow,errors:[...errors],
       limitations:['An earlier IPC listener or a retained raw alias can bypass the observer',
-        'The observer adds a Promise reaction and changes metadata identity before delivery',
+        'The observer adds a Promise reaction and changes metadata descriptors or identity before delivery',
         'Transport callback ownership and worker side effects are not certified']}),
     close(){closed=true;if(p&&descriptor(p,'invoke')?.value===wrapper)define(p,'invoke',d)}}
 }

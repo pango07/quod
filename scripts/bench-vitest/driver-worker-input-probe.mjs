@@ -214,6 +214,9 @@ if(phase) {
           assert(!x.transport.errors.length&&!x.transport.overflow&&x.transport.pending===0&&x.transport.unsettled===0)
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
+          assert(x.native.descriptors?.available&&!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage,
+            'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
+          assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
           assert(x.boundary.config&&!x.boundary.config.overflow)
@@ -226,13 +229,17 @@ if(phase) {
           configSeedReadsBefore:a.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
           configSeedReadsAfter:r.boundary.config.events.filter(e=>e.path.join('.')==='sequence.seed').reduce((n,e)=>n+e.count,0),
           scalarSeedOperationsBefore:a.boundary.seed.events.reduce((n,e)=>n+e.count,0),
-          scalarSeedOperationsAfter:r.boundary.seed.events.reduce((n,e)=>n+e.count,0)})
+          scalarSeedOperationsAfter:r.boundary.seed.events.reduce((n,e)=>n+e.count,0),
+          descriptorCallsBefore:a.native.descriptors.entries.reduce((n,e)=>n+e.count,0),
+          descriptorCallsAfter:r.native.descriptors.entries.reduce((n,e)=>n+e.count,0),
+          unknownDescriptorTargetsBefore:a.native.descriptors.entries.filter(e=>!e.argument.available).reduce((n,e)=>n+e.count,0),
+          unknownDescriptorTargetsAfter:r.native.descriptors.entries.filter(e=>!e.argument.available).reduce((n,e)=>n+e.count,0)})
       }
       const combined={replayEligible:false,completeOwnership:false,baseline,first,second,workers:comparisons.length,
         equalEvaluatorCodeSequences:comparisons.filter(c=>c.codeSequenceEqual).length,
         equalCompiledSequences:comparisons.filter(c=>c.compiledSequenceEqual).length,comparisons,
         limitations:['Recorded code, configuration, transport and native observations coexist in these runs',
-          'Raw aliases, full filesystem/environment inputs, parent effects and opaque channels remain outside complete coverage']}
+          'Earlier primitive copies, descriptor channels, full filesystem/environment inputs, parent effects and opaque channels remain outside complete coverage']}
       write(path.join(out,'worker-boundary-result.json'),combined)
       console.log(JSON.stringify({boundaryWorkers:combined.workers,equalEvaluatorCodeSequences:combined.equalEvaluatorCodeSequences,
         equalCompiledSequences:combined.equalCompiledSequences,replayEligible:false},null,2))

@@ -27,7 +27,7 @@ export function observeNativeCallArguments(post) {
     const result={calls,lines,sha256:createHash('sha256').update(text).digest('hex')}
     sources.set(scriptId,result);return result
   }
-  return (frame,nativeFunction)=>{
+  return (frame,nativeFunction,{pureAdditionalArguments=false,describeOwnAccessors=false}={})=>{
     const handles=new Set()
     let callerSourceSha256=null
     function properties(id) {
@@ -81,7 +81,14 @@ export function observeNativeCallArguments(post) {
       const call=calls[0]
       // A second argument could mutate the first binding after it was
       // evaluated. Bound functions may inject a different first argument.
-      if(call.optional||call.arguments.length!==1)throw Error('unsupported native call arguments')
+      if(call.optional||!call.arguments.length||(!pureAdditionalArguments&&call.arguments.length!==1))throw Error('unsupported native call arguments')
+      if(pureAdditionalArguments)for(const arg of call.arguments) {
+        // Reading a later identifier/this/literal cannot change an already
+        // evaluated target. Reject globals, properties, spreads and calls:
+        // each can run code that replaces an earlier binding.
+        if(!['Identifier','ThisExpression','Literal'].includes(arg.type))throw Error('native argument evaluation may have side effects')
+        value(arg)
+      }
       const callee=value(call.callee)
       if(callee.type!=='function'||!callee.objectId||callee.subtype==='proxy')throw Error('native callee unavailable')
       const match=post('Runtime.callFunctionOn',{objectId:callee.objectId,
@@ -97,7 +104,13 @@ export function observeNativeCallArguments(post) {
       // harmless primitive from an unavailable/undefined runtime binding.
       if(!arg||arg.type==='undefined')throw Error('argument value unavailable')
       const kind=arg.subtype==='proxy'?'proxy':arg.objectId?'object':'primitive'
-      return {available:true,kind,nativeIdentityMatched:true,callerSourceSha256,replayEligible:false}
+      let target
+      if(describeOwnAccessors&&kind==='object') {
+        const accessors=properties(arg.objectId).filter(p=>p.isOwn===true&&(p.get?.type==='function'||p.set?.type==='function'))
+        target={ownAccessorCount:accessors.length,
+          watchedAccessorKeys:accessors.map(p=>p.name).filter(k=>['seed','tmp','invalidate'].includes(k))}
+      }
+      return {available:true,kind,...(target?{target}:{}),nativeIdentityMatched:true,callerSourceSha256,replayEligible:false}
     }catch(e){return {available:false,reason:e.message,callerSourceSha256,replayEligible:false}}
     finally {
       handles.delete(nativeFunction)

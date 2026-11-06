@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {inspect} from 'node:util'
+import {inspect,types} from 'node:util'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 
 function graph() {
@@ -78,4 +78,57 @@ test('unsupported metadata descriptors stay explicit and original exceptions pro
   assert.throws(()=>g.ensureModule('throw','throw'),e=>e===failure)
   assert.equal(p.report().replayEligible,false)
   p.close()
+})
+
+test('accessor metadata mode observes earlier object aliases without substituting their identity',()=>{
+  const Graph=graph(),p=observeModuleMetadata(Graph,{observation:'accessor'}),g=new Graph()
+  const raw={tmp:'/private-original',invalidate:false,code:'private-code'},alias=raw,copied=raw.tmp
+  class Holder {constructor(value){this.value=value}read(){return this.value.tmp}}
+  const holder=new Holder(raw),a=g.ensureModule('/a','/a'),b=g.ensureModule('/b','/b')
+  assert.equal(p.observeMetadata(raw,'rpc:fetch'),raw)
+  assert.equal(alias.tmp,'/private-original');assert.equal(holder.read(),'/private-original')
+  assert.equal(copied,'/private-original')
+  a.meta=raw;b.meta=raw
+  assert.equal(a.meta,raw);assert.equal(b.meta,raw);assert.equal(types.isProxy(raw),false)
+  raw.tmp='/private-next';assert.equal(a.meta.tmp,'/private-next')
+  const r=p.report()
+  assert.equal(r.observation,'accessor');assert.deepEqual(r.gaps,[])
+  assert.equal(r.events.reduce((n,e)=>n+e.count,0),4)
+  assert(r.events.filter(e=>!e.origins.includes('stored')).length>0,'read-time origins precede later storage')
+  assert(r.events.some(e=>e.origins.includes('stored')))
+  assert(!JSON.stringify(r).includes('/private-'));assert(!JSON.stringify(r).includes('private-code'))
+  assert.equal(r.completeOwnership,false);assert.equal(r.replayEligible,false)
+  assert.deepEqual(p.metadataForNode(a).value,{tmp:'/private-next',invalidate:false,code:'private-code'})
+  p.close();assert.equal(a.meta,raw)
+  assert.deepEqual(Object.getOwnPropertyDescriptor(raw,'tmp'),{value:'/private-next',writable:true,enumerable:true,configurable:true})
+})
+
+test('accessor metadata mode preserves missing properties and refuses ownership after deletion or replacement',()=>{
+  const Graph=graph(),p=observeModuleMetadata(Graph,{observation:'accessor'}),node=new Graph().ensureModule('/a','/a')
+  const raw={tmp:'/tmp/original'};node.meta=raw
+  assert.equal('invalidate' in raw,false);assert.deepEqual(Object.keys(raw),['tmp'])
+  const installed=Object.getOwnPropertyDescriptor(raw,'tmp')
+  delete raw.tmp
+  assert.equal(p.metadataForNode(node).available,false)
+  Object.defineProperty(raw,'tmp',installed)
+  assert.equal(p.metadataForNode(node).available,true,'restoration alone cannot exclude an intermediate deletion')
+  let getters=0
+  Object.defineProperty(raw,'tmp',{get(){getters++;return 'changed'},configurable:true})
+  assert.equal(p.metadataForNode(node).available,false);assert.equal(getters,0)
+  raw.invalidate=true
+  const report=p.report()
+  assert(report.gaps.includes('metadata scalar descriptor unavailable: tmp'))
+  assert(report.gaps.includes('unobserved metadata field added: invalidate'))
+  p.close();assert.equal(getters,0,'cleanup must not invoke or overwrite the replacement getter')
+})
+
+test('accessor metadata rejects pre-existing accessors and fixed properties without evaluating them',()=>{
+  const Graph=graph(),p=observeModuleMetadata(Graph,{observation:'accessor'})
+  let calls=0
+  const raw={get tmp(){calls++;return '/private'}}
+  Object.defineProperty(raw,'invalidate',{value:true,configurable:false})
+  assert.equal(p.observeMetadata(raw,'rpc:fetch'),raw)
+  const report=p.report()
+  assert.equal(calls,0);assert(report.gaps.length>0)
+  assert(report.metadata[0].scalars.every(s=>!s.installed));p.close();assert.equal(calls,0)
 })
