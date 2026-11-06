@@ -33,7 +33,7 @@ export function inspectPromiseObservers() {
     throw Error('runtime binding unavailable: '+name)
   }
   const kinds=['init','before','after','settled']
-  let lists={}, fields=null, indices={}, active=null
+  let lists={}, fields=null, indices={}, active=null, owned=null
   try {
     session.connect()
     for(const kind of kinds) {
@@ -54,14 +54,38 @@ export function inspectPromiseObservers() {
     }
   } catch(e) {failure=e.message}
   return {
+    captureOwned() {
+      if(failure || closed || owned) return false
+      try {
+        const refs={}
+        for(const kind of kinds) {
+          if(prop(lists[kind],'length')?.value!==1) return false
+          const fn=prop(lists[kind],'0')
+          if(fn?.type!=='function' || !fn.objectId) return false
+          refs[kind]=fn.objectId
+        }
+        owned=refs
+        return true
+      } catch(e) {failure=e.message;return false}
+    },
     snapshot() {
       if(failure || closed) return {available:false,reason:failure??'closed',replayEligible:false}
       try {
-        const promiseHooks={}
+        const promiseHooks={}, identities={}
         for(const kind of kinds) {
           const length=prop(lists[kind],'length')?.value
           if(!Number.isInteger(length) || length<0) throw Error('unknown promise registry shape')
           promiseHooks[kind]=length
+          if(owned) {
+            const fn=length===1 ? prop(lists[kind],'0') : null
+            identities[kind]=false
+            if(fn?.type==='function' && fn.objectId) {
+              const r=post('Runtime.callFunctionOn',{objectId:owned[kind],
+                functionDeclaration:'function(other){return this===other}',
+                arguments:[{objectId:fn.objectId}],returnByValue:true,silent:true})
+              identities[kind]=!r.exceptionDetails && r.result?.value===true
+            }
+          }
         }
         const values=properties(fields).result, asyncHooks={}
         for(const [name,index] of Object.entries(indices)) {
@@ -70,7 +94,8 @@ export function inspectPromiseObservers() {
           asyncHooks[name]=value
         }
         const pending=prop(active,'tmp_array')
-        return {available:true,promiseHooks,asyncHooks,pendingAsyncHookEdit:pending?.subtype!=='null',replayEligible:false}
+        return {available:true,promiseHooks,asyncHooks,pendingAsyncHookEdit:pending?.subtype!=='null',
+          onlyOwnedPromiseHooks:owned ? kinds.every(k=>identities[k]) : null,replayEligible:false}
       } catch(e) {failure=e.message;return {available:false,reason:failure,replayEligible:false}}
     },
     close() {

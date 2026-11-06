@@ -12,10 +12,15 @@ import {createHook} from 'node:async_hooks';
 import fs from 'node:fs';
 import {inspect} from 'node:util';
 const p=inspectPromiseObservers(), snapshots=[p.snapshot()];
-let callbacks=0, captured='', native=null, stop=()=>{};
+let callbacks=0, captured='', native=null, stop=()=>{},ownedCaptured=null,ownedSnapshot=null;
 if(${JSON.stringify(kind)}==='promise') stop=promiseHooks.createHook({init(){callbacks++},before(){},after(){},settled(){}});
 if(${JSON.stringify(kind)}==='async') {const hook=createHook({init(){callbacks++},before(){},after(){},destroy(){},promiseResolve(){}}).enable();stop=()=>hook.disable()}
 if(${JSON.stringify(kind)}==='inspect') stop=promiseHooks.onSettled(promise=>{callbacks++;setImmediate(()=>{const value=inspect(promise);if(value.includes('Stats')) captured=value})});
+if(${JSON.stringify(kind)}==='identity') {
+  stop=promiseHooks.createHook({init(){},before(){},after(){},settled(){}});
+  ownedCaptured=p.captureOwned();ownedSnapshot=p.snapshot();stop();
+  stop=promiseHooks.createHook({init(){callbacks++},before(){},after(){},settled(){}});
+}
 snapshots.push(p.snapshot());
 native=fs.promises.stat(${JSON.stringify(new URL('./promise-observers-probe.mjs',import.meta.url).pathname)});
 const stats=await native;
@@ -24,12 +29,12 @@ snapshots.push(p.snapshot());stop();snapshots.push(p.snapshot());
 // Node defers removing its promise dispatcher until a microtask after
 // async_hooks.disable(). Both the immediate and drained states matter.
 await new Promise(resolve=>setImmediate(resolve));snapshots.push(p.snapshot());p.close();
-console.log(JSON.stringify({snapshots,callbacks,sawMetadata:captured.includes('mtimeMs'),size:stats.size,nativePromise:native instanceof Promise}));`
+console.log(JSON.stringify({snapshots,callbacks,ownedCaptured,ownedSnapshot,sawMetadata:captured.includes('mtimeMs'),size:stats.size,nativePromise:native instanceof Promise}));`
   const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
   assert.equal(r.status,0,r.stderr||String(r.error))
   return JSON.parse(r.stdout)
 }
-for(const kind of ['none','promise','async','inspect']) test('passive observer registry: '+kind,()=>{
+for(const kind of ['none','promise','async','inspect','identity']) test('passive observer registry: '+kind,()=>{
   const r=run(kind)
   assert.equal(r.nativePromise,true)
   assert.ok(r.size>0)
@@ -40,6 +45,12 @@ for(const kind of ['none','promise','async','inspect']) test('passive observer r
   if(kind==='promise') {assert.deepEqual(during.promiseHooks,{init:1,before:1,after:1,settled:1});assert.ok(r.callbacks>0)}
   if(kind==='async') {assert.ok(during.asyncHooks.kTotals>0);assert.ok(after.asyncHooks.kInit>0);assert.ok(r.callbacks>0)}
   if(kind==='inspect') {assert.equal(during.promiseHooks.settled,1);assert.equal(r.sawMetadata,true,'a promise hook can inspect Stats without a .then reaction')}
+  if(kind==='identity') {
+    assert.equal(r.ownedCaptured,true)
+    assert.equal(r.ownedSnapshot.onlyOwnedPromiseHooks,true)
+    assert.deepEqual(during.promiseHooks,r.ownedSnapshot.promiseHooks,'counts alone cannot identify callbacks')
+    assert.equal(during.onlyOwnedPromiseHooks,false)
+  }
   if(kind==='async') assert.ok(disabled.promiseHooks.before>0,'pending dispatchers must remain visible')
   else assert.deepEqual(disabled.promiseHooks,before.promiseHooks)
   assert.deepEqual(drained.promiseHooks,before.promiseHooks)

@@ -754,7 +754,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
-      - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs
+      - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/async-stat-probe.test.mjs
 
   benchmark-config:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-config' || inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query'))
@@ -791,7 +791,7 @@ jobs:
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs
       - name: Passive promise observer diagnostic regressions
         if: inputs.only == 'benchmark-query-runtime-stat'
-        run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs
+        run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/async-stat-probe.test.mjs
       - name: Config proof regression tests
         if: inputs.only == 'benchmark-config'
         run: node --test crates/quod-cli/src/vitest/names-proof.test.mjs

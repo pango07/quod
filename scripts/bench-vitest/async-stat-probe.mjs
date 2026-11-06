@@ -32,16 +32,20 @@ export function observeAsyncStat(project) {
   }
   const calls=[], promises=new WeakMap(), stack=[]
   let scope=null, active=null, nextPromise=0, eventMismatch=false, consumerProof=null
+  const snapshot=()=>({pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()})
   const stop=promiseHooks.createHook({
     init(p,parent) {
-      if(!scope) return
-      const state={id:++nextPromise,op:scope.id,parent:promises.get(parent)?.id??null,before:[],settled:null}
-      promises.set(p,state);scope.promises.push(state)
+      const ancestor=promises.get(parent)
+      const op=scope ?? (ancestor ? calls[ancestor.op-1] : null)
+      if(!op) return
+      const state={id:++nextPromise,op:op.id,parent:ancestor?.id??null,nativeCall:scope===op,
+        init:snapshot(),before:[],settled:null}
+      promises.set(p,state);op.promises.push(state)
     },
     before(p) {
       stack.push({promise:p,prior:active});active=p
       const state=promises.get(p)
-      if(state) state.before.push({pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()})
+      if(state) state.before.push(snapshot())
     },
     after(p) {
       const frame=stack.pop()
@@ -52,13 +56,14 @@ export function observeAsyncStat(project) {
       const state=promises.get(p)
       if(!state) return
       const creator=active && promises.get(active)
-      state.settled={insidePromise:creator?.id??null,insideOperation:creator?.op??null,pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()}
+      state.settled={insidePromise:creator?.id??null,insideOperation:creator?.op??null,...snapshot()}
     },
   })
+  const ownedCaptured=observerRegistry.captureOwned()
   fs.promises.stat=function stat(...args) {
     const op={id:calls.length+1,path:typeof args[0]==='string'?path.relative(project,path.resolve(args[0])):'<non-string>',
       sizeConsumer:consumerProof?.statSizeConsumer(args)===true,
-      stack:new Error().stack.split('\n').slice(2,10).join('\n'),before:{pristine:pristine(),asyncHooks:counts(),observers:observerRegistry.snapshot()},promises:[],root:null}
+      stack:new Error().stack.split('\n').slice(2,10).join('\n'),before:snapshot(),promises:[],root:null}
     calls.push(op)
     const prior=scope;scope=op
     try {
@@ -72,14 +77,17 @@ export function observeAsyncStat(project) {
   return {
     setConsumerProof(proof){consumerProof=proof},
     report() {
-      return {replayEligible:false,eventMismatch,initialObservers,
+      return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
         calls:calls.map(op=>{
           const root=op.promises.find(p=>p.id===op.root)
           const creator=op.promises.find(p=>p.id===root?.settled?.insidePromise)
-          return {...op,rootSettledFromOwnReaction:!!creator && root.settled.insideOperation===op.id,
+          const checkpoints=[op.before,...op.promises.flatMap(p=>[p.init,...p.before,...(p.settled?[p.settled]:[])])]
+          return {...op,rootSettledFromOwnReaction:!!creator && creator.nativeCall && root.settled.insideOperation===op.id,
+            observedOnlyOwnedHooks:ownedCaptured && checkpoints.every(x=>x.observers.onlyOwnedPromiseHooks===true &&
+              x.observers.pendingAsyncHookEdit===false && Object.values(x.observers.asyncHooks).every(n=>n===0)),
             creatorBefore:creator?.before??[]}
         }),
         unvalidated:['other promise observers','preload effects','native bindings','all result consumers','outcome and error projection']}
