@@ -104,7 +104,11 @@ export function inspectPromiseObservers() {
       const prototype=prop(connection,'prototype')?.objectId
       const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
-      inspectorInitial={localConnectionObjects:prop(objects,'length')?.value,
+      const objectsList=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
+      // queryObjects includes the prototype itself. Exclude that exact
+      // identity, never an assumed count or an object with a similar name.
+      const prototypeObjects=objectsList.filter(p=>same(p.value?.objectId,prototype)).length
+      inspectorInitial={localConnectionObjects:objectsList.length-prototypeObjects,prototypeObjects,
         listenerOpen:post('Runtime.callFunctionOn',{objectId:prop(inspector,'isEnabled').objectId,
           functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
       if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
