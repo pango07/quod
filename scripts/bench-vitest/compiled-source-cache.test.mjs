@@ -38,6 +38,19 @@ test('space/NUL collisions and non-ASCII source always fetch complete source',()
   }
 })
 
+test('nested source acquisition cannot count the same cached source twice',()=>{
+  let nested=false,recorder
+  const source='1+1',p=params(source)
+  recorder=createCompiledScriptRecorder(()=>{
+    if(!nested){nested=true;recorder.record({...p,url:'nested'})}
+    return {scriptSource:source}
+  },{maxCachedSources:2})
+  assert.deepEqual(recorder.record(p),compiledScriptRecord(p,{scriptSource:source}))
+  assert.equal(recorder.counts().entries,1);assert.equal(recorder.counts().sourceReads,2)
+  assert.deepEqual(recorder.record(p),compiledScriptRecord(p,{scriptSource:source}))
+  assert.equal(recorder.counts().cacheHits,1)
+})
+
 test('capacity, absent or mismatched hashes, live edits and Wasm retain full-source fallback',()=>{
   let source='1+1',reads=0
   const recorder=createCompiledScriptRecorder(()=>{reads++;return {scriptSource:source}},{maxCachedSources:1})

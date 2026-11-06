@@ -139,7 +139,11 @@ export function createCompiledScriptRecorder(readSource,{maxCachedSources=256}={
         }
         if(injective&&createHash('sha256').update(source.scriptSource,'utf8').digest('hex')===params.hash) {
           const last=memo(params,failedParse,record)
-          mapSet(cache,id,{code:last.record.code,last});entries++
+          // Source acquisition may synchronously deliver another script event.
+          // Recheck after that work so nested admission cannot duplicate a slot.
+          if(entries<maxCachedSources&&mapGet(cache,id)===undefined) {
+            mapSet(cache,id,{code:last.record.code,last});entries++
+          }
           return last.record
         }
       }
