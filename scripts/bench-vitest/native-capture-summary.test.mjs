@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {decodeNativeCaptureSummary} from './native-capture-summary.mjs'
 
+test('packed decoding accepts null-prototype arrays and never invokes an iterator',()=>{
+  const plain=[1,15,'api',1],native=Object.setPrototypeOf([1,15,'api',1],null)
+  let calls=0
+  Object.defineProperty(plain,Symbol.iterator,{get(){calls++;throw Error('application iterator')}})
+  assert.deepEqual(decodeNativeCaptureSummary(native),decodeNativeCaptureSummary(plain))
+  assert.equal(calls,0)
+})
+
 test('packed summary decodes every boolean and classification without conflating bits',()=>{
   for(const receiver of [false,true])for(const describe of [false,true])for(const inspected of [false,true])
     for(let kind=0;kind<3;kind++)for(let mask=0;mask<8;mask++) {

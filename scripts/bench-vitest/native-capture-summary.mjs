@@ -5,7 +5,9 @@ const array=Array.isArray,safe=Number.isSafeInteger
 export function decodeNativeCaptureSummary(value) {
   if(!array(value)||value.length!==4||value[0]!==1||!safe(value[1])||value[1]<0||value[1]>=2**20)
     throw Error('invalid packed native capture summary')
-  const [,bits,api,count]=value
+  // Native arrays intentionally have no prototype. Read owned slots directly
+  // rather than depending on, or invoking, a JavaScript iterator.
+  const bits=value[1],api=value[2],count=value[3]
   const owned=!!(bits&1),metadataValid=!!(bits&8),kind=(bits>>>7)&3,mask=(bits>>>9)&7,
     failure=(bits>>>12)&7,rejection=(bits>>>15)&7,excludedOwner=(bits>>>18)&3
   if(kind>2||failure>6||rejection>5||excludedOwner>2)
