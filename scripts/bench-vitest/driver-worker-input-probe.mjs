@@ -9,6 +9,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url'
 import {spawnSync} from 'node:child_process'
 import {observeWorkerInputs} from './worker-input-probe.mjs'
 import {validateCompilationCounts,compilationSequence} from './compiled-script-log.mjs'
+import {validateNativeEntryLog} from './native-entry-log.mjs'
 
 const [projectArg,outArg,phase]=process.argv.slice(2)
 const project=path.resolve(projectArg),out=path.resolve(outArg)
@@ -222,6 +223,8 @@ if(phase) {
             'listed descriptor APIs must be observed, without claiming complete descriptor coverage')
           assert.equal(x.native.descriptors.argumentDiagnostics?.mode,'native-entry-arguments',
             'the combined diagnostic must report actual native arguments')
+          validateNativeEntryLog(x.native.descriptors);validateNativeEntryLog(x.native.proxy)
+          assert.equal(x.native.identity?.targetAccessorsOnly,true,'the diagnostic must use the gated accessor-only observation')
           assert(x.native.identity?.available&&x.native.identity.mode==='native-entry-arguments'&&x.native.identity.snapshotsRequested===0,
             'native argument observation must remain available without collecting heap snapshots')
           assert.equal(x.native.identity.calls,x.native.identity.cleared,'every diagnostic exception wrapper must be cleared')

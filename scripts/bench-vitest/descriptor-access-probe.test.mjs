@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {validateCompilationCounts} from './compiled-script-log.mjs'
+import {nativeEntryFrames,validateNativeEntryLog} from './native-entry-log.mjs'
 
 const module=new URL('./promise-observers-probe.mjs',import.meta.url).href
 function fixture(body) {
@@ -43,6 +44,9 @@ for(const [,call] of operations)call({get tmp(){gets++;return 'private-value'}})
 const report=p.descriptorAccess(),compilation=p.compiledScriptReport(),timing=p.inspectorTiming(),identity=p.nativeIdentity();p.close();
 console.log(JSON.stringify({report,gets,compilation,timing,identity,checkpoints,names:operations.map(([name])=>name)}));`)
   assert.equal(data.gets,0);assert.equal(data.report.calls,19)
+  validateNativeEntryLog(data.report)
+  assert(data.report.entries.every(e=>nativeEntryFrames(data.report,e).some(f=>f.script?.url?.startsWith('file:'))))
+  assert.equal(data.identity.targetAccessorsOnly,true)
   assert.equal(data.timing.pauses.calls,0);assert.equal(data.identity.mode,'native-entry-arguments')
   assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
   assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
@@ -78,6 +82,7 @@ const report=p.descriptorAccess(),proxyReport=p.proxyAccess(),identity=p.nativeI
 console.log(JSON.stringify({report,gets,traps,failed,detected,proxyReport,identity}));`)
   assert.equal(data.traps,1,'only the application descriptor call may trigger the trap')
   assert(data.failed&&data.detected&&data.proxyReport.available&&data.identity.available)
+  validateNativeEntryLog(data.report);validateNativeEntryLog(data.proxyReport)
   assert.deepEqual(data.report.entries.map(e=>e.argument.kind),['proxy','primitive'])
   assert.equal(data.report.entries[1].argument.argumentCount,0)
   assert.equal(data.proxyReport.entries.length,1);assert.equal(data.proxyReport.entries[0].argument.kind,'proxy')

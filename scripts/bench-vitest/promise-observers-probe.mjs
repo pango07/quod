@@ -8,6 +8,7 @@ import {compiledScriptRecord} from './worker-module-probe.mjs'
 import {observeHeapNativeIdentity} from './heap-native-identity-probe.mjs'
 import {compiledScriptLog,dictionaryCompiledScriptLog} from './compiled-script-log.mjs'
 import {observeNativeEntryArguments} from './native-entry-probe.mjs'
+import {nativeEntryLog} from './native-entry-log.mjs'
 const monotonicNow=process.hrtime.bigint
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
@@ -43,6 +44,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
+  const nativeProxyLog=nativeEntries?nativeEntryLog():null,nativeDescriptorLog=nativeEntries?nativeEntryLog():null
   let heapIdentityObserver=null
   const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post,
     {moduleBindingEvaluation,moduleBindingLookup,
@@ -65,7 +67,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let opaqueInitial=null,opaqueFailure=null
   const commandTiming=new Map()
   const pauseTiming={calls:0,elapsedMs:0}
-  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{onEntry(entry) {
+  const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,onEntry(entry) {
     const frames=entry.frames.map(f=>({name:f.name,
       location:{scriptId:f.scriptId,lineNumber:f.line-1,columnNumber:f.column-1},script:scripts.get(f.scriptId)??null}))
     const argument={available:true,kind:entry.kind,...(entry.target?{target:entry.target}:{}),
@@ -78,23 +80,29 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     return nativeEntryObserver?{mode:'native-entry-arguments',...nativeEntryObserver.report()}:nativeArgument.diagnostics()
   }
   function recordProxy(entries,frames,argument) {
+    if(nativeProxyLog){nativeProxyLog.append(entries,frames,argument);return}
     const key=JSON.stringify([entries,frames,argument])
     if(proxyEntries.has(key))proxyEntries.get(key).count++
     else if(proxyEntries.size<10000)proxyEntries.set(key,{entries,frames,argument,count:1})
     else proxyOverflow=true
   }
   function recordDescriptor(entries,frames,argument) {
-    const key=JSON.stringify([entries,frames,argument])
-    if(descriptorEntries.has(key))descriptorEntries.get(key).count++
-    else if(descriptorEntries.size<10000)descriptorEntries.set(key,{entries,frames,argument,count:1})
-    else descriptorOverflow=true
+    if(nativeDescriptorLog)nativeDescriptorLog.append(entries,frames,argument)
+    else {
+      const key=JSON.stringify([entries,frames,argument])
+      if(descriptorEntries.has(key))descriptorEntries.get(key).count++
+      else if(descriptorEntries.size<10000)descriptorEntries.set(key,{entries,frames,argument,count:1})
+      else descriptorOverflow=true
+    }
     descriptorCalls++
     for(const name of entries)descriptorCounts.set(name,(descriptorCounts.get(name)??0)+1)
     const kind=argument.available?argument.kind:'unknown: '+argument.reason
     descriptorArgumentCounts.set(kind,(descriptorArgumentCounts.get(kind)??0)+1)
     if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
       onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
-        arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],overflow:descriptorOverflow,
+        arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],
+        overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
+        ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),
         compilation:{...compilationLog.counts(),failedToParse},argumentDiagnostics:argumentDiagnostics(),
         identity:nativeEntryObserver?{mode:'native-entry-arguments',snapshotsRequested:0}:
           heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
@@ -456,13 +464,13 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     },
     proxyAccess() {
       return {available:proxyAccess&&!failure&&!proxyFailure&&proxyBreakpoints.size===2&&(!nativeEntryObserver||nativeEntryObserver.report().available),
-        entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow,
+        ...(nativeProxyLog?.report()??{entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow}),
         reason:failure??proxyFailure,argumentDiagnostics:argumentDiagnostics(),replayEligible:false,
         limitation:'Observes isProxy and getProxyDetails with bounded caller argument diagnostics; other native observers are not excluded'}
     },
     descriptorAccess() {
       return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length&&(!nativeEntryObserver||nativeEntryObserver.report().available),
-        entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow,reason:failure??descriptorFailure,
+        ...(nativeDescriptorLog?.report()??{entries:[...descriptorEntries.values()],calls:descriptorCalls,overflow:descriptorOverflow}),reason:failure??descriptorFailure,
         argumentDiagnostics:argumentDiagnostics(),
         replayEligible:false,completeDescriptorCoverage:false,
         limitation:'Listed native APIs only; syntax deletion, cross-realm intrinsics, native inspection and earlier copies are not excluded'}
