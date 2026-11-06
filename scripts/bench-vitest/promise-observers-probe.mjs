@@ -82,6 +82,12 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   let opaqueInitial=null,opaqueFailure=null
   const commandTiming=new Map()
   const pauseTiming={calls:0,elapsedMs:0}
+  const nativeTiming={events:0,completed:0,elapsedMs:0}
+  function timingSnapshot() {
+    return {enabled:inspectorTiming,pauses:{...pauseTiming},nativeCallbacks:{...nativeTiming},
+      commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
+      replayEligible:false,limitation:'Inclusive command and callback timings overlap through synchronous notifications'}
+  }
   const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,ordinaryOwners,onEntry(entry) {
     // Resolve every watched frame while it is still live. Retired Inspector
     // source caches may then be bounded without losing deferred report proof.
@@ -122,7 +128,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     descriptorArgumentCounts.set(kind,(descriptorArgumentCounts.get(kind)??0)+1)
     if(onDescriptorCheckpoint&&descriptorCalls%descriptorCheckpointEvery===0)try {
       onDescriptorCheckpoint({calls:descriptorCalls,apis:Object.fromEntries(descriptorCounts),
-        memory:memoryUsage(),
+        memory:memoryUsage(),timing:timingSnapshot(),
         arguments:Object.fromEntries(descriptorArgumentCounts),last:frames[0],
         overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
         ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),
@@ -235,7 +241,12 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   try {
     session.connect()
     if(nativeEntryObserver) {
-      session.on('Runtime.exceptionThrown',({params})=>nativeEntryObserver.handleException(params))
+      session.on('Runtime.exceptionThrown',({params})=>{
+        const started=inspectorTiming?monotonicNow():null
+        if(started!==null)nativeTiming.events++
+        try{return nativeEntryObserver.handleException(params)}
+        finally{if(started!==null){nativeTiming.completed++;nativeTiming.elapsedMs+=Number(monotonicNow()-started)/1e6}}
+      })
       post('Runtime.enable')
     }
     post('Debugger.enable',nativeEntries&&compiledScripts?{maxScriptsCacheSize:0}:{})
@@ -519,8 +530,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         heapIdentityObserver?.report()??{mode:'compiled-comparison',replayEligible:false}
     },
     inspectorTiming() {
-      return {enabled:inspectorTiming,pauses:{...pauseTiming},commands:Object.fromEntries([...commandTiming].map(([method,row])=>[method,{...row}])),
-        replayEligible:false,limitation:'Inclusive command timings can overlap through synchronous notifications'}
+      return timingSnapshot()
     },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,

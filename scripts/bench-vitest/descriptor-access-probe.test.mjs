@@ -67,6 +67,17 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
   assert.equal(data.identity.available,true);assert.equal(data.identity.calls,19);assert.equal(data.identity.cleared,19)
   assert.deepEqual(data.identity.errors,[]);assert.equal(data.identity.snapshotsRequested,0)
   assert.deepEqual(data.checkpoints.map(c=>c.calls),[5,10,15])
+  assert.equal(data.timing.nativeCallbacks.events,data.timing.nativeCallbacks.completed)
+  assert(data.timing.nativeCallbacks.events>=19&&data.timing.nativeCallbacks.elapsedMs>0)
+  for(const checkpoint of data.checkpoints) {
+    const timing=checkpoint.timing
+    assert.equal(timing.enabled,true)
+    assert.equal(timing.nativeCallbacks.events,timing.nativeCallbacks.completed+1,'current callback remains in flight at its checkpoint')
+    assert(timing.nativeCallbacks.completed<data.timing.nativeCallbacks.completed)
+    assert(timing.commands['Runtime.callFunctionOn'].calls>=checkpoint.calls)
+    assert(timing.commands['Runtime.releaseObject'].calls>=checkpoint.calls-1)
+  }
+  assert(data.checkpoints[0].timing.nativeCallbacks.events<data.checkpoints.at(-1).timing.nativeCallbacks.events)
   assert.deepEqual(data.report.entries.flatMap(e=>e.entries).sort(),data.names.sort())
   assert(data.report.entries.every(e=>e.count===1&&e.argument.actualNativeEntry&&e.argument.available&&
     e.argument.target.watchedAccessorKeys.includes('tmp')&&e.argument.target.inspectionScope==='watched-properties'&&
