@@ -6,9 +6,9 @@
 #include <cmath>
 #include <initializer_list>
 #include <vector>
-#include <dlfcn.h>
 #include <v8-inspector.h>
 #ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
+#include <dlfcn.h>
 #include <string>
 #endif
 
@@ -343,11 +343,27 @@ void CreatePackedContextCapture(const FunctionCallbackInfo<Value>& info) { Creat
 void CreateStringContextCapture(const FunctionCallbackInfo<Value>& info) { CreateContextCaptureImpl(info, false, true); }
 
 // Runtime.evaluate can dereference an empty context after GC but before the
-// asynchronous executionContextDestroyed notification. The pinned Inspector
-// contextById API returns a MaybeLocal without entering that context. Keep its
-// strong local handle throughout the synchronous callback, including nested
-// GC, so the callback's Inspector evaluations cannot race context collection.
+// asynchronous executionContextDestroyed notification. Match a live object's
+// creation context through V8's public context-ID API, without executing JS.
+// Keep its strong local handle throughout the synchronous callback, including
+// nested GC, so Inspector evaluations cannot race context collection.
 // No persistent root or application object escapes this dynamic extent.
+class ContextObjectPredicate final : public QueryObjectPredicate {
+ public:
+  explicit ContextObjectPredicate(int id) : id_(id) {}
+  bool Filter(Local<Object> object) override {
+    if (found_) return false;
+    Local<Context> context;
+    if (!object->GetCreationContext().ToLocal(&context) ||
+        v8_inspector::V8ContextInfo::executionContextId(context) != id_) return false;
+    found_ = true;
+    return true;
+  }
+ private:
+  int id_;
+  bool found_ = false;
+};
+
 void WithInspectorContext(const FunctionCallbackInfo<Value>& info) {
   auto isolate = info.GetIsolate();
   HandleScope handles(isolate);
@@ -357,17 +373,19 @@ void WithInspectorContext(const FunctionCallbackInfo<Value>& info) {
     isolate->ThrowException(Exception::TypeError(Key(isolate, "invalid context guard")));
     return;
   }
-  using GetInspector = v8_inspector::V8Inspector* (*)(Isolate*);
-  auto get_inspector = reinterpret_cast<GetInspector>(
-      dlsym(RTLD_DEFAULT, "_ZN2v85debug12GetInspectorEPNS_7IsolateE"));
-  auto inspector = get_inspector ? get_inspector(isolate) : nullptr;
-  if (!inspector) {
-    isolate->ThrowException(Exception::Error(Key(isolate, "context guard unavailable")));
+  const int id = info[0].As<Int32>()->Value();
+  ContextObjectPredicate predicate(id);
+  std::vector<Global<Object>> objects;
+  isolate->GetHeapProfiler()->QueryObjects(root, &predicate, &objects);
+  Local<Context> retained;
+  if (objects.empty()) {
+    info.GetReturnValue().Set(false);
     return;
   }
-  Local<Context> retained;
-  if (!inspector->contextById(info[0].As<Int32>()->Value()).ToLocal(&retained)) {
-    info.GetReturnValue().Set(false);
+  if (objects.size() != 1 ||
+      !objects[0].Get(isolate)->GetCreationContext().ToLocal(&retained) ||
+      v8_inspector::V8ContextInfo::executionContextId(retained) != id) {
+    isolate->ThrowException(Exception::Error(Key(isolate, "context guard identity unavailable")));
     return;
   }
   MicrotasksScope microtasks(isolate, root->GetMicrotaskQueue(), MicrotasksScope::kDoNotRunMicrotasks);

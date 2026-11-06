@@ -31,9 +31,10 @@ const marker=new Error('callback');assert.throws(()=>guard(id,()=>{throw marker}
 `))
 
 test('context guard retains a foreign realm across nested collection and releases it afterward',()=>fixture(`
-vm.runInNewContext('42');
+let live=vm.createContext({});vm.runInContext('42',live);
 const id=contexts.find(c=>!c.auxData.isDefault).id;
 assert.equal(guard(id,()=>{
+  live=null;
   for(let i=0;i<3;i++)globalThis.gc();
   const value=post('Runtime.evaluate',{expression:'40+2',contextId:id,returnByValue:true});
   assert.equal(value.result.value,42);

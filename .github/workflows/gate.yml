@@ -883,7 +883,8 @@ jobs:
           symbols=open(sys.argv[1]).read().splitlines()
           names=['v8::debug::GetInspector(', 'v8::debug::SetDebugDelegate(',
                  'v8::debug::SetFunctionBreakpoint(', 'v8::debug::RemoveBreakpoint(',
-                 'v8::debug::GetLoadedScripts(', 'node::inspector::Agent::Connect(']
+                 'v8::debug::GetLoadedScripts(', 'node::inspector::Agent::Connect(',
+                 'v8_inspector::V8ContextInfo::executionContextId(']
           print(json.dumps({name:[line.split(' ',2)[-1] for line in symbols if name in line] for name in names},indent=2))
           PY
       - name: Build isolated native Inspector experiment
