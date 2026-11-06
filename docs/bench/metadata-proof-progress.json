@@ -562,7 +562,7 @@
   },
   "correctedWindow": {
     "run": 42167641326,
-    "status": "in_progress",
+    "status": "completed",
     "harness": "62a5c2d80e061cc89e16fbd17b7ece4dcfb668fd",
     "action": "1aa08cacec95f243aa12adafdf815f68213c2783",
     "engine": "081f20a8ec1c8f1c05b0dc1d9ece4139342eae95",
@@ -574,6 +574,39 @@
       "quod-proof",
       "quod-ts-proof"
     ],
-    "warm_first": false
+    "warm_first": false,
+    "conclusion": "success",
+    "evidence": "convex-helpers-native-origin-window.json",
+    "observedWrong": 0,
+    "comparisons": 24,
+    "fullHits": 0,
+    "lineageAudits": 0,
+    "unitMetadataCounterexamples": 8,
+    "costBarMet": false,
+    "correctnessSignOff": false
+  },
+  "unitMetadataAudit": {
+    "evidence": "unit-metadata-audit.json",
+    "baselineCounterexamples": 8,
+    "fixedCounterexamples": 0,
+    "upgradeCounterexamples": 0,
+    "casesPerPhase": 9,
+    "fixCommit": "f9d8153",
+    "gate": 42171117245,
+    "gateStatus": "completed",
+    "shipped": false,
+    "gateConclusion": "success",
+    "binaryVersion": "bin-f9d8153",
+    "binaryArchiveSha256": "e133b009115afd10c255d2e67f43a80bcf5c61e6853992c84290a0a56afd92d8",
+    "actionSource": "1a0ec88bdce9c6fdb587285baf1c099d3f94f77d",
+    "actionGateStatus": "pending"
+  },
+  "workerModuleByteDiagnostic": {
+    "evidence": "worker-module-bytes.json",
+    "run": 42169609242,
+    "pairedTransformedIdentities": 1063,
+    "equalBodyIdentities": 1063,
+    "unpairedIdentities": 506,
+    "replayEligible": false
   }
 }

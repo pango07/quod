@@ -1189,7 +1189,13 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
         let path0 = || args.first().and_then(|a| unquote(a));
         let metadata = metadata_key(name, &args)?;
         let mut push = |path: String, op: Op, ok: bool, kind: Option<&'static str>| {
-            t.evs.push(Ev { path, op, ok, kind, metadata });
+            t.evs.push(Ev {
+                path,
+                op,
+                ok,
+                kind,
+                metadata,
+            });
         };
         match name {
             "io_uring_setup" => {
@@ -1290,7 +1296,9 @@ fn parse(text: &str, cwd0: &Path) -> Result<Trace, String> {
                 push(p, Op::Stat, ok, stat_kind(&args));
             }
             "newfstatat" | "fstatat64" | "readlinkat" => {
-                let p = args.get(1).and_then(|a| unquote(a))
+                let p = args
+                    .get(1)
+                    .and_then(|a| unquote(a))
                     .ok_or("a metadata path was not decoded")?;
                 if p.is_empty() {
                     let p = metadata_fd(args.first().map(String::as_str))?;
@@ -1450,20 +1458,35 @@ fn metadata_key(name: &str, args: &[String]) -> Result<Option<&'static str>, Str
     let key = match name {
         "stat" | "stat64" => "sm",
         "lstat" | "lstat64" => "sl",
-        "fstat" | "fstat64" => if stat_kind(args) == Some("link") { "sl" } else { "sm" },
+        "fstat" | "fstat64" => {
+            if stat_kind(args) == Some("link") {
+                "sl"
+            } else {
+                "sm"
+            }
+        }
         "newfstatat" | "fstatat64" => {
             let flags = args.get(3).ok_or("stat flags were not decoded")?;
             for flag in flags.split('|') {
-                if !matches!(flag.trim(), "0" | "AT_SYMLINK_NOFOLLOW" | "AT_EMPTY_PATH" | "AT_NO_AUTOMOUNT") {
+                if !matches!(
+                    flag.trim(),
+                    "0" | "AT_SYMLINK_NOFOLLOW" | "AT_EMPTY_PATH" | "AT_NO_AUTOMOUNT"
+                ) {
                     return Err("stat uses unsupported flags".into());
                 }
             }
-            if flags.contains("AT_SYMLINK_NOFOLLOW") || stat_kind(args) == Some("link") { "sl" } else { "sm" }
+            if flags.contains("AT_SYMLINK_NOFOLLOW") || stat_kind(args) == Some("link") {
+                "sl"
+            } else {
+                "sm"
+            }
         }
         "readlink" | "readlinkat" => "e",
-        "statx" | "statfs" | "statfs64" | "fstatfs" | "fstatfs64"
-        | "getxattr" | "lgetxattr" | "fgetxattr" | "listxattr" | "llistxattr" | "flistxattr" => {
-            return Err(format!("{name} returns metadata without a complete replay key"));
+        "statx" | "statfs" | "statfs64" | "fstatfs" | "fstatfs64" | "getxattr" | "lgetxattr"
+        | "fgetxattr" | "listxattr" | "llistxattr" | "flistxattr" => {
+            return Err(format!(
+                "{name} returns metadata without a complete replay key"
+            ));
         }
         _ => return Ok(None),
     };
@@ -1471,7 +1494,9 @@ fn metadata_key(name: &str, args: &[String]) -> Result<Option<&'static str>, Str
 }
 
 fn metadata_fd(arg: Option<&str>) -> Result<String, String> {
-    let p = arg.and_then(fd_path).ok_or("metadata on a descriptor without a stable pathname")?;
+    let p = arg
+        .and_then(fd_path)
+        .ok_or("metadata on a descriptor without a stable pathname")?;
     if p.ends_with(" (deleted)") {
         return Err("metadata on an unlinked descriptor".into());
     }
@@ -1906,7 +1931,10 @@ fn keyer(
         if evs.iter().any(|e| e.ok && e.metadata.is_some())
             && (written.contains_key(p) || own(p) || written.keys().any(|w| parent(w) == *p))
         {
-            return Err(format!("it observes metadata of {} that it changes", rel(p)));
+            return Err(format!(
+                "it observes metadata of {} that it changes",
+                rel(p)
+            ));
         }
     }
 
@@ -2070,8 +2098,19 @@ mod tests {
 1 readlink("node_modules/tool/link", "target", 4096) = 6
 "#;
         let (keys, _) = keys_of(root, text).unwrap();
-        for expected in ["sm:file", "sl:link", "sm:node_modules/tool/file", "sl:directory", "sm:fd-file", "sm:other-file", "e:node_modules/tool/link"] {
-            assert!(keys.iter().any(|(k, _)| k == expected), "missing {expected}: {keys:?}");
+        for expected in [
+            "sm:file",
+            "sl:link",
+            "sm:node_modules/tool/file",
+            "sl:directory",
+            "sm:fd-file",
+            "sm:other-file",
+            "e:node_modules/tool/link",
+        ] {
+            assert!(
+                keys.iter().any(|(k, _)| k == expected),
+                "missing {expected}: {keys:?}"
+            );
         }
         for text in [
             "1 fstat(3, {st_mode=S_IFREG|0644}) = 0\n",
@@ -2095,7 +2134,10 @@ mod tests {
             "1 stat(\".\", {st_mode=S_IFDIR|0755}) = 0\n1 mkdir(\"new\", 0755) = 0\n",
             "1 mkdir(\"new\", 0755) = 0\n1 stat(\"new\", {st_mode=S_IFDIR|0755}) = 0\n",
         ] {
-            assert!(keys_of(Path::new("/work"), text).is_err(), "accepted {text}");
+            assert!(
+                keys_of(Path::new("/work"), text).is_err(),
+                "accepted {text}"
+            );
         }
     }
 

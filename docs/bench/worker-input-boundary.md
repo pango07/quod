@@ -63,13 +63,44 @@ worker filesystem/environment inputs, and side effects. A temporary module
 pathname alone is not its contents. Thread shared-memory channels, custom
 pools and unknown protocol shapes also need their own treatment.
 
-The immediate next experiment, if this path is pursued, is to distinguish
-module code/content changes from transport/cache metadata in the changed
-fetch responses. The variable configuration fields cannot simply be masked.
+The follow-up below distinguishes module code/content changes from
+transport/cache metadata in the changed fetch responses. The variable
+configuration fields cannot simply be masked.
 Matching test results in two runs is not proof that a test cannot read them.
 
 This does not replace or weaken the existing native-observer investigation.
-The real corrected-engine 12-commit window is running separately as
+The real native-origin-engine 12-commit window completed separately as
 [42167641326](https://github.com/pango07/ci-bench/actions/runs/42167641326),
 with engine `081f20a`, Action `1aa08ca` and harness `62a5c2d`.
+It had no full hits; see the [window result](convex-helpers-native-origin-window.md).
 See [machine-readable diagnostic evidence](worker-input-boundary.json).
+
+## Module-byte follow-up
+
+[Gate 42169609242](https://github.com/pango07/quod/actions/runs/42169609242)
+at `ed70aaa` passes four diagnostic regressions and two more complete
+120-worker / 4,131-state plain runs. The same 39 metadata-only changes
+preserve the established test fingerprint. The changed configuration leaf
+is now identified directly: `sequence.seed` differs in all 120 pairs.
+
+Before each transformed-module response is sent, the probe opens its
+temporary file without following links or updating atime, hashes the bytes,
+and verifies descriptor metadata stability around the read. It retains the
+original path and response-field fingerprints. This observes bytes at send
+time; it does not prove what a worker later reads or authorize replay.
+
+Within paired workers, 1,063 transformed-module identities appear on both
+sides with matching observed byte digests; none of those paired byte sets
+differs. All 1,063 have different temporary-path fingerprints. Another 819
+paired identities are external modules without captured bodies. There are
+506 identities present on only one side and 67 paired identities with
+different occurrence counts. Comparing the first paired occurrence also
+finds 63 `invalidate` field differences. Fetch scheduling and warm-module
+batches therefore remain part of the problem; this is not whole-transcript
+equivalence. No worker has an identical complete RPC transcript.
+
+This supports investigating validation of actual module bytes instead of
+transport filenames. It does not permit dropping external-module inputs,
+masking the seed/worker IDs, ignoring request order, or assuming identical
+parent side effects. [Evidence and artifact digests](worker-module-bytes.json)
+preserve the comparison and its limits.

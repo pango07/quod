@@ -1,0 +1,219 @@
+{
+  "driver": "https://github.com/pango07/ci-bench/actions/runs/42167641326",
+  "engine": "081f20a8ec1c8f1c05b0dc1d9ece4139342eae95",
+  "action": "1aa08cacec95f243aa12adafdf815f68213c2783",
+  "harness": "62a5c2d80e061cc89e16fbd17b7ece4dcfb668fd",
+  "expectedJobs": 48,
+  "observedJobs": 48,
+  "uniqueJobs": 48,
+  "scope": "Observed output/state agreement in this window; separate unit-metadata counterexamples remain in this engine. Not a correctness sign-off.",
+  "variants": {
+    "plain": {
+      "window": {
+        "runnerSeconds": 1862.0,
+        "plainRunnerSeconds": 1862.0,
+        "runnerRatio": 1.0,
+        "runnerSavingsPercent": 0.0,
+        "roundedMinutes": 36,
+        "plainRoundedMinutes": 36,
+        "minuteSavingsPercent": 0.0
+      },
+      "c1-c11": {
+        "runnerSeconds": 1695.0,
+        "plainRunnerSeconds": 1695.0,
+        "runnerRatio": 1.0,
+        "runnerSavingsPercent": 0.0,
+        "roundedMinutes": 33,
+        "plainRoundedMinutes": 33,
+        "minuteSavingsPercent": 0.0
+      },
+      "medianRunnerSeconds": 177.5,
+      "vitestFilesRan": null,
+      "vitestFilesReplayed": null,
+      "unitReplays": null,
+      "lineagePromoted": null,
+      "lineageAudits": null,
+      "lineageDisagreed": null,
+      "lineageRevoked": null,
+      "fullHits": null
+    },
+    "quod-proof": {
+      "window": {
+        "runnerSeconds": 1561.0,
+        "plainRunnerSeconds": 1862.0,
+        "runnerRatio": 0.8383458646616542,
+        "runnerSavingsPercent": 16.16541353383458,
+        "roundedMinutes": 32,
+        "plainRoundedMinutes": 36,
+        "minuteSavingsPercent": 11.111111111111116
+      },
+      "c1-c11": {
+        "runnerSeconds": 1381.0,
+        "plainRunnerSeconds": 1695.0,
+        "runnerRatio": 0.8147492625368732,
+        "runnerSavingsPercent": 18.525073746312682,
+        "roundedMinutes": 29,
+        "plainRoundedMinutes": 33,
+        "minuteSavingsPercent": 12.121212121212121
+      },
+      "medianRunnerSeconds": 127.5,
+      "vitestFilesRan": 1440,
+      "vitestFilesReplayed": 0,
+      "unitReplays": 5,
+      "lineagePromoted": 0,
+      "lineageAudits": 0,
+      "lineageDisagreed": 0,
+      "lineageRevoked": 0,
+      "fullHits": 0
+    },
+    "quod-ts-proof": {
+      "window": {
+        "runnerSeconds": 1424.0,
+        "plainRunnerSeconds": 1862.0,
+        "runnerRatio": 0.7647690655209453,
+        "runnerSavingsPercent": 23.523093447905474,
+        "roundedMinutes": 29,
+        "plainRoundedMinutes": 36,
+        "minuteSavingsPercent": 19.444444444444443
+      },
+      "c1-c11": {
+        "runnerSeconds": 1259.0,
+        "plainRunnerSeconds": 1695.0,
+        "runnerRatio": 0.7427728613569321,
+        "runnerSavingsPercent": 25.72271386430679,
+        "roundedMinutes": 26,
+        "plainRoundedMinutes": 33,
+        "minuteSavingsPercent": 21.212121212121215
+      },
+      "medianRunnerSeconds": 116.5,
+      "vitestFilesRan": 1440,
+      "vitestFilesReplayed": 0,
+      "unitReplays": 5,
+      "lineagePromoted": 0,
+      "lineageAudits": 0,
+      "lineageDisagreed": 0,
+      "lineageRevoked": 0,
+      "fullHits": 0
+    }
+  },
+  "perCommit": [
+    {
+      "i": 0,
+      "commit": "1d7c57881d153d366becbc5d8351276b0d09b086",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 1,
+      "commit": "290b146e0793f0d689150f3c53a1f1c7269020d1",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 2,
+      "commit": "1815d4a72a9714311dfed82a101d8c817830fb0e",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 3,
+      "commit": "03ffe84ef4431d7b02dd0e6903e36c461ed9223e",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 4,
+      "commit": "6b17e1514f5222e9c019e177e36384df95a3ff25",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 5,
+      "commit": "49a82e54416f9d7957dcbdf5953f628a54693355",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 6,
+      "commit": "51f7bf84887625ae8fadbc29f1f9a028e271c8bb",
+      "semanticFingerprint": "4ecbdc19ec078761acb2d9535ee26e225508cf16431b2d600e003924c65ddc65",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 7,
+      "commit": "f5c2b9e9ceb4c477e7216ab514ce0d370c3af311",
+      "semanticFingerprint": "2610c747ae4bdae19f855bc06bf42eb1a537ce71e1c3302155774d9529b08494",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 8,
+      "commit": "d244cf22ddd8d5a12e4661edfa1ba6cc09468cb8",
+      "semanticFingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 9,
+      "commit": "c976cabdff07b9fc671473a3f2020b0ded436d2f",
+      "semanticFingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 10,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "semanticFingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    },
+    {
+      "i": 11,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "semanticFingerprint": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": {
+        "quod-proof": 0,
+        "quod-ts-proof": 0
+      }
+    }
+  ],
+  "images": {
+    "ubuntu-26.04/20261101.186.1": 48
+  },
+  "artifacts": {
+    "report.md": "cdc112441f8ade34d609e51923f1b845258c8e81331349ee9a5653aebe974828",
+    "expected.jsonl": "75e554b5436290c903795caec5346920fe4f59b9e337bd22483b50cc27e29729",
+    "job-metrics.json": "f1b8075b7726b846860efbbd9f1ea36545578947d4279da8042a9cad81df6c20",
+    "jobs.jsonl": "4d8a46b13bdb7bbcef732d532cea342e898c21f17a660e488635bc99a00b887a"
+  },
+  "roundedMinuteNote": "Sum of ceil(each job runner seconds / 60), a paid-runner cost model; actual GitHub charges for these public jobs are zero."
+}

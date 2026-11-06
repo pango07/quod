@@ -127,9 +127,18 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
     let fixture = base.path().join("unit-fixture");
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/bench-vitest/unit-metadata-fixture.c");
-    let compiled = Command::new("cc").args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
-        .arg(source).arg("-o").arg(&fixture).output().unwrap();
-    assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stderr));
+    let compiled = Command::new("cc")
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2"])
+        .arg(source)
+        .arg("-o")
+        .arg(&fixture)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
     let copy = || unit_command(&dir, &root, &[fixture.to_str().unwrap(), "copy", "in.txt"]);
     let err = |o: &Output| String::from_utf8_lossy(&o.stderr).into_owned();
     let out = |o: &Output| String::from_utf8_lossy(&o.stdout).into_owned();
@@ -198,7 +207,10 @@ fn a_unit_records_witnesses_replays_and_reruns_on_a_change() {
         let o = unit(&dir, &root, shell_copy);
         assert!(o.status.success(), "{}", err(&o));
         assert_eq!(out(&o), "built\n");
-        assert_eq!(fs::read_to_string(root.join("out/shell.txt")).unwrap(), "six\n");
+        assert_eq!(
+            fs::read_to_string(root.join("out/shell.txt")).unwrap(),
+            "six\n"
+        );
     }
 
     // 5. A unit that reaches for the network always runs.

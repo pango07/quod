@@ -1,0 +1,1171 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42171117245",
+  "commit": "f9d8153",
+  "scope": "Unit metadata fixtures, not a complete soundness or performance sign-off. The remote Rust/recorder/lint/release gate passed; packaged release checks and Action build are pending.",
+  "runs": {
+    "baseline": {
+      "binarySha256": "8411875b7421bf6365372cbf3f037262345b8c7789fe7ba8b2605366cf76047d",
+      "legacyBinarySha256": null,
+      "fixtureSha256": "21acfd4a9463f6e49140ad80297607a5538a70794be5e78ee55738717635d019",
+      "expectation": "stale",
+      "cases": 9,
+      "stale": 8,
+      "results": [
+        {
+          "name": "file-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.04 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "directory-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": null,
+          "afterHash": null,
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "file-mode",
+          "method": "mode",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "MODE=420\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "MODE=384\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "MODE=420\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "symlink-mtime",
+          "method": "lstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "fd-mtime",
+          "method": "fstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "empty-path-mtime",
+          "method": "empty-path",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "statx-mtime",
+          "method": "statx",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "package-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+          },
+          "replayedAfterChange": true,
+          "stale": true
+        },
+        {
+          "name": "symlink-target",
+          "method": "readlink",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "TARGET=target-a\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` runs: 1 of its recorded inputs changed (e:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject`: differs from another traced record (its stdout: \"TARGET=target-a\" vs \"TARGET=target-b\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        }
+      ]
+    },
+    "fixed": {
+      "binarySha256": "69db4f45a9d570c6e916ef08364fc151782750a664638ffde14d9bd5a1e72c05",
+      "legacyBinarySha256": null,
+      "fixtureSha256": "21acfd4a9463f6e49140ad80297607a5538a70794be5e78ee55738717635d019",
+      "expectation": "correct",
+      "cases": 9,
+      "stale": 0,
+      "results": [
+        {
+          "name": "file-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` runs: 1 of its recorded inputs changed (sm:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "directory-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": null,
+          "afterHash": null,
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` runs: 1 of its recorded inputs changed (sm:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "file-mode",
+          "method": "mode",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "MODE=420\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "MODE=384\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "MODE=384\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` runs: 1 of its recorded inputs changed (sm:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject`: differs from another traced record (its stdout: \"MODE=420\" vs \"MODE=384\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "symlink-mtime",
+          "method": "lstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` runs: 1 of its recorded inputs changed (sl:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "fd-mtime",
+          "method": "fstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` runs: 1 of its recorded inputs changed (sm:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "empty-path-mtime",
+          "method": "empty-path",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` runs: 1 of its recorded inputs changed (sm:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "statx-mtime",
+          "method": "statx",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` always runs from now on: statx returns metadata without a complete replay key\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` always runs (statx returns metadata without a complete replay key)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` always runs (statx returns metadata without a complete replay key)\n"
+            }
+          ],
+          "warmedReplay": false,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` always runs (statx returns metadata without a complete replay key)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "package-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` answered from its record (11 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` runs: 1 of its recorded inputs changed (sm:node_modules/example/subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject`: differs from another traced record (its stdout: \"STAMP=1700000000\" vs \"STAMP=1700000600\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "symlink-target",
+          "method": "readlink",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "TARGET=target-a\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 10 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` answered from its record (10 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` runs: 1 of its recorded inputs changed (e:subject)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 10 inputs, 0 outputs; keyed in 0.00 s)\nquod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject`: differs from another traced record (its stdout: \"TARGET=target-a\" vs \"TARGET=target-b\"); a second witness here decides\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        }
+      ]
+    },
+    "upgrade": {
+      "binarySha256": "69db4f45a9d570c6e916ef08364fc151782750a664638ffde14d9bd5a1e72c05",
+      "legacyBinarySha256": "8411875b7421bf6365372cbf3f037262345b8c7789fe7ba8b2605366cf76047d",
+      "fixtureSha256": "21acfd4a9463f6e49140ad80297607a5538a70794be5e78ee55738717635d019",
+      "expectation": "correct",
+      "cases": 9,
+      "stale": 0,
+      "results": [
+        {
+          "name": "file-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "directory-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": null,
+          "afterHash": null,
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "file-mode",
+          "method": "mode",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "MODE=420\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "MODE=384\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "MODE=420\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "MODE=384\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture mode subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "symlink-mtime",
+          "method": "lstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture lstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "fd-mtime",
+          "method": "fstat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture fstat subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "empty-path-mtime",
+          "method": "empty-path",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture empty-path subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "statx-mtime",
+          "method": "statx",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture statx subject` always runs from now on: statx returns metadata without a complete replay key\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "package-mtime",
+          "method": "stat",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "STAMP=1700000000\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "STAMP=1700000000\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "STAMP=1700000600\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture stat node_modules/example/subject` recorded (first witness: 11 inputs, 0 outputs; keyed in 0.01 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        },
+        {
+          "name": "symlink-target",
+          "method": "readlink",
+          "contentsUnchanged": true,
+          "beforeHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "afterHash": "abb7f0ae43ba52cc56233a5ecb4dfa11765f26b1282a18346d811b6a85af19c1",
+          "plainBefore": {
+            "status": 0,
+            "stdout": "TARGET=target-a\n",
+            "stderr": ""
+          },
+          "plainAfter": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": ""
+          },
+          "warm": [
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 8 inputs, 0 outputs; keyed in 0.00 s)\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject`: the second witness agrees; its record is trusted\n"
+            },
+            {
+              "status": 0,
+              "stdout": "TARGET=target-a\n",
+              "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` answered from its record (8 inputs unchanged, 0 outputs restored; 0.00 s, checked in 0.00 s)\n"
+            }
+          ],
+          "warmedReplay": true,
+          "changed": {
+            "status": 0,
+            "stdout": "TARGET=target-b\n",
+            "stderr": "quod: `/home/runner/work/quod/quod/unit-metadata-fixture readlink subject` recorded (first witness: 10 inputs, 0 outputs; keyed in 0.00 s)\n"
+          },
+          "replayedAfterChange": false,
+          "stale": false
+        }
+      ]
+    }
+  }
+}
