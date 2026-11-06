@@ -755,7 +755,7 @@ jobs:
         with:
           node-version: '24.18.0'
       - run: node --test scripts/bench-vitest/promise-observers-probe.test.mjs scripts/bench-vitest/async-stat-probe.test.mjs
-      - if: inputs.only == 'benchmark-proofs'
+      - if: always() && inputs.only == 'benchmark-proofs'
         run: node --test crates/quod-cli/src/vitest/boolean-proof.test.mjs crates/quod-cli/src/vitest/names-proof.test.mjs crates/quod-cli/src/vitest/record.test.mjs
 
   benchmark-config:

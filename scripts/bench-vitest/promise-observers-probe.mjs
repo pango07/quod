@@ -74,7 +74,10 @@ export function inspectPromiseObservers() {
       if(props.result.some(v=>constructedFields.includes(v.name))) return false
       if(props.internalProperties?.some(v=>['[[Target]]','[[Handler]]'].includes(v.name))) return false
       const next=props.internalProperties?.find(v=>v.name==='[[Prototype]]')?.value
-      if(!next) return false
+      // V8 omits [[Prototype]] for a null prototype (runtime-debug.cc).
+      // Accept that omission only at the realm's intrinsic Object.prototype,
+      // obtained from a fresh literal without reading the global Object.
+      if(!next) return !!objectPrototype && same(p,objectPrototype)
       if(next.subtype==='null') return true
       if(!next.objectId) return false
       p=next.objectId
@@ -82,10 +85,12 @@ export function inspectPromiseObservers() {
     return false
   }
   const kinds=['init','before','after','settled']
-  let lists={}, fields=null, indices={}, active=null, owned=null, nativeRefs=null
+  let lists={}, fields=null, indices={}, active=null, owned=null, nativeRefs=null, objectPrototype=null
   try {
     session.connect()
     post('Debugger.enable')
+    objectPrototype=properties(builtin('({})')).internalProperties?.find(p=>p.name==='[[Prototype]]')?.value?.objectId
+    if(!objectPrototype) throw Error('intrinsic object prototype unavailable')
     for(const kind of kinds) {
       const name='on'+kind[0].toUpperCase()+kind.slice(1)
       lists[kind]=binding(builtin(`process.getBuiltinModule('v8').promiseHooks.${name}`),'list').objectId
