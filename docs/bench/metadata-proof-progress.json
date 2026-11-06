@@ -1,8 +1,8 @@
 {
-  "engine": "ebdf96d0c569dc5c4ccd7000013c3b737387ad58",
-  "packaged": false,
-  "binaryGate": "https://github.com/pango07/quod/actions/runs/42140626596",
-  "binaryArchiveSha256": "9649172196b66af39155788824d46d7e2191e8fd7ab622da5b083f1f48fc7ea9",
+  "engine": "4d993190050f71ec10a6c825328807b14c415b7a",
+  "packaged": true,
+  "binaryGate": "https://github.com/pango07/quod/actions/runs/42149721287",
+  "binaryArchiveSha256": "98dfb3addc02724c3fd185b84fbcebadc2db486774d7822f24cea7f2eb487fe0",
   "metadataRegressions": {
     "evidence": {
       "wrong": 0,
@@ -30,7 +30,9 @@
     "wrong": 0,
     "metadataReplayed": 1,
     "typeChangeReplayed": 0,
-    "selectedTests": 2
+    "selectedTests": 2,
+    "prototypeMetadataReplayed": 0,
+    "prototypeSelectedTests": 2
   },
   "runtimeBefore": {
     "run": 42139029246,
@@ -171,5 +173,157 @@
       "actual stat outcomes and error projection",
       "production driver and worker observations"
     ]
+  },
+  "asyncSizeConsumer": {
+    "commit": "c45ba09",
+    "run": "https://github.com/pango07/quod/actions/runs/42146929273",
+    "conclusion": "success",
+    "proofRegressionsPassed": 30,
+    "observerRegressionsPassed": 4,
+    "certifiedCalls": 120,
+    "unrecognizedCalls": 234,
+    "metadataKeyCounts": {
+      "sl": 12,
+      "sm": 285,
+      "st": 104
+    },
+    "replayEligible": false
+  },
+  "completePromiseCheckpoints": {
+    "commit": "10e62db",
+    "run": "https://github.com/pango07/quod/actions/runs/42147926900",
+    "workflowConclusion": "failure",
+    "workloadStepConclusion": "success",
+    "failure": "Fixture assumed public fs.Stats is the internal constructor. Node exposes a deprecated wrapper with the same prototype.",
+    "correctedFixtureCommit": "94124e6",
+    "correctedFixtureRun": "https://github.com/pango07/quod/actions/runs/42148398507",
+    "correctedFixtureConclusion": "success",
+    "fixturesPassed": 7,
+    "identityAndTransientEscapeGate": "https://github.com/pango07/quod/actions/runs/42147365686",
+    "calls": 354,
+    "checkpoints": 5190,
+    "fileCalls": 120,
+    "fileCheckpoints": 1680,
+    "ownCallbacksAtEveryObservedCheckpoint": 354,
+    "nativeContinuations": 354,
+    "nativeProvenance": {
+      "available": true,
+      "stat": {
+        "location": {
+          "scriptId": "90",
+          "lineNumber": 1036,
+          "columnNumber": 19
+        },
+        "script": {
+          "url": "node:internal/fs/promises",
+          "isModule": false,
+          "hasSourceURL": false
+        },
+        "sourceSha256": "6a3d853657112c197bab3b06d1d179840310eb1ec10205ab84d2a2c7eced2dd1"
+      },
+      "convert": {
+        "location": {
+          "scriptId": "53",
+          "lineNumber": 547,
+          "columnNumber": 28
+        },
+        "script": {
+          "url": "node:internal/fs/utils",
+          "isModule": false,
+          "hasSourceURL": false
+        },
+        "sourceSha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+      },
+      "constructor": {
+        "location": {
+          "scriptId": "53",
+          "lineNumber": 519,
+          "columnNumber": 14
+        },
+        "script": {
+          "url": "node:internal/fs/utils",
+          "isModule": false,
+          "hasSourceURL": false
+        },
+        "sourceSha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+      },
+      "publicConstructorMatches": false,
+      "bindingStat": {
+        "location": null
+      },
+      "bindingStatDescriptionSha256": "027837b87183b1d43bf4da2a0c70f9653c6d5babec06542ad1716ddc0ecec91a",
+      "replayEligible": false
+    },
+    "primaryNodeSourceHashes": {
+      "promises": "6a3d853657112c197bab3b06d1d179840310eb1ec10205ab84d2a2c7eced2dd1",
+      "utils": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+    },
+    "testFingerprintMatched": true,
+    "replayEligible": false,
+    "unvalidated": [
+      "native binding integrity over the whole operation",
+      "initial state before preloads",
+      "non-registry observation channels",
+      "actual result/error projection",
+      "callback stat/lstat consumers",
+      "production driver and worker integration"
+    ]
+  },
+  "priorBinaryEngine": {
+    "engine": "ebdf96d0c569dc5c4ccd7000013c3b737387ad58",
+    "binaryGate": "https://github.com/pango07/quod/actions/runs/42140626596",
+    "binaryArchiveSha256": "9649172196b66af39155788824d46d7e2191e8fd7ab622da5b083f1f48fc7ea9"
+  },
+  "internalStatsConstructorRegression": {
+    "baselineCommit": "94c8d18",
+    "baselineGate": "https://github.com/pango07/quod/actions/runs/42149263438",
+    "baselineConclusion": "failure",
+    "failure": "The internal constructor prototype changed while the public wrapper retained its old prototype; the recorder emitted st: instead of sm:.",
+    "fixCommit": "4d993190050f71ec10a6c825328807b14c415b7a",
+    "gate": "https://github.com/pango07/quod/actions/runs/42149721287",
+    "conclusion": "success",
+    "testsPassed": 172,
+    "builtBinaryResult": {
+      "wrong": 0,
+      "metadataReplayed": 1,
+      "typeChangeReplayed": 0,
+      "selectedTests": 2,
+      "prototypeMetadataReplayed": 0,
+      "prototypeSelectedTests": 2
+    },
+    "scope": "Baseline demonstrates incorrect key classification. Fixed binary regression demonstrates timestamp-only changes rerun and match plain Vitest."
+  },
+  "latestRuntime": {
+    "commit": "4d993190050f71ec10a6c825328807b14c415b7a",
+    "run": "https://github.com/pango07/quod/actions/runs/42149546225",
+    "conclusion": "success",
+    "proofRegressionsPassed": 31,
+    "observerRegressionsPassed": 8,
+    "calls": 354,
+    "checkpoints": 5190,
+    "ownCallbacksAtEveryObservedCheckpoint": 354,
+    "nativeContinuations": 354,
+    "sizeConsumers": 120,
+    "metadataKeys": {
+      "sl": 12,
+      "sm": 285,
+      "st": 104
+    },
+    "testFingerprintMatched": true,
+    "replayEligible": false
+  },
+  "action": {
+    "commit": "d2bb917792130dcaf3fafec066b481bec5c2f674",
+    "gate": "https://github.com/pango07/quod/actions/runs/42150430450",
+    "conclusion": "success",
+    "binaryVersion": "bin-4d99319",
+    "bundleMainSha256": "c46e5ef77a5f388e29e4e7d7b23d1677be895a47ee541b0ac56f001a7068b7af",
+    "lineageFixture": {
+      "promotions": 2,
+      "plainAudits": 1,
+      "disagreed": 0
+    },
+    "harnessCommit": "99d0ca5af335d82fee1b7bbd37a35d4b251a376a",
+    "freshRunnerSavingsEstablished": false
   }
 }
