@@ -118,5 +118,8 @@
     "missingBaselineResults": 23,
     "failure": "Observed before phase hit its 900-second limit; two received test results disagree with baseline; no complete observed JSON report or after phase"
   },
-  "independentVerifier": "scripts/bench-vitest/verify-test-progress.py"
+  "independentVerifier": "scripts/bench-vitest/verify-test-progress.py",
+  "jobConclusion": "success",
+  "workflowConclusion": "failure",
+  "separateChangesJobFailure": "Short commit input ref could not be resolved as a branch or tag; the fixture job succeeded on the recorded run head"
 }

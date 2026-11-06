@@ -4,7 +4,10 @@
     "run": "https://github.com/pango07/quod/actions/runs/42265857321",
     "job": 128057454713,
     "conclusion": "success",
-    "regressionsPassed": 249
+    "regressionsPassed": 249,
+    "jobConclusion": "success",
+    "workflowConclusion": "failure",
+    "separateChangesJobFailure": "Short commit input ref could not be resolved as a branch or tag; the fixture job succeeded on the recorded run head"
   },
   "measurements": {
     "compiledRecordKeyMeasurements": [
@@ -109,7 +112,10 @@
     "conclusion": "success",
     "regressionsPassed": 249,
     "semantics": "Every existing descriptor checkpoint now retains inclusive command durations and native exception-callback events/completions/time. Current callback is still in flight at its checkpoint. These timings overlap; do not sum them as elapsed job time.",
-    "regression": "All 19 native descriptor operations remain captured; callback counts settle after completion, checkpoint snapshots remain independent, and command/release counts account for the in-flight entry."
+    "regression": "All 19 native descriptor operations remain captured; callback counts settle after completion, checkpoint snapshots remain independent, and command/release counts account for the in-flight entry.",
+    "jobConclusion": "success",
+    "workflowConclusion": "failure",
+    "separateChangesJobFailure": "Short commit input ref could not be resolved as a branch or tag; the fixture job succeeded on the recorded run head"
   },
   "profiledFullDiagnostic": {
     "commit": "aaed633c59f543e42681fe660dec6326f16aa7ae",

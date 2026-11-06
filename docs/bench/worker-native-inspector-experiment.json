@@ -1,0 +1,29 @@
+{
+  "commit": "223136303b0bf7fbfa7f99e0062cedb2c1b55f9c",
+  "run": "https://github.com/pango07/quod/actions/runs/42272935648",
+  "job": 128081886395,
+  "conclusion": "failure",
+  "changesJobConclusion": "success",
+  "nativeBuildConclusion": "success",
+  "tests": {
+    "total": 7,
+    "passed": 3,
+    "failed": 4,
+    "failedStage": "All four transport experiments failed during native session setup; existing packed-summary codec tests passed"
+  },
+  "failure": "Dynamic lookup of v8::debug::GetInspector returned no exported function",
+  "captureReached": false,
+  "performanceMeasurements": null,
+  "replayEligible": false,
+  "integratedIntoWorker": false,
+  "node": "24.18.0",
+  "nodeSourceCommit": "20da4aeadabc5b0a01e3fcf520f91df8285c68a2",
+  "inspectorHeaderSha256": "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28",
+  "semantics": "Experimental macro only; shares the existing native capture helper; attempts a private Runtime-only Inspector session without replacing Node debugger ownership",
+  "nextAction": "Inspect the actual dynamic symbol table before attempting another native interface; no memory-offset fallback and no identical full-suite rerun",
+  "limitations": [
+    "Build success is not runtime availability or correctness evidence",
+    "No comparison timing or native handle cleanup result was reached",
+    "This does not alter released replay keys, action packaging, test timeouts or performance targets"
+  ]
+}
