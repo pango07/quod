@@ -2,9 +2,13 @@
 // Never modifies a registry, exposes a reference, or authorizes replay.
 // Private runtime shapes are not a supported product contract.
 import {Session} from 'node:inspector'
+import {createHash} from 'node:crypto'
 
 export function inspectPromiseObservers() {
   const session=new Session()
+  const scripts=new Map()
+  session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,{
+    url:params.url,isModule:params.isModule===true,hasSourceURL:params.hasSourceURL===true}))
   let failure=null, closed=false
   function post(method,params={}) {
     let done=false,result,error
@@ -32,10 +36,26 @@ export function inspectPromiseObservers() {
     }
     throw Error('runtime binding unavailable: '+name)
   }
+  function same(a,b) {
+    if(!a || !b) return false
+    const r=post('Runtime.callFunctionOn',{objectId:a,
+      functionDeclaration:'function(other){return this===other}',
+      arguments:[{objectId:b}],returnByValue:true,silent:true})
+    return !r.exceptionDetails && r.result?.value===true
+  }
+  function functionSource(fn) {
+    const location=properties(fn).internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
+    if(!location?.scriptId) return {location:null}
+    const source=post('Debugger.getScriptSource',{scriptId:location.scriptId}).scriptSource
+    if(typeof source!=='string') throw Error('function source unavailable')
+    return {location,script:scripts.get(location.scriptId)??null,
+      sourceSha256:createHash('sha256').update(source).digest('hex')}
+  }
   const kinds=['init','before','after','settled']
   let lists={}, fields=null, indices={}, active=null, owned=null
   try {
     session.connect()
+    post('Debugger.enable')
     for(const kind of kinds) {
       const name='on'+kind[0].toUpperCase()+kind.slice(1)
       lists[kind]=binding(builtin(`process.getBuiltinModule('v8').promiseHooks.${name}`),'list').objectId
@@ -54,6 +74,22 @@ export function inspectPromiseObservers() {
     }
   } catch(e) {failure=e.message}
   return {
+    nativeStatProvenance() {
+      // Capture before wrapping fs. Do not equate matching names/source
+      // with native provenance: these are diagnostic facts for review.
+      try {
+        const stat=builtin("process.getBuiltinModule('fs').promises.stat")
+        const convert=binding(stat,'getStatsFromBinding').objectId
+        const ctor=binding(convert,'Stats').objectId
+        const native=binding(stat,'binding').objectId
+        const nativeStat=prop(native,'stat')
+        return {available:true,stat:functionSource(stat),convert:functionSource(convert),constructor:functionSource(ctor),
+          publicConstructorMatches:same(ctor,builtin("process.getBuiltinModule('fs').Stats")),
+          bindingStat:functionSource(nativeStat?.objectId),
+          bindingStatDescriptionSha256:createHash('sha256').update(nativeStat?.description??'').digest('hex'),
+          replayEligible:false}
+      } catch(e) {return {available:false,reason:e.message,replayEligible:false}}
+    },
     captureOwned() {
       if(failure || closed || owned) return false
       try {
@@ -80,10 +116,7 @@ export function inspectPromiseObservers() {
             const fn=length===1 ? prop(lists[kind],'0') : null
             identities[kind]=false
             if(fn?.type==='function' && fn.objectId) {
-              const r=post('Runtime.callFunctionOn',{objectId:owned[kind],
-                functionDeclaration:'function(other){return this===other}',
-                arguments:[{objectId:fn.objectId}],returnByValue:true,silent:true})
-              identities[kind]=!r.exceptionDetails && r.result?.value===true
+              identities[kind]=same(owned[kind],fn.objectId)
             }
           }
         }

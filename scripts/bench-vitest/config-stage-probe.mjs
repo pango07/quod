@@ -219,7 +219,16 @@ if (mode) {
     }
   }
   const records = cases.map(([name]) => JSON.parse(fs.readFileSync(path.join(out, name+'.json'), 'utf8')))
-  console.log(JSON.stringify(records.map(r => ({ mode:r.mode, configure_ms:r.configure_ms, selection_ms:r.selection_ms, projects:r.projects.length, files:r.files.length, configHash:r.configHash, filesHash:r.filesHash, replayEligible:r.replayEligible, proof:r.proof })), null, 2))
+  // Full traces stay in the artifact. Printing every checkpoint grew the
+  // GitHub log past 100,000 lines without adding validation evidence.
+  const summaryProof=p=>!asyncStatSites ? p : {
+    statStats:p.statStats,metadataKeyCount:p.metadataKeys.length,
+    asyncStats:{replayEligible:false,calls:p.asyncStats.calls.length,
+      sizeConsumers:p.asyncStats.calls.filter(c=>c.sizeConsumer).length,
+      ownNativeContinuations:p.asyncStats.calls.filter(c=>c.rootSettledFromOwnReaction).length,
+      onlyOwnedHooks:p.asyncStats.calls.filter(c=>c.observedOnlyOwnedHooks).length,
+      nativeStatProvenance:p.asyncStats.nativeStatProvenance}}
+  console.log(JSON.stringify(records.map(r => ({ mode:r.mode, configure_ms:r.configure_ms, selection_ms:r.selection_ms, projects:r.projects.length, files:r.files.length, configHash:r.configHash, filesHash:r.filesHash, replayEligible:r.replayEligible, proof:summaryProof(r.proof) })), null, 2))
   if (process.env.QUOD_CONFIG_NAMES_PROOF === '1') {
     for (const record of records) {
       if (!record.proof?.stats.ignored) throw Error(`names proof did not recognize the actual loaded configuration: ${record.mode}`)

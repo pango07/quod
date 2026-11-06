@@ -9,6 +9,7 @@ import {inspectPromiseObservers} from './promise-observers-probe.mjs'
 export function observeAsyncStat(project) {
   const observerRegistry=inspectPromiseObservers()
   const initialObservers=observerRegistry.snapshot()
+  const nativeStatProvenance=observerRegistry.nativeStatProvenance()
   const original=fs.promises.stat, NativeStats=fs.Stats
   const descriptors=Object.getOwnPropertyDescriptors, descriptor=Object.getOwnPropertyDescriptor
   const getPrototypeOf=Object.getPrototypeOf, ownKeys=Reflect.ownKeys, apply=Reflect.apply
@@ -77,7 +78,7 @@ export function observeAsyncStat(project) {
   return {
     setConsumerProof(proof){consumerProof=proof},
     report() {
-      return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,
+      return {replayEligible:false,eventMismatch,initialObservers,ownedCaptured,nativeStatProvenance,
         preloadModules:[...(process._preload_modules??[])],
         nativeStatSource:Function.prototype.toString.call(original),
         nativeStatSourceHash:crypto.createHash('sha256').update(Function.prototype.toString.call(original)).digest('hex'),
