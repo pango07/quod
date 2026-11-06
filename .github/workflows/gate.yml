@@ -759,8 +759,9 @@ jobs:
           QUOD_CONFIG_RESOLVER_PROBE: ${{ (inputs.only == 'benchmark-resolver' || inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')) && '1' || '0' }}
           QUOD_CONFIG_BOOLEAN_PROBE: ${{ (inputs.only == 'benchmark-boolean' || startsWith(inputs.only, 'benchmark-query')) && '1' || '0' }}
           QUOD_CONFIG_QUERY_PROBE: ${{ startsWith(inputs.only, 'benchmark-query') && '1' || '0' }}
-          QUOD_CONFIG_QUERY_SITES: ${{ (inputs.only == 'benchmark-query-sites' || inputs.only == 'benchmark-query-async') && '1' || '0' }}
+          QUOD_CONFIG_QUERY_SITES: ${{ (inputs.only == 'benchmark-query-sites' || inputs.only == 'benchmark-query-async' || inputs.only == 'benchmark-query-runtime') && '1' || '0' }}
           QUOD_CONFIG_ASYNC_SITES: ${{ inputs.only == 'benchmark-query-async' && '1' || '0' }}
+          QUOD_CONFIG_RUNTIME_SITES: ${{ inputs.only == 'benchmark-query-runtime' && '1' || '0' }}
         run: node scripts/bench-vitest/config-stage-probe.mjs "$PWD/profile-project" /tmp/quod-config-probe
       - name: Async consumer syntax and escape regressions
         if: inputs.only == 'benchmark-query-async'

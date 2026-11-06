@@ -20,6 +20,10 @@ const booleanProbe = process.env.QUOD_CONFIG_BOOLEAN_PROBE === '1'
 const queryProbe = process.env.QUOD_CONFIG_QUERY_PROBE === '1'
 const querySites = process.env.QUOD_CONFIG_QUERY_SITES === '1'
 const asyncSites = process.env.QUOD_CONFIG_ASYNC_SITES === '1'
+// Runtime metadata diagnostics use the current checkout, execute the full
+// suite, and observe only the main process. They never produce a ledger.
+const runtimeSites = process.env.QUOD_CONFIG_RUNTIME_SITES === '1'
+const runSuite = booleanProbe && (!querySites || runtimeSites)
 const workspacePkg = path.join(project, 'packages/convex-helpers/package.json')
 const workspaceOriginal = fs.existsSync(workspacePkg) ? fs.readFileSync(workspacePkg, 'utf8') : null
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -55,7 +59,7 @@ if (mode) {
   const vp = JSON.parse(fs.readFileSync(vitestPkgPath, 'utf8'))
   const entry = vp.exports['./node']
   const rel = typeof entry === 'string' ? entry : entry.import ?? entry.default
-  let recorder = null, namesProof = null, settledKeys = null, booleanProof = null
+  let recorder = null, namesProof = null, settledKeys = null, booleanProof = null, statProof = null
   const booleanReads = new Map()
   const readSites = new Map()
   const metadataSites = new Map()
@@ -89,8 +93,10 @@ if (mode) {
     }
     const R = await import(recorderUrl.href)
     if (!resolverProbe || queryProbe) namesProof = (await import('../../crates/quod-cli/src/vitest/names-proof.mjs')).createNamesProof()
-    if (queryProbe) booleanProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
-    recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof })
+    if (queryProbe) statProof = (await import('../../crates/quod-cli/src/vitest/boolean-proof.mjs')).createBooleanProof({internalFiles:[recorderUrl.href]})
+    // Match the names-only policy in the real-job metadata probe.
+    booleanProof = runtimeSites ? null : statProof
+    recorder = R.createRecorder({ stateDir:out, mode:'main', namesProof, booleanProof, statProof })
     if (asyncSites) asyncReads = (await import('./async-read-probe.mjs')).observeAsyncReads(recorder, project, [pkgPath, workspacePkg], [recorderUrl.href])
     if (querySites) recorder.observeRead = (kind, p) => {
       if (kind === 'sm' || kind === 'sl') {
@@ -144,7 +150,7 @@ if (mode) {
     const files = specs.map(s => [s.project.name, path.relative(project, s.moduleId), s.pool]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
     if (!files.length || !projects.length) throw Error('missing resolved projects or test selection')
     const selected = performance.now()
-    if (booleanProbe && !querySites) {
+    if (runSuite) {
       // The complete suite, so deferred resolver/cache consumers also read
       // the watched objects. No test file is ever replayed in this probe.
       await ctx.start([])
@@ -161,14 +167,15 @@ if (mode) {
         .map(([p, fields]) => ({path:path.relative(project, p), fields:[...fields].sort().map(s => JSON.parse(s)), broadKeyRetained:recorder.keys.has(`pj:${p}`)})) : undefined,
       booleanReads: booleanProof ? [...booleanReads].map(([p, reads]) => ({path:path.relative(project,p), ...reads, wholeSites:[...reads.wholeSites]})) : undefined,
       booleanStats: booleanProof?.stats,
+      statStats: statProof?.stats,
       asyncReads: asyncReads?.report(),
     } : null
-    const record = { mode, probeSeed, vitest: vp.version, configure_ms: configured-start, selection_ms: selected-configured, run_ms:performance.now()-selected, projects, files, proof,
+    const record = { mode, probeSeed, vitest: vp.version, runtimeSites, observationScope:'main process only', configure_ms: configured-start, selection_ms: selected-configured, run_ms:performance.now()-selected, projects, files, proof,
       configHash: hash(projects.map(({name, workerConfig, context}) => ({name, workerConfig, context}))), filesHash: hash(files),
       replayEligible: false, unvalidated: ['plugin closures and outputs', 'transformed modules and resolution', 'global setup effects', 'runtime observations'] }
     fs.mkdirSync(out, { recursive: true })
     fs.writeFileSync(path.join(out, mode+'.json'), JSON.stringify(record, null, 2))
-  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close(); asyncReads?.close() }
+  } finally { await ctx.close(); namesProof?.close(); booleanProof?.close(); if(statProof!==booleanProof)statProof?.close(); asyncReads?.close() }
 } else {
   let cases = resolverProbe ? [
     ['c3-before-exports', '03ffe84ef'], ['c4-exports', '6b17e1514'], ['c5-workspace-removed', '49a82e544'],
@@ -178,9 +185,13 @@ if (mode) {
     ['after-both', null],
   ]
   if (querySites) cases=cases.slice(0,1)
+  if (runtimeSites) cases=[['current-runtime', null]]
   try {
     for (const [name, versions] of cases) {
-      if (resolverProbe) {
+      if (runtimeSites) {
+        // Keep the exact current manifests, including an absent workspace
+        // manifest; this is not a synthetic historical manifest variant.
+      } else if (resolverProbe) {
         const manifest = spawnSync('git', ['show', `${versions}:package.json`], {cwd:project, encoding:'utf8'})
         if (manifest.status !== 0) throw Error(`missing historical manifest: ${versions}`)
         fs.writeFileSync(pkgPath, manifest.stdout)
@@ -197,8 +208,8 @@ if (mode) {
       if (result.status !== 0) throw Error(`configuration probe ${name} failed: ${result.status}`)
     }
   } finally {
-    fs.writeFileSync(pkgPath, original)
-    if (resolverProbe) {
+    if (!runtimeSites) fs.writeFileSync(pkgPath, original)
+    if (resolverProbe && !runtimeSites) {
       if (workspaceOriginal === null) fs.rmSync(workspacePkg, {force:true})
       else fs.writeFileSync(workspacePkg, workspaceOriginal)
     }
@@ -212,14 +223,14 @@ if (mode) {
       if (record.proof.manifestKeys.some(k => JSON.parse(k.split('\0')[1]).some(p => p.length > 1))) throw Error(`copied version values remain inputs: ${record.mode}`)
     }
   }
-  if (booleanProbe && !querySites) {
+  if (runSuite) {
     const states = cases.map(([name]) => {
       const report = JSON.parse(fs.readFileSync(path.join(out, name+'-tests.json'), 'utf8'))
       if (!report.success || !report.testResults?.length) throw Error(`incomplete test evidence: ${name}`)
       return report.testResults.map(f => [f.name, f.assertionResults.map(a => [a.fullName, a.status]).sort()]).sort()
     })
     if (states.some(s => JSON.stringify(s) !== JSON.stringify(states[0]))) throw Error('manifest diagnostic per-test states differed')
-    console.log(`Full-suite diagnostic: ${states[0].length} files agree across all three manifest states; no replay authorized.`)
+    console.log(`Full-suite diagnostic: ${states[0].length} files checked across ${cases.length} manifest states; no replay authorized.`)
   }
   if (queryProbe && !querySites) {
     for (const record of records) {
