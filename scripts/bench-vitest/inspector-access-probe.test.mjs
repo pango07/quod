@@ -47,7 +47,8 @@ console.log(JSON.stringify({before,after,registries,afterRegistries,sawMetadata,
   return JSON.parse(r.stdout)
 }
 
-for(const kind of ['none','existing','public','cached']) test('Inspector entry diagnostic: '+kind,()=>{
+let baselineCount=null
+for(const kind of ['none','existing','public','cached']) test('Inspector entry diagnostic: '+kind,t=>{
   const r=run(kind)
   assert.ok(r.sizeValue>0)
   assert.equal(r.before.available,true,JSON.stringify(r.before))
@@ -57,8 +58,11 @@ for(const kind of ['none','existing','public','cached']) test('Inspector entry d
   assert.deepEqual(r.afterRegistries.promiseHooks,r.registries.promiseHooks)
   assert.equal(r.afterRegistries.asyncHooks.kTotals,0)
   assert.equal(r.before.initial.listenerOpen,false,'a local session need not open a network listener')
-  assert.equal(r.before.initial.localConnectionObjects,kind==='existing'?2:1)
+  if(kind==='none') baselineCount=r.before.initial.localConnectionObjects
+  assert.ok(baselineCount>=1)
+  assert.equal(r.before.initial.localConnectionObjects,baselineCount+(kind==='existing'?1:0),JSON.stringify(r))
   assert.equal(r.sawMetadata,kind!=='none','a local size consumer does not exclude heap observation')
   const entries=r.after.entries.flatMap(e=>e.entries)
-  assert.deepEqual(entries,kind==='public'||kind==='cached'?['Connection']:[])
+  assert.deepEqual(entries,kind==='public'||kind==='cached'?['Connection']:[],JSON.stringify(r))
+  t.diagnostic(JSON.stringify({kind,initial:r.before.initial,entries,sawMetadata:r.sawMetadata}))
 })

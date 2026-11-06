@@ -105,19 +105,25 @@ export function inspectPromiseObservers() {
       const objects=post('Runtime.queryObjects',{prototypeObjectId:prototype,
         objectGroup:'quod-observer-diagnostic'}).objects.objectId
       const objectsList=properties(objects).result.filter(p=>/^\d+$/.test(p.name))
-      // queryObjects includes the prototype itself. Exclude that exact
-      // identity, never an assumed count or an object with a similar name.
+      // Exclude the prototype only if its exact identity appears. The
+      // census includes native template objects, so a raw count must not
+      // be interpreted as a count of live connected sessions.
       const prototypeObjects=objectsList.filter(p=>same(p.value?.objectId,prototype)).length
       inspectorInitial={localConnectionObjects:objectsList.length-prototypeObjects,prototypeObjects,
+        objects:objectsList.map(p=>({description:p.value?.description,
+          properties:properties(p.value?.objectId).result.map(v=>v.name),
+          isPrototype:same(p.value?.objectId,prototype)})),
         listenerOpen:post('Runtime.callFunctionOn',{objectId:prop(inspector,'isEnabled').objectId,
           functionDeclaration:'function(){return this()}',returnByValue:true,silent:true}).result?.value}
       if(!Number.isInteger(inspectorInitial.localConnectionObjects) ||
          typeof inspectorInitial.listenerOpen!=='boolean') throw Error('unknown inspector startup state')
       session.on('Debugger.paused',({params})=>{
         const entries=(params.hitBreakpoints??[]).map(id=>inspectorBreakpoints.get(id)).filter(Boolean)
-        if(entries.length) inspectorEntries.push({entries,frames:params.callFrames.slice(0,8).map(f=>({
-          name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))})
-        try {post('Debugger.resume')} catch {inspectorFailure='could not resume inspector entry'}
+        if(entries.length) {
+          inspectorEntries.push({entries,frames:params.callFrames.slice(0,8).map(f=>({
+            name:f.functionName,location:f.location,script:scripts.get(f.location.scriptId)??null}))})
+          try {post('Debugger.resume')} catch {inspectorFailure='could not resume inspector entry'}
+        } else inspectorFailure='unrelated debugger pause'
       })
       for(const name of ['Connection','MainThreadConnection','open']) {
         const fn=prop(inspector,name)
