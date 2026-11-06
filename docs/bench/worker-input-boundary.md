@@ -1974,3 +1974,54 @@ remaining work includes observations before Node dispatch, copies made while
 Vitest transforms RPC metadata, removal of the extra Promise reaction, and
 complete worker filesystem/environment and parent-effect coverage. The
 production replay predicates and product savings claims remain unchanged.
+
+## Invocation checks and lazy global side effects
+
+`0fa9d81` adds entry-time checks for the warning wrapper's mutable
+`Reflect.apply`, Node's single-listener `.apply`, and the exact private symbol
+used as an array emission counter. Regressions cover temporary replacements
+that copy a message and restore themselves before forwarding, accessors,
+proxies, a lexical `Reflect` shadow, and bypassing the wrapper. Removed
+secondary listeners must become collectible while the observer is still live.
+
+The [first gate](https://github.com/pango07/quod/actions/runs/42297523871)
+correctly rejects both altered global `Reflect` cases, but fails their
+no-induced-read assertions: each performs 18 reads instead of the one
+application read. [Bounded caller evidence at `ce272b1`](https://github.com/pango07/quod/actions/runs/42298325415)
+identifies the additional reads inside Node's lazy Undici initialization.
+`Runtime.getProperties` on the entire global object caused that initialization.
+Node's [pinned bootstrap source](https://github.com/nodejs/node/blob/v24.18.0/lib/internal/bootstrap/web/exposed-window-or-worker.js)
+exposes its HTTP-related interfaces lazily; enumerating the global is not a
+side-effect-free way to inspect one property.
+
+`b18bd6a` queries only the own `Reflect` descriptor through a captured
+`Object.getOwnPropertyDescriptor` function. The descriptor and its descendants
+belong to the transient event handle group. The strict getter/trap assertions
+remain unchanged; additional checks require Undici to remain uninitialized
+and a replacement public descriptor API to receive no calls. This does not
+certify the captured builtin's integrity before the diagnostic starts.
+
+The [full `b18bd6a` gate](https://github.com/pango07/quod/actions/runs/42298666962)
+passes 396 preflight tests and all three workload phases. Each phase retains
+120 file/project instances and the same 4,131 states (4,130 passed, one skipped).
+Baseline is 100.200 seconds; observed runs are 135.583 and 135.254 seconds
+(1.353x and 1.350x baseline). The substantially different baseline prevents
+attributing absolute timing changes to the invocation checks.
+
+Every one of the 1,771 before-change and 1,766 after-change messages passes
+the wrapper, Node array-invocation and callback-pairing checks. All 10,611
+transient handle groups are released, with no pending messages or recorded
+failures. All 240 observed workers retain the original configuration and
+record zero seed reads. Each observed phase reconciles 2,581 scalar reads,
+without metadata gaps or transport failures. Evaluator code sequences match
+in all 120 workers; full compilation sequences still differ in all 120.
+The source-accounting partition retains 25,671 and 25,616 unmatched anonymous
+events, with equal unmatched sequences in 88 workers. Complete counters and
+artifact digests are in [the evidence record](worker-message-dispatch.json).
+No production replay predicate or savings claim changes.
+
+Primary V8 source also confirms the earlier comparator-format observation:
+[`innerCallFunctionOn`](https://github.com/nodejs/node/blob/v24.18.0/deps/v8/src/inspector/v8-runtime-agent-impl.cc#L156)
+compiles `"(" + expression + ")"`. Current source accounting still retains
+those parenthesized events as unmatched. A separately tested accounting change
+is required; matching the format would not establish ownership or replay safety.
