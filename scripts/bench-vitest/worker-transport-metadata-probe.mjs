@@ -2,11 +2,12 @@
 // Proxies and an extra Promise reaction are observable, and earlier raw aliases
 // are not excluded. This never grants replay authority.
 import {types} from 'node:util'
+const isProxy=types.isProxy
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty
 const apply=Reflect.apply,then=Promise.prototype.then
 function data(object,key) {
-  if(!object||typeof object!=='object'||types.isProxy(object))throw Error('unsupported transport object')
+  if(!object||typeof object!=='object'||isProxy(object))throw Error('unsupported transport object')
   const d=descriptor(object,key)
   if(d&&!Object.hasOwn(d,'value'))throw Error('transport accessor')
   return d?.value
@@ -45,7 +46,7 @@ export function observeTransportMetadata(VitestTransport,metadata) {
       if(method==='fetch') {
         replace(message,'r',metadata.observeMetadata(value,'rpc:fetch'));counts.rpcMetadata++
       } else {
-        if(!value||typeof value!=='object'||types.isProxy(value))throw Error('unsupported warm module map')
+        if(!value||typeof value!=='object'||isProxy(value))throw Error('unsupported warm module map')
         const proto=Object.getPrototypeOf(value)
         if(proto!==null&&proto!==Object.prototype)throw Error('unsupported warm module prototype')
         for(const key of Reflect.ownKeys(value)) {

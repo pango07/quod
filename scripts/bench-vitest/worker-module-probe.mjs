@@ -4,6 +4,7 @@ import {Session} from 'node:inspector'
 import {compiledScriptLog} from './compiled-script-log.mjs'
 import {createHash} from 'node:crypto'
 import {types} from 'node:util'
+const isProxy=types.isProxy
 import {fingerprint} from './worker-input-probe.mjs'
 
 const apply=Reflect.apply,descriptor=Object.getOwnPropertyDescriptor
@@ -14,7 +15,7 @@ const sourceDigest=value=>({encoding:'utf16le',bytes:Buffer.byteLength(value,'ut
 function metadataFields(value) {
   try {
     if(value===undefined)return {available:true,fields:{}}
-    if(!value||typeof value!=='object'||types.isProxy(value))throw Error('unsupported module metadata')
+    if(!value||typeof value!=='object'||isProxy(value))throw Error('unsupported module metadata')
     const fields={}
     for(const name of Reflect.ownKeys(value)) {
       if(typeof name!=='string')throw Error('symbol metadata field')
@@ -26,7 +27,7 @@ function metadataFields(value) {
   }catch(e){return {available:false,reason:e.message}}
 }
 function field(object,name) {
-  if(!object||typeof object!=='object'||types.isProxy(object))throw Error('unsupported module object')
+  if(!object||typeof object!=='object'||isProxy(object))throw Error('unsupported module object')
   const d=descriptor(object,name)
   if(!d)return undefined
   if(!Object.hasOwn(d,'value'))throw Error('module accessor')

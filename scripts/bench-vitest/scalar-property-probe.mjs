@@ -2,6 +2,7 @@
 // property through its existing aliases. The descriptor changes, earlier
 // copies remain invisible, and native descriptor reads are not excluded.
 import {types,getCallSites} from 'node:util'
+const isProxy=types.isProxy
 
 const descriptor=Object.getOwnPropertyDescriptor,define=Object.defineProperty
 const scalar=v=>v===null||!['object','function'].includes(typeof v)
@@ -22,7 +23,7 @@ export function observeScalarProperty(target,key,{sourceForScript=null,onOperati
     }catch{gaps.add('scalar read observation unavailable')}
   }
   try {
-    if(!target||typeof target!=='object'||types.isProxy(target))throw Error('unsupported scalar owner')
+    if(!target||typeof target!=='object'||isProxy(target))throw Error('unsupported scalar owner')
     if(typeof key!=='string')throw Error('unsupported scalar key')
     original=descriptor(target,key)
     if(!original||!Object.hasOwn(original,'value')||!original.configurable||!original.writable)throw Error('unsupported scalar descriptor')

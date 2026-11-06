@@ -4,6 +4,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { types } = require('node:util')
+const isProxy = types.isProxy
 const own = Object.hasOwn
 const getDescriptor = Reflect.getOwnPropertyDescriptor
 const getPrototype = Reflect.getPrototypeOf
@@ -31,7 +32,7 @@ function observeConfig(config) {
   function wrap(value, keys) {
     if (!value || typeof value !== 'object') return value
     if (cache.has(value)) return cache.get(value)
-    if (types.isProxy(value)) { gap('existing proxy', keys); return value }
+    if (isProxy(value)) { gap('existing proxy', keys); return value }
     const p = getPrototype(value)
     if (p !== Object.prototype && p !== Array.prototype && p !== null) {
       gap('non-plain object', keys); return value

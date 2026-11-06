@@ -2,6 +2,7 @@
 // the state cleared by invalidation. Original aliases/native reads can bypass
 // these proxies, and accessor installation is observable: never replay authority.
 import {types,getCallSites} from 'node:util'
+const isProxy=types.isProxy
 import {fingerprint} from './worker-input-probe.mjs'
 import {observeScalarProperty} from './scalar-property-probe.mjs'
 
@@ -21,7 +22,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     else overflow=true
   }
   function ownData(value,key) {
-    if(!value||typeof value!=='object'||types.isProxy(value))throw Error('unsupported module node')
+    if(!value||typeof value!=='object'||isProxy(value))throw Error('unsupported module node')
     const d=descriptor(value,key)
     if(!d)return undefined
     if(!Object.hasOwn(d,'value'))throw Error('module node accessor')
@@ -41,7 +42,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     if(proxyToRaw.has(value))value=proxyToRaw.get(value)
     let m=metadata.get(value)
     if(m){m.owners.add(owner);m.origins.add(origin);return m.proxy}
-    if(typeof value!=='object'||types.isProxy(value)){gaps.add('unsupported metadata value');return value}
+    if(typeof value!=='object'||isProxy(value)){gaps.add('unsupported metadata value');return value}
     const proto=Object.getPrototypeOf(value)
     if(proto!==Object.prototype&&proto!==null){gaps.add('non-plain metadata');return value}
     if(metadata.size>=10000){overflow=true;return value}
@@ -95,7 +96,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     const tracked=nodes.get(node)
     const raw=tracked?tracked.raw():ownData(node,'meta')
     const imports=ownData(node,'imports')
-    if(!imports||types.isProxy(imports)||!types.isSet(imports))throw Error('unknown module imports')
+    if(!imports||isProxy(imports)||!types.isSet(imports))throw Error('unknown module imports')
     const evaluated=ownData(node,'evaluated')
     if(typeof evaluated!=='boolean')throw Error('unknown module evaluation state')
     invalidations.push({identity:tracked?.id??fingerprint({id:ownData(node,'id'),url:ownData(node,'url')}),

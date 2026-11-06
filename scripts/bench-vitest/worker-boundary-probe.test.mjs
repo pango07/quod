@@ -2,9 +2,28 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import {createHash} from 'node:crypto'
+import {types} from 'node:util'
+import {fingerprint} from './worker-input-probe.mjs'
 import {observeModuleEvaluation} from './worker-module-probe.mjs'
 import {observeModuleMetadata} from './worker-module-metadata-probe.mjs'
 import {inspectPromiseObservers} from './promise-observers-probe.mjs'
+
+test('diagnostic fingerprints retain their captured native proxy check after a public property replacement',()=>{
+  const original=types.isProxy,p=inspectPromiseObservers({proxyAccess:true,heapIdentity:true,moduleBindingEvaluation:true})
+  let replacements=0,traps=0,plain,proxy,report
+  try {
+    types.isProxy=()=>{replacements++;throw Error('replacement must not execute')}
+    plain=fingerprint({answer:42})
+    proxy=fingerprint(new Proxy({},{ownKeys(){traps++;throw Error('proxy must not be enumerated')}}))
+    report=p.proxyAccess()
+  }finally{types.isProxy=original;p.close()}
+  assert.equal(replacements,0);assert.equal(traps,0)
+  assert.equal(plain.available,true);assert.equal(proxy.available,false)
+  const entries=report.entries.filter(e=>e.entries.includes('util.types.isProxy'))
+  assert(entries.some(e=>e.argument.available&&e.argument.kind==='object'),JSON.stringify(report))
+  assert(entries.some(e=>e.argument.available&&e.argument.kind==='proxy'),JSON.stringify(report))
+  assert.equal(report.replayEligible,false)
+})
 
 test('code observation reads only its own metadata accessor and rejects a replacement without invoking it',()=>{
   class Graph {

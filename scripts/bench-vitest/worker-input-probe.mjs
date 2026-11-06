@@ -3,6 +3,7 @@
 // This is not a complete dependency certificate and never permits replay.
 import {createHash} from 'node:crypto'
 import {types} from 'node:util'
+const isProxy=types.isProxy
 import fs from 'node:fs'
 
 const {openSync,closeSync,fstatSync,readFileSync}=fs
@@ -29,7 +30,7 @@ export function fingerprint(value) {
     if(typeof v==='number')return ['number',Object.is(v,-0)?'-0':String(v)]
     if(typeof v==='bigint')return ['bigint',v.toString()]
     if(typeof v!=='object')throw Error('unsupported value type')
-    if(types.isProxy(v))throw Error('proxy value')
+    if(isProxy(v))throw Error('proxy value')
     if(seen.has(v))return ['ref',seen.get(v)]
     const id=seen.size;seen.set(v,id)
     const p=proto(v),ds=descriptors(v)
@@ -44,7 +45,7 @@ export function fingerprint(value) {
 }
 
 function values(object) {
-  if(!object||typeof object!=='object'||types.isProxy(object))throw Error('unknown packet')
+  if(!object||typeof object!=='object'||isProxy(object))throw Error('unknown packet')
   const ds=descriptors(object),out=Object.create(null)
   for(const [k,d] of Object.entries(ds)) {
     if(!own(d,'value'))throw Error('accessor packet')
