@@ -81,7 +81,13 @@ if(phase) {
   }
 }else {
   function run(name) {
-    const r=spawnSync(process.execPath,[self,project,out,name],{cwd:project,encoding:'utf8',timeout:420000,maxBuffer:32*1024*1024})
+    // The combined Inspector diagnostic records millions of native entries.
+    // Bound its collection time separately from Vitest's unchanged test
+    // timeouts and from the real product benchmark's speed target.
+    const timeoutMs=boundaryProbe&&name!=='baseline'?900000:420000,started=performance.now()
+    const r=spawnSync(process.execPath,[self,project,out,name],{cwd:project,encoding:'utf8',timeout:timeoutMs,maxBuffer:32*1024*1024})
+    write(path.join(out,name+'-phase.json'),{phase:name,timeoutMs,elapsedMs:performance.now()-started,
+      status:r.status,signal:r.signal,errorCode:r.error?.code??null})
     fs.writeFileSync(path.join(out,name+'.log'),(r.stdout??'')+(r.stderr??''))
     assert.equal(r.error,undefined);assert.equal(r.status,0,'plain Vitest failed; see '+name+'.log')
     const s=states(path.join(out,name+'-tests.json'))

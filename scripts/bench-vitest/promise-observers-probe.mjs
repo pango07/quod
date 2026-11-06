@@ -125,7 +125,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         overflow:nativeDescriptorLog?.counts().overflow??descriptorOverflow,
         ...(nativeDescriptorLog?{nativeLog:nativeDescriptorLog.counts()}:{}),
         ...(nativeEntryObserver?{stack:frames}:{}),
-        compilation:{...compilationLog.counts(),failedToParse},argumentDiagnostics:argumentDiagnostics(),
+        compilation:{...compilationLog.counts(),failedToParse,
+          ...(compilationRecorder?{sourceCache:compilationRecorder.counts()}: {})},argumentDiagnostics:argumentDiagnostics(),
         identity:nativeEntryObserver?{mode:'native-entry-arguments',snapshotsRequested:0}:
           heapIdentityObserver?.report()??{mode:'compiled-comparison'},replayEligible:false})
     }catch{descriptorFailure='descriptor progress checkpoint failed'}

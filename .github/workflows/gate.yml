@@ -858,7 +858,7 @@ jobs:
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.only == 'benchmark-worker-boundary' && 15 || 12 }}
+    timeout-minutes: ${{ inputs.only == 'benchmark-worker-boundary' && 35 || 12 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
