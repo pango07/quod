@@ -257,6 +257,7 @@ if(phase) {
           const evidence=x.native.descriptors.sourceEvidence
           assert(evidence?.available&&evidence.scope==='frames-of-watched-accessor-targets',
             'watched target call stacks must retain actual V8 source evidence')
+          assert.equal(evidence.collection,'at-native-entry')
           const sourceIds=new Set(evidence.records.filter(r=>r.available&&r.code.encoding==='utf16le').map(r=>r.scriptId))
           for(const entry of x.native.descriptors.entries)if(entry.argument.target?.watchedAccessorKeys.length)
             assert(nativeEntryFrames(x.native.descriptors,entry).every(f=>sourceIds.has(f.location.scriptId)),
@@ -271,6 +272,7 @@ if(phase) {
           assert.equal(x.metadata.observation,'accessor')
           for(const field of ['evaluation','compilation'])assert(!x.boundary[field].errors.length&&!x.boundary[field].overflow)
           assert(x.boundary.compilation.enabled&&!x.boundary.compilation.completeCompilationCoverage)
+          assert.equal(x.boundary.compilation.debuggerScriptCacheBytes,0)
           assert(x.boundary.compilation.scriptMetadataIndex&&!x.boundary.compilation.scriptMetadataIndex.overflow)
           assert.equal(x.boundary.compilation.scriptMetadataIndex.failures,0)
           assert.equal(x.boundary.compilation.scriptMetadataIndex.events+x.boundary.compilation.failedToParse,

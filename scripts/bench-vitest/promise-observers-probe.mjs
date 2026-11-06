@@ -79,6 +79,13 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
   const commandTiming=new Map()
   const pauseTiming={calls:0,elapsedMs:0}
   const nativeEntryObserver=nativeEntries?observeNativeEntryArguments(post,{targetAccessorsOnly:true,directArguments:true,nativeCapture:true,ordinaryOwners,onEntry(entry) {
+    // Resolve every watched frame while it is still live. Retired Inspector
+    // source caches may then be bounded without losing deferred report proof.
+    // Missing source is an observation failure, never an ownership exemption.
+    if(entry.target?.watchedAccessorKeys.length)for(const frame of entry.frames) {
+      const evidence=sourceForScript(frame.scriptId)
+      if(!evidence.available)descriptorFailure='watched caller source unavailable at native entry'
+    }
     const frames=entry.frames.map(f=>({name:f.name,
       location:{scriptId:f.scriptId,lineNumber:f.line-1,columnNumber:f.column-1},script:scripts.get(f.scriptId)??null}))
     const argument={available:entry.available!==false,kind:entry.kind,...(entry.reason?{reason:entry.reason}:{}),...(entry.target?{target:entry.target}:{}),
@@ -226,7 +233,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
       session.on('Runtime.exceptionThrown',({params})=>nativeEntryObserver.handleException(params))
       post('Runtime.enable')
     }
-    post('Debugger.enable')
+    post('Debugger.enable',nativeEntries&&compiledScripts?{maxScriptsCacheSize:0}:{})
     if(heapIdentity) {
       heapIdentityObserver=observeHeapNativeIdentity(post)
       if(!heapIdentityObserver.report().available)throw Error('native heap identity setup failed')
@@ -466,6 +473,7 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
     compiledScriptReport() {
       return {enabled:compiledScripts,replayEligible:false,completeCompilationCoverage:false,
         ...compilationLog.report(),errors:[...compilationErrors],failedToParse,
+        debuggerScriptCacheBytes:nativeEntries&&compiledScripts?0:null,
         ...(nativeEntries?{scriptMetadataIndex:scripts.counts()}:{}),
         limitation:'Debugger-reported scripts can omit unbound compilations and do not certify complete worker inputs'}
     },
@@ -491,7 +499,8 @@ export function inspectPromiseObservers({proxyAccess=false,hookAccess=false,comp
         for(const entry of log.entries)if(entry.argument.target?.watchedAccessorKeys.length)
           for(const frame of nativeEntryFrames(log,entry))ids.add(frame.location?.scriptId)
         const records=[...ids].map(scriptId=>sourceForScript(scriptId))
-        sourceEvidence={scope:'frames-of-watched-accessor-targets',available:records.every(r=>r.available),records,replayEligible:false}
+        sourceEvidence={scope:'frames-of-watched-accessor-targets',collection:'at-native-entry',
+          available:records.every(r=>r.available),records,replayEligible:false}
       }
       return {available:descriptorAccess&&!failure&&!descriptorFailure&&descriptorBreakpoints.size===descriptorNames.length&&(!nativeEntryObserver||nativeEntryObserver.report().available),
         ...log,...(sourceEvidence?{sourceEvidence}:{}),reason:failure??descriptorFailure,

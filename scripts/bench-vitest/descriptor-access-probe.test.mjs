@@ -73,9 +73,56 @@ console.log(JSON.stringify({report,gets,compilation,timing,setupTiming,setupOpaq
     !Object.hasOwn(e.argument.target,'ownAccessorCount')))
   assert.equal(data.compilation.encoding,'dictionary-v1');assert.deepEqual(data.compilation.errors,[])
   assert.equal(data.compilation.scriptMetadataIndex.overflow,false)
+  assert.equal(data.compilation.debuggerScriptCacheBytes,0)
+  assert.equal(data.report.sourceEvidence.collection,'at-native-entry')
   assert.equal(data.compilation.scriptMetadataIndex.events+data.compilation.failedToParse,data.compilation.events)
   assert(data.compilation.scriptMetadataIndex.entries>data.compilation.scriptMetadataIndex.metadata)
   validateCompilationCounts(data.compilation)
+})
+
+test('watched caller evidence survives collection without any late source request',()=>{
+  const code='return Object.getOwnPropertyDescriptor(value,"tmp")',filename='quod-collected-watched-caller'
+  const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+import {Session} from 'node:inspector';import vm from 'node:vm';
+let gets=0;const target={get tmp(){gets++;return 'private-value'}};
+const p=inspectPromiseObservers({descriptorAccess:true,nativeEntries:true,compiledScripts:true});
+function invoke(){const fn=vm.compileFunction(${JSON.stringify(code)},['value'],{filename:${JSON.stringify(filename)}});fn(target);return new WeakRef(fn)}
+const reference=invoke();await new Promise(resolve=>setImmediate(resolve));
+for(let i=0;i<5;i++)globalThis.gc();const collected=reference.deref()===undefined;
+const original=Session.prototype.post;let lateRequests=0,report,compilation;
+Session.prototype.post=function(method,params,callback){if(method==='Debugger.getScriptSource'){lateRequests++;callback(Error('retired source unavailable'));return}return original.call(this,method,params,callback)};
+try{report=p.descriptorAccess();compilation=p.compiledScriptReport()}finally{Session.prototype.post=original;p.close()}
+console.log(JSON.stringify({report,compilation,gets,collected,lateRequests}));`
+  const r=spawnSync(process.execPath,['--expose-gc','--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+  assert.equal(r.status,0,r.stderr||String(r.error));const data=JSON.parse(r.stdout)
+  assert(data.collected);assert.equal(data.lateRequests,0);assert.equal(data.gets,0)
+  assert(data.report.available&&data.report.sourceEvidence.available)
+  assert.equal(data.report.sourceEvidence.collection,'at-native-entry')
+  assert.equal(data.compilation.debuggerScriptCacheBytes,0);assert.deepEqual(data.compilation.errors,[])
+  const evidence=data.report.sourceEvidence.records.filter(s=>s.script.url===filename)
+  assert.equal(evidence.length,1)
+  assert.equal(evidence[0].code.sha256,createHash('sha256').update(code,'utf16le').digest('hex'))
+  validateCompilationCounts(data.compilation)
+})
+
+test('measure Inspector retired-source cache while checking every compilation before collection',t=>{
+  const rows=[]
+  for(const bounded of [false,true]) {
+    const source=`import {Session} from 'node:inspector';import vm from 'node:vm';
+const session=new Session();session.connect();let matches=0,errors=0;
+function post(method,params={}){let done=false,error,result;session.post(method,params,(e,r)=>{done=true;error=e;result=r});if(!done||error)throw error??Error('async');return result}
+session.on('Debugger.scriptParsed',({params})=>{if(!params.url.startsWith('quod-source-cache-'))return;
+try{const index=Number(params.url.slice('quod-source-cache-'.length));const code='1+1; // '+index+'x'.repeat(512);
+if(post('Debugger.getScriptSource',{scriptId:params.scriptId}).scriptSource===code)matches++;else errors++}catch{errors++}});
+post('Debugger.enable',${bounded?'{maxScriptsCacheSize:0}':'{}'});globalThis.gc();const before=process.memoryUsage();
+for(let i=0;i<25000;i++)vm.runInThisContext('1+1; // '+i+'x'.repeat(512),{filename:'quod-source-cache-'+i});
+await new Promise(resolve=>setImmediate(resolve));for(let i=0;i<4;i++)globalThis.gc();const after=process.memoryUsage();
+session.disconnect();console.log(JSON.stringify({bounded:${bounded},compilations:25000,matches,errors,rssDelta:after.rss-before.rss,heapDelta:after.heapUsed-before.heapUsed,externalDelta:after.external-before.external}));`
+    const r=spawnSync(process.execPath,['--expose-gc','--input-type=module','-e',source],{encoding:'utf8',timeout:20000})
+    assert.equal(r.status,0,r.stderr||String(r.error));const row=JSON.parse(r.stdout)
+    assert.equal(row.matches,row.compilations);assert.equal(row.errors,0);rows.push(row)
+  }
+  t.diagnostic(JSON.stringify({inspectorSourceCacheMeasurements:rows,replayEligible:false}))
 })
 
 test('integrated native arguments retain the passed target through bound replacing callees and later mutations',()=>{
