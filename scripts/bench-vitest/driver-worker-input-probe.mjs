@@ -209,7 +209,8 @@ if(phase) {
     const cold=x=>!x.evaluated&&!x.hasMeta&&!x.hasMap&&!x.hasPromise&&!x.hasExports&&x.imports===0
     const metadataResult={replayEligible:false,completeOwnership:false,workers:reports.length,
       fingerprint:first.fingerprint,plainAndProbeFingerprintEqual:first.fingerprint===second.fingerprint,
-      nodes:reports.reduce((n,r)=>n+r.metadata.nodes,0),assignments:reports.reduce((n,r)=>n+r.metadata.assignments,0),
+      nodes:reports.reduce((n,r)=>n+r.metadata.nodes,0),
+      assignments:reports.every(r=>Number.isSafeInteger(r.metadata.assignments))?reports.reduce((n,r)=>n+r.metadata.assignments,0):null,
       metadataObjects:reports.reduce((n,r)=>n+r.metadata.metadata.length,0),operations,operationsByOrigin,transportCounts,
       readerCalls,matchedReaderCalls,readerSources:[...readerSources.values()],unmatchedReaderSources,
       invalidations:invalidations.length,coldInvalidations:invalidations.filter(cold).length,
@@ -243,6 +244,8 @@ if(phase) {
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)
           assert(!x.native.descriptors.overflow&&!x.native.descriptors.completeDescriptorCoverage)
           if(scalarObservation==='native-data') {
+            assert.equal(x.metadata.graphObservation,'unchanged-data')
+            assert.equal(x.metadata.assignments,null,'unchanged graph properties do not observe every assignment')
             assert.equal(x.native.descriptors.available,false,'direct scalar mode must declare the global descriptor census disabled')
             assert.equal(x.native.descriptors.calls,0);assert.deepEqual(x.native.descriptors.entries,[])
           }else assert(x.native.descriptors.available,'listed descriptor APIs must be observed in accessor mode')

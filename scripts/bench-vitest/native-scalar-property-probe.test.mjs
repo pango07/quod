@@ -105,7 +105,7 @@ test('native module metadata retains object identity and snapshots without count
 test('native metadata callback loss cannot be hidden by restoring the original data descriptor',()=>{
   for(const mutate of [raw=>{raw.tmp='/original'},raw=>{const d=Object.getOwnPropertyDescriptor(raw,'tmp');delete raw.tmp;Object.defineProperty(raw,'tmp',d)}]) {
     const registry=inspectPromiseObservers(),Graph=graph(),p=observeModuleMetadata(Graph,{observation,ownerGuard,sourceForScript:registry.sourceForScript})
-    const raw={tmp:'/original'},node=new Graph().ensureModule();node.meta=raw
+    const raw={tmp:'/original'},node=new Graph().ensureModule();p.observeMetadata(raw,'rpc:fetch');node.meta=raw
     try {
       mutate(raw)
       assert.equal(raw.tmp,'/original');assert.equal(p.metadataForNode(node).available,false)
@@ -116,7 +116,7 @@ test('native metadata callback loss cannot be hidden by restoring the original d
 
 test('native metadata rejects replacement getters and newly added unobserved fields',()=>{
   const registry=inspectPromiseObservers(),Graph=graph(),p=observeModuleMetadata(Graph,{observation,ownerGuard,sourceForScript:registry.sourceForScript})
-  const raw={tmp:'/original'},node=new Graph().ensureModule();node.meta=raw
+  const raw={tmp:'/original'},node=new Graph().ensureModule();p.observeMetadata(raw,'rpc:fetch');node.meta=raw
   let gets=0
   try {
     Object.defineProperty(raw,'tmp',{get(){gets++;return '/replacement'},configurable:true})
@@ -126,6 +126,54 @@ test('native metadata rejects replacement getters and newly added unobserved fie
     assert(r.gaps.includes('metadata scalar descriptor unavailable: tmp'))
   }finally{p.close();registry.close()}
   assert.equal(gets,0)
+})
+
+test('native metadata leaves the graph data descriptor and assignment behavior unchanged',()=>{
+  const registry=inspectPromiseObservers(),Graph=graph(),p=observeModuleMetadata(Graph,{observation,ownerGuard,sourceForScript:registry.sourceForScript})
+  const node=new Graph().ensureModule(),raw={tmp:'/transport',invalidate:false}
+  try {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(node,'meta'),{value:undefined,writable:true,enumerable:true,configurable:true})
+    p.observeMetadata(raw,'transport');node.meta=raw
+    const d=Object.getOwnPropertyDescriptor(node,'meta')
+    assert(Object.hasOwn(d,'value'));assert.equal(d.value,raw)
+    assert.equal(Object.prototype.__lookupGetter__.call(node,'meta'),undefined)
+    assert.equal(p.metadataForNode(node).available,true)
+    assert.equal(p.report().events.length,0,'graph snapshots must not read observed scalar values')
+    node.meta=undefined
+    assert.deepEqual(p.metadataForNode(node),{available:true,value:undefined})
+    const replacement={externalize:'node:fs',type:'builtin'};node.meta=replacement
+    assert.deepEqual(p.metadataForNode(node),{available:true,value:replacement})
+    const r=p.report();assert.equal(r.graphObservation,'unchanged-data');assert.equal(r.assignments,null)
+    assert.deepEqual(r.gaps,[]);assert.deepEqual(r.errors,[])
+  }finally{p.close();registry.close()}
+  assert.equal(node.meta.externalize,'node:fs','cleanup must not restore an obsolete graph value')
+})
+
+test('native graph snapshots reject watched metadata that bypassed transport observation',()=>{
+  const registry=inspectPromiseObservers(),Graph=graph(),p=observeModuleMetadata(Graph,{observation,ownerGuard,sourceForScript:registry.sourceForScript})
+  const node=new Graph().ensureModule(),raw={tmp:'/unobserved',invalidate:true}
+  try {
+    const before=Object.getOwnPropertyDescriptors(raw);node.meta=raw
+    assert.equal(p.metadataForNode(node).available,false)
+    assert.deepEqual(Object.getOwnPropertyDescriptors(raw),before,'late snapshots must not retrofit observation')
+    assert(p.report().gaps.includes('module metadata was not observed before storage'))
+    p.observeMetadata(raw,'transport');assert.equal(p.metadataForNode(node).available,true)
+    assert(p.report().gaps.includes('module metadata was not observed before storage'),'later observation cannot erase an earlier gap')
+    assert.equal(p.report().replayEligible,false)
+  }finally{p.close();registry.close()}
+})
+
+test('native graph snapshots and cleanup never invoke replacement JavaScript getters',()=>{
+  const registry=inspectPromiseObservers(),Graph=graph(),p=observeModuleMetadata(Graph,{observation,ownerGuard,sourceForScript:registry.sourceForScript})
+  const node=new Graph().ensureModule();let gets=0
+  try {
+    Object.defineProperty(node,'meta',{get(){gets++;throw Error('application getter')},configurable:true})
+    assert.equal(p.metadataForNode(node).available,false)
+    assert.equal(gets,0)
+    delete node.meta
+    assert.equal(p.metadataForNode(node).available,false)
+  }finally{p.close();registry.close()}
+  assert.equal(gets,0);assert.equal(Object.hasOwn(node,'meta'),false)
 })
 
 test('native scalar evidence rejects missing events, missing source frames and mismatched script identity',()=>{

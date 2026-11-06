@@ -13,6 +13,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
   if(!['proxy','accessor','native-data'].includes(observation))throw Error('unknown metadata observation mode')
   const nodes=new Map(),metadata=new Map(),proxyToRaw=new WeakMap(),events=new Map()
   const errors=[],gaps=new Set(),invalidations=[],restores=[]
+  const graphData=observation==='native-data'
   let overflow=false,assignments=0
   function record(m,operation,key,sites,source,sources) {
     if(sourceForScript&&!source?.available)gaps.add('metadata reader source unavailable')
@@ -76,10 +77,19 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
   function observeNode(node) {
     if(nodes.has(node))return
     if(nodes.size>=10000){overflow=true;return}
+    if(graphData&&ownerGuard&&ownerGuard(node)!==true)throw Error('unsupported native module node')
     const id=fingerprint({id:ownData(node,'id'),url:ownData(node,'url'),file:ownData(node,'file')})
     if(!id.available)throw Error('unknown module identity')
     const d=descriptor(node,'meta')
     if(!d||!Object.hasOwn(d,'value')||!d.configurable||!d.writable)throw Error('unsupported module metadata descriptor')
+    if(graphData) {
+      // Transport observation already installs the scalar callbacks before
+      // metadata reaches the graph. Leave the graph's ordinary data property
+      // untouched; a snapshot must reject watched fields absent from that
+      // earlier observation rather than instrumenting them after their use.
+      nodes.set(node,{id,data:true,raw:()=>storedMetadata(node,id.hash)})
+      return
+    }
     let raw=d.value,value=wrap(raw,id.hash)
     const get=()=>value,set=next=>{
       assignments++
@@ -92,6 +102,20 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
       const now=descriptor(node,'meta')
       if(now?.get===get&&now?.set===set&&now.configurable)define(node,'meta',{...d,value:raw})
     })
+  }
+  function storedMetadata(node,owner) {
+    const raw=ownData(node,'meta')
+    if(raw===undefined||raw===null)return raw
+    if(typeof raw!=='object'||isProxy(raw)||(ownerGuard&&ownerGuard(raw)!==true))throw Error('unsupported stored metadata')
+    const m=metadata.get(raw)
+    if(m){m.owners.add(owner);m.origins.add('stored');return raw}
+    if([...watched].some(key=>Object.hasOwn(raw,key))) {
+      gaps.add('module metadata was not observed before storage')
+      throw Error('module metadata was not observed before storage')
+    }
+    // Vite creates builtin/external module metadata without tmp/invalidate.
+    // It still goes through the evaluator's complete metadata fingerprint.
+    return raw
   }
   function invalidation(node) {
     if(invalidations.length>=10000){overflow=true;return}
@@ -153,7 +177,8 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
   }
   return {report:()=>{
     const records=[...metadata.values()].map(m=>({id:m.id,owners:[...m.owners],origins:[...m.origins],scalars:scalarStatus(m)}))
-    return {replayEligible:false,completeOwnership:false,observation,overflow,assignments,ownerGuardRequired:ownerGuard!==null,
+    return {replayEligible:false,completeOwnership:false,observation,overflow,
+    graphObservation:graphData?'unchanged-data':'accessor',assignments:graphData?null:assignments,ownerGuardRequired:ownerGuard!==null,
     nodes:nodes.size,metadata:records,
     events:[...events.values()],invalidations,errors,gaps:[...gaps],
     limitations:observation==='accessor'?[
@@ -162,7 +187,8 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
       'Only existing tmp and invalidate scalar properties are instrumented; this is not complete ownership']:observation==='native-data'?[
       'Native scalar callbacks preserve ordinary data descriptors; initial ownership and earlier copies remain unproven',
       'Callback loss invalidates observation; debugger/native/heap capabilities remain uncertified',
-      'Only existing tmp and invalidate scalar fields use native callbacks; the module-graph meta accessor is still observable']:
+      'Module-graph meta remains ordinary data; snapshots reject watched metadata not observed before storage',
+      'Intermediate graph assignments are not observed; snapshot checks do not prove complete delivery ownership']:
       ['Observation begins at explicitly wrapped metadata; earlier raw aliases remain outside it',
       'Original aliases, nested values and native target reads can bypass these proxies',
       'Installing metadata accessors and proxies is observable']}},
@@ -171,7 +197,7 @@ export function observeModuleMetadata(EvaluatedModules,{sourceForScript=null,obs
     },
     metadataForNode(node) {
       const tracked=nodes.get(node),d=tracked&&descriptor(node,'meta')
-      if(!tracked||d?.get!==tracked.get||d?.set!==tracked.set)return {available:false}
+      if(!tracked||(tracked.data?!d||!Object.hasOwn(d,'value'):d?.get!==tracked.get||d?.set!==tracked.set))return {available:false}
       try{return {available:true,value:snapshot(tracked.raw())}}
       catch{return {available:false}}
     },
