@@ -47,14 +47,14 @@ test('identical filenames and forged function text cannot merge distinct executa
   }finally{p.close()}
 })
 
-test('sourceURL impersonation is explicit even when the displayed filename matches',()=>{
+test('sourceURL impersonation remains explicit without replacing the native resource name',()=>{
   const p=setup(),url='file:///quod-fixture/trusted-loader.js'
   const code='(value=>value.tmp)\n//# sourceURL='+url
   try {
     const read=vm.runInThisContext(code,{filename:'different-actual-filename'})
     assert.equal(read(p.value),'private-metadata-value')
     const event=p.metadata.report().events[0]
-    assert.equal(event.sites[0].script,url)
+    assert.equal(event.sites[0].script,'different-actual-filename')
     assert.equal(event.source.available,true);assert.equal(event.source.script.hasSourceURL,true)
     assert.equal(event.source.code.sha256,sha(code));assert.equal(event.source.replayEligible,false)
   }finally{p.close()}
