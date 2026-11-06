@@ -2,8 +2,10 @@
 // No process-wide hooks, persistent application references, or public bridge.
 // This helper does not certify initial runtime integrity or replay eligibility.
 #include <node.h>
+#include <v8-profiler.h>
 #include <cmath>
 #include <initializer_list>
+#include <vector>
 
 namespace {
 using namespace v8;
@@ -20,16 +22,16 @@ bool OrdinaryForInspection(Local<Value> value) {
          !object->HasIndexedLookupInterceptor();
 }
 
-bool OwnData(Local<Context> context, Local<Object> object, const char* name,
+bool OwnDataKey(Local<Context> context, Local<Object> object, Local<Name> name,
              Local<Value>* value, bool writable = false) {
   auto isolate = context->GetIsolate();
   // A native data callback can masquerade as a data descriptor and execute
   // while GetOwnPropertyDescriptor fills its value. Owned fields must be real
   // data, so reject every callback before requesting their descriptors.
-  auto callback = object->HasRealNamedCallbackProperty(context, Key(isolate, name));
+  auto callback = object->HasRealNamedCallbackProperty(context, name);
   if (callback.IsNothing() || callback.FromJust()) return false;
   Local<Value> descriptor_value;
-  if (!object->GetOwnPropertyDescriptor(context, Key(isolate, name))
+  if (!object->GetOwnPropertyDescriptor(context, name)
            .ToLocal(&descriptor_value) || !descriptor_value->IsObject())
     return false;
   auto descriptor = descriptor_value.As<Object>();
@@ -43,6 +45,12 @@ bool OwnData(Local<Context> context, Local<Object> object, const char* name,
         !flag->IsTrue()) return false;
   }
   return true;
+}
+
+bool OwnData(Local<Context> context, Local<Object> object, const char* name,
+             Local<Value>* value, bool writable = false) {
+  return OwnDataKey(context, object, Key(context->GetIsolate(), name), value,
+                    writable);
 }
 
 bool HasOwnAccessor(Local<Context> context, Local<Object> object,
@@ -159,6 +167,8 @@ void Capture(const FunctionCallbackInfo<Value>& info) {
   if (okay) info.GetReturnValue().Set(result);
 }
 
+void CreateContextCapture(const FunctionCallbackInfo<Value>& info);
+
 void CreateCapture(const FunctionCallbackInfo<Value>& info) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
@@ -167,9 +177,89 @@ void CreateCapture(const FunctionCallbackInfo<Value>& info) {
     isolate->ThrowException(Exception::TypeError(Key(isolate, "invalid nonce")));
     return;
   }
-  Local<Function> capture;
+  Local<Function> capture, context_factory;
   if (Function::New(context, Capture, info[0], 1, ConstructorBehavior::kThrow)
-          .ToLocal(&capture)) info.GetReturnValue().Set(capture);
+          .ToLocal(&capture) &&
+      Function::New(context, CreateContextCapture, Local<Value>(), 2,
+                     ConstructorBehavior::kThrow).ToLocal(&context_factory) &&
+      Put(context, capture, "createContextCapture", context_factory))
+    info.GetReturnValue().Set(capture);
+}
+
+// A foreign Inspector handle cannot be an argument to our root-context
+// function. Find a fresh, private holder by an unguessable own property name,
+// then install the same native callback in the holder's creation context.
+// The heap iterator prohibits GC: the predicate checks only property presence,
+// never values/descriptors, and allocates no JS objects. Full validation and
+// function allocation happen after the iterator is gone. Retain at most two
+// candidates so duplicate holders fail closed rather than choosing one.
+class HolderPredicate final : public QueryObjectPredicate {
+ public:
+  HolderPredicate(Local<Context> context, Local<Name> key)
+      : context_(context), key_(key) {}
+  bool Filter(Local<Object> object) override {
+    if (matches_ >= 2 || !OrdinaryForInspection(object) ||
+        !object->GetPrototypeV2()->IsNull()) return false;
+    auto present = object->HasRealNamedProperty(context_, key_);
+    if (present.IsNothing()) { failed_ = true; return false; }
+    if (!present.FromJust()) return false;
+    ++matches_;
+    return true;
+  }
+  bool failed() const { return failed_; }
+ private:
+  Local<Context> context_;
+  Local<Name> key_;
+  unsigned matches_ = 0;
+  bool failed_ = false;
+};
+
+void CreateContextCapture(const FunctionCallbackInfo<Value>& info) {
+  auto isolate = info.GetIsolate();
+  HandleScope scope(isolate);
+  auto context = isolate->GetCurrentContext();
+  TryCatch caught(isolate);
+  bool okay = false;
+  do {
+    if (info.Length() != 2 || !info[0]->IsString() ||
+        info[0].As<String>()->Length() != 64 || !info[1]->IsString() ||
+        info[1].As<String>()->Length() != 64) break;
+    // Intern before heap iteration: constructing a PropertyKey from an
+    // arbitrary string could otherwise allocate while the iterator is live.
+    String::Utf8Value key_bytes(isolate, info[1]);
+    if (!*key_bytes || key_bytes.length() != 64) break;
+    bool hex = true;
+    for (int index = 0; index < 64; ++index) {
+      char c = (*key_bytes)[index];
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) hex = false;
+    }
+    if (!hex) break;
+    Local<String> key;
+    if (!String::NewFromUtf8(isolate, *key_bytes, NewStringType::kInternalized,
+                            64).ToLocal(&key)) break;
+    HolderPredicate predicate(context, key);
+    std::vector<Global<Object>> holders;
+    isolate->GetHeapProfiler()->QueryObjects(context, &predicate, &holders);
+    if (predicate.failed() || holders.size() != 1) break;
+    auto holder = holders[0].Get(isolate);
+    Local<Value> marker, old_capture;
+    Local<Array> names;
+    if (!holder->GetOwnPropertyNames(context).ToLocal(&names) ||
+        names->Length() != 2 ||
+        !OwnDataKey(context, holder, key, &marker, true) || !marker->IsTrue() ||
+        !OwnData(context, holder, "capture", &old_capture, true) ||
+        !old_capture->IsUndefined()) break;
+    Local<Context> destination;
+    if (!holder->GetCreationContext().ToLocal(&destination)) break;
+    Context::Scope destination_scope(destination);
+    Local<Function> capture;
+    if (!Function::New(destination, Capture, info[0], 1,
+                       ConstructorBehavior::kThrow).ToLocal(&capture)) break;
+    okay = holder->Set(destination, key, Null(isolate)).FromMaybe(false) &&
+        holder->Set(destination, Key(isolate, "capture"), capture).FromMaybe(false);
+  } while (false);
+  if (caught.HasCaught()) { caught.Reset(); okay = false; }
+  info.GetReturnValue().Set(Boolean::New(isolate, okay));
 }
 
 // Adversarial fixture: a host callback on an otherwise ordinary JS object.
@@ -217,6 +307,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
   if (Function::New(context, CreateCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createCapture"), factory)
+        .FromMaybe(false);
+  if (Function::New(context, CreateContextCapture).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createContextCapture"), factory)
         .FromMaybe(false);
   if (Function::New(context, CreateNativeDataFixture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),

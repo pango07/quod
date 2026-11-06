@@ -65,7 +65,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         }
         if(nativeInspector) {
           handles.add(remote.objectId)
-          const value=nativeInspector.capture(remote.objectId)
+          const value=nativeInspector.capture(remote.objectId,params.exceptionDetails?.executionContextId)
           if(!value.owned) {
             if(!value.available)throw Error('native exception inspection unavailable')
             ignoredReasons[value.rejection]++
@@ -176,6 +176,7 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,ignoredReasons:[...ignoredReasons],cleared,released,groupsReleased,
       failureCounts:Object.fromEntries(failureCounts),failureSamples:[...failureSamples],
+      contextCapture:nativeInspector?.report()??null,
       handleMode:nativeCapture?'native-private-capture':handleGroups?'private-event-group':'individual',argumentMode:directArguments?'direct':'array',
       targetAccessorsOnly,targetInspection:nativeCapture?'native-watched':targetInspection,nativeCapture,scopedInspections,adaptiveSites:wideSites.size,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),

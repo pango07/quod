@@ -1,6 +1,7 @@
 // Diagnostic bridge only. The live capture function exists behind a private
 // Inspector handle. Its native implementation returns no application values.
 import path from 'node:path'
+import {randomBytes} from 'node:crypto'
 const integer=Number.isInteger
 const failureCodes=new WeakMap(),getFailure=Function.prototype.call.bind(WeakMap.prototype.get),
   setFailure=Function.prototype.call.bind(WeakMap.prototype.set)
@@ -8,7 +9,38 @@ function failure(code){const error=new Error(code);setFailure(failureCodes,error
 
 export function nativeCaptureInspector(post,nonce) {
   const addon=process.env.QUOD_NATIVE_CAPTURE_ADDON,group='quod-native-capture-'+nonce
-  let handle=null,closed=false
+  const contexts=new Map(),attemptedContexts=new Set()
+  let handle=null,closed=false,contextQueries=0,contextQueryMs=0
+  function contextCapture(contextId) {
+    if(!integer(contextId)||contextId<=0)throw failure('native capture context unavailable')
+    if(contexts.has(contextId))return contexts.get(contextId)
+    if(attemptedContexts.has(contextId))throw failure('native capture context previously unavailable')
+    if(attemptedContexts.size>=32)throw failure('native capture context capacity exceeded')
+    attemptedContexts.add(contextId)
+    const key=randomBytes(32).toString('hex')
+    const holder=post('Runtime.evaluate',{contextId,
+      expression:`({__proto__:null,${JSON.stringify(key)}:true,capture:void 0})`,
+      objectGroup:group,silent:true,generatePreview:false})
+    if(holder.exceptionDetails||!holder.result?.objectId)throw failure('native capture context holder unavailable')
+    try {
+      const started=process.hrtime.bigint();contextQueries++
+      let installed
+      try {installed=post('Runtime.callFunctionOn',{objectId:handle,
+        functionDeclaration:'function(nonce,key){return this.createContextCapture(nonce,key)}',
+        arguments:[{value:nonce},{value:key}],returnByValue:true,silent:true,generatePreview:false})}
+      finally {contextQueryMs+=Number(process.hrtime.bigint()-started)/1e6}
+      if(installed.exceptionDetails||installed.result?.value!==true)throw failure('native capture context installation failed')
+      const fn=post('Runtime.callFunctionOn',{objectId:holder.result.objectId,objectGroup:group,
+        functionDeclaration:'function(){const fn=this.capture;this.capture=null;return fn}',silent:true,generatePreview:false})
+      if(fn.exceptionDetails||fn.result?.type!=='function'||!fn.result.objectId)throw failure('native capture context function unavailable')
+      contexts.set(contextId,fn.result.objectId)
+      return fn.result.objectId
+    }finally {post('Runtime.releaseObject',{objectId:holder.result.objectId})}
+  }
+  function invoke(functionId,objectId) {
+    return post('Runtime.callFunctionOn',{objectId:functionId,functionDeclaration:'function(payload){return this(payload)}',
+      arguments:[{objectId}],returnByValue:true,silent:true,generatePreview:false})
+  }
   return {
     initialize() {
       if(closed)throw Error('native capture closed')
@@ -19,12 +51,17 @@ export function nativeCaptureInspector(post,nonce) {
       if(r.exceptionDetails||r.result?.type!=='function'||!r.result.objectId)throw Error('native capture setup failed')
       handle=r.result.objectId
     },
-    capture(objectId) {
+    capture(objectId,contextId) {
       if(closed||!handle)throw failure('native capture unavailable')
       let r
-      try {r=post('Runtime.callFunctionOn',{objectId:handle,functionDeclaration:'function(payload){return this(payload)}',
-        arguments:[{objectId}],returnByValue:true,silent:true,generatePreview:false})}
-      catch {throw failure('native capture protocol request failed')}
+      try {r=invoke(contexts.get(contextId)??handle,objectId)}
+      catch {
+        // Unknown context IDs and already-failed context handles remain
+        // unavailable. A new context gets one private, bounded native bridge.
+        if(!integer(contextId)||contextId<=0||contexts.has(contextId))throw failure('native capture protocol request failed')
+        try {r=invoke(contextCapture(contextId),objectId)}
+        catch(error){throw getFailure(failureCodes,error)?error:failure('native capture context protocol request failed')}
+      }
       if(r.exceptionDetails)throw failure('native capture evaluation failed')
       const value=r.result?.value
       if(!value||typeof value.owned!=='boolean'||typeof value.available!=='boolean'||typeof value.cleared!=='boolean')throw failure('invalid native capture result')
@@ -44,6 +81,7 @@ export function nativeCaptureInspector(post,nonce) {
       return value
     },
     failureReason(error){return getFailure(failureCodes,error)??null},
-    close(){if(closed)return;closed=true;if(handle)post('Runtime.releaseObjectGroup',{objectGroup:group})},
+    report:()=>({contexts:contexts.size,attemptedContexts:attemptedContexts.size,contextQueries,contextQueryMs}),
+    close(){if(closed)return;closed=true;contexts.clear();if(handle)post('Runtime.releaseObjectGroup',{objectGroup:group})},
   }
 }

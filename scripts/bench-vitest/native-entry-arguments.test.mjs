@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {createRequire} from 'node:module'
 import vm from 'node:vm'
+import {randomBytes} from 'node:crypto'
 const probe=new URL('./native-entry-probe.mjs',import.meta.url).href
 
 function fixture(body,{ballast=0,gc=false,handleGroups=false,targetAccessorsOnly=false,directArguments=false,targetInspection='protocol',nativeCapture=false}={}) {
@@ -249,16 +250,32 @@ native(target,key);stop();`,{directArguments:true,nativeCapture:true})
   assert.equal(data.capture.failureSamples.length,1);assert(data.capture.failureSamples[0].frames.length>0)
 })
 
-test('native entry conditions from foreign intrinsics remain explicitly unavailable across contexts',()=>{
+test('native entry conditions from foreign intrinsics use one private native bridge per context',()=>{
   const data=fixture(`const foreignNative=vm.runInNewContext('Object.getOwnPropertyDescriptor');
 globalThis.__quodEntryFixture.foreignNative=foreignNative;
 const stop=captureEntries([['foreign.descriptor','globalThis.__quodEntryFixture.foreignNative',{describeOwnAccessors:true}]]);
-extra.returned=typeof foreignNative(target,key).get;stop();`,{directArguments:true,nativeCapture:true})
-  assert.equal(data.returned,'function');assert.equal(data.capture.available,false)
-  assert.equal(data.capture.calls,0);assert.equal(data.capture.ignored,0)
-  assert.deepEqual(data.capture.errors,['native capture protocol request failed'])
-  assert.equal(data.capture.failureCounts['native capture protocol request failed'],1)
-  assert.equal(data.capture.failureSamples.length,1)
+extra.returned=typeof foreignNative(target,key).get;
+for(let i=0;i<5;i++)foreignNative(target,key);stop();`,{directArguments:true,nativeCapture:true})
+  assert.equal(data.returned,'function');complete(data,6)
+  assert.equal(data.capture.ignored,0);assert.equal(data.capture.contextCapture.contexts,1)
+  assert.equal(data.capture.contextCapture.contextQueries,1)
+  assert.equal(data.events.length,6);assert(data.events.every(e=>e.target.watchedAccessorKeys.join(',')==='tmp'))
+})
+
+test('foreign plain exceptions with context IDs are inspected without invoking getters or trusting Error labels',()=>{
+  const data=fixture(`let contextId;
+session.on('Runtime.executionContextCreated',({params})=>{if(params.context.name==='quod-private-context')contextId=params.context.id});
+const context=vm.createContext({reads:0},{name:'quod-private-context'});
+const before=post('Runtime.evaluate',{contextId,expression:'Reflect.ownKeys(globalThis).map(String)',returnByValue:true}).result.value;
+const stop=captureEntries([['Object.getOwnPropertyDescriptor','Object.getOwnPropertyDescriptor',{describeOwnAccessors:true}]]);
+const result=post('Runtime.evaluate',{contextId,expression:'({__proto__:null,name:"Error",get quodNativeEntry(){reads++;throw Error("must not read")}})',generatePreview:false});
+stop.inspectException({exceptionDetails:{executionContextId:contextId,exception:result.result}});
+extra.foreignReads=post('Runtime.evaluate',{contextId,expression:'reads',returnByValue:true}).result.value;
+extra.globalsUnchanged=JSON.stringify(before)===JSON.stringify(post('Runtime.evaluate',{contextId,expression:'Reflect.ownKeys(globalThis).map(String)',returnByValue:true}).result.value);
+native(target,key);stop();`,{directArguments:true,nativeCapture:true})
+  complete(data,1);assert.equal(data.foreignReads,0);assert(data.globalsUnchanged)
+  assert.equal(data.capture.ignored,1);assert.equal(data.capture.ignoredReasons[4],1)
+  assert.equal(data.capture.contextCapture.contexts,1)
 })
 
 for(const {targetInspection='protocol',nativeCapture=false} of [{},{targetInspection:'watched'},{nativeCapture:true}])test('direct native arguments use captured intrinsics without touching poisoned descriptor prototypes: '+targetInspection+'/native:'+nativeCapture,()=>{
@@ -360,6 +377,47 @@ test('native capture rejects malformed owned wrappers and foreign getters withou
   assert(summary.owned&&summary.available&&summary.cleared&&summary.inspected)
   assert.equal(summary.mask,2);assert.equal(summary.kind,1)
   assert(!Object.hasOwn(summary,'argument'));assert.equal(valid.argument,null)
+})
+
+test('native context installation requires one exact writable private holder',()=>{
+  const {createContextCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce=randomBytes(32).toString('hex'),key=randomBytes(32).toString('hex')
+  assert.equal(createContextCapture(nonce,key),false,'missing holder')
+  const first={__proto__:null,[key]:true,capture:undefined},second={__proto__:null,[key]:true,capture:undefined}
+  assert.equal(createContextCapture(nonce,key),false,'duplicate holders')
+  assert.equal(first.capture,undefined);assert.equal(second.capture,undefined)
+  delete second[key]
+  assert.equal(createContextCapture(nonce,key),true)
+  assert.equal(typeof first.capture,'function');assert.equal(first[key],null)
+  assert.equal(createContextCapture(nonce,key),false,'consumed holder cannot be reused')
+})
+
+test('native context holder discovery does not execute getters or proxy traps',()=>{
+  const {createContextCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce=randomBytes(32).toString('hex'),key=randomBytes(32).toString('hex')
+  let reads=0,traps=0
+  const holder={__proto__:null,get [key](){reads++;throw Error('marker getter')},capture:undefined}
+  const proxy=new Proxy(holder,{getPrototypeOf(){traps++;throw Error('proxy trap')},getOwnPropertyDescriptor(){traps++;throw Error('proxy trap')}})
+  assert.equal(createContextCapture(nonce,key),false)
+  assert.equal(reads,0);assert.equal(traps,0);assert(proxy)
+  Object.defineProperty(holder,key,{value:true,writable:true})
+  Object.defineProperty(holder,'capture',{get(){reads++;throw Error('capture getter')}})
+  assert.equal(createContextCapture(nonce,key),false);assert.equal(reads,0)
+})
+
+test('native context installation creates the callback in the holder realm and releases target references',()=>{
+  const {createContextCapture}=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
+  const nonce=randomBytes(32).toString('hex'),key=randomBytes(32).toString('hex')
+  const context=vm.createContext({})
+  const holder=vm.runInContext(`({__proto__:null,${JSON.stringify(key)}:true,capture:void 0})`,context)
+  assert.equal(createContextCapture(nonce,key),true)
+  assert.equal(Object.getPrototypeOf(holder.capture),vm.runInContext('Function.prototype',context))
+  let reads=0
+  const target={get tmp(){reads++;return 1}}
+  const payload={__proto__:null,quodNativeEntry:nonce,api:'fixture',argument:target,argumentCount:1,receiverBased:false,describeOwnAccessors:true}
+  const result=holder.capture(payload)
+  assert(result.owned&&result.available&&result.cleared);assert.equal(result.mask,2)
+  assert.equal(reads,0);assert.equal(payload.argument,null);assert.equal(payload.quodNativeEntry,null)
 })
 
 test('native capture rejects interceptor targets but clears the owned wrapper',()=>{
