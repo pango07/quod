@@ -135,11 +135,19 @@ if(phase) {
       assert(reports.every(r=>r.native.proxy.available&&!r.native.proxy.overflow),'proxy entry observation must be complete in every worker')
       const proxyCounts={}
       for(const r of reports)for(const e of r.native.proxy.entries)for(const name of e.entries)proxyCounts[name]=(proxyCounts[name]??0)+e.count
+      const argumentCounts={}
+      for(const r of reports)for(const e of r.native.proxy.entries) {
+        const key=e.argument.available?e.argument.kind:'unknown: '+e.argument.reason
+        argumentCounts[key]=(argumentCounts[key]??0)+e.count
+      }
       configResult.native={workers:reports.length,entryCounts:counts,
         workersWithOpaqueEntries:reports.filter(r=>r.native.opaque.entries.length>0).length,
         workersWithInspectorEntries:reports.filter(r=>r.native.inspector.entries.length>0).length,
         workersWithCachedNativeModules:reports.filter(r=>r.native.opaque.cachedNativeModules.length>0).length,
         proxyEntryCounts:proxyCounts,
+        nativeArgumentCounts:argumentCounts,
+        workersWithProxyArguments:reports.filter(r=>r.native.proxy.entries.some(e=>e.argument.available&&e.argument.kind==='proxy')).length,
+        workersWithUnknownArguments:reports.filter(r=>r.native.proxy.entries.some(e=>!e.argument.available)).length,
         workersWithProxyUnwrapEntries:reports.filter(r=>r.native.proxy.entries.some(e=>e.entries.includes('util.getProxyDetails'))).length,
         replayEligible:false}
     }

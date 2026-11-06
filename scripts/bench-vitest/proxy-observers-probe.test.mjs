@@ -31,9 +31,46 @@ console.log(JSON.stringify({value,traps,report}));`
     else if(kind.endsWith('isProxy')) {
       assert.equal(value,true)
       assert(entries.includes('util.types.isProxy'),'cached native identity must be observed')
+      assert(report.entries.filter(e=>e.entries.includes('util.types.isProxy')).every(e=>e.argument.available&&e.argument.kind==='proxy'),JSON.stringify(report))
     } else {
       assert.match(value,/seed: 123/)
       assert(entries.includes('util.getProxyDetails'),'native target unwrapping must be observed')
+    }
+  })
+}
+
+for(const kind of ['plain','primitive','bound','getter','proxy-receiver','multiple','spread','call']) {
+  test('native argument identity remains bounded: '+kind,()=>{
+    const source=`import {inspectPromiseObservers} from ${JSON.stringify(module)};
+import {types} from 'node:util';
+const kind=${JSON.stringify(kind)},native=types.isProxy,proxy=new Proxy({},{}),plain={};
+let getters=0,traps=0,first=plain;
+const box={get value(){getters++;return proxy}},receiver=new Proxy({value:proxy},{get(t,k){traps++;return t[k]}});
+const bound=native.bind(null,proxy),args=[proxy];
+const p=inspectPromiseObservers({proxyAccess:true});
+let result;
+if(kind==='plain')result=native(plain);
+if(kind==='primitive')result=native(1);
+if(kind==='bound')result=bound(plain);
+if(kind==='getter')result=native(box.value);
+if(kind==='proxy-receiver')result=native(receiver.value);
+if(kind==='multiple')result=native(first,first=proxy);
+if(kind==='spread')result=native(...args);
+if(kind==='call')result=native.call(null,proxy);
+const report=p.proxyAccess();p.close();console.log(JSON.stringify({report,result,getters,traps}));`
+    const r=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
+    assert.equal(r.status,0,r.stderr||String(r.error))
+    const data=JSON.parse(r.stdout)
+    assert.equal(data.report.available,true,JSON.stringify(data.report))
+    assert.equal(data.result,!['plain','primitive','multiple'].includes(kind))
+    assert.equal(data.getters,kind==='getter'?1:0,'diagnostic must not invoke an accessor')
+    assert.equal(data.traps,kind==='proxy-receiver'?1:0,'diagnostic must not invoke a receiver proxy')
+    const entries=data.report.entries.filter(e=>e.entries.includes('util.types.isProxy'))
+    assert(entries.length>0)
+    for(const e of entries) {
+      assert.equal(e.argument.available,['plain','primitive'].includes(kind),JSON.stringify(e))
+      if(e.argument.available)assert.equal(e.argument.kind,kind==='plain'?'object':'primitive')
+      assert.equal(e.argument.replayEligible,false)
     }
   })
 }

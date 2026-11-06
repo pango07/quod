@@ -3,6 +3,7 @@
 // Private runtime shapes are not a supported product contract.
 import {Session} from 'node:inspector'
 import {createHash} from 'node:crypto'
+import {observeNativeCallArguments} from './native-call-argument.mjs'
 
 // Exact primary Node 24.18.0 source, previously compared with the V8
 // scripts in this benchmark. Unknown versions remain unknown. This
@@ -25,6 +26,7 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
   let inspectorInitial=null, inspectorFailure=null
   const opaqueBreakpoints=new Map(),opaqueEntries=[]
   const proxyBreakpoints=new Map(),proxyEntries=new Map()
+  const proxyFunctions=new Map(),nativeArgument=observeNativeCallArguments(post)
   let proxyFailure=null,proxyOverflow=false
   const opaqueNames=['Worker','Worker.startThread','dlopen','linkedBinding','Process.spawn','spawnSync',
     'v8.queryObjects','v8.getHeapSnapshot','v8.writeHeapSnapshot','v8.setFlagsFromString','v8.setHeapSnapshotNearHeapLimit']
@@ -109,9 +111,10 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
         if(proxy.length) {
           // Count all calls, including the config probe's own isProxy checks.
           // Do not retain arguments, targets or raw values in the diagnostic.
-          const key=JSON.stringify([proxy,frames])
+          const argument=nativeArgument(params.callFrames[0],proxyFunctions.get(proxy[0]))
+          const key=JSON.stringify([proxy,frames,argument])
           if(proxyEntries.has(key))proxyEntries.get(key).count++
-          else if(proxyEntries.size<10000)proxyEntries.set(key,{entries:proxy,frames,count:1})
+          else if(proxyEntries.size<10000)proxyEntries.set(key,{entries:proxy,frames,argument,count:1})
           else proxyOverflow=true
         }
         try {post('Debugger.resume')} catch {inspectorFailure=opaqueFailure=proxyFailure='could not resume watched entry'}
@@ -213,6 +216,7 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
         if(!fn)throw Error('missing proxy observation entry: '+name)
         const {breakpointId}=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn})
         proxyBreakpoints.set(breakpointId,name)
+        proxyFunctions.set(name,fn)
       }
     }catch(e){proxyFailure=e.message}
   } catch(e) {failure=e.message}
@@ -221,7 +225,7 @@ export function inspectPromiseObservers({proxyAccess=false}={}) {
       return {available:proxyAccess&&!failure&&!proxyFailure&&proxyBreakpoints.size===2,
         entries:[...proxyEntries.values()].map(e=>({...e})),overflow:proxyOverflow,
         reason:failure??proxyFailure,replayEligible:false,
-        limitation:'Observes isProxy and getProxyDetails only; other native observers are not excluded'}
+        limitation:'Observes isProxy and getProxyDetails with bounded caller argument diagnostics; other native observers are not excluded'}
     },
     opaqueSnapshot() {
       return {available:!opaqueFailure&&!!opaqueInitial,initial:opaqueInitial,
