@@ -4,18 +4,25 @@
 // input-ownership certificate and must never authorize a replay by itself.
 import {randomBytes} from 'node:crypto'
 import {getCallSites} from 'node:util'
+import {privateNativeEntryInspector} from './native-entry-inspector.mjs'
 
-export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false}={}) {
+export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=false,targetAccessorsOnly=false,inProcessInspection=false}={}) {
+  if(inProcessInspection&&handleGroups)throw Error('private inspection does not need per-event handle groups')
   const nonce=randomBytes(32).toString('hex'),entries=new Map()
   const errors=[]
   let calls=0,ignored=0,cleared=0,released=0,groupsReleased=0,events=0,closed=false
   const supported=process.versions.node==='24.18.0'
+  const privateInspector=inProcessInspection?privateNativeEntryInspector(post,nonce):null
   function fail(reason) {if(errors.length<20)errors.push(reason)}
+  function note(entry,frames) {
+    onEntry({...entry,frames,replayEligible:false})
+  }
   return {
     condition(api,{receiver=false,describeOwnAccessors=false}={}) {
       if(!supported||closed)throw Error('native entry conditions require the pinned active diagnostic')
       if(typeof api!=='string'||entries.has(api))throw Error('invalid native entry registration')
       entries.set(api,{receiver,describeOwnAccessors})
+      privateInspector?.register(api,{receiver,describeOwnAccessors})
       return `(()=>{throw {__proto__:null,quodNativeEntry:${JSON.stringify(nonce)},api:${JSON.stringify(api)},args:arguments,receiver:this}})()`
     },
     handleException(params) {
@@ -41,6 +48,19 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       try {
         let remote=params.exceptionDetails?.exception
         if(!remote?.objectId||remote.subtype==='proxy'){ignored++;return false}
+        if(privateInspector) {
+          original=remote.objectId
+          const result=privateInspector.capture(original)
+          if(!result.owned){ignored++;return false}
+          owned=true;calls++
+          if(result.cleared)cleared++
+          if(!result.available||!result.cleared||!entries.has(result.api))throw Error('private native capture unavailable')
+          note({api:result.api,argumentCount:result.argumentCount,receiverBased:result.receiverBased,
+            kind:result.kind,...(result.target?{target:result.target}:{})},
+            getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+              scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber})))
+          return true
+        }
         if(handleGroups) {
           // getProperties (including internal/private properties) inherits
           // the inspected handle's object group on the pinned V8 runtime.
@@ -79,9 +99,9 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
         }
         // Native call-site records avoid constructing every lexical scope.
         // Keep all bounded frames for now; no filename grants provenance.
-        const frames=getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
-          scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber}))
-        onEntry({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{}),frames,replayEligible:false})
+        note({api,argumentCount,receiverBased:configuration.receiver,kind,...(target?{target}:{})},
+          getCallSites(100,{sourceMap:false}).map(s=>({name:s.functionName,scriptId:s.scriptId,
+            scriptName:s.scriptName,line:s.lineNumber,column:s.columnNumber})))
         return true
       }catch {fail('native entry capture failed');return owned}
       finally {
@@ -103,8 +123,9 @@ export function observeNativeEntryArguments(post,{onEntry=()=>{},handleGroups=fa
       }
     },
     report:()=>({available:supported&&!closed&&!errors.length,calls,ignored,cleared,released,groupsReleased,
-      handleMode:handleGroups?'private-event-group':'individual',targetAccessorsOnly,errors:[...errors],
+      handleMode:privateInspector?'private-inspector-summary':handleGroups?'private-event-group':'individual',
+      targetAccessorsOnly:!!privateInspector||targetAccessorsOnly,errors:[...errors],
       replayEligible:false,limitation:'Diagnostic exception transport is visible to other Inspector sessions; capability exclusion and complete native coverage remain unproven'}),
-    close(){closed=true},
+    close(){if(closed)return;closed=true;try{privateInspector?.close()}catch{fail('private native inspector cleanup failed')}},
   }
 }
