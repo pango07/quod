@@ -97,6 +97,20 @@ if(kind==='generator-copy') {
 if(kind==='protocol-getter') {
   Object.defineProperty(Object.prototype,'cmd',{configurable:true,get(){if(this.kind==='data')copy(this);return undefined}});
 }
+if(['constructor-copy','constructor-self-restore','constructor-proxy','constructor-late-swap'].includes(kind)) {
+  const original=Object.getPrototypeOf(v8.DefaultDeserializer);
+  function copyBytes(bytes){const d=new original(bytes);d.readHeader();copy(d.readValue())}
+  const replacement=function(...args){
+    if(kind!=='constructor-copy')Object.setPrototypeOf(v8.DefaultDeserializer,original);
+    copyBytes(args[0]);return Reflect.construct(original,args,new.target);
+  };
+  if(kind==='constructor-late-swap')Object.defineProperty(Uint8Array,Symbol.species,{configurable:true,get(){
+    gets++;delete Uint8Array[Symbol.species];Object.setPrototypeOf(v8.DefaultDeserializer,replacement);return Uint8Array;
+  }});
+  else Object.setPrototypeOf(v8.DefaultDeserializer,kind==='constructor-proxy'?new Proxy(original,{construct(target,args,newTarget){
+    Object.setPrototypeOf(v8.DefaultDeserializer,original);copyBytes(args[0]);return Reflect.construct(target,args,newTarget);
+  }}):replacement);
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
@@ -131,7 +145,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['prelistener','advanced'],['synthetic','advanced'],['primitive','advanced'],['closed','advanced'],
   ['callback-throw','advanced'],['decoder-copy','advanced'],['decoder-self-restore','advanced'],['decoder-getter','advanced'],
   ['decoder-forged','advanced'],['header-self-restore','advanced'],['generator-copy','advanced'],
-  ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced']]) {
+  ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced'],
+  ['constructor-copy','advanced'],['constructor-self-restore','advanced'],['constructor-proxy','advanced'],
+  ['constructor-late-swap','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -164,7 +180,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
       assert.deepEqual(r.report.parsers.map(p=>p.mode),[serialization])
       assert.equal(r.preparations,2)
       const count=serialization==='advanced'?2:0
-      for(const key of ['started','headerEntries','valueEntries','completed'])assert.equal(r.report.decoder[key],count)
+      for(const key of ['started','constructorEntries','headerEntries','valueEntries','completed'])assert.equal(r.report.decoder[key],count)
       assert.equal(r.report.decoder.hostEntries,0);assert.deepEqual(r.report.decoder.failureFrames,[])
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
@@ -180,6 +196,13 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     if(kind==='decoder-forged')assert.equal(r.report.decoder.valueEntries,0)
     if(kind==='generator-copy')assert(r.report.errors.includes('IPC parser has an unexpected caller'))
     if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedNativeEntries,2)
+    if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedConstructorEntries,1)
+    if(kind.startsWith('constructor-')) {
+      assert(r.copies.length>0)
+      assert(r.copies.every(c=>!c.prepared),'constructor copies occur before preparation and must reject the record')
+      assert(r.report.errors.some(e=>e.startsWith('IPC decoder constructor chain changed')||e.startsWith('IPC native constructor has an unexpected caller')))
+      if(kind==='constructor-late-swap')assert.equal(r.gets,1)
+    }
     if(kind==='host-object'){assert.equal(r.report.decoder.hostEntries,2);assert(r.report.errors.includes('IPC host-object decoder callbacks are unverified'))}
     if(kind==='synthetic')assert(r.report.errors.includes('message callback did not match the next decoded IPC message'))
     if(kind==='callback-throw')assert(r.report.errors.includes('IPC preparation callback did not accept the message'))

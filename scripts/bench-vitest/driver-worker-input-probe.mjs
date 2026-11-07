@@ -265,7 +265,7 @@ if(phase) {
           assert.equal(ipc.decoder.initialNativeIntegrity,false);assert.equal(ipc.decoder.completeOwnership,false)
           assert.equal(ipc.decoder.pending,false);assert.equal(ipc.decoder.hostEntries,0)
           assert.deepEqual(ipc.decoder.failureFrames,[])
-          for(const key of ['started','headerEntries','valueEntries','completed'])assert.equal(ipc.decoder[key],ipc.decoded)
+          for(const key of ['started','constructorEntries','headerEntries','valueEntries','completed'])assert.equal(ipc.decoder[key],ipc.decoded)
           assert.equal(ipc.decoder.groupsCreated,ipc.decoder.groupsReleased)
           assert(x.native.opaque.available&&x.native.inspector.available&&x.native.proxy.available&&x.native.hooks.available)
           assert(!x.native.proxy.overflow&&!x.native.hooks.overflow)

@@ -6,15 +6,16 @@ import {createHash,randomBytes} from 'node:crypto'
 
 const childSource='0c2e2cc568bb1651aec25c8a9c7178380dfde9b4ac772b02c6286536ee4986b1'
 const parserSource='59f0124b35fa9127200c10c5aa206b60ceaf0951d11947ce3e9a4afb1844f4f2'
+const v8Source='ed24392fbc14a67d065dedb839b975719c262f03a3b2bcf2c6aeb278a05e700d'
 const lineNumber=650
 export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   if(!Number.isSafeInteger(pendingLimit)||pendingLimit<1)throw Error('invalid pending IPC limit')
   const group='quod-ipc-delivery-'+randomBytes(16).toString('hex'),pending=[],errors=[],sources=new Map()
   const parsers=new Map()
   const breakpoints=new Map(),nativeMethods=new Map()
-  const decoder={started:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
-    unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
-  let decoding=null,hostMethod=null
+  const decoder={started:0,constructorEntries:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
+    unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
+  let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
   let decoded=0,prepared=0,paired=0,ignoredReceivers=0,failures=0,groupsCreated=0,groupsReleased=0
   function fail(reason){failures++;if(errors.length<20)errors.push(reason)}
@@ -64,6 +65,23 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     }
     throw Error('IPC decoder method unavailable: '+name)
   }
+  function prototype(object) {
+    const p=properties(object).internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+    if(!p?.objectId||p.subtype==='proxy')throw Error('IPC decoder prototype unavailable')
+    return p
+  }
+  function pinnedFunction(fn,expected,line) {
+    const p=properties(fn),loc=p.internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
+    if(fn.type!=='function'||!loc?.scriptId||loc.lineNumber!==line)throw Error('IPC constructor function differs from pinned Node')
+    source(loc.scriptId,expected)
+  }
+  function constructorChain(frame,objectGroup) {
+    const ctor=evaluate(frame,'ChildProcessDeserializer',objectGroup)
+    pinnedFunction(ctor,parserSource,38)
+    if(!same(prototype(ctor),defaultConstructor)||!same(prototype(defaultConstructor),nativeConstructor))
+      throw Error('IPC decoder constructor chain changed')
+    return data(properties(ctor).result,'prototype')
+  }
   function decoderRelease() {
     if(!decoding)return
     try{post('Runtime.releaseObjectGroup',{objectGroup:decoding.group});decoder.groupsReleased++}
@@ -100,16 +118,40 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   function decoderPause(params,kinds) {
     // Source and function-entry breakpoints may share a pause. Validate the
     // lookup before accepting the corresponding actual native entry.
-    for(const kind of ['header','value','native:readHeader','native:readValue','host'])if(kinds.includes(kind)) {
-      if(kind==='header') {
+    for(const kind of ['construct','native:construct','header','value','native:readHeader','native:readValue','host'])if(kinds.includes(kind)) {
+      if(kind==='construct') {
         if(decoding){fail('IPC decoder started before its previous result was delivered');decoderRelease()}
         const eventGroup=group+'-decoder-'+(++decoder.groupsCreated)
-        decoding={group:eventGroup,instance:null,channel:null,stage:'header',header:0,value:0}
-        const frame=decoderFrame(params,101,eventGroup)
+        decoding={group:eventGroup,instance:null,channel:null,prototype:null,stage:'construct',constructor:0,header:0,value:0}
+        const frame=decoderFrame(params,92,eventGroup)
         if(!frame){decoder.ignoredReceivers++;decoderRelease();continue}
-        decoding.instance=evaluate(frame,'deserializer',eventGroup)
         decoding.channel=evaluate(frame,'channel',eventGroup)
         decoder.started++
+        decoding.prototype=constructorChain(frame,eventGroup)
+      }else if(kind==='native:construct') {
+        if(!decoding){decoder.unrelatedConstructorEntries++;continue}
+        const frames=params.callFrames??[]
+        // Both classes have implicit constructors. The actual native entry
+        // must come directly through those pinned classes, not a wrapper
+        // that restored its constructor chain before delegating.
+        for(const [index,line,hash] of [[0,418,v8Source],[1,38,parserSource]]) {
+          const frame=frames[index]
+          if(!frame||frame.location.lineNumber!==line)throw Error('IPC native constructor has an unexpected caller')
+          source(frame.location.scriptId,hash)
+        }
+        const frame=decoderFrame({...params,callFrames:frames.slice(2)},92,decoding.group)
+        if(!frame||!same(evaluate(frame,'channel',decoding.group),decoding.channel))throw Error('IPC native constructor has another channel')
+        constructorChain(frame,decoding.group)
+        if(decoding.stage!=='construct'||++decoding.constructor!==1)throw Error('IPC native constructor entry is out of order')
+        decoder.constructorEntries++
+      }else if(kind==='header') {
+        if(!decoding)throw Error('IPC decoder header lacks construction evidence')
+        const frame=decoderFrame(params,101,decoding.group)
+        if(!frame||!same(evaluate(frame,'channel',decoding.group),decoding.channel))throw Error('IPC decoder channel changed after construction')
+        if(decoding.constructor!==1)throw Error('IPC native constructor entry was not observed exactly once')
+        decoding.instance=evaluate(frame,'deserializer',decoding.group)
+        if(!same(prototype(decoding.instance),decoding.prototype))throw Error('IPC decoder instance prototype differs from constructor')
+        decoding.stage='header'
         checkMethod(decoding.instance,'readHeader');checkMethod(decoding.instance,'readValue')
         checkHostMethod(decoding.instance)
       }else if(kind==='value') {
@@ -160,6 +202,14 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const namespace=post('Runtime.evaluate',{expression:'process.getBuiltinModule("v8")',objectGroup:group,silent:true})
     if(namespace.exceptionDetails)throw Error('IPC decoder namespace unavailable')
     const ctor=data(properties(namespace.result).result,'Deserializer'),proto=data(properties(ctor).result,'prototype')
+    nativeConstructor=ctor
+    defaultConstructor=data(properties(namespace.result).result,'DefaultDeserializer')
+    pinnedFunction(defaultConstructor,v8Source,418)
+    const constructorProps=properties(nativeConstructor)
+    if(nativeConstructor.type!=='function'||constructorProps.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
+      throw Error('IPC decoder constructor baseline is not an unbound native function')
+    const constructorBreakpoint=post('Debugger.setBreakpointOnFunctionCall',{objectId:nativeConstructor.objectId})
+    breakpoints.set(constructorBreakpoint.breakpointId,'native:construct')
     for(const name of ['readHeader','readValue']) {
       const fn=data(properties(proto).result,name),p=properties(fn)
       if(fn.type!=='function'||p.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
@@ -168,7 +218,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       const b=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn.objectId})
       breakpoints.set(b.breakpointId,'native:'+name)
     }
-    for(const [kind,line] of [['header',101],['value',102]]) {
+    for(const [kind,line] of [['construct',92],['header',101],['value',102]]) {
       const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process/serialization',lineNumber:line,columnNumber:0})
       breakpoints.set(b.breakpointId,kind)
       if(!b.breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==line)throw Error('IPC decoder location is not uniquely loaded')
@@ -204,7 +254,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         const mode=parser(frame,eventGroup)
         if(mode==='advanced') {
           try {
-            if(!decoding||decoding.header!==1||decoding.value!==1||decoding.stage!=='value')throw Error('IPC delivery lacks complete decoder entries')
+            if(!decoding||decoding.constructor!==1||decoding.header!==1||decoding.value!==1||decoding.stage!=='value')throw Error('IPC delivery lacks complete decoder entries')
             if(!same(evaluate(frame,'channel',eventGroup),decoding.channel))throw Error('IPC decoder delivered through another channel')
             decoder.completed++
           }catch(e){fail(e.message)}
@@ -239,7 +289,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       decoded,prepared,paired,pending:pending.length,ignoredReceivers,groupsCreated,groupsReleased,baselineReleased,
       parsers:[...parsers.values()],failures,errors:[...errors],replayEligible:false,completeOwnership:false,
       decoder:{...decoder,pending:decoding!==null,initialNativeIntegrity:false,completeOwnership:false},
-      limitation:'Pinned advanced decoder lookup, native entries and delivery are checked; initial native integrity, raw-byte aliases, constructors, host-object callbacks, JSON decoder ownership and pre-installation messages remain unproven'}),
+      limitation:'Pinned advanced constructor call path, decoder lookup, native entries and delivery are checked; initial native integrity, earlier raw-byte aliases, host-object callbacks, JSON decoder ownership and pre-installation messages remain unproven'}),
     close() {
       if(closed)return
       closed=true
