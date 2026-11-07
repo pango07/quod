@@ -44,6 +44,7 @@ const listen = globalThis.addEventListener?.bind(globalThis)
 const eventAdd = Function.prototype.call.bind(EventTarget.prototype.addEventListener)
 const eventRemove = Function.prototype.call.bind(EventTarget.prototype.removeEventListener)
 const eventDispatch = Function.prototype.call.bind(EventTarget.prototype.dispatchEvent)
+const nativeEventType = ownDescriptor(Event.prototype, 'type')?.get
 const preventEvent = Function.prototype.call.bind(Event.prototype.preventDefault)
 const unsupported = new Set(), logs = [], timerErrors = [], unhandledErrors = []
 const inventory = Object.getOwnPropertyNames(globalThis).sort()
@@ -172,7 +173,7 @@ function managedMicrotask(callback) {
 // Wrapping only globalThis.addEventListener leaves the prototype .call bypass.
 // Native local EventTarget delivery remains synchronous; returned promises and
 // listener exceptions join the same private completion accounting as timers.
-const eventListeners = new WeakMap()
+const eventListeners = new WeakMap(), legacyEventSlots = new WeakMap()
 function eventWrapper(target, type, callback, capture) {
   let byType = weakGet(eventListeners, target)
   if (!byType) weakSet(eventListeners, target, byType = new Map())
@@ -211,6 +212,30 @@ defineOwn(EventTarget.prototype, 'removeEventListener', {configurable: false, wr
 defineOwn(EventTarget.prototype, 'dispatchEvent', {configurable: false, writable: false,
   value: function (event) {
     if (this === globalThis) return deny('global EventTarget.dispatchEvent')
+    if (!nativeEventType) return deny('Event.type observer unavailable')
+    // Workerd also invokes legacy on<type> properties without going through
+    // addEventListener. Read the native event type, so an own .type shadow
+    // cannot hide the handler which native dispatch would invoke.
+    const type = reflectApply(nativeEventType, event, []), key = 'on' + type
+    let slots = weakGet(legacyEventSlots, this)
+    if (!slots || !mapHas(slots, key)) {
+      // Avoid a JS read followed by native dispatch reading again: a getter
+      // could return null first and a callback second. Reject preexisting
+      // legacy descriptors without invoking them, then pin an own null slot.
+      const own = ownDescriptor(this, key)
+      const fixedNull = own && 'value' in own && !own.configurable && !own.writable && own.value == null
+      if (!fixedNull) {
+        for (let owner = this; owner; owner = getPrototype(owner)) {
+          if (ownDescriptor(owner, key)) return deny('legacy event handler ' + key)
+        }
+        try {
+          defineOwn(this, key, {get: freeze(() => null),
+            set: freeze(() => deny('legacy event handler ' + key)), configurable: false})
+        } catch { return deny('legacy event handler guard ' + key) }
+      }
+      if (!slots) weakSet(legacyEventSlots, this, slots = new Map())
+      mapSet(slots, key, true)
+    }
     return eventDispatch(this, event)
   }})
 Object.assign(globalThis, {
@@ -246,8 +271,20 @@ const allowed = new Set([
   'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'structuredClone',
   'AbortController', 'AbortSignal', 'DOMException', 'Event', 'EventTarget', 'queueMicrotask',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
-  'performance', 'console', 'process', 'navigator',
+  'performance', 'console', 'process', 'navigator', 'onerror', 'onunhandledrejection', 'onfetch',
 ])
+// Legacy global event properties run before registered listeners in workerd.
+// An own immutable null getter prevents a suppressor from hiding asynchronous
+// failures from the private observers installed above. Pin the only configured
+// host entry's legacy HTTP property too, even though module fetch exports take
+// precedence over legacy fetch-event dispatch in the pinned runtime.
+for (const key of ['onerror', 'onunhandledrejection', 'onfetch']) {
+  defineOwn(globalThis, key, {get: () => null, set: () => deny('global ' + key), configurable: false})
+}
+// AbortController.abort() dispatches natively rather than through our public
+// EventTarget wrapper, so its legacy property channel is denied separately.
+defineOwn(AbortSignal.prototype, 'onabort', {get: () => null,
+  set: () => deny('AbortSignal.onabort'), configurable: false})
 const managedGlobals = new Map(['Date', 'performance', 'console', 'process', 'navigator',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'queueMicrotask']
   .map(key => [key, globalThis[key]]))

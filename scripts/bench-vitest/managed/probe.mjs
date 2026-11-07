@@ -20,7 +20,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  boundaryChecksVersion: 5, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  boundaryChecksVersion: 6, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
   phases: []}
 write('result.json', results)
 
@@ -34,8 +34,8 @@ results.workerdSha256 = executor.runtimePolicy.workerdSha256
 results.runtimePolicy = executor.runtimePolicy
 results.host = executor.host
 write('result.json', results)
-// Compatibility is deliberately stricter than a green test report. No field
-// below grants replay admission; the shared Vitest realm is still under review.
+// Compatibility is deliberately stricter than a green test report. This probe
+// grants no replay; the separate host-only research ledger keys the full policy.
 const supported = data => !data.error && data.boundary?.completion?.sealed === true &&
   data.boundary.unsupported.length === 0 && data.boundary.unguardable.length === 0 &&
   data.boundary.timerErrors.length === 0 && data.boundary.unhandledErrors.length === 0 &&
@@ -51,7 +51,7 @@ try {
   const receiptLog = fs.openSync(path.join(out, 'receipt-checks.log'), 'w')
   let receiptChecks
   try {
-    receiptChecks = spawnSync(process.execPath, [path.join(here, 'receipt-fixtures.mjs'), path.join(out, 'receipt-checks')],
+    receiptChecks = spawnSync(process.execPath, [path.join(here, 'receipt-fixtures.mjs'), path.join(out, 'receipt-checks'), project],
       {cwd: project, stdio: ['ignore', receiptLog, receiptLog], timeout: 30000})
   } finally { fs.closeSync(receiptLog) }
   assert.equal(receiptChecks.status, 0, 'receipt mutation/admission matrix failed; inspect receipt-checks.log')

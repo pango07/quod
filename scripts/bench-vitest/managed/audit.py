@@ -86,7 +86,7 @@ def supported(response):
 
 result = attempt('integrity', 'result.json', lambda: read('result.json')) or {}
 version = result.get('boundaryChecksVersion', 1)
-check_count = {1: 13, 2: 16, 3: 17, 4: 26, 5: 31}.get(version)
+check_count = {1: 13, 2: 16, 3: 17, 4: 26, 5: 31, 6: 31}.get(version)
 attempt('integrity', 'supported evidence version', lambda: require(check_count is not None, 'unknown boundary version'))
 attempt('integrity', 'cache remains disabled', lambda: require(result.get('cacheEnabled') is False, 'cacheEnabled must be false'))
 if version >= 4:
@@ -140,7 +140,7 @@ for path in sorted(root.glob('*-build.json')):
     attempt('integrity', name, lambda name=name, worker_names=worker_names: verify_build(name, read(name), worker_names))
 
 
-BOUNDARY = {
+BOUNDARY_PRE_V6 = {
     'control': {'ok': True, 'sealed': True, 'pendingTimers': 0, 'pendingTimerCallbacks': 0,
                 'pendingEventCallbacks': 0, 'pendingMicrotasks': 0, 'timerErrors': 0, 'unhandledErrors': 0},
     'interval': {'ok': True, 'sealed': False, 'pendingTimersMin': 1, 'reasonIncludes': 'budget',
@@ -165,6 +165,35 @@ BOUNDARY = {
                           'evidenceSentinel': 'QUOD_HONEST_FAILED_RECEIPT', 'checksAllPass': True},
     'als-tampering': {'ok': True, 'sealed': True, 'pendingTimers': 0, 'timerErrors': 0, 'unhandledErrors': 0},
 }
+BOUNDARY_V6 = {
+    **BOUNDARY_PRE_V6,
+    'global-onunhandledrejection': {
+        'ok': False, 'sealed': False, 'pendingTimers': 0, 'timerErrors': 0, 'unhandledErrorsMin': 1,
+        'reasonIncludes': 'asynchronous errors', 'unsupportedIncludes': ['global onunhandledrejection'],
+        'unhandledErrorsInclude': ['QUOD_LEGACY_REJECTION'],
+    },
+    'global-onerror': {
+        'ok': False, 'sealed': False, 'pendingTimers': 0, 'timerErrorsMin': 1, 'unhandledErrors': 0,
+        'reasonIncludes': 'asynchronous errors', 'unsupportedIncludes': ['global onerror', 'global onfetch'],
+        'timerErrorsInclude': ['QUOD_LEGACY_ERROR'],
+    },
+    'local-legacy-handler': {
+        'ok': True, 'sealed': True, 'pendingTimers': 0, 'pendingTimerCallbacks': 0, 'pendingMicrotasks': 0,
+        'pendingEventCallbacks': 0, 'timerErrors': 0, 'unhandledErrors': 0,
+        'unsupportedIncludes': ['legacy event handler onfoo'],
+    },
+    'local-legacy-getter': {
+        'ok': True, 'sealed': True, 'pendingTimers': 0, 'pendingTimerCallbacks': 0, 'pendingMicrotasks': 0,
+        'pendingEventCallbacks': 0, 'timerErrors': 0, 'unhandledErrors': 0,
+        'unsupportedIncludes': ['legacy event handler onfoo'],
+    },
+    'abort-handler': {
+        'ok': True, 'sealed': True, 'pendingTimers': 0, 'pendingTimerCallbacks': 0, 'pendingMicrotasks': 0,
+        'pendingEventCallbacks': 0, 'timerErrors': 0, 'unhandledErrors': 0,
+        'unsupportedIncludes': ['AbortSignal.onabort'],
+    },
+}
+BOUNDARY = BOUNDARY_V6 if version >= 6 else BOUNDARY_PRE_V6
 
 
 def verify_response(phase):
@@ -409,7 +438,9 @@ if version >= 4:
             require(row['checks'] == len(response['checks']), 'boundary check count differs')
             require(row['responseSha256'] == sha('boundary-' + mode + '/response.json'), 'boundary evidence hash differs')
         if result.get('boundaryFixtureChecksPassed'):
-            require([row['mode'] for row in evidence] == list(BOUNDARY), 'boundary mode inventory differs')
+            modes = [row['mode'] for row in evidence]
+            require((len(modes) == 18 and set(modes) == set(BOUNDARY)) if version >= 6 else modes == list(BOUNDARY),
+                    'boundary mode inventory differs')
     attempt('integrity', 'boundary fixture inventory', verify_boundary_inventory)
 
     def verify_compiler_checks():

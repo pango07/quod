@@ -48,7 +48,31 @@ Runtime responses still say `replayEligible: false`, the compatibility probe
 says `cacheEnabled: false`, and production admission remains disabled. A
 separate manually dispatched research gate now prepares an exact-byte receipt,
 an independent uncached managed control and a consumer on three fresh runners.
-It has not passed yet.
+
+The first actual experiment subsequently passed at `edc7c04` in
+[gate 42376167015](https://github.com/pango07/quod/actions/runs/42376167015).
+Its independent [receipt audit](managed-vitest-first-replay.json) verifies all
+47 states and console effects across separate seed, uncached control and
+consumer jobs. The consumer executed zero managed tests. Commands took
+109.742 s seed, 162.873 s control and 2.718 s replay; complete jobs took 141,
+195 and 33 s respectively. This is one observed workload on a matching native
+class, not the original twelve-commit benchmark or a general cost forecast.
+
+That admission policy remains provisional: pinned-source review then identified
+legacy workerd `on<type>` handlers running before registered error listeners.
+The next revision freezes global error/rejection/fetch handler slots, declines
+AbortSignal.onabort, and rejects local legacy descriptors before invoking any
+getter. It installs an immutable null slot before local native dispatch so a
+second property read cannot evade the check. Eighteen isolated boundary modes
+now cover suppression, async failure, pending work and the changing-getter case.
+The final fixed-policy batch is pending.
+
+Local events support registered listeners. Legacy handler attributes are outside
+this managed contract. A dispatch installs a non-enumerable immutable null
+`on<type>` slot on the target; reflective code can observe that managed metadata.
+An existing legacy descriptor, an accessor, or a target that cannot accept the
+guard declines managed admission. Registered listener order and once behavior
+remain covered by the capability and actual Vitest gates.
 
 The research key includes the complete compiler/preparation identities, actual
 runtime binary, flags, deny service, supervisor/validator source, watchdog,
@@ -74,6 +98,6 @@ unrelated-change hits, outputs and complete job/transfer costs. The ordinary
 twelve-commit result remains separate: 1,538 versus 1,735 runner-seconds, with
 zero test/unit replays. Its 50% bar is still unmet.
 
-The new 31-check preflight, symbol inventory, shared supervisor and receipt
-experiment require their own remote validation. The passing gate above applies
-to the 26-check source at `441de97`.
+The 31-check preflight, symbol inventory and shared supervisor pass in
+`42376167015`; the 18-mode legacy-handler revision and actual compiler-to-receipt
+mutation matrix require their own remote validation. Production remains off.

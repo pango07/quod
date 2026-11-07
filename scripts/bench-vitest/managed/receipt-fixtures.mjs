@@ -5,8 +5,8 @@ import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {canonicalReceiptJSON, makeExecutionIdentity, validatePassingResponse, recordReceipt, lookupReceipt} from './receipt.mjs'
 
-const [outArg] = process.argv.slice(2)
-assert(outArg, 'usage: receipt-fixtures.mjs EMPTY_OUTPUT_DIRECTORY')
+const [outArg, projectArg] = process.argv.slice(2)
+assert(outArg, 'usage: receipt-fixtures.mjs EMPTY_OUTPUT_DIRECTORY [PROJECT]')
 const out = path.resolve(outArg)
 assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
 const hash = value => crypto.createHash('sha256').update(value).digest('hex')
@@ -152,7 +152,99 @@ for (const [group, key] of [['runtimePolicy', 'workerdSha256'], ['runtimePolicy'
   check(group + ' omitted ' + key + ' rejects identity', throws(() => makeExecutionIdentity(omitted)))
 }
 
+let admissionIntegration = null
+if (projectArg) {
+  // This submatrix connects the real closed compiler to identity and ledger
+  // validation. Its passing response is deliberately constructed above; no
+  // workerd execution or runtime soundness is claimed by these checks.
+  const project = fs.realpathSync(path.resolve(projectArg))
+  const fixtureDir = path.join(project, '.quod-managed-receipt-fixtures')
+  assert(!fs.existsSync(fixtureDir), 'receipt integration fixture directory must be absent')
+  fs.mkdirSync(fixtureDir)
+  const integrationOut = path.join(out, 'admission-integration')
+  const moduleDir = path.join(fixtureDir, 'modules'), testFile = path.join(fixtureDir, 'fixture.test.mjs')
+  const dependency = path.join(fixtureDir, 'dep.mjs'), addedModule = path.join(moduleDir, 'beta.mjs')
+  const unrelated = path.join(fixtureDir, 'unrelated.txt')
+  const source = 'import {test, expect} from "vitest"\n' +
+    'import {value} from "./dep.mjs"\n' +
+    'const modules = import.meta.glob("./modules/*.mjs")\n' +
+    'test("closed managed fixture", () => {\n' +
+    '  expect(value).toBe(42)\n' +
+    '  expect(Object.keys(modules)).toEqual(["./modules/alpha.mjs"])\n' +
+    '  expect(process.env.QUOD_RECEIPT_VALUE).toBe("declared")\n' +
+    '})\n'
+  const dependencySource = 'export const value = 42\n'
+  const config = {root: '/project/.quod-managed-receipt-fixtures', sequence: {seed: 42}}
+  const env = {NODE_ENV: 'test', QUOD_RECEIPT_VALUE: 'declared'}
+  const reset = () => {
+    fs.writeFileSync(testFile, source)
+    fs.writeFileSync(dependency, dependencySource)
+    fs.rmSync(addedModule, {force: true})
+    fs.rmSync(unrelated, {force: true})
+  }
+  try {
+    fs.mkdirSync(integrationOut)
+    fs.mkdirSync(moduleDir)
+    fs.writeFileSync(path.join(moduleDir, 'alpha.mjs'), 'export const name = "alpha"\n')
+    reset()
+    const {createManagedCompiler} = await import('./compiler.mjs')
+    const compile = createManagedCompiler({project})
+    const prepare = async ({configuration = copy(config), environment = copy(env)} = {}) => {
+      const input = inputs()
+      input.prepared = {config: configuration, identity: {
+        schema: 'quod-managed-preparation-v1-research',
+        preparerSha256: hash('synthetic preparation for compiler-to-ledger admission integration only'),
+        configurationSha256: hash(canonicalReceiptJSON(configuration))}}
+      const options = {epoch: 1700000000000, seed: configuration.sequence.seed, env: environment,
+        vitest: configuration, file: '/project/.quod-managed-receipt-fixtures/fixture.test.mjs'}
+      input.built = await compile('runner.mjs', options, testFile)
+      const execution = makeExecutionIdentity(input)
+      return {built: input.built, execution}
+    }
+    const baseline = await prepare()
+    fs.writeFileSync(path.join(integrationOut, 'baseline-bundle.mjs'), baseline.built.bundle)
+    fs.writeFileSync(path.join(integrationOut, 'baseline-build.json'), JSON.stringify({...baseline.built, bundle: undefined}, null, 2) + '\n')
+    check('admission integration records actual dependency source', baseline.built.identity.sources.some(row => row.source.endsWith('/dep.mjs')))
+    check('admission integration records actual glob module names', baseline.built.globs.some(row => row.names.includes('./modules/alpha.mjs')))
+    const receiptFile = path.join(integrationOut, 'constructed-response-receipt.json')
+    const seed = recordReceipt({file: receiptFile, execution: baseline.execution,
+      responseBytes: JSON.stringify(response), expected})
+    const get = execution => lookupReceipt({file: receiptFile, execution,
+      trustedReceiptSha256: seed.receiptSha256, expected})
+    const repeated = await prepare()
+    check('admission integration repeated real compilation keeps identity', repeated.execution.key === baseline.execution.key)
+    check('admission integration repeated real compilation hits receipt', get(repeated.execution).hit)
+    const mutations = []
+    for (const [name, mutate] of [
+      ['test source comment', () => { fs.writeFileSync(testFile, source + '// relevant source-byte mutation\n'); return {} }],
+      ['dependency value', () => { fs.writeFileSync(dependency, 'export const value = 43\n'); return {} }],
+      ['glob module-name addition', () => { fs.writeFileSync(addedModule, 'export const name = "beta"\n'); return {} }],
+      ['declared environment', () => ({environment: {...env, QUOD_RECEIPT_VALUE: 'changed'}})],
+      ['configuration seed', () => ({configuration: {...config, sequence: {seed: 43}}})],
+    ]) {
+      try {
+        const changed = await prepare(mutate())
+        check('admission integration ' + name + ' changes recompiled identity', changed.execution.key !== baseline.execution.key)
+        check('admission integration ' + name + ' misses recorded receipt', !get(changed.execution).hit)
+        mutations.push({name, executionKey: changed.execution.key, compileIdentitySha256: changed.built.identitySha256, hit: false})
+      } finally { reset() }
+    }
+    fs.writeFileSync(unrelated, 'outside imported modules and module-name glob\n')
+    const unrelatedBuild = await prepare()
+    check('admission integration unrelated file leaves real compile identity unchanged', unrelatedBuild.execution.key === baseline.execution.key)
+    check('admission integration unrelated file hits recorded receipt', get(unrelatedBuild.execution).hit)
+    admissionIntegration = {kind: 'real-compiler-to-identity-to-ledger-admission-integration',
+      responseOrigin: 'constructed passing response; not runtime execution', runtimeExecuted: false,
+      preparationOrigin: 'synthetic own-data configuration', baselineExecutionKey: baseline.execution.key,
+      compileIdentitySha256: baseline.built.identitySha256, receipt: seed, mutations,
+      unrelated: {executionKey: unrelatedBuild.execution.key, hit: true}}
+    fs.writeFileSync(path.join(integrationOut, 'result.json'), JSON.stringify(admissionIntegration, null, 2) + '\n')
+  } finally {
+    fs.rmSync(fixtureDir, {recursive: true, force: true})
+  }
+}
+
 const result = {schema: 'quod-managed-receipt-fixtures-v1', cacheEnabled: false,
-  researchOnly: true, checks, seed: recorded}
+  researchOnly: true, checks, seed: recorded, admissionIntegration}
 fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2) + '\n')
 console.log(JSON.stringify(result))

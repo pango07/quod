@@ -43,6 +43,75 @@ export default {
       } else if (mode === 'unhandled-promise') {
         void Promise.reject(new Error('QUOD_UNHANDLED_PROMISE'))
         check('unhandled rejection scheduled', true)
+      } else if (mode === 'global-onunhandledrejection' || mode === 'global-onerror') {
+        const property = mode === 'global-onunhandledrejection' ? 'onunhandledrejection' : 'onerror'
+        evidence.legacyHandlerCalls = 0
+        const suppress = event => {
+          evidence.legacyHandlerCalls++
+          if (event && typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation()
+          return true
+        }
+        let denied = false
+        try { globalThis[property] = suppress }
+        catch (error) { denied = string(error).includes('QUOD_MANAGED_UNSUPPORTED: global ' + property) }
+        check('global ' + property + ' setter is sticky unsupported', denied)
+        check('global ' + property + ' getter exposes no native handler', globalThis[property] === null)
+        if (mode === 'global-onunhandledrejection') {
+          void Promise.reject(new Error('QUOD_LEGACY_REJECTION'))
+          check('rejection cannot be suppressed by a legacy handler', true)
+        } else {
+          let fetchDenied = false
+          try { globalThis.onfetch = suppress }
+          catch (error) { fetchDenied = string(error).includes('QUOD_MANAGED_UNSUPPORTED: global onfetch') }
+          check('global onfetch registration is sticky unsupported', fetchDenied && globalThis.onfetch === null)
+          // The controller catches this independently of native onerror. It
+          // must still report a failure after the setter denial is caught.
+          setTimeout(() => { throw new Error('QUOD_LEGACY_ERROR') }, 0)
+          check('error still reaches private timer accounting', true)
+        }
+      } else if (mode === 'local-legacy-handler') {
+        const target = new EventTarget()
+        evidence.legacyHandlerCalls = 0
+        target.onfoo = async () => {
+          evidence.legacyHandlerCalls++
+          await new Promise(() => {})
+        }
+        let denied = false
+        try { target.dispatchEvent(new Event('foo')) }
+        catch (error) { denied = string(error).includes('QUOD_MANAGED_UNSUPPORTED: legacy event handler onfoo') }
+        check('local legacy handler dispatch is sticky unsupported', denied)
+        check('legacy handler is not invoked before denial', evidence.legacyHandlerCalls === 0)
+      } else if (mode === 'local-legacy-getter') {
+        const target = new EventTarget()
+        evidence.legacyGetterCalls = 0
+        evidence.legacyHandlerCalls = 0
+        define(target, 'onfoo', {configurable: true, get() {
+          evidence.legacyGetterCalls++
+          if (evidence.legacyGetterCalls === 1) return null
+          return async () => {
+            evidence.legacyHandlerCalls++
+            await new Promise(() => {})
+          }
+        }})
+        let denied = false
+        try { target.dispatchEvent(new Event('foo')) }
+        catch (error) { denied = string(error).includes('QUOD_MANAGED_UNSUPPORTED: legacy event handler onfoo') }
+        check('legacy accessor descriptor is denied before public reads', denied)
+        check('legacy getter is never evaluated', evidence.legacyGetterCalls === 0)
+        check('legacy getter callback is never invoked', evidence.legacyHandlerCalls === 0)
+      } else if (mode === 'abort-handler') {
+        const controller = new AbortController(), signal = controller.signal
+        evidence.legacyHandlerCalls = 0
+        evidence.supportedAbortCalls = 0
+        let denied = false
+        try { signal.onabort = () => { evidence.legacyHandlerCalls++ } }
+        catch (error) { denied = string(error).includes('QUOD_MANAGED_UNSUPPORTED: AbortSignal.onabort') }
+        check('AbortSignal.onabort setter is sticky unsupported', denied)
+        check('AbortSignal.onabort getter exposes no native handler', signal.onabort === null)
+        signal.addEventListener('abort', () => { evidence.supportedAbortCalls++ })
+        controller.abort('declared abort reason')
+        check('tracked addEventListener abort callback is preserved', evidence.supportedAbortCalls === 1)
+        check('legacy abort callback is not invoked', evidence.legacyHandlerCalls === 0)
       } else if (mode === 'async-event-listener') {
         const target = new EventTarget()
         target.addEventListener('quod-fixture', async () => {
@@ -121,6 +190,10 @@ export default {
         throw new Error('Unknown boundary fixture mode: ' + string(mode))
       }
       await runtime.complete()
+      if (mode === 'global-onunhandledrejection' || mode === 'global-onerror' || mode === 'local-legacy-handler' || mode === 'local-legacy-getter' || mode === 'abort-handler') {
+        check('no legacy callback ran during completion', evidence.legacyHandlerCalls === 0)
+      }
+      if (mode === 'local-legacy-getter') check('no legacy getter ran during completion', evidence.legacyGetterCalls === 0)
       const data = runtime.finish({mode, ok: !deliberateFailure && checks.every(item => item.pass), checks, evidence})
       if (forged) {
         const toJSON = () => ({mode, ok: true, forged: true, checks: [], boundary: {unsupported: [], completion: {sealed: true}}})

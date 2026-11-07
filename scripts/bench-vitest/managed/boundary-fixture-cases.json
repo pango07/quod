@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "entry": "boundary-fixture.mjs",
   "environmentVariable": "QUOD_BOUNDARY_FIXTURE_MODE",
   "isolatedProcessPerMode": true,
@@ -67,6 +67,89 @@
         "reasonIncludes": "asynchronous errors",
         "unhandledErrorsInclude": [
           "QUOD_UNHANDLED_PROMISE"
+        ]
+      }
+    },
+    {
+      "mode": "global-onunhandledrejection",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "pendingTimers": 0,
+        "timerErrors": 0,
+        "unhandledErrorsMin": 1,
+        "reasonIncludes": "asynchronous errors",
+        "unsupportedIncludes": [
+          "global onunhandledrejection"
+        ],
+        "unhandledErrorsInclude": [
+          "QUOD_LEGACY_REJECTION"
+        ]
+      }
+    },
+    {
+      "mode": "global-onerror",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "pendingTimers": 0,
+        "timerErrorsMin": 1,
+        "unhandledErrors": 0,
+        "reasonIncludes": "asynchronous errors",
+        "unsupportedIncludes": [
+          "global onerror",
+          "global onfetch"
+        ],
+        "timerErrorsInclude": [
+          "QUOD_LEGACY_ERROR"
+        ]
+      }
+    },
+    {
+      "mode": "local-legacy-handler",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "pendingTimerCallbacks": 0,
+        "pendingMicrotasks": 0,
+        "pendingEventCallbacks": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0,
+        "unsupportedIncludes": [
+          "legacy event handler onfoo"
+        ]
+      }
+    },
+    {
+      "mode": "local-legacy-getter",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "pendingTimerCallbacks": 0,
+        "pendingMicrotasks": 0,
+        "pendingEventCallbacks": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0,
+        "unsupportedIncludes": [
+          "legacy event handler onfoo"
+        ]
+      }
+    },
+    {
+      "mode": "abort-handler",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "pendingTimerCallbacks": 0,
+        "pendingMicrotasks": 0,
+        "pendingEventCallbacks": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0,
+        "unsupportedIncludes": [
+          "AbortSignal.onabort"
         ]
       }
     },
