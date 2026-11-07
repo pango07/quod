@@ -153,6 +153,7 @@ function checkSourceConfigs(ctx, compile) {
 
 function toolIdentity(ctx) {
   assert(process.platform === 'linux' && process.arch === 'x64', 'finite Linux x64 compiler profile required')
+  assert.equal(process.execArgv.length, 0, 'unreviewed compiler Node CLI flags')
   for (const key of ['NODE_PATH', 'NODE_OPTIONS', 'ESBUILD_BINARY_PATH']) assert(!process.env[key], 'unreviewed compiler environment: ' + key)
   const own = createRequire(import.meta.url), project = createRequire(path.join(ctx.project, 'package.json'))
   const packages = [own.resolve('esbuild/package.json'), own.resolve('@esbuild/linux-x64/package.json'), project.resolve('typescript/package.json')]

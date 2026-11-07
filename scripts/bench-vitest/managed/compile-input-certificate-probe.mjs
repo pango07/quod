@@ -4,11 +4,33 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {fileURLToPath} from 'node:url'
+import {spawnSync} from 'node:child_process'
 import {createManagedCompiler, canonicalManagedJSON} from './compiler.mjs'
 import {prepareManagedMatrix} from './preparation.mjs'
 import {captureManagedCompileCertificate, validateManagedCompileCertificates} from './compile-input-certificate.mjs'
 
 assert(process.env.GITHUB_ACTIONS === 'true', 'GitHub-only certificate investigation')
+// Only the remote tsconfig diagnostic uses this branch. It creates a new plain
+// Node process and therefore does not share the parent's loaded esbuild API.
+if (process.argv[2] === '--compile-child') {
+  const request = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'))
+  assert(!fs.existsSync(request.out)); fs.mkdirSync(request.out)
+  const saveChild = (name, bytes) => {
+    assert(bytes.length <= 16 * 1024 * 1024, 'bounded compile child output required')
+    fs.writeFileSync(path.join(request.out, name), bytes, {flag: 'wx'})
+  }
+  try {
+    const compile = createManagedCompiler({project: request.project, sourceTreeCache: false})
+    const built = await compile('runner.mjs', request.options, request.file)
+    saveChild('fresh.mjs', Buffer.from(built.bundle))
+    saveChild('fresh-build.json', Buffer.from(JSON.stringify({...built, bundle: undefined, options: request.options,
+      node: process.version, execArgv: process.execArgv}, null, 2) + '\n'))
+    process.exit(0)
+  } catch (error) {
+    saveChild('error.json', Buffer.from(JSON.stringify({name: error.name, message: error.message, stack: error.stack}, null, 2) + '\n'))
+    process.exit(1)
+  }
+}
 const [projectArg, outArg] = process.argv.slice(2), project = fs.realpathSync(projectArg), out = path.resolve(outArg)
 assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
 const fixture = path.join(project, '.quod-compile-input-fixture')
@@ -32,6 +54,54 @@ const request = (seed, config, file) => ({certificateBytes: seed.bytes, trustedC
   options: config, testFile: file})
 const capture = (built, config, file) => captureManagedCompileCertificate({project, built, options: config, testFile: file})
 const validate = requests => validateManagedCompileCertificates({project, requests})
+function snapshotFixture(directory) {
+  fs.mkdirSync(directory, {recursive: true})
+  const rows = []
+  let bytes = 0
+  function walk(file, relative = '') {
+    assert(rows.length < 64, 'tiny fixture snapshot path bound')
+    const stat = fs.lstatSync(file), row = {name: relative || '.', mode: stat.mode & 0o7777}
+    if (stat.isDirectory()) {
+      row.kind = 'directory'; rows.push(row)
+      for (const name of fs.readdirSync(file).sort()) walk(path.join(file, name), relative ? relative + '/' + name : name)
+    } else if (stat.isSymbolicLink()) {
+      row.kind = 'symlink'; row.target = fs.readlinkSync(file)
+      try {row.realTarget = fs.realpathSync(file)} catch (error) {row.realTargetError = error.code}
+      rows.push(row)
+    } else {
+      assert(stat.isFile(), 'tiny fixture snapshot regular data required')
+      const data = fs.readFileSync(file); bytes += data.length
+      assert(bytes <= 1024 * 1024, 'tiny fixture snapshot byte bound')
+      row.kind = 'file'; row.bytes = data.length; row.sha256 = sha(data); rows.push(row)
+      const target = path.join(directory, 'files', relative)
+      fs.mkdirSync(path.dirname(target), {recursive: true}); fs.writeFileSync(target, data, {flag: 'wx'})
+    }
+  }
+  walk(fixture)
+  const inventory = {schema: 'quod-compile-input-mutation-snapshot-v1', rows, bytes,
+    symlinks: 'target text only; no links are copied into evidence'}
+  write(path.join(directory, 'inventory.json'), inventory)
+  return inventory
+}
+function separateCompile(directory, config, file) {
+  const childOut = path.join(directory, 'separate-node'), requestFile = path.join(directory, 'child-request.json')
+  write(requestFile, {project, options: config, file, out: childOut})
+  const argv = [fileURLToPath(import.meta.url), '--compile-child', requestFile]
+  const child = spawnSync(process.execPath, argv, {cwd: project, env: process.env,
+    timeout: 30000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024})
+  const stdout = child.stdout || Buffer.alloc(0), stderr = child.stderr || Buffer.alloc(0)
+  fs.writeFileSync(path.join(directory, 'child-stdout.log'), stdout.subarray(0, 1024 * 1024))
+  fs.writeFileSync(path.join(directory, 'child-stderr.log'), stderr.subarray(0, 1024 * 1024))
+  const evidence = {node: process.execPath, argv, execArgv: [], timeoutMs: 30000, maxBytesPerLog: 1024 * 1024,
+    status: child.status, signal: child.signal, stdoutBytes: stdout.length, stderrBytes: stderr.length,
+    error: child.error ? {name: child.error.name, message: child.error.message, code: child.error.code || null} : null}
+  write(path.join(directory, 'child-process.json'), evidence)
+  if (child.status === 0 && fs.existsSync(path.join(childOut, 'fresh-build.json'))) {
+    const built = JSON.parse(fs.readFileSync(path.join(childOut, 'fresh-build.json'), 'utf8'))
+    return {...evidence, identitySha256: built.identitySha256, bundleSha256: built.sha256}
+  }
+  return evidence
+}
 let fixtureCreated = false
 try {
   const suite = await prepareManagedMatrix({project, seed: base.seed})
@@ -90,21 +160,40 @@ try {
   const config = {...options(rootCandidate), file: '/project/.quod-compile-input-fixture/entry.ts'}
   const initial = await build(entry, config), seed = capture(initial, config, entry)
   fs.writeFileSync(path.join(out, 'fixture-certificate.json'), seed.bytes)
+  fs.writeFileSync(path.join(out, 'fixture-seed.mjs'), initial.bundle)
+  write(path.join(out, 'fixture-seed-build.json'), {...initial, bundle: undefined, options: config})
+  snapshotFixture(path.join(out, 'fixture-baseline'))
   check('erased type-only import has an original resolution fact', initial.identity.resolutionFacts.some(fact =>
     fact.phase === 'original' && fact.specifier === './types.js' && fact.target.endsWith('/types.ts')) &&
     !initial.identity.resolutionFacts.some(fact => fact.phase === 'emitted' && fact.specifier === './types.js'))
   check('unchanged small fixture validates', (await validate([request(seed, config, entry)]))[0].hit)
   async function mutation(name, change, restore, {reject = false, config: currentConfig = config, identityChanges = true} = {}) {
+    const directory = path.join(out, 'mutations', String(result.mutations.length + 1).padStart(2, '0') + '-' + name.replace(/[^A-Za-z0-9]+/g, '-'))
+    fs.mkdirSync(directory, {recursive: true})
+    const row = {name, observation: null, decision: null, freshIdentitySha256: null, freshBundleSha256: null, rejected: null}
+    result.mutations.push(row)
     try {
-      const observation = await change()
+      row.observation = await change() || null
+      snapshotFixture(path.join(directory, 'fixture'))
       const decision = (await validate([request(seed, currentConfig, entry)]))[0]
+      row.decision = decision; write(path.join(directory, 'decision.json'), decision); save()
+      let rebuilt, rejection, freshError
+      try { rebuilt = await build(entry, currentConfig, fresh) }
+      catch (error) { rejection = error.message; freshError = {name: error.name, message: error.message, stack: error.stack} }
+      row.freshIdentitySha256 = rebuilt?.identitySha256 || null; row.freshBundleSha256 = rebuilt?.sha256 || null; row.rejected = rejection || null
+      if (rebuilt) {
+        fs.writeFileSync(path.join(directory, 'fresh.mjs'), rebuilt.bundle)
+        write(path.join(directory, 'fresh-build.json'), {...rebuilt, bundle: undefined, options: currentConfig})
+      } else write(path.join(directory, 'fresh-error.json'), freshError || {message: rejection})
+      if (name === 'tsconfig bytes changed') row.separateNode = separateCompile(directory, currentConfig, entry)
+      write(path.join(directory, 'mutation.json'), row); save()
+      // Preserve all actual mutant inputs/results, including the separate Node
+      // diagnostic, before either assertion can abort the investigation.
+      if (row.observation?.sameMetadataRequired) check(name + ' exact size and nanosecond mtime stay equal',
+        row.observation.sizeUnchanged && row.observation.mtimeUnchanged)
       check(name + ' certificate miss requires full compilation', !decision.hit && decision.next === 'full-compile')
-      let rebuilt, rejection
-      try { rebuilt = await build(entry, currentConfig, fresh) } catch (error) { rejection = error.message }
       check(name + ' actual fresh compiler confirms expected changed or rejected input', reject ? Boolean(rejection)
         : !rejection && (rebuilt.identitySha256 !== initial.identitySha256) === identityChanges)
-      result.mutations.push({name, observation: observation || null, decision, freshIdentitySha256: rebuilt?.identitySha256 || null,
-        freshBundleSha256: rebuilt?.sha256 || null, rejected: rejection || null}); save()
     } finally { await restore() }
     check(name + ' restored inputs recover prior certificate', (await validate([request(seed, config, entry)]))[0].hit)
   }
@@ -114,8 +203,8 @@ try {
   ]) await mutation(name, () => {
     const before = fs.statSync(path.join(fixture, file), {bigint: true}); put(file, changed)
     const after = fs.statSync(path.join(fixture, file), {bigint: true})
-    check(name + ' exact size and nanosecond mtime stay equal', before.size === after.size && before.mtimeNs === after.mtimeNs)
-    return {size: String(after.size), mtimeNs: String(after.mtimeNs)}
+    return {sameMetadataRequired: true, size: String(after.size), mtimeNs: String(after.mtimeNs),
+      sizeUnchanged: before.size === after.size, mtimeUnchanged: before.mtimeNs === after.mtimeNs}
   }, () => put(file, files[file]))
   await mutation('higher-priority extension added', () => put('dep.ts', 'export const value=43;\n'), () => fs.rmSync(path.join(fixture, 'dep.ts')))
   await mutation('resolved dependency removed', () => fs.rmSync(path.join(fixture, 'dep.js')), () => put('dep.js', files['dep.js']), {reject: true})
@@ -145,7 +234,11 @@ try {
     const value = JSON.parse(seed.bytes); mutate(value)
     const bytes = Buffer.from(canonicalManagedJSON(value) + '\n')
     const invalid = request({bytes, sha256: sha(bytes)}, config, entry)
-    check(name + ' declines even with constructed matching outer SHA', !(await validate([invalid]))[0].hit)
+    const decision = (await validate([invalid]))[0]
+    const directory = path.join(out, 'invalid-certificates'); fs.mkdirSync(directory, {recursive: true})
+    fs.writeFileSync(path.join(directory, name.replaceAll(' ', '-') + '.json'), bytes)
+    write(path.join(directory, name.replaceAll(' ', '-') + '-decision.json'), {trustedCertificateSha256: sha(bytes), decision})
+    check(name + ' declines even with constructed matching outer SHA', !decision.hit)
   }
   const bad = {...request(seed, config, entry), trustedCertificateSha256: '0'.repeat(64)}
   check('unauthenticated bytes cannot seed a compile candidate', !(await validate([bad]))[0].hit)

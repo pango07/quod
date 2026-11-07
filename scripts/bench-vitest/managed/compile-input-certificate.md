@@ -21,7 +21,8 @@ the roots. Above both roots, the exact existing package/config JSON roster and
 bytes are retained and external ancestor node_modules are declined. `.git` is
 the only excluded subtree: certificate source/resolution targets in it decline,
 and every actual glob is freshly enumerated. Unknown/special/external objects,
-unreviewed compiler preloads/tool overrides and exceeded bounds produce misses.
+unreviewed compiler preloads/tool overrides, nonempty Node CLI flags and exceeded
+bounds produce misses.
 
 Every original loaded source is freshly read in full, checked against its
 original compiler SHA, and given an additional raw-byte SHA. Validation shares
@@ -63,3 +64,11 @@ private aliasing, extension priority, removed files, package exports, tsconfig,
 project alias/context, globs and symlinks. Constructed malformed certificates
 also decline. These checks grant no receipt authority and make no performance
 claim beyond retained same-runner diagnostic timings.
+
+Every mutation retains the tiny actual fixture bytes and symlink target
+inventory, full resulting bundle/build metadata or rejection, and certificate
+decision before assertions. The tsconfig control additionally invokes a
+separate plain Node process with a 30-second watchdog, 16 MiB per output file and
+1 MiB per captured log. This separates process-local compiler caching from the
+observed compiler behavior. The expected semantic-change assertion remains in
+place until these retained bytes explain the first diagnostic failure.
