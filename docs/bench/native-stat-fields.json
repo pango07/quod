@@ -1,0 +1,400 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42356300909",
+  "headSha": "1519b8eb1ab796cef9f5bb4803017e9f1da55990",
+  "conclusion": "success",
+  "gateTests": 38,
+  "gateFailed": 0,
+  "statsConsumerComparisons": 22,
+  "logSha256": "86d9164c00009a636c7867b447ccf5b3745e3e566633e10d874ef08a593766b9",
+  "replayEligible": false,
+  "productReplaysEnabled": 0,
+  "evidence": [
+    {
+      "nativeStatsFields": {
+        "bigint": false,
+        "rows": [
+          {
+            "consumer": "type",
+            "fields": [
+              "mode"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "size",
+            "fields": [
+              "size"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "timestamp",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "date",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "inode",
+            "fields": [
+              "ino"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "descriptor",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "reflect descriptor",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "spread",
+            "fields": [
+              "atimeMs",
+              "birthtimeMs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 14,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "inspect",
+            "fields": [
+              "atimeMs",
+              "birthtimeMs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 14,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "structured clone",
+            "fields": [
+              "atimeMs",
+              "birthtimeMs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 14,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "v8 serialization",
+            "fields": [
+              "atimeMs",
+              "birthtimeMs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 14,
+            "available": true,
+            "replayEligible": false
+          }
+        ]
+      },
+      "replayEligible": false
+    },
+    {
+      "nativeStatsFields": {
+        "bigint": true,
+        "rows": [
+          {
+            "consumer": "type",
+            "fields": [
+              "mode"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "size",
+            "fields": [
+              "size"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "timestamp",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "date",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "inode",
+            "fields": [
+              "ino"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "descriptor",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "reflect descriptor",
+            "fields": [
+              "mtimeMs"
+            ],
+            "calls": 1,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "spread",
+            "fields": [
+              "atimeMs",
+              "atimeNs",
+              "birthtimeMs",
+              "birthtimeNs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "ctimeNs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "mtimeNs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 18,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "inspect",
+            "fields": [
+              "atimeMs",
+              "atimeNs",
+              "birthtimeMs",
+              "birthtimeNs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "ctimeNs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "mtimeNs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 18,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "structured clone",
+            "fields": [
+              "atimeMs",
+              "atimeNs",
+              "birthtimeMs",
+              "birthtimeNs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "ctimeNs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "mtimeNs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 18,
+            "available": true,
+            "replayEligible": false
+          },
+          {
+            "consumer": "v8 serialization",
+            "fields": [
+              "atimeMs",
+              "atimeNs",
+              "birthtimeMs",
+              "birthtimeNs",
+              "blksize",
+              "blocks",
+              "ctimeMs",
+              "ctimeNs",
+              "dev",
+              "gid",
+              "ino",
+              "mode",
+              "mtimeMs",
+              "mtimeNs",
+              "nlink",
+              "rdev",
+              "size",
+              "uid"
+            ],
+            "calls": 18,
+            "available": true,
+            "replayEligible": false
+          }
+        ]
+      },
+      "replayEligible": false
+    },
+    {
+      "metadataMutation": {
+        "before": {
+          "projected": {
+            "file": true,
+            "size": 15
+          },
+          "timestamp": 1700000000000,
+          "typeSize": {
+            "fields": [
+              "mode",
+              "size"
+            ],
+            "calls": 2,
+            "available": true,
+            "replayEligible": false
+          }
+        },
+        "after": {
+          "projected": {
+            "file": true,
+            "size": 15
+          },
+          "timestamp": 1700000060000,
+          "typeSize": {
+            "fields": [
+              "mode",
+              "size"
+            ],
+            "calls": 2,
+            "available": true,
+            "replayEligible": false
+          }
+        }
+      },
+      "replayEligible": false
+    },
+    {
+      "earlierConsumer": {
+        "timestampWasCopied": true,
+        "timestampReadObserved": false,
+        "callbacksIntact": true
+      },
+      "replayEligible": false
+    }
+  ],
+  "nextBenchmarkHarness": {
+    "repo": "pango07/ci-bench",
+    "branch": "bench/descriptor-safe-codex",
+    "commit": "919b5358fce819aa6bbf018e14a7761d40d083f2",
+    "base": "8131a61c3c614497d5b48a775e499010fee5f192",
+    "action": "a1b9a37a4bf38e1883a4afc07d397616fa985942",
+    "binary": "bin-2bd297b"
+  }
+}

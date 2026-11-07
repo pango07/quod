@@ -175,3 +175,11 @@ complete, stable execution boundary cheaply enough? If not, stop extending
 that candidate and bring back the concrete support restriction. Rewriting
 the test runner in Rust does not answer this question and is not the next
 milestone.
+
+The [native Stats field experiment](bench/native-stat-fields.md) tests one
+alternative mechanism against the current metadata bottleneck. Its field
+callbacks preserve the tested native Stats semantics, but its earlier-
+consumer case proves why late installation cannot authorize key refinement.
+Any further work on that candidate must establish a pre-publication boundary
+and retain the existing observer counterexamples. It has enabled no product
+replay and does not replace the fresh-runner or full-window acceptance gates.
