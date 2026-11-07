@@ -102,3 +102,69 @@ and the concrete compatibility tradeoff rather than adding another informal
 exception. No universal savings guarantee follows from one successful repo;
 one-line installation can coexist with explicit support limits and plain
 fallback.
+
+## Economics before another optimization
+
+The product earns its keep only when avoided execution costs more than
+input validation, recording, audits, transfers and integration overhead.
+The relevant hit rate is the fraction of execution time avoided, not the
+fraction of test files marked as hits. A hundred tiny hits can be worth less
+than one expensive test.
+
+Using the measured default window of 1,538 runner-seconds and the same
+1,735-second plain baseline:
+
+| Desired runner-time saving | Maximum Quod window | Further reduction needed |
+| --- | ---: | ---: |
+| 40% | 1,041 s | 497 s |
+| 45% | 954.25 s | 583.75 s |
+| 50% | 867.5 s | 670.5 s |
+
+These are arithmetic thresholds, not forecasts or billed-minute targets.
+Per-job minute rounding must be computed separately. The 50% gap is about
+67% of the measured 1,003 seconds of plain test steps. That is a scale
+comparison, not a prediction: miss costs, overlap, audits and replay
+validation change the achievable gain.
+
+The next performance experiment must therefore demonstrate substantial
+avoided test execution. Do not repeat the full window merely because a
+small fixed cost improved. The original cold window remains the final
+acceptance test once the prototype clears its correctness and useful-reuse
+gate.
+
+## Product recommendation and decision boundary
+
+Keep one-line installation, but state compatibility and replay eligibility
+separately. Installation can be automatic while unsupported execution runs
+plain. A previous result agreeing with another run is evidence about those
+runs; it does not establish that all possible inputs have been accounted
+for.
+
+Prefer a narrow, versioned Vitest integration with an enforceable input and
+effect contract over more broad observation exceptions. This follows the
+explicit action-input model described in
+[Bazel's remote cache documentation](https://bazel.build/remote/caching),
+but its feasibility for unchanged Vitest execution remains to be proved.
+Do not call a list of observed inputs an enforceable contract, or call an
+unsupported fallback path a demonstrated acceleration.
+
+The prototype must retain the unmodified expensive test and ordinary plain
+control. Its acceptance matrix includes unchanged inputs on a fresh runner,
+relevant source/configuration/environment/metadata mutations, an unrelated
+file change, external effects, and an older ledger. Each relevant mutation
+must rerun or reject replay. Each comparison must retain the full test
+names, states and expected effects. Unsupported effects must be identified
+before replay eligibility is granted, including effects hidden by native
+code or a different execution path.
+
+If safe reuse requires canonical metadata, a controlled clock, selected
+random seeds, restricted host APIs or test changes, document those as a
+separate managed execution mode. It would need the founder's product
+decision and a matching managed plain baseline. It cannot satisfy the
+original transparent benchmark by silently changing that baseline.
+
+The immediate decision is technical: can this pinned runtime expose a
+complete, stable execution boundary cheaply enough? If not, stop extending
+that candidate and bring back the concrete support restriction. Rewriting
+the test runner in Rust does not answer this question and is not the next
+milestone.

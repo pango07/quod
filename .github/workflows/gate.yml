@@ -651,6 +651,10 @@ jobs:
       - name: Packaged boolean proof and switch regression
         working-directory: test
         run: node boolean-proof.mjs
+      - name: Packaged environment descriptor regression
+        if: hashFiles('test/env-descriptor.mjs') != ''
+        working-directory: test
+        run: node env-descriptor.mjs
       - name: Packaged deferred Cloud save and cleanup regression
         if: hashFiles('test/cloud-post.mjs') != ''
         working-directory: test
@@ -668,6 +672,7 @@ jobs:
             ${{ runner.temp }}/names-proof-logs/*.log
             ${{ runner.temp }}/recorder-upgrade-logs/*.log
             ${{ runner.temp }}/boolean-proof-logs/*.log
+            ${{ runner.temp }}/env-descriptor-logs/*
 
   benchmark-profile:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')
