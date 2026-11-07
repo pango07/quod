@@ -1,0 +1,15 @@
+name: Capture private matrix cache session
+description: Retain the job-local JavaScript Actions cache session outside evidence artifacts.
+inputs:
+  action:
+    description: Absolute checkout of the reviewed collection Action source.
+    required: true
+  session:
+    description: Private new0600 file below RUNNER_TEMP, outside artifact output.
+    required: true
+  artifacts:
+    description: Artifact output directory that must never contain the session.
+    required: true
+runs:
+  using: node24
+  main: index.cjs
