@@ -328,10 +328,17 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
                   target: moduleName(real)}
               }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
               const names = matches.map(match => match.name)
-              globs.push({source, pattern, names, matches})
-              const replacement = '{' + names.map(name => `${JSON.stringify(name)}:()=>${helper}(${JSON.stringify('lazy module ' + name)})`).join(',') + '}'
+              // This finite extension can import only the already-closed actual
+              // test entry. Preserve every foreign name with its existing sticky
+              // denial; a broad glob must not import host configuration or an
+              // unrelated test merely because that path is present in its set.
+              const admittedTargets = testFile ? matches.filter(match => match.target === moduleName(testFile)) : []
+              globs.push({source, pattern, names, matches, admittedTargets})
+              const replacement = '{' + matches.map(match => `${JSON.stringify(match.name)}:()=>` +
+                (testFile && match.target === moduleName(testFile) ? `import(${JSON.stringify(match.name)})`
+                  : `${helper}(${JSON.stringify('lazy module ' + match.name)})`)).join(',') + '}'
               edits.push({start: node.getStart(tree), end: node.getEnd(), replacement})
-              transforms.push({source, offset: node.getStart(tree), policy: 'closed lazy glob names'})
+              transforms.push({source, offset: node.getStart(tree), policy: 'closed lazy glob; actual test entry only'})
               return
             }
             // Do not expose the runtime's module metadata object: aliases,
@@ -392,7 +399,8 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
       schema: 'quod-managed-compile-v1-research', compilerSha256, esbuildVersion, typescriptVersion: ts.version,
       policy: {platform: 'browser', format: 'esm', target: 'es2022', external: ['node:async_hooks'],
         dynamicCode: 'private-sticky-denial-plus-runtime-constructor-guards',
-        importMeta: 'literal-relative-glob-names-only; all-other-access-sticky-denied', preparationAlwaysRuns: true,
+        importMeta: 'literal-relative-glob-self-entry-only; all-other-access-sticky-denied',
+        lazyGlob: 'actual-real-test-entry-only; all-other-matches-sticky-denied', preparationAlwaysRuns: true,
         ...(zodAlias ? {zodAlias, zodAliasPolicy: 'reviewed /^zod(?=\\/|$)/ replacement for every closed dependency'} : {})},
       entry: moduleName(entryFile), testEntry: testFile && moduleName(testFile), bundleSha256: sha256,
       configurationSha256: sha(optionsJSON), moduleNameSetsSha256: sha(canonicalManagedJSON(globs)),

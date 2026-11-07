@@ -1,10 +1,13 @@
-// GitHub gate only. Compiles small admission fixtures; does not install/run the
-// heavy test. The caller may also execute the returned bundles in workerd.
+// GitHub gate only. Compiles admission fixtures and executes tiny closed-glob
+// controls in fresh workerd processes. It never installs or runs the heavy test.
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import {fileURLToPath} from 'node:url'
 import {createManagedCompiler, canonicalManagedJSON} from '../compiler.mjs'
+import {prepareManagedProject} from '../preparation.mjs'
+import {createManagedExecutor} from '../executor.mjs'
+import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from '../receipt.mjs'
 
 const [projectArg, outArg] = process.argv.slice(2)
 assert(projectArg && outArg, 'usage: check.mjs PROJECT EMPTY_OUTPUT_DIRECTORY')
@@ -103,7 +106,58 @@ try {
   const bareALS = await compiler('runner.mjs', config, alsFile); save('als-named-bare', bareALS)
   check('bare native ALS alias uses the managed facade', Object.keys(bareALS.metadata.inputs).some(name => name.includes('quod-managed-als:')))
   check('configuration key order is canonical', canonicalManagedJSON({b: 2, a: 1}) === canonicalManagedJSON({a: 1, b: 2}))
-  const result = {schema: 'quod-managed-compiler-regressions-v1', checks, bundles, cacheEnabled: false}
+  // Keep the original40 controls above unchanged. The following submatrix
+  // executes small fixtures remotely using the actual reviewed root config.
+  fs.writeFileSync(path.join(globDir, 'added.mjs'), 'export const value = 2\n')
+  const globAdded = await compiler('runner.mjs', config, path.join(dir, 'glob.test.mjs'))
+  check('adding a denied foreign glob name changes closed identity', globAfter.identitySha256 !== globAdded.identitySha256)
+  fs.unlinkSync(path.join(globDir, 'added.mjs'))
+  const globRemoved = await compiler('runner.mjs', config, path.join(dir, 'glob.test.mjs'))
+  check('removing that glob name restores the exact prior closed identity', globAfter.identitySha256 === globRemoved.identitySha256)
+  process.chdir(project)
+  const prepared = await prepareManagedProject({project,
+    file: 'packages/convex-helpers/server/stream.property.test.ts', seed: config.seed})
+  fs.writeFileSync(path.join(out, 'self-glob-preparation.json'), JSON.stringify(prepared, null, 2) + '\n')
+  const runtimeDir = path.join(dir, 'closed-glob-runtime'); fs.mkdirSync(runtimeDir)
+  for (const name of ['self-glob.test.mjs', 'foreign-glob.test.mjs']) {
+    fs.copyFileSync(path.join(here, name), path.join(runtimeDir, name))
+  }
+  const foreignDir = path.join(runtimeDir, 'foreign-modules'); fs.mkdirSync(foreignDir)
+  fs.writeFileSync(path.join(foreignDir, 'value.mjs'), 'globalThis.__quodClosedForeignGlobEvaluations = 1; export const value = 42\n')
+  fs.writeFileSync(path.join(foreignDir, 'native.mjs'), 'import fs from "node:fs"; globalThis.__quodClosedForeignGlobEvaluations = 1; export default fs\n')
+  const executor = createManagedExecutor({out, watchdogMs: 30000})
+  for (const [name, count, unsupported] of [
+    ['self-glob', 2, []],
+    ['foreign-glob', 1, ['lazy module ./foreign-modules/native.mjs', 'lazy module ./foreign-modules/value.mjs']],
+  ]) {
+    const file = path.join(runtimeDir, name + '.test.mjs')
+    const options = {...config, vitest: prepared.config,
+      file: '/project/' + path.relative(project, file).split(path.sep).join('/'), providedContext: {}}
+    const built = await compiler('runner.mjs', options, file)
+    save(name, {...built, options})
+    check(name + ' final module graph is closed', built.closure.finalBundleParsed && built.closure.remainingDynamicImports === 0 &&
+      built.closure.remainingDynamicRequires === 0 && built.closure.externalImports.every(value => value === 'node:async_hooks'))
+    const admitted = built.globs.flatMap(row => row.admittedTargets)
+    check(name + ' admits only its exact actual entry', admitted.every(row => row.target === built.identity.testEntry) && admitted.length === (name === 'self-glob' ? 1 : 0))
+    const data = await executor.execute('runtime-' + name, built.bundle)
+    check(name + ' actual original assertions pass', data.ok === true && data.rows.length === count && data.rows.every(row => row.state === 'pass'))
+    check(name + ' private completion remains sealed', data.boundary.contract === MANAGED_BOUNDARY_CONTRACT &&
+      data.boundary.intrinsicPolicy === MANAGED_INTRINSIC_POLICY && data.boundary.completion.sealed === true &&
+      data.boundary.completion.intrinsicLockdown === true && data.boundary.completion.reason === '' && data.boundary.pendingTimers === 0 &&
+      ['pendingTimerCallbacks', 'pendingMicrotasks', 'pendingEventCallbacks'].every(key => data.boundary.completion[key] === 0) &&
+      ['timerErrors', 'unhandledErrors', 'unguardable', 'symbolUnguardable'].every(key => data.boundary[key].length === 0))
+    check(name + ' denial inventory is exact after caught calls', canonicalManagedJSON(data.boundary.unsupported.slice().sort()) === canonicalManagedJSON(unsupported))
+  }
+  fs.symlinkSync(path.resolve(here, '../prelude.mjs'), path.join(foreignDir, 'private.mjs'))
+  let privateGlobRejected = false
+  try { await compiler('runner.mjs', config, path.join(runtimeDir, 'foreign-glob.test.mjs')) } catch { privateGlobRejected = true }
+  check('glob symlink cannot expose a private adapter even as a denied foreign key', privateGlobRejected)
+  fs.unlinkSync(path.join(foreignDir, 'private.mjs'))
+  let nativeEntryRejected = false
+  try { await compiler('runner.mjs', config, path.join(foreignDir, 'native.mjs')) } catch { nativeEntryRejected = true }
+  check('glob target native imports remain denied when selected as the actual entry', nativeEntryRejected)
+  const result = {schema: 'quod-managed-compiler-regressions-v1', originalCheckCount: 40,
+    selfGlobCheckCount: 14, checks, bundles, cacheEnabled: false}
   fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2) + '\n')
   console.log(JSON.stringify(result))
 } finally {

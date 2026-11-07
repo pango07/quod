@@ -93,11 +93,15 @@ def audit(args):
     require(bool(re.fullmatch('[0-9a-f]{40}', args.source_pin)), 'explicit full source pin required')
     source_sha = {}
     probe_source = b''
+    compiler_source = b''
     for name in ('compiler.mjs', 'prelude.mjs', 'runner.mjs', 'preflight.mjs', 'preparation.mjs', 'matrix-planner.mjs', 'matrix-probe.mjs', 'executor.mjs'):
         data = subprocess.check_output(['git', 'show', args.source_pin + ':scripts/bench-vitest/managed/' + name], cwd=ROOT)
         source_sha[name] = sha(data)
         if name == 'matrix-probe.mjs':
             probe_source = data
+        if name == 'compiler.mjs':
+            compiler_source = data
+    self_glob_policy = b'actual-real-test-entry-only; all-other-matches-sticky-denied' in compiler_source
     provenance = False
     if args.archive and args.run_json and args.artifacts_json:
         archive = pathlib.Path(args.archive)
@@ -194,6 +198,7 @@ def audit(args):
         policy = invocation['runtimePolicy']
         require({k: v for k, v in policy.items() if k != 'supervisor'} == {k: v for k, v in runtime_policy.items() if k != 'supervisor'}, 'instance native runtime capability policy differs')
         require(invocation['host'] == result['host'], 'instance native host differs')
+        require(policy['supervisor']['sourceSha256'] == source_sha['executor.mjs'], 'instance actual supervisor differs')
         require(invocation['pid'] not in seen_pids, 'fresh process PID reused in this short gate')
         seen_pids.add(invocation['pid'])
         execution = load(directory / 'execution.json')
@@ -213,6 +218,15 @@ def audit(args):
         closure = built['closure']
         require(closure['finalBundleParsed'] is True and closure['remainingDynamicImports'] == 0 and closure['remainingDynamicRequires'] == 0 and closure['externalImports'] == ['node:async_hooks'], 'final module graph is not closed')
         require(identity['policy']['dynamicCode'] == 'private-sticky-denial-plus-runtime-constructor-guards', 'actual eval guard policy changed')
+        if self_glob_policy:
+            require(identity['policy'].get('lazyGlob') == 'actual-real-test-entry-only; all-other-matches-sticky-denied' and
+                    identity['policy']['importMeta'] == 'literal-relative-glob-self-entry-only; all-other-access-sticky-denied', 'new self-entry-only lazy import policy differs')
+            require(built['globs'] == identity['globs'], 'compiled/keyed glob inventory differs')
+            for glob in identity['globs']:
+                require(glob['names'] == [match['name'] for match in glob['matches']], 'glob removed or changed a matched foreign key')
+                admitted = [match for match in glob['matches'] if match['target'] == identity['testEntry']]
+                require(glob['admittedTargets'] == admitted, 'glob can import a foreign target or omitted the exact self target')
+                require(all(any(source['source'] == match['target'] for source in identity['sources']) for match in admitted), 'admitted glob target is outside the closed original source graph')
         for source in identity['sources']:
             if source['source'].startswith('/quod-adapter/'):
                 name = source['source'].removeprefix('/quod-adapter/')
@@ -239,7 +253,33 @@ def audit(args):
     regression_file = matrix.parent / 'matrix-compiler-checks/result.json'
     if regression_file.is_file():
         regressions = load(regression_file)
-        require(len(regressions['checks']) == 40 and all(row['passed'] is True for row in regressions['checks']), 'original40 compiler regressions failed/omitted')
+        require(len(regressions['checks']) == (54 if self_glob_policy else 40) and all(row['passed'] is True for row in regressions['checks']), 'original40 or added14 compiler regressions failed/omitted')
+        if self_glob_policy:
+            require(regressions['originalCheckCount'] == 40 and regressions['selfGlobCheckCount'] == 14, 'original/new compiler submatrix counts differ')
+            new_names = [
+                'adding a denied foreign glob name changes closed identity',
+                'removing that glob name restores the exact prior closed identity',
+            ]
+            for name in ('self-glob', 'foreign-glob'):
+                new_names.extend(name + suffix for suffix in (
+                    ' final module graph is closed', ' admits only its exact actual entry',
+                    ' actual original assertions pass', ' private completion remains sealed',
+                    ' denial inventory is exact after caught calls',
+                ))
+                built = load(regression_file.parent / (name + '.json'))
+                build(built)
+                data = phase(regression_file.parent / ('runtime-' + name), built)
+                expected_denials = [] if name == 'self-glob' else ['lazy module ./foreign-modules/native.mjs', 'lazy module ./foreign-modules/value.mjs']
+                require(data is not None and data.get('ok') is True and completed(data) and
+                        len(data['rows']) == (2 if name == 'self-glob' else 1) and all(row['state'] == 'pass' for row in data['rows']) and
+                        sorted(data['boundary']['unsupported']) == expected_denials, 'actual self/foreign glob runtime semantics or sticky denials failed')
+                admitted = [match for glob in built['globs'] for match in glob['admittedTargets']]
+                require(len(admitted) == (1 if name == 'self-glob' else 0), 'runtime fixture did not prove the bounded glob admission')
+            new_names.extend([
+                'glob symlink cannot expose a private adapter even as a denied foreign key',
+                'glob target native imports remain denied when selected as the actual entry',
+            ])
+            require(regressions['checks'][40:] == [{'name': name, 'passed': True} for name in new_names], 'added14 exact closed-glob control roster differs')
     else:
         require(False, 'original40 compiler regression evidence missing')
 
