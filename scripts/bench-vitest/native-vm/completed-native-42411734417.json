@@ -1,0 +1,676 @@
+{
+  "schema": "quod-native-vm-completed-repeat-v1-investigation",
+  "run": 42411734417,
+  "runURL": "https://github.com/pango07/quod/actions/runs/42411734417",
+  "sourcePin": "1ac7bab428835914dd14c6f5907ce5c02dfe3445",
+  "projectSource": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "conclusion": "success",
+  "repeatInvestigationPassed": true,
+  "receiptAdmission": false,
+  "productionEnabled": false,
+  "ordinaryRunnerEquivalenceClaim": false,
+  "fullWindowClaim": false,
+  "artifactCodeExecutedByLocalAudit": false,
+  "artifact": {
+    "id": 13590591522,
+    "sizeBytes": 187402743,
+    "sha256": "554c38e5590ca2a840bb92927fc30aa68bba4ed224e52ea72d54af8eebb7f5d4",
+    "uncompressedBytes": 187391675,
+    "zipBinding": {
+      "complete": true,
+      "files": 65,
+      "directories": 8,
+      "entries": 65,
+      "uncompressedBytes": 187391675,
+      "pathsSha256": "a5527251622df3e1a49acb83eb938cf4ac66185434267500e6d9f53068836604"
+    }
+  },
+  "job": {
+    "id": 128521141945,
+    "startedAt": "2026-11-07T20:34:50Z",
+    "completedAt": "2026-11-07T20:55:07Z",
+    "runnerSeconds": 1217.0
+  },
+  "image": {
+    "kernel": {
+      "bytes": 17349000,
+      "origin": "/boot/vmlinuz-7.0.0-43-generic",
+      "sha256": "646f7e41faa4b7c8899deee5f725c39eb46987977b5d0ab4340deb3463d9de86"
+    },
+    "initramfs": {
+      "bytes": 147147504,
+      "sha256": "52b035a180f70c3e17357e31ca8160a4e254f924f80434335c3d1c44991b156c"
+    },
+    "canonicalArchive": {
+      "entries": 32260,
+      "storedDataBytes": 499115200
+    },
+    "sourceSha256": {
+      "build.py": "0d1ef0f8a12e88721eb99e1086fdeebb346b0bf7cac4cf19803e72c59ea9956f",
+      "guest-init.c": "c470b31f935661dd72ed75404c8c484cc80db0cb057aa355e185e9b928cc1dcb",
+      "guest-negative.c": "3776c8da8365e59c1f001d0ce49081df60fbbd289abcee46c5ea4d9438e84420",
+      "probe.py": "854a5f5db81b77af39fd5eb625f805e2ceeed72dfac34d6619e1dbce5fe524cd",
+      "audit.py": "22a474702cc5f046d984fc233b69c54d4545111113cd96256858bde905df6cae"
+    },
+    "metadataSha256": "b88db3977bf9b07903f5b31b1a1ee504f581e6270778a13a4409e5f003def92d"
+  },
+  "policy": {
+    "blockDevices": [],
+    "contract": "diskless-canonical-linux-native-v1-investigation",
+    "cpu": "Haswell-noTSX,rdrand=off,rdseed=off,rdtscp=off,pmu=off",
+    "diagnostics": {
+      "captureIntervalGuestNanoseconds": 250000000,
+      "completionAuthority": false,
+      "intervalGuestNanoseconds": 1000000000,
+      "maxBodyBytes": 16384,
+      "maxProcEntriesScanned": 256,
+      "maxProcSamples": 8,
+      "maxRecords": 64,
+      "maxTotalBodyBytes": 1048576,
+      "outputSampleBytes": 512,
+      "procSampleBytes": 256,
+      "schema": "quod-native-vm-progress-v1"
+    },
+    "executionClassSha256": "a17e8bb0f64e43d564091de6017fe96d60bbd4a200d0ddee401cf7a4a50cf831",
+    "hostEnvironment": {
+      "LANG": "C.UTF-8",
+      "PATH": "/usr/bin:/bin",
+      "TZ": "UTC"
+    },
+    "hostMounts": [],
+    "icount": "shift=0,align=off,sleep=off",
+    "imageMetadataSha256": "b88db3977bf9b07903f5b31b1a1ee504f581e6270778a13a4409e5f003def92d",
+    "inputChannels": [],
+    "limitations": [
+      "No receipt or replay admission",
+      "No exhaustive host-open or negative-lookup closure",
+      "RNDADDENTROPY mixes a seed; actual repeated-command getrandom agreement is required"
+    ],
+    "machine": "pc-i440fx-10.2",
+    "maxSerialBytes": 104857600,
+    "memoryMiB": 4096,
+    "network": "no NIC; guest-owned loopback only",
+    "output": "output-only file chardev bound to a root-only guest UART",
+    "probeSha256": "854a5f5db81b77af39fd5eb625f805e2ceeed72dfac34d6619e1dbce5fe524cd",
+    "receiptAdmission": false,
+    "releaseWatchdogSeconds": 720,
+    "rtc": "base=2023-11-14T22:13:20,clock=vm,driftfix=none",
+    "schema": "quod-native-vm-repeat-v1-investigation",
+    "scope": "actual build/release repeat-image investigation; no ordinary-equivalence or full-window claim",
+    "seed": 42,
+    "source": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+    "tcgThread": "single",
+    "uuid": "3a84431b-2034-4c41-8f61-157200000001",
+    "vcpus": 1,
+    "watchdogSeconds": 180
+  },
+  "phases": [
+    {
+      "name": "boundary",
+      "hostSeconds": 42.89639491300001,
+      "complete": true,
+      "expectedBackgroundRejection": false,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 0,
+      "killedProcesses": 0,
+      "stdoutBytes": 711,
+      "stdoutSha256": "ab1e3300958f03c89cb2db2c3e06d7483de3e8a5f89fefe1c45abe4430b7f17a",
+      "stderrBytes": 0,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "distEntries": 1,
+      "distFileBytes": 0,
+      "rawEffectsSha256": "0fb75a27ea6ecb27f16530f85811d5e33d671c75e4c7aaa0f060644d735df10a",
+      "entropyProbeSha256": "bb9d5d0165ffd1766d5b969c20df80987086b231a268f58cc55519f2d9ef9c3d",
+      "diagnostics": {
+        "progressCount": 2,
+        "progressBodyBytes": 3093,
+        "progressBudgetExhausted": false
+      },
+      "rawSerialSha256": "037d7f2d796d17d4ed35ade1295b36bc8380fa5f32b3c2a5a8d7ee00b7b9648c",
+      "responseSha256": "0729374fd812e00e641066bf5b8931c5da11f9dbc4d4ea892f26416ce55e0d89"
+    },
+    {
+      "name": "background",
+      "hostSeconds": 42.43633619799999,
+      "complete": false,
+      "expectedBackgroundRejection": true,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 1,
+      "killedProcesses": 2,
+      "stdoutBytes": 46,
+      "stdoutSha256": "772a6180cf56ba6ad597f78d06a957375cec63100fa86a817c2d1fcc860243d4",
+      "stderrBytes": 0,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "distEntries": 0,
+      "distFileBytes": 0,
+      "rawEffectsSha256": "45fdf9e5c3c11bce84c830fcb39d89812a896d505c4c412f2d5a16d1d1b45d90",
+      "entropyProbeSha256": "931daf16f608d8a0ebeadad0047e728b26e249264708582765b577c5afd70076",
+      "diagnostics": {
+        "progressCount": 1,
+        "progressBodyBytes": 1508,
+        "progressBudgetExhausted": false
+      },
+      "rawSerialSha256": "ac90769e9852f7ffe20c900b110203bd6110a99706f6530d8b2533e787c0e2c0",
+      "responseSha256": "25f2d5980e58ec4a260f06ebf4239209d134f3d7e39d2560fb7e3a2948a13027"
+    },
+    {
+      "name": "build-1",
+      "hostSeconds": 139.11192015499998,
+      "complete": true,
+      "expectedBackgroundRejection": false,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 0,
+      "killedProcesses": 0,
+      "stdoutBytes": 248,
+      "stdoutSha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186",
+      "stderrBytes": 43,
+      "stderrSha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68",
+      "distEntries": 130,
+      "distFileBytes": 1118349,
+      "rawEffectsSha256": "7b3434b15d8127e0838b0b89be960f6f142caca1b896a92f727273f5d36d8ac0",
+      "entropyProbeSha256": "5efbc27c05e5c9d4b7ba7da2bfd1280cb7112a367224082603f46ef427d740f9",
+      "diagnostics": {
+        "progressCount": 24,
+        "progressBodyBytes": 57522,
+        "progressBudgetExhausted": false
+      },
+      "rawSerialSha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f",
+      "responseSha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    {
+      "name": "build-2",
+      "hostSeconds": 137.44714477599996,
+      "complete": true,
+      "expectedBackgroundRejection": false,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 0,
+      "killedProcesses": 0,
+      "stdoutBytes": 248,
+      "stdoutSha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186",
+      "stderrBytes": 43,
+      "stderrSha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68",
+      "distEntries": 130,
+      "distFileBytes": 1118349,
+      "rawEffectsSha256": "7b3434b15d8127e0838b0b89be960f6f142caca1b896a92f727273f5d36d8ac0",
+      "entropyProbeSha256": "5efbc27c05e5c9d4b7ba7da2bfd1280cb7112a367224082603f46ef427d740f9",
+      "diagnostics": {
+        "progressCount": 24,
+        "progressBodyBytes": 57522,
+        "progressBudgetExhausted": false
+      },
+      "rawSerialSha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f",
+      "responseSha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    {
+      "name": "release-1",
+      "hostSeconds": 371.52516329200006,
+      "complete": true,
+      "expectedBackgroundRejection": false,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 0,
+      "killedProcesses": 0,
+      "stdoutBytes": 11419,
+      "stdoutSha256": "e28dd32f253f9bc54e032bee4292311c9f85fccd2a89cc7cc2efffe60e211354",
+      "stderrBytes": 0,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "distEntries": 1,
+      "distFileBytes": 0,
+      "rawEffectsSha256": "d2c8cf644639e6e146c53b1c29d433e914b271668b832ab5b33832a8395256ca",
+      "entropyProbeSha256": "b8b20e1a706197a970036c9615b61f4bcd2310b2f3594bcd7601d3385843aa9a",
+      "diagnostics": {
+        "progressCount": 64,
+        "progressBodyBytes": 300820,
+        "progressBudgetExhausted": true
+      },
+      "rawSerialSha256": "cb64c8096bd2d048690b8ca379452c02239f46566dc19873de9a49beac57470d",
+      "responseSha256": "044a86e14110f91bdba132e4b6409b950aa999e119d7ddf6a402650c8e21a68d",
+      "nativeTerminalCounters": {
+        "tests": 20,
+        "suites": 0,
+        "pass": 20,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "nativeTestDurationMs": "50510.507625",
+      "lastStdoutLines": [
+        "\u2139 tests 20",
+        "\u2139 suites 0",
+        "\u2139 pass 20",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 50510.507625"
+      ]
+    },
+    {
+      "name": "release-2",
+      "hostSeconds": 371.52319902299996,
+      "complete": true,
+      "expectedBackgroundRejection": false,
+      "exitCode": 0,
+      "signal": 0,
+      "remainingProcesses": 0,
+      "leftoversDetected": 0,
+      "killedProcesses": 0,
+      "stdoutBytes": 11419,
+      "stdoutSha256": "e28dd32f253f9bc54e032bee4292311c9f85fccd2a89cc7cc2efffe60e211354",
+      "stderrBytes": 0,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "distEntries": 1,
+      "distFileBytes": 0,
+      "rawEffectsSha256": "d2c8cf644639e6e146c53b1c29d433e914b271668b832ab5b33832a8395256ca",
+      "entropyProbeSha256": "b8b20e1a706197a970036c9615b61f4bcd2310b2f3594bcd7601d3385843aa9a",
+      "diagnostics": {
+        "progressCount": 64,
+        "progressBodyBytes": 300820,
+        "progressBudgetExhausted": true
+      },
+      "rawSerialSha256": "cb64c8096bd2d048690b8ca379452c02239f46566dc19873de9a49beac57470d",
+      "responseSha256": "044a86e14110f91bdba132e4b6409b950aa999e119d7ddf6a402650c8e21a68d",
+      "nativeTerminalCounters": {
+        "tests": 20,
+        "suites": 0,
+        "pass": 20,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "nativeTestDurationMs": "50510.507625",
+      "lastStdoutLines": [
+        "\u2139 tests 20",
+        "\u2139 suites 0",
+        "\u2139 pass 20",
+        "\u2139 fail 0",
+        "\u2139 cancelled 0",
+        "\u2139 skipped 0",
+        "\u2139 todo 0",
+        "\u2139 duration_ms 50510.507625"
+      ]
+    }
+  ],
+  "agreement": {
+    "build": true,
+    "kernelGetrandom": true,
+    "release": true
+  },
+  "serialAndResponseRepeatEquality": {
+    "build": {
+      "serialBytesEqual": true,
+      "responseBytesEqual": true
+    },
+    "release": {
+      "serialBytesEqual": true,
+      "responseBytesEqual": true
+    }
+  },
+  "controls": {
+    "nativeBoundaryChecks": 15,
+    "expectedDetachedDescendantRejections": 1,
+    "remoteParserChecks": 12,
+    "remoteSymlinkChecks": 6
+  },
+  "independentAudit": {
+    "passed": true,
+    "issues": [],
+    "reader": "completed-native-audit.py",
+    "readerSha256": "415272e2a72558625cdc5b6fe08cec3432a6511f03ce8b95175a2d7db119d114",
+    "outputSha256": "bc4986000441c7a9f2d0b0f10bbab9d979274905e8b9a3ed550b7c2e07a7bca5",
+    "priorPrivateWrapperOutputSha256": "2fe2555f8b8f758cad6464b1cfdd506fd5149ca7ae893f6828ace2c339e4658c",
+    "remoteAndLocalFullAuditDeepEqual": true,
+    "childPythonIsolation": [
+      "-I",
+      "-S"
+    ]
+  },
+  "limitations": [
+    "This records agreement for two actual executions per command under this explicit normalized diskless Linux profile; it is not future replay authority.",
+    "No receipt admission, cache hit, Action integration, full120-file command result,12-commit result or ordinary-runner equivalence is claimed.",
+    "RNDADDENTROPY mixes a fixed seed instead of resetting the kernel pool; actual per-command getrandom agreement is observed, not inferred from the seed.",
+    "Exhaustive emulator host-open/negative-lookup closure remains unproved. Raw ldd addresses also vary in metadata despite equal binary/library bytes.",
+    "Both releases exhaust the unchanged64-record diagnostic cap; their independent final root envelopes, captureComplete proof, zero leftovers and original20-test terminal counters establish recorded completion."
+  ],
+  "priorFailedInvestigations": [
+    {
+      "run": 42404791990,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42404791990",
+      "sourcePin": "ee73f7d6b6210130b02014307ac9aaf0fbe5686d",
+      "artifactId": 13587276028,
+      "artifactBytes": 454091291,
+      "artifactSha256": "3989c54764b924beec019c9e2df35e2c3de9535e8712835c71a15a9e155ff94a",
+      "failure": "precompile system symlink path failure; no VM",
+      "rawArchiveVerifiedAndRetained": true,
+      "conclusion": "failure"
+    },
+    {
+      "run": 42405071627,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42405071627",
+      "sourcePin": "f1d8db1ea2665436203624baf50f0c80d43aa7f1",
+      "artifactId": 13586679826,
+      "artifactBytes": 3219512166,
+      "artifactSha256": "8a8079fd681381fad78ce8a9f0f5a0b0998c05143d2eabbaa1b6418d1429ef0f",
+      "failure": "guest absolute symlink resolved on host; no VM; oversized partial staging upload retained as API metadata only",
+      "rawArchiveVerifiedAndRetained": false,
+      "conclusion": "failure"
+    },
+    {
+      "run": 42405557180,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42405557180",
+      "sourcePin": "0a808b07bb95e519a607c8b5c8a008b08bdaac72",
+      "artifactId": 13587531840,
+      "artifactBytes": 164500544,
+      "artifactSha256": "633b0949a8f8f6c77eb3f5c476e3b4c15944722de32971058ad7745857163dc1",
+      "failure": "host ldd invoked on foreign firmware; kernel/initramfs retained but no completed image metadata or VM",
+      "rawArchiveVerifiedAndRetained": true,
+      "conclusion": "failure"
+    },
+    {
+      "run": 42406327547,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42406327547",
+      "sourcePin": "7108de81d1f3a12063bc797cf73aa5e8bdfb8c38",
+      "artifactId": 13587429595,
+      "artifactBytes": 185051079,
+      "artifactSha256": "30e070ca9a3043458d072cbf982f131cb9788b2d4e79a78c2ee436b51fae5895",
+      "failure": "boundary/background/two builds completed; release180s timeout without progress",
+      "rawArchiveVerifiedAndRetained": true,
+      "conclusion": "failure"
+    },
+    {
+      "run": 42407847909,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42407847909",
+      "sourcePin": "5122992cffff62ad19690c0dcb560f357b13e264",
+      "artifactId": 13588308123,
+      "artifactBytes": 185804341,
+      "artifactSha256": "f1a37445f7c5f196fdd5c443117acb3d1527c346015e8a03c2f3e97b116d7510",
+      "failure": "boundary/background/two builds completed; release180s timeout with26 valid progress records",
+      "rawArchiveVerifiedAndRetained": true,
+      "conclusion": "failure"
+    },
+    {
+      "run": 42409495211,
+      "runURL": "https://github.com/pango07/quod/actions/runs/42409495211",
+      "sourcePin": "a0883f8f2bbd6cadd7205a4d32ef0e90f97063cc",
+      "artifactId": 13589761021,
+      "artifactBytes": 186294757,
+      "artifactSha256": "4a92a771facb79f5cc4cf59d0b78cc738a7e5d7588b722c39afeb43b51df1a9b",
+      "failure": "boundary/background/two builds completed; release360s timeout with59 valid progress records",
+      "rawArchiveVerifiedAndRetained": true,
+      "conclusion": "failure"
+    }
+  ],
+  "files": {
+    "native-vm-audit.json": {
+      "bytes": 766180,
+      "sha256": "e877e2e9ad1fbfa63145dfdda3d45118110a0481a3ad70ebaded59dcb4000d0a"
+    },
+    "native-vm-evidence/background/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/background/command.stdout": {
+      "bytes": 46,
+      "sha256": "772a6180cf56ba6ad597f78d06a957375cec63100fa86a817c2d1fcc860243d4"
+    },
+    "native-vm-evidence/background/invocation.json": {
+      "bytes": 1246,
+      "sha256": "02a359c0444d7c89bc0bb508b119283839b14b4487a3c8b4ef8e1af70e067992"
+    },
+    "native-vm-evidence/background/progress.json": {
+      "bytes": 1769,
+      "sha256": "422f3baaa3a290a3397a0eb5d166159d01b193bfa6e3d479afc9971ae6797b03"
+    },
+    "native-vm-evidence/background/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/background/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/background/response.json": {
+      "bytes": 764,
+      "sha256": "25f2d5980e58ec4a260f06ebf4239209d134f3d7e39d2560fb7e3a2948a13027"
+    },
+    "native-vm-evidence/background/result.json": {
+      "bytes": 762,
+      "sha256": "f8e4f23bdc3c74c6a9c505db26c9d668239809e8b3ccc0cfa2948310c832887e"
+    },
+    "native-vm-evidence/background/serial.raw": {
+      "bytes": 2514,
+      "sha256": "ac90769e9852f7ffe20c900b110203bd6110a99706f6530d8b2533e787c0e2c0"
+    },
+    "native-vm-evidence/boundary/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/boundary/command.stdout": {
+      "bytes": 711,
+      "sha256": "ab1e3300958f03c89cb2db2c3e06d7483de3e8a5f89fefe1c45abe4430b7f17a"
+    },
+    "native-vm-evidence/boundary/invocation.json": {
+      "bytes": 1242,
+      "sha256": "4d7fceb15441ccdad28e2931ad54e140233d7a66becf57f68296e9637baaa23c"
+    },
+    "native-vm-evidence/boundary/progress.json": {
+      "bytes": 3475,
+      "sha256": "ccff3d6649e31c8d42c639702704c5ad1ad08e99adf8ba4fc672b998c515f863"
+    },
+    "native-vm-evidence/boundary/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/boundary/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/boundary/response.json": {
+      "bytes": 1860,
+      "sha256": "0729374fd812e00e641066bf5b8931c5da11f9dbc4d4ea892f26416ce55e0d89"
+    },
+    "native-vm-evidence/boundary/result.json": {
+      "bytes": 760,
+      "sha256": "211103d586611de1315b96d5b495da6815002d7f3cd66322d70b998930e2efe1"
+    },
+    "native-vm-evidence/boundary/serial.raw": {
+      "bytes": 5323,
+      "sha256": "037d7f2d796d17d4ed35ade1295b36bc8380fa5f32b3c2a5a8d7ee00b7b9648c"
+    },
+    "native-vm-evidence/build-1/command.stderr": {
+      "bytes": 43,
+      "sha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68"
+    },
+    "native-vm-evidence/build-1/command.stdout": {
+      "bytes": 248,
+      "sha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186"
+    },
+    "native-vm-evidence/build-1/invocation.json": {
+      "bytes": 1239,
+      "sha256": "d5ef36babe34d99e8f4e87483dcd665e07b451392573b15de9f30c83f4016e3a"
+    },
+    "native-vm-evidence/build-1/progress.json": {
+      "bytes": 60606,
+      "sha256": "4b4ddcb1626e10b5484dcef3e2685687ab39747625a7269c0063593fb37ff6ca"
+    },
+    "native-vm-evidence/build-1/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/build-1/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/build-1/response.json": {
+      "bytes": 1543016,
+      "sha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    "native-vm-evidence/build-1/result.json": {
+      "bytes": 771,
+      "sha256": "406c71a883c77bc3e01fc0ff9ee7b5e953a408e13629bb9ec2453e3a6eaf6c71"
+    },
+    "native-vm-evidence/build-1/serial.raw": {
+      "bytes": 1603705,
+      "sha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f"
+    },
+    "native-vm-evidence/build-2/command.stderr": {
+      "bytes": 43,
+      "sha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68"
+    },
+    "native-vm-evidence/build-2/command.stdout": {
+      "bytes": 248,
+      "sha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186"
+    },
+    "native-vm-evidence/build-2/invocation.json": {
+      "bytes": 1239,
+      "sha256": "57ea418c99d6a3e2fb0771ee73d1406ee077a07f707204b62fa97c7d5a9826ac"
+    },
+    "native-vm-evidence/build-2/progress.json": {
+      "bytes": 60606,
+      "sha256": "4b4ddcb1626e10b5484dcef3e2685687ab39747625a7269c0063593fb37ff6ca"
+    },
+    "native-vm-evidence/build-2/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/build-2/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/build-2/response.json": {
+      "bytes": 1543016,
+      "sha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    "native-vm-evidence/build-2/result.json": {
+      "bytes": 771,
+      "sha256": "01866aa9f6910efe27e5c23e44da6ce390581dd2cbc7623cd072502faefcf64b"
+    },
+    "native-vm-evidence/build-2/serial.raw": {
+      "bytes": 1603705,
+      "sha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f"
+    },
+    "native-vm-evidence/files.json": {
+      "bytes": 6658,
+      "sha256": "aad705ae6dd4a58805d4f9966d791c1725fcff3a31ff8638ebbddbf230eb4133"
+    },
+    "native-vm-evidence/image.json": {
+      "bytes": 7119917,
+      "sha256": "b88db3977bf9b07903f5b31b1a1ee504f581e6270778a13a4409e5f003def92d"
+    },
+    "native-vm-evidence/parser-fixtures.json": {
+      "bytes": 911,
+      "sha256": "5f578e5b63f05e79464fdc63901c5bd951bcbb2c6c172df8ab451e4d2077fe83"
+    },
+    "native-vm-evidence/policy.json": {
+      "bytes": 1670,
+      "sha256": "fef60a500240664a36a3a955a8cd4ea5939afda9543c24fe63cd900ecd9a7463"
+    },
+    "native-vm-evidence/release-1/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/release-1/command.stdout": {
+      "bytes": 11419,
+      "sha256": "e28dd32f253f9bc54e032bee4292311c9f85fccd2a89cc7cc2efffe60e211354"
+    },
+    "native-vm-evidence/release-1/invocation.json": {
+      "bytes": 1243,
+      "sha256": "d5b5ab2928df21c1a169461dcd492f0e246a5aaf5cb2667c20d952ffaf6013d2"
+    },
+    "native-vm-evidence/release-1/progress.json": {
+      "bytes": 308912,
+      "sha256": "b67c39c5e7631c74c35e3a2186d28625d898a840068ed951ffa623d92cd55871"
+    },
+    "native-vm-evidence/release-1/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/release-1/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/release-1/response.json": {
+      "bytes": 16141,
+      "sha256": "044a86e14110f91bdba132e4b6409b950aa999e119d7ddf6a402650c8e21a68d"
+    },
+    "native-vm-evidence/release-1/result.json": {
+      "bytes": 767,
+      "sha256": "32e19b45ae9cc88d01573818861a20904e3c58e0decacb40b722e509b66e6d33"
+    },
+    "native-vm-evidence/release-1/serial.raw": {
+      "bytes": 325206,
+      "sha256": "cb64c8096bd2d048690b8ca379452c02239f46566dc19873de9a49beac57470d"
+    },
+    "native-vm-evidence/release-2/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/release-2/command.stdout": {
+      "bytes": 11419,
+      "sha256": "e28dd32f253f9bc54e032bee4292311c9f85fccd2a89cc7cc2efffe60e211354"
+    },
+    "native-vm-evidence/release-2/invocation.json": {
+      "bytes": 1243,
+      "sha256": "5e1e5ca78c81bd4c13d0b97b8427bbf324d50fd4d7e46a475b7c3429d781b7e7"
+    },
+    "native-vm-evidence/release-2/progress.json": {
+      "bytes": 308912,
+      "sha256": "b67c39c5e7631c74c35e3a2186d28625d898a840068ed951ffa623d92cd55871"
+    },
+    "native-vm-evidence/release-2/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/release-2/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/release-2/response.json": {
+      "bytes": 16141,
+      "sha256": "044a86e14110f91bdba132e4b6409b950aa999e119d7ddf6a402650c8e21a68d"
+    },
+    "native-vm-evidence/release-2/result.json": {
+      "bytes": 767,
+      "sha256": "f4e3029bce73c875aac70c9d32ee4efb3d0292f21812a9147c4017c902da478a"
+    },
+    "native-vm-evidence/release-2/serial.raw": {
+      "bytes": 325206,
+      "sha256": "cb64c8096bd2d048690b8ca379452c02239f46566dc19873de9a49beac57470d"
+    },
+    "native-vm-evidence/result.json": {
+      "bytes": 6521,
+      "sha256": "46fe4926188586ab125006049d31eff7f11898c37578c4f03e47d690666157d1"
+    },
+    "native-vm-image/guest-isa-notes.json": {
+      "bytes": 103907,
+      "sha256": "f5b5819f9ef381e07524cd6de2d34cbde3212330eb20afeeea934749fbe8ebe1"
+    },
+    "native-vm-image/image.json": {
+      "bytes": 7119917,
+      "sha256": "b88db3977bf9b07903f5b31b1a1ee504f581e6270778a13a4409e5f003def92d"
+    },
+    "native-vm-image/initramfs.cpio.gz": {
+      "bytes": 147147504,
+      "sha256": "52b035a180f70c3e17357e31ca8160a4e254f924f80434335c3d1c44991b156c"
+    },
+    "native-vm-image/kernel": {
+      "bytes": 17349000,
+      "sha256": "646f7e41faa4b7c8899deee5f725c39eb46987977b5d0ab4340deb3463d9de86"
+    },
+    "native-vm-image/symlink-fixtures.json": {
+      "bytes": 454,
+      "sha256": "0920dfb7368d80284304004a4056206660bbf4fba00a0014d22bdaae08c7da49"
+    }
+  }
+}
