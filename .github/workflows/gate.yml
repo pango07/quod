@@ -662,6 +662,10 @@ jobs:
         if: hashFiles('test/env-descriptor.mjs') != ''
         working-directory: test
         run: node env-descriptor.mjs
+      - name: Packaged filesystem descriptor regression
+        if: hashFiles('test/fs-descriptor.mjs') != ''
+        working-directory: test
+        run: node fs-descriptor.mjs
       - name: Packaged deferred Cloud save and cleanup regression
         if: hashFiles('test/cloud-post.mjs') != ''
         working-directory: test
@@ -680,6 +684,7 @@ jobs:
             ${{ runner.temp }}/recorder-upgrade-logs/*.log
             ${{ runner.temp }}/boolean-proof-logs/*.log
             ${{ runner.temp }}/env-descriptor-logs/*
+            ${{ runner.temp }}/fs-descriptor-logs/*
 
   benchmark-profile:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')

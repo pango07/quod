@@ -1,0 +1,96 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42360842978",
+  "sourceCommit": "800771d09bb7f0786cc108cc0c84564924612f50",
+  "baselineAction": "a1b9a37a4bf38e1883a4afc07d397616fa985942",
+  "baselineBinary": "bin-2bd297b",
+  "baselineBinaryArchiveSha256": "00b99d670054bed66f4111bec627c1366f2b110145abc2efcecd9985cf9af1c0",
+  "artifact": {
+    "id": 13570085690,
+    "bytes": 70709,
+    "sha256": "2128e19344435ea5712045a4cb044a9ffc663ef590fdb81325f22bba6a82d8bb"
+  },
+  "regressions": 8,
+  "phases": {
+    "baseline": {
+      "expected": "stale",
+      "wrong": 3,
+      "warmReplayed": 2,
+      "replayed": 2,
+      "quodExit": 0,
+      "plainExit": 1,
+      "sourceOverride": false,
+      "upgrade": false,
+      "mutation": "Only input file timestamps change; contents and test sources stay fixed"
+    },
+    "fixed": {
+      "expected": "correct",
+      "wrong": 0,
+      "warmReplayed": 1,
+      "replayed": 1,
+      "quodExit": 1,
+      "plainExit": 1,
+      "sourceOverride": true,
+      "upgrade": false,
+      "mutation": "Only input file timestamps change; contents and test sources stay fixed"
+    },
+    "upgrade": {
+      "expected": "correct",
+      "wrong": 0,
+      "warmReplayed": 2,
+      "replayed": 0,
+      "quodExit": 1,
+      "plainExit": 1,
+      "sourceOverride": true,
+      "upgrade": true,
+      "mutation": "Only input file timestamps change; contents and test sources stay fixed"
+    }
+  },
+  "independentlyChecked": [
+    "archive size and SHA-256",
+    "six runs per phase",
+    "per-test wrong count against plain",
+    "warm and changed-input replay counts"
+  ],
+  "limitations": [
+    "Release binary is gated; packaged Action verification is separate",
+    "This regression does not certify every possible filesystem or runtime input",
+    "No new performance benchmark result"
+  ],
+  "release": {
+    "run": "https://github.com/pango07/quod/actions/runs/42360988903",
+    "sourceCommit": "800771d09bb7f0786cc108cc0c84564924612f50",
+    "rustTests": 118,
+    "javascriptTests": 81,
+    "clippy": "passed",
+    "archiveSha256": "51262a23754deffb5cfdf8f47cb5e4acbaa577487329d3f4f46e4709a5719205",
+    "binarySha256": "db7f59a22391cd2e1553a10d2b5ca8f47eda41c95727e91e75c1c6632c680b61",
+    "binaryArtifact": {
+      "id": 13570206037,
+      "bytes": 6070479,
+      "sha256": "7b7d099255638b7eee3adc47431ff564424b2dfcef96014f41bd031e9ec2b61c"
+    },
+    "regressionArtifact": {
+      "id": 13569108880,
+      "bytes": 23734,
+      "sha256": "dbc1b8181e1f3043bd8562e8e5b6fb6b802bc4422eda5980ad0ce2fa7b7ab945"
+    },
+    "result": {
+      "expected": "correct",
+      "wrong": 0,
+      "warmReplayed": 1,
+      "replayed": 1,
+      "quodExit": 1,
+      "plainExit": 1,
+      "sourceOverride": false,
+      "upgrade": false,
+      "mutation": "Only input file timestamps change; contents and test sources stay fixed"
+    },
+    "independentlyChecked": [
+      "both artifact digests and sizes",
+      "archive and contained binary digests",
+      "built-binary sourceOverride false",
+      "four per-test states agree after mutation",
+      "content control replays before and after mutation"
+    ]
+  }
+}

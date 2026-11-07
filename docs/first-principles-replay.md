@@ -136,6 +136,14 @@ key requires accounting for all relevant readers, which has led into native
 addons, promise observers, heap inspection and worker transport. More
 agreement samples cannot resolve missing causal coverage.
 
+The [filesystem-descriptor regression](bench/filesystem-descriptor-contract.md)
+adds a second concrete input omission. The previously packaged engine can
+replay three stale passes after only a descriptor-observed timestamp changes.
+The corrected source runs those descriptor-dependent tests normally while
+retaining replay for an ordinary content-reading control, and invalidates
+the older ledger. The latest full-window agreement does not erase this
+separate reproduced defect or establish a universal correctness guarantee.
+
 ## Candidate direction: execute preparation, cache a bounded execution
 
 Evaluate a boundary between framework preparation and isolated test
