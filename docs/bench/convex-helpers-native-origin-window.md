@@ -1,5 +1,10 @@
 # Native-origin engine: full 12-commit window
 
+This historical engine has been superseded by the
+[corrected engine's Cloud-enabled window](convex-helpers-current-cloud-window.md).
+Use that report for the current measured result; its storage configuration
+and default metadata policy differ from this experiment.
+
 The target is **not met**. Engine `081f20a`, Action `1aa08ca`, and harness
 `62a5c2d` completed the same cold 12-commit window at
 [run 42167641326](https://github.com/pango07/ci-bench/actions/runs/42167641326).

@@ -1,4 +1,4 @@
-# Current production recorder: full-suite CPU profile
+# Current packaged recorder: full-suite CPU profile
 
 [Gate 42350116176](https://github.com/pango07/quod/actions/runs/42350116176)
 passed using engine `f9d8153` from Action
@@ -43,9 +43,11 @@ digests, log digest and aggregate samples are retained in the
 deltas totaling nine microseconds were preserved as signed values.
 Collected profile counts do not prove complete process coverage.
 
-The corrected engine's Cloud-enabled 12-commit window is running separately
+The corrected engine's Cloud-enabled 12-commit window completed separately
 at [42349931075](https://github.com/pango07/ci-bench/actions/runs/42349931075).
 It uses harness `8131a61`, the same Action pin, the original 12 commits,
 `floor,plain,quod,quod-ts`, and no repeated warm-up commit. Cloud reporting
-and storage costs are included. Its final result is still pending; do not
-infer a hit rate or savings claim from this profile.
+and storage costs are included. The [verified window result](convex-helpers-current-cloud-window.md)
+is 11.4% fewer runner-seconds and 11.1% fewer modeled billed minutes for
+default Quod, with zero observed mismatches and no full hits. This profile
+does not establish additional savings.
