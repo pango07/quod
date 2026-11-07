@@ -31,6 +31,10 @@ on:
         description: "bench-real's arguments (scripts/bench-real.sh), e.g. --repos go --n 5"
         required: false
         default: ''
+      action_ref:
+        description: Optional exact quod-action commit for the benchmark-action gate
+        required: false
+        default: ''
       native_transport:
         description: Optional worker-boundary diagnostic capture transport; does not enable replay
         type: choice
@@ -561,7 +565,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: pango07/quod-action
-          ref: exp/boolean-exports-codex
+          ref: ${{ inputs.action_ref || 'exp/boolean-exports-codex' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
@@ -640,6 +644,10 @@ jobs:
       - name: Packaged boolean proof and switch regression
         working-directory: test
         run: node boolean-proof.mjs
+      - name: Packaged deferred Cloud save and cleanup regression
+        if: hashFiles('test/cloud-post.mjs') != ''
+        working-directory: test
+        run: node cloud-post.mjs
       - name: Bundle artifact
         if: always()
         run: tar -czf /tmp/quod-action-dist.tgz dist/main dist/post
