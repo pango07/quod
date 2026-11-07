@@ -315,7 +315,7 @@ jobs:
   benchmark-managed-native-vm:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-native-vm'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -339,7 +339,7 @@ jobs:
       - name: Construct the closed diskless guest image
         run: python3 scripts/bench-vitest/native-vm/build.py "$PWD/profile-project" "$RUNNER_TEMP/native-vm-image"
       - name: Actual unchanged native commands and isolated boundary controls
-        run: python3 scripts/bench-vitest/native-vm/probe.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" --watchdog 180 --release-watchdog 360
+        run: python3 scripts/bench-vitest/native-vm/probe.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" --watchdog 180 --release-watchdog 720
       - name: Independently audit actual image and native command effects
         if: always()
         run: >-

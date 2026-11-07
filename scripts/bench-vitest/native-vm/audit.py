@@ -289,7 +289,7 @@ def main():
                 {r["name"] for r in parser["checks"]} == PARSER_CHECKS and all(r["passed"] is True for r in parser["checks"]) and
                 all(r["accepted"] is (r["name"] == "valid-progress-and-final") for r in parser["checks"]), "Remote parser fixtures missing/failed")
         require(type(policy["watchdogSeconds"]) is int and 30 <= policy["watchdogSeconds"] <= 180 and
-                type(policy["releaseWatchdogSeconds"]) is int and 30 <= policy["releaseWatchdogSeconds"] <= 360 and
+                type(policy["releaseWatchdogSeconds"]) is int and 30 <= policy["releaseWatchdogSeconds"] <= 720 and
                 policy["maxSerialBytes"] == 100 * 1024**2, "Unbounded supervisor")
         for path in [metadata["qemu"]["path"], metadata["qemu"]["bios"], "/etc/ld.so.cache", "/etc/ld.so.preload"]:
             require(path in metadata["qemu"]["hostFiles"], "Incomplete actual emulator/loader identity")

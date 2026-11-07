@@ -1,0 +1,572 @@
+{
+  "schema": "quod-native-vm-release-incomplete-v1",
+  "run": 42409495211,
+  "runURL": "https://github.com/pango07/quod/actions/runs/42409495211",
+  "sourcePin": "a0883f8f2bbd6cadd7205a4d32ef0e90f97063cc",
+  "projectSource": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "conclusion": "failure",
+  "fullInvestigationPassed": false,
+  "receiptAdmission": false,
+  "artifactCodeExecutedByAudit": false,
+  "artifact": {
+    "id": 13589761021,
+    "url": "https://api.github.com/repos/pango07/quod/actions/artifacts/13589761021",
+    "sizeBytes": 186294757,
+    "sha256": "4a92a771facb79f5cc4cf59d0b78cc738a7e5d7588b722c39afeb43b51df1a9b",
+    "uncompressedBytes": 186285795,
+    "zipBinding": {
+      "complete": true,
+      "files": 53,
+      "directories": 7,
+      "entries": 53,
+      "uncompressedBytes": 186285795,
+      "pathsSha256": "cb255303505bf739ceef823a8fbbf52e49030d6e7168d2f5ee880e240d89ecf2"
+    }
+  },
+  "guestImage": {
+    "kernel": {
+      "bytes": 17349000,
+      "origin": "/boot/vmlinuz-7.0.0-43-generic",
+      "sha256": "646f7e41faa4b7c8899deee5f725c39eb46987977b5d0ab4340deb3463d9de86"
+    },
+    "initramfs": {
+      "bytes": 147147504,
+      "sha256": "52b035a180f70c3e17357e31ca8160a4e254f924f80434335c3d1c44991b156c"
+    },
+    "canonicalArchive": {
+      "entries": 32260,
+      "storedDataBytes": 499115200
+    }
+  },
+  "policy": {
+    "blockDevices": [],
+    "contract": "diskless-canonical-linux-native-v1-investigation",
+    "cpu": "Haswell-noTSX,rdrand=off,rdseed=off,rdtscp=off,pmu=off",
+    "diagnostics": {
+      "captureIntervalGuestNanoseconds": 250000000,
+      "completionAuthority": false,
+      "intervalGuestNanoseconds": 1000000000,
+      "maxBodyBytes": 16384,
+      "maxProcEntriesScanned": 256,
+      "maxProcSamples": 8,
+      "maxRecords": 64,
+      "maxTotalBodyBytes": 1048576,
+      "outputSampleBytes": 512,
+      "procSampleBytes": 256,
+      "schema": "quod-native-vm-progress-v1"
+    },
+    "executionClassSha256": "5ba349b0148199f9e56eabd376fe95e9f1677b596376103dcd540a0c9ae8802e",
+    "hostEnvironment": {
+      "LANG": "C.UTF-8",
+      "PATH": "/usr/bin:/bin",
+      "TZ": "UTC"
+    },
+    "hostMounts": [],
+    "icount": "shift=0,align=off,sleep=off",
+    "imageMetadataSha256": "f006b4ca37a442dbadd0409a61b34e0a202f562e55a8dc749b322a840deb9f95",
+    "inputChannels": [],
+    "limitations": [
+      "No receipt or replay admission",
+      "No exhaustive host-open or negative-lookup closure",
+      "RNDADDENTROPY mixes a seed; actual repeated-command getrandom agreement is required"
+    ],
+    "machine": "pc-i440fx-10.2",
+    "maxSerialBytes": 104857600,
+    "memoryMiB": 4096,
+    "network": "no NIC; guest-owned loopback only",
+    "output": "output-only file chardev bound to a root-only guest UART",
+    "probeSha256": "7289231c1d21f335c34e13121e3661a8d8d70e63ff3876dbc1b4750619709135",
+    "receiptAdmission": false,
+    "releaseWatchdogSeconds": 360,
+    "rtc": "base=2023-11-14T22:13:20,clock=vm,driftfix=none",
+    "schema": "quod-native-vm-repeat-v1-investigation",
+    "scope": "actual build/release repeat-image investigation; no ordinary-equivalence or full-window claim",
+    "seed": 42,
+    "source": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+    "tcgThread": "single",
+    "uuid": "3a84431b-2034-4c41-8f61-157200000001",
+    "vcpus": 1,
+    "watchdogSeconds": 180
+  },
+  "completedComponents": [
+    {
+      "name": "boundary",
+      "seconds": 44.639147870000016,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 711,
+      "stderrBytes": 0,
+      "distEntries": 1,
+      "distBytes": 0,
+      "effectsSha256": "0fb75a27ea6ecb27f16530f85811d5e33d671c75e4c7aaa0f060644d735df10a",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "background",
+      "seconds": 44.131277928,
+      "commandComplete": false,
+      "expectedBackgroundRejection": true,
+      "stdoutBytes": 46,
+      "stderrBytes": 0,
+      "distEntries": 0,
+      "distBytes": 0,
+      "effectsSha256": "45fdf9e5c3c11bce84c830fcb39d89812a896d505c4c412f2d5a16d1d1b45d90",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "build-1",
+      "seconds": 148.57930491399998,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 248,
+      "stderrBytes": 43,
+      "distEntries": 130,
+      "distBytes": 1118349,
+      "effectsSha256": "7b3434b15d8127e0838b0b89be960f6f142caca1b896a92f727273f5d36d8ac0",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "build-2",
+      "seconds": 139.92010733700005,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 248,
+      "stderrBytes": 43,
+      "distEntries": 130,
+      "distBytes": 1118349,
+      "effectsSha256": "7b3434b15d8127e0838b0b89be960f6f142caca1b896a92f727273f5d36d8ac0",
+      "remainingProcesses": 0
+    }
+  ],
+  "repeatedBuild": {
+    "rawEffectsDeepEqual": true,
+    "stdoutStderrExact": true,
+    "fullDistMetadataExact": true,
+    "kernelEntropyEqual": true,
+    "effectsSha256": "7b3434b15d8127e0838b0b89be960f6f142caca1b896a92f727273f5d36d8ac0"
+  },
+  "unfinishedRelease": {
+    "completed": false,
+    "timedOut": true,
+    "hostSeconds": 360.020381457,
+    "releaseExecutionsCompleted": 0,
+    "secondReleaseStarted": false,
+    "finalEnvelopePresent": false,
+    "rawSerialSha256": "b94075bb9984ddecc2158590aaa5cbd56fe0a777ef81e565924279c06734c799",
+    "records": 59,
+    "bodyBytes": 277216,
+    "parserErrors": [],
+    "guestFirstSeconds": 12.524246296,
+    "guestLastSeconds": 58.663345219,
+    "stdoutBytes": 9736,
+    "stderrBytes": 0,
+    "mainExited": false,
+    "sampleTruncated": false,
+    "lastProcesses": [
+      {
+        "pid": 76,
+        "argvPrefix": [
+          "npm run test:release"
+        ],
+        "statPrefix": "76 (npm run test:re) S 1 0 0 0 -1 256 5582 0 0 0 40 6 0 0 20 0 11 0 1252 1547501568 16566 18446744073709551615 7589888 50333345 140737488350224 0 0 0 0 16781312 83458 0 0 0 17 0 0 0 0 0 0 109655528 109844416 110080000 140737488350805 140737488350891 140737",
+        "state": "S"
+      },
+      {
+        "pid": 87,
+        "argvPrefix": [
+          "sh",
+          "-c",
+          "node --test scripts/*.test.mjs"
+        ],
+        "statPrefix": "87 (sh) S 76 0 0 0 -1 0 116 0 0 0 0 0 0 0 20 0 1 0 1300 2977792 454 18446744073709551615 93824992247808 93824992333965 140737488349040 0 0 0 0 0 65538 1 0 0 17 0 0 0 0 0 0 93824992361936 93824992367136 93824992378880 140737488349823 140737488349860 1407374",
+        "state": "S"
+      },
+      {
+        "pid": 88,
+        "argvPrefix": [
+          "node",
+          "--test",
+          "scripts/release.test.mjs",
+          "scripts/tag-release.test.mjs"
+        ],
+        "statPrefix": "88 (MainThread) S 87 0 0 0 -1 0 4055 0 0 0 18 4 0 0 20 0 6 0 1300 1442508800 13229 18446744073709551615 7589888 50333345 140737488349024 0 0 0 512 16781312 82946 0 0 0 17 0 0 0 0 0 0 109655528 109844416 110080000 140737488349816 140737488349882 14073748834",
+        "state": "S"
+      },
+      {
+        "pid": 94,
+        "argvPrefix": [
+          "/tools/node/bin/node",
+          "--test-coverage-functions=0",
+          "--test-concurrency=0",
+          "--inspect-publish-uid=stderr,http",
+          "--inspect-port=127.0.0.1:9229",
+          "--report-signal=SIGUSR2",
+          "--test-coverage-lines=0",
+          "--test-isolation=process",
+          "--heap-prof-interval=524288",
+          "--cpu-prof-interval=1"
+        ],
+        "statPrefix": "94 (MainThread) S 88 0 0 0 -1 0 32137 712411 0 0 37 48 3389 993 20 0 7 0 1319 1445134336 14478 18446744073709551615 7589888 50333345 140737488347792 0 0 0 0 16781312 85506 0 0 0 17 0 0 0 0 0 0 109655528 109844416 110080000 140737488348761 140737488349833 1",
+        "state": "S"
+      },
+      {
+        "pid": 1830,
+        "argvPrefix": [
+          "node",
+          "--input-type=module",
+          "-e",
+          "import {releaseAt} from './scripts/release-plan.mjs'; console.log(JSON.stringify(releaseAt('c171b0a67f9369fae7df9440c0bcd3108ca485a1')))"
+        ],
+        "statPrefix": "1830 (MainThread) R 94 0 0 0 -1 0 1872 0 0 0 5 1 0 0 20 0 6 0 5859 1168289792 7822 18446744073709551615 7589888 50333345 140737488348816 0 0 0 512 16781312 17410 0 0 0 17 0 0 0 0 0 0 109655528 109844416 110080000 140737488349618 140737488349783 14073748834",
+        "state": "R"
+      }
+    ],
+    "sourceCase": "finite SemVer test13 of14 release.test.mjs cases, followed by6 tag-release cases; exact version within bounded loop unknown",
+    "lastStdoutTail": "or package at afb580f016b2ee3e5ce66a2c89996a4070cddd67\n    at releaseAt (file:///tmp/helpers-release-Gmln3V/repo/scripts/release-plan.mjs:32:11)\n    at file:///tmp/helpers-release-Gmln3V/repo/[eval1]:1:82\n    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)\n    at async node:internal/modules/esm/loader:224:26\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:221:20)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n\nNode.js v24.18.0\n",
+    "passedTestCountKnown": false,
+    "remainingWorkIndexKnown": false
+  },
+  "prior180SecondComparison": {
+    "run": 42407847909,
+    "actualOldHostSeconds": 180.022420571,
+    "actualNewHostSeconds": 360.020381457,
+    "oldRecordCount": 26,
+    "newRecordCount": 59,
+    "oldGuestFirst": 12.524246296,
+    "oldGuestLast": 37.270018433,
+    "newGuestFirst": 12.524246296,
+    "newGuestLast": 58.663345219,
+    "oldStdoutBytes": 73,
+    "newStdoutBytes": 9736,
+    "entireOldSerialIsExactNewPrefix": true,
+    "allOldProgressRecordsAndOffsetsExactPrefix": true,
+    "sameKernelBytes": true,
+    "sameInitramfsBytes": true,
+    "sameNodeIdentity": true,
+    "sameQemuBinaryAndHostFiles": true,
+    "metadataDifference": [
+      "qemu.ldd raw address text"
+    ],
+    "oldMetadataSha": "cf9a110f7c664828176e46f013ada3f319c354041111622d72518e6e81ad8217",
+    "newMetadataSha": "f006b4ca37a442dbadd0409a61b34e0a202f562e55a8dc749b322a840deb9f95",
+    "classEqualityClaim": false
+  },
+  "sourceBinding": {
+    "project/package.json": {
+      "bytes": 8592,
+      "sha256": "d860d2a7293ed42763e15a1571e3813be4e2d4c722a1e609585d185099e64603",
+      "path": "/tmp/quod-native-vm-42409495211-archived-package.json"
+    },
+    "project/scripts/release-plan.mjs": {
+      "bytes": 3371,
+      "sha256": "37331e3707afecaab0d5f258d28a7a47ae0646150141925bdd4dae4ff621a868",
+      "path": "/tmp/quod-native-vm-42409495211-archived-release-plan.mjs"
+    },
+    "project/scripts/release.test.mjs": {
+      "bytes": 14833,
+      "sha256": "230260d28784f5b5fe9d5c4f03c1aec8a4281a71f077bc303bca1c6068dfde9e",
+      "path": "/tmp/quod-native-vm-42409495211-archived-release.test.mjs"
+    },
+    "project/scripts/tag-release.test.mjs": {
+      "bytes": 5687,
+      "sha256": "12ecbc31201a7a3d464e63dd3b92647fafd42c59d20b4f6f01fd2a6b42f60ca5",
+      "path": "/tmp/quod-native-vm-42409495211-archived-tag-release.test.mjs"
+    }
+  },
+  "sourceFacts": [
+    {
+      "path": "scripts/release.test.mjs",
+      "lines": [
+        189,
+        204,
+        208,
+        228,
+        237,
+        244
+      ],
+      "fact": "Three finite owned gh watch fixture cases each immediately list a workflow and exit watch with a configured status; telemetry moves through three different --watch subprocess families."
+    },
+    {
+      "path": "scripts/release.test.mjs",
+      "lines": [
+        349,
+        364,
+        382,
+        390
+      ],
+      "fact": "Case13 executes a bounded loop of9 invalid versions and6 valid versions using releaseAt; each plan changes an owned package manifest, commits it, and starts a Node query. The final observed command is one such releaseAt query; its exact version is not captured."
+    },
+    {
+      "path": "scripts/release-plan.mjs",
+      "lines": [
+        8,
+        13,
+        15,
+        16,
+        17,
+        20,
+        44,
+        55
+      ],
+      "fact": "releaseAt uses synchronous local Git show and tag queries, JSON/semver operations; no socket, terminal input, timer or polling loop appears on this code path."
+    },
+    {
+      "path": "scripts/release.test.mjs",
+      "lines": [
+        396,
+        437
+      ],
+      "fact": "A finite manual-dispatch case follows SemVer, then tag-release adds6 cases. None of their completion counters was observed before interruption."
+    }
+  ],
+  "assessment": {
+    "slowExecutionSupported": true,
+    "persistentStuckLeafSupported": false,
+    "reason": "Old apparent --watch preparation wait resolves in the longer exact-prefix run. The new run advances through more subprocess families, emits9,663 additional stdout bytes, and final untruncated sample has newly seen runnable Node PID1830 rather than a leaf persisting across many frames. Main npm is sleeping with mainExited:false, not complete.",
+    "remainingWorkKnownFiniteFromSource": true,
+    "remainingExactWorkIndexKnown": false,
+    "passedTestCountKnown": false,
+    "releaseCompletionKnown": false,
+    "recommendedAction": "No further watchdog/code change has been made. Parent review required for any next finite diagnostic budget. Keep real20-test tail, exact output/dist comparison, entropy and quiescence checks.",
+    "futureStableIdentityObservation": "Only image metadata qemu.ldd raw addresses differ while actual emulator/loader/library hashes and initramfs/kernel bytes match. Any future stable execution identity should retain raw logs separately from canonical dependency identities; this is an unnecessary-miss observation, not an authority relaxation."
+  },
+  "independentAudits": {
+    "component": {
+      "path": "/tmp/quod-native-vm-42409495211-components-audit.json",
+      "sha256": "87751aa1975a88a4093cf3df88457ed86fc134fe908c96e10444fc968f788d4d",
+      "passed": true,
+      "issues": []
+    },
+    "strictFull": {
+      "path": "/tmp/quod-native-vm-42409495211-audit.json",
+      "sha256": "580c01628acad1614d62831d9658ec222a46a34ffb078ed659c0c375449c6db3",
+      "ok": false,
+      "issues": [
+        "Investigation did not finish every fixed phase"
+      ]
+    },
+    "fullProgressAnalysis": {
+      "path": "/tmp/quod-native-vm-42409495211-release-progress-analysis.json",
+      "sha256": "1345c556efb2a849155296733defa2f1cadf035e1973e5f0b65eec17113c7e1e"
+    },
+    "readers": {
+      "/tmp/quod-native-vm-42409495211-components.py": "da2ca3ac9f888e1f9430ebb9e38ebbaaad879e715ee7734f102f99ce4dd3ee5f",
+      "/tmp/quod-native-vm-42409495211-audit-wrapper.py": "c8d6fe7fb65d701aa2c5d1f20187f090513b359958c05cf2d90430cca3aa18f9",
+      "/tmp/quod-managed-matrix-sol-ultra/scripts/bench-vitest/native-vm/audit.py": "f24d8d0024ddb3693ad4e7cfaba7722005268e6250fa6f1f12cad07de2a48231"
+    }
+  },
+  "files": {
+    "native-vm-audit.json": {
+      "bytes": 419695,
+      "sha256": "7fcc0929443895ba10a270b4578891e36de866bafd290fef16568280d7c0de65"
+    },
+    "native-vm-evidence/background/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/background/command.stdout": {
+      "bytes": 46,
+      "sha256": "772a6180cf56ba6ad597f78d06a957375cec63100fa86a817c2d1fcc860243d4"
+    },
+    "native-vm-evidence/background/invocation.json": {
+      "bytes": 1246,
+      "sha256": "31b530c49907d3e89844ef24de33d699df37ab666f2f6fb4a6e8b260886b7ca4"
+    },
+    "native-vm-evidence/background/progress.json": {
+      "bytes": 1769,
+      "sha256": "422f3baaa3a290a3397a0eb5d166159d01b193bfa6e3d479afc9971ae6797b03"
+    },
+    "native-vm-evidence/background/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/background/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/background/response.json": {
+      "bytes": 764,
+      "sha256": "25f2d5980e58ec4a260f06ebf4239209d134f3d7e39d2560fb7e3a2948a13027"
+    },
+    "native-vm-evidence/background/result.json": {
+      "bytes": 757,
+      "sha256": "d9e21a03d1e482b1f90e5442ed0c2772c4ae687d2a482f5787f704be4fe9cd42"
+    },
+    "native-vm-evidence/background/serial.raw": {
+      "bytes": 2514,
+      "sha256": "ac90769e9852f7ffe20c900b110203bd6110a99706f6530d8b2533e787c0e2c0"
+    },
+    "native-vm-evidence/boundary/command.stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/boundary/command.stdout": {
+      "bytes": 711,
+      "sha256": "ab1e3300958f03c89cb2db2c3e06d7483de3e8a5f89fefe1c45abe4430b7f17a"
+    },
+    "native-vm-evidence/boundary/invocation.json": {
+      "bytes": 1242,
+      "sha256": "87918acbad5bcb5185aa52a3381f8497fd2b18d789c0fac7f3c537a4f4d8db6c"
+    },
+    "native-vm-evidence/boundary/progress.json": {
+      "bytes": 3475,
+      "sha256": "ccff3d6649e31c8d42c639702704c5ad1ad08e99adf8ba4fc672b998c515f863"
+    },
+    "native-vm-evidence/boundary/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/boundary/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/boundary/response.json": {
+      "bytes": 1860,
+      "sha256": "0729374fd812e00e641066bf5b8931c5da11f9dbc4d4ea892f26416ce55e0d89"
+    },
+    "native-vm-evidence/boundary/result.json": {
+      "bytes": 761,
+      "sha256": "9af290c209cd304fd843d04826d2bf0500f533680dc56124ad16e9171a6d85d5"
+    },
+    "native-vm-evidence/boundary/serial.raw": {
+      "bytes": 5323,
+      "sha256": "037d7f2d796d17d4ed35ade1295b36bc8380fa5f32b3c2a5a8d7ee00b7b9648c"
+    },
+    "native-vm-evidence/build-1/command.stderr": {
+      "bytes": 43,
+      "sha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68"
+    },
+    "native-vm-evidence/build-1/command.stdout": {
+      "bytes": 248,
+      "sha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186"
+    },
+    "native-vm-evidence/build-1/invocation.json": {
+      "bytes": 1239,
+      "sha256": "37442cfdb8c01aec1508b25648b2e2bca9654c1bca0093b7d8dfd6963b68d237"
+    },
+    "native-vm-evidence/build-1/progress.json": {
+      "bytes": 60606,
+      "sha256": "4b4ddcb1626e10b5484dcef3e2685687ab39747625a7269c0063593fb37ff6ca"
+    },
+    "native-vm-evidence/build-1/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/build-1/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/build-1/response.json": {
+      "bytes": 1543016,
+      "sha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    "native-vm-evidence/build-1/result.json": {
+      "bytes": 771,
+      "sha256": "5237f812d427713fed470d8eafae44e6e0bca2abdf19453d5ab3eeae2670d795"
+    },
+    "native-vm-evidence/build-1/serial.raw": {
+      "bytes": 1603705,
+      "sha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f"
+    },
+    "native-vm-evidence/build-2/command.stderr": {
+      "bytes": 43,
+      "sha256": "fcbb1e5ac3237c5ac73eb13e954a19a718cd18988f25323ea4ca86d709fdbb68"
+    },
+    "native-vm-evidence/build-2/command.stdout": {
+      "bytes": 248,
+      "sha256": "04394319e5dba8f5b0d2094b67ae471d9c50d93d0e6e603234a29a2942ec0186"
+    },
+    "native-vm-evidence/build-2/invocation.json": {
+      "bytes": 1239,
+      "sha256": "411fa68f3d79f6d2198fbff9674816285cd8ef3e7e598a1526a21845c3fcdc08"
+    },
+    "native-vm-evidence/build-2/progress.json": {
+      "bytes": 60606,
+      "sha256": "4b4ddcb1626e10b5484dcef3e2685687ab39747625a7269c0063593fb37ff6ca"
+    },
+    "native-vm-evidence/build-2/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/build-2/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/build-2/response.json": {
+      "bytes": 1543016,
+      "sha256": "0ec2df63bee6b52b54daed2ca18167fd8cb2fdb14935e1b3a756bb9e87811082"
+    },
+    "native-vm-evidence/build-2/result.json": {
+      "bytes": 771,
+      "sha256": "594f6f1d2d28f83d629466b0297e75c305ccc1846360ea1e9f419c6e2cab5832"
+    },
+    "native-vm-evidence/build-2/serial.raw": {
+      "bytes": 1603705,
+      "sha256": "28950d49d07c915bbb46cec48e7a0f10d46d5f6e16ef0f8bbe9126c95951a99f"
+    },
+    "native-vm-evidence/files.json": {
+      "bytes": 5260,
+      "sha256": "1eb0d880eeda2c0c095d781e1695d62958c5040628f5680af23c0c3fb9ff0c7b"
+    },
+    "native-vm-evidence/image.json": {
+      "bytes": 7119917,
+      "sha256": "f006b4ca37a442dbadd0409a61b34e0a202f562e55a8dc749b322a840deb9f95"
+    },
+    "native-vm-evidence/parser-fixtures.json": {
+      "bytes": 911,
+      "sha256": "5f578e5b63f05e79464fdc63901c5bd951bcbb2c6c172df8ab451e4d2077fe83"
+    },
+    "native-vm-evidence/policy.json": {
+      "bytes": 1670,
+      "sha256": "f7afa2b305902fd1292ee75d3189d8c8dd41902bb2f140241139e8b74018ecfb"
+    },
+    "native-vm-evidence/release-1/invocation.json": {
+      "bytes": 1243,
+      "sha256": "bf197f2e30f8899f7351f262ec29379d93cda9c66a6c6fc22490b09fe0e932e9"
+    },
+    "native-vm-evidence/release-1/progress.json": {
+      "bytes": 284683,
+      "sha256": "e3732f11f349535e49b037cb915e69f3290c0de102e1f9b5a1c7ace65ac3daf9"
+    },
+    "native-vm-evidence/release-1/qemu.stderr": {
+      "bytes": 322,
+      "sha256": "ca12b00b60115c722a666d05d1cd89a5be9d57eb9acc56923eb857b9c607533d"
+    },
+    "native-vm-evidence/release-1/qemu.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "native-vm-evidence/release-1/result.json": {
+      "bytes": 306,
+      "sha256": "66cce3e6762bb6d9f23b195c1d008326b3722cee81f059bfddc6e338d9b965a1"
+    },
+    "native-vm-evidence/release-1/serial.raw": {
+      "bytes": 284709,
+      "sha256": "b94075bb9984ddecc2158590aaa5cbd56fe0a777ef81e565924279c06734c799"
+    },
+    "native-vm-evidence/result.json": {
+      "bytes": 5285,
+      "sha256": "2f8f6cf4f5222beeedd27672882e130a84584b50819f63e32f5e976776b9b555"
+    },
+    "native-vm-image/guest-isa-notes.json": {
+      "bytes": 103907,
+      "sha256": "f5b5819f9ef381e07524cd6de2d34cbde3212330eb20afeeea934749fbe8ebe1"
+    },
+    "native-vm-image/image.json": {
+      "bytes": 7119917,
+      "sha256": "f006b4ca37a442dbadd0409a61b34e0a202f562e55a8dc749b322a840deb9f95"
+    },
+    "native-vm-image/initramfs.cpio.gz": {
+      "bytes": 147147504,
+      "sha256": "52b035a180f70c3e17357e31ca8160a4e254f924f80434335c3d1c44991b156c"
+    },
+    "native-vm-image/kernel": {
+      "bytes": 17349000,
+      "sha256": "646f7e41faa4b7c8899deee5f725c39eb46987977b5d0ab4340deb3463d9de86"
+    },
+    "native-vm-image/symlink-fixtures.json": {
+      "bytes": 454,
+      "sha256": "0920dfb7368d80284304004a4056206660bbf4fba00a0014d22bdaae08c7da49"
+    }
+  }
+}

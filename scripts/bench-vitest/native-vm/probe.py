@@ -265,7 +265,7 @@ def main():
         raise SystemExit("VM execution is restricted to the authorized GitHub Linux gate")
     require(30 <= args.watchdog <= 180, "Finite per-VM watchdog must be between 30 and 180 seconds")
     release_watchdog = args.watchdog if args.release_watchdog is None else args.release_watchdog
-    require(30 <= release_watchdog <= 360, "Finite release watchdog must be between 30 and 360 seconds")
+    require(30 <= release_watchdog <= 720, "Finite release watchdog must be between 30 and 720 seconds")
     image, out = args.image.resolve(), args.out.resolve()
     require(not out.exists(), "Evidence directory must not already exist")
     require("," not in str(image) and "," not in str(out), "QEMU file paths must not contain option separators")
