@@ -1,0 +1,166 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42364307324",
+  "conclusion": "failure",
+  "reason": "test:release exceeded the configured 120-second command deadline",
+  "probeCommit": "303cb8e33e037e44140e4d699cd976d99f01c230",
+  "artifact": {
+    "id": 13570808244,
+    "bytes": 500858,
+    "sha256": "d3ae9f61b5595de0b0da2c8b6a619b78d027eb725be8a4194dff5d6318609e41"
+  },
+  "identity": {
+    "replayEligible": false,
+    "completeTrace": false,
+    "frameLimit": 8,
+    "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+    "engineSource": "c12a7fe32f4957b6bd1cc09edbe63c7292b1c1d3",
+    "binarySha256": "d18f2618e859b5773968e11ab9269b7c72bc23817fb277e8ab0ff1e8839f9e8b",
+    "nodeBinarySha256": "41a74efb34cbde5c7632cdac0cf8bd1a14d0b8d73dc1e82755014d9a9ce70f5c",
+    "node": "v24.18.0",
+    "strace": "strace -- version 6.19",
+    "image": {
+      "ImageOS": "ubuntu26",
+      "ImageVersion": "20261101.186.1"
+    }
+  },
+  "replayEligible": false,
+  "units": [
+    {
+      "trace": "build.trace",
+      "commandCompleted": true,
+      "traceSha256": "5acec5f1cf9c1f2187d9728a4bc02396efb79da3986e7289ba84dedf54a3d818",
+      "traceBytes": 4074913,
+      "anonymousCalls": 44,
+      "resumedAnonymousCalls": 0,
+      "callers": {
+        "node:unresolved_0x4b7439": 9,
+        "node:uv_guess_handle": 29,
+        "node:ResetStdio": 6
+      },
+      "examples": {
+        "node:unresolved_0x4b7439": {
+          "line": "7     fstat(0<pipe:[20587]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x4b7439]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::Start(int, char**)+0x13c) [0x4b897c]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(_start+0x2e) [0x3e0ace]"
+          ]
+        },
+        "node:uv_guess_handle": {
+          "line": "7     fstat(0<pipe:[20587]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(uv_guess_handle+0x39) [0x15e1eb9]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x4b74bc]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::Start(int, char**)+0x13c) [0x4b897c]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(_start+0x2e) [0x3e0ace]"
+          ]
+        },
+        "node:ResetStdio": {
+          "line": "41    fstat(0<pipe:[20587]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::ResetStdio() [clone .part.0]+0x47) [0x4b37a7]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x4a940]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(exit+0x1e) [0x4aa1e]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x3fec1e]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x46f204]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x15fb08d]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x15f9654]",
+            "> too many stack frames"
+          ]
+        }
+      },
+      "exit": 0,
+      "recordingRejected": "its trace is empty",
+      "records": 0
+    },
+    {
+      "trace": "test-release.incomplete.trace",
+      "commandCompleted": false,
+      "traceSha256": "fbc59df0346b4d5faec810b60fe4cae349951494f77ddb248f9ff8c64f157e16",
+      "traceBytes": 16110180,
+      "anonymousCalls": 644,
+      "resumedAnonymousCalls": 26,
+      "callers": {
+        "node:unresolved_0x4b7439": 95,
+        "node:uv_guess_handle": 301,
+        "git:unresolved_native_caller": 92,
+        "node:ResetStdio": 105,
+        "libc:_IO_file_doallocate": 51
+      },
+      "examples": {
+        "node:unresolved_0x4b7439": {
+          "line": "7     fstat(0<pipe:[20587]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x4b7439]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::Start(int, char**)+0x13c) [0x4b897c]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(_start+0x2e) [0x3e0ace]"
+          ]
+        },
+        "node:uv_guess_handle": {
+          "line": "7     fstat(0<pipe:[20587]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(uv_guess_handle+0x39) [0x15e1eb9]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node() [0x4b74bc]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::Start(int, char**)+0x13c) [0x4b897c]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(_start+0x2e) [0x3e0ace]"
+          ]
+        },
+        "git:unresolved_native_caller": {
+          "line": "39    fstat(1<UNIX-STREAM:[20036->20035]> <unfinished ...>",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fstat64+0xb) [0x12bc0b]",
+            "> /usr/bin/git() [0x2a85c]",
+            "> /usr/bin/git() [0x2baf4]",
+            "> /usr/bin/git() [0x28794]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /usr/bin/git() [0x287e5]"
+          ],
+          "resumedLine": "39    <... fstat resumed>, {st_mode=S_IFSOCK|0777, st_size=0, ...}) = 0"
+        },
+        "node:ResetStdio": {
+          "line": "44    fstat(1<UNIX-STREAM:[17963->17962]>, {st_mode=S_IFSOCK|0777, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fxstat64+0x15) [0x13f915]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::ResetStdio() [clone .part.0]+0x47) [0x4b37a7]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::TearDownOncePerProcess()+0x23) [0x4b4463]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(node::Start(int, char**)+0x268) [0x4b8aa8]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6() [0x2a8c1]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x88) [0x2a9d8]",
+            "> /opt/hostedtoolcache/node/24.18.0/x64/bin/node(_start+0x2e) [0x3e0ace]"
+          ]
+        },
+        "libc:_IO_file_doallocate": {
+          "line": "68    fstat(1<UNIX-STREAM:[18014->18013]>, {st_mode=S_IFSOCK|0777, st_size=0, ...}) = 0",
+          "frames": [
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(__fstat64+0xb) [0x12bc0b]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(_IO_file_doallocate+0x5e) [0x9373e]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(_IO_doallocbuf+0x56) [0xa4f66]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(_IO_file_overflow+0x189) [0xa25e9]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(_IO_file_xsputn+0xc4) [0xa3204]",
+            "> /usr/lib/x86_64-linux-gnu/libc.so.6(puts+0x7a) [0x965ba]",
+            "> /usr/bin/git() [0x13cef2]",
+            "> /usr/bin/git() [0x2a82a]",
+            "> too many stack frames"
+          ]
+        }
+      },
+      "exit": null,
+      "timeoutSeconds": 120,
+      "recordingRejectionVerified": false
+    }
+  ]
+}

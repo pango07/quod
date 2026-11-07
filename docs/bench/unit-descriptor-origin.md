@@ -47,6 +47,11 @@ descriptor state, a justified boundary around its consumption, or an
 explicitly different execution contract. This is the first reproduced
 blocker, not proof that it is the only remaining blocker.
 
+The bounded [native-caller follow-up](unit-descriptor-stacks.md) rules out a
+blanket type-only fix: build reaches both `uv_guess_handle` and Node's
+descriptor-identity/flag restoration. The partial release trace also reaches
+Git and libc. That gate timed out on release and authorizes no policy change.
+
 ## Method and limits
 
 The [probe](../../scripts/bench-vitest/unit-descriptor-origin.py) invokes the

@@ -231,6 +231,11 @@ small fixed cost improved. The original cold window remains the final
 acceptance test once the prototype clears its correctness and useful-reuse
 gate.
 
+The measured default build, Action and post steps total only 82 seconds
+(23 + 29 + 30). Even eliminating those steps would not close the
+670.5-second gap. Units remain necessary for whole-job replay, but optimizing
+them alone is not a path to the window target.
+
 ## Product recommendation and decision boundary
 
 Keep one-line installation, but state compatibility and replay eligibility
@@ -302,3 +307,14 @@ adds a bounded path-resolution footprint and retains the prior keys; it
 does not yet authorize dropping internal metadata observations or establish
 fresh-runner test reuse. Preserve this counterexample in any future
 operation-level refinement.
+
+The bounded [descriptor-caller probe](bench/unit-descriptor-stacks.md) adds
+another concrete constraint. Only 29 of build's 44 anonymous metadata calls
+reach `uv_guess_handle`; Node's shutdown path also compares descriptor
+identity before restoring flags. The partial release trace reaches Git and
+libc, and the diagnostic exceeds its 120-second release limit. This rejects
+a blanket type-only shortcut and supplies no replay or savings result.
+Equivalent behavior may depend on relationships and effects, not equality
+of every raw field. Any such abstraction must prove ownership, all consumers
+and descriptor lifecycle; stack names alone cannot authorize it. Do not
+extend this into another open-ended tracing project.
