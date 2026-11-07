@@ -1,6 +1,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {spawn} from 'node:child_process'
+import {DefaultSerializer} from 'node:v8'
+import {types} from 'node:util'
+
+// Put both protocol frames in one pipe write. Two child.send calls can reach
+// two otherwise identical processes in different read batches, which does
+// not define a stable cross-run order for decoding versus message callbacks.
+function ipcFrames(messages,serialization) {
+  if(serialization==='json')return Buffer.from(messages.map(m=>JSON.stringify(m)+'\n').join(''))
+  class FixtureSerializer extends DefaultSerializer {
+    _writeHostObject(value) {
+      const view=types.isArrayBufferView(value)
+      this.writeUint32(view?0:1)
+      if(view)return super._writeHostObject(value)
+      this.writeValue({...value})
+    }
+  }
+  return Buffer.concat(messages.map(message=>{
+    const serializer=new FixtureSerializer();serializer.writeHeader();serializer.writeValue(message)
+    const body=serializer.releaseBuffer(),length=Buffer.alloc(4);length.writeUInt32BE(body.length)
+    return Buffer.concat([length,body])
+  }))
+}
+function ipcPipe(process) {
+  const symbol=Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')
+  assert(symbol,'fixture requires the pinned Node IPC channel')
+  return process[symbol]
+}
 
 const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
@@ -8,21 +35,25 @@ async function run(kind,enabled,serialization='advanced') {
 import v8 from 'node:v8';
 const enabled=${enabled},kind=${JSON.stringify(kind)};
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
-const values=[],order=[],copies=[];
-let preparations=0,gets=0;
+const values=[],order=[],copies=[],deliveryEvents=[];
+let preparations=0,gets=0,readId=0,activeRead=0;
+const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
+const onread=pipe.onread;
+pipe.onread=function(...args){activeRead=++readId;try{return Reflect.apply(onread,this,args)}finally{activeRead=0}};
 function prepareWorkerMessage(message){
   if(kind==='callback-throw')throw Error('fixture preparation failure');
   if(message&&typeof message==='object')preparedMessages.add(message);
   preparations++;return true;
 }
-function copy(message){copies.push({prepared:message&&typeof message==='object'&&preparedMessages.has(message),value:message.value});order.push('copy')}
+function copy(message){copies.push({prepared:message&&typeof message==='object'&&preparedMessages.has(message),value:message.value});order.push('copy');deliveryEvents.push({operation:'copy',value:message.value,read:activeRead})}
 function observer(message){
   if(!enabled&&kind!=='callback-throw')prepareWorkerMessage(message);
   values.push(typeof message==='object'?message.value:message);order.push('consumer');
+  deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead});
   if(values.length===(kind==='synthetic'?3:2)) {
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     p.close();process.removeListener('message',observer);
-    process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,
+    process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
       compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
@@ -72,7 +103,7 @@ if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
 process.send({kind:'ready',initial});`
   const child=spawn(process.execPath,['--input-type=module','-e',source],
     {stdio:['ignore','pipe','pipe','ipc'],serialization})
-  const messages=[],errors=[]
+  const messages=[],errors=[],writes=[]
   child.stderr.on('data',chunk=>errors.push(chunk.toString()))
   const outcome=await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{child.kill();reject(Error('IPC delivery regression timed out'))},20000)
@@ -80,8 +111,13 @@ process.send({kind:'ready',initial});`
     child.on('message',message=>{
       messages.push(message)
       if(message.kind==='ready') {
-        child.send(kind==='primitive'?1:{kind:'data',value:1,privatePath:'/private-ipc-delivery',...(kind==='host-object'?{bytes:Buffer.from([1,2])}:{})})
-        child.send(kind==='primitive'?2:{kind:'data',value:2,privatePath:'/private-ipc-delivery',...(kind==='host-object'?{bytes:Buffer.from([3,4])}:{})})
+        const inputs=[1,2].map(value=>kind==='primitive'?value:{kind:'data',value,privatePath:'/private-ipc-delivery',
+          ...(kind==='host-object'?{bytes:Buffer.from([value,value+1])}:{})})
+        const bytes=ipcFrames(inputs,serialization),request=new (process.binding('stream_wrap').WriteWrap)()
+        // Hold the bytes until child exit even if the native write is async.
+        writes.push({bytes,request});request.oncomplete=status=>{if(status!==0)reject(Error('fixture IPC write failed: '+status))}
+        const status=ipcPipe(child).writeBuffer(request,bytes)
+        if(status!==0)reject(Error('fixture IPC write failed: '+status))
       }
     })
     child.on('exit',(code,signal)=>{clearTimeout(timer);resolve({code,signal})})
@@ -98,7 +134,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
-    assert.deepEqual(r.values,plain.values);assert.deepEqual(r.order,plain.order)
+    assert.deepEqual(r.values,plain.values)
+    assert.deepEqual(r.order,plain.order,'IPC batch evidence: '+JSON.stringify({plain:plain.deliveryEvents,observed:r.deliveryEvents}))
     assert.equal(r.gets,plain.gets,'the decoder checks must not invoke a getter')
     assert.equal(r.initial.available,true,JSON.stringify(r.initial))
     assert.deepEqual(r.compilationErrors,[])
