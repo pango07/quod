@@ -48,7 +48,9 @@ function run(label,{plain=false,failRecovery=false}={}) {
  if(failRecovery) {
   assert.notEqual(result.status,0);assert.equal(fs.existsSync(report),false,'a failed recovery must remove the stale combined report')
   fs.copyFileSync(ledgerPath,path.join(out,label+'-ledger.json'))
-  return {exit:result.status,states:null,summary:fs.existsSync(summary)?JSON.parse(fs.readFileSync(summary)):null}
+  const data=JSON.parse(fs.readFileSync(summary))
+  assert.equal(data.lineage_recovery_failed,true);assert.equal(data.exit,result.status)
+  return {exit:result.status,states:null,summary:data}
  }
  assert.ok(result.status===0||result.status===1)
  const bytes=fs.readFileSync(report),data=JSON.parse(bytes)
