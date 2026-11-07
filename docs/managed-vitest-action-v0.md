@@ -5,6 +5,12 @@ execution contract. Its default remains `off`; `control` executes the same
 managed workload without remote receipt reads or writes. This is an experimental
 branch integration, separate from the ordinary Quod mode and Quod Cloud.
 
+After `setup-node`, optional usage pinned to the built Action is:
+
+```yaml
+- {uses: pango07/quod-action@d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928, with: {managed-vitest: v0}}
+```
+
 The initial profile handles
 `packages/convex-helpers/server/stream.property.test.ts` under the reviewed
 configuration of the original twelve-commit convex-helpers window. Its original
@@ -12,6 +18,11 @@ configuration of the original twelve-commit convex-helpers window. Its original
 selected files run through ordinary Vitest, preserving the original suite and
 the commands after it. Custom commands, configuration, unsupported capabilities
 and incomplete managed completion decline to ordinary execution.
+
+The ordinary remainder uses Vitest 5's native specification API with the actual
+resolved file/project instances. It excludes exactly the admitted instance,
+checks the selected and executed instance lists against preparation, and
+retains each remaining project's configuration, aliases, environment and setup.
 
 The caller declares an epoch in milliseconds (default `1700000000000`), random
 seed (`42`), and explicit environment (`{"NODE_ENV":"test"}`). Managed execution
@@ -29,10 +40,12 @@ sets, compiler, runtime, supervisor, declared inputs and native host class.
 Changing an unused package version does not by itself change the managed
 execution. An unreviewed package or configuration variant declines.
 
-Passing, sealed, complete managed results can produce receipts. Failed,
-unsupported or incomplete results cannot. A hit validates the complete receipt
-bytes and every effective identity before publishing its test states and
-console effects. Test JSON combines the admitted result with the real ordinary
+New receipts require passing, sealed, complete managed results and a successful
+exit from the entire intercepted Vitest command, including its ordinary
+remainder. Failed, unsupported or incomplete commands cannot publish new
+receipts. A hit validates the complete receipt bytes and every effective
+identity before publishing its test states and console effects. Test JSON
+combines the admitted result with the real ordinary
 report for the remaining selected files; an ordinary failure still fails the
 command.
 

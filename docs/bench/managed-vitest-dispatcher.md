@@ -7,6 +7,10 @@ artifact audits passed for both jobs. The dispatcher follows the experimental
 `off`. This gate does not enable production replay or verify the complete
 Action hook and remote cache transport.
 
+A later [focused gate](https://github.com/pango07/quod/actions/runs/42391903760)
+also passed for the native ordinary-remainder adapter. Its verified evidence is
+recorded below without replacing the original workload and boundary proof.
+
 ## Original workload and boundary checks
 
 The unchanged c11 stream property file passed all 47 tests in both managed and
@@ -65,7 +69,58 @@ cache manifest supplies no authority. Authenticated Action cache-key transport
 and complete fresh-job behavior are evaluated separately; this same-runner hit
 is not a new fresh-runner replay result.
 
-## Run accounting and evidence
+## Native ordinary-remainder follow-up
+
+The focused gate passed at fixture/auditor commit
+[`a5766bbb`](https://github.com/pango07/quod/commit/a5766bbb45226426cb689ea60ce972d154980cac).
+The runtime remains pinned to
+[`2a4d6f2f`](https://github.com/pango07/quod/commit/2a4d6f2f7547dd00e720a32d5b451229784ba8fb),
+packaged by Action
+[`d79c8635`](https://github.com/pango07/quod-action/commit/d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928).
+The original 12 dispatcher cases and 45 checks passed again, including one
+same-runner receipt hit. Two additional mixed-execution controls passed all
+20 checks, and both independent audits passed locally against verified archives.
+
+Project configuration can override CLI exclusions. An earlier full-suite smoke
+therefore ran the candidate again in ordinary Vitest and fell back rather than
+publishing a reusable receipt. The new adapter resolves native Vitest project
+specifications and excludes the exact candidate project/file instance before
+running the remainder. It retains the selected, excluded, remaining and executed
+multisets, preserving paths that occur in multiple projects. This is the adapter
+used for the 119-entry remainder of the reviewed 120-entry suite.
+
+The focused controls exercise two selected project/file instances: one managed
+candidate and one ordinary remainder. The candidate passes exactly once, while
+the ordinary test controls the whole-command outcome:
+
+| Native remainder | Exit | Merged tests | Reusable receipts | Command seconds |
+| --- | ---: | ---: | ---: | ---: |
+| passes | 0 | 2 | 1 | 3.284 |
+| fails | 1 | 2 | 0 | 3.240 |
+
+Both cases verify the native selection before and after execution, the complete
+merged report, preserved ordinary report rows, and console-marker multiplicity.
+The failed whole command makes no receipt-record callback despite its passing
+managed candidate. These small controls do not establish complete 120-entry
+execution, remote cache reuse, or twelve-commit savings.
+
+The [first focused attempt](https://github.com/pango07/quod/actions/runs/42391646433)
+remains failed evidence: its first eight selection/outcome checks passed, then
+the console-marker check failed because its JSON-only reporter suppressed native
+console output. Adding the default reporter made that observation available;
+the runtime bytes did not change for the successful rerun.
+
+The successful [dispatcher job](https://github.com/pango07/quod/actions/runs/42391903760/job/128461043111)
+took 69 complete runner-seconds, or two modeled rounded minutes. Its archives
+were `managed-dispatcher` (13581333524, 1,882,414 bytes, SHA-256
+`5f849cc7b08897db14c757d70762e150650e35e38bd84172b862e3b842f6a600`) and
+`managed-dispatcher-remainder` (13581288491, 462,175 bytes, SHA-256
+`17b7263e93e6112170337edf3cba7eed9940cd79418a3b046419cf8ff0bd3b0d`).
+Both exact byte counts and digests were verified before extraction. The
+`nativeRemainderFollowup` record in the JSON evidence retains both audits,
+archive metadata, timings, file hashes and the failed attempt separately.
+
+## Original product run accounting and evidence
 
 | Successful product job | Complete runner seconds | Modeled rounded minutes |
 | --- | ---: | ---: |
