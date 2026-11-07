@@ -7,7 +7,7 @@ import {createRequire} from 'node:module'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {spawn} from 'node:child_process'
 import {createManagedCompiler, canonicalManagedJSON} from './compiler.mjs'
-import {prepareManagedMatrix, describeManagedSpecification} from './preparation.mjs'
+import {prepareManagedMatrix, describeManagedSpecification, canonicalizeManagedAliasReplacement} from './preparation.mjs'
 import {createManagedMatrixPlan, matrixInstanceKey, compareManagedMatrixStates} from './matrix-planner.mjs'
 import {createManagedExecutor} from './executor.mjs'
 import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from './receipt.mjs'
@@ -179,6 +179,21 @@ async function probe(projectArg, outArg) {
   let suite, stickyManagedFailure = false
   save()
   try {
+    // Pure path controls exercise Vite's actual FS_PREFIX join convention and
+    // reject lookalike checkout prefixes before resolving the real matrix.
+    const fixtureProject = '/reviewed/checkout'
+    for (const [name, input, expected] of [
+      ['ordinary absolute alias path is canonical', fixtureProject + '/node_modules/vite/dist/client/env.mjs', '/project/node_modules/vite/dist/client/env.mjs'],
+      ['Vite filesystem URL alias path is canonical', '/@fs' + fixtureProject + '/node_modules/vite/dist/client/client.mjs', '/@fs/project/node_modules/vite/dist/client/client.mjs'],
+      ['unrelated alias string is preserved', 'zod-4.0', 'zod-4.0'],
+    ]) check(name, canonicalizeManagedAliasReplacement(input, fixtureProject) === expected)
+    for (const input of [fixtureProject + '-sibling/client.mjs', '/@fs' + fixtureProject + '-sibling/client.mjs',
+      'arbitrary:' + fixtureProject + '/client.mjs']) {
+      let rejected = false
+      try { canonicalizeManagedAliasReplacement(input, fixtureProject) }
+      catch (error) { rejected = error.name === 'AssertionError' && error.message === 'unreviewed checkout path in alias' }
+      check('non-path or sibling checkout alias is rejected: ' + input, rejected)
+    }
     suite = await prepareManagedMatrix({project, seed: base.seed})
     write(path.join(out, 'preparation.json'), suite.evidence)
     const plan = createManagedMatrixPlan(suite)

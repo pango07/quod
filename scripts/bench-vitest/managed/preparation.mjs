@@ -108,6 +108,21 @@ const zodAliasPattern = /^zod-4\.[0-6]$/
 const zodImportPattern = /^zod(?=\/|$)/
 const viteAliasPatterns = new Set([/^\/?@vite\/env/.source, /^\/?@vite\/client/.source])
 
+// Vite joins FS_PREFIX ('/@fs/') with an absolute path, producing '/@fs'
+// followed by that path's leading slash. Keep the path boundary explicit.
+export function canonicalizeManagedAliasReplacement(replacement, project) {
+  assert(typeof replacement === 'string' && typeof project === 'string' && project.startsWith('/'))
+  for (const prefix of ['', '/@fs']) {
+    const start = prefix + project
+    if (replacement === start || replacement.startsWith(start + '/')) {
+      replacement = prefix + '/project' + replacement.slice(start.length)
+      break
+    }
+  }
+  assert(!replacement.includes(project), 'unreviewed checkout path in alias')
+  return replacement
+}
+
 function matrixAliases(p, project, zodAlias) {
   const aliases = p.viteConfig.resolve.alias
   assert(Array.isArray(aliases), 'resolved alias list required')
@@ -124,15 +139,7 @@ function matrixAliases(p, project, zodAlias) {
       assert(viteAliasPatterns.has(find.source), 'unreviewed resolved alias: ' + find.source)
       assert(alias.replacement.includes('/vite/dist/client/'), 'unreviewed Vite client alias target')
     }
-    let replacement = alias.replacement
-    for (const prefix of ['', '/@fs/']) {
-      const start = prefix + project
-      if (replacement === start || replacement.startsWith(start + '/')) {
-        replacement = prefix + '/project' + replacement.slice(start.length)
-        break
-      }
-    }
-    assert(!replacement.includes(project), 'unreviewed checkout path in alias')
+    const replacement = canonicalizeManagedAliasReplacement(alias.replacement, project)
     return {find: {source: find.source, flags: find.flags}, replacement}
   })
   assert.equal(zodRules, zodAlias ? 1 : 0, 'resolved Zod alias multiplicity differs')
