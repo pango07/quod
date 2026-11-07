@@ -6,6 +6,67 @@ runner-seconds, a genuine hit at floor + at most 8 seconds, wrong = 0,
 one-line integration, and no hidden change to the tests' meaning. This
 document is a design review, not approval of a new execution policy.
 
+## Reset: choose the execution contract before extending the observer
+
+Stop treating another Inspector/metadata patch as the default next step.
+Keep the evidence and regression cases. The
+[constructor follow-up](bench/native-stat-fields.md#constructor-follow-up)
+failed during debugger setup twice. This does not prove every early
+observation mechanism impossible, but it supplies no useful replay and
+does not justify another full-window benchmark.
+
+The product must satisfy three separate requirements:
+
+1. **Equivalent results:** replay preserves the supported execution's
+   results and required effects. Agreement and sampled audits cannot
+   establish that an unobserved input does not matter.
+2. **Useful reuse:** equivalent inputs recur on fresh runners and normal
+   commits. A complete key that changes every time is safe but ineffective.
+3. **Positive economics:** avoided execution exceeds recording, validation,
+   transfer, audit and integration costs across the complete cold window.
+
+The current window fails the second requirement. Its `wrong = 0` comes
+with zero test and unit replays; it does not demonstrate correct reuse.
+Faster tracing alone cannot make an invalidated record reusable.
+
+| Direction | Promise | Unresolved work |
+| --- | --- | --- |
+| Transparent acceleration of ordinary Node/Vitest | Preserve the existing environment and behavior; run plain when reuse cannot be established | Complete, stable, affordable observation for this benchmark |
+| An explicitly managed test environment | Reuse under a versioned, enforced input/effect contract; run unsupported work outside the cache | A product decision, enforcement, compatibility, economics and an uncached control in the same environment |
+
+Prefer evaluating the managed direction over extending broad transparent
+observation indefinitely. One-line installation can provision an
+environment without making every workload eligible for replay. This is a
+proposal, not an enabled policy or a demonstrated performance result.
+
+The contract needs immutable input files and a defined metadata view,
+pinned tools/dependencies, explicit environment/configuration, and ownership
+of outputs. Clocks, randomness, scheduling, native code, processes and
+external services each need a supported policy. A container or Node
+permission flags alone do not establish deterministic execution or complete
+mediation. The isolation/input-identity principle is described by
+[Bazel](https://bazel.build/basics/hermeticity); Node documents the limits of
+its [permission model](https://nodejs.org/api/permissions.html).
+
+Canonical metadata or controlled clocks/seeds change observable behavior
+and must be disclosed. Keep test cases and assertions unchanged. Compare
+cached and uncached execution within the same managed contract, while
+retaining the original ordinary-GitHub baseline separately. Managed results
+cannot silently satisfy the original 12-commit goal; that goal remains
+unmet unless its own acceptance test passes.
+
+Before implementation, name the enforcement mechanism and unsupported
+capabilities. The first execution gate is an expensive unchanged
+convex-helpers test replaying on a fresh runner, with relevant mutations
+forcing execution, required effects preserved, and cold/miss/hit costs
+measured. Another passing observer fixture is insufficient. Expand to
+units, whole-job replay and the complete window only after that gate passes.
+Reject candidates that need another open-ended chain of observation
+exceptions. Rewriting tests in Rust or reducing property-test cases does
+not resolve these requirements.
+
+## Measured starting point
+
 The current measured implementation has 1,538 runner-seconds against
 1,735 plain. It needs to remove another 670.5 seconds. It replays no tests
 or units in that window. Dependency installation saves 471 seconds; test

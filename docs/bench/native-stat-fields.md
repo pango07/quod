@@ -56,6 +56,29 @@ were parsed from the completed run log and independently checked. The log
 SHA-256 is
 `86d9164c00009a636c7867b447ccf5b3745e3e566633e10d874ef08a593766b9`.
 
+## Constructor follow-up
+
+The pre-publication probe has not passed. Run
+[42356669903](https://github.com/pango07/quod/actions/runs/42356669903) at
+`b0d5a9946dca85073046059b3ef87c52f0c11fc8` and run
+[42356756999](https://github.com/pango07/quod/actions/runs/42356756999) at
+`a76caf9da73aab6907d60e797899f0def2a61f65` each passed the existing 38 tests
+and failed all five new constructor tests during Inspector setup.
+
+The second run preserves the exact `Debugger.getPossibleBreakpoints`
+error: `Inspector error -32000: Cannot retrive script context`. Narrowing
+the query to the constructor body did not resolve it. The earlier diagnosis
+of a declaration-boundary problem was therefore insufficient. The five
+tests did not reach constructor observation, promise ordering, inherited
+setter rejection or microtask-order assertions. Those behaviors remain
+unverified, and no production input key was refined.
+
+These failures establish a limitation of the attempted Inspector path,
+not an impossibility result for every native mechanism. Further work must
+first meet the [architecture review's execution-contract gate](../first-principles-replay.md),
+rather than treating another debugger workaround as evidence of progress
+toward useful replay.
+
 ## Prepared benchmark harness
 
 `pango07/ci-bench` branch `bench/descriptor-safe-codex`, commit
