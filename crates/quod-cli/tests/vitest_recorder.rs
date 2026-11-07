@@ -363,11 +363,10 @@ console.log(JSON.stringify(out))
 }
 
 #[test]
-fn listing_the_environment_keys_presence_and_a_copy_keys_values() {
-    // Object.keys on the env proxy asks for every name's descriptor (only
-    // to see it is enumerable): that is each variable's presence (`envp:`),
-    // so a per-run value (the commit) listed by a library does not change a
-    // key from one CI job to the next. A copy reads the values (`env:`).
+fn listing_and_copying_the_environment_conservatively_key_values() {
+    // Object.keys asks for descriptors but discards their values. The same
+    // trap can return a value directly to application code, so without a
+    // consumer proof it must retain env:, including per-run CI variables.
     if Command::new("node").arg("--version").output().is_err() {
         eprintln!("no node: skipped");
         return;
@@ -400,11 +399,8 @@ console.log(JSON.stringify({{ listed, copied, all: r.keys.has('envall:') }}))
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["listed"], serde_json::json!(["envp:GITHUB_SHA"]));
-    assert_eq!(
-        v["copied"],
-        serde_json::json!(["envp:GITHUB_SHA", "env:GITHUB_SHA"])
-    );
+    assert_eq!(v["listed"], serde_json::json!(["env:GITHUB_SHA"]));
+    assert_eq!(v["copied"], serde_json::json!(["env:GITHUB_SHA"]));
     assert_eq!(v["all"], true);
 }
 
