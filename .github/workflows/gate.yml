@@ -846,11 +846,17 @@ jobs:
           echo 'febefde32dec226741bc7e7e99aa6812e59f1605af85e28c8867b63830327c63  lineage-action/dist/quod/bin-c12a7fe.tar.gz' | sha256sum -c -
           tar -xzf lineage-action/dist/quod/bin-c12a7fe.tar.gz -C /tmp/quod-lineage-bin
           node scripts/bench-vitest/lineage-revocation-audit.mjs "$PWD/lineage-action/test" /tmp/quod-lineage-bin/quod /tmp/quod-lineage-revocation
+          node scripts/bench-vitest/lineage-cohort-audit.mjs "$PWD/lineage-action/test" /tmp/quod-lineage-bin/quod /tmp/quod-lineage-cohort/baseline stale
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: lineage-revocation
           path: /tmp/quod-lineage-revocation
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: lineage-cohort-baseline
+          path: /tmp/quod-lineage-cohort
 
   benchmark-realpath-contract:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-realpath-contract'
