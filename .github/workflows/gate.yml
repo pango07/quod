@@ -959,6 +959,46 @@ jobs:
           name: benchmark-driver-stat
           path: /tmp/quod-driver-stat
 
+  benchmark-unit-descriptor-origin:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-unit-descriptor-origin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: descriptor-project
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: a1b9a37a4bf38e1883a4afc07d397616fa985942
+          path: descriptor-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: sudo apt-get update -qq && sudo apt-get install -y bubblewrap strace
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: npm ci
+        working-directory: descriptor-project
+      - name: Preserve real build and release unit descriptor traces
+        run: |
+          mkdir -p /tmp/quod-descriptor-bin
+          echo '00b99d670054bed66f4111bec627c1366f2b110145abc2efcecd9985cf9af1c0  descriptor-action/dist/quod/bin-2bd297b.tar.gz' | sha256sum -c -
+          tar -xzf descriptor-action/dist/quod/bin-2bd297b.tar.gz -C /tmp/quod-descriptor-bin
+          python3 scripts/bench-vitest/unit-descriptor-origin.py "$PWD/descriptor-project" /tmp/quod-descriptor-bin/quod /tmp/quod-unit-descriptor-origin
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: unit-descriptor-origin
+          path: /tmp/quod-unit-descriptor-origin
+
   benchmark-unit-metadata:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-unit-metadata'
     runs-on: ubuntu-latest
