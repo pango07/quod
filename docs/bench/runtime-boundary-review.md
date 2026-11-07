@@ -1,5 +1,12 @@
 # Runtime boundary decision, 2026-11-07
 
+**Subsequent decision:** the founder authorized the separate managed Vitest
+investigation. Its [contract](../managed-vitest-contract.md) specifies a local
+ALS-only workerd candidate and ordinary fallback. Remote prototype gates now
+install that pinned runtime; no Action pin, production setting or original
+benchmark baseline changed. The review below describes the source assessment
+before that authorization.
+
 This is a source review, not a compatibility run, replay implementation or
 new benchmark. No test environment, Action pin or production setting changed.
 

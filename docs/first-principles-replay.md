@@ -1,10 +1,18 @@
 # Replay architecture review, 2026-11-07
 
+**Decision update:** the founder has authorized investigating explicit managed
+Vitest execution, with unsupported work running normally. The
+[managed contract](managed-vitest-contract.md) specifies the separate,
+opt-in prototype. It enables no cache or production change. The original
+benchmark and acceptance target remain separate; the decision request below
+records the reasoning that led to this authorization.
+
 The founder requested a first-principles rethink. The original target stays
 unchanged: original cold 12-commit window at no more than 0.5x plain
 runner-seconds, a genuine hit at floor + at most 8 seconds, wrong = 0,
 one-line integration, and no hidden change to the tests' meaning. This
-document is a design review, not approval of a new execution policy.
+document is a design review; the later authorization above covers an
+investigation, not a production execution-policy change.
 
 ## Decision in one page
 
@@ -47,7 +55,7 @@ semantics needs an explicit product decision and its own uncached control;
 it cannot replace the original benchmark silently. No managed runtime is
 enabled by this review. The original target remains unmet.
 
-The founder's decision is whether to pursue that narrower, explicit support
+The founder has approved investigating that narrower, explicit support
 contract. There is no evidence-based commitment today to universal drop-in
 40–50% savings. Rewriting the runner in Rust does not answer the input-boundary
 question, and fixed-overhead improvements cannot close the measured gap.

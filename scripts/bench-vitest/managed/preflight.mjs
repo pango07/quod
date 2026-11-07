@@ -19,11 +19,18 @@ export default {
       })))
       check('ALS separates concurrent stores', result.join(',') === 'first,second' && local.getStore() === undefined)
       check('timers use virtual order', order.join(',') === 'second,first' && Date.now() === runtime.options.epoch + 5)
+      const target = new EventTarget(), event = new Event('local')
+      let deliveries = 0
+      target.addEventListener('local', () => { deliveries++ }, {once: true})
+      target.dispatchEvent(event); target.dispatchEvent(event)
+      check('local synchronous events preserve once semantics', deliveries === 1)
       const failures = []
       for (const [name, invoke] of [
         ['fetch', () => fetch('https://example.com')],
         ['crypto', () => crypto.getRandomValues(new Uint8Array(4))],
         ['WeakRef', () => new WeakRef({})],
+        ['FinalizationRegistry', () => new FinalizationRegistry(() => {})],
+        ['Event.timeStamp', () => event.timeStamp],
         ['WebAssembly', () => WebAssembly.compile(new Uint8Array())],
         ['AbortSignal.timeout', () => AbortSignal.timeout(1)],
       ]) {
@@ -31,7 +38,7 @@ export default {
       }
       check('all attempted unsupported operations rejected', failures.length === 0)
       const data = runtime.finish({checks, random})
-      check('caught rejection remains recorded', data.boundary.unsupported.length >= 5)
+      check('caught rejection remains recorded', data.boundary.unsupported.length >= 7)
       check('no unguardable ambient properties', data.boundary.unguardable.length === 0)
       data.ok = checks.every(c => c.pass)
       return runtime.response(data)

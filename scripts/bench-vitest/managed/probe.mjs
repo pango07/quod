@@ -22,7 +22,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  boundaryChecksVersion: 2, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
   workerdSha256: sha(fs.readFileSync(workerd)), phases: []}
 write('result.json', results)
 
@@ -76,6 +76,12 @@ const config :Workerd.Config = (
   }
 }
 const globs = [], adapters = []
+const supported = data => !data.error && data.boundary.unsupported.length === 0 &&
+  data.boundary.unguardable.length === 0 && data.boundary.timerErrors.length === 0
+const normalizedRows = rows => {
+  const states = {pass: 'passed', fail: 'failed', skip: 'skipped', todo: 'todo'}
+  return rows.map(r => [r.name, states[r.state] || r.state]).sort()
+}
 async function compile(entry, options, testFile) {
   const ts = testFile ? fromProject('typescript') : null
   const start = performance.now()
@@ -148,6 +154,14 @@ try {
   assert.deepEqual(one.checks, two.checks)
   results.preflightPassed = true; write('result.json', results)
 
+  const outbound = await compile('native-outbound.mjs', base)
+  write('native-outbound-build.json', {...outbound, bundle: undefined})
+  const native = await execute('native-outbound', outbound.bundle)
+  assert(native.nativeOutboundError || native.nativeOutboundStatus >= 500)
+  assert(fs.readFileSync(path.join(out, 'native-outbound/runtime.log'), 'utf8').includes('QUOD_DENIED_OUTBOUND'),
+    'native fetch must reach the configured deny service')
+  results.nativeOutboundDenied = true; write('result.json', results)
+
   const {createVitest} = await import(pathToFileURL(fromProject.resolve('vitest/node')).href)
   const ctx = await createVitest({root: project, watch: false, run: true, reporters: []})
   const file = 'packages/convex-helpers/server/stream.property.test.ts'
@@ -176,10 +190,48 @@ try {
   const testFile = path.join(project, file)
   results.testSourceSha256 = sha(fs.readFileSync(testFile))
   const options = {...base, vitest: config, file: '/project/' + file}
+
+  const fixtureDir = path.join(project, '.quod-managed-fixtures')
+  assert(!fs.existsSync(fixtureDir)); fs.mkdirSync(fixtureDir)
+  const fixtureFile = path.join(fixtureDir, 'fixture.test.mjs')
+  fs.copyFileSync(path.join(here, 'fixture.test.mjs'), fixtureFile)
+  fs.writeFileSync(path.join(fixtureDir, 'vitest.config.mjs'),
+    'export default {test:{include:[".quod-managed-fixtures/fixture.test.mjs"],environment:"node"}}\n')
+  results.fixtureEvidence = []
+  for (const mode of ['pass', 'failure', 'unsupported']) {
+    const name = 'fixture-' + mode, env = {...base.env, QUOD_FIXTURE_MODE: mode}
+    const fixtureOptions = {...base, env, vitest: structuredClone(config), file: '/project/.quod-managed-fixtures/fixture.test.mjs'}
+    const built = await compile('runner.mjs', fixtureOptions, fixtureFile)
+    write(name + '-build.json', {...built, bundle: undefined, adapters, options: fixtureOptions})
+    const actual = await execute(name, built.bundle)
+    assert.equal(actual.rows?.length, 4, name + ' must execute all four real Vitest tests')
+    const isSupported = supported(actual)
+    assert.equal(isSupported, mode !== 'unsupported', name + ' support classification')
+    assert.equal(actual.ok, mode !== 'failure', name + ' must preserve the actual test outcome')
+    if (mode === 'unsupported') assert.deepEqual(actual.boundary.unsupported, ['global fetch'])
+
+    // These ordinary runs are controls. For unsupported mode this is also
+    // the normal execution the dispatcher must select as its fallback.
+    const report = path.join(out, name + '-ordinary.json'), log = fs.openSync(path.join(out, name + '-ordinary.log'), 'w')
+    const started = performance.now()
+    const ordinary = spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run',
+      '--config', path.join(fixtureDir, 'vitest.config.mjs'), '--reporter=json', '--outputFile.json=' + report],
+      {cwd: project, env: {...process.env, ...env}, stdio: ['ignore', log, log], timeout: 30000})
+    fs.closeSync(log)
+    assert.equal(ordinary.status, mode === 'failure' ? 1 : 0, name + ' ordinary exit')
+    const rows = JSON.parse(fs.readFileSync(report)).testResults.flatMap(f => f.assertionResults.map(a => [a.fullName, a.status])).sort()
+    assert.deepEqual(normalizedRows(actual.rows), rows, name + ' all names and states')
+    results.fixtureEvidence.push({mode, managedSupported: isSupported, managedPassed: actual.ok,
+      fallbackExecuted: !isSupported, ordinaryExit: ordinary.status, ordinarySeconds: (performance.now() - started) / 1000,
+      ordinaryReportSha256: sha(fs.readFileSync(report)), rows})
+    write('result.json', results)
+  }
+  results.fixtureChecksPassed = true
+
   const compiled = await compile('runner.mjs', options, testFile)
   write('test-build.json', {...compiled, bundle: undefined, globs, adapters, options})
   const managed = await execute('managed', compiled.bundle)
-  results.managedSupported = !managed.error && managed.boundary.unsupported.length === 0 && managed.boundary.unguardable.length === 0 && managed.boundary.timerErrors.length === 0
+  results.managedSupported = supported(managed)
   results.managedPassed = Boolean(managed.ok)
   results.managedRows = managed.rows || []
 } catch (error) {
@@ -199,8 +251,7 @@ try {
     const rows = data.testResults.flatMap(f => f.assertionResults.map(a => [a.fullName, a.status])).sort()
     results.ordinary.reportSha256 = sha(bytes); results.ordinary.rows = rows
     if (results.managedRows) {
-      const states = {pass: 'passed', fail: 'failed', skip: 'skipped', todo: 'todo'}
-      const managedRows = results.managedRows.map(r => [r.name, states[r.state] || r.state]).sort()
+      const managedRows = normalizedRows(results.managedRows)
       results.namesAndStatesAgree = JSON.stringify(rows) === JSON.stringify(managedRows)
     }
   }
@@ -210,5 +261,7 @@ try {
   assert.equal(results.ordinary.exit, 0, 'ordinary control failed')
   assert.equal(results.ordinary.rows?.length, 47, 'ordinary test count changed')
   assert.equal(results.preflightPassed, true, 'capability gate failed; no managed eligibility')
+  assert.equal(results.nativeOutboundDenied, true, 'runtime outbound gate failed')
+  assert.equal(results.fixtureChecksPassed, true, 'real runner failure/fallback gate failed')
   if (results.managedSupported) assert.equal(results.namesAndStatesAgree, true, 'managed states differ')
 }

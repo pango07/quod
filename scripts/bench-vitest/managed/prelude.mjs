@@ -60,6 +60,9 @@ globalThis.console = Object.fromEntries(consoleMethods.map(name => [name, (...ar
   logs.push([name, args.map(value => typeof value === 'string' ? value : String(value))])
 }]))
 globalThis.process = Object.freeze({env: Object.freeze({...options.env}), nextTick: (fn, ...args) => queueMicrotask(() => fn(...args))})
+// Local synchronous events are used by Chai and Vitest. Their native timestamp
+// would expose host time; guard that observation before any framework import.
+Object.defineProperty(Event.prototype, 'timeStamp', {configurable: false, get: () => deny('Event.timeStamp')})
 // Closed-world candidate. An unlisted global is guarded at each exposed
 // prototype as well, to avoid leaving a callable alias on WorkerGlobalScope.
 const allowed = new Set([
@@ -72,7 +75,7 @@ const allowed = new Set([
   'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent',
   'escape', 'unescape', 'eval', 'Iterator', 'AsyncIterator',
   'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'atob', 'btoa', 'structuredClone',
-  'AbortController', 'AbortSignal', 'DOMException', 'queueMicrotask',
+  'AbortController', 'AbortSignal', 'DOMException', 'Event', 'EventTarget', 'queueMicrotask',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate',
   'performance', 'console', 'process',
 ])

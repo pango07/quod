@@ -36,6 +36,7 @@ Preparation effects cannot be skipped. No reusable ledger is produced by v0.
 | Time | Fixed declared epoch plus virtual timer advancement. Original Date constructor remains private; prototype.constructor must not expose it. |
 | Randomness | Declared deterministic PRNG seed. Cryptographic randomness is unsupported. |
 | Scheduling | Promise microtasks and one ordered virtual timer queue. No shared memory, worker threads, native asynchronous crypto or WebAssembly. |
+| Local events | Native synchronous EventTarget/Event for framework notifications; Event.timeStamp is guarded because it would expose host time. Global event subscriptions remain unsupported. |
 | Results/effects | Capture console output and test states. No published files or external effects. Snapshot writes and unsupported RPCs reject eligibility. |
 | Limits | Supervisor timeout/crash is an incomplete managed attempt, never a reusable pass. |
 
