@@ -38,6 +38,13 @@ audit do not prove that boundary complete. E1/E2 and their audits do not
 replace input tracking; this review does not silently change their switches
 or the founder's accepted witness policy.
 
+The [environment descriptor regression](bench/environment-descriptor-contract.md)
+is a concrete example: the old recorder tracked presence while a test
+could obtain the variable's value through its descriptor. Two stale passes
+became two ordinary failures after the value changed. The corrected source,
+release binary and packaged Action now pass that regression. This fixes the
+identified path; it does not certify all possible host observations.
+
 The current design treats main-process reads as shared inputs of every test.
 Conservative metadata keys therefore invalidate expensive test execution
 because the framework inspected files while preparing the run. Refining a
