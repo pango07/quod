@@ -31,7 +31,7 @@ function ipcPipe(process) {
 
 const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
-  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')
+  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')||kind==='retained-copy'
   const boundWire=ipcFrames([1,2].map(value=>({kind:'data',value,privatePath:'/private-ipc-delivery'})),serialization).toString('base64')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
@@ -65,6 +65,7 @@ function observer(message){
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
       rawCopiedValues,wireCopyBytes:wireCopies.reduce((n,b)=>n+b.byteLength,0),
       byteCopyPreparations,
+      copiedPayloadContainsPath:wireCopies.some(bytes=>bytes.includes(Buffer.from('/private-ipc-delivery'))),
       compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
@@ -226,7 +227,14 @@ if(kind==='parser-protocol-remainder') {
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
-if(fragmented){const timer=setInterval(()=>{if(pipe.buffering){clearInterval(timer);process.send({kind:'fragment-ready'})}},1)}
+if(fragmented){const timer=setInterval(()=>{if(pipe.buffering){
+  clearInterval(timer);
+  if(kind==='retained-copy'){
+    const key=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
+    copyWire(pipe[key][0]);
+  }
+  process.send({kind:'fragment-ready'});
+}},1)}
 process.send({kind:'ready',initial});`
   const child=spawn(process.execPath,['--input-type=module','-e',source],
     {stdio:['ignore','pipe','pipe','ipc'],serialization})
@@ -249,7 +257,7 @@ process.send({kind:'ready',initial});`
           ...(kind==='host-object'?{bytes:Buffer.from([value,value+1])}:{})})
         const bytes=ipcFrames(inputs,serialization)
         // Hold the bytes until child exit even if the native write is async.
-        if(fragmented){const offset=kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
+        if(fragmented){const offset=kind==='retained-copy'?bytes.length-1:kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
         else write(bytes,reject)
       }
       if(message.kind==='fragment-ready'){assert(remainingBytes);write(remainingBytes,reject);remainingBytes=null}
@@ -275,7 +283,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['species-copy','advanced'],['species-self-restore','advanced'],['species-getter-self-restore','advanced'],
   ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
   ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
-  ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced']]) {
+  ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced'],
+  ['retained-copy','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -306,6 +315,12 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
+    if(kind==='retained-copy') {
+      assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
+      assert.equal(r.copiedPayloadContainsPath,true);assert.equal(plain.copiedPayloadContainsPath,true)
+      assert.deepEqual(r.byteCopyPreparations,[1]);assert.deepEqual(plain.byteCopyPreparations,[1])
+      assert.equal(r.gets,0,'ordinary polling must not replace a getter or parser function')
+    }
     if(kind.startsWith('parser-')) {
       assert(r.wireCopyBytes>0,'the fixture must copy raw parser inputs')
       assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve byte-copy behavior')
