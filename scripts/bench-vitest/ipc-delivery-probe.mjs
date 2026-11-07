@@ -119,7 +119,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   }
   function pinnedFunction(fn,expected,line) {
     const p=properties(fn),loc=p.internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
-    if(fn.type!=='function'||!loc?.scriptId||loc.lineNumber!==line)throw Error('IPC constructor function differs from pinned Node')
+    if(fn.type!=='function'||!loc?.scriptId||loc.lineNumber!==line)throw Error('IPC constructor function differs from pinned Node: expected line '+line+', observed '+loc?.lineNumber)
     source(loc.scriptId,expected)
   }
   function checkBufferInitialization(object) {
@@ -343,10 +343,10 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     bufferConstructor=data(properties(data(byteFields,'buffer')).result,'Buffer')
     bufferPrototype=data(properties(bufferConstructor).result,'prototype')
     bufferSpeciesGetter=descriptor(bufferConstructor,speciesSymbol).get
-    pinnedFunction(bufferSpeciesGetter,bufferSource,301)
+    pinnedFunction(bufferSpeciesGetter,bufferSource,319)
     const fast=post('Runtime.callFunctionOn',{objectId:bufferSpeciesGetter.objectId,functionDeclaration:'function(){return this()}',objectGroup:group,silent:true})
     if(fast.exceptionDetails)throw Error('IPC FastBuffer baseline unavailable')
-    fastBuffer=fast.result;pinnedFunction(fastBuffer,internalBufferSource,896)
+    fastBuffer=fast.result;pinnedFunction(fastBuffer,internalBufferSource,959)
     if(!same(prototype(fastBuffer),uint8Constructor))throw Error('IPC FastBuffer baseline constructor changed')
     const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process',lineNumber,columnNumber:0})
     breakpointId=b.breakpointId
