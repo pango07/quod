@@ -1,0 +1,11 @@
+# Research matrix receipts
+
+This separate v2 ledger preserves the actual project/file/pool selection and the complete duplicate-preserving test name/state multiset. The original v1 dispatcher and Action bridge remain unchanged. This module alone enables no replay or cache publication.
+
+The execution key binds the closed compiled bytes and policy, fresh preparation including aliases/context/isolation, declared options, actual workerd/Node/supervisor bytes, native reporting adapter, and host class. A producer validates its whole fresh native batch once; private in-process tokens bind each compact conformance to the current execution. Cached or modified conformance data cannot mint a new receipt.
+
+Lookup requires exact receipt bytes and a digest supplied by an authenticated transport outside those bytes. The Action collection reader supplies that digest after checking the whole pack against the actual SDK-returned immutable key. Receipt checksums alone establish no cache authority. Every stored response is revalidated against the complete current execution and native-conformed name/state multiset, plus the sealed runtime boundary and empty unsupported/pending/error lists.
+
+Real all-skipped files and duplicate test names retain their states and multiplicity. Primitive diagnostics from a passing retry remain data. Failures, pending work, file errors, unknown diagnostic fields and incomplete completion cannot be reused. Compact conformance stores logical names/states and the native report digest; it does not reproduce native timing or arbitrary reporter metadata.
+
+The separate GitHub ledger gate fetches only the exact SHA/size/source/run-pinned artifact from passing matrix run 42406036816, independently audits all original 120 instances and 4,131 native test states, and exercises receipt round trips and negatives using the actual 108 passing managed instances. Those fixtures pass synthetic external digests to test the ledger API. They publish no cache and claim no real SDK authentication or fresh-runner replay. All runtime fixtures run on GitHub Actions.
