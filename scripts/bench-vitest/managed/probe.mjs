@@ -12,6 +12,9 @@ import {build} from 'esbuild'
 const [projectArg, outArg] = process.argv.slice(2)
 const project = path.resolve(projectArg), out = path.resolve(outArg)
 assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
+// Vitest resolves project patterns and CLI filters relative to cwd, just as
+// its ordinary CLI does. Setting root alone does not reproduce that context.
+process.chdir(project)
 const here = path.dirname(fileURLToPath(import.meta.url)), require = createRequire(import.meta.url)
 const fromProject = createRequire(path.join(project, 'package.json'))
 const workerd = path.join(path.dirname(require.resolve('workerd/package.json')), 'bin/workerd')
@@ -137,7 +140,9 @@ try {
   const file = 'packages/convex-helpers/server/stream.property.test.ts'
   let config
   try {
-    const specs = await ctx.globTestSpecifications([file])
+    const specs = await ctx.globTestSpecifications([path.join(project, file)])
+    write('project-selection.json', {projects: ctx.projects.map(p => ({name: p.config.name, root: p.config.root})),
+      selected: specs.map(s => ({file: s.moduleId, project: s.project.config.name}))})
     assert.equal(specs.length, 1, 'expected one actual Vitest specification for the expensive test')
     const p = specs[0].project
     assert.equal(p.config.root, path.join(project, 'packages/convex-helpers'))
