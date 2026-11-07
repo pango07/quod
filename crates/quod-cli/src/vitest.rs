@@ -2783,9 +2783,8 @@ pub(crate) fn state(
         }
         "e" => (exists(&path()), None),
         "rp" => (
-            realpath_footprint(&path()).unwrap_or_else(|| {
-                format!("unobservable:realpath:{}", ulid::Ulid::generate())
-            }),
+            realpath_footprint(&path())
+                .unwrap_or_else(|| format!("unobservable:realpath:{}", ulid::Ulid::generate())),
             None,
         ),
         "sm" | "sl" => (stat_metadata(&path(), kind == "sl"), None),
@@ -4541,16 +4540,28 @@ mod tests {
         symlink("a", root.join("current")).unwrap();
         let input = root.join("current/file");
         let before = realpath_footprint(&input).unwrap();
-        fs::File::options().write(true).open(root.join("a/file")).unwrap()
-            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH)).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(root.join("a/file"))
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH))
+            .unwrap();
         assert_eq!(realpath_footprint(&input).unwrap(), before);
         fs::remove_file(root.join("a/file")).unwrap();
         fs::write(root.join("a/file"), "same").unwrap();
-        assert_eq!(realpath_footprint(&input).unwrap(), before, "a new inode at the same resolved path is immaterial");
+        assert_eq!(
+            realpath_footprint(&input).unwrap(),
+            before,
+            "a new inode at the same resolved path is immaterial"
+        );
         fs::remove_file(root.join("current")).unwrap();
         symlink("b", root.join("current")).unwrap();
         assert_ne!(realpath_footprint(&input).unwrap(), before);
-        assert_eq!(exists(&input), "file", "leaf existence alone misses this change");
+        assert_eq!(
+            exists(&input),
+            "file",
+            "leaf existence alone misses this change"
+        );
         assert!(!installed("rp:node_modules/package/index.js"));
     }
 
@@ -4570,7 +4581,10 @@ mod tests {
         fs::remove_file(root.join("middle")).unwrap();
         symlink("b/child", root.join("middle")).unwrap();
         assert_ne!(realpath_footprint(&root.join("outer")).unwrap(), before);
-        assert_eq!(fs::read_link(root.join("outer")).unwrap(), Path::new("middle/../file"));
+        assert_eq!(
+            fs::read_link(root.join("outer")).unwrap(),
+            Path::new("middle/../file")
+        );
     }
 
     #[test]

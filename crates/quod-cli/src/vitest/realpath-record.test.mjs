@@ -10,7 +10,7 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'quod-realpath-record-'));
 fs.mkdirSync(root+'/target');fs.writeFileSync(root+'/target/file','same');
 fs.symlinkSync('target',root+'/link');
 const query=root+'/link/../target/file',input=${buffer?'Buffer.from(query)':'query'};
-const expected=fs.realpathSync.native(input);
+const originalNative=fs.realpathSync.native,expected=originalNative(input);
 const r=createRecorder({stateDir:'/not-quod-state',mode:'worker'});r.on=${enabled};patchFs(r);
 try{const value=${expression};r.on=false;
 console.log(JSON.stringify({value,expected,query,keys:[...r.keys],unobservable:[...r.unobservable]}));
@@ -40,4 +40,12 @@ test('disabled realpath observation stays off',()=>{
 test('unsupported Buffer argument retains native behavior and prevents replay',()=>{
   const row=observe('fs.realpathSync.native(input)',{buffer:true})
   assert.equal(row.value,row.expected);assert.deepEqual(row.unobservable,['unsupported realpath argument'])
+})
+test('options getters retain their evaluation count and prevent replay',()=>{
+  const row=observe(`(()=>{let reads=0;const options={get encoding(){reads++;return 'utf8'}};
+originalNative(input,options);const ordinary=reads;reads=0;
+const resolved=fs.realpathSync.native(input,options);return {resolved,ordinary,observed:reads}})()`)
+  assert.equal(row.value.resolved,row.expected)
+  assert.equal(row.value.observed,row.value.ordinary)
+  assert.deepEqual(row.unobservable,['unsupported realpath options'])
 })

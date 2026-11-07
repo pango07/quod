@@ -512,9 +512,19 @@ export function patchFs(r, { sync = true } = {}) {
   wrap(fs, 'existsSync', (a) => r.add('e', a[0]))
   wrap(fs, 'exists', (a) => r.add('e', a[0]))
   both(['readlink'], (a) => r.add('e', a[0]))
-  both(['realpath'], (a) => r.add('rp', a[0]))
-  wrap(fs.realpathSync, 'native', (a) => r.add('rp', a[0]))
-  wrap(fs.realpath, 'native', (a) => r.add('rp', a[0]))
+  const realpath = (a) => {
+    // An options object's getter can change cwd before Node resolves a
+    // relative path. Leave its evaluation entirely to Node and run plain.
+    const options = a[1]
+    if (options != null && typeof options !== 'string' && typeof options !== 'function') {
+      r.unobs('unsupported realpath options')
+    }
+    r.add('e', a[0])
+    r.add('rp', a[0])
+  }
+  both(['realpath'], realpath)
+  wrap(fs.realpathSync, 'native', realpath)
+  wrap(fs.realpath, 'native', realpath)
   const dir = (a) => {
     const o = a[1]
     r.add(o && typeof o === 'object' && o.recursive ? 'r' : 'd', a[0])
