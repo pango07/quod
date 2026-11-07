@@ -1,5 +1,15 @@
 // Included only in the diagnostic addon. No process hooks or replay authority.
 // State stays in V8-owned objects so target/callback cycles remain collectible.
+// The data-field factory also accepts Symbol keys and object values without
+// inspecting those values. Native owners require an explicit opt-in from the
+// trusted caller, which must attest their origin and absence of access checks.
+// This mechanism alone cannot certify ownership or exclude earlier aliases.
+bool DataReadOwner(Local<Value> value, bool allow_host) {
+  if (!value->IsObject() || value->IsProxy()) return false;
+  auto object = value.As<Object>();
+  return (allow_host || !object->IsApiWrapper()) &&
+      !object->HasNamedLookupInterceptor() && !object->HasIndexedLookupInterceptor();
+}
 Local<Value> ScalarState(Local<Context> context, Local<Object> state,
                          const char* name) {
   Local<Value> value;
@@ -63,9 +73,10 @@ bool NativeScalarIntact(Local<Context> context, Local<Object> state) {
   }
   auto owner = ScalarState(context, state, "owner");
   auto key = ScalarState(context, state, "key");
-  if (!OrdinaryForInspection(owner) || !key->IsString()) return false;
+  if (!DataReadOwner(owner, ScalarFlag(context, state, "allowHost")) ||
+      !(key->IsString() || key->IsSymbol())) return false;
   auto target = owner.As<Object>();
-  auto callback = target->HasRealNamedCallbackProperty(context, key.As<String>());
+  auto callback = target->HasRealNamedCallbackProperty(context, key.As<Name>());
   if (callback.IsNothing() || !callback.FromJust()) return false;
   ScalarMark(context, state, "checking");
   ScalarMark(context, state, "witness", false);
@@ -73,7 +84,7 @@ bool NativeScalarIntact(Local<Context> context, Local<Object> state) {
   {
     TryCatch caught(context->GetIsolate());
     Local<Value> descriptor;
-    if (target->GetOwnPropertyDescriptor(context, key.As<String>()).ToLocal(&descriptor) &&
+    if (target->GetOwnPropertyDescriptor(context, key.As<Name>()).ToLocal(&descriptor) &&
         descriptor->IsObject() && ScalarFlag(context, state, "witness")) {
       auto object = descriptor.As<Object>();
       Local<Value> current;
@@ -114,7 +125,7 @@ void NativeScalarCurrent(const FunctionCallbackInfo<Value>& info) {
   Maybe<PropertyAttribute> attributes = Nothing<PropertyAttribute>();
   if (available) {
     attributes = ScalarState(context, state, "owner").As<Object>()->GetRealNamedPropertyAttributes(
-        context, ScalarState(context, state, "key").As<String>());
+        context, ScalarState(context, state, "key").As<Name>());
     available = attributes.IsJust();
   }
   if (!Put(context, result, "available", Boolean::New(isolate, available))) return;
@@ -139,7 +150,7 @@ void NativeScalarClose(const FunctionCallbackInfo<Value>& info) {
   (void)Put(context, state, "sink", Null(isolate));
   if (intact) {
     auto owner = ScalarState(context, state, "owner").As<Object>();
-    auto key = ScalarState(context, state, "key").As<String>();
+    auto key = ScalarState(context, state, "key").As<Name>();
     TryCatch caught(isolate);
     auto attributes = owner->GetRealNamedPropertyAttributes(context, key);
     bool restored = false;
@@ -154,35 +165,40 @@ void NativeScalarClose(const FunctionCallbackInfo<Value>& info) {
     ScalarMark(context, state, "retained", !restored);
   }
   // Frozen properties may retain the closed native callback. It only returns
-  // the original scalar; it owns neither the application owner nor JS sink.
+  // the original value; the state no longer directly retains the owner or sink.
   (void)Put(context, state, "owner", Null(isolate));
 }
 
-void CreateNativeScalarObserver(const FunctionCallbackInfo<Value>& info) {
+void CreateNativeReadObserver(const FunctionCallbackInfo<Value>& info, bool scalar_only) {
   auto isolate = info.GetIsolate();
   auto context = isolate->GetCurrentContext();
   Local<Value> value;
   Maybe<PropertyAttribute> attributes = Nothing<PropertyAttribute>();
-  bool okay = info.Length() == 3 && OrdinaryForInspection(info[0]) && info[1]->IsString() && info[2]->IsFunction();
+  const bool allow_host = !scalar_only && info.Length() == 4 && info[3]->IsTrue();
+  bool okay = (info.Length() == 3 || (!scalar_only && info.Length() == 4 && info[3]->IsBoolean())) &&
+      DataReadOwner(info[0], allow_host) &&
+      (info[1]->IsString() || (!scalar_only && info[1]->IsSymbol())) && info[2]->IsFunction();
   if (okay) {
     auto target = info[0].As<Object>();
-    auto key = info[1].As<String>();
+    auto key = info[1].As<Name>();
     auto own = target->HasOwnProperty(context, key);
     auto callback = target->HasRealNamedCallbackProperty(context, key);
     attributes = target->GetRealNamedPropertyAttributes(context, key);
     okay = own.IsJust() && own.FromJust() && callback.IsJust() && !callback.FromJust() &&
         attributes.IsJust() && (attributes.FromJust() & (ReadOnly | DontDelete)) == 0 &&
-        target->GetRealNamedProperty(context, key).ToLocal(&value) && !value->IsObject();
+        target->GetRealNamedProperty(context, key).ToLocal(&value) && (!scalar_only || !value->IsObject());
   }
   if (!okay) {
-    isolate->ThrowException(Exception::TypeError(Key(isolate, "unsupported native scalar owner or field")));
+    isolate->ThrowException(Exception::TypeError(Key(isolate, scalar_only ?
+        "unsupported native scalar owner or field" : "unsupported native data owner or field")));
     return;
   }
   auto state = Object::New(isolate), result = Object::New(isolate);
   if (!state->SetPrototypeV2(context, Null(isolate)).FromMaybe(false) ||
       !Put(context, state, "owner", info[0]) || !Put(context, state, "key", info[1]) ||
       !Put(context, state, "value", value) || !Put(context, state, "sink", info[2]) ||
-      !Put(context, state, "calls", Number::New(isolate, 0))) return;
+      !Put(context, state, "calls", Number::New(isolate, 0)) ||
+      !Put(context, state, "allowHost", Boolean::New(isolate, allow_host))) return;
   for (const char* flag : {"closed", "failed", "inFlight", "checking", "witness", "restored", "retained"})
     ScalarMark(context, state, flag, false);
   Local<Function> report, close, current;
@@ -191,7 +207,14 @@ void CreateNativeScalarObserver(const FunctionCallbackInfo<Value>& info) {
       !Function::New(context, NativeScalarCurrent, state, 0, ConstructorBehavior::kThrow).ToLocal(&current) ||
       !Put(context, result, "report", report) || !Put(context, result, "close", close) ||
       !Put(context, result, "currentValue", current)) return;
-  if (!info[0].As<Object>()->SetNativeDataProperty(context, info[1].As<String>(), NativeScalarRead,
+  if (!info[0].As<Object>()->SetNativeDataProperty(context, info[1].As<Name>(), NativeScalarRead,
       nullptr, state, attributes.FromJust()).FromMaybe(false)) return;
   info.GetReturnValue().Set(result);
+}
+
+void CreateNativeScalarObserver(const FunctionCallbackInfo<Value>& info) {
+  CreateNativeReadObserver(info, true);
+}
+void CreateNativeDataReadObserver(const FunctionCallbackInfo<Value>& info) {
+  CreateNativeReadObserver(info, false);
 }

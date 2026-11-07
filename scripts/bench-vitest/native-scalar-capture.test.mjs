@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {getCallSites} from 'node:util'
-import {spawnSync} from 'node:child_process'
+import {spawn,spawnSync} from 'node:child_process'
 import vm from 'node:vm'
 
 const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON)
@@ -139,4 +139,110 @@ value:closed.owner.tmp,report:closed.observer.report()}));`
   assert.equal(r.status,0,r.stderr||String(r.error));const result=JSON.parse(r.stdout)
   assert.deepEqual(result.collected,[true,true]);assert.equal(result.sinkCollected,true)
   assert.equal(result.value,17);assert(result.report.closed&&result.report.retainedAfterClose)
+})
+
+const observeData=addon.createDataReadObserver
+
+test('native data reads preserve object identity and exact Symbol keys',()=>{
+  let traps=0
+  const proxy=new Proxy({},{get(){traps++;throw Error('must not inspect the value')}})
+  const values=[{},[],new Uint8Array([1,2]),()=>17,proxy]
+  for(const value of values)for(const key of ['field',Symbol('field')])for(const enumerable of [false,true]) {
+    const decoy=Symbol('field'),owner={[decoy]:{decoy:true}}
+    Object.defineProperty(owner,key,{value,writable:true,configurable:true,enumerable})
+    const before=Object.getOwnPropertyDescriptor(owner,key),keys=Reflect.ownKeys(owner)
+    let reads=0;const observer=observeData(owner,key,()=>reads++)
+    assert(observer.report().available);assert.equal(reads,0)
+    assert.deepEqual(Reflect.ownKeys(owner),keys);assert.equal(reads,0)
+    assert.equal(owner[key],value);assert.equal(reads,1)
+    assert.equal(Object.create(owner)[key],value);assert.equal(reads,2)
+    assert.equal(Reflect.get(owner,key,{}),value);assert.equal(reads,3)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(owner,key),before);assert.equal(reads,4)
+    assert.equal(observer.currentValue().value,value);assert.equal(reads,4)
+    assert.equal(Object.prototype.__lookupGetter__.call(owner,key),undefined)
+    assert(observer.report().available);observer.close()
+    assert(observer.report().restored);assert.equal(owner[key],value)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(owner,key),before);assert.equal(reads,4)
+  }
+  assert.equal(traps,0)
+})
+
+test('object-valued native data fields detect replacement and preserve inherited writes',()=>{
+  for(const key of ['field',Symbol('field')]) {
+    const original={},replacement={},owner={[key]:original},child=Object.create(owner)
+    let reads=0;const observer=observeData(owner,key,()=>reads++)
+    assert(Reflect.set(owner,key,replacement,child))
+    assert.equal(child[key],replacement);assert.equal(owner[key],original)
+    assert(observer.report().available,'an inherited write must not replace the owner field')
+    owner[key]=replacement;owner[key]=original
+    const count=reads
+    assert.equal(observer.report().available,false,'restoring the object value must not restore the callback witness')
+    observer.close();assert.equal(reads,count);assert.equal(owner[key],original)
+    assert.equal(observer.report().restored,false)
+  }
+})
+
+test('frozen object-valued native fields preserve the value and detach the read sink',()=>{
+  const key=Symbol('field'),value={},owner={[key]:value};let reads=0
+  const observer=observeData(owner,key,()=>reads++)
+  Object.freeze(owner)
+  assert.equal(Reflect.set(owner,key,{}),false);assert.equal(owner[key],value)
+  const descriptor=Object.getOwnPropertyDescriptor(owner,key),count=reads
+  assert(observer.report().available);observer.close()
+  assert(observer.report().retainedAfterClose);assert.equal(owner[key],value)
+  assert.deepEqual(Object.getOwnPropertyDescriptor(owner,key),descriptor);assert.equal(reads,count)
+})
+
+test('native data setup rejects unknown owners and keys without invoking application code',()=>{
+  let calls=0
+  const native=addon.createNativeDataFixture(false,true)
+  const proxy=new Proxy({field:{}},{getOwnPropertyDescriptor(){calls++;throw Error('trap')}})
+  const getter={get field(){calls++;throw Error('getter')}}
+  const key={toString(){calls++;throw Error('key coercion')}}
+  for(const owner of [native.target,proxy,getter,Object.freeze({field:{}}),Object.create({field:{}})])
+    assert.throws(()=>observeData(owner,'field',()=>{}),/unsupported native data/)
+  assert.throws(()=>observeData({field:{}},key,()=>{}),/unsupported native data/)
+  assert.throws(()=>observeData({field:{}},'field',()=>{},{allowHost:true}),/unsupported native data/)
+  assert.equal(calls,0);assert.equal(native.state.calls,0)
+})
+
+test('explicit host admission preserves real Node IPC data fields without granting ownership',async()=>{
+  const source=`import {createRequire} from 'node:module';
+const addon=createRequire(import.meta.url)(process.env.QUOD_NATIVE_CAPTURE_ADDON);
+const key=Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle');
+const pipe=process[key],field=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
+if(!key||!field)throw Error('pinned advanced IPC fields unavailable');
+const descriptors=[Object.getOwnPropertyDescriptor(process,key),Object.getOwnPropertyDescriptor(pipe,field)];
+const owners=[process,pipe],keys=[key,field];let calls=0;
+const observations=owners.map((owner,index)=>{
+ const ordinary=addon.isInspectableOwner(owner);let defaultRejected=false;
+ try{const probe=addon.createDataReadObserver(owner,keys[index],()=>{});probe.close()}
+ catch(error){if(!/unsupported native data/.test(error.message))throw error;defaultRejected=true}
+ const observer=addon.createDataReadObserver(owner,keys[index],()=>calls++,true);
+ const value=owner[keys[index]],descriptor=Object.getOwnPropertyDescriptor(owner,keys[index]);
+ const report=observer.report();observer.close();
+ const restored=Object.getOwnPropertyDescriptor(owner,keys[index]);
+ return {ordinary,defaultRejected,available:report.available,replayEligible:report.replayEligible,
+  sameValue:value===descriptors[index].value,sameDescriptor:descriptor.value===descriptors[index].value&&
+   descriptor.writable===descriptors[index].writable&&descriptor.enumerable===descriptors[index].enumerable&&descriptor.configurable===descriptors[index].configurable,
+  restored:observer.report().restored&&restored.value===descriptors[index].value};
+});
+console.log(JSON.stringify({observations,calls}));process.disconnect();`
+  const child=spawn(process.execPath,['--input-type=module','-e',source],
+    {stdio:['ignore','pipe','pipe','ipc'],serialization:'advanced'})
+  const stdout=[],stderr=[]
+  child.stdout.on('data',chunk=>stdout.push(chunk));child.stderr.on('data',chunk=>stderr.push(chunk))
+  const code=await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{child.kill();reject(Error('native IPC data fixture timed out'))},20000)
+    child.on('error',error=>{clearTimeout(timer);reject(error)})
+    child.on('exit',(code,signal)=>{clearTimeout(timer);signal?reject(Error(signal)):resolve(code)})
+  })
+  assert.equal(code,0,Buffer.concat(stderr).toString())
+  const r=JSON.parse(Buffer.concat(stdout).toString())
+  for(const row of r.observations) {
+    assert.equal(row.defaultRejected,!row.ordinary)
+    assert(row.available&&row.sameValue&&row.sameDescriptor&&row.restored)
+    assert.equal(row.replayEligible,false)
+  }
+  assert.equal(r.calls,4)
 })

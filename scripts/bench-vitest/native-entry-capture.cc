@@ -473,6 +473,10 @@ void Initialize(Local<Object> exports, Local<Value>, Local<Context> context,
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
                                                  "createScalarReadObserver"), factory)
         .FromMaybe(false);
+  if (Function::New(context, CreateNativeDataReadObserver).ToLocal(&factory))
+    (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
+                                                 "createDataReadObserver"), factory)
+        .FromMaybe(false);
 #ifdef QUOD_NATIVE_INSPECTOR_EXPERIMENT
   if (Function::New(context, CreateInspectorCapture).ToLocal(&factory))
     (void)exports->CreateDataProperty(context, Key(context->GetIsolate(),
