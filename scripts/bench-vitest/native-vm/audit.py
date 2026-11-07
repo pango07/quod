@@ -20,6 +20,9 @@ NAMES = {"uid-gid-1000", "uart-read-denied", "uart-write-denied", "trusted-init-
          "owned-loopback-real", "external-network-absent"}
 SYMLINK_CHECKS = {"absolute-through-absolute": "accepted", "relative-chain": "accepted", "legitimate-parent": "accepted",
                   "dangling-rejected": "rejected", "cycle-rejected": "rejected", "root-escape-rejected": "rejected"}
+PARSER_CHECKS = {"valid-progress-and-final", "progress-is-not-completion", "truncated-progress-header", "truncated-progress-body",
+                 "forged-progress-digest", "wrong-progress-sequence", "progress-after-completion", "extra-completion",
+                 "malformed-completion-header", "truncated-final", "missing-final-terminator", "extra-progress-terminator"}
 
 
 def canonical(value):
@@ -47,6 +50,66 @@ def load(path):
 
 def decode(value):
     return base64.b64decode(value, validate=True)
+
+
+def audit_progress(data, command):
+    """Independently decode diagnostics without granting completion authority."""
+    out = {"schema": "quod-native-vm-progress-report-v1", "completion": False, "receiptAdmission": False,
+           "records": [], "frames": [], "bodyBytes": 0, "errors": []}
+    require(len(data) <= 100 * 1024**2, "Serial bound")
+    headers = list(re.finditer(rb"(?:^|\n)QUOD_NATIVE_VM_PROGRESS_V1 ([0-9]+) ([0-9a-f]{64})\n", data))
+    if len(headers) > 64 or data.count(b"QUOD_NATIVE_VM_PROGRESS_V1") != len(headers):
+        out["errors"].append("excess or malformed progress header")
+    if data.count(b"\nQUOD_NATIVE_VM_PROGRESS_END\n") != len(headers):
+        out["errors"].append("missing or extra progress terminator")
+    for line in data.splitlines():
+        if line.startswith(b"QUOD_NATIVE_VM_") and not (line.startswith(b"QUOD_NATIVE_VM_PROGRESS_V1 ") or
+                line.startswith(b"QUOD_NATIVE_VM_RESULT_V1 ") or line in {b"QUOD_NATIVE_VM_PROGRESS_END", b"QUOD_NATIVE_VM_END"}):
+            out["errors"].append("unknown or truncated frame marker")
+    last_end, last_clock, captured = 0, (-1, -1), (0, 0)
+    for header in headers[:64]:
+        try:
+            size = int(header[1]);start = header.end();end = start + size
+            require(0 < size <= 16384 and header.start() >= last_end, "progress bound/overlap")
+            raw = data[start:end]
+            require(len(raw) == size and hashlib.sha256(raw).hexdigest().encode() == header[2] and
+                    data[end:].startswith(b"\nQUOD_NATIVE_VM_PROGRESS_END\n"), "progress truncated/digest/terminator")
+            record = json.loads(raw)
+            clock = (record["guestMonotonicSeconds"], record["guestMonotonicNanoseconds"])
+            require(record["schema"] == "quod-native-vm-progress-v1" and record["completion"] is False and
+                    record["receiptAdmission"] is False and record["command"] == command and record["sequence"] == len(out["records"]) + 1,
+                    "progress identity/sequence")
+            require(clock >= last_clock and clock[0] >= 0 and 0 <= clock[1] < 1000000000 and
+                    record["stdoutBytes"] >= captured[0] and record["stderrBytes"] >= captured[1], "progress monotonic counters")
+            require(record["stage"] in {"child-started", "running", "child-exited-quiescent"} and type(record["mainExited"]) is bool and
+                    type(record["mainPid"]) is int and record["mainPid"] > 1, "progress process metadata")
+            for stream in ["stdout", "stderr"]:
+                for suffix in ["PrefixBase64", "TailBase64"]:
+                    require(len(decode(record[stream + suffix])) <= min(512, record[stream + "Bytes"]), "progress output bound")
+            require(len(decode(record["mainProcStatPrefixBase64"])) <= 256 and len(record["processes"]) <= 8 and
+                    0 <= record["processEntriesScanned"] <= 256 and type(record["processSamplesTruncated"]) is bool, "progress scan bound")
+            for process in record["processes"]:
+                require(type(process["pid"]) is int and process["pid"] > 1 and len(decode(process["statPrefixBase64"])) <= 256 and
+                        len(decode(process["cmdlinePrefixBase64"])) <= 256, "progress sample bound")
+            out["bodyBytes"] += size
+            require(out["bodyBytes"] <= 1048576, "progress total bound")
+            last_end = end + len(b"\nQUOD_NATIVE_VM_PROGRESS_END\n")
+            out["records"].append(record)
+            out["frames"].append({"offset": header.start(), "end": last_end, "bodyBytes": size, "sha256": header[2].decode()})
+            last_clock, captured = clock, (record["stdoutBytes"], record["stderrBytes"])
+        except Exception as exc:
+            out["errors"].append(str(exc))
+    finals = list(re.finditer(rb"(?:^|\n)QUOD_NATIVE_VM_RESULT_V1 ([0-9]+) ([0-9a-f]{64})\n", data))
+    if len(finals) > 1 or data.count(b"QUOD_NATIVE_VM_RESULT_V1") != len(finals):
+        out["errors"].append("extra or malformed completion header")
+    if data.count(b"\nQUOD_NATIVE_VM_END\n") != len(finals):
+        out["errors"].append("missing or extra completion terminator")
+    if finals:
+        header = finals[0];size = int(header[1]);raw = data[header.end():header.end()+size]
+        if not (0 < size <= 96 * 1024**2 and len(raw) == size and hashlib.sha256(raw).hexdigest().encode() == header[2] and
+                header.start() >= last_end and data[header.end()+size:].startswith(b"\nQUOD_NATIVE_VM_END\n")):
+            out["errors"].append("completion truncated/digest/order/terminator")
+    return out
 
 
 def audit_symlink_graph(entries):
@@ -216,6 +279,15 @@ def main():
                 policy["uuid"] == "3a84431b-2034-4c41-8f61-157200000001" and policy["hostMounts"] == policy["blockDevices"] == policy["inputChannels"] == [],
                 "Profile configuration differs")
         require(policy["hostEnvironment"] == {"PATH": "/usr/bin:/bin", "TZ": "UTC", "LANG": "C.UTF-8"}, "Host environment leaks inputs")
+        require(policy["diagnostics"] == {"schema": "quod-native-vm-progress-v1", "completionAuthority": False,
+                "maxRecords": 64, "maxBodyBytes": 16384, "maxTotalBodyBytes": 1048576, "intervalGuestNanoseconds": 1000000000,
+                "captureIntervalGuestNanoseconds": 250000000, "outputSampleBytes": 512, "maxProcEntriesScanned": 256,
+                "maxProcSamples": 8, "procSampleBytes": 256}, "Unbounded or authoritative diagnostics policy")
+        parser = load(evidence / "parser-fixtures.json")
+        require(parser["schema"] == "quod-native-vm-parser-fixtures-v1" and parser["syntheticParserFixturesOnly"] is True and
+                parser["completionAuthority"] is False and len(parser["checks"]) == len(PARSER_CHECKS) and
+                {r["name"] for r in parser["checks"]} == PARSER_CHECKS and all(r["passed"] is True for r in parser["checks"]) and
+                all(r["accepted"] is (r["name"] == "valid-progress-and-final") for r in parser["checks"]), "Remote parser fixtures missing/failed")
         require(30 <= policy["watchdogSeconds"] <= 180 and policy["maxSerialBytes"] == 100 * 1024**2, "Unbounded supervisor")
         for path in [metadata["qemu"]["path"], metadata["qemu"]["bios"], "/etc/ld.so.cache", "/etc/ld.so.preload"]:
             require(path in metadata["qemu"]["hostFiles"], "Incomplete actual emulator/loader identity")
@@ -234,6 +306,15 @@ def main():
             else:
                 require(scan["output"] == "", "Foreign/static firmware was treated as host dynamic code")
         summary = load(evidence / "result.json")
+        report["diagnostics"] = {}
+        for name in ORDER:
+            case = evidence / name
+            if not (case / "serial.raw").is_file():
+                continue
+            diagnostics = audit_progress((case / "serial.raw").read_bytes(), name.split("-", 1)[0])
+            report["diagnostics"][name] = diagnostics
+            require(diagnostics == load(case / "progress.json"), "Independent progress parse differs: " + name)
+            require(not diagnostics["errors"], "Malformed/truncated progress evidence: " + name)
         require(summary["ok"] is True and summary["receiptAdmission"] is False and summary["policy"] == policy and
                 summary["fixedOrder"] == ORDER and [r["name"] for r in summary["runs"]] == ORDER,
                 "Investigation did not finish every fixed phase")
@@ -254,6 +335,11 @@ def main():
                     serial[match.end()+size:].startswith(b"\nQUOD_NATIVE_VM_END\n") and body == (case / "response.json").read_bytes() and
                     hashlib.sha256(body).hexdigest() == result["responseSha256"] == result["envelope"]["sha256"], "Raw envelope differs")
             response = json.loads(body)
+            diagnostics = report["diagnostics"][name]
+            require(len(diagnostics["records"]) >= 1 and response["diagnostics"]["progressCount"] == len(diagnostics["records"]) and
+                    response["diagnostics"]["progressBodyBytes"] == diagnostics["bodyBytes"] and
+                    type(response["diagnostics"]["progressBudgetExhausted"]) is bool and
+                    result["diagnostics"]["sha256"] == sha(case / "progress.json"), "Completion/diagnostic evidence differs")
             require(response["schema"] == "quod-native-vm-response-v1-investigation" and response["contract"] == CONTRACT and
                     response["command"] == command and response["receiptAdmission"] is False, "Response contract differs")
             proof = response["proof"]

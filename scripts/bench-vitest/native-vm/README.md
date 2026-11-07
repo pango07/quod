@@ -89,6 +89,21 @@ SHA implementation is self-tested during remote image preparation. Spawn,
 boot, command, output, cleanup, envelope and watchdog failures never become a
 successful repeat result.
 
+The diagnostic variant emits separately marked, length- and SHA-256-bound
+progress records from root while the command runs. These records never count as
+completion. At most 64 records and 1 MiB of JSON bodies are emitted, each at most
+16 KiB. Records sample the guest monotonic clock, main process state, up to eight
+processes from at most 256 directory entries, captured byte counters, and at most
+512 bytes from each output prefix/tail. Sampling occurs at one guest second, or
+after captured output changes with a 250 ms guest minimum. The root UART is
+opened only after fork and its descriptor never reaches the child. The final
+completion envelope still requires the existing quiescence checks.
+
+Both readers reject malformed, truncated, overlapping, out-of-order or excess
+frames and extra completion envelopes. Valid bounded diagnostics are retained
+even when the host watchdog kills an incomplete VM. Twelve remote parser fixtures
+exercise this distinction. The host watchdog remains 180 seconds for commands.
+
 ## Fixed experiment
 
 The six sequential phases are:

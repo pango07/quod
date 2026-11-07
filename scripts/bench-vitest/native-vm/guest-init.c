@@ -38,6 +38,9 @@
 #define OUTPUT_LIMIT (48U * 1024U * 1024U)
 #define BODY_LIMIT (96U * 1024U * 1024U)
 #define EPOCH 1700000000
+#define PROGRESS_COUNT_LIMIT 64U
+#define PROGRESS_BODY_LIMIT 16384U
+#define PROGRESS_BYTE_LIMIT (1024U * 1024U)
 
 typedef struct { unsigned char *data; size_t len, capacity, limit; } Buffer;
 static char failure[512];
@@ -46,6 +49,9 @@ static unsigned char entropy_probe[32];
 static int command_status = -1, leftovers_detected, killed_processes;
 static size_t output_bytes, output_entries;
 static const char *command;
+static unsigned progress_count;
+static size_t progress_bytes;
+static bool progress_budget_exhausted;
 
 static void fail(const char *fmt, ...) {
     if (failure[0]) return;
@@ -146,6 +152,73 @@ static bool write_all(int fd, const void *data, size_t n) {
     while(n) {ssize_t k=write(fd,p,n);if(k<0&&errno==EINTR)continue;if(k<=0)return false;p+=k;n-=(size_t)k;}
     return true;
 }
+static bool serial_frame(const char *marker,const char *end,Buffer *body) {
+    char sha[65];hash(body->data,body->len,sha);
+    int serial=open("/dev/ttyS0",O_WRONLY|O_NOCTTY|O_CLOEXEC);
+    if(serial<0)return false;
+    struct termios term;
+    if(tcgetattr(serial,&term)==0){cfmakeraw(&term);(void)tcsetattr(serial,TCSANOW,&term);}
+    char header[160];int n=snprintf(header,sizeof(header),"\n%s %zu %s\n",marker,body->len,sha);
+    bool ok=n>0&&(size_t)n<sizeof(header)&&write_all(serial,header,(size_t)n)&&
+        write_all(serial,body->data,body->len)&&write_all(serial,end,strlen(end));
+    if(tcdrain(serial)<0)ok=false;
+    close(serial);return ok;
+}
+static size_t read_prefix(const char *path,unsigned char *data,size_t limit) {
+    int fd=open(path,O_RDONLY|O_CLOEXEC);if(fd<0)return 0;
+    ssize_t n=read(fd,data,limit);close(fd);return n>0?(size_t)n:0;
+}
+static void capture_sample(Buffer *body,const char *name,Buffer *capture) {
+    size_t n=capture->len<512?capture->len:512;
+    format(body,",\"%sBytes\":%zu,\"%sPrefixBase64\":",name,capture->len,name);
+    base64(body,capture->data,n);format(body,",\"%sTailBase64\":",name);
+    base64(body,n?capture->data+capture->len-n:capture->data,n);
+}
+static void emit_progress(Buffer *out,Buffer *err,pid_t main_pid,const char *stage) {
+    if(progress_count>=PROGRESS_COUNT_LIMIT){progress_budget_exhausted=true;return;}
+    Buffer body={.limit=PROGRESS_BODY_LIMIT};struct timespec now;
+    if(clock_gettime(CLOCK_MONOTONIC,&now)<0){fail("progress monotonic clock");return;}
+    text(&body,"{\"schema\":\"quod-native-vm-progress-v1\",\"completion\":false,\"receiptAdmission\":false,\"command\":");
+    quoted(&body,command);format(&body,",\"sequence\":%u,\"guestMonotonicSeconds\":%lld,\"guestMonotonicNanoseconds\":%ld,\"mainPid\":%ld,\"mainExited\":%s,\"stage\":",
+        progress_count+1,(long long)now.tv_sec,now.tv_nsec,(long)main_pid,child_exited?"true":"false");quoted(&body,stage);
+    capture_sample(&body,"stdout",out);capture_sample(&body,"stderr",err);
+    unsigned char data[256];char path[64];
+    (void)snprintf(path,sizeof(path),"/proc/%ld/stat",(long)main_pid);
+    size_t length=read_prefix(path,data,sizeof(data));
+    text(&body,",\"mainProcStatPrefixBase64\":");base64(&body,data,length);
+    text(&body,",\"processes\":[");
+    DIR *dir=opendir("/proc");unsigned scanned=0,sampled=0;bool truncated=false;
+    if(!dir)fail("progress proc directory");
+    else {
+        struct dirent *entry;
+        while((entry=readdir(dir))) {
+            if(scanned==256){truncated=true;break;}
+            scanned++;
+            char *end;long pid=strtol(entry->d_name,&end,10);if(*end||pid<=1)continue;
+            (void)snprintf(path,sizeof(path),"/proc/%ld/status",pid);
+            FILE *f=fopen(path,"r");if(!f)continue;
+            char line[256];unsigned uid=UINT_MAX,lines=0;
+            while(lines++<16&&fgets(line,sizeof(line),f))if(sscanf(line,"Uid:\t%u",&uid)==1)break;
+            fclose(f);if(uid!=1000)continue;
+            if(sampled==8){truncated=true;break;}
+            if(sampled++)text(&body,",");
+            format(&body,"{\"pid\":%ld,\"statPrefixBase64\":",pid);
+            (void)snprintf(path,sizeof(path),"/proc/%ld/stat",pid);
+            length=read_prefix(path,data,sizeof(data));base64(&body,data,length);
+            text(&body,",\"cmdlinePrefixBase64\":");
+            (void)snprintf(path,sizeof(path),"/proc/%ld/cmdline",pid);
+            length=read_prefix(path,data,sizeof(data));base64(&body,data,length);text(&body,"}");
+        }
+        closedir(dir);
+    }
+    format(&body,"],\"processEntriesScanned\":%u,\"processSamplesTruncated\":%s}",scanned,truncated?"true":"false");
+    if(!failure[0]) {
+        if(body.len>PROGRESS_BYTE_LIMIT-progress_bytes)progress_budget_exhausted=true;
+        else if(!serial_frame("QUOD_NATIVE_VM_PROGRESS_V1","\nQUOD_NATIVE_VM_PROGRESS_END\n",&body))fail("progress output channel failed");
+        else {progress_count++;progress_bytes+=body.len;}
+    }
+    free(body.data);
+}
 static bool write_file(const char *path, const char *value) {
     int fd=open(path,O_WRONLY|O_CLOEXEC);if(fd<0)return false;
     bool ok=write_all(fd,value,strlen(value));close(fd);return ok;
@@ -245,6 +318,8 @@ static void execute(Buffer *out,Buffer *err) {
     struct pollfd fds[2]={{output[0],POLLIN,0},{errors[0],POLLIN,0}};
     bool eof[2]={false,false},cleaned=false;
     struct timespec start,now;(void)clock_gettime(CLOCK_MONOTONIC,&start);
+    struct timespec last_progress=start;size_t last_progress_capture=0;
+    emit_progress(out,err,pid,"child-started");
     for(;;) {
         (void)poll(fds,2,20);
         for(unsigned i=0;i<2;i++) {
@@ -261,6 +336,11 @@ static void execute(Buffer *out,Buffer *err) {
             cleaned=true;
         }
         (void)clock_gettime(CLOCK_MONOTONIC,&now);
+        long long since_progress=(long long)(now.tv_sec-last_progress.tv_sec)*1000000000LL+now.tv_nsec-last_progress.tv_nsec;
+        if(!failure[0]&&!child_exited&&(since_progress>=1000000000LL||
+           (out->len+err->len>last_progress_capture&&since_progress>=250000000LL))) {
+            emit_progress(out,err,pid,"running");last_progress=now;last_progress_capture=out->len+err->len;
+        }
         if(now.tv_sec-start.tv_sec>300){fail("guest virtual deadline exceeded");(void)owned_processes(true);}
         if(failure[0]&&!child_exited)(void)owned_processes(true);
         if(child_exited&&eof[0]&&eof[1])break;
@@ -274,6 +354,7 @@ static void execute(Buffer *out,Buffer *err) {
         (void)owned_processes(true);struct timespec pause={0,1000000};(void)nanosleep(&pause,NULL);
     }
     if(!capture_complete)fail("process quiescence not established");
+    if(!failure[0])emit_progress(out,err,pid,"child-exited-quiescent");
 }
 static void dist_tree(Buffer *b,const char *relative) {
     char path[PATH_MAX];int n=snprintf(path,sizeof(path),"/project/dist%s%s",*relative?"/":"",relative);
@@ -333,21 +414,16 @@ static void emit(Buffer *out,Buffer *err,Buffer *dist) {
     format(&body,",\"proof\":{\"entropySeededBeforeChild\":%s,\"loopbackEnabled\":%s,\"sourceReadOnly\":%s,\"captureComplete\":%s,\"remainingProcesses\":%d,\"entropyProbeBase64\":",
         entropy_ready?"true":"false",loopback_ready?"true":"false",source_readonly?"true":"false",capture_complete?"true":"false",owned_processes(false));
     base64(&body,entropy_probe,sizeof(entropy_probe));
-    text(&body,"},\"effects\":{\"stdoutBase64\":");base64(&body,out->data,out->len);
+    format(&body,"},\"diagnostics\":{\"progressCount\":%u,\"progressBodyBytes\":%zu,\"progressBudgetExhausted\":%s},\"effects\":{\"stdoutBase64\":",
+        progress_count,progress_bytes,progress_budget_exhausted?"true":"false");base64(&body,out->data,out->len);
     text(&body,",\"stderrBase64\":");base64(&body,err->data,err->len);
     format(&body,",\"distEntries\":%zu,\"distBytes\":%zu,\"dist\":[",output_entries,output_bytes);
     (void)append(&body,dist->data,dist->len);text(&body,"]},\"receiptAdmission\":false}");
     /* An allocation/format failure while serializing must not retain an earlier
      * ok:true. Emit no envelope rather than an incomplete success document. */
     if(ok&&failure[0]){free(body.data);return;}
-    char sha[65];hash(body.data,body.len,sha);
-    int serial=open("/dev/ttyS0",O_WRONLY|O_NOCTTY|O_CLOEXEC);
-    if(serial<0){free(body.data);return;}
-    struct termios term;if(tcgetattr(serial,&term)==0){cfmakeraw(&term);(void)tcsetattr(serial,TCSANOW,&term);}
-    char header[160];int n=snprintf(header,sizeof(header),"\nQUOD_NATIVE_VM_RESULT_V1 %zu %s\n",body.len,sha);
-    if(n>0&&(size_t)n<sizeof(header)&&write_all(serial,header,(size_t)n)&&write_all(serial,body.data,body.len))
-        (void)write_all(serial,"\nQUOD_NATIVE_VM_END\n",20);
-    (void)tcdrain(serial);close(serial);free(body.data);
+    (void)serial_frame("QUOD_NATIVE_VM_RESULT_V1","\nQUOD_NATIVE_VM_END\n",&body);
+    free(body.data);
 }
 int main(int argc,char **argv) {
     if(argc==2&&!strcmp(argv[1],"--self-test")) {

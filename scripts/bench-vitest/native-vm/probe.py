@@ -10,6 +10,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 SCHEMA = "quod-native-vm-repeat-v1-investigation"
@@ -58,6 +59,78 @@ def check_file(path, record):
 def decode(value):
     require(isinstance(value, str), "Base64 output must be a string")
     return base64.b64decode(value, validate=True)
+
+
+def inspect_progress(serial, command):
+    """Diagnostics never establish completion. Preserve valid records even if
+    a watchdog interrupts a later frame; strict success rejects every error.
+    """
+    result = {"schema": "quod-native-vm-progress-report-v1", "completion": False,
+              "receiptAdmission": False, "records": [], "frames": [], "bodyBytes": 0, "errors": []}
+    data = serial.read_bytes()
+    if len(data) > MAX_SERIAL:
+        result["errors"].append("serial policy bound exceeded")
+        return result
+    matches = list(re.finditer(rb"(?:^|\n)QUOD_NATIVE_VM_PROGRESS_V1 ([0-9]+) ([0-9a-f]{64})\n", data))
+    for line in data.splitlines():
+        if line.startswith(b"QUOD_NATIVE_VM_") and not (line.startswith(b"QUOD_NATIVE_VM_PROGRESS_V1 ") or
+                line.startswith(b"QUOD_NATIVE_VM_RESULT_V1 ") or line in {b"QUOD_NATIVE_VM_PROGRESS_END", b"QUOD_NATIVE_VM_END"}):
+            result["errors"].append("unknown or truncated frame marker")
+    if len(matches) > 64 or data.count(b"QUOD_NATIVE_VM_PROGRESS_V1") != len(matches):
+        result["errors"].append("excess or malformed progress header")
+    if data.count(b"\nQUOD_NATIVE_VM_PROGRESS_END\n") != len(matches):
+        result["errors"].append("missing or extra progress terminator")
+    last_clock, last_stdout, last_stderr, last_end = (-1, -1), 0, 0, 0
+    for match in matches[:64]:
+        try:
+            size = int(match[1])
+            require(0 < size <= 16384 and match.start() >= last_end, "progress bound/overlap")
+            body = data[match.end():match.end() + size]
+            end = match.end() + size
+            require(len(body) == size and hashlib.sha256(body).hexdigest().encode() == match[2] and
+                    data[end:].startswith(b"\nQUOD_NATIVE_VM_PROGRESS_END\n"), "progress truncated/digest/terminator")
+            value = json.loads(body)
+            require(value["schema"] == "quod-native-vm-progress-v1" and value["completion"] is False and
+                    value["receiptAdmission"] is False and value["command"] == command and
+                    value["sequence"] == len(result["records"]) + 1, "progress identity/sequence")
+            clock = (value["guestMonotonicSeconds"], value["guestMonotonicNanoseconds"])
+            require(clock >= last_clock and clock[0] >= 0 and 0 <= clock[1] < 1000000000, "progress guest clock")
+            require(value["stdoutBytes"] >= last_stdout and value["stderrBytes"] >= last_stderr and
+                    value["stage"] in {"child-started", "running", "child-exited-quiescent"} and
+                    type(value["mainExited"]) is bool and type(value["mainPid"]) is int and value["mainPid"] > 1,
+                    "progress process/output counters")
+            for stream in ["stdout", "stderr"]:
+                require(all(len(decode(value[stream + field])) <= min(512, value[stream + "Bytes"])
+                            for field in ["PrefixBase64", "TailBase64"]), "progress output sample bound")
+            require(len(decode(value["mainProcStatPrefixBase64"])) <= 256 and len(value["processes"]) <= 8 and
+                    0 <= value["processEntriesScanned"] <= 256 and type(value["processSamplesTruncated"]) is bool,
+                    "progress process scan bound")
+            for process in value["processes"]:
+                require(type(process["pid"]) is int and process["pid"] > 1 and
+                        len(decode(process["statPrefixBase64"])) <= 256 and len(decode(process["cmdlinePrefixBase64"])) <= 256,
+                        "progress process sample bound")
+            result["bodyBytes"] += size
+            require(result["bodyBytes"] <= 1024 * 1024, "progress total byte bound")
+            last_end = end + len(b"\nQUOD_NATIVE_VM_PROGRESS_END\n")
+            result["records"].append(value)
+            result["frames"].append({"offset": match.start(), "end": last_end, "bodyBytes": size, "sha256": match[2].decode()})
+            last_clock, last_stdout, last_stderr = clock, value["stdoutBytes"], value["stderrBytes"]
+        except Exception as exc:
+            result["errors"].append(str(exc))
+    completions = list(re.finditer(rb"(?:^|\n)QUOD_NATIVE_VM_RESULT_V1 ([0-9]+) ([0-9a-f]{64})\n", data))
+    if len(completions) > 1 or data.count(b"QUOD_NATIVE_VM_RESULT_V1") != len(completions):
+        result["errors"].append("extra or malformed completion header")
+    if data.count(b"\nQUOD_NATIVE_VM_END\n") != len(completions):
+        result["errors"].append("missing or extra completion terminator")
+    if completions:
+        match = completions[0]
+        size = int(match[1])
+        body = data[match.end():match.end() + size]
+        if not (0 < size <= 96 * 1024 * 1024 and len(body) == size and
+                hashlib.sha256(body).hexdigest().encode() == match[2] and match.start() >= last_end and
+                data[match.end() + size:].startswith(b"\nQUOD_NATIVE_VM_END\n")):
+            result["errors"].append("completion truncated/digest/order/terminator")
+    return result
 
 
 def validate_response(value, command):
@@ -121,8 +194,9 @@ def validate_response(value, command):
                 "Actual 20-test release tail did not finish")
 
 
-def parse_envelope(serial):
+def parse_envelope(serial, progress):
     data = serial.read_bytes()
+    require(not progress["errors"], "Malformed or truncated diagnostic frames")
     require(len(data) <= MAX_SERIAL, "Serial output exceeded bounded policy")
     pattern = rb"(?:^|\n)QUOD_NATIVE_VM_RESULT_V1 ([0-9]+) ([0-9a-f]{64})\n"
     matches = list(re.finditer(pattern, data))
@@ -137,6 +211,47 @@ def parse_envelope(serial):
     require(b"QUOD_NATIVE_VM_RESULT_V1" not in suffix, "Unexpected second envelope")
     return json.loads(body), body, {"bytes": size, "sha256": match[2].decode(),
                                     "preambleBytes": match.start(), "trailingBytes": len(suffix) - 20}
+
+
+def parser_fixtures(out):
+    """Remote-only bounded parser checks; synthetic bytes never grant authority."""
+    def frame(marker, value, end):
+        body = canonical(value)
+        return b"\n" + marker + b" " + str(len(body)).encode() + b" " + hashlib.sha256(body).hexdigest().encode() + b"\n" + body + end
+    sample = {"schema": "quod-native-vm-progress-v1", "completion": False, "receiptAdmission": False,
+              "command": "boundary", "sequence": 1, "guestMonotonicSeconds": 1, "guestMonotonicNanoseconds": 0,
+              "mainPid": 2, "mainExited": False, "stage": "running", "stdoutBytes": 0, "stderrBytes": 0,
+              "stdoutPrefixBase64": "", "stdoutTailBase64": "", "stderrPrefixBase64": "", "stderrTailBase64": "",
+              "mainProcStatPrefixBase64": "", "processes": [], "processEntriesScanned": 0, "processSamplesTruncated": False}
+    progress = frame(b"QUOD_NATIVE_VM_PROGRESS_V1", sample, b"\nQUOD_NATIVE_VM_PROGRESS_END\n")
+    final = frame(b"QUOD_NATIVE_VM_RESULT_V1", {"syntheticParserFixture": True}, b"\nQUOD_NATIVE_VM_END\n")
+    wrong_sequence = frame(b"QUOD_NATIVE_VM_PROGRESS_V1", {**sample, "sequence": 2}, b"\nQUOD_NATIVE_VM_PROGRESS_END\n")
+    cases = [("valid-progress-and-final", progress + final, True), ("progress-is-not-completion", progress, False),
+             ("truncated-progress-header", b"\nQUOD_NATIVE_VM_PROG" + final, False),
+             ("truncated-progress-body", progress[:-40] + final, False),
+             ("forged-progress-digest", progress.replace(b'"running"', b'"Running"') + final, False),
+             ("wrong-progress-sequence", wrong_sequence + final, False),
+             ("progress-after-completion", final + progress, False), ("extra-completion", progress + final + final, False),
+             ("malformed-completion-header", progress + final.replace(b"RESULT_V1 ", b"RESULT_V1 x", 1), False),
+             ("truncated-final", progress + final[:-8], False),
+             ("missing-final-terminator", progress + final[:-20], False),
+             ("extra-progress-terminator", progress + b"\nQUOD_NATIVE_VM_PROGRESS_END\n" + final, False)]
+    checks = []
+    with tempfile.TemporaryDirectory(prefix="parser-fixtures-", dir=out) as folder:
+        serial = Path(folder) / "serial.raw"
+        for name, data, accepted in cases:
+            serial.write_bytes(data)
+            observed = False
+            try:
+                diagnostics = inspect_progress(serial, "boundary")
+                parse_envelope(serial, diagnostics)
+                observed = True
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                pass
+            require(observed is accepted, "Remote frame parser fixture failed: " + name)
+            checks.append({"name": name, "passed": True, "accepted": accepted})
+    write_json(out / "parser-fixtures.json", {"schema": "quod-native-vm-parser-fixtures-v1", "checks": checks,
+                                               "syntheticParserFixturesOnly": True, "completionAuthority": False})
 
 
 def main():
@@ -167,6 +282,7 @@ def main():
 
     verify_inputs()
     out.mkdir(parents=True)
+    parser_fixtures(out)
     (out / "image.json").write_bytes((image / "image.json").read_bytes())
     host_env = {"PATH": "/usr/bin:/bin", "TZ": "UTC", "LANG": "C.UTF-8"}
     policy = {"schema": SCHEMA, "contract": CONTRACT, "source": SOURCE, "receiptAdmission": False,
@@ -177,6 +293,10 @@ def main():
               "watchdogSeconds": args.watchdog, "maxSerialBytes": MAX_SERIAL,
               "network": "no NIC; guest-owned loopback only", "blockDevices": [], "hostMounts": [],
               "inputChannels": [], "output": "output-only file chardev bound to a root-only guest UART",
+              "diagnostics": {"schema": "quod-native-vm-progress-v1", "completionAuthority": False,
+                              "maxRecords": 64, "maxBodyBytes": 16384, "maxTotalBodyBytes": 1048576,
+                              "intervalGuestNanoseconds": 1000000000, "captureIntervalGuestNanoseconds": 250000000,
+                              "outputSampleBytes": 512, "maxProcEntriesScanned": 256, "maxProcSamples": 8, "procSampleBytes": 256},
               "limitations": ["No receipt or replay admission", "No exhaustive host-open or negative-lookup closure",
                               "RNDADDENTROPY mixes a seed; actual repeated-command getrandom agreement is required"],
               "scope": "actual build/release repeat-image investigation; no ordinary-equivalence or full-window claim"}
@@ -233,11 +353,19 @@ def main():
                 finally:
                     result["seconds"] = time.monotonic() - started
                     result["qemuExitCode"] = process.returncode
+                    progress = inspect_progress(serial, command)
+                    write_json(case / "progress.json", progress)
+                    result["diagnostics"] = {"records": len(progress["records"]), "bodyBytes": progress["bodyBytes"],
+                                             "errors": progress["errors"], "sha256": digest(case / "progress.json")}
             verify_inputs()
             require(process.returncode == 0 and not result["timedOut"], "QEMU did not terminate successfully")
-            value, raw, envelope = parse_envelope(serial)
+            value, raw, envelope = parse_envelope(serial, progress)
             (case / "response.json").write_bytes(raw)
             validate_response(value, command)
+            require(value["diagnostics"]["progressCount"] == len(progress["records"]) and
+                    len(progress["records"]) >= 1 and
+                    value["diagnostics"]["progressBodyBytes"] == progress["bodyBytes"] and
+                    type(value["diagnostics"]["progressBudgetExhausted"]) is bool, "Guest diagnostic count differs")
             (case / "command.stdout").write_bytes(decode(value["effects"]["stdoutBase64"]))
             (case / "command.stderr").write_bytes(decode(value["effects"]["stderrBase64"]))
             result.update(ok=True, envelope=envelope, responseSha256=hashlib.sha256(raw).hexdigest(),
