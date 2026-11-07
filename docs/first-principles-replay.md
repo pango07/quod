@@ -101,6 +101,13 @@ explicit environment overrides. This does not prove the rest of its runtime
 deterministic, but a new random seed on every invocation is not its stated
 default. Do not reduce cases, seeds, assertions or coverage to win the bench.
 
+The [dependency time/randomness review](bench/convex-test-entropy-review.md)
+confirms that mock document IDs use counters and the test already controls
+the creation clock. The library also generates random action request IDs;
+their effect on this test's assertions is neither established nor excluded
+by the source review. Do not infer a complete determinism contract from the
+test's seeded generator, or discard those IDs merely because outputs agree.
+
 ## What a cache hit must establish
 
 A previous passing result is reusable only when the computation sees

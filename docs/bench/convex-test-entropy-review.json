@@ -1,0 +1,43 @@
+{
+  "replayEligible": false,
+  "scope": "static source review, not runtime determinism proof",
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "testSourceSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+  "packages": [
+    {
+      "name": "convex-test",
+      "version": "0.0.54",
+      "tarball": "https://registry.npmjs.org/convex-test/-/convex-test-0.0.54.tgz",
+      "integrity": "sha512-C0v2SQcuxrELAJRNzE6fQ686XDPor7UFoC22jcoJXeCRqhLo8ZIMZ4jyUHoo1UdAL2enCb0AbiprCVpLDN8u9Q==",
+      "archiveSha256": "fe5ac69553b5170236bb2e1a1695d55f219cd7a3898f8af7eb46f532e2846ce2",
+      "files": {
+        "dist/index.js": "f25c8dde2f0fc43c6f13702d6ce6e9704a4a39baf666da2b28d8e79d866a3c24"
+      }
+    },
+    {
+      "name": "convex",
+      "version": "1.46.0",
+      "tarball": "https://registry.npmjs.org/convex/-/convex-1.46.0.tgz",
+      "integrity": "sha512-dhBwDQTZDOhi5SUGAX17EWNehCdNq6/UFrSL0eLZuGfMkdsQbCVWVRZCzbZ5CF+/pgvoGxtApbEoTSipqL4JTw==",
+      "archiveSha256": "c14c71c4df84132feac52429fe92c10f26fe4b1b8c6ea80d6073edcebb299516",
+      "files": {
+        "dist/esm/server/impl/registration_impl.js": "ceec49477c48d7f16e28c2939a47dd08ec34cb9ec144a52c50c4c029ff671f7c",
+        "dist/esm/server/impl/actions_impl.js": "acb7bdc0c80710e73607f6cb9be8fe30f53193c44b65ecf8b22ca4103e88094f",
+        "dist/esm/server/impl/storage_impl.js": "f5386f3428c8f8909f30aa8256f1d9f9bb851d78124bb407572ed2b054539376"
+      }
+    }
+  ],
+  "findings": [
+    "The property test uses three fixed default seeds and 24 cases, with environment overrides.",
+    "convex-test document IDs use a per-database counter, not random generation.",
+    "Document creation time uses Date.now and a monotonic increment; the test mocks Date.now in beforeEach.",
+    "convex-test t.run creates a Math.random request ID and passes it to the Convex SDK action invocation.",
+    "The SDK places requestId in closures for action, auth, scheduler, storage and vector-search operations; this review follows action and storage construction.",
+    "No assertion sensitivity to request IDs is established, and their irrelevance has not been proved."
+  ],
+  "limitations": [
+    "Static occurrence is not evidence that a value affects a test outcome.",
+    "This is not a complete dependency, effect, clock or randomness audit.",
+    "No test cases, seeds, clocks, request IDs or production keys changed."
+  ]
+}
