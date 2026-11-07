@@ -1,0 +1,125 @@
+{
+  "replayEligible": false,
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "binarySha256": "75d703fca2c87c21808a8556f5ca2af47b316527c58426ee008a369c05feae84",
+  "node": "v24.18.0",
+  "strace": "strace -- version 6.19",
+  "image": {
+    "ImageOS": "ubuntu26",
+    "ImageVersion": "20261101.186.1"
+  },
+  "run": "https://github.com/pango07/quod/actions/runs/42357911268",
+  "sourceCommit": "89cc5bf09197b0a6fea8407c0c85f8553957001a",
+  "conclusion": "success",
+  "artifact": {
+    "id": 13568636096,
+    "bytes": 4428754,
+    "sha256": "1e08413cb12296c3c72504a224c7adfdeb8129670a488fce1129a31266b41a3e"
+  },
+  "units": [
+    {
+      "script": "build",
+      "sample": 1,
+      "exit": 0,
+      "quodLines": [
+        "quod: `npm run build` always runs from now on: metadata on a descriptor without a stable pathname"
+      ],
+      "traceSha256": "6d5848a67dd9af72463b62943d3f7501c0b3c5db0286c22bee48bb489cec54d3",
+      "traceBytes": 1501022,
+      "descriptorMetadataEntries": 672,
+      "anonymousMetadataEntries": 44,
+      "anonymousKinds": {
+        "pipe": 44
+      },
+      "anonymousExamples": [
+        "7     fstat(0<pipe:[18358]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(1<pipe:[18408]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(2<pipe:[18409]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0"
+      ],
+      "undecodedEntries": []
+    },
+    {
+      "script": "build",
+      "sample": 2,
+      "exit": 0,
+      "quodLines": [
+        "quod: `npm run build` always runs from now on: metadata on a descriptor without a stable pathname"
+      ],
+      "traceSha256": "1ad31513de2ae3db19669d051c2fe65e9b522d2fb4615b7f448cda7f8f282eda",
+      "traceBytes": 1511670,
+      "descriptorMetadataEntries": 676,
+      "anonymousMetadataEntries": 44,
+      "anonymousKinds": {
+        "pipe": 44
+      },
+      "anonymousExamples": [
+        "7     fstat(0<pipe:[18358]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(1<pipe:[22627]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(2<pipe:[22628]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0"
+      ],
+      "undecodedEntries": []
+    },
+    {
+      "script": "test:release",
+      "sample": 1,
+      "exit": 0,
+      "quodLines": [
+        "quod: `npm run test:release` always runs from now on: metadata on a descriptor without a stable pathname"
+      ],
+      "traceSha256": "9bf1edc3c501d6e551dd755b02e2faabbd3dff85e0dfe5a8fc3b7b52939d1b1f",
+      "traceBytes": 40340048,
+      "descriptorMetadataEntries": 26207,
+      "anonymousMetadataEntries": 2765,
+      "anonymousKinds": {
+        "pipe": 209,
+        "UNIX-STREAM": 2556
+      },
+      "anonymousExamples": [
+        "7     fstat(0<pipe:[18358]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(1<pipe:[20316]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(2<pipe:[20317]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0"
+      ],
+      "undecodedEntries": [
+        "543   fstat(1, 0x7ffea2c77110)          = -1 EBADF (Bad file descriptor)"
+      ]
+    },
+    {
+      "script": "test:release",
+      "sample": 2,
+      "exit": 0,
+      "quodLines": [
+        "quod: `npm run test:release` always runs from now on: metadata on a descriptor without a stable pathname"
+      ],
+      "traceSha256": "7ed13337cd27f15c02d25b19a55bd7ce581ebce1191b1788fb3a37e81d5785d1",
+      "traceBytes": 40346513,
+      "descriptorMetadataEntries": 26218,
+      "anonymousMetadataEntries": 2765,
+      "anonymousKinds": {
+        "pipe": 209,
+        "UNIX-STREAM": 2556
+      },
+      "anonymousExamples": [
+        "7     fstat(0<pipe:[18358]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(1<pipe:[37633]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0",
+        "7     fstat(2<pipe:[37634]>, {st_mode=S_IFIFO|0600, st_size=0, ...}) = 0"
+      ],
+      "undecodedEntries": []
+    }
+  ],
+  "limitations": [
+    "Diagnostic execution, not a performance benchmark or replay correctness sign-off.",
+    "Two first-witness samples per unit use fresh ledgers on one installed checkout; the second build starts with previous build outputs.",
+    "The unmodified packaged binary uses its ordinary sandbox and capture pipes; a PATH wrapper preserves traces before deletion.",
+    "Counts include syscall entry lines whose return is shown on a later resumed line; they are not counts of distinct descriptors.",
+    "Strace abbreviates metadata fields; pipe annotations identify descriptors but do not establish which returned fields application code consumes.",
+    "The first fail-closed reason is reproduced; other replay blockers may remain.",
+    "No metadata keys were weakened and no replay was enabled."
+  ],
+  "earlierRun": {
+    "url": "https://github.com/pango07/quod/actions/runs/42357708948",
+    "sourceCommit": "a86792c9d6425fe7d17cc8bf9276d758433ab8a5",
+    "conclusion": "failure",
+    "reason": "First build trace captured; second sandbox reused the wrapper PID and overwrote its filename. Fixed with unique temporary filenames.",
+    "artifactSha256": "9eff57a0ae71fb217be9abff8545600365433404922f2e18a55893136291c2cf"
+  }
+}

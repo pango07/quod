@@ -76,6 +76,13 @@ an arithmetic scenario, above the 867.5-second target. Useful reuse needs
 both stable host observations and a precise dependency boundary. Merely
 moving an all-repository key into a managed environment is insufficient.
 
+The [real unit descriptor audit](bench/unit-descriptor-origin.md) rules out
+a simple pathname-recovery fix for build/release fallback. Actual first
+witnesses observe anonymous pipe and Unix-socket metadata, including the
+wrapper's captured stdout/stderr. Each of four commands succeeds but
+correctly declines caching. E2 cannot help until these observations have
+a justified input representation; dropping them is not an optimization.
+
 The current measured implementation has 1,538 runner-seconds against
 1,735 plain. It needs to remove another 670.5 seconds. It replays no tests
 or units in that window. Dependency installation saves 471 seconds; test
