@@ -2461,3 +2461,74 @@ raw-byte aliases, complete startup integrity, worker inputs and parent
 effects still need proof before this diagnostic can authorize replay.
 There are no product hits, lineage promotions or audits, no production
 replay-rule changes, and the full-window gap remains 630 runner-seconds.
+
+## Raw parser receiver checks
+
+The pre-slice checks do not cover earlier buffer assembly. At `edae725`,
+the [regression-first gate](https://github.com/pango07/quod/actions/runs/42345555180)
+passes all 81 previous tests and fails five new cases: a byte-view length
+getter, channel-buffer getter and setter, and replacement `Buffer.concat`
+function or getter. Each fixture copies raw bytes before preparation and
+restores its changed property. Plain and observed values, ordering, getter
+counts and copied byte counts agree, but the old diagnostic incorrectly
+reports itself available. Replay eligibility stays false.
+
+`19cd3ad` validates the parser's receivers at entry and at each loop
+condition, including resumes after a yielded message. It checks own
+writable channel state, an ordinary buffer array with own elements, an
+unobservable append slot, byte-view prototypes and native length getters.
+It also checks the pinned `Buffer.concat`, numeric pool size, native
+backing-store getter and FastBuffer constructor chain. Native read entry
+checks `pendingHandle` before Node reads it. Temporary descriptors belong
+to the active read's object group and are released when the read returns.
+
+A sixth regression demonstrates that an inherited `cmd` getter can copy
+the next message's buffered bytes while Node classifies the current
+decoded message. Preparation of the current object alone does not protect
+that following message. The guard therefore rejects command accessors;
+it still prepares the current message and preserves application behavior.
+The earlier current-message-only getter fixture remains in the suite,
+with its availability expectation corrected to reflect this gap.
+
+The [focused gate](https://github.com/pango07/quod/actions/runs/42345791728)
+passes all 87 tests in 21.234 seconds. `24bda7d` adds full-workload
+assertions that reconcile parser entries and loops with native reads and
+decoded messages; the observer runtime is unchanged from the focused gate.
+
+The [full-workload gate](https://github.com/pango07/quod/actions/runs/42345873349)
+at `24bda7d` passes 463 preflight tests and all three workload phases.
+Independent artifact checks confirm the established 4,131 raw test states
+across all 120 file/project instances: 4,130 pass and one skips. Both
+observed runs agree with plain execution after 39 content-preserving
+timestamp changes.
+
+| Phase | Seconds | Compared with baseline |
+| --- | ---: | ---: |
+| Baseline | 79.980 | 1.000x |
+| Observed before metadata change | 136.379 | 1.705x |
+| Observed after metadata change | 137.517 | 1.719x |
+
+The observed phases check 1,648 and 1,633 parser entries, and 3,461 and
+3,445 loop conditions. All 10,187 checkpoints reconcile with native reads
+and decoded messages, with zero assembly failures. The 7,250 slice checks
+also reconcile, all using Uint8Array views in this workload. Startup and
+handoff checks pass in all 240 workers. All 3,281 read groups, 3,625 decoder
+groups, 3,625 delivery groups, 10,875 dispatch groups and 5,280 transport
+groups are released. Each phase accounts for all 2,581 scalar reads,
+with no seed reads or transport failures.
+
+Evaluator code sequences agree in all workers; full compilation and RPC
+sequences still differ in every worker. The runner remains
+`ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0 and Vitest 5.0.0.
+The [evidence record](worker-message-dispatch.json) retains the failed and passing gates,
+source pins, counters, all 261 artifact-file digests and verified log digests.
+
+These are observation timings, not product savings. The checks cover the
+tested callbacks and receiver descriptors. They do not exclude ordinary
+reads of raw buffers between callbacks, retained buffers across reads or
+aliases to allocator backing stores. The next check must explicitly record
+buffer state at native read boundaries and exercise ordinary polling during
+a fragmented message; the absence of Buffer slices alone is insufficient.
+These paths still prevent a complete ownership claim and production replay
+authority. There are no product hits, lineage promotions or audits, and
+the full-window gap remains 630 runner-seconds.
