@@ -1,0 +1,205 @@
+{
+  "schema": "quod-managed-matrix-sdk-audit-v1",
+  "passed": true,
+  "issues": [],
+  "run": 42408971680,
+  "sourcePin": "d575e2221c0aac26305e0667928a0472e0b733af",
+  "actionPin": "02f65151206f3a12d6f17e3b3d1831b704f28a0b",
+  "baselineSourcePin": "ff279ea5b59b359d26985f08f22e0749f9eccbde",
+  "provenance": {
+    "fixtures": {
+      "artifactId": 13588572992,
+      "archiveSizeBytes": 2383560,
+      "archiveSha256": "5b6837959a37ff3fe11318d313c62ea2b4e364465e64fc1365a60435e8dee8d3",
+      "filesByteVerified": 288,
+      "jobId": 128512744062,
+      "artifactName": "managed-matrix-dispatcher-fixtures"
+    },
+    "seed": {
+      "artifactId": 13587849768,
+      "archiveSizeBytes": 39681460,
+      "archiveSha256": "6507f0279798d3dfced9db57ed59888242ae5851418195eb5e746f0a9f163d22",
+      "filesByteVerified": 1316,
+      "jobId": 128513018007,
+      "artifactName": "managed-matrix-sdk-seed"
+    },
+    "control": {
+      "artifactId": 13588504068,
+      "archiveSizeBytes": 34113183,
+      "archiveSha256": "1c9b5c5c97f64b7cefcd447dfb1c75fa23369646f54cce27bdc066043ac54adc",
+      "filesByteVerified": 1207,
+      "jobId": 128513018153,
+      "artifactName": "managed-matrix-sdk-control"
+    },
+    "consumer": {
+      "artifactId": 13588713530,
+      "archiveSizeBytes": 8028539,
+      "archiveSha256": "eb768579085bf693e9119881ebb3c7d5df72b2a824909382a912befc80211f9a",
+      "filesByteVerified": 452,
+      "jobId": 128514414023,
+      "artifactName": "managed-matrix-sdk-consumer"
+    },
+    "baseline": {
+      "artifactId": 13587034973,
+      "archiveSizeBytes": 36186785,
+      "archiveSha256": "f8e20f3a68cc3fbec7ce01a5ea90e8b50a1d558cbf08146a7fb049e242adc282",
+      "filesByteVerified": 1207
+    }
+  },
+  "reviewedSourceSha256": {
+    "compiler.mjs": "3d4d2ecb1ffb11fd2d54c11519a4b529c7fa5e3feed22e1829cc28941768d2c8",
+    "preparation.mjs": "8a40ad7a04da1ac50fb0f8184cf7a2f33b19267ea4e48a4430d0b0d8af4f84b6",
+    "executor.mjs": "2722539bf97cd93e614ffb7f436675bd00bcdff6649600d57c6689c5fc10d783",
+    "prelude.mjs": "fb9aaf1a3913f538d199fd2e61c440dffb9bf9a638421fd5627c00f79da722c2",
+    "runner.mjs": "48a6d7084b89190301545271f46b4a32ba3e080b945acbf29a2e66ec14931f26",
+    "matrix-native.mjs": "ed1b6a2e6fac1ad5abd350c8dbb8528377f6b8e44d67f4b0bffa89de7011cdfe",
+    "matrix-dispatcher.mjs": "265dfaead041debbd4797ad1b7a9bc991c0f2d3d2ee639c297ea9b28963b1528",
+    "matrix-candidates.mjs": "66c76e05074104c3277faf9b3d99fcbb59e2c1c20899a047e2f69ad607e9d1bd",
+    "matrix-receipt.mjs": "b07d515ba9c47f3fecf950457776aa45888ecb2b09ea25b46ba234dd0417727f",
+    "matrix-sdk-probe.mjs": "5501eea72a688877c054f1b1d5e62a4ea96962a121c20be56b8eff8cb7fe8cba",
+    "cache-session-action/index.cjs": "fe77168a0bdbcaa4d3d5ec43354798203fedc62ba3ba29071e4d1de699cd8f01",
+    "cache-session-action/action.yml": "d156e2c8c4e3fbacfb838229fa98ca542491c9e2d544bb53b7228d711002a1fd"
+  },
+  "prerequisite": {
+    "cases": 10,
+    "checks": 89,
+    "allPassed": true,
+    "originalSourcesRestored": true
+  },
+  "cache": {
+    "positiveSeedCacheId": 10172279436,
+    "consumerReturnedServiceKey": "quod-managed-collection-v1-matrix-gate-42408971680-e2c7616d2f479ae1a3d964b5b5dff25e660bb2102d334a3b4567b4e4aa9ec43e-fa192c77a05a57993f9bf5b0e98b661a2d2b7c1a3d552faf9375e2f0e59fee96",
+    "packBytes": 17130107,
+    "packSha256": "fa192c77a05a57993f9bf5b0e98b661a2d2b7c1a3d552faf9375e2f0e59fee96",
+    "receiptsVerified": 108,
+    "sdkCalls": {
+      "seed": {
+        "restore": 1,
+        "save": 1
+      },
+      "control": {
+        "restore": 0,
+        "save": 0
+      },
+      "consumer": {
+        "restore": 1,
+        "save": 0
+      }
+    }
+  },
+  "outcomes": {
+    "selectedInstances": 120,
+    "replayedInstances": 108,
+    "managedTestWorkers": 0,
+    "nativeInstances": 12,
+    "nativeStates": 184,
+    "replayedStates": {
+      "pass": 3946,
+      "skip": 1
+    },
+    "logicalStates": 4131,
+    "logicalSha256": "b8695e3aa26577da2408fed856ff8bd45b2dfca80c5ef7b21c72a9b7284ce312",
+    "candidateProjects": {
+      "convex-helpers": 27,
+      "zod-4.0": 9,
+      "zod-4.1": 12,
+      "zod-4.2": 12,
+      "zod-4.3": 12,
+      "zod-4.4": 12,
+      "zod-4.5": 12,
+      "zod-4.6": 12
+    },
+    "fullJobHit": false,
+    "fullNamesStatesMultiplicityEqualBothFreshControlsAndBaseline": true
+  },
+  "authLifecycle": {
+    "sessionRemovedBeforeExecution": true,
+    "sessionRemovedFinally": true,
+    "cacheEnvironmentAbsentOutsideAwaitedSdkOperations": true,
+    "evidence": "pinned controller assertions and retained source identities; no session/auth bytes in artifacts"
+  },
+  "timing": {
+    "fixtures": {
+      "completeJobSeconds": 62.0,
+      "startedAt": "2026-11-07T20:01:07Z",
+      "completedAt": "2026-11-07T20:02:09Z"
+    },
+    "seed": {
+      "completeJobSeconds": 264.0,
+      "startedAt": "2026-11-07T20:02:11Z",
+      "completedAt": "2026-11-07T20:06:35Z",
+      "dispatchSeconds": 224.88929053500001,
+      "compileSeconds": 72.35288286899996,
+      "nativeSeconds": 49.25724984199999,
+      "managedWorkerSeconds": 81.71778678900006
+    },
+    "control": {
+      "completeJobSeconds": 328.0,
+      "startedAt": "2026-11-07T20:02:11Z",
+      "completedAt": "2026-11-07T20:07:39Z",
+      "dispatchSeconds": 282.08751966700004,
+      "compileSeconds": 82.8366713319999,
+      "nativeSeconds": 67.276912906,
+      "managedWorkerSeconds": 110.12073880999996
+    },
+    "consumer": {
+      "completeJobSeconds": 139.0,
+      "startedAt": "2026-11-07T20:07:41Z",
+      "completedAt": "2026-11-07T20:10:00Z",
+      "dispatchSeconds": 97.10193673299999,
+      "compileSeconds": 85.77720001700006,
+      "nativeSeconds": 5.346863519000006,
+      "managedWorkerSeconds": 0
+    }
+  },
+  "limits": [
+    "one fixed source profile; this does not update the original twelve-commit frozen benchmark",
+    "diagnostic component and complete-job times; no controlled speedup estimate",
+    "logical project/file/pool/full-name/state multiplicity; no native timing or reporter-metadata reconstruction",
+    "twelve native instances remain, so fullJobHit is false",
+    "all108 candidates are freshly compiled before lookup; the consumer has one preflight worker"
+  ],
+  "status": "verified research SDK proof; production disabled",
+  "objectives": {
+    "authenticatedFreshJobMatrixReplay": "verified for 108 reviewed instances and 3947 original states",
+    "fullJobHit": false,
+    "originalTwelveCommit50PercentObjective": "unchanged; this experiment does not establish it",
+    "controlledSpeedupClaim": false
+  },
+  "workloadCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "runUrl": "https://github.com/pango07/quod/actions/runs/42408971680",
+  "auditor": {
+    "path": "scripts/bench-vitest/managed/matrix-sdk-audit.py",
+    "sha256": "77c5f2550218bdad715ef047ab42bb74e6b953f0c8317da1f0962fb93fdf7fc8",
+    "kind": "data-only; no artifact code execution",
+    "filesByteVerified": 4470
+  },
+  "auditInputTemplate": {
+    "schema": "quod-managed-matrix-sdk-audit-inputs-v1",
+    "runJson": "final-run.json",
+    "jobsJson": "final-jobs.json",
+    "artifactsJson": "final-artifacts.json",
+    "evidence": {
+      "fixtures": {
+        "root": "fixtures",
+        "archive": "fixtures.zip"
+      },
+      "seed": {
+        "root": "seed",
+        "archive": "seed.zip"
+      },
+      "control": {
+        "root": "control",
+        "archive": "control.zip"
+      },
+      "consumer": {
+        "root": "consumer",
+        "archive": "consumer.zip"
+      },
+      "baseline": {
+        "root": "baseline",
+        "archive": "baseline.zip"
+      }
+    }
+  }
+}
