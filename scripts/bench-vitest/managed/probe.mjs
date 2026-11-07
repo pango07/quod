@@ -75,7 +75,7 @@ const config :Workerd.Config = (
     await exited; fs.closeSync(log)
   }
 }
-const globs = []
+const globs = [], adapters = []
 async function compile(entry, options, testFile) {
   const ts = testFile ? fromProject('typescript') : null
   const start = performance.now()
@@ -97,6 +97,19 @@ async function compile(entry, options, testFile) {
       builder.onLoad({filter: /\.[cm]?[jt]sx?$/}, args => {
         if (!ts || !args.path.startsWith(project + '/')) return
         let contents = fs.readFileSync(args.path, 'utf8')
+        if (args.path === path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/chunks/spy.DPLvp2J7.js')) {
+          // Vitest's private mock registry uses weak references only to release
+          // memory. Retain those references until this one-file process ends.
+          // Never expose a fake GC API to tests; reject any other source version.
+          const sourceSha256 = sha(contents)
+          assert.equal(sourceSha256, '537be954493014020a2c07df3e6cbc9e8eb3c5524911b19a43b8b4a3db1f4c0c')
+          contents = contents.replace('new FinalizationRegistry((ref) => {\n\tREGISTERED_MOCKS.delete(ref);\n})', '{register() {}}')
+            .replace('new WeakRef(mock)', '{deref: () => mock}')
+          assert(!contents.includes('FinalizationRegistry') && !contents.includes('WeakRef'))
+          adapters.push({source: path.relative(project, args.path), sourceSha256,
+            policy: 'Retain Vitest private mock references for this file lifetime', adaptedSha256: sha(contents)})
+          return {contents, loader: 'js'}
+        }
         if (!contents.includes('import.meta.glob')) return
         const tree = ts.createSourceFile(args.path, contents, ts.ScriptTarget.Latest, true)
         const edits = []
@@ -164,7 +177,7 @@ try {
   results.testSourceSha256 = sha(fs.readFileSync(testFile))
   const options = {...base, vitest: config, file: '/project/' + file}
   const compiled = await compile('runner.mjs', options, testFile)
-  write('test-build.json', {...compiled, bundle: undefined, globs, options})
+  write('test-build.json', {...compiled, bundle: undefined, globs, adapters, options})
   const managed = await execute('managed', compiled.bundle)
   results.managedSupported = !managed.error && managed.boundary.unsupported.length === 0 && managed.boundary.unguardable.length === 0 && managed.boundary.timerErrors.length === 0
   results.managedPassed = Boolean(managed.ok)
