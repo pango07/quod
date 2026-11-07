@@ -704,6 +704,13 @@ jobs:
         if: hashFiles('test/cloud-post.mjs') != ''
         working-directory: test
         run: node cloud-post.mjs
+      - name: Packaged lineage cohort recovery and interrupted recovery
+        if: hashFiles('test/lineage-cohort.mjs') != ''
+        working-directory: test
+        run: |
+          QUOD_COHORT_BINARY="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.env.RUNNER_TEMP+"/quod/config.json","utf8")).quod')"
+          node lineage-cohort.mjs "$PWD" "$QUOD_COHORT_BINARY" "$RUNNER_TEMP/lineage-cohort-logs/correct" correct
+          node lineage-cohort.mjs "$PWD" "$QUOD_COHORT_BINARY" "$RUNNER_TEMP/lineage-cohort-logs/recovery-failure" recovery-failure
       - name: Bundle artifact
         if: always()
         run: tar -czf /tmp/quod-action-dist.tgz dist/main dist/post
@@ -720,6 +727,7 @@ jobs:
             ${{ runner.temp }}/env-descriptor-logs/*
             ${{ runner.temp }}/fs-descriptor-logs/*
             ${{ runner.temp }}/realpath-logs/*
+            ${{ runner.temp }}/lineage-cohort-logs/
 
   benchmark-profile:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')
