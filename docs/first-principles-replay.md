@@ -65,6 +65,16 @@ Reject candidates that need another open-ended chain of observation
 exceptions. Rewriting tests in Rust or reducing property-test cases does
 not resolve these requirements.
 
+The [existing-runtime source review](bench/runtime-boundary-review.md) checks
+Cloudflare's current Vitest/workerd integration against this requirement.
+Its source peer range supports Vitest 5, but it changes filesystem behavior,
+retains local clocks and configurable external access, and still runs
+preparation in Node. It is not an off-the-shelf solution to the original
+transparent benchmark. The benchmark's existing `edge-runtime` environment
+is a different implementation and its name does not establish a closed
+boundary either. No replacement runtime was installed or enabled. Any managed
+prototype must specify enforcement before another compatibility-only run.
+
 ## Measured starting point
 
 The [content opportunity audit](bench/convex-content-opportunity.md) adds a
