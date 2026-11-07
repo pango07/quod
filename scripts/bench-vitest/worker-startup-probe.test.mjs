@@ -23,6 +23,35 @@ test('startup launch contract preserves accepted arguments and rejects earlier e
   assert.throws(()=>options.validateWorkerLaunch(['--require',warning,'--require',options.preload],{},{installed:true}))
 })
 
+for(const mode of ['late-import','misordered-preload','environment-preload']) {
+  test('actual Node startup rejects '+mode,async()=>{
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'quod-startup-order-'))
+    const main=path.join(directory,'main.mjs')
+    fs.writeFileSync(main,`import {createRequire} from 'node:module';
+createRequire(import.meta.url)(${JSON.stringify(options.preload)});
+console.log('application-reached');
+`)
+    const flags=mode==='late-import'?[]:mode==='misordered-preload'?
+      ['--require',warning,'--require',options.preload]:['--require',options.preload]
+    const child=spawn(process.execPath,[...flags,main],{stdio:['ignore','pipe','pipe','ipc'],
+      env:{...process.env,QUOD_WORKER_BOUNDARY_PROBE:'0',
+        NODE_OPTIONS:mode==='environment-preload'?'--require '+JSON.stringify(warning):''}})
+    let stdout='',stderr=''
+    child.stdout.on('data',b=>{stdout+=b});child.stderr.on('data',b=>{stderr+=b})
+    try {
+      const code=await new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>{child.kill();reject(Error('startup order regression timed out'))},10000)
+        child.on('error',e=>{clearTimeout(timer);reject(e)})
+        child.on('exit',code=>{clearTimeout(timer);resolve(code)})
+      })
+      assert.equal(code,1,stderr)
+      assert(!stdout.includes('application-reached'))
+      assert.match(stderr,mode==='environment-preload'?/unsupported worker startup environment: NODE_OPTIONS/:
+        mode==='misordered-preload'?/worker preload is not the pinned warning wrapper/:/ambiguous worker startup order/)
+    }finally{fs.rmSync(directory,{recursive:true,force:true})}
+  })
+}
+
 async function run(mode,enabled) {
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'quod-startup-'))
   const main=path.join(directory,'main.mjs')
