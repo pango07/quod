@@ -236,6 +236,21 @@ The measured default build, Action and post steps total only 82 seconds
 670.5-second gap. Units remain necessary for whole-job replay, but optimizing
 them alone is not a path to the window target.
 
+A separate economic safeguard is [adaptive recording admission](bench/recording-admission.md).
+When repeated shared-input changes already require every test to execute,
+the opt-in policy can run those tests without recording, retry periodically,
+and resume recording when inputs stabilize. Its release regression preserves
+all proof data, executes a changed failing test, and recovers to ordinary
+replay. This reduces avoidable miss work if the real cost check supports it;
+it does not complete the input boundary or authorize any additional replay.
+
+The bounded real-suite check now preserves all 4,131 test states and proof
+data: 70.554 seconds recorded versus 68.114 adaptive plain, between plain
+controls of 68.039 and 67.316 seconds. That 2.440-second difference is small,
+uses a primed admission hint and excludes job/storage costs. It supports
+keeping the safeguard experimental; it does not replace the fresh-runner
+reuse milestone or justify another full-window run by itself.
+
 ## Product recommendation and decision boundary
 
 Keep one-line installation, but state compatibility and replay eligibility

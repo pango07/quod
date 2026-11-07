@@ -1,0 +1,360 @@
+{
+  "scope": "Vitest command costs, one runner, fixed phase order, primed economic hint",
+  "primedHint": true,
+  "productionReplayEnabled": false,
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "sourceCommit": "f8cada81cf3dfdba4273cc83d6fc127d76338194",
+  "binarySha256": "6aafd60f655dd902cc4cc25bcd743d63678141e0afdc31f85dd82fc0415015a8",
+  "node": "v24.18.0",
+  "image": {
+    "ImageOS": "ubuntu26",
+    "ImageVersion": "20261101.186.1"
+  },
+  "phases": [
+    {
+      "phase": "plain-before",
+      "seconds": 68.03931780799999,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "b2e8d2b76c68e20a3d66b963c453bd7cf87d4c216c3fdbaf3fb0e0133c16bde4"
+    },
+    {
+      "phase": "recorded",
+      "seconds": 70.55403606199997,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "21c50caf950df12b6f0c228ee1a1fd9ea8e447562318351107152cfd6bd186ed",
+      "summary": {
+        "audit_mismatches": [],
+        "audited": 0,
+        "driver": {
+          "files": 120.0,
+          "init": 387.963472,
+          "post_dumps": 4.92206100000476,
+          "post_files": 58.78556699999899,
+          "post_global": 12.16491799999494,
+          "record": 76.03384799999185,
+          "run": 69957.856043,
+          "workerCovSum": 0.0,
+          "workerDumpSum": 30.240846000000715,
+          "workerKeysSum": 20.12056100000072,
+          "workerMapSum": 0.0,
+          "workerSetupSum": 320.39187100000015,
+          "workerStep_cov": 4.0173340000000906,
+          "workerStep_env": 11.868264999999894,
+          "workerStep_escapes": 163.022851,
+          "workerStep_fs": 133.93648600000034,
+          "workerStep_loader": 7.1628359999998,
+          "workerTicks": 0.0
+        },
+        "exit": 0,
+        "failed": 0,
+        "inputs_hashed": 2625,
+        "lineage_audits": 0,
+        "lineage_disagreed": 0,
+        "lineage_promoted": 0,
+        "lineage_revoked": 0,
+        "load_ms": 1.1226159999999998,
+        "narrow": null,
+        "narrowed": 0,
+        "no_function_level": {
+          "a first witness (coverage not taken)": 120
+        },
+        "phases": {
+          "ingest": 7.4029869999999995,
+          "render": 0.0003,
+          "states": 27.554858000000003,
+          "walk": 0.614873,
+          "witness": 2.431511,
+          "write": 1.346562
+        },
+        "promoted": 0,
+        "provisional": 0,
+        "ran": 120,
+        "record_ms": 42.748204,
+        "recorded_files": 119,
+        "recording_policy": "record",
+        "render": null,
+        "replayed": 0,
+        "select_ms": 1.908456,
+        "shared_changed_keys": [],
+        "shared_inputs_changed": true,
+        "timing_sensitive_replays": 0,
+        "unrecordable": {
+          "reads the per-run variable GITHUB_RETENTION_DAYS, ACTIONS_ORCHESTRATION_ID, ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE, GITHUB_RUN_ID, GITHUB_WORKFLOW_SHA, GITHUB_ACTION_REPOSITORY, GITHUB_WORKFLOW_REF, RUNNER_TRACKING_ID, GITHUB_ACTION, GITHUB_RUN_NUMBER, GITHUB_TRIGGERING_ACTOR, RUNNER_NAME, GITHUB_ACTION_REF, GITHUB_JOB, GITHUB_RUN_ATTEMPT, GITHUB_SHA, ACTIONS_RUNNER_RETURN_JOB_RESULT_FOR_HOSTED, GITHUB_ACTOR, GITHUB_ACTOR_ID": 1
+        },
+        "vitest_ms": 70496.960633,
+        "witness_disagreed": 0,
+        "witnessed_again": 0,
+        "witnesses_needed": 2
+      }
+    },
+    {
+      "phase": "adaptive-plain",
+      "seconds": 68.11375635000002,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "8e10891c728963980c044a0788d8f18121e69340a70321a67e833d19ac867dd5",
+      "summary": {
+        "audit_mismatches": [],
+        "audited": 0,
+        "driver": {
+          "files": 120.0,
+          "init": 286.44383500000004,
+          "post_dumps": 0.9862300000095274,
+          "post_files": 6.206083999990369,
+          "post_global": 4.430187999998452,
+          "record": 11.68894100000034,
+          "run": 67689.761056,
+          "workerCovSum": 0.0,
+          "workerDumpSum": 0.0,
+          "workerKeysSum": 0.0,
+          "workerMapSum": 0.0,
+          "workerSetupSum": 0.0,
+          "workerTicks": 0.0
+        },
+        "exit": 0,
+        "inputs_hashed": 2625,
+        "narrow": null,
+        "narrowed": 0,
+        "provisional": 0,
+        "ran": 120,
+        "record_ms": 0.0,
+        "recorded_files": 119,
+        "recording_policy": "adaptive-plain",
+        "replayed": 0,
+        "select_ms": 28.177974000000003,
+        "shared_changed_keys": [
+          "sm:",
+          "sm:example-ui/src/components/Counter.injection.test.tsx",
+          "sm:example-ui/src/components/Counter.mock.test.tsx",
+          "sm:packages/convex-helpers/standardSchema.test.ts",
+          "sm:packages/convex-helpers/server/zod.test.ts",
+          "sm:packages/convex-helpers/server/zod3.test.ts",
+          "sm:packages/convex-helpers/server/zod4.convextozod.test.ts",
+          "sm:packages/convex-helpers/server/zod4.functions.test.ts",
+          "sm:packages/convex-helpers/server/zod4.zod3.test.ts",
+          "sm:packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+          "sm:packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+          "sm:packages/convex-helpers/server/zodVersion.test.ts",
+          "sm:packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+          "sm:packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+          "sm:packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+          "sm:packages/convex-helpers/browser.test.ts",
+          "sm:packages/convex-helpers/functionReferences.test.ts",
+          "sm:packages/convex-helpers/index.test.ts",
+          "sm:packages/convex-helpers/react.test.ts",
+          "sm:packages/convex-helpers/validators.test.ts"
+        ],
+        "shared_inputs_changed": true,
+        "vitest_ms": 68047.235634
+      }
+    },
+    {
+      "phase": "plain-after",
+      "seconds": 67.316093373,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "706ce7db153b164cfcfbcde627bdc2e2fe394af34e76d8222a79cf2c8e646071"
+    }
+  ],
+  "metadataOnlyMutations": [
+    {
+      "path": "example-ui/src/components/Counter.injection.test.tsx",
+      "sha256": "12935b21556514d13ce12f36e3daf534677a18aee5cacc7e9eeee6594ad1f6bd"
+    },
+    {
+      "path": "example-ui/src/components/Counter.mock.test.tsx",
+      "sha256": "38fb1fa05bc48cc75cf5dd4013a8056dc6732301bae2fd2c2f71ad0afc096827"
+    },
+    {
+      "path": "packages/convex-helpers/browser.test.ts",
+      "sha256": "7ddc21e36493d08c848bea3fd195f8766df0ab5bed397083049d1832bede73e9"
+    },
+    {
+      "path": "packages/convex-helpers/cli/functions.test.ts",
+      "sha256": "45a1dabe32a854281db3ef4dee7afbaee086671bcdcf8d4c210dbdbde6a37b07"
+    },
+    {
+      "path": "packages/convex-helpers/cli/tsApiSpec.test.ts",
+      "sha256": "fb22ef5b071334b186fbdebfbae0f8c595cfec0fbe120e06004d4905a09fc8ad"
+    },
+    {
+      "path": "packages/convex-helpers/functionReferences.test.ts",
+      "sha256": "09544a8dd35b40754de45d058ccb5627f86c7248c12ba3ce1a55c6ad3dd65fa6"
+    },
+    {
+      "path": "packages/convex-helpers/index.test.ts",
+      "sha256": "06e78a6fd8e397384c1c2d8b1e38939755882d8ba0d6017d5946cdb468564b2f"
+    },
+    {
+      "path": "packages/convex-helpers/react.test.ts",
+      "sha256": "4bb81122439a3d033cab091ec5919dd3e4c12d7b17bab30ca758b68aab1879e3"
+    },
+    {
+      "path": "packages/convex-helpers/react/sessions.test.ts",
+      "sha256": "f62392316f5c7c07cd1f6f9b459bc177d6e1fe387e00168c982aa9d948e449bf"
+    },
+    {
+      "path": "packages/convex-helpers/server/cors.test.ts",
+      "sha256": "b015e8f4a6c9954af616da6df8b7f650f81c6f975fb91264b46fffabc0e5b0c1"
+    },
+    {
+      "path": "packages/convex-helpers/server/crud.test.ts",
+      "sha256": "e96f180e490e9852aadab217b48a4d3c05726a334a48a1ae3ffc881a0f2f485a"
+    },
+    {
+      "path": "packages/convex-helpers/server/customFunctions.test.ts",
+      "sha256": "5cc42ffbbf1a6c75256fc76eaea9c08d52d4d4623a2e436cf575beccfb0fb56f"
+    },
+    {
+      "path": "packages/convex-helpers/server/filter.test.ts",
+      "sha256": "f92471c5d18cfd91d56653f88c23468d00f490424d99496dab375061e551aab1"
+    },
+    {
+      "path": "packages/convex-helpers/server/pagination.test.ts",
+      "sha256": "9accbc990a0c7ff1af495959a8306d185f5e679ef76c0e3f99b463c3b85576f5"
+    },
+    {
+      "path": "packages/convex-helpers/server/rateLimit.test.ts",
+      "sha256": "332ef7ea393eb5f887081b75a77203ba47b20a0534d1eaa3023db27750d8e764"
+    },
+    {
+      "path": "packages/convex-helpers/server/relationships.test.ts",
+      "sha256": "f29b2fe06edc0273bc08b38f23b6ce7c4d8296c09167ff4f5b7b6036d7ea9677"
+    },
+    {
+      "path": "packages/convex-helpers/server/rowLevelSecurity.test.ts",
+      "sha256": "862c207707c2b93ce02a0be744503a5fb3aae17f6901ec88d215131498cdcc00"
+    },
+    {
+      "path": "packages/convex-helpers/server/setup.test.ts",
+      "sha256": "3d160ef1f404281582ce5a5de1581c84000a2eadfd4038186eed73a54e2c6568"
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.distinct.test.ts",
+      "sha256": "b44ad0fa43ba8a206b2979bee91f1515885531178a8f6c93fc6e98465940848d"
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.flatmap.test.ts",
+      "sha256": "f1da1be613112c860a9d8807e90217c9c47bea238cd72e936d6548ac1fa317f4"
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.property.test.ts",
+      "sha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75"
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.test.ts",
+      "sha256": "4ff20b9795efcb7dea914694b8966353a5ec70fa2a1baebb26fea25570d0184e"
+    },
+    {
+      "path": "packages/convex-helpers/server/table.test.ts",
+      "sha256": "439b4d8a9e6041dbf4bbb875a234b0ad07f9c04e50d9125f8f3ef7e2dbf8033d"
+    },
+    {
+      "path": "packages/convex-helpers/server/triggers.test.ts",
+      "sha256": "4b8388f228a54d0cce42fc4ee5785ecd82d3e11ec8adadbcfb7a570c8330a99c"
+    },
+    {
+      "path": "packages/convex-helpers/server/validators.test.ts",
+      "sha256": "d6440ee9111693d733a88642ac9543b46b3f0fa74f4fde8519ff7824a84b63b0"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod.test.ts",
+      "sha256": "25989a642972a08e2772b8c200bf0b16413a5a3cb2358513978bb81419822af4"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod3.test.ts",
+      "sha256": "74f160651834674835a813eabffb7d471aeb1a7fb369669ef8d3ef85f7186b13"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+      "sha256": "3b1c5b740dfe5772e11436cdee02273be26c168bfcb6b431df1a04075ea17e51"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.functions.test.ts",
+      "sha256": "3d247262e7a463b0ca936bfdbf3272116b6e9f1ce8904a5f9da016a4b71c7231"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+      "sha256": "e45bbcf97a3908d3278142702121bca0f1d7eadfb91e57e17b5085f9fcb6e4f7"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.zod3.test.ts",
+      "sha256": "3ccfd49b3d5668695c94027bfab7b837ffdd2d0710da5af5fbd0b6d75ce11ffd"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+      "sha256": "22352bbe72745b88e61329803df09990f00da15074569eed4b9de8c2aa3b94ac"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+      "sha256": "79cd463d75d2205a8ce2be3301e64b53f8edc0d02ac64b26bc3e04eee861d172"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+      "sha256": "9e061e33ee8c4b1281f6e2ef251d87a154b352a745fdefd5db9c3fed306a689b"
+    },
+    {
+      "path": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+      "sha256": "918cf518abc11ba61029fbaff2ade966bba819fd6be913ed748bbbee831a3f67"
+    },
+    {
+      "path": "packages/convex-helpers/server/zodVersion.test.ts",
+      "sha256": "6cdd7ffb87e304800c38b617402dce185cf9293cd02d5e0d5780df29ed272e49"
+    },
+    {
+      "path": "packages/convex-helpers/standardSchema.test.ts",
+      "sha256": "6c770600859023792bf7b39316bbff129064f358497f9781d37d67d9c4760a37"
+    },
+    {
+      "path": "packages/convex-helpers/validators.test.ts",
+      "sha256": "ee04a82b67a41fca8fd23a1ec5c19613c3ff3254ada2bd5ae1a684f126feda99"
+    }
+  ],
+  "proofsPreserved": true,
+  "wrong": 0,
+  "replayed": 0,
+  "sourceContentsUnchanged": true,
+  "limitations": [
+    "Primed admission hint; not a natural commit window",
+    "One runner and fixed order",
+    "No GitHub job, install, Cloud or ledger-upload costs included"
+  ],
+  "gate": "https://github.com/pango07/quod/actions/runs/42365479228",
+  "artifact": {
+    "id": 13571965337,
+    "bytes": 625630,
+    "sha256": "9bf1f7fe049c7308b75fed52f9f3cfc6cd43237e12d23004a95a084828d303bc"
+  },
+  "independentChecks": {
+    "reports": 4,
+    "filesPerReport": 120,
+    "statesPerReport": 4131,
+    "wrong": 0,
+    "proofsByteIdentical": true,
+    "proofsSha256": "549b166cc3000a64ac539cd2dbafa419af46863ea2dc7a8503dd70a6bbc69217"
+  },
+  "arithmetic": {
+    "recordedMinusAdaptiveSeconds": 2.440279711999949,
+    "fractionOfRecordedTime": 0.0345873864658222,
+    "plainControlsMeanSeconds": 67.6777055905,
+    "adaptiveAbovePlainMeanSeconds": 0.43605075950002004
+  }
+}

@@ -71,3 +71,46 @@ hint to avoid three extra full-suite training runs. Its measured path must
 preserve every proof and every test result; it is not a naturally warmed
 window or an end-to-end cost measurement. The Action and original benchmark
 pins remain unchanged pending evidence.
+
+## Unchanged real-suite cost check
+
+[Gate 42365479228](https://github.com/pango07/quod/actions/runs/42365479228)
+passed at `f8cada81cf3dfdba4273cc83d6fc127d76338194`, using original
+convex-helpers c11, Node 24.18.0 and image `ubuntu26/20261101.186.1`.
+
+| Phase, in execution order | Command seconds |
+| --- | ---: |
+| Plain before | 68.039 |
+| Recorded | 70.554 |
+| Adaptive plain | 68.114 |
+| Plain after | 67.316 |
+
+All four phases executed 120 file/project instances and produced 4,131
+matching test states: 4,130 passed and one skipped. Both Quod phases
+executed every file and replayed zero. The adaptive phase retained exactly
+the previous proof data; independently checked canonical proof snapshots
+are byte-identical, SHA-256
+`549b166cc3000a64ac539cd2dbafa419af46863ea2dc7a8503dd70a6bbc69217`.
+The actual binary SHA-256 was
+`6aafd60f655dd902cc4cc25bcd743d63678141e0afdc31f85dd82fc0415015a8`.
+
+Before the adaptive phase, 38 recorded source paths had only their mtimes
+advanced by 60 seconds. Their content hashes were checked unchanged, and
+the final tracked-source diff was empty. The economic hint was explicitly
+primed; this is not natural training or the original cold window. No input,
+witness or result evidence was primed or relaxed. Full raw reports retain
+duplicate file instances, and independent parsing checked all names/states.
+
+Adaptive execution was 2.440 seconds (3.46%) shorter than the recorded phase
+and 0.436 seconds above the mean of its plain controls. This is one
+fixed-order comparison, not a causal population estimate or whole-job cost
+saving. Installation, Cloud and upload costs are excluded. The verified
+[evidence](recording-admission-cost.json) retains those limits, report hashes,
+source mutations, proof hash and artifact identity (`13571965337`, 625,630
+bytes, SHA-256 `9bf1f7fe049c7308b75fed52f9f3cfc6cd43237e12d23004a95a084828d303bc`).
+
+This is a small measured miss-path improvement. It does not justify claiming
+40–50% savings or spending another full-window run on recording admission
+alone. Keep the feature opt-in in source; the Action and benchmark pins
+remain unchanged. Useful fresh-runner test replay remains the main unmet
+requirement.
