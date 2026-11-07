@@ -154,7 +154,11 @@ export function describeManagedSpecification(specification, project) {
   const name = specification.project.config.name || ''
   assert(typeof specification.pool === 'string' && typeof specification.taskId === 'string',
     'actual specification pool and task identity required')
-  const selection = {pool: specification.pool, testLines: specification.testLines ?? null,
+  // Vitest5 filename-only filters produce[]; its interpretTaskModes treats
+  // that identically to undefined. Nonempty line selections remain distinct.
+  const testLines = Array.isArray(specification.testLines) && specification.testLines.length === 0
+    ? null : specification.testLines ?? null
+  const selection = {pool: specification.pool, testLines,
     testIds: specification.testIds ?? null, testTagsFilter: specification.testTagsFilter ?? null,
     testNamePattern: specification.testNamePattern ? {source: specification.testNamePattern.source,
       flags: specification.testNamePattern.flags} : null}

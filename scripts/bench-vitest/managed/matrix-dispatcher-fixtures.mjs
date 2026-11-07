@@ -6,6 +6,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import {dispatchManagedMatrix} from './matrix-dispatcher.mjs'
+import {describeManagedSpecification, prepareManagedMatrix} from './preparation.mjs'
+import {selectMatrixCandidates} from './matrix-candidates.mjs'
 
 const [projectArg, outArg] = process.argv.slice(2)
 assert(projectArg && outArg, 'usage: matrix-dispatcher-fixtures.mjs PROJECT EMPTY_OUTPUT')
@@ -119,6 +121,23 @@ try {
   check('a conformed cold pass records one receipt after the complete native batch',
     seeded.dispatch.exitCode === 0 && seeded.dispatch.managedExecutions === 1 && seeded.dispatch.nativeSpecsExecuted === 2 &&
     seeded.item.records === 1 && authority.size === 1)
+  const actual = seeded.selection.originalSelected.find(row => row.file === candidate)
+  const specification = {...actual, moduleId: actual.absolute, project: {config: {name: actual.project}}}
+  const absentLines = describeManagedSpecification({...specification, testLines: undefined}, project)
+  const emptyLines = describeManagedSpecification({...specification, testLines: []}, project)
+  const selectedLines = describeManagedSpecification({...specification, testLines: [1]}, project)
+  check('empty and absent test-line selections share the actual unfiltered identity',
+    emptyLines.testLines === null && absentLines.testLines === null &&
+    emptyLines.instanceId === absentLines.instanceId && emptyLines.instanceId === actual.instanceId)
+  check('nonempty test-line selection remains distinct and outside reviewed candidates',
+    selectedLines.testLines.length === 1 && selectedLines.testLines[0] === 1 &&
+    selectedLines.instanceId !== actual.instanceId && selectMatrixCandidates([selectedLines]).length === 0)
+  let lineRejection
+  try {await prepareManagedMatrix({project, seed: 42, files: [candidate + ':1']})}
+  catch (error) {lineRejection = {name: error.name, code: error.code, message: error.message}}
+  result.nonemptyLineFilterRejection = lineRejection
+  check('real line-filter preparation remains unsupported under reviewed configuration',
+    lineRejection?.code === 'VITEST_INCLUDE_TASK_LOCATION_DISABLED')
   const fromAuthority = ({execution}) => {
     const receipt = authority.get(execution.key)
     return receipt && {...receipt, receiptBytes: Buffer.from(receipt.receiptBytes)}
@@ -160,8 +179,8 @@ try {
     ordinaryFailure.dispatch.exitCode === 1 && ordinaryFailure.instance.decision === 'managed' &&
     ordinaryFailure.dispatch.observedNativeFailure === true && ordinaryFailure.dispatch.stickyManagedFailure === false && ordinaryFailure.item.records === 0)
   assert.equal(result.cases.length, 10)
-  assert.equal(result.checks.length, 86)
-  result.caseCount = 10; result.checkCount = 86
+  assert.equal(result.checks.length, 89)
+  result.caseCount = 10; result.checkCount = 89
   result.passed = true
 } catch (error) {
   result.error = {name: error.name, message: error.message, stack: error.stack}; process.exitCode = 1
