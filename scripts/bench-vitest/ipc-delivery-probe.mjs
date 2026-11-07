@@ -21,6 +21,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const reads={entries:0,directEntries:0,trampolineEntries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const slices={entries:0,checked:0,uint8:0,buffer:0,failures:0}
   const assembly={entries:0,loops:0,checked:0,views:0,failures:0}
+  const boundaries={entries:0,returns:0,checked:0,emptyEntries:0,emptyReturns:0,
+    retainedEntries:0,retainedReturns:0,maxRetainedBytes:0,unsupportedReads:0,failures:0}
+  let bufferKeys=null
   let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter,ownDescriptor
   let typedLengthGetter,typedBufferGetter,arrayPrototype,bufferConcat
   let reading=null,readReturn=null
@@ -112,6 +115,39 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       throw Error('state is not own '+(writable?'writable ':'')+'data')
     return p.value
   }
+  function binding(fn,name) {
+    const scopes=properties(fn).internalProperties?.find(p=>p.name==='[[Scopes]]')?.value
+    for(const scope of properties(scopes).result) {
+      if(!/^\d+$/.test(scope.name)||scope.value?.description==='Global')continue
+      const rows=properties(scope.value).result
+      if(rows.some(p=>p.name===name))return data(rows,name)
+    }
+    throw Error('IPC parser binding unavailable: '+name)
+  }
+  function checkReadBoundary(kind) {
+    if(reading?.mode!=='advanced') {
+      if(kind==='entry')boundaries.unsupportedReads++
+      return
+    }
+    boundaries[kind==='entry'?'entries':'returns']++
+    try {
+      const objectGroup=reading.group,channel=reading.channel
+      const buffers=ownData(channel,bufferKeys.buffer,objectGroup,{writable:true})
+      const size=ownData(channel,bufferKeys.size,objectGroup,{writable:true})
+      const buffering=ownData(channel,'buffering',objectGroup,{writable:true})
+      if(buffers.subtype!=='array'||!same(prototype(buffers),arrayPrototype))throw Error('buffer list is not an ordinary array')
+      const length=ownData(buffers,'length',objectGroup,{writable:true}).value
+      if(!Number.isSafeInteger(length)||length<0||!Number.isSafeInteger(size.value)||size.value<0||buffering.type!=='boolean')
+        throw Error('buffer state is not well formed')
+      boundaries.checked++
+      if(length===0&&size.value===0&&!buffering.value)boundaries[kind==='entry'?'emptyEntries':'emptyReturns']++
+      else {
+        boundaries[kind==='entry'?'retainedEntries':'retainedReturns']++
+        boundaries.maxRetainedBytes=Math.max(boundaries.maxRetainedBytes,size.value)
+        throw Error('bytes retained at read '+kind)
+      }
+    }catch(e){boundaries.failures++;fail('IPC raw '+e.message)}
+  }
   function checkByteView(view,objectGroup) {
     const p=properties(view,true),proto=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
     if(view.subtype!=='typedarray'||(!same(proto,uint8Prototype)&&!same(proto,bufferPrototype)))
@@ -131,8 +167,10 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       const channel=evaluate(frame,'channel',objectGroup)
       requireRead(channel)
       assembly[kind==='parser:entry'?'entries':'loops']++
-      const buffers=ownData(channel,evaluate(frame,'kMessageBuffer',objectGroup),objectGroup,{writable:true})
-      const size=ownData(channel,evaluate(frame,'kMessageBufferSize',objectGroup),objectGroup,{writable:true})
+      const bufferKey=evaluate(frame,'kMessageBuffer',objectGroup),sizeKey=evaluate(frame,'kMessageBufferSize',objectGroup)
+      if(!bufferKeys||!same(bufferKey,bufferKeys.buffer)||!same(sizeKey,bufferKeys.size))throw Error('buffer key identity changed')
+      const buffers=ownData(channel,bufferKey,objectGroup,{writable:true})
+      const size=ownData(channel,sizeKey,objectGroup,{writable:true})
       if(!Number.isSafeInteger(size.value)||size.value<0)throw Error('buffer size is not a nonnegative integer')
       const buffering=ownData(channel,'buffering',objectGroup,{writable:true})
       if(buffering.type!=='boolean')throw Error('buffering flag is not boolean')
@@ -225,7 +263,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     if(kind==='read:entry') {
       if(reading){fail('IPC read entered before its previous callback returned');readRelease()}
       const eventGroup=group+'-read-'+(++reads.groupsCreated)
-      reading={group:eventGroup,channel:null,checked:false}
+      reading={group:eventGroup,channel:null,checked:false,mode:null}
       if(!frame||frame.location.lineNumber!==637)throw Error('IPC read entry moved from pinned source')
       source(frame.location.scriptId,childSource)
       if(!same(evaluate(frame,'target',eventGroup),receiver)){reads.ignoredReceivers++;readRelease();return}
@@ -253,7 +291,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
           throw Error('IPC async callback arguments differ')
         reads.trampolineEntries++
       }
+      reading.mode=parser(frame,eventGroup,true)
       reading.checked=true
+      checkReadBoundary('entry')
     }else {
       if(!reading)return
       try {
@@ -261,6 +301,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
           throw Error('IPC read return moved from pinned source')
         source(frame.location.scriptId,childSource)
         if(!same(evaluate(frame,'channel',reading.group),reading.channel))throw Error('IPC read returned through another channel')
+        checkReadBoundary('return')
         if(decoding){fail('IPC read returned before decoder delivery');decoderRelease()}
         reads.completed++
       }finally{readRelease()}
@@ -362,7 +403,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       }
     }
   }
-  function parser(frame,objectGroup) {
+  function parser(frame,objectGroup,capture=false) {
     const fn=evaluate(frame,'parseChannelMessages',objectGroup)
     if(fn.type!=='function'||fn.subtype==='proxy'||!fn.objectId)throw Error('IPC parser is not an ordinary function')
     const r=post('Runtime.getProperties',{objectId:fn.objectId,ownProperties:true,generatePreview:false})
@@ -372,6 +413,18 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     source(location.scriptId,parserSource)
     const mode=location.lineNumber===60?'advanced':location.lineNumber===141?'json':null
     if(!mode)throw Error('IPC parser function differs from pinned Node')
+    if(mode==='advanced'&&capture) {
+      if(!bufferKeys) {
+        // Retain the real lexical Symbol identities. Description matching
+        // could inspect attacker-created empty fields instead of raw bytes.
+        const retained=post('Runtime.callFunctionOn',{objectId:receiver.objectId,
+          functionDeclaration:'function(value){return value}',arguments:[{objectId:fn.objectId}],objectGroup:group,silent:true})
+        if(retained.exceptionDetails||!retained.result?.objectId)throw Error('IPC parser baseline handle unavailable')
+        const buffer=binding(retained.result,'kMessageBuffer'),size=binding(retained.result,'kMessageBufferSize')
+        if(buffer.type!=='symbol'||size.type!=='symbol'||!buffer.objectId||!size.objectId)throw Error('IPC buffer symbols unavailable')
+        bufferKeys={fn:retained.result,buffer,size}
+      }else if(!same(fn,bufferKeys.fn))throw Error('IPC parser baseline identity changed')
+    }
     parsers.set(mode,{mode,line:location.lineNumber,column:location.columnNumber,sha256:parserSource})
     return mode
   }
@@ -546,6 +599,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       reads:{...reads,pending:reading!==null,returnLocation:readReturn,completeOwnership:false},
       slices:{...slices,completeOwnership:false},
       assembly:{...assembly,completeOwnership:false},
+      boundaries:{...boundaries,completeOwnership:false,rawByteIsolationProven:false},
       limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}),
     close() {
       if(closed)return

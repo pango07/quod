@@ -31,7 +31,7 @@ function ipcPipe(process) {
 
 const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
-  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')||kind==='retained-copy'
+  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')||kind.startsWith('retained-')
   const boundWire=ipcFrames([1,2].map(value=>({kind:'data',value,privatePath:'/private-ipc-delivery'})),serialization).toString('base64')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
@@ -43,6 +43,7 @@ const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
 const byteCopyPreparations=[];
 let preparations=0,gets=0,asyncHook=null;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
+const nativeBufferKey=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
 const onread=pipe.onread;
 function activeRead(){return executionAsyncResource()===pipe?executionAsyncId():0}
 function prepareWorkerMessage(message){
@@ -224,15 +225,18 @@ if(kind==='parser-protocol-remainder') {
     return undefined;
   }});
 }
+if(kind==='retained-shadow') {
+  for(const name of ['kMessageBuffer','kMessageBufferSize']){
+    const key=Object.getOwnPropertySymbols(pipe).find(s=>s.description===name),d=Object.getOwnPropertyDescriptor(pipe,key);
+    delete pipe[key];pipe[Symbol(name)]=name==='kMessageBuffer'?[]:0;Object.defineProperty(pipe,key,d);
+  }
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
 if(fragmented){const timer=setInterval(()=>{if(pipe.buffering){
   clearInterval(timer);
-  if(kind==='retained-copy'){
-    const key=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
-    copyWire(pipe[key][0]);
-  }
+  if(kind.startsWith('retained-'))copyWire(pipe[nativeBufferKey][0]);
   process.send({kind:'fragment-ready'});
 }},1)}
 process.send({kind:'ready',initial});`
@@ -257,7 +261,7 @@ process.send({kind:'ready',initial});`
           ...(kind==='host-object'?{bytes:Buffer.from([value,value+1])}:{})})
         const bytes=ipcFrames(inputs,serialization)
         // Hold the bytes until child exit even if the native write is async.
-        if(fragmented){const offset=kind==='retained-copy'?bytes.length-1:kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
+        if(fragmented){const offset=kind.startsWith('retained-')?bytes.length-1:kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
         else write(bytes,reject)
       }
       if(message.kind==='fragment-ready'){assert(remainingBytes);write(remainingBytes,reject);remainingBytes=null}
@@ -284,7 +288,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
   ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
   ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced'],
-  ['retained-copy','advanced']]) {
+  ['retained-copy','advanced'],['retained-shadow','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -315,11 +319,14 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
-    if(kind==='retained-copy') {
+    if(kind.startsWith('retained-')) {
       assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
       assert.equal(r.copiedPayloadContainsPath,true);assert.equal(plain.copiedPayloadContainsPath,true)
       assert.deepEqual(r.byteCopyPreparations,[1]);assert.deepEqual(plain.byteCopyPreparations,[1])
       assert.equal(r.gets,0,'ordinary polling must not replace a getter or parser function')
+      assert.equal(r.report.boundaries.retainedEntries,1);assert.equal(r.report.boundaries.retainedReturns,1)
+      assert(r.report.errors.includes('IPC raw bytes retained at read return'))
+      assert(r.report.errors.includes('IPC raw bytes retained at read entry'))
     }
     if(kind.startsWith('parser-')) {
       assert(r.wireCopyBytes>0,'the fixture must copy raw parser inputs')
@@ -337,9 +344,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     }
     assert(!JSON.stringify(r.report).includes('/private-ipc-delivery'))
     if(['normal','normal-fragmented','normal-fragmented-body','emit-precopy','prelistener','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
-      assert.equal(r.report.available,true,JSON.stringify(r.report))
+      assert.equal(r.report.available,!kind.startsWith('normal-fragmented'),JSON.stringify(r.report))
       assert.equal(r.report.decoded,2);assert.equal(r.report.prepared,2);assert.equal(r.report.paired,2)
-      assert.equal(r.report.pending,0);assert.equal(r.report.failures,0)
+      assert.equal(r.report.pending,0);assert.equal(r.report.failures,kind.startsWith('normal-fragmented')?2:0)
       assert.equal(r.report.groupsCreated,r.report.groupsReleased)
       assert.deepEqual(r.report.parsers.map(p=>p.mode),[serialization])
       assert.equal(r.preparations,2)
@@ -357,6 +364,15 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       assert.equal(r.report.assembly.loops,serialization==='advanced'?r.report.reads.entries+r.report.decoded:0)
       assert.equal(r.report.assembly.checked,r.report.assembly.entries+r.report.assembly.loops)
       assert.equal(r.report.assembly.failures,0)
+      assert.equal(r.report.boundaries.entries,serialization==='advanced'?r.report.reads.entries:0)
+      assert.equal(r.report.boundaries.returns,r.report.boundaries.entries)
+      assert.equal(r.report.boundaries.checked,r.report.boundaries.entries+r.report.boundaries.returns)
+      const retained=kind.startsWith('normal-fragmented')?1:0
+      assert.equal(r.report.boundaries.retainedEntries,retained);assert.equal(r.report.boundaries.retainedReturns,retained)
+      assert.equal(r.report.boundaries.emptyEntries,r.report.boundaries.entries-retained)
+      assert.equal(r.report.boundaries.emptyReturns,r.report.boundaries.returns-retained)
+      assert.equal(r.report.boundaries.unsupportedReads,serialization==='json'?r.report.reads.entries:0)
+      assert.equal(r.report.boundaries.rawByteIsolationProven,false)
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
       assert(r.copies.length>0)
