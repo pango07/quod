@@ -104,6 +104,36 @@ try {
   assert.equal(dispatch.ordinaryInstances, 12); assert.equal(dispatch.logicalStates, 4131)
   assert.equal(dispatch.fullJobHit, false)
   assert.equal(dispatch.stickyManagedFailure, false)
+  assert.equal(dispatch.compilationPolicy, 'closed-adjacent-full-fences-before-any-candidate-worker-v1-diagnostic')
+  assert(!Object.hasOwn(dispatch, 'admissionDeclined'), 'SDK role must not hide an admission fallback')
+  const batchFile = path.join(out, 'dispatch/batch-compilation.json')
+  if (role === 'seed' || role === 'control') {
+    const batch = dispatch.compilationBatch
+    assert.equal(batch.attempted, true); assert.equal(batch.requests, 108); assert.equal(batch.completed, true)
+    assert(!Object.hasOwn(batch, 'error'), 'successful cold role retained a batch error')
+    assert.equal(batch.diagnostics.requests, 108); assert.equal(batch.diagnostics.fullFences, 218)
+    const expectedTrace = ['before-constructor', 'after-constructor/before-compile:0',
+      ...Array.from({length: 108}, (_, index) => ['after-compile:' + index + '/before-capture:' + index,
+        index === 107 ? 'after-capture:' + index + '/before-publication'
+          : 'after-capture:' + index + '/before-compile:' + (index + 1)]).flat()]
+    assert.deepEqual(batch.diagnostics.trace, expectedTrace, 'cold SDK role must use the exact 218 full batch fences')
+    assert.deepEqual(JSON.parse(fs.readFileSync(batchFile, 'utf8')), batch, 'actual batch artifact differs from dispatch evidence')
+  } else {
+    assert.deepEqual(dispatch.compilationBatch, {attempted: false, requests: 0, completed: false, seconds: 0})
+    assert(!fs.existsSync(batchFile), 'consumer unexpectedly materialized a candidate compilation batch')
+    assert.deepEqual(dispatch.phases.map(phase => phase.name), ['preflight'], 'consumer started a candidate worker')
+    assert(!fs.readdirSync(path.join(out, 'dispatch')).some(name => name.startsWith('managed-')),
+      'consumer retained a managed candidate execution directory')
+    const candidateRows = dispatch.instances.filter(row => row.candidate)
+    assert.equal(candidateRows.length, 108)
+    for (const row of candidateRows) {
+      assert.equal(row.evidenceDirectory, 'instances/' + row.instanceId)
+      const directory = path.join(out, 'dispatch', row.evidenceDirectory)
+      assert(!fs.existsSync(path.join(directory, 'test-build.json')), 'consumer retained a candidate build')
+      assert(!fs.existsSync(path.join(directory, 'compile-certificate.json')), 'consumer retained a newly captured certificate')
+      assert(!row.workerEvidenceDirectory, 'consumer retained a candidate worker path')
+    }
+  }
   if (role === 'seed') {
     assert.deepEqual(result.sdkCalls, {restore: 1, save: 1})
     assert.equal(dispatch.managedExecutions, 108); assert.equal(dispatch.replayedInstances, 0)

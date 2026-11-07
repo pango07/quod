@@ -11,7 +11,7 @@ import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY,
   canonicalReceiptJSON as canonicalManagedJSON} from './receipt.mjs'
 import {makeMatrixExecutionIdentity, validateMatrixNativeControl, makeMatrixConformance,
   makeMatrixExecutionIdentityFromProof, createMatrixReceipt, lookupMatrixReceipt} from './matrix-receipt.mjs'
-import {captureResolvedCompileCertificate, validateResolvedCompileCertificates,
+import {compileAndCaptureCertifiedBatch, validateResolvedCompileCertificates,
   createCertifiedManagedCompiler} from './resolved-compile-certificate.mjs'
 import {makeMatrixCandidateKey, encodeMatrixCandidateEnvelope, decodeMatrixCandidateEnvelope} from './matrix-candidate-envelope.mjs'
 
@@ -20,6 +20,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (file, data) => fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
 const errorData = error => ({name: String(error?.name || 'Error'), message: String(error?.message || error), stack: String(error?.stack || '')})
 const moduleKey = row => canonicalManagedJSON([row.project, row.file, row.pool])
+const BATCH_POLICY = 'closed-adjacent-full-fences-before-any-candidate-worker-v1-diagnostic'
 
 function complete(data) {
   const boundary = data?.boundary, completion = boundary?.completion
@@ -64,7 +65,8 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     mode: control ? 'control' : 'research', exitCode: 1, instances: [], phases: [],
     selectedScope: suiteFiles ? {kind: 'explicit-file-selection', files: [...suiteFiles]} : {kind: 'complete-original-default-selection', files: null},
     managedExecutions: 0, replayedInstances: 0, recordedReceipts: 0, skippedCompilations: 0,
-    refreshedCandidates: 0, candidatePolicy: MATRIX_CANDIDATE_POLICY}
+    refreshedCandidates: 0, candidatePolicy: MATRIX_CANDIDATE_POLICY, compilationPolicy: BATCH_POLICY,
+    compilationBatch: {attempted: false, requests: 0, completed: false, seconds: 0}}
   const save = () => write(path.join(out, 'result.json'), result)
   const contexts = new Map(), dataById = new Map()
   let suite, stickyManagedFailure = false, native, nativePolicy, admissionFailure, observedNativeFailure = false
@@ -119,7 +121,8 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
       experimentSha256: sha(fs.readFileSync(self)), conformanceAdapterSha256: adapterSha256,
       candidateSelectorSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidates.mjs'))),
       inputValidatorSha256: sha(fs.readFileSync(path.join(here, 'resolved-compile-certificate.mjs'))),
-      candidateEnvelopeSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-envelope.mjs')))}
+      candidateEnvelopeSha256: sha(fs.readFileSync(path.join(here, 'matrix-candidate-envelope.mjs'))),
+      compilationPolicy: BATCH_POLICY}
     result.nativeFingerprintSha256 = nativeFingerprintSha256; result.host = preflightExecutor.host
     result.preflightPassed = true; result.nativePolicy = nativePolicy; result.supervisorPolicy = supervisorPolicy
     const prepared = new Map(suite.prepared.map(row => [row.instanceId, row]))
@@ -174,55 +177,100 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     }
     result.inputValidationSeconds = (performance.now() - validationStarted) / 1000
     result.inputCandidates = inputCandidates.length
+    // Finish all opaque-proof and complete receipt admission before reserving
+    // the compiler. Hits remain private/provisional until every cold member has
+    // crossed its final full fence. No callback runs inside the closed batch.
+    const cold = []
     for (const row of result.instances) {
       if (!row.candidate) continue
       const context = contexts.get(row.instanceId)
       if (!context) {save(); continue}
-      const {candidate, options, policy, executor, directory, phaseDirectory} = context
-      try {
-        if (context.proof) {
+      const {candidate, options, policy} = context
+      if (context.proof) {
+        try {
           const execution = await makeMatrixExecutionIdentityFromProof({proof: context.proof, options, prepared: candidate, ...policy})
           const checked = lookupMatrixReceipt({...context.cached, execution})
           if (checked.hit) {
-            write(path.join(directory, 'execution-identity.json'), execution)
-            row.executionKey = execution.key; row.bundleSha256 = execution.identity.compile.bundleSha256
-            row.compilationSeconds = 0; row.compilationSkipped = true; result.skippedCompilations++
-            row.logicalFileState = checked.data.files[0].state; row.logicalFileName = checked.data.files[0].name
-            row.decision = 'replay'; row.reason = null; row.stage = 'complete'; row.receiptSha256 = checked.receiptSha256
-            fs.writeFileSync(path.join(directory, 'replayed-response.json'), checked.responseBytes)
-            dataById.set(row.instanceId, checked.data); result.replayedInstances++; save(); continue
+            context.replay = {execution, checked, compilationSkipped: true}
+            row.stage = 'receipt-admitted-pending-cold-batch'; continue
           }
           row.cacheMissReason = checked.reason
-        }
-        row.stage = 'compilation'
-        const produced = await compile('runner.mjs', options, candidate.absolute)
-        const built = {...produced, options, preparation: candidate.identity}
+        } catch (error) {row.cacheMissReason = error.message}
+      }
+      row.stage = 'queued-for-cold-batch'; cold.push(context)
+    }
+    if (cold.length) {
+      const batchStarted = performance.now()
+      result.compilationBatch = {attempted: true, requests: cold.length, completed: false, seconds: 0}
+      save()
+      let batch
+      try {
+        batch = await compileAndCaptureCertifiedBatch({project, adapterRoot: here,
+          requestsJSON: canonicalManagedJSON(cold.map(context => ({entry: 'runner.mjs',
+            options: context.options, testFile: context.candidate.absolute})))})
+      } catch (error) {
+        result.compilationBatch.seconds = (performance.now() - batchStarted) / 1000
+        result.compilationBatch.error = errorData(error)
+        result.compilationBatch.fenceTrace = Array.isArray(error.batchFenceTrace) ? error.batchFenceTrace : []
+        write(path.join(out, 'batch-compilation.json'), result.compilationBatch)
+        throw error
+      }
+      result.compilationBatch = {...result.compilationBatch, completed: true,
+        seconds: (performance.now() - batchStarted) / 1000, diagnostics: batch.diagnostics}
+      assert.equal(batch.results.length, cold.length, 'closed compiler batch omitted a requested miss')
+      assert.equal(batch.diagnostics.fullFences, 2 * cold.length + 2, 'closed compiler batch full fence inventory differs')
+      write(path.join(out, 'batch-compilation.json'), result.compilationBatch)
+      // The API has now finished its final full guard and privately issued all
+      // actual builds. Use its exact certificate bytes without strict recapture.
+      // Derive every execution before any candidate worker or replay publication.
+      for (const [index, context] of cold.entries()) {
+        const {row, candidate, options, directory, policy} = context
+        const {built, certificate} = batch.results[index]
+        built.options = options; built.preparation = candidate.identity
+        context.built = built; context.certificate = certificate
+        assert(Buffer.isBuffer(certificate.bytes) && sha(certificate.bytes) === certificate.sha256,
+          'closed batch returned invalid certificate bytes')
         write(path.join(directory, 'test-build.json'), {...built, bundle: undefined})
+        fs.writeFileSync(path.join(directory, 'compile-certificate.json'), certificate.bytes, {flag: 'wx'})
         row.compilationSeconds = built.seconds; row.bundleSha256 = built.sha256
-        context.built = built
-        try {
-          // Only the actual factory-issued object can seed the certificate.
-          context.certificate = captureResolvedCompileCertificate({project, built: produced, options, testFile: candidate.absolute})
-          fs.writeFileSync(path.join(directory, 'compile-certificate.json'), context.certificate.bytes)
-        } catch (error) {row.certificateDeclined = error.message}
         const execution = makeMatrixExecutionIdentity({built, prepared: candidate, ...policy})
         context.execution = execution
         write(path.join(directory, 'execution-identity.json'), execution)
         row.executionKey = execution.key
-        const phaseName = 'managed-' + row.instanceId
-        row.stage = 'lookup'
+        row.stage = 'compiled-pending-serial-execution'
         if (context.cached) {
           const checked = lookupMatrixReceipt({...context.cached, execution})
           if (checked.hit) {
-            row.decision = 'replay'; row.reason = null; row.stage = 'complete'
-            row.receiptSha256 = checked.receiptSha256
-            row.logicalFileState = checked.data.files[0].state; row.logicalFileName = checked.data.files[0].name
-            fs.writeFileSync(path.join(directory, 'replayed-response.json'), checked.responseBytes)
-            context.refresh = context.certificate ? {receiptBytes: context.cached.receiptBytes} : undefined
-            dataById.set(row.instanceId, checked.data); result.replayedInstances++; save(); continue
-          }
-          row.cacheMissReason = checked.reason
+            context.replay = {execution, checked, compilationSkipped: false}
+            context.refresh = {receiptBytes: context.cached.receiptBytes}
+          } else row.cacheMissReason = checked.reason
         }
+      }
+      save()
+    }
+    // Only after all cold builds are closed can any admitted replay omit its
+    // native counterpart. Workers remain fresh, serial and in original order.
+    for (const row of result.instances) {
+      if (!row.candidate) continue
+      const context = contexts.get(row.instanceId)
+      if (!context) {save(); continue}
+      const {executor, directory, phaseDirectory, built} = context
+      try {
+        if (context.replay) {
+          const {execution, checked, compilationSkipped} = context.replay
+          context.execution = execution
+          write(path.join(directory, 'execution-identity.json'), execution)
+          row.executionKey = execution.key; row.bundleSha256 = execution.identity.compile.bundleSha256
+          if (compilationSkipped) {
+            row.compilationSeconds = 0; row.compilationSkipped = true; result.skippedCompilations++
+          }
+          row.decision = 'replay'; row.reason = null; row.stage = 'complete'; row.receiptSha256 = checked.receiptSha256
+          row.logicalFileState = checked.data.files[0].state; row.logicalFileName = checked.data.files[0].name
+          fs.writeFileSync(path.join(directory, 'replayed-response.json'), checked.responseBytes)
+          dataById.set(row.instanceId, checked.data); result.replayedInstances++; save(); continue
+        }
+        assert(built && context.execution, 'cold candidate has no final guarded build')
+        const phaseName = 'managed-' + row.instanceId
         row.stage = 'execution'; row.workerEvidenceDirectory = phaseName; result.managedExecutions++; save()
         phaseRows.set(phaseName, row)
         const data = await executor.execute(phaseName, built.bundle)
@@ -251,8 +299,12 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     // No native test has run yet. Discard any partial replay decisions and
     // perform one complete ordinary fallback; never repeat a native failure.
     admissionFailure = errorData(error); result.admissionDeclined = admissionFailure
-    for (const row of result.instances) {row.decision = 'ordinary'; row.reason = 'research admission declined'}
-    result.replayedInstances = 0; save()
+    for (const row of result.instances) {
+      row.decision = 'ordinary'; row.reason = 'research admission declined'
+      delete row.compilationSkipped
+    }
+    for (const context of contexts.values()) {delete context.replay; delete context.refresh}
+    dataById.clear(); result.replayedInstances = 0; result.skippedCompilations = 0; save()
   }
   try {
     if (!runMatrixNativeBatch) ({runMatrixNativeBatch} = await import('./matrix-native.mjs'))
@@ -340,10 +392,11 @@ export async function dispatchManagedInputMatrix({project: projectArg, out: outA
     }
   } catch (error) {result.error = errorData(error); result.exitCode = 1}
   // There is no retry or native rerun after an observed failure or cache error.
-  if (publish && !control) {
+  if (publish && !control && !admissionFailure) {
     try {result.publication = await publish({exitCode: result.exitCode})}
     catch (error) {result.publicationError = errorData(error); result.exitCode = 1}
   }
+  if (admissionFailure) result.publication = {saved: false, reason: 'research admission declined before complete candidate execution'}
   result.stickyManagedFailure = stickyManagedFailure; result.observedNativeFailure = observedNativeFailure
   result.ordinaryInstances = result.instances.filter(row => row.decision === 'ordinary').length
   result.nativeConformanceInstances = result.instances.filter(row => row.nativeExecuted && row.decision !== 'ordinary').length
