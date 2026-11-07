@@ -1,0 +1,126 @@
+{
+  "gate": "https://github.com/pango07/quod/actions/runs/42365187132",
+  "source": "45393a3776d9007f84bc5c463127a1836fe7c82e",
+  "rustTests": 126,
+  "javascriptTests": 92,
+  "clippy": "passed",
+  "artifact": {
+    "id": 13571332237,
+    "bytes": 59357,
+    "sha256": "8cc65195bb4ca299f82a0f9041db7bd2397772769c5a2bb5dd1969ae9823f04c"
+  },
+  "reportedFixture": {
+    "sourceOverride": false,
+    "wrong": 0,
+    "backoffRuns": 8,
+    "failedInputExecuted": true,
+    "proofsPreserved": true,
+    "periodicRetry": true,
+    "stableRecovery": true,
+    "fullOverride": true,
+    "disabledOverride": true,
+    "explicitNoRecordUnchanged": true,
+    "pendingLineagePreventsBackoff": true
+  },
+  "independentReportChecks": {
+    "runs": 23,
+    "backoffs": 8,
+    "wrong": 0,
+    "recoveredReplay": 2,
+    "reports": [
+      {
+        "phase": "plain-before",
+        "sha256": "b3ae83b60e7b1fdf641b0297bdf0023b54e99d462b88d3de84730f4f3854f2ad"
+      },
+      {
+        "phase": "cold",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "witness",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "warm",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "recorded-miss-1",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "recorded-miss-2",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-3",
+        "sha256": "2c5b710efc0f7c741e2554d36269cd5c3aff1c367cd6316984f2ab0537a33c6f"
+      },
+      {
+        "phase": "plain-changed",
+        "sha256": "fe9386c38eebdc5b935daddf292c0042faf610e09f59ae4810ee6ad6914042e6"
+      },
+      {
+        "phase": "backoff-4",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-5",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-6",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-7",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-8",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-9",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "periodic-recording",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "backoff-before-stability",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "stable-recording",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "stable-witness",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "recovered-replay",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "forced-full",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "switch-off",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "explicit-no-record",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      },
+      {
+        "phase": "pending-lineage",
+        "sha256": "888d8a201749d6aba7467c011443d9b6712528034c073b00f819f0fcf7347cf9"
+      }
+    ]
+  },
+  "performance": "not measured by this fixture"
+}

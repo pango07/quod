@@ -46,3 +46,28 @@ recording overhead, but a passing fixture alone cannot establish a net
 improvement. Keep this experimental until a bounded real-workload comparison
 shows its cost and results, then gate the packaged Action before changing
 the benchmark pin.
+
+## Gated implementation
+
+[Gate 42365187132](https://github.com/pango07/quod/actions/runs/42365187132)
+passed at `45393a3776d9007f84bc5c463127a1836fe7c82e`: 126 Rust tests,
+92 JavaScript tests, Clippy and the release-binary regressions. The new
+fixture completed 23 invocations, including eight adaptive plain executions.
+Its changed input failed in both Quod and plain, with zero replay during
+backoff. Recording resumed after seven skips and immediately when shared
+inputs stabilized; the recovered state then replayed both fixture files.
+Full/off/no-record/pending-lineage guards passed. Existing environment,
+descriptor and realpath correctness regressions also passed.
+
+The [evidence](recording-admission.json) retains the verified artifact digest
+and hashes of all 23 reports. Independent parsing checked every report's
+test names and states, the changed failure, zero backoff replays, periodic
+retry, stable recovery and override labels. Proof preservation is asserted
+inside the release fixture; it is not inferred from equal test output.
+
+The source-only follow-up `f8cada8` applies the gate's formatting and adds a
+separate bounded full-suite cost probe. It explicitly primes the economic
+hint to avoid three extra full-suite training runs. Its measured path must
+preserve every proof and every test result; it is not a naturally warmed
+window or an end-to-end cost measurement. The Action and original benchmark
+pins remain unchanged pending evidence.
