@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "entry": "boundary-fixture.mjs",
+  "environmentVariable": "QUOD_BOUNDARY_FIXTURE_MODE",
+  "isolatedProcessPerMode": true,
+  "completionBounds": {
+    "nativeTurnFencesMax": 512,
+    "timerCallbacksMax": 4097
+  },
+  "cases": [
+    {
+      "mode": "control",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "pendingTimerCallbacks": 0,
+        "pendingEventCallbacks": 0,
+        "pendingMicrotasks": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0
+      }
+    },
+    {
+      "mode": "interval",
+      "expected": {
+        "ok": true,
+        "sealed": false,
+        "pendingTimersMin": 1,
+        "reasonIncludes": "budget",
+        "unsupportedIncludes": [
+          "incomplete async effects:"
+        ]
+      }
+    },
+    {
+      "mode": "detached-timer-pending",
+      "expected": {
+        "ok": true,
+        "sealed": false,
+        "pendingTimers": 0,
+        "pendingTimerCallbacksMin": 1,
+        "reasonIncludes": "budget",
+        "unsupportedIncludes": [
+          "incomplete async effects:"
+        ]
+      }
+    },
+    {
+      "mode": "detached-timer-rejection",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "pendingTimers": 0,
+        "pendingTimerCallbacks": 0,
+        "reasonIncludes": "asynchronous errors",
+        "timerErrorsInclude": [
+          "QUOD_DETACHED_TIMER_REJECTION"
+        ]
+      }
+    },
+    {
+      "mode": "unhandled-promise",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "reasonIncludes": "asynchronous errors",
+        "unhandledErrorsInclude": [
+          "QUOD_UNHANDLED_PROMISE"
+        ]
+      }
+    },
+    {
+      "mode": "async-event-listener",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "reasonIncludes": "asynchronous errors",
+        "unhandledErrorsInclude": [
+          "QUOD_ASYNC_EVENT_LISTENER"
+        ]
+      }
+    },
+    {
+      "mode": "async-event-listener-pending",
+      "expected": {
+        "ok": true,
+        "sealed": false,
+        "pendingEventCallbacksMin": 1,
+        "reasonIncludes": "budget",
+        "unsupportedIncludes": [
+          "incomplete async effects:"
+        ]
+      }
+    },
+    {
+      "mode": "sync-event-listener",
+      "expected": {
+        "ok": false,
+        "sealed": false,
+        "reasonIncludes": "asynchronous errors",
+        "unhandledErrorsInclude": [
+          "QUOD_SYNC_EVENT_LISTENER"
+        ]
+      }
+    },
+    {
+      "mode": "global-event-receiver",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "unsupportedIncludes": [
+          "global EventTarget.addEventListener",
+          "global EventTarget.removeEventListener",
+          "global EventTarget.dispatchEvent"
+        ]
+      }
+    },
+    {
+      "mode": "reflect-construct-clock",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0
+      }
+    },
+    {
+      "mode": "set-add-erasure",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "unsupportedIncludes": [
+          "global fetch"
+        ]
+      }
+    },
+    {
+      "mode": "json-tojson-forgery",
+      "expected": {
+        "ok": false,
+        "sealed": true,
+        "forgedAbsent": true,
+        "evidenceSentinel": "QUOD_HONEST_FAILED_RECEIPT",
+        "checksAllPass": true
+      }
+    },
+    {
+      "mode": "als-tampering",
+      "expected": {
+        "ok": true,
+        "sealed": true,
+        "pendingTimers": 0,
+        "timerErrors": 0,
+        "unhandledErrors": 0
+      }
+    }
+  ]
+}

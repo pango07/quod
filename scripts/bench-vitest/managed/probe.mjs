@@ -5,9 +5,10 @@ import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import {createRequire} from 'node:module'
-import {fileURLToPath, pathToFileURL} from 'node:url'
+import {fileURLToPath} from 'node:url'
 import {spawn, spawnSync} from 'node:child_process'
-import {build} from 'esbuild'
+import {createManagedCompiler} from './compiler.mjs'
+import {prepareManagedProject} from './preparation.mjs'
 
 const [projectArg, outArg] = process.argv.slice(2)
 const project = path.resolve(projectArg), out = path.resolve(outArg)
@@ -16,13 +17,12 @@ assert(!fs.existsSync(out)); fs.mkdirSync(out, {recursive: true})
 // its ordinary CLI does. Setting root alone does not reproduce that context.
 process.chdir(project)
 const here = path.dirname(fileURLToPath(import.meta.url)), require = createRequire(import.meta.url)
-const fromProject = createRequire(path.join(project, 'package.json'))
 const workerd = path.join(path.dirname(require.resolve('workerd/package.json')), 'bin/workerd')
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  boundaryChecksVersion: 3, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  boundaryChecksVersion: 4, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
   workerdSha256: sha(fs.readFileSync(workerd)), phases: []}
 write('result.json', results)
 
@@ -75,89 +75,29 @@ const config :Workerd.Config = (
     await exited; fs.closeSync(log)
   }
 }
-const globs = [], adapters = []
-const supported = data => !data.error && data.boundary.unsupported.length === 0 &&
-  data.boundary.unguardable.length === 0 && data.boundary.timerErrors.length === 0
+// Compatibility is deliberately stricter than a green test report. No field
+// below grants replay admission; the shared Vitest realm is still under review.
+const supported = data => !data.error && data.boundary?.completion?.sealed === true &&
+  data.boundary.unsupported.length === 0 && data.boundary.unguardable.length === 0 &&
+  data.boundary.timerErrors.length === 0 && data.boundary.unhandledErrors.length === 0 &&
+  data.boundary.pendingTimers === 0 && data.boundary.completion.pendingTimerCallbacks === 0 &&
+  data.boundary.completion.pendingMicrotasks === 0 && data.boundary.completion.pendingEventCallbacks === 0
 const normalizedRows = rows => {
   const states = {pass: 'passed', fail: 'failed', skip: 'skipped', todo: 'todo'}
   return rows.map(r => [r.name, states[r.state] || r.state]).sort()
 }
-async function compile(entry, options, testFile) {
-  const ts = testFile ? fromProject('typescript') : null
-  const start = performance.now()
-  const compiled = await build({
-    entryPoints: [path.join(here, entry)], absWorkingDir: project, bundle: true,
-    write: false, platform: 'browser', format: 'esm', target: 'es2022', metafile: true,
-    define: {__QUOD_CONFIG__: JSON.stringify(options)},
-    plugins: [{name: 'managed-module-boundary', setup(builder) {
-      builder.onResolve({filter: /^__QUOD_TEST_ENTRY__$/}, () => ({path: testFile}))
-      builder.onResolve({filter: /^quod:capabilities$/}, () => ({path: path.join(here, 'prelude.mjs')}))
-      builder.onResolve({filter: /^node:/}, args => {
-        if (args.path === 'node:async_hooks') return {path: args.path, external: true}
-        throw new Error('unsupported native module: ' + args.path)
-      })
-      builder.onResolve({filter: /^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/}, args => ({path:
-        args.path === 'vitest'
-          ? path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/index.js')
-          : fromProject.resolve(args.path)}))
-      builder.onLoad({filter: /\.[cm]?[jt]sx?$/}, args => {
-        if (!ts || !args.path.startsWith(project + '/')) return
-        let contents = fs.readFileSync(args.path, 'utf8')
-        if (args.path === path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/chunks/spy.DPLvp2J7.js')) {
-          // Vitest's private mock registry uses weak references only to release
-          // memory. Retain those references until this one-file process ends.
-          // Never expose a fake GC API to tests; reject any other source version.
-          const sourceSha256 = sha(contents)
-          assert.equal(sourceSha256, '537be954493014020a2c07df3e6cbc9e8eb3c5524911b19a43b8b4a3db1f4c0c')
-          contents = contents.replace('new FinalizationRegistry((ref) => {\n\tREGISTERED_MOCKS.delete(ref);\n})', '{register() {}}')
-            .replace('new WeakRef(mock)', '{deref: () => mock}')
-          assert(!contents.includes('FinalizationRegistry') && !contents.includes('WeakRef'))
-          adapters.push({source: path.relative(project, args.path), sourceSha256,
-            policy: 'Retain Vitest private mock references for this file lifetime', adaptedSha256: sha(contents)})
-          return {contents, loader: 'js'}
-        }
-        if (args.path === path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/chunks/index.OVGXnVRj.js')) {
-          // The vendored fake-timer library probes Intl while loading. Intl
-          // is explicitly unavailable in this contract; do not let this
-          // optional framework probe acquire the guarded native namespace.
-          const sourceSha256 = sha(contents)
-          assert.equal(sourceSha256, '57c89e884bab20623afc06a58119c70c4f2e06397ae63e961ad0a0810c9a94b5')
-          const probe = 'isPresent.Intl = _global.Intl && typeof _global.Intl === "object";'
-          assert.equal(contents.split(probe).length, 2)
-          contents = contents.replace(probe, 'isPresent.Intl = false; // Quod managed: Intl unsupported')
-          adapters.push({source: path.relative(project, args.path), sourceSha256,
-            policy: 'Disable optional fake-timer Intl integration; test Intl remains denied', adaptedSha256: sha(contents)})
-          return {contents, loader: 'js'}
-        }
-        if (!contents.includes('import.meta.glob')) return
-        const tree = ts.createSourceFile(args.path, contents, ts.ScriptTarget.Latest, true)
-        const edits = []
-        function visit(node) {
-          if (ts.isCallExpression(node) && node.expression.getText(tree) === 'import.meta.glob') {
-            assert.equal(node.arguments.length, 1, 'glob options unsupported')
-            assert(ts.isStringLiteral(node.arguments[0]), 'only literal glob is supported')
-            const pattern = node.arguments[0].text, dir = path.dirname(args.path)
-            const names = [...fs.globSync(pattern, {cwd: dir})].map(p => './' + p.replaceAll('\\', '/')).sort()
-            globs.push({source: path.relative(project, args.path), pattern, names})
-            const replacement = '{' + names.map(name => `${JSON.stringify(name)}:()=>__quodDeny(${JSON.stringify('lazy module ' + name)})`).join(',') + '}'
-            edits.push({start: node.getStart(tree), end: node.getEnd(), replacement})
-          }
-          ts.forEachChild(node, visit)
-        }
-        visit(tree)
-        for (const edit of edits.sort((a, b) => b.start - a.start)) contents = contents.slice(0, edit.start) + edit.replacement + contents.slice(edit.end)
-        if (edits.length) contents = `import {deny as __quodDeny} from 'quod:capabilities';\n` + contents
-        return {contents, loader: /\.tsx?$/.test(args.path) ? 'ts' : 'js'}
-      })
-    }}],
-  })
-  const bundle = compiled.outputFiles[0].text
-  const imports = Object.values(compiled.metafile.outputs).flatMap(o => o.imports)
-  assert(imports.every(i => i.path === 'node:async_hooks'), 'bundle is not closed')
-  return {bundle, metadata: compiled.metafile, seconds: (performance.now() - start) / 1000, sha256: sha(bundle)}
-}
+const compile = createManagedCompiler({project})
 
 try {
+  const compilerLog = fs.openSync(path.join(out, 'compiler-checks.log'), 'w')
+  let compilerCheck
+  try {
+    compilerCheck = spawnSync(process.execPath, [path.join(here, 'compiler-fixtures/check.mjs'), project, path.join(out, 'compiler-checks')],
+      {cwd: project, stdio: ['ignore', compilerLog, compilerLog], timeout: 60000})
+  } finally { fs.closeSync(compilerLog) }
+  assert.equal(compilerCheck.status, 0, 'closed compiler regression gate failed; inspect compiler-checks.log')
+  results.compilerChecksPassed = true
+  write('result.json', results)
   const fixture = await compile('preflight.mjs', base)
   write('preflight-build.json', {...fixture, bundle: undefined})
   const one = await execute('preflight-one', fixture.bundle)
@@ -175,31 +115,45 @@ try {
     'native fetch must reach the configured deny service')
   results.nativeOutboundDenied = true; write('result.json', results)
 
-  const {createVitest} = await import(pathToFileURL(fromProject.resolve('vitest/node')).href)
-  const ctx = await createVitest({root: project, watch: false, run: true, reporters: []})
+  const boundaryCases = JSON.parse(fs.readFileSync(path.join(here, 'boundary-fixture-cases.json')))
+  results.boundaryFixtureEvidence = []
+  for (const {mode, expected} of boundaryCases.cases) {
+    const name = 'boundary-' + mode
+    const options = {...base, env: {...base.env, [boundaryCases.environmentVariable]: mode}}
+    const built = await compile(boundaryCases.entry, options)
+    write(name + '-build.json', {...built, bundle: undefined, options})
+    const data = await execute(name, built.bundle), boundary = data.boundary, completion = boundary?.completion
+    assert(!data.error, name + ' fixture execution error')
+    assert.equal(data.mode, mode)
+    assert.equal(data.ok, expected.ok, name + ' result')
+    assert(data.checks.length > 0 && data.checks.every(check => check.pass), name + ' checks')
+    assert.equal(completion?.sealed, expected.sealed, name + ' completion')
+    assert(completion.nativeTurnFences <= boundaryCases.completionBounds.nativeTurnFencesMax)
+    assert(completion.timerCallbacks <= boundaryCases.completionBounds.timerCallbacksMax)
+    for (const key of ['pendingTimers', 'pendingTimerCallbacks', 'pendingMicrotasks', 'pendingEventCallbacks', 'timerErrors', 'unhandledErrors']) {
+      const actual = key === 'pendingTimers' ? boundary.pendingTimers
+        : key === 'timerErrors' || key === 'unhandledErrors' ? boundary[key].length : completion[key]
+      if (Object.hasOwn(expected, key)) assert.equal(actual, expected[key], name + ' ' + key)
+      if (Object.hasOwn(expected, key + 'Min')) assert(actual >= expected[key + 'Min'], name + ' ' + key + ' minimum')
+    }
+    if (expected.reasonIncludes) assert(completion.reason.includes(expected.reasonIncludes), name + ' reason')
+    for (const key of ['unsupported', 'timerErrors', 'unhandledErrors']) {
+      for (const substring of expected[key + 'Includes'] || expected[key + 'Include'] || []) {
+        assert(boundary[key].some(value => value.includes(substring)), name + ' missing ' + substring)
+      }
+    }
+    if (expected.forgedAbsent) assert(!Object.hasOwn(data, 'forged'), name + ' serializer forged receipt')
+    if (expected.evidenceSentinel) assert.equal(data.evidence.sentinel, expected.evidenceSentinel)
+    results.boundaryFixtureEvidence.push({mode, expected, checks: data.checks.length,
+      sealed: completion.sealed, responseSha256: results.phases.at(-1).responseSha256})
+    write('result.json', results)
+  }
+  results.boundaryFixtureChecksPassed = true
+
   const file = 'packages/convex-helpers/server/stream.property.test.ts'
-  let config
-  try {
-    const specs = await ctx.globTestSpecifications([path.join(project, file)])
-    write('project-selection.json', {projects: ctx.projects.map(p => ({name: p.config.name, root: p.config.root})),
-      selected: specs.map(s => ({file: s.moduleId, project: s.project.config.name}))})
-    assert.equal(specs.length, 1, 'expected one actual Vitest specification for the expensive test')
-    const p = specs[0].project
-    assert.equal(p.config.root, path.join(project, 'packages/convex-helpers'))
-    assert(!p.config.name?.startsWith('zod-'), 'a Zod-only project must not select this test')
-    assert.equal(p.serializedConfig.setupFiles.length, 0)
-    assert.equal(p.serializedConfig.snapshotSerializers.length, 0)
-    assert(!p.serializedConfig.snapshotEnvironment)
-    assert(!fs.existsSync(path.join(project, 'packages/convex-helpers/server/__snapshots__/stream.property.test.ts.snap')))
-    const encoded = JSON.stringify(p.serializedConfig, (_key, value) => {
-      assert(typeof value !== 'function', 'function-valued configuration unsupported')
-      assert(!(value instanceof RegExp), 'regexp configuration needs explicit serialization')
-      return value
-    })
-    config = JSON.parse(encoded.replaceAll(project, '/project'))
-    // A declared managed shuffle seed replaces the ambient default Date.now seed.
-    config.sequence.seed = base.seed
-  } finally { await ctx.close() }
+  const prepared = await prepareManagedProject({project, file, seed: base.seed})
+  write('project-selection.json', prepared.evidence)
+  const config = prepared.config
   const testFile = path.join(project, file)
   results.testSourceSha256 = sha(fs.readFileSync(testFile))
   const options = {...base, vitest: config, file: '/project/' + file}
@@ -215,7 +169,7 @@ try {
     const name = 'fixture-' + mode, env = {...base.env, QUOD_FIXTURE_MODE: mode}
     const fixtureOptions = {...base, env, vitest: structuredClone(config), file: '/project/.quod-managed-fixtures/fixture.test.mjs'}
     const built = await compile('runner.mjs', fixtureOptions, fixtureFile)
-    write(name + '-build.json', {...built, bundle: undefined, adapters, options: fixtureOptions})
+    write(name + '-build.json', {...built, bundle: undefined, options: fixtureOptions})
     let actual
     try { actual = await execute(name, built.bundle) }
     catch (error) { actual = {ok: false, error: {name: error?.name, message: error?.message}} }
@@ -243,8 +197,46 @@ try {
   }
   results.fixtureChecksPassed = true
 
+  // Compilation checks alone cannot establish that a caught computed import
+  // retains its flag. Exercise the emitted code with real Vitest as well.
+  results.moduleFixtureEvidence = []
+  const moduleDir = path.join(fixtureDir, 'modules'); fs.mkdirSync(moduleDir)
+  for (const name of ['literal-import.test.mjs', 'literal-value.mjs', 'computed-import.test.mjs', 'evaluation.test.mjs', 'metadata.test.mjs']) {
+    fs.copyFileSync(path.join(here, 'compiler-fixtures', name), path.join(moduleDir, name))
+  }
+  const moduleConfig = path.join(moduleDir, 'vitest.config.mjs')
+  fs.writeFileSync(moduleConfig, 'export default {test:{include:[".quod-managed-fixtures/modules/*.test.mjs"],environment:"node"}}\n')
+  for (const [mode, count, reason] of [['literal-import', 1, null], ['computed-import', 1, 'computed module import'],
+    ['evaluation', 2, 'dynamic code evaluation'], ['metadata', 3, 'ambient module metadata']]) {
+    const name = 'module-' + mode, source = path.join(moduleDir, mode + '.test.mjs')
+    const moduleOptions = {...base, vitest: structuredClone(config), file: '/project/.quod-managed-fixtures/modules/' + mode + '.test.mjs'}
+    const built = await compile('runner.mjs', moduleOptions, source)
+    write(name + '-build.json', {...built, bundle: undefined, options: moduleOptions})
+    const actual = await execute(name, built.bundle)
+    const report = path.join(out, name + '-ordinary.json'), log = fs.openSync(path.join(out, name + '-ordinary.log'), 'w')
+    let ordinary
+    const started = performance.now()
+    try {
+      ordinary = spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', source,
+        '--config', moduleConfig, '--reporter=json', '--outputFile.json=' + report],
+        {cwd: project, env: {...process.env, ...base.env}, stdio: ['ignore', log, log], timeout: 30000})
+    } finally { fs.closeSync(log) }
+    assert.equal(ordinary.status, 0, name + ' ordinary control failed')
+    const rows = JSON.parse(fs.readFileSync(report)).testResults.flatMap(f => f.assertionResults.map(a => [a.fullName, a.status])).sort()
+    const evidence = {mode, managedSupported: supported(actual), managedPassed: actual.ok, rows,
+      ordinaryExit: ordinary.status, ordinarySeconds: (performance.now() - started) / 1000,
+      ordinaryReportSha256: sha(fs.readFileSync(report)), fallbackExecuted: !supported(actual)}
+    results.moduleFixtureEvidence.push(evidence); write('result.json', results)
+    assert.equal(actual.ok, true, name + ' must preserve passing outcome')
+    assert.equal(actual.rows.length, count, name + ' count')
+    assert.equal(supported(actual), !reason, name + ' support classification')
+    assert.deepEqual(actual.boundary.unsupported, reason ? [reason] : [])
+    assert.deepEqual(normalizedRows(actual.rows), rows, name + ' names and states')
+  }
+  results.moduleFixtureChecksPassed = true
+
   const compiled = await compile('runner.mjs', options, testFile)
-  write('test-build.json', {...compiled, bundle: undefined, globs, adapters, options})
+  write('test-build.json', {...compiled, bundle: undefined, options, preparation: prepared.identity})
   const managed = await execute('managed', compiled.bundle)
   results.managedSupported = supported(managed)
   results.managedPassed = Boolean(managed.ok)
@@ -256,7 +248,7 @@ try {
   // Do not spend another expensive ordinary run debugging a small fixture.
   // The selected real file has not been attempted if these gates failed;
   // the fixture's own ordinary control/fallback above is the matching one.
-  if (!results.fixtureChecksPassed) {
+  if (!results.fixtureChecksPassed || !results.moduleFixtureChecksPassed) {
     results.expensiveTestAttempted = false
     write('result.json', results)
     console.log(JSON.stringify({...results, phases: results.phases.map(p => ({name: p.name, seconds: p.seconds, ok: p.data.ok}))}))
@@ -288,5 +280,6 @@ try {
   assert.equal(results.preflightPassed, true, 'capability gate failed; no managed eligibility')
   assert.equal(results.nativeOutboundDenied, true, 'runtime outbound gate failed')
   assert.equal(results.fixtureChecksPassed, true, 'real runner failure/fallback gate failed')
-  if (results.managedSupported) assert.equal(results.namesAndStatesAgree, true, 'managed states differ')
+  assert.equal(results.managedSupported, true, 'managed execution did not complete under the hardened contract')
+  assert.equal(results.namesAndStatesAgree, true, 'managed states differ')
 }

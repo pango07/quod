@@ -5,6 +5,7 @@ export default {
   async fetch(request) {
     if (new URL(request.url).pathname === '/health') return runtime.response({ready: true})
     runtime.begin()
+    runtime.lockdown()
     const checks = [], check = (name, pass) => checks.push({name, pass: Boolean(pass)})
     try {
       check('fixed date', Date.now() === runtime.options.epoch)
@@ -34,6 +35,13 @@ export default {
       target.addEventListener('local', () => { deliveries++ }, {once: true})
       target.dispatchEvent(event); target.dispatchEvent(event)
       check('local synchronous events preserve once semantics', deliveries === 1)
+      // Keep these aliases indirect. The compiler rejects residual direct
+      // eval/Function calls even in reviewed adapters; this checks the runtime
+      // guards that must still reject an alias acquired before invocation.
+      const evaluate = globalThis.eval, construct = globalThis.Function
+      const constructAsync = Object.getPrototypeOf(async function () {}).constructor
+      const constructGenerator = Object.getPrototypeOf(function* () {}).constructor
+      const constructAsyncGenerator = Object.getPrototypeOf(async function* () {}).constructor
       const failures = []
       for (const [name, invoke] of [
         ['fetch', () => fetch('https://example.com')],
@@ -43,16 +51,29 @@ export default {
         ['Event.timeStamp', () => event.timeStamp],
         ['WebAssembly', () => WebAssembly.compile(new Uint8Array())],
         ['AbortSignal.timeout', () => AbortSignal.timeout(1)],
+        ['eval alias', () => evaluate('1')],
+        ['Function alias', () => construct('return 1')],
+        ['AsyncFunction alias', () => constructAsync('return 1')],
+        ['GeneratorFunction alias', () => constructGenerator('yield 1')],
+        ['AsyncGeneratorFunction alias', () => constructAsyncGenerator('yield 1')],
+        ['global EventTarget.addEventListener', () => EventTarget.prototype.addEventListener.call(globalThis, 'quod-private-fixture', () => {})],
+        ['global EventTarget.removeEventListener', () => EventTarget.prototype.removeEventListener.call(globalThis, 'quod-private-fixture', () => {})],
+        ['global EventTarget.dispatchEvent', () => EventTarget.prototype.dispatchEvent.call(globalThis, new Event('quod-private-fixture'))],
       ]) {
         try { await invoke(); failures.push(name) } catch (error) { check('deny ' + name, String(error).includes('QUOD_MANAGED_UNSUPPORTED')) }
       }
       check('all attempted unsupported operations rejected', failures.length === 0)
+      await runtime.complete()
       const data = runtime.finish({checks, random})
-      check('caught rejection remains recorded', data.boundary.unsupported.length >= 7)
+      check('caught rejection remains recorded', data.boundary.unsupported.length >= 15)
       check('no unguardable ambient properties', data.boundary.unguardable.length === 0)
+      check('completion drains every managed effect', data.boundary.completion.sealed &&
+        data.boundary.pendingTimers === 0 && data.boundary.completion.pendingTimerCallbacks === 0 &&
+        data.boundary.completion.pendingMicrotasks === 0)
       data.ok = checks.every(c => c.pass)
       return runtime.response(data)
     } catch (error) {
+      await runtime.complete()
       return runtime.response(runtime.finish({ok: false, checks, error: String(error?.stack || error)}))
     }
   },

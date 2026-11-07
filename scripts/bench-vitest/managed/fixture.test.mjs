@@ -8,6 +8,12 @@ test('real spies retain reset and restore behavior', () => {
   expect(spy).toHaveBeenCalledExactlyOnceWith()
   vi.restoreAllMocks()
   expect(target.value()).toBe(4)
+  // Date.now is an explicitly supported spy target in the managed contract.
+  // Intrinsic hardening must still preserve the ordinary restore behavior.
+  const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(123)
+  expect(Date.now()).toBe(123)
+  dateSpy.mockRestore()
+  expect(Date.now()).not.toBe(123)
   const mock = vi.fn().mockReturnValue(9)
   expect(mock()).toBe(9)
   vi.clearAllMocks()
@@ -23,6 +29,10 @@ test('actual async assertions and context propagation work', async () => {
     await new Promise(resolve => setTimeout(resolve, 1))
     return storage.getStore()
   })))).resolves.toEqual([1, 2])
+  expect(storage.getStore()).toBeUndefined()
+  const bound = storage.run('bound-store', () => AsyncLocalStorage.bind(() => storage.getStore()))
+  await new Promise(resolve => setTimeout(resolve, 1))
+  expect(bound()).toBe('bound-store')
   expect(storage.getStore()).toBeUndefined()
 })
 
