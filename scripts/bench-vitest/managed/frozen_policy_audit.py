@@ -106,6 +106,9 @@ def verify_policy_receipts(root):
     def checked(name):
         raw, value = read(name)
         require(raw == canonical(value), 'cross-policy receipt is not canonical')
+        require(set(value) == {'schema', 'researchOnly', 'execution', 'expected', 'response', 'resultDigest'} and
+                value['schema'] == 'quod-managed-receipt-v1-research' and value['researchOnly'] is True and
+                value['expected'] == {'count': 1, 'file': 'fixture.test.mjs'}, 'cross-policy receipt schema/scope differs')
         key = h(b'quod-managed-execution-v1-research\n' + canonical(value['execution']['identity']))
         require(key == value['execution']['key'], 'cross-policy execution domain digest differs')
         encoded = value['response']['bytes']
@@ -126,15 +129,21 @@ def verify_policy_receipts(root):
     require(seed['execution']['identity']['runtimePolicy']['intrinsicPolicy'] == POLICY and
             seed['execution']['identity']['runtimePolicy']['boundaryContract'] == CONTRACT and
             seed_data['boundary']['intrinsicPolicy'] == POLICY and seed_data['boundary']['contract'] == CONTRACT, 'new policy omitted from key/response')
+    require(seed_data['ok'] is True and seed_data['rows'] == [{'name': 'closed managed fixture', 'state': 'pass', 'errors': []}] and
+            seed_data['files'] == [{'name': 'fixture.test.mjs', 'state': 'pass', 'errors': []}], 'constructed seed workload differs')
     old_sha, old, old_data = checked('legacy-policy-receipt.json')
     require(old_sha == policy['legacyReceipt']['sha256'] and old['execution']['key'] == policy['legacyExecutionKey'] != policy['currentExecutionKey'], 'legacy policy key/byte evidence differs')
     expected_old = json.loads(json.dumps(seed['execution']['identity']))
     del expected_old['runtimePolicy']['boundaryContract']
     del expected_old['runtimePolicy']['intrinsicPolicy']
-    require(old['execution']['identity'] == expected_old and old_data['boundary']['contract'] == 'quod-managed-v0-investigation' and
-            'intrinsicPolicy' not in old_data['boundary'], 'legacy cross-policy evidence was relabeled')
+    expected_old_data = json.loads(json.dumps(seed_data))
+    expected_old_data['boundary']['contract'] = 'quod-managed-v0-investigation'
+    del expected_old_data['boundary']['intrinsicPolicy']
+    require(old['execution']['identity'] == expected_old and old_data == expected_old_data and
+            policy['legacyReceipt']['file'] == 'legacy-policy-receipt.json', 'legacy cross-policy evidence was relabeled')
     relabeled_sha, relabeled, relabeled_data = checked('frozen-key-legacy-response.json')
-    require(relabeled_sha == policy['relabeledLegacyResponse']['sha256'] and relabeled['execution'] == seed['execution'] and
+    require(policy['relabeledLegacyResponse']['file'] == 'frozen-key-legacy-response.json' and
+            relabeled_sha == policy['relabeledLegacyResponse']['sha256'] and relabeled['execution'] == seed['execution'] and
             relabeled_data == old_data, 'coherent new key/legacy response rejection evidence differs')
     return {'originalChecks': len(result['checks']), 'policyChecks': len(result['policyChecks']), 'legacyKey': old['execution']['key'],
             'currentKey': seed['execution']['key']}
