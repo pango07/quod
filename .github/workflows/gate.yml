@@ -931,6 +931,21 @@ jobs:
           gdb --batch --return-child-result -ex run -ex 'thread apply all bt 30' \
             --args node scripts/bench-vitest/native-scalar-property-probe.test.mjs
 
+  # Fast IPC regression gate; the worker-boundary gate still runs these
+  # checks before its complete convex-helpers workload.
+  benchmark-ipc-delivery:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-ipc-delivery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: node --test scripts/bench-vitest/ipc-delivery-probe.test.mjs
+
   benchmark-worker-inputs:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-worker-inputs' || inputs.only == 'benchmark-worker-config' || inputs.only == 'benchmark-worker-capabilities' || inputs.only == 'benchmark-worker-arguments' || inputs.only == 'benchmark-worker-modules' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata' || inputs.only == 'benchmark-worker-boundary')
     runs-on: ubuntu-latest

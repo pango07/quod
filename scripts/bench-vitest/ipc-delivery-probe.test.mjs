@@ -136,6 +136,15 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
     assert.deepEqual(r.order,plain.order,'IPC batch evidence: '+JSON.stringify({plain:plain.deliveryEvents,observed:r.deliveryEvents}))
+    if(['decoder-copy','generator-copy','protocol-getter'].includes(kind))for(const run of [plain,r]) {
+      const copies=run.deliveryEvents.filter(e=>e.operation==='copy')
+      assert.equal(copies.length,2)
+      assert.equal(new Set(copies.map(e=>e.read)).size,1,'both copies must occur in the same native read')
+      assert(copies[0].read>0,'copies must occur inside the native read callback')
+      assert.deepEqual(run.order,['copy','copy','consumer','consumer'])
+      assert(run.deliveryEvents.filter(e=>e.operation==='consumer').every(e=>e.read===0),
+        'message consumers must remain deferred until after the native read callback')
+    }
     assert.equal(r.gets,plain.gets,'the decoder checks must not invoke a getter')
     assert.equal(r.initial.available,true,JSON.stringify(r.initial))
     assert.deepEqual(r.compilationErrors,[])
