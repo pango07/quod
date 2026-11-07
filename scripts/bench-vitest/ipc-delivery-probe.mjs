@@ -20,7 +20,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const reads={entries:0,directEntries:0,trampolineEntries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const slices={entries:0,checked:0,uint8:0,buffer:0,failures:0}
+  const assembly={entries:0,loops:0,checked:0,views:0,failures:0}
   let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter,ownDescriptor
+  let typedLengthGetter,typedBufferGetter,arrayPrototype,bufferConcat
   let reading=null,readReturn=null
   let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
@@ -77,7 +79,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     if(!p?.objectId||p.subtype==='proxy')throw Error('IPC decoder prototype unavailable')
     return p
   }
-  function descriptor(object,name,objectGroup=group) {
+  function descriptor(object,name,objectGroup=group,{ownOnly=false,allowMissing=false}={}) {
     for(let depth=0;depth<8&&object?.objectId;depth++) {
       if(object.subtype==='proxy')throw Error('IPC slice descriptor receiver is a proxy')
       // Inspector can expose native accessors as computed values. Use the
@@ -92,10 +94,67 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         for(const field of properties(r.result).result)row[field.name]=data([field],field.name)
         return row
       }
+      if(ownOnly)return null
       const p=properties(object,true)
-      object=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+      const parent=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+      if(parent?.subtype==='null'||(!parent&&same(object,objectPrototype))) {
+        if(allowMissing)return null
+        break
+      }
+      if(!parent?.objectId||parent.subtype==='proxy')throw Error('IPC slice descriptor prototype unavailable')
+      object=parent
     }
     throw Error('IPC slice descriptor unavailable')
+  }
+  function ownData(object,key,objectGroup,{writable=false}={}) {
+    const p=descriptor(object,key,objectGroup,{ownOnly:true})
+    if(!p||!Object.hasOwn(p,'value')||p.get||p.set||(writable&&p.writable?.value!==true))
+      throw Error('state is not own '+(writable?'writable ':'')+'data')
+    return p.value
+  }
+  function checkByteView(view,objectGroup) {
+    const p=properties(view,true),proto=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
+    if(view.subtype!=='typedarray'||(!same(proto,uint8Prototype)&&!same(proto,bufferPrototype)))
+      throw Error('byte view differs from pinned types')
+    const length=descriptor(view,'length',objectGroup)
+    if(Object.hasOwn(length,'value')||!same(length.get,typedLengthGetter)||(length.set&&length.set.type!=='undefined'))
+      throw Error('byte-view length is observable')
+    assembly.views++
+  }
+  function checkAssembly(params,kind) {
+    const objectGroup=reading?.group
+    try {
+      if(!objectGroup)throw Error('assembly lacks a native read')
+      const line=kind==='parser:entry'?61:73
+      const frame=decoderFrame(params,line,objectGroup)
+      if(!frame)throw Error('assembly has another receiver')
+      const channel=evaluate(frame,'channel',objectGroup)
+      requireRead(channel)
+      assembly[kind==='parser:entry'?'entries':'loops']++
+      const buffers=ownData(channel,evaluate(frame,'kMessageBuffer',objectGroup),objectGroup,{writable:true})
+      const size=ownData(channel,evaluate(frame,'kMessageBufferSize',objectGroup),objectGroup,{writable:true})
+      if(!Number.isSafeInteger(size.value)||size.value<0)throw Error('buffer size is not a nonnegative integer')
+      const buffering=ownData(channel,'buffering',objectGroup,{writable:true})
+      if(buffering.type!=='boolean')throw Error('buffering flag is not boolean')
+      if(buffers.subtype!=='array'||!same(prototype(buffers),arrayPrototype))throw Error('buffer list is not an ordinary array')
+      const length=ownData(buffers,'length',objectGroup,{writable:true}).value
+      if(!Number.isSafeInteger(length)||length<0||length>4096)throw Error('buffer list exceeds diagnostic limit')
+      for(let i=0;i<length;i++)checkByteView(ownData(buffers,String(i),objectGroup),objectGroup)
+      if(kind==='parser:entry') {
+        // ArrayPrototypePush uses ordinary Set for its next index. Reject an
+        // inherited setter even when it would restore itself during the push.
+        if(descriptor(buffers,String(length),objectGroup,{allowMissing:true}))throw Error('buffer append is observable')
+        checkByteView(evaluate(frame,'readData',objectGroup),objectGroup)
+      }else checkByteView(evaluate(frame,'messageBufferHead',objectGroup),objectGroup)
+      if(!same(ownData(bufferConstructor,'concat',objectGroup),bufferConcat))throw Error('Buffer.concat changed')
+      const poolSize=ownData(bufferConstructor,'poolSize',objectGroup)
+      if(!Number.isSafeInteger(poolSize.value)||poolSize.value<0)throw Error('Buffer pool size is observable')
+      const poolBuffer=descriptor(bufferPrototype,'buffer',objectGroup)
+      if(Object.hasOwn(poolBuffer,'value')||!same(poolBuffer.get,typedBufferGetter)||(poolBuffer.set&&poolBuffer.set.type!=='undefined'))
+        throw Error('Buffer pool backing-store getter changed')
+      if(!same(prototype(fastBuffer),uint8Constructor))throw Error('FastBuffer constructor changed')
+      assembly.checked++
+    }catch(e){assembly.failures++;fail('IPC parser '+e.message)}
   }
   function checkSlice(frame,objectGroup) {
     slices.entries++
@@ -172,6 +231,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(!same(evaluate(frame,'target',eventGroup),receiver)){reads.ignoredReceivers++;readRelease();return}
       reads.entries++
       reading.channel=evaluate(frame,'channel',eventGroup)
+      ownData(reading.channel,'pendingHandle',eventGroup,{writable:true})
       if(!same(frame.this,reading.channel))throw Error('IPC read callback has another receiver')
       const args=properties(evaluate(frame,'arguments',eventGroup)).result
       if(data(args,'length').value!==1)throw Error('IPC read callback has unexpected arguments')
@@ -324,6 +384,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const literal=post('Runtime.evaluate',{expression:'({})',objectGroup:group,silent:true})
     if(literal.exceptionDetails)throw Error('IPC intrinsic object prototype unavailable')
     objectPrototype=prototype(literal.result)
+    const array=post('Runtime.evaluate',{expression:'[]',objectGroup:group,silent:true})
+    if(array.exceptionDetails)throw Error('IPC array prototype unavailable')
+    arrayPrototype=prototype(array.result)
     const byteNamespace=post('Runtime.evaluate',{expression:'({Uint8Array,Symbol,ownDescriptor:Object.getOwnPropertyDescriptor,buffer:process.getBuiltinModule("buffer")})',objectGroup:group,silent:true})
     if(byteNamespace.exceptionDetails)throw Error('IPC slice namespace unavailable')
     const byteFields=properties(byteNamespace.result).result
@@ -337,11 +400,18 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       throw Error('IPC byte constructor baseline is not an unbound native function')
     speciesSymbol=data(properties(data(byteFields,'Symbol')).result,'species')
     typedSpeciesGetter=descriptor(uint8Constructor,speciesSymbol).get
+    typedLengthGetter=descriptor(uint8Prototype,'length').get
+    typedBufferGetter=descriptor(uint8Prototype,'buffer').get
+    const lengthProperties=properties(typedLengthGetter)
+    if(typedLengthGetter.type!=='function'||lengthProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
+      throw Error('IPC length baseline is not an unbound native getter')
     const getterProperties=properties(typedSpeciesGetter)
     if(typedSpeciesGetter.type!=='function'||getterProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
       throw Error('IPC species baseline is not an unbound native getter')
     bufferConstructor=data(properties(data(byteFields,'buffer')).result,'Buffer')
     bufferPrototype=data(properties(bufferConstructor).result,'prototype')
+    bufferConcat=ownData(bufferConstructor,'concat',group)
+    pinnedFunction(bufferConcat,bufferSource,625)
     bufferSpeciesGetter=descriptor(bufferConstructor,speciesSymbol).get
     pinnedFunction(bufferSpeciesGetter,bufferSource,319)
     const fast=post('Runtime.callFunctionOn',{objectId:bufferSpeciesGetter.objectId,functionDeclaration:'function(){return this()}',objectGroup:group,silent:true})
@@ -388,7 +458,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       const b=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn.objectId})
       breakpoints.set(b.breakpointId,'native:'+name)
     }
-    for(const [kind,line] of [['construct',92],['slice:remainder',96],['header',101],['value',102]]) {
+    for(const [kind,line] of [['parser:entry',61],['parser:loop',73],['construct',92],['slice:remainder',96],['header',101],['value',102]]) {
       const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process/serialization',lineNumber:line,columnNumber:0})
       breakpoints.set(b.breakpointId,kind)
       if(!b.breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==line)throw Error('IPC decoder location is not uniquely loaded')
@@ -407,6 +477,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
           if(readKind) {
             if(kinds.length!==1)throw Error('ambiguous IPC read pause')
             readPause(params,readKind)
+          }else if(kinds.some(k=>k.startsWith('parser:'))) {
+            if(kinds.length!==1)throw Error('ambiguous IPC parser pause')
+            checkAssembly(params,kinds[0])
           }else decoderPause(params,kinds)
         }catch(e){
           fail(e.message)
@@ -439,6 +512,11 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         const message=evaluate(frame,'message',eventGroup)
         if(message.type!=='object'||message.subtype==='proxy'||!message.objectId)
           throw Error('IPC decoded message is not an ordinary object')
+        // Classification runs before the next buffered message is prepared.
+        // A cmd getter can inspect the channel's remaining raw bytes even
+        // when the current message has already been prepared.
+        const command=descriptor(message,'cmd',eventGroup,{allowMissing:true})
+        if(command&&!Object.hasOwn(command,'value'))fail('IPC parser protocol classification is observable')
         if(pending.length>=pendingLimit)throw Error('pending IPC delivery capacity exceeded')
         const entry={message,group:eventGroup,prepared:false}
         pending.push(entry);retained=true
@@ -467,6 +545,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       decoder:{...decoder,pending:decoding!==null,initialNativeIntegrity:false,completeOwnership:false},
       reads:{...reads,pending:reading!==null,returnLocation:readReturn,completeOwnership:false},
       slices:{...slices,completeOwnership:false},
+      assembly:{...assembly,completeOwnership:false},
       limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}),
     close() {
       if(closed)return

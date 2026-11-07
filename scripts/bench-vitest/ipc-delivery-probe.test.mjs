@@ -214,6 +214,15 @@ if(kind.startsWith('parser-concat-')) {
   }});
   else Object.defineProperty(Buffer,'concat',{...original,value:replacement});
 }
+if(kind==='parser-protocol-remainder') {
+  const key=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
+  Object.defineProperty(Object.prototype,'cmd',{configurable:true,get(){
+    if(this.kind==='data'&&pipe[key].length){
+      gets++;delete Object.prototype.cmd;copyWire(pipe[key][0]);
+    }
+    return undefined;
+  }});
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
@@ -266,7 +275,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['species-copy','advanced'],['species-self-restore','advanced'],['species-getter-self-restore','advanced'],
   ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
   ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
-  ['parser-concat-copy','advanced'],['parser-concat-getter','advanced']]) {
+  ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -300,7 +309,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     if(kind.startsWith('parser-')) {
       assert(r.wireCopyBytes>0,'the fixture must copy raw parser inputs')
       assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve byte-copy behavior')
-      assert.equal(r.byteCopyPreparations[0],0,'the first raw-input copy must precede preparation')
+      assert.equal(r.byteCopyPreparations[0],kind==='parser-protocol-remainder'?1:0,
+        'the copied message bytes must precede their preparation')
+      assert(r.report.errors.some(e=>e.startsWith('IPC parser ')))
     }
     if(kind.includes('species-')||kind==='view-constructor-getter') {
       assert(r.wireCopyBytes>0,'the fixture must copy IPC bytes before decoding')
@@ -310,7 +321,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       assert(r.report.errors.some(e=>e.startsWith('IPC slice ')))
     }
     assert(!JSON.stringify(r.report).includes('/private-ipc-delivery'))
-    if(['normal','normal-fragmented','normal-fragmented-body','emit-precopy','prelistener','protocol-getter','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
+    if(['normal','normal-fragmented','normal-fragmented-body','emit-precopy','prelistener','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
       assert.equal(r.report.available,true,JSON.stringify(r.report))
       assert.equal(r.report.decoded,2);assert.equal(r.report.prepared,2);assert.equal(r.report.paired,2)
       assert.equal(r.report.pending,0);assert.equal(r.report.failures,0)
@@ -327,6 +338,10 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       assert.equal(r.report.slices.entries,count*2);assert.equal(r.report.slices.checked,count*2)
       assert.equal(r.report.slices.failures,0)
       if(kind.startsWith('normal-fragmented'))assert.equal(r.report.slices.buffer,4)
+      assert.equal(r.report.assembly.entries,serialization==='advanced'?r.report.reads.entries:0)
+      assert.equal(r.report.assembly.loops,serialization==='advanced'?r.report.reads.entries+r.report.decoded:0)
+      assert.equal(r.report.assembly.checked,r.report.assembly.entries+r.report.assembly.loops)
+      assert.equal(r.report.assembly.failures,0)
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
       assert(r.copies.length>0)
@@ -374,6 +389,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       }
     }
     if(kind==='host-object'){assert.equal(r.report.decoder.hostEntries,2);assert(r.report.errors.includes('IPC host-object decoder callbacks are unverified'))}
+    if(kind==='protocol-getter')assert(r.report.errors.includes('IPC parser protocol classification is observable'))
     if(kind==='synthetic')assert(r.report.errors.includes('message callback did not match the next decoded IPC message'))
     if(kind==='callback-throw')assert(r.report.errors.includes('IPC preparation callback did not accept the message'))
     if(kind==='primitive')assert(r.report.errors.includes('IPC decoded message is not an ordinary object'))
