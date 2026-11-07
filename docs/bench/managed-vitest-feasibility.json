@@ -1,0 +1,861 @@
+{
+  "scope": "Separate explicit managed Vitest investigation; no cache or product savings claim",
+  "run": {
+    "url": "https://github.com/pango07/quod/actions/runs/42370932658",
+    "jobId": 128398718472,
+    "conclusion": "success",
+    "sourceCommit": "a9604edcd9808f4c83cd97c3da2cf38a93092ed6",
+    "startedAt": "2026-11-07T12:05:31Z",
+    "completedAt": "2026-11-07T12:07:57Z",
+    "jobSeconds": 146,
+    "image": "ubuntu26/20261101.186.1",
+    "node": "v24.18.0"
+  },
+  "artifact": {
+    "id": 13573518576,
+    "bytes": 818657,
+    "sha256": "7731d6a20e614d4fe9b0e4057688c1e0235e174796eb8dc0080dcadd1b9621ee"
+  },
+  "project": {
+    "repository": "get-convex/convex-helpers",
+    "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+    "file": "packages/convex-helpers/server/stream.property.test.ts",
+    "sourceSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+    "unchangedDefaultSeeds": [
+      1,
+      12648430,
+      3735928559
+    ],
+    "unchangedCases": 24
+  },
+  "runtime": {
+    "workerd": "1.20261107.1",
+    "esbuild": "0.28.2",
+    "vitest": "5.0.0",
+    "workerdSha256": "a4d954a9ec17a367cf7d5509a2282785e84dacca6fc13b69c532ab25d157ef48",
+    "compatibilityDate": "2026-07-01",
+    "flags": [
+      "nodejs_als"
+    ],
+    "epoch": 1700000000000,
+    "seed": 42,
+    "explicitEnv": {
+      "NODE_ENV": "test"
+    },
+    "adapters": [
+      {
+        "source": "node_modules/vitest/dist/chunks/spy.DPLvp2J7.js",
+        "sourceSha256": "537be954493014020a2c07df3e6cbc9e8eb3c5524911b19a43b8b4a3db1f4c0c",
+        "policy": "Retain Vitest private mock references for this file lifetime",
+        "adaptedSha256": "207ecd26d323429a8650cebd877608cea21dde9c71dd9d9115de7058b6576e26"
+      },
+      {
+        "source": "node_modules/vitest/dist/chunks/index.OVGXnVRj.js",
+        "sourceSha256": "57c89e884bab20623afc06a58119c70c4f2e06397ae63e961ad0a0810c9a94b5",
+        "policy": "Disable optional fake-timer Intl integration; test Intl remains denied",
+        "adaptedSha256": "4cb12f08758903676cdca272ade6bef3d8cbd542d4793053932d91e909d42e84"
+      }
+    ]
+  },
+  "results": {
+    "managedUncachedSeconds": 44.995409485,
+    "ordinaryCommandSeconds": 66.36017580999999,
+    "managedCompilationSeconds": 0.1329348890000001,
+    "observedCommandReductionFraction": 0.32195162330749083,
+    "comparisonCount": 47,
+    "disagreements": 0,
+    "namesAndStatesAgree": true,
+    "managedRows": [
+      {
+        "name": "setup",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "flatMap advances past a budgeted empty inner stream: {\"order\":\"asc\",\"maximumRowsRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "flatMap advances past a budgeted empty inner stream: {\"order\":\"desc\",\"maximumRowsRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "flatMap advances past a budgeted empty inner stream: {\"order\":\"asc\",\"maximumBytesRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "flatMap advances past a budgeted empty inner stream: {\"order\":\"desc\",\"maximumBytesRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "a skipped inner cursor preserves its position after inserts (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "a skipped inner cursor preserves its position after inserts (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "empty filtered distinct pages advance past the last examined group: {\"order\":\"asc\",\"maximumRowsRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "empty filtered distinct pages advance past the last examined group: {\"order\":\"desc\",\"maximumRowsRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "empty filtered distinct pages advance past the last examined group: {\"order\":\"asc\",\"maximumBytesRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "empty filtered distinct pages advance past the last examined group: {\"order\":\"desc\",\"maximumBytesRead\":1}",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) composed streams preserve scope under adversarial cursors (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) composed streams preserve scope under adversarial cursors (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) distinct budgeted walks omit groups only after empty pages (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) distinct budgeted walks omit groups only after empty pages (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) valid composed pagination is complete and makes progress (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) valid composed pagination is complete and makes progress (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) static index bounds agree with a document oracle (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) static index bounds agree with a document oracle (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 1) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) composed streams preserve scope under adversarial cursors (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) composed streams preserve scope under adversarial cursors (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) distinct budgeted walks omit groups only after empty pages (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) distinct budgeted walks omit groups only after empty pages (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) valid composed pagination is complete and makes progress (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) valid composed pagination is complete and makes progress (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) static index bounds agree with a document oracle (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) static index bounds agree with a document oracle (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 12648430) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) composed streams preserve scope under adversarial cursors (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) composed streams preserve scope under adversarial cursors (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) distinct budgeted walks omit groups only after empty pages (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) distinct budgeted walks omit groups only after empty pages (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) valid composed pagination is complete and makes progress (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) valid composed pagination is complete and makes progress (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) static index bounds agree with a document oracle (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) static index bounds agree with a document oracle (desc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "state": "pass",
+        "errors": []
+      },
+      {
+        "name": "stream cursor properties (seed 3735928559) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "state": "pass",
+        "errors": []
+      }
+    ],
+    "ordinaryRows": [
+      [
+        "a skipped inner cursor preserves its position after inserts (asc)",
+        "passed"
+      ],
+      [
+        "a skipped inner cursor preserves its position after inserts (desc)",
+        "passed"
+      ],
+      [
+        "empty filtered distinct pages advance past the last examined group: {\"order\":\"asc\",\"maximumBytesRead\":1}",
+        "passed"
+      ],
+      [
+        "empty filtered distinct pages advance past the last examined group: {\"order\":\"asc\",\"maximumRowsRead\":1}",
+        "passed"
+      ],
+      [
+        "empty filtered distinct pages advance past the last examined group: {\"order\":\"desc\",\"maximumBytesRead\":1}",
+        "passed"
+      ],
+      [
+        "empty filtered distinct pages advance past the last examined group: {\"order\":\"desc\",\"maximumRowsRead\":1}",
+        "passed"
+      ],
+      [
+        "flatMap advances past a budgeted empty inner stream: {\"order\":\"asc\",\"maximumBytesRead\":1}",
+        "passed"
+      ],
+      [
+        "flatMap advances past a budgeted empty inner stream: {\"order\":\"asc\",\"maximumRowsRead\":1}",
+        "passed"
+      ],
+      [
+        "flatMap advances past a budgeted empty inner stream: {\"order\":\"desc\",\"maximumBytesRead\":1}",
+        "passed"
+      ],
+      [
+        "flatMap advances past a budgeted empty inner stream: {\"order\":\"desc\",\"maximumRowsRead\":1}",
+        "passed"
+      ],
+      [
+        "setup",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) composed streams preserve scope under adversarial cursors (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) composed streams preserve scope under adversarial cursors (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) distinct budgeted walks omit groups only after empty pages (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) distinct budgeted walks omit groups only after empty pages (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) static index bounds agree with a document oracle (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) static index bounds agree with a document oracle (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) valid composed pagination is complete and makes progress (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 1) valid composed pagination is complete and makes progress (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) composed streams preserve scope under adversarial cursors (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) composed streams preserve scope under adversarial cursors (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) distinct budgeted walks omit groups only after empty pages (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) distinct budgeted walks omit groups only after empty pages (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) static index bounds agree with a document oracle (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) static index bounds agree with a document oracle (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) valid composed pagination is complete and makes progress (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 12648430) valid composed pagination is complete and makes progress (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) composed streams preserve scope under adversarial cursors (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) composed streams preserve scope under adversarial cursors (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) distinct budgeted walks omit groups only after empty pages (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) distinct budgeted walks omit groups only after empty pages (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) lexicographic and repeatedly narrowed ranges never expand (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) lexicographic and repeatedly narrowed ranges never expand (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) stale cursors remain scoped after deletion, reindexing, and tenant changes (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) stale cursors remain scoped after deletion, reindexing, and tenant changes (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) static index bounds agree with a document oracle (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) static index bounds agree with a document oracle (desc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) valid composed pagination is complete and makes progress (asc)",
+        "passed"
+      ],
+      [
+        "stream cursor properties (seed 3735928559) valid composed pagination is complete and makes progress (desc)",
+        "passed"
+      ]
+    ],
+    "managedPendingTimers": 1,
+    "managedTimerErrors": [],
+    "managedUnsupported": [],
+    "managedVirtualTime": 0,
+    "cacheEnabled": false,
+    "replays": 0,
+    "lineageAudits": 0,
+    "bestHit": null,
+    "medianHit": null
+  },
+  "boundary": {
+    "checksPerProcess": 17,
+    "freshProcesses": 2,
+    "separateGitHubRunners": false,
+    "checks": [
+      {
+        "name": "fixed date",
+        "pass": true
+      },
+      {
+        "name": "constructor alias stays managed",
+        "pass": true
+      },
+      {
+        "name": "constructor prototype has no native Date",
+        "pass": true
+      },
+      {
+        "name": "managed global aliases have no native prototype value",
+        "pass": true
+      },
+      {
+        "name": "ALS separates concurrent stores",
+        "pass": true
+      },
+      {
+        "name": "timers use virtual order",
+        "pass": true
+      },
+      {
+        "name": "local synchronous events preserve once semantics",
+        "pass": true
+      },
+      {
+        "name": "deny fetch",
+        "pass": true
+      },
+      {
+        "name": "deny crypto",
+        "pass": true
+      },
+      {
+        "name": "deny WeakRef",
+        "pass": true
+      },
+      {
+        "name": "deny FinalizationRegistry",
+        "pass": true
+      },
+      {
+        "name": "deny Event.timeStamp",
+        "pass": true
+      },
+      {
+        "name": "deny WebAssembly",
+        "pass": true
+      },
+      {
+        "name": "deny AbortSignal.timeout",
+        "pass": true
+      },
+      {
+        "name": "all attempted unsupported operations rejected",
+        "pass": true
+      },
+      {
+        "name": "caught rejection remains recorded",
+        "pass": true
+      },
+      {
+        "name": "no unguardable ambient properties",
+        "pass": true
+      }
+    ],
+    "randomValues": [
+      0.2523451747838408,
+      0.08812504541128874,
+      0.5772811982315034
+    ],
+    "nativeOutboundDenied": true,
+    "fixtureEvidence": [
+      {
+        "mode": "pass",
+        "managedSupported": true,
+        "managedPassed": true,
+        "fallbackExecuted": false,
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.44980410600000004,
+        "ordinaryReportSha256": "52cc9258f647f1f7ec209d810d79c5094f93d41f74d70094e152ae9760558920",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "passed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      },
+      {
+        "mode": "failure",
+        "managedSupported": true,
+        "managedPassed": false,
+        "fallbackExecuted": false,
+        "ordinaryExit": 1,
+        "ordinarySeconds": 0.45703102100000004,
+        "ordinaryReportSha256": "cafc7a6c96c249a8860c58f36f89f355c190916f8ff3d43538743d8e205f0e4a",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "failed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      },
+      {
+        "mode": "unsupported",
+        "managedSupported": false,
+        "managedPassed": true,
+        "fallbackExecuted": true,
+        "ordinaryExit": 0,
+        "ordinarySeconds": 0.4454257359999997,
+        "ordinaryReportSha256": "e667622b8195389f41050b7d76f0a8417327d9d4d317046afcb0f7dc470a159d",
+        "rows": [
+          [
+            "actual async assertions and context propagation work",
+            "passed"
+          ],
+          [
+            "an assertion failure stays a failure",
+            "passed"
+          ],
+          [
+            "catching an unsupported operation cannot erase it",
+            "passed"
+          ],
+          [
+            "real spies retain reset and restore behavior",
+            "passed"
+          ]
+        ]
+      }
+    ]
+  },
+  "bundle": {
+    "sha256": "c81d56471387531cd40e825541200f9d2c45744bb427751f9dc8b0a7b20ac53c",
+    "bytes": 1094588,
+    "inputModules": 84,
+    "globs": [
+      {
+        "source": "packages/convex-helpers/server/setup.test.ts",
+        "pattern": "./**/*.*s",
+        "names": [
+          "./_generated/_ignore.ts",
+          "./compare.ts",
+          "./cors.test.http.ts",
+          "./cors.test.ts",
+          "./cors.ts",
+          "./crud.test.ts",
+          "./crud.ts",
+          "./customFunctions.test.ts",
+          "./customFunctions.ts",
+          "./filter.test.ts",
+          "./filter.ts",
+          "./hono.ts",
+          "./migrations.ts",
+          "./pagination.test.ts",
+          "./pagination.ts",
+          "./rateLimit.test.ts",
+          "./rateLimit.ts",
+          "./relationships.test.ts",
+          "./relationships.ts",
+          "./retries.ts",
+          "./rowLevelSecurity.test.ts",
+          "./rowLevelSecurity.ts",
+          "./sessions.ts",
+          "./setup.test.ts",
+          "./stream.distinct.test.ts",
+          "./stream.flatmap.test.ts",
+          "./stream.property.test.ts",
+          "./stream.test.ts",
+          "./stream.ts",
+          "./table.test.ts",
+          "./triggers.test.ts",
+          "./triggers.ts",
+          "./validators.test.ts",
+          "./zod.test.ts",
+          "./zod.ts",
+          "./zod3.test.ts",
+          "./zod3.ts",
+          "./zod4.convextozod.test.ts",
+          "./zod4.functions.test.ts",
+          "./zod4.functions.zod41.test.ts",
+          "./zod4.ts",
+          "./zod4.zod3.test.ts",
+          "./zod4.zodtoconvex.mini.test.ts",
+          "./zod4.zodtoconvex.mini.zod41.test.ts",
+          "./zod4.zodtoconvex.test.ts",
+          "./zod4.zodtoconvex.zod41.test.ts",
+          "./zodVersion.test.ts"
+        ]
+      },
+      {
+        "source": "node_modules/convex-test/dist/index.js",
+        "pattern": "../../../convex/**/*.*s",
+        "names": [
+          "./../../../convex/_generated/api.d.ts",
+          "./../../../convex/_generated/api.js",
+          "./../../../convex/_generated/dataModel.d.ts",
+          "./../../../convex/_generated/server.d.ts",
+          "./../../../convex/_generated/server.js",
+          "./../../../convex/convex.config.ts",
+          "./../../../convex/counter.ts",
+          "./../../../convex/example.test.ts",
+          "./../../../convex/http.ts",
+          "./../../../convex/migrationsExample.ts",
+          "./../../../convex/presence.ts",
+          "./../../../convex/relationshipsExample.ts",
+          "./../../../convex/retriesExample.ts",
+          "./../../../convex/rlsExample.ts",
+          "./../../../convex/schema.ts",
+          "./../../../convex/sessionsExample.ts",
+          "./../../../convex/streamsExample.ts",
+          "./../../../convex/testingFunctions.ts",
+          "./../../../convex/triggersExample.ts",
+          "./../../../convex/vitest.config.mts",
+          "./../../../convex/zodFunctionsExample.ts"
+        ]
+      }
+    ]
+  },
+  "priorGates": [
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42369383092",
+      "sourceCommit": "23fabf7b402693ddb2021cd2bc2d3cb97125b385",
+      "gateConclusion": "success",
+      "outcome": "CommonJS Vitest entry; expensive managed test did not execute",
+      "managedReplays": 0
+    },
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42369606174",
+      "sourceCommit": "9fa15b6c46f1b33fc8cb65d86bec0f576beab912",
+      "gateConclusion": "success",
+      "outcome": "Project filter selected zero specifications; expensive managed test did not execute",
+      "managedReplays": 0
+    },
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42369852891",
+      "sourceCommit": "6e2ae0c9f1820c8b2c5bd133d34eaed08f6e6907",
+      "gateConclusion": "success",
+      "outcome": "Vitest private GC registry rejected; expensive managed test did not execute",
+      "managedReplays": 0
+    },
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42370227969",
+      "sourceCommit": "f68aa7da3e3a4dfa618831ea1831c39be8a23c26",
+      "gateConclusion": "success",
+      "outcome": "Chai local EventTarget rejected; expensive managed test did not execute",
+      "managedReplays": 0
+    },
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42370446894",
+      "sourceCommit": "fb7138ae51e8b7a8c62e27a316b14c98f7f6bc7a",
+      "gateConclusion": "failure",
+      "outcome": "Tinybench native navigator probe rejected before fixtures executed",
+      "managedReplays": 0
+    },
+    {
+      "url": "https://github.com/pango07/quod/actions/runs/42370670124",
+      "sourceCommit": "7987a731e968982ccbca2ea9ed8c545d56cf090e",
+      "gateConclusion": "failure",
+      "outcome": "Framework native timer wake during workerd global initialization rejected",
+      "managedReplays": 0
+    }
+  ],
+  "evidenceHashes": {
+    "fixture-failure/config.capnp": "e6d6a283c2067f9ffb88a31c85c9c693b30a7e1562d719efc325d04fe9dcce4b",
+    "fixture-failure/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "fixture-failure/response.json": "419128ec7bf9bfd0f4465a85133cf937cf5a57f95e2bc73c144ea56f5121d462",
+    "fixture-failure/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixture-failure/worker.mjs": "c92368ee38d8c86e79200af5e0c519126bbbb72529decda8948ad793f9ee68f7",
+    "fixture-failure-build.json": "9f23564dd8a0c17b6f086ff63fdd6a93c1a7837a071298605d8928721178d19c",
+    "fixture-failure-ordinary.json": "cafc7a6c96c249a8860c58f36f89f355c190916f8ff3d43538743d8e205f0e4a",
+    "fixture-failure-ordinary.log": "7111c955a09d3c2a4e8728cde33619b6630ea097f6c9af22db12282833807b5a",
+    "fixture-pass/config.capnp": "22703682b60fad7462b7e2cfb04ad8a4aa5dd2bc7ffb30c626bfe821e5319078",
+    "fixture-pass/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "fixture-pass/response.json": "f0f91614b55828e68c0bbe087aa93adb080899597b17d44bc54a5198075433c4",
+    "fixture-pass/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixture-pass/worker.mjs": "1b91cd7fba5840b1cb3e26d47c53532f00614fff24351e45521c9b79e2f09aa5",
+    "fixture-pass-build.json": "d4a74a70fca9ea047a797b2d70e08d236333b1d00fa6c9a358aeed4a05630393",
+    "fixture-pass-ordinary.json": "52cc9258f647f1f7ec209d810d79c5094f93d41f74d70094e152ae9760558920",
+    "fixture-pass-ordinary.log": "08617f309947236794b91ea23829f1856cc602fd61aef0cdb6303b7cea6bbd56",
+    "fixture-unsupported/config.capnp": "6bb32492e14798b2d55512691df4488fc58a825afc4b571f467c6002723723be",
+    "fixture-unsupported/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "fixture-unsupported/response.json": "e41443702ac0b879083b35fd9cab45321bc8c6dcb572fbd0408241d80bd73a25",
+    "fixture-unsupported/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixture-unsupported/worker.mjs": "4cce2ecd79a100189d97df9e54975d0ebb967dfb15e07a488cb9b2416345551f",
+    "fixture-unsupported-build.json": "b42973b39aac9c59958fb30078574abab52a103b50babcd44a912b70a717965d",
+    "fixture-unsupported-ordinary.json": "e667622b8195389f41050b7d76f0a8417327d9d4d317046afcb0f7dc470a159d",
+    "fixture-unsupported-ordinary.log": "9af9fd3ef9e3e4494a97974a07ac5b364f41b6ca19519b01fecfdd0d574f601c",
+    "managed/config.capnp": "196647d86d50f8f1d819a7a0a69e728bb6a67171d97c17ec444a825c84f23525",
+    "managed/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "managed/response.json": "1fb1d6012202a7040908e7aa7a8c47e136cd6aa88c524765d98b0376fe4a52f4",
+    "managed/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "managed/worker.mjs": "c81d56471387531cd40e825541200f9d2c45744bb427751f9dc8b0a7b20ac53c",
+    "native-outbound/config.capnp": "5661054a20c55c735d4d417eaab757bc7b18b481c44b41a353c0173f7d2ad606",
+    "native-outbound/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "native-outbound/response.json": "f333eb4067feb0e52af64880acf28fd940caf17f780a787bef66d5e2fe203b83",
+    "native-outbound/runtime.log": "3a2f720e160a7178d685e0336e46eb0a4b541acb69f06bb3b774e97a5864c4fb",
+    "native-outbound/worker.mjs": "05c5fb6b294151fca786d1ca55237f3d35b08af84d5a5b728bac74d9b0db0fe3",
+    "native-outbound-build.json": "06aeba8c97c588a9b6121606786a5169c5f03f49a9a07cf05a183d1fd4f551d8",
+    "ordinary-report.json": "22cc07ff7e77e3d6f7886153209e911b0fd36a73ba15247430e1cec020b4b40a",
+    "ordinary.log": "913c5bedb536ef2feabc3f575f95d7b69f1867bc17d7b98707f5a445aee18ce8",
+    "preflight-build.json": "574c40d607a3fcc7ac870a90ab92a01740b245d1751300648468a7b80d4e8373",
+    "preflight-one/config.capnp": "4c095a527c15be2772ece53f78744cd4b4aa8b732a77851e32fa42150fadbff1",
+    "preflight-one/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "preflight-one/response.json": "9c6cabb992a019d140e0483e8be887cb8b3a5779154dc7f7e345eb155ca4df90",
+    "preflight-one/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight-one/worker.mjs": "eac9ae47d7fdec14703ba0b827ec3c56d96a34ef114e90b32d250f1289ab17e8",
+    "preflight-two/config.capnp": "cec34e954b53283cb4533c0c7600b38d6efd2b47a5de4437908d2b82e1798f4f",
+    "preflight-two/deny.mjs": "9ebf7a72b0f43f84582a067556dcb34dd428367f546b0b26e18d1883aa618458",
+    "preflight-two/response.json": "9c6cabb992a019d140e0483e8be887cb8b3a5779154dc7f7e345eb155ca4df90",
+    "preflight-two/runtime.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight-two/worker.mjs": "eac9ae47d7fdec14703ba0b827ec3c56d96a34ef114e90b32d250f1289ab17e8",
+    "project-selection.json": "6dbc666e2ec900c372eddd7d5adaecaa844bd44f9babb32950c355af2102cd99",
+    "result.json": "298456d65f6b3c774c2746aa8781dbb6dd4b2cb682fa8301968cf1b0511a8c17",
+    "test-build.json": "0eea80510c979a218e200a93059f6beafded7736b213cb19b275702c5a030fa4"
+  },
+  "limitations": [
+    "One runner and fixed managed-then-ordinary order; not a controlled speed study",
+    "Managed semantics differ from ordinary execution; retain matching uncached managed control",
+    "Whole-job savings, billed-minute savings, hit latency and fresh-runner reuse unmeasured",
+    "One pending timer per managed file; completion policy and ownership unresolved",
+    "Dynamic imports and full reachable capability surface not yet closed",
+    "No Action integration, reusable ledger or production change"
+  ]
+}

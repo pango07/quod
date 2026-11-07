@@ -5,6 +5,11 @@ work running normally. The ordinary twelve-commit benchmark remains separate.
 This document specifies the first executable investigation; it does not
 declare a complete runtime, a replay guarantee, or a new savings result.
 
+The [first execution gate](bench/managed-vitest-feasibility.md) now passes the
+unchanged expensive file's 47 states, actual failure/fallback fixtures and
+17 boundary checks in two fresh processes. It enables no replay; the same
+evidence identifies a pending timer and other admission work below.
+
 ## Candidate and enforcement
 
 Run a single test file in a fresh local workerd process, with the full Node

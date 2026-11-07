@@ -7,6 +7,11 @@ opt-in prototype. It enables no cache or production change. The original
 benchmark and acceptance target remain separate; the decision request below
 records the reasoning that led to this authorization.
 
+The [first managed execution gate](bench/managed-vitest-feasibility.md) now
+preserves the expensive file's 47 states and passes deliberate failure and
+ordinary-fallback fixtures. It establishes bounded compatibility, with zero
+replays. Admission and fresh-runner reuse remain separate milestones.
+
 The founder requested a first-principles rethink. The original target stays
 unchanged: original cold 12-commit window at no more than 0.5x plain
 runner-seconds, a genuine hit at floor + at most 8 seconds, wrong = 0,
