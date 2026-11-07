@@ -119,7 +119,7 @@ try {
     file: 'packages/convex-helpers/server/stream.property.test.ts', seed: config.seed})
   fs.writeFileSync(path.join(out, 'self-glob-preparation.json'), JSON.stringify(prepared, null, 2) + '\n')
   const runtimeDir = path.join(dir, 'closed-glob-runtime'); fs.mkdirSync(runtimeDir)
-  for (const name of ['self-glob.test.mjs', 'foreign-glob.test.mjs']) {
+  for (const name of ['self-glob.test.mjs', 'foreign-glob.test.mjs', 'name-collision-one.mjs', 'name-collision-two.mjs']) {
     fs.copyFileSync(path.join(here, name), path.join(runtimeDir, name))
   }
   const foreignDir = path.join(runtimeDir, 'foreign-modules'); fs.mkdirSync(foreignDir)
@@ -127,7 +127,7 @@ try {
   fs.writeFileSync(path.join(foreignDir, 'native.mjs'), 'import fs from "node:fs"; globalThis.__quodClosedForeignGlobEvaluations = 1; export default fs\n')
   const executor = createManagedExecutor({out, watchdogMs: 30000})
   for (const [name, count, unsupported] of [
-    ['self-glob', 2, []],
+    ['self-glob', 3, []],
     ['foreign-glob', 1, ['lazy module ./foreign-modules/native.mjs', 'lazy module ./foreign-modules/value.mjs']],
   ]) {
     const file = path.join(runtimeDir, name + '.test.mjs')
@@ -135,6 +135,7 @@ try {
       file: '/project/' + path.relative(project, file).split(path.sep).join('/'), providedContext: {}}
     const built = await compiler('runner.mjs', options, file)
     save(name, {...built, options})
+    if (name === 'self-glob') check('original class and function names are an explicit compile policy', built.identity.policy.keepNames === true)
     check(name + ' final module graph is closed', built.closure.finalBundleParsed && built.closure.remainingDynamicImports === 0 &&
       built.closure.remainingDynamicRequires === 0 && built.closure.externalImports.every(value => value === 'node:async_hooks'))
     const admitted = built.globs.flatMap(row => row.admittedTargets)
@@ -157,7 +158,7 @@ try {
   try { await compiler('runner.mjs', config, path.join(foreignDir, 'native.mjs')) } catch { nativeEntryRejected = true }
   check('glob target native imports remain denied when selected as the actual entry', nativeEntryRejected)
   const result = {schema: 'quod-managed-compiler-regressions-v1', originalCheckCount: 40,
-    selfGlobCheckCount: 14, checks, bundles, cacheEnabled: false}
+    selfGlobCheckCount: 15, checks, bundles, cacheEnabled: false}
   fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2) + '\n')
   console.log(JSON.stringify(result))
 } finally {
