@@ -768,8 +768,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         && !ledger.files.is_empty()
         && ledger.args == keyed_args(&a.args)
         && ledger.global.iter().all(|k| !changed.contains(k));
-    let adaptive_recording =
-        std::env::var("QUOD_VITEST_RECORDING").is_ok_and(|v| v == "adaptive");
+    let adaptive_recording = std::env::var("QUOD_VITEST_RECORDING").is_ok_and(|v| v == "adaptive");
     // Back off only when the existing selector already requires EVERY file
     // to execute. Full/explicit recording and pending E1 audits take priority.
     // A skipped recording supplies no witness and updates no proof state.
@@ -796,7 +795,9 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
             .skip(&shared_now, admission_eligible);
     if adaptive_plain {
         a.no_record = true;
-        eprintln!("quod vitest: shared inputs keep changing; every test runs plain, recording retries after at most seven skipped recordings");
+        eprintln!(
+            "quod vitest: shared inputs keep changing; every test runs plain, recording retries after at most seven skipped recordings"
+        );
     }
     let mut replay: BTreeMap<String, String> = BTreeMap::new();
     let mut affected: Vec<String> = Vec::new();
@@ -1351,7 +1352,10 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
     let replayed_ids: Vec<&String> = out.replayed.iter().collect();
     if a.no_record {
         if adaptive_plain {
-            anyhow::ensure!(out.replayed.is_empty(), "adaptive plain execution unexpectedly replayed a file");
+            anyhow::ensure!(
+                out.replayed.is_empty(),
+                "adaptive plain execution unexpectedly replayed a file"
+            );
             // No input, result, witness or audit field is refreshed by this
             // plain run. Only the admission hint travels to the next job.
             ledger
@@ -1379,7 +1383,11 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
             out.replayed.len(),
             narrowed.len(),
             t_select.as_millis(),
-            if adaptive_plain { "adaptive recording backoff" } else { "the shadow run records" },
+            if adaptive_plain {
+                "adaptive recording backoff"
+            } else {
+                "the shadow run records"
+            },
         );
         if let Some(p) = &a.summary {
             let s = serde_json::json!({
@@ -1857,7 +1865,9 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
     ledger.compact();
     if adaptive_recording {
         let shared = shared_fingerprint(&ledger, |id| ledger.states.get(id as usize).cloned());
-        ledger.recording_admission.observe(shared, unstable_shared, false);
+        ledger
+            .recording_admission
+            .observe(shared, unstable_shared, false);
     }
     save_ledger(&ledger_path, &ledger)?;
     lap("write", &mut phases);
@@ -4403,7 +4413,10 @@ mod tests {
         }
         assert!(p.skip("third-miss", true));
         p.observe("third-miss".into(), true, true);
-        assert!(!p.skip("third-miss", true), "stable inputs resume recording immediately");
+        assert!(
+            !p.skip("third-miss", true),
+            "stable inputs resume recording immediately"
+        );
         p.observe("third-miss".into(), false, false);
         assert_eq!(p.misses, 0);
         assert!(!p.skip("changed-again", true));
@@ -4411,7 +4424,11 @@ mod tests {
 
     #[test]
     fn recording_backoff_retries_after_seven_plain_runs() {
-        let mut p = RecordingAdmission { shared: "old".into(), misses: 2, skipped: 0 };
+        let mut p = RecordingAdmission {
+            shared: "old".into(),
+            misses: 2,
+            skipped: 0,
+        };
         for i in 0..7 {
             let next = i.to_string();
             assert!(p.skip(&next, true));
@@ -4424,10 +4441,20 @@ mod tests {
 
     #[test]
     fn recording_backoff_never_overrides_required_recording_or_missing_state() {
-        let p = RecordingAdmission { shared: "old".into(), misses: u32::MAX, skipped: 0 };
+        let p = RecordingAdmission {
+            shared: "old".into(),
+            misses: u32::MAX,
+            skipped: 0,
+        };
         assert!(!p.skip("new", false));
         assert!(!p.skip("", true));
-        assert!(!RecordingAdmission { shared: String::new(), ..p.clone() }.skip("new", true));
+        assert!(
+            !RecordingAdmission {
+                shared: String::new(),
+                ..p.clone()
+            }
+            .skip("new", true)
+        );
         let mut p = p;
         p.observe("new".into(), true, true);
         assert_eq!(p.misses, u32::MAX);

@@ -35,7 +35,7 @@ retry, stable recovery, override/incomplete-state behavior, counter
 saturation and fingerprint identity. The remote
 [binary fixture](../../scripts/bench-vitest/recording-admission-audit.mjs)
 must establish actual replay before inducing misses, compare a changed
-failing test with plain execution, verify byte-for-byte equivalent proof
+failing test with plain execution, verify unchanged proof
 data during backoff, exercise periodic retry and recovered replay, and
 check full/off/no-record/pending-lineage overrides. Its synthetic hint and
 pending marker are guard fixtures, not a measured lineage audit.
