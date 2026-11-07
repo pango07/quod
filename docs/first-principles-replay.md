@@ -6,6 +6,52 @@ runner-seconds, a genuine hit at floor + at most 8 seconds, wrong = 0,
 one-line integration, and no hidden change to the tests' meaning. This
 document is a design review, not approval of a new execution policy.
 
+## Decision in one page
+
+The product's job is to avoid repeated computation while preserving the
+answer and required effects. Its economic test is:
+
+`execution avoided > recording + validation + transfer + audit + integration`
+
+The current full window saves 11.4% of runner time and 11.1% of modeled
+rounded minutes, with zero test or unit replays. It validates dependency
+installation savings, not the central test-reuse proposition. Agreement
+with plain when everything executes cannot establish correct reuse.
+
+The recurring failure is architectural: observing more of ordinary Node
+makes reuse safer but exposes runner-specific inputs that invalidate it.
+Ignoring those inputs without an equivalence argument creates stale results.
+Prior agreements and lineage audits cannot resolve that conflict. The
+[same-job cohort recovery regression](bench/lineage-cohort-recovery.md)
+also demonstrates why a detected audit fault must invalidate current results,
+not only future records.
+
+Keep the one-line installation goal. Separate it from eligibility: replay
+requires an explicit supported execution contract; unsupported work runs
+normally. Recommend a bounded investigation of a managed Vitest execution
+contract with immutable inputs, explicit environment and controlled external
+effects. Name the concrete enforcement mechanism and unsupported features
+before implementing it. Do not treat a container, manifest or passing
+compatibility test as proof of that contract.
+
+The next performance gate is one unchanged expensive test on a fresh runner,
+with required effects preserved, relevant source/configuration/environment
+and metadata mutations forcing execution, unrelated changes permitting
+reuse, and cold/miss/hit overhead measured. Stop the candidate if the boundary
+cannot be enforced or its costs consume the execution saved. Do not extend
+it through an indefinite sequence of observer exceptions.
+
+Only after that gate passes should it expand to the original twelve-commit
+window and whole-job target. A managed runtime that changes observable
+semantics needs an explicit product decision and its own uncached control;
+it cannot replace the original benchmark silently. No managed runtime is
+enabled by this review. The original target remains unmet.
+
+The founder's decision is whether to pursue that narrower, explicit support
+contract. There is no evidence-based commitment today to universal drop-in
+40–50% savings. Rewriting the runner in Rust does not answer the input-boundary
+question, and fixed-overhead improvements cannot close the measured gap.
+
 ## Reset: choose the execution contract before extending the observer
 
 Stop treating another Inspector/metadata patch as the default next step.

@@ -1,0 +1,362 @@
+{
+  "scope": "Synthetic correlated dependency omission and same-job recovery; no performance claim",
+  "baseline": {
+    "run": 42367339583,
+    "job": 128388082244,
+    "source": "c146b9e905e2e79ec510e46215c5dddbf3ecfd20",
+    "action": "beb12a8c9c32500ad2d19a87b10ee7cc7a95c197",
+    "artifact": {
+      "id": 13571793619,
+      "bytes": 107521,
+      "sha256": "07ffb192db2bbb74448c4c08dcdb97e8c762d5230fbd3b1b7e915cfaa0f16e13"
+    },
+    "verification": {
+      "result": {
+        "scope": "Injected correlated dependency omission; actual same-job results compared with plain",
+        "expected": "stale",
+        "binarySha256": "d18f2618e859b5773968e11ab9269b7c72bc23817fb277e8ab0ff1e8839f9e8b",
+        "sourceOverride": false,
+        "node": "v24.18.0",
+        "image": "ubuntu26/20261101.186.1",
+        "wrong": 1,
+        "revoked": 2,
+        "auditedPeerIncluded": true,
+        "quodExit": 1,
+        "plainExit": 1,
+        "benchmarkSavingsClaim": false
+      },
+      "rawReports": [
+        {
+          "phase": "plain-before",
+          "sha256": "cda7d8c9420efbff4c41a617b96de23b1adbf5c87ab934523bfafdace493677e"
+        },
+        {
+          "phase": "record",
+          "sha256": "a7874d181ec6e509106f0eb4f54a2361b6a1aee2043bd4456ef454d17419d498"
+        },
+        {
+          "phase": "witness",
+          "sha256": "a7874d181ec6e509106f0eb4f54a2361b6a1aee2043bd4456ef454d17419d498"
+        },
+        {
+          "phase": "warm",
+          "sha256": "a7874d181ec6e509106f0eb4f54a2361b6a1aee2043bd4456ef454d17419d498"
+        },
+        {
+          "phase": "promote",
+          "sha256": "221de1f7fbb658564510f51233c556ba2697fe8f058449511eec8d676feb10a7"
+        },
+        {
+          "phase": "agreeing-audit",
+          "sha256": "c99b4528ace781d629f098a91aff043156459cd8a1011d5f1a471617f8e57901"
+        },
+        {
+          "phase": "fault-quod",
+          "sha256": "e97c030018e869519d98848754f64204b28d9737e38bef33ec172076180b0727"
+        },
+        {
+          "phase": "fault-plain",
+          "sha256": "cfec52f14b5bcd4d0ea401d21970f64a31e5fc82dc08a269387b7ab598dae0f3"
+        }
+      ],
+      "snapshots": {
+        "agreeing-audit-ledger.json": "3be6da24da611825e028cbd184ba39115df1ff4c78dadd1a68bc361637ccce25",
+        "fault-injected-ledger.json": "8df0af0fc7f1a5f2d2c71c5545c2e2b4325296fddc94abf06ca273af8f5544ff",
+        "fault-quod-ledger.json": "6398e3b5f70eaaecd4659080b5d34c69356e127baacabeccd2482cad5d20080d"
+      },
+      "verified": {
+        "onlyTwoDependencyVectorsChanged": true,
+        "previouslyAuditedPeerInBatch": true,
+        "independentControlTrustPreserved": true,
+        "revocationPersisted": true,
+        "actualReportComparisonWrong": 1
+      }
+    }
+  },
+  "correctedRelease": {
+    "run": 42368026811,
+    "job": 128390606653,
+    "source": "024b9290a708e0e4e7d9c5dd1133664b8cd9a0a7",
+    "artifact": {
+      "id": 13572199451,
+      "bytes": 215200,
+      "sha256": "6169a23d1c27bf8f6a573e94042a710894a70bf6021c45a3fcd356ea8155f78c"
+    },
+    "correct": {
+      "result": {
+        "scope": "Injected correlated dependency omission; actual same-job results compared with plain",
+        "expected": "correct",
+        "binarySha256": "8b23ffe9be7a0be4a823f8b69c48b5d7e466b9182d6bf347f1ad07a187f95a1f",
+        "sourceOverride": false,
+        "node": "v24.18.0",
+        "image": "ubuntu26/20261101.186.1",
+        "wrong": 0,
+        "revoked": 2,
+        "auditedPeerIncluded": true,
+        "quodExit": 1,
+        "plainExit": 1,
+        "benchmarkSavingsClaim": false
+      },
+      "rawReports": [
+        {
+          "phase": "plain-before",
+          "sha256": "7327d2896cd992ac9a2fd32e51570d7abb86f17389dbd35510cf8b1cd8921856"
+        },
+        {
+          "phase": "record",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "witness",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "warm",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "promote",
+          "sha256": "08563057c87a635692d8171ad928ab82fce5cc98293b44c3cd0eae248f322f50"
+        },
+        {
+          "phase": "agreeing-audit",
+          "sha256": "59f67ddf3b96f7f318291e25ce70cd2fe5c575959a75d189356c9e902171f92a"
+        },
+        {
+          "phase": "fault-quod",
+          "sha256": "a213c2837d30ba5a6f0b5a01a0a7217761b6e22524ea688bbe183babf091dd93"
+        },
+        {
+          "phase": "fault-plain",
+          "sha256": "7530dd8df65a85b2f6f40374a857a85165165a39270d791b0d5925fb8ec6858d"
+        }
+      ],
+      "snapshots": {
+        "agreeing-audit-ledger.json": "35fe1d3f4dcde7083e3062abf4eae0ff5d87a4c95b60fc0f575fcb34e2b907e3",
+        "fault-injected-ledger.json": "755e478b82e20570e274ab3be2be2e5c6e1b375f087305e7cb3d01496a0c30d6",
+        "fault-quod-ledger.json": "cd0b4540ddb13fb37f58851ba139ccb97a030007308b6edfe47aff34f5109e7f"
+      },
+      "verified": {
+        "onlyTwoDependencyVectorsChanged": true,
+        "previouslyAuditedPeerInBatch": true,
+        "independentControlTrustPreserved": true,
+        "revocationPersisted": true,
+        "actualReportComparisonWrong": 0
+      }
+    },
+    "recoveryFailure": {
+      "result": {
+        "scope": "Injected correlated dependency omission; actual same-job results compared with plain",
+        "expected": "recovery-failure",
+        "binarySha256": "8b23ffe9be7a0be4a823f8b69c48b5d7e466b9182d6bf347f1ad07a187f95a1f",
+        "sourceOverride": false,
+        "node": "v24.18.0",
+        "image": "ubuntu26/20261101.186.1",
+        "wrong": null,
+        "revoked": 2,
+        "auditedPeerIncluded": true,
+        "quodExit": 1,
+        "plainExit": 1,
+        "benchmarkSavingsClaim": false
+      },
+      "rawReports": [
+        {
+          "phase": "plain-before",
+          "sha256": "5894e3cc2edfce55b58b94291834c69788942fbd3e6fd87582c25b5b445a24ba"
+        },
+        {
+          "phase": "record",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "witness",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "warm",
+          "sha256": "69ab75377c781b90dfbaccb2d95d88a9652b2d199fb44a53a946398ab8b47b66"
+        },
+        {
+          "phase": "promote",
+          "sha256": "08563057c87a635692d8171ad928ab82fce5cc98293b44c3cd0eae248f322f50"
+        },
+        {
+          "phase": "agreeing-audit",
+          "sha256": "59f67ddf3b96f7f318291e25ce70cd2fe5c575959a75d189356c9e902171f92a"
+        },
+        {
+          "phase": "fault-plain",
+          "sha256": "678352393bd7213116a77b2dd0a638eb056e17a14cf7885a0c36a57b16267033"
+        }
+      ],
+      "snapshots": {
+        "agreeing-audit-ledger.json": "f4b5e34f9b9899d97c66856444d51d55d5534bf3c1d00809c8fe654db6d44197",
+        "fault-injected-ledger.json": "b984585a1ab968b77e625dbba8125c78169fd8523bf9ef512d6144e934c3a123",
+        "fault-quod-ledger.json": "b3c1975605f22b8557399e5195a84830d00738464cf2e653893fe1c0ce79d7de"
+      },
+      "verified": {
+        "onlyTwoDependencyVectorsChanged": true,
+        "previouslyAuditedPeerInBatch": true,
+        "independentControlTrustPreserved": true,
+        "revocationPersisted": true,
+        "actualReportComparisonWrong": null
+      }
+    }
+  },
+  "package": {
+    "version": "bin-024b929",
+    "artifact": {
+      "id": 13573065239,
+      "bytes": 6097738,
+      "sha256": "141d9c0515a119238a60938a245fe5e5c13bec00ce0bcc376b57b1d50ac315b5"
+    },
+    "archiveSha256": "639eaa8cea088ef8ef1fb2ed7f6b775ccf537861f6de71ea60a98d62fbfc148d",
+    "strippedElfSha256": "40a063f58cf7c9ee444e5a53bb8f36a0e12b43f5eb4237264ee046c81952338f"
+  },
+  "limitations": [
+    "Synthetic input omission, not a naturally occurring recorder defect.",
+    "Three-file same-runner fixture; not convex-helpers or fresh-runner reuse.",
+    "Fast rendering, narrowing and opportunistic audits disabled.",
+    "Interrupted recovery suppresses results and has no wrong=0 comparison.",
+    "No performance or universal correctness claim."
+  ],
+  "packagedAction": {
+    "run": 42368399833,
+    "job": 128391266221,
+    "source": "1892bdbe79f1a594ae0eb799ec0b3e9ba80372e4",
+    "bundleCommit": "7a84de3363d18226080f37a9eea9ebd103210c5d",
+    "benchPinCommit": "9fde6f331a426113cfbc191f75ec1214e7aa6cfb",
+    "artifact": {
+      "id": 13571788747,
+      "bytes": 2742159,
+      "sha256": "6bbb88bd8e2772f0edd8df595bc8eb6f26b9b0b7393218830cadf7f4a65fc8b6"
+    },
+    "bundleSha256": "ef048b03cd78b5b987e58293fc8c6cfa5eb40eb791ab3511168a30bd6c9c71c5",
+    "bundleFiles": {
+      "dist/main/index.js": "556c17a08d83403d16582eede39728546309e8e2554a3ae63bf59fd6028d87e9",
+      "dist/main/835.index.js": "f3a4dabce9b78d98cb94d431cf5e2983374601a43a1bea2dd4e3180d15197208",
+      "dist/post/index.js": "7a328273175023c41b6272dc8e26b3861338be6a62c8ca30935760bf2aa76129",
+      "dist/post/835.index.js": "f3a4dabce9b78d98cb94d431cf5e2983374601a43a1bea2dd4e3180d15197208"
+    },
+    "correct": {
+      "result": {
+        "scope": "Injected correlated dependency omission; actual same-job results compared with plain",
+        "expected": "correct",
+        "binarySha256": "40a063f58cf7c9ee444e5a53bb8f36a0e12b43f5eb4237264ee046c81952338f",
+        "sourceOverride": false,
+        "node": "v24.18.0",
+        "image": "ubuntu26/20261101.186.1",
+        "wrong": 0,
+        "revoked": 2,
+        "auditedPeerIncluded": true,
+        "quodExit": 1,
+        "plainExit": 1,
+        "benchmarkSavingsClaim": false
+      },
+      "rawReports": [
+        {
+          "phase": "plain-before",
+          "sha256": "199c52defa51b97f657af3f81d935733eb68877c34b1de6ef06d17fa64c2dbfa"
+        },
+        {
+          "phase": "record",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "witness",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "warm",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "promote",
+          "sha256": "249ceb0b63b35b5d1e29081ea36dea54bc63ddd83835f166c38cd9df3a94c363"
+        },
+        {
+          "phase": "agreeing-audit",
+          "sha256": "83274fb22059e2992dd36cf418cb2e282f03d6b9bbe12a9f1fab92cc782c8a41"
+        },
+        {
+          "phase": "fault-quod",
+          "sha256": "1f72d07528c3ed58fb650af465d7210cff7517550f0132062a4d3afa0e34f3c2"
+        },
+        {
+          "phase": "fault-plain",
+          "sha256": "0f00d0347c73c0c2c78f7b91d4a19255a8bda98a0f26406049948433d5d1ab43"
+        }
+      ],
+      "snapshots": {
+        "agreeing-audit-ledger.json": "2e1002394ccd70d2ad1202e0479a51690b9440bf96154bcdf5c692063575afe3",
+        "fault-injected-ledger.json": "a7907f96d0b2f0edc77ac64b7d0ca6ceb31d40f8e8ba049277be31a311af42d0",
+        "fault-quod-ledger.json": "d1608bc2331da02642d63e1d777eacfad59f2786cceb2c802b62e1a7e70f00ec"
+      },
+      "verified": {
+        "onlyTwoDependencyVectorsChanged": true,
+        "previouslyAuditedPeerInBatch": true,
+        "independentControlTrustPreserved": true,
+        "revocationPersisted": true,
+        "actualReportComparisonWrong": 0
+      }
+    },
+    "recoveryFailure": {
+      "result": {
+        "scope": "Injected correlated dependency omission; actual same-job results compared with plain",
+        "expected": "recovery-failure",
+        "binarySha256": "40a063f58cf7c9ee444e5a53bb8f36a0e12b43f5eb4237264ee046c81952338f",
+        "sourceOverride": false,
+        "node": "v24.18.0",
+        "image": "ubuntu26/20261101.186.1",
+        "wrong": null,
+        "revoked": 2,
+        "auditedPeerIncluded": true,
+        "quodExit": 1,
+        "plainExit": 1,
+        "benchmarkSavingsClaim": false
+      },
+      "rawReports": [
+        {
+          "phase": "plain-before",
+          "sha256": "fa637523f5d3318665c4b6e32dae1f5998fef1887d5e4cad45684ea030962520"
+        },
+        {
+          "phase": "record",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "witness",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "warm",
+          "sha256": "2858381760ca59fb88c12fdaec55ec9cecc0cda51b252ca29bdab22654603ad5"
+        },
+        {
+          "phase": "promote",
+          "sha256": "249ceb0b63b35b5d1e29081ea36dea54bc63ddd83835f166c38cd9df3a94c363"
+        },
+        {
+          "phase": "agreeing-audit",
+          "sha256": "83274fb22059e2992dd36cf418cb2e282f03d6b9bbe12a9f1fab92cc782c8a41"
+        },
+        {
+          "phase": "fault-plain",
+          "sha256": "86c79f293c4a8b15e325cd3b045b92203828215818a5fd0bfc7aa101bc7e3cc0"
+        }
+      ],
+      "snapshots": {
+        "agreeing-audit-ledger.json": "d1baa97f90747bfdfd6aeda20e27c70223507038e0a06f20c5fb6e335da601dd",
+        "fault-injected-ledger.json": "0c0dffd8b8c66faa7365664d0e6d15d924c88496cbd4d47247892edca156d28b",
+        "fault-quod-ledger.json": "555e69053a645b12173fd5adbd5f53abb45f7de0407735cff928216ecfe9a9aa"
+      },
+      "verified": {
+        "onlyTwoDependencyVectorsChanged": true,
+        "previouslyAuditedPeerInBatch": true,
+        "independentControlTrustPreserved": true,
+        "revocationPersisted": true,
+        "actualReportComparisonWrong": null
+      }
+    }
+  }
+}

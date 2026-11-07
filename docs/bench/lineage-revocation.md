@@ -54,6 +54,8 @@ is superseded for the single-field fault claim.
 This verifies revocation for the next invocation. It does not demonstrate
 same-job rerunning of other cohort members after a fault that changes their
 actual results; the injected signature fault leaves all actual tests passing.
+The later [cohort recovery regression](lineage-cohort-recovery.md) reproduces
+and corrects that separate same-job defect using a result-changing fault.
 
 This closes an E1 integration-evidence gap. It changes no production policy,
 Action pin or benchmark pin, and demonstrates no new performance result.

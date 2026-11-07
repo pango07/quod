@@ -1437,7 +1437,9 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
                 {
                     c.save(&dir);
                 }
-                eprintln!("quod vitest: lineage recovery failed: {error:#}; faulty cohort revoked, combined report discarded");
+                eprintln!(
+                    "quod vitest: lineage recovery failed: {error:#}; faulty cohort revoked, combined report discarded"
+                );
                 return Ok(1);
             }
         }
