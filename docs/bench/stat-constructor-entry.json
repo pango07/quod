@@ -1,0 +1,172 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42359574023",
+  "job": 128364879025,
+  "sourceCommit": "554f49e3d002cff0094906610f4d9890dbab2ebf",
+  "result": "success",
+  "tests": 46,
+  "passed": 46,
+  "failed": 0,
+  "node": "24.18.0",
+  "replayEligible": false,
+  "completeOwnership": false,
+  "replayed": 0,
+  "checks": [
+    "sync number and bigint Stats preserve prototype and descriptors",
+    "first registered promise consumer's mtime read is observed",
+    "transient inherited setter preserves behavior and rejects observation",
+    "queued microtask order preserved",
+    "nonprimitive coercion rejects observation before prototype side effects",
+    "nonextensible owner retains TypeError and no own fields",
+    "post-construction writes preserve value and invalidate observation"
+  ],
+  "diagnostics": [
+    {
+      "synchronous": {
+        "bigint": false,
+        "value": {
+          "file": true,
+          "size": "7"
+        },
+        "report": {
+          "source": {
+            "scriptId": "53",
+            "sha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+          },
+          "pauses": 1,
+          "failures": [],
+          "rejections": [],
+          "rows": [
+            {
+              "kind": "Stats",
+              "fields": [
+                "mode",
+                "size"
+              ],
+              "calls": 2,
+              "collected": false,
+              "initialized": 14,
+              "expected": 14,
+              "intact": true
+            }
+          ],
+          "replayEligible": false,
+          "completeOwnership": false,
+          "limitations": [
+            "startup, other native/debugger observers and query identity are not certified",
+            "the diagnostic bridge is observable through debugger capabilities"
+          ]
+        },
+        "samePrototype": true,
+        "sameDescriptors": true
+      }
+    },
+    {
+      "synchronous": {
+        "bigint": true,
+        "value": {
+          "file": true,
+          "size": "7"
+        },
+        "report": {
+          "source": {
+            "scriptId": "53",
+            "sha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+          },
+          "pauses": 1,
+          "failures": [],
+          "rejections": [],
+          "rows": [
+            {
+              "kind": "BigIntStats",
+              "fields": [
+                "mode",
+                "size"
+              ],
+              "calls": 2,
+              "collected": false,
+              "initialized": 18,
+              "expected": 18,
+              "intact": true
+            }
+          ],
+          "replayEligible": false,
+          "completeOwnership": false,
+          "limitations": [
+            "startup, other native/debugger observers and query identity are not certified",
+            "the diagnostic bridge is observable through debugger capabilities"
+          ]
+        },
+        "samePrototype": true,
+        "sameDescriptors": true
+      }
+    },
+    {
+      "firstPromiseConsumer": {
+        "timestampIsNumber": true,
+        "size": 7,
+        "report": {
+          "source": {
+            "scriptId": "53",
+            "sha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+          },
+          "pauses": 1,
+          "failures": [],
+          "rejections": [],
+          "rows": [
+            {
+              "kind": "Stats",
+              "fields": [
+                "mtimeMs",
+                "size"
+              ],
+              "calls": 2,
+              "collected": false,
+              "initialized": 14,
+              "expected": 14,
+              "intact": true
+            }
+          ],
+          "replayEligible": false,
+          "completeOwnership": false,
+          "limitations": [
+            "startup, other native/debugger observers and query identity are not certified",
+            "the diagnostic bridge is observable through debugger capabilities"
+          ]
+        }
+      }
+    },
+    {
+      "constructorSetter": {
+        "copiedIsNumber": true,
+        "size": 7,
+        "prototypeRestored": true,
+        "report": {
+          "source": {
+            "scriptId": "53",
+            "sha256": "a47d9b1f38bd21771eb4a93b4e1730b8f158ec0fb07097d638fb5436fb945770"
+          },
+          "pauses": 1,
+          "failures": [],
+          "rejections": [
+            {
+              "kind": "Stats",
+              "reason": "inherited constructor field: birthtimeMs"
+            }
+          ],
+          "rows": [],
+          "replayEligible": false,
+          "completeOwnership": false,
+          "limitations": [
+            "startup, other native/debugger observers and query identity are not certified",
+            "the diagnostic bridge is observable through debugger capabilities"
+          ]
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Diagnostic bridge and startup integrity are not certified",
+    "Filesystem query attribution is not certified",
+    "This run is fixtures only, not a real benchmark or replay"
+  ]
+}

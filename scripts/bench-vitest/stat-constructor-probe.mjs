@@ -41,9 +41,23 @@ export function createStatConstructorProbe() {
     }
     throw Error('constructor provenance binding unavailable: '+name)
   }
-  function invoke(frame,kind,primitiveArguments) {
+  function queryFor(frames) {
+    for(const frame of frames.slice(1,8)) {
+      const url=scripts.get(frame.location?.scriptId)
+      if(!['node:fs','node:internal/fs/promises'].includes(url)||
+        !['stat','lstat','statSync','lstatSync'].includes(frame.functionName))continue
+      const local=frame.scopeChain.find(scope=>scope.type==='local')?.object?.objectId
+      if(!local)continue
+      const value=properties(local).result.find(p=>p.name==='path')?.value
+      if(value?.type!=='string')continue
+      return {kind:frame.functionName.startsWith('lstat')?'lstat':'stat',path:value.value,
+        function:frame.functionName,url,certified:false}
+    }
+    return null
+  }
+  function invoke(frame,kind,primitiveArguments,query) {
     const response=post('Runtime.callFunctionOn',{objectId:frame.this.objectId,
-      functionDeclaration:`function(){return ${binding}.enter(this,${JSON.stringify(kind)},${primitiveArguments})}`,
+      functionDeclaration:`function(){return ${binding}.enter(this,${JSON.stringify(kind)},${primitiveArguments},${JSON.stringify(query)})}`,
       returnByValue:true,silent:true})
     if(response.exceptionDetails||response.result?.value!==true)throw Error('constructor entry callback failed')
   }
@@ -63,7 +77,7 @@ export function createStatConstructorProbe() {
       const names=commonFields.slice(0,10).concat(target.kind==='BigIntStats'?nsFields:commonFields.slice(10))
       const expectedType=target.kind==='BigIntStats'?'bigint':'number'
       const primitiveArguments=names.every(name=>parameters.find(p=>p.name===name)?.value?.type===expectedType)
-      invoke(frame,target.kind,primitiveArguments)
+      invoke(frame,target.kind,primitiveArguments,queryFor(params.callFrames))
     }catch(error){failures.push(error.message)}
     finally {try{post('Debugger.resume')}catch{failures.push('constructor resume failed')}}
   })
@@ -86,7 +100,7 @@ export function createStatConstructorProbe() {
       const installed=new WeakMap(),rows=[],rejections=[];
       function reject(kind,reason){rejections.push({kind,reason});return true}
       return {
-        enter(target,kind,primitiveArguments){
+        enter(target,kind,primitiveArguments,query){
           if(!primitiveArguments)return reject(kind,'nonprimitive constructor arguments');
           if(!addon.isInspectableOwner(target)||ownKeys(target).length)return reject(kind,'nonempty or unsupported constructor owner');
           if(!extensible(target))return reject(kind,'nonextensible constructor owner');
@@ -102,7 +116,7 @@ export function createStatConstructorProbe() {
           // itself into an ordinary-looking native data field on its first
           // constructor assignment, before callers can receive the Stats.
           const expected=fields.concat(kind==='BigIntStats'?ns:[]);
-          const row={kind,owner:new WeakRef(target),reads:new Map(),initialized:0,expected:expected.length,failed:false};
+          const row={kind,query,owner:new WeakRef(target),reads:new Map(),initialized:0,expected:expected.length,failed:false};
           const observers=[];installed.set(target,observers);rows.push(row);
           for(const key of expected)define(target,key,{enumerable:true,configurable:true,set(value){
             define(this,key,{value,writable:true,enumerable:true,configurable:true});
@@ -114,7 +128,7 @@ export function createStatConstructorProbe() {
           return true;
         },
         report(){return {rejections,rows:rows.map(row=>{const owner=row.owner.deref(),observers=owner&&installed.get(owner);return {
-          kind:row.kind,fields:[...row.reads.keys()].sort(),calls:[...row.reads.values()].reduce((a,b)=>a+b,0),
+          kind:row.kind,query:row.query,fields:[...row.reads.keys()].sort(),calls:[...row.reads.values()].reduce((a,b)=>a+b,0),
           collected:!owner,initialized:row.initialized,expected:row.expected,
           intact:observers?!row.failed&&row.initialized===row.expected&&observers.every(o=>o.report().available):null};})}},
         close(){for(const row of rows){const owner=row.owner.deref();if(owner)for(const o of installed.get(owner)||[])o.close();}rows.length=0;}

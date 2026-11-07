@@ -1034,11 +1034,13 @@ jobs:
           path: /tmp/quod-unit-metadata
 
   benchmark-native-inspector:
-    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property')
+    if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-api' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property' || inputs.only == 'benchmark-stat-constructor')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
@@ -1056,7 +1058,7 @@ jobs:
           print(json.dumps({name:[line.split(' ',2)[-1] for line in symbols if name in line] for name in names},indent=2))
           PY
       - name: Build isolated native Inspector experiment
-        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property'
+        if: inputs.only == 'benchmark-native-inspector' || inputs.only == 'benchmark-native-string' || inputs.only == 'benchmark-native-property' || inputs.only == 'benchmark-stat-constructor'
         shell: bash
         run: |
           NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
@@ -1086,8 +1088,27 @@ jobs:
           QUOD_TEST_NATIVE_CAPTURE_TRANSPORT: string
         run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
       - name: Inventory native data-property semantics without enabling instrumentation
-        if: inputs.only == 'benchmark-native-property'
+        if: inputs.only == 'benchmark-native-property' || inputs.only == 'benchmark-stat-constructor'
         run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs scripts/bench-vitest/native-context-guard.test.mjs scripts/bench-vitest/native-stat-fields.test.mjs scripts/bench-vitest/stat-constructor-probe.test.mjs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: inputs.only == 'benchmark-stat-constructor'
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - name: Install the unchanged workload
+        if: inputs.only == 'benchmark-stat-constructor'
+        working-directory: profile-project
+        run: npm ci && npm run build
+      - name: Measure constructor observation around the expensive test
+        if: inputs.only == 'benchmark-stat-constructor'
+        run: python3 scripts/bench-vitest/stat-constructor-workload.py "$PWD/profile-project" "$RUNNER_TEMP/stat-constructor-evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && inputs.only == 'benchmark-stat-constructor'
+        with:
+          name: stat-constructor-workload
+          path: ${{ runner.temp }}/stat-constructor-evidence
       - name: Capture native scalar integration crash backtrace
         if: failure() && inputs.only == 'benchmark-native-property'
         run: |

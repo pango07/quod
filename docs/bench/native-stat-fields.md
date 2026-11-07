@@ -79,6 +79,32 @@ first meet the [architecture review's execution-contract gate](../first-principl
 rather than treating another debugger workaround as evidence of progress
 toward useful replay.
 
+## Constructor entry follow-up, 2026-11-07
+
+[Gate 42359574023](https://github.com/pango07/quod/actions/runs/42359574023)
+at `554f49e` passed all 46 tests, including eight constructor cases. The
+revision resolves the actual constructors through the native promise-stat
+function's lexical conversion helper; public `fs.Stats` is a deprecation
+wrapper. Function-call breakpoints avoid the internal-script location
+breakpoint failure described above.
+
+At entry, the diagnostic accepts only primitive constructor arguments, an
+empty extensible owner and no inherited metadata fields. Temporary setters
+replace themselves with ordinary data fields plus the existing native read
+observer as each pinned constructor assignment runs. The tested prototypes,
+final descriptors, values and queued microtask order agree with ordinary
+execution. The first promise consumer's `mtimeMs` read is observed. Inherited
+setters, coercion side effects and nonextensible owners reject observation;
+later writes retain their value and invalidate it.
+
+The [evidence](stat-constructor-entry.json) retains the diagnostic reports.
+This establishes the tested early-observation mechanism, not a complete
+input boundary. Startup, debugger/native capabilities, query identity and
+lifetime integrity remain unresolved. It enables no production replay and
+supplies no savings claim. The next remote diagnostic measures this mechanism
+around the unchanged expensive property test with ordinary controls; even a
+passing result would still require a fresh-runner replay and mutation gate.
+
 ## Prepared benchmark harness
 
 `pango07/ci-bench` branch `bench/descriptor-safe-codex`, commit

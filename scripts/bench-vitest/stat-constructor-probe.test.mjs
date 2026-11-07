@@ -9,14 +9,14 @@ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'quod-stat-constructor-'))
 const file=path.join(directory,'input')
 fs.writeFileSync(file,'fixture')
 test.after(()=>fs.rmSync(directory,{recursive:true,force:true}))
-function run(body,before='') {
+function run(body,before='',flags=[]) {
   const source=`import fs from 'node:fs';
 import {createStatConstructorProbe} from ${JSON.stringify(new URL('./stat-constructor-probe.mjs',import.meta.url).href)};
 const file=${JSON.stringify(file)};
 ${before}
 const probe=createStatConstructorProbe();
 try {${body}}finally{probe.close()}`
-  const out=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
+  const out=spawnSync(process.execPath,[...flags,'--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
   assert.equal(out.status,0,out.stderr||String(out.error))
   return JSON.parse(out.stdout)
 }
@@ -39,6 +39,9 @@ const expectedPrototype=Object.getPrototypeOf(expected),expectedDescriptors=Obje
   assert.deepEqual(r.report.rejections,[])
   assert.equal(r.report.rows.length,1)
   assert.equal(r.report.rows[0].kind,bigint?'BigIntStats':'Stats')
+  assert.equal(r.report.rows[0].query?.kind,'stat')
+  assert.equal(r.report.rows[0].query?.path,file)
+  assert.equal(r.report.rows[0].query?.certified,false)
   assert.deepEqual(r.report.rows[0].fields,['mode','size'])
   assert.equal(r.report.rows[0].intact,true)
   assert.equal(r.report.rows[0].initialized,bigint?18:14)
@@ -55,9 +58,21 @@ console.log(JSON.stringify({timestampIsNumber:typeof timestamp==='number',size,r
   assert.equal(r.timestampIsNumber,true);assert.equal(r.size,7)
   assert.deepEqual(r.report.rejections,[])
   assert.equal(r.report.rows.length,1)
+  assert.equal(r.report.rows[0].query?.kind,'stat')
+  assert.equal(r.report.rows[0].query?.path,file)
   assert.deepEqual(r.report.rows[0].fields,['mtimeMs','size'])
   assert.equal(r.report.rows[0].intact,true)
   t.diagnostic(JSON.stringify({firstPromiseConsumer:r}))
+})
+
+test('constructor query diagnostic distinguishes lstat without following a link',()=>{
+  const r=run(`const link=file+'.link';fs.symlinkSync(file,link);
+try {const s=fs.lstatSync(link);const symbolic=s.isSymbolicLink();
+console.log(JSON.stringify({symbolic,report:probe.report()}));}finally{fs.unlinkSync(link)}`)
+  checked(r.report)
+  assert.equal(r.symbolic,true);assert.equal(r.report.rows.length,1)
+  assert.equal(r.report.rows[0].query?.kind,'lstat');assert.equal(r.report.rows[0].query?.path,file+'.link')
+  assert.deepEqual(r.report.rows[0].fields,['mode']);assert.equal(r.report.rows[0].intact,true)
 })
 
 test('constructor entry rejects a transient inherited setter that publishes metadata',t=>{
@@ -118,4 +133,17 @@ console.log(JSON.stringify({size:s.size,report:probe.report()}));`)
   checked(r.report)
   assert.equal(r.size,99);assert.equal(r.report.rows.length,1)
   assert.equal(r.report.rows[0].initialized,14);assert.equal(r.report.rows[0].intact,false)
+})
+
+test('collection after replacement leaves lifetime integrity unknown',()=>{
+  const r=run(`(()=>{const s=fs.statSync(file);s.isFile();s.size=99;if(s.size!==99)throw Error('write lost')})();
+let report;for(let i=0;i<30;i++){
+ await new Promise(resolve=>setImmediate(resolve));global.gc();report=probe.report();
+ if(report.rows[0]?.collected)break;
+}
+console.log(JSON.stringify({report}));`,'',['--expose-gc'])
+  checked(r.report)
+  assert.equal(r.report.rows.length,1);assert.equal(r.report.rows[0].collected,true)
+  assert.equal(r.report.rows[0].intact,null)
+  assert.deepEqual(r.report.rows[0].fields,['mode'])
 })
