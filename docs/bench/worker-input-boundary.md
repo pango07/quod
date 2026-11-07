@@ -2532,3 +2532,66 @@ a fragmented message; the absence of Buffer slices alone is insufficient.
 These paths still prevent a complete ownership claim and production replay
 authority. There are no product hits, lineage promotions or audits, and
 the full-window gap remains 630 runner-seconds.
+
+## Retained bytes at native read boundaries
+
+`c5632e7` adds a regression that sends one complete message and all but the
+last byte of the following message. An ordinary timer copies the retained
+second payload before the final byte arrives. It replaces no getter or
+parser function. Both plain and observed executions copy the payload while
+only the first message has been prepared, and retain the same results,
+ordering and byte counts. The [regression-first gate](https://github.com/pango07/quod/actions/runs/42346954905)
+passes the previous 87 tests but fails this case: the earlier observer
+incorrectly reports itself available. Replay eligibility remains false.
+
+`d1e74f8` checks channel state at both native read boundaries. The buffer
+array, byte count and buffering flag must all describe empty state. A
+retained input at either boundary leaves a persistent failure. Fragmented
+messages still execute normally, but their records do not qualify for
+projected-input reuse under this guard.
+
+The check captures actual lexical Symbol identities from the pinned parser,
+then verifies that parser frames use those same keys. It does not select
+fields by their names or descriptions. A second regression places empty
+decoy fields with the same Symbol descriptions before the real fields;
+the guard still detects the retained payload. The [focused gate](https://github.com/pango07/quod/actions/runs/42347082802)
+passes all 89 tests in 22.443 seconds. `ca17f31` adds full-workload counter
+assertions; its observer runtime is unchanged from the focused gate.
+
+These checks describe observed reads. They do not prove that different
+chunking on a later run cannot expose bytes, or exclude every other raw-byte
+alias. Complete worker input ownership, startup/native integrity and parent
+effects remain prerequisites for production replay authority.
+
+The [full-workload gate](https://github.com/pango07/quod/actions/runs/42347244805)
+at `ca17f31` passes all 465 preflight tests. Independent artifact checks
+confirm 120 file/project instances and the same 4,131 raw test states in
+each of the three phases: 4,130 pass and one skips. Both observed phases
+agree with plain execution across the 39 content-preserving timestamp edits.
+
+| Phase | Seconds | Compared with baseline | Read boundaries checked |
+| --- | ---: | ---: | ---: |
+| Baseline | 75.873 | 1.000x | Not observed |
+| Observed before metadata change | 132.758 | 1.750x | 3,276 |
+| Observed after metadata change | 133.730 | 1.763x | 3,242 |
+
+All 6,518 boundaries are empty. Entries and returns reconcile with every
+one of the 3,259 native reads; no retained buffers, unsupported reads or
+boundary failures appear. Startup, parser, slice, decoder, dispatch and
+transport checks also pass independently. Each observed phase records all
+2,581 scalar reads, with no transport failures. Evaluator code sequences
+match in all 120 workers, while complete compilation and RPC sequences
+still differ in every worker.
+
+The runner is `ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0
+and Vitest 5.0.0. The [evidence record](worker-message-dispatch.json)
+preserves the regression-first failure, focused and full gates, source
+pins, counters, all 261 artifact-file digests and log digests. The artifact
+archive also matches GitHub's published SHA-256 digest.
+
+These are observation timings, not product savings. Replay eligibility and
+complete ownership remain false. There are no new product hits, lineage
+promotions or audits, and the last full-window gap remains 630 runner-seconds.
+The next ownership check must cover ordinary access to channel state before
+and between reads, including an initially empty buffer list retained by
+application code; empty boundaries alone do not exclude that earlier alias.
