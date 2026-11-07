@@ -3,6 +3,8 @@
 // native integrity and pre-installation activity remain unproven; never replay
 // authority. Host-object decoding stays explicitly unsupported.
 import {createHash,randomBytes} from 'node:crypto'
+import {isAbsolute} from 'node:path'
+import {ipcChannelObserverFactorySource} from './ipc-channel-access-probe.mjs'
 
 const childSource='0c2e2cc568bb1651aec25c8a9c7178380dfde9b4ac772b02c6286536ee4986b1'
 const parserSource='59f0124b35fa9127200c10c5aa206b60ceaf0951d11947ce3e9a4afb1844f4f2'
@@ -23,7 +25,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const assembly={entries:0,loops:0,checked:0,views:0,failures:0}
   const boundaries={entries:0,returns:0,checked:0,emptyEntries:0,emptyReturns:0,
     retainedEntries:0,retainedReturns:0,maxRetainedBytes:0,unsupportedReads:0,failures:0}
-  let bufferKeys=null
+  let bufferKeys=null,observedChannel=null,channelGuard=null,channelGuardLast=null
   let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter,ownDescriptor
   let typedLengthGetter,typedBufferGetter,arrayPrototype,bufferConcat
   let reading=null,readReturn=null
@@ -123,6 +125,16 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(rows.some(p=>p.name===name))return data(rows,name)
     }
     throw Error('IPC parser binding unavailable: '+name)
+  }
+  function channelAccess(operation) {
+    if(!channelGuard?.objectId)throw Error('IPC channel field guard unavailable')
+    const r=post('Runtime.callFunctionOn',{objectId:channelGuard.objectId,
+      functionDeclaration:'function(operation){this[operation]();return this.report()}',
+      arguments:[{value:operation}],returnByValue:true,silent:true})
+    if(r.exceptionDetails||!r.result?.value)throw Error('IPC channel field guard call failed')
+    channelGuardLast=r.result.value
+    if(channelGuardLast.errors.length)fail('IPC raw channel field access: '+channelGuardLast.errors.join('; '))
+    return channelGuardLast
   }
   function checkReadBoundary(kind) {
     if(reading?.mode!=='advanced') {
@@ -269,6 +281,8 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(!same(evaluate(frame,'target',eventGroup),receiver)){reads.ignoredReceivers++;readRelease();return}
       reads.entries++
       reading.channel=evaluate(frame,'channel',eventGroup)
+      if(!same(reading.channel,observedChannel))throw Error('IPC read channel differs from startup')
+      if(channelGuard)channelAccess('suspend')
       ownData(reading.channel,'pendingHandle',eventGroup,{writable:true})
       if(!same(frame.this,reading.channel))throw Error('IPC read callback has another receiver')
       const args=properties(evaluate(frame,'arguments',eventGroup)).result
@@ -304,7 +318,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         checkReadBoundary('return')
         if(decoding){fail('IPC read returned before decoder delivery');decoderRelease()}
         reads.completed++
-      }finally{readRelease()}
+      }finally{
+        try{if(channelGuard)channelAccess('arm')}finally{readRelease()}
+      }
     }
   }
   function requireRead(channel) {
@@ -404,7 +420,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     }
   }
   function parser(frame,objectGroup,capture=false) {
-    const fn=evaluate(frame,'parseChannelMessages',objectGroup)
+    return parserFunction(evaluate(frame,'parseChannelMessages',objectGroup),capture)
+  }
+  function parserFunction(fn,capture=false) {
     if(fn.type!=='function'||fn.subtype==='proxy'||!fn.objectId)throw Error('IPC parser is not an ordinary function')
     const r=post('Runtime.getProperties',{objectId:fn.objectId,ownProperties:true,generatePreview:false})
     if(r.exceptionDetails)throw Error('IPC parser location unavailable')
@@ -517,6 +535,27 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(!b.breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==line)throw Error('IPC decoder location is not uniquely loaded')
       source(b.locations[0].scriptId,parserSource)
     }
+    // Before application imports, obtain the actual channel and parser from
+    // a pinned Node closure, not from Symbol descriptions or public onread.
+    const disconnect=ownData(receiver,'_disconnect',group)
+    pinnedFunction(disconnect,childSource,939)
+    observedChannel=binding(disconnect,'channel')
+    const mode=parserFunction(binding(disconnect,'parseChannelMessages'),true)
+    if(mode==='advanced') {
+      const addon=process.env.QUOD_NATIVE_CAPTURE_ADDON
+      if(!addon||!isAbsolute(addon))throw Error('IPC channel guard requires the native helper')
+      const factory=post('Runtime.evaluate',{
+        expression:'process.getBuiltinModule("module").createRequire('+JSON.stringify(import.meta.url)+')('+JSON.stringify(addon)+').createDataReadObserver',
+        objectGroup:group,silent:true})
+      if(factory.exceptionDetails||factory.result?.type!=='function')throw Error('IPC channel guard factory unavailable')
+      const created=post('Runtime.callFunctionOn',{objectId:factory.result.objectId,
+        functionDeclaration:ipcChannelObserverFactorySource,
+        arguments:[{objectId:observedChannel.objectId},{objectId:bufferKeys.buffer.objectId},{objectId:bufferKeys.size.objectId}],
+        objectGroup:group,silent:true})
+      if(created.exceptionDetails||!created.result?.objectId)throw Error('IPC channel guard installation failed')
+      channelGuard=created.result
+      channelAccess('report')
+    }
     installed=true
   }catch(e){fail(e.message)}
   return {
@@ -592,7 +631,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         return true
       }catch(e){fail(e.message);return false}
     },
-    report:()=>({available:installed&&!closed&&!failures&&!pending.length&&!reading,installed,closed,
+    report:()=>{if(channelGuard&&!closed)try{channelAccess('report')}catch(e){fail(e.message)};return {available:installed&&!closed&&!failures&&!pending.length&&!reading,installed,closed,
       decoded,prepared,paired,pending:pending.length,ignoredReceivers,groupsCreated,groupsReleased,baselineReleased,
       parsers:[...parsers.values()],failures,errors:[...errors],replayEligible:false,completeOwnership:false,
       decoder:{...decoder,pending:decoding!==null,initialNativeIntegrity:false,completeOwnership:false},
@@ -600,10 +639,12 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       slices:{...slices,completeOwnership:false},
       assembly:{...assembly,completeOwnership:false},
       boundaries:{...boundaries,completeOwnership:false,rawByteIsolationProven:false},
-      limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}),
+      channelAccess:channelGuardLast,
+      limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}},
     close() {
       if(closed)return
       closed=true
+      if(channelGuard)try{channelAccess('close')}catch(e){fail(e.message)}
       for(const breakpointId of breakpoints.keys())try{post('Debugger.removeBreakpoint',{breakpointId})}catch{fail('IPC breakpoint removal failed')}
       decoderRelease()
       readRelease()

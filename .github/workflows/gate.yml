@@ -944,6 +944,20 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
+      - name: Build the native IPC field observer
+        shell: bash
+        run: |
+          NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"
+          HEADER_DIR="$RUNNER_TEMP/quod-inspector-headers"
+          mkdir -p "$HEADER_DIR"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://raw.githubusercontent.com/nodejs/node/v24.18.0/deps/v8/include/v8-inspector.h \
+            --output "$HEADER_DIR/v8-inspector.h"
+          echo "02de3f8668a07ed2f6745908765efe1e69ba66a0361a33632f30283406fc1b28  $HEADER_DIR/v8-inspector.h" | sha256sum --check -
+          c++ -std=c++20 -O2 -shared -fPIC -Wall -Wextra -Werror -Wno-unused-parameter \
+            -I "$HEADER_DIR" -isystem "$NODE_INCLUDE" -DNODE_GYP_MODULE_NAME=quod_native_capture \
+            scripts/bench-vitest/native-entry-capture.cc -ldl -o "$RUNNER_TEMP/quod-native-capture.node"
+          echo "QUOD_NATIVE_CAPTURE_ADDON=$RUNNER_TEMP/quod-native-capture.node" >> "$GITHUB_ENV"
       - run: node --test scripts/bench-vitest/ipc-delivery-probe.test.mjs scripts/bench-vitest/worker-startup-probe.test.mjs scripts/bench-vitest/message-dispatch-probe.test.mjs
 
   benchmark-worker-inputs:
@@ -962,7 +976,7 @@ jobs:
         with:
           node-version: '24.18.0'
       - name: Build the diagnostic native capture helper
-        if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures'
+        if: inputs.only == 'benchmark-worker-boundary' || inputs.only == 'benchmark-worker-module-fixtures' || inputs.only == 'benchmark-worker-module-metadata'
         shell: bash
         run: |
           NODE_INCLUDE="$(node -p 'require("node:path").resolve(process.execPath,"../../include/node")')"

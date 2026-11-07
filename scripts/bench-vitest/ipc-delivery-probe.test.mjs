@@ -333,6 +333,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       assert.equal(r.gets,0,'retaining an ordinary array must not require a getter or parser replacement')
       assert.equal(r.report.boundaries.retainedEntries,0);assert.equal(r.report.boundaries.retainedReturns,0)
       assert.equal(r.report.boundaries.checked,2,'a complete packet leaves both read boundaries empty')
+      assert.equal(r.report.channelAccess.byField.buffers,1)
+      assert(r.report.channelAccess.errors.includes('channel field read outside native callback'))
     }
     if(kind.startsWith('retained-')) {
       assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
@@ -361,7 +363,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     if(['normal','normal-fragmented','normal-fragmented-body','emit-precopy','prelistener','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
       assert.equal(r.report.available,!kind.startsWith('normal-fragmented'),JSON.stringify(r.report))
       assert.equal(r.report.decoded,2);assert.equal(r.report.prepared,2);assert.equal(r.report.paired,2)
-      assert.equal(r.report.pending,0);assert.equal(r.report.failures,kind.startsWith('normal-fragmented')?2:0)
+      assert.equal(r.report.pending,0)
+      if(kind.startsWith('normal-fragmented'))assert(r.report.failures>=2)
+      else assert.equal(r.report.failures,0)
       assert.equal(r.report.groupsCreated,r.report.groupsReleased)
       assert.deepEqual(r.report.parsers.map(p=>p.mode),[serialization])
       assert.equal(r.preparations,2)
@@ -388,6 +392,14 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
       assert.equal(r.report.boundaries.emptyReturns,r.report.boundaries.returns-retained)
       assert.equal(r.report.boundaries.unsupportedReads,serialization==='json'?r.report.reads.entries:0)
       assert.equal(r.report.boundaries.rawByteIsolationProven,false)
+      if(serialization==='advanced'&&!kind.startsWith('normal-fragmented')) {
+        const access=r.report.channelAccess
+        assert(access.available);assert.equal(access.reads,0);assert.deepEqual(access.errors,[])
+        assert.equal(access.suspends,r.report.reads.entries);assert.equal(access.arms,access.suspends+1)
+        assert.equal(access.installedFields,access.arms*3)
+        assert.equal(access.releasedFields,access.suspends*3)
+        assert.equal(r.closed.channelAccess.installedFields,r.closed.channelAccess.releasedFields)
+      }
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
       assert(r.copies.length>0)
