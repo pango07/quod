@@ -288,7 +288,9 @@ def main():
                 parser["completionAuthority"] is False and len(parser["checks"]) == len(PARSER_CHECKS) and
                 {r["name"] for r in parser["checks"]} == PARSER_CHECKS and all(r["passed"] is True for r in parser["checks"]) and
                 all(r["accepted"] is (r["name"] == "valid-progress-and-final") for r in parser["checks"]), "Remote parser fixtures missing/failed")
-        require(30 <= policy["watchdogSeconds"] <= 180 and policy["maxSerialBytes"] == 100 * 1024**2, "Unbounded supervisor")
+        require(type(policy["watchdogSeconds"]) is int and 30 <= policy["watchdogSeconds"] <= 180 and
+                type(policy["releaseWatchdogSeconds"]) is int and 30 <= policy["releaseWatchdogSeconds"] <= 360 and
+                policy["maxSerialBytes"] == 100 * 1024**2, "Unbounded supervisor")
         for path in [metadata["qemu"]["path"], metadata["qemu"]["bios"], "/etc/ld.so.cache", "/etc/ld.so.preload"]:
             require(path in metadata["qemu"]["hostFiles"], "Incomplete actual emulator/loader identity")
         scans = metadata["qemu"]["ldd"]
@@ -322,9 +324,11 @@ def main():
         results, responses = {}, {}
         for name in ORDER:
             case, command = evidence / name, name.split("-", 1)[0]
+            watchdog = (60 if command in {"boundary", "background"} else
+                        policy["releaseWatchdogSeconds"] if command == "release" else policy["watchdogSeconds"])
             result = load(case / "result.json")
             require(result == summary["runs"][ORDER.index(name)] and result["ok"] is True and result["timedOut"] is False and
-                    result["qemuExitCode"] == 0 and 0 < result["seconds"] <= (61 if command in {"boundary", "background"} else policy["watchdogSeconds"] + 1),
+                    result["qemuExitCode"] == 0 and 0 < result["seconds"] <= watchdog + 1,
                     "Bad actual VM completion/timing")
             serial = (case / "serial.raw").read_bytes()
             require(len(serial) <= policy["maxSerialBytes"] and hashlib.sha256(serial).hexdigest() == result["serialSha256"], "Serial hash differs")
@@ -400,7 +404,7 @@ def main():
                 "-append", "init=/init rdinit=/init console=ttyS0,115200n8 quiet loglevel=0 nokaslr random.trust_cpu=off random.trust_bootloader=off panic=-1 oops=panic quod.command=" + command,
                 "-chardev", serial_arg, "-device", "isa-serial,chardev=trusted-output,index=0", "-no-reboot"]
             require(argv == expected_argv and invocation["environment"] == policy["hostEnvironment"] and invocation["stdin"] == "DEVNULL" and
-                    invocation["watchdogSeconds"] == (60 if command in {"boundary", "background"} else policy["watchdogSeconds"]) and
+                    invocation["watchdogSeconds"] == watchdog and
                     invocation["imageMetadataSha256"] == sha(image / "image.json") and invocation["policySha256"] == sha(evidence / "policy.json"),
                     "Actual QEMU invocation differs from the fixed boundary")
             results[name], responses[name] = result, response

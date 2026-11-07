@@ -21,15 +21,18 @@ install or execute the VM on a developer machine.
 
    ```sh
    python3 scripts/bench-vitest/native-vm/build.py profile-project "$RUNNER_TEMP/native-vm-image"
-   python3 scripts/bench-vitest/native-vm/probe.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" --watchdog 180
+   python3 scripts/bench-vitest/native-vm/probe.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" --watchdog 180 --release-watchdog 360
    python3 scripts/bench-vitest/native-vm/audit.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" > "$RUNNER_TEMP/native-vm-audit.json"
    ```
 
 Upload the image directory, evidence directory and auditor output, including
 failure evidence. Retain the kernel and initramfs bytes, not just their hashes.
-The workflow has a 20-minute global timeout. Each boundary VM has a 60-second
-host watchdog; each command VM has a maximum 180-second host watchdog. A timeout
-is incomplete and fails the gate.
+The diagnostic workflow has a 25-minute global timeout. Each boundary VM has a
+60-second host watchdog; each build VM keeps its 180-second host watchdog. The
+release-only option permits at most 360 seconds and is separately recorded in
+the keyed policy and each actual invocation. Without that option, release uses
+the unchanged default command limit of 180 seconds. A timeout is incomplete and
+fails the gate.
 
 ## Declared boundary
 
@@ -102,7 +105,10 @@ completion envelope still requires the existing quiescence checks.
 Both readers reject malformed, truncated, overlapping, out-of-order or excess
 frames and extra completion envelopes. Valid bounded diagnostics are retained
 even when the host watchdog kills an incomplete VM. Twelve remote parser fixtures
-exercise this distinction. The host watchdog remains 180 seconds for commands.
+exercise this distinction. The bounded release-only extension changes no guest
+image, CPU, progress budget, command or completion requirement. It follows
+retained evidence of changing release subprocesses before the earlier host
+cutoff; it does not establish that either release run will complete.
 
 ## Fixed experiment
 

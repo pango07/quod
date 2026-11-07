@@ -259,10 +259,13 @@ def main():
     ap.add_argument("image", type=Path)
     ap.add_argument("out", type=Path)
     ap.add_argument("--watchdog", type=int, default=180)
+    ap.add_argument("--release-watchdog", type=int, default=None)
     args = ap.parse_args()
     if sys.platform != "linux" or os.environ.get("GITHUB_ACTIONS") != "true":
         raise SystemExit("VM execution is restricted to the authorized GitHub Linux gate")
     require(30 <= args.watchdog <= 180, "Finite per-VM watchdog must be between 30 and 180 seconds")
+    release_watchdog = args.watchdog if args.release_watchdog is None else args.release_watchdog
+    require(30 <= release_watchdog <= 360, "Finite release watchdog must be between 30 and 360 seconds")
     image, out = args.image.resolve(), args.out.resolve()
     require(not out.exists(), "Evidence directory must not already exist")
     require("," not in str(image) and "," not in str(out), "QEMU file paths must not contain option separators")
@@ -290,7 +293,7 @@ def main():
               "cpu": CPU, "memoryMiB": 4096, "vcpus": 1, "tcgThread": "single", "machine": qemu["machine"],
               "uuid": UUID, "icount": "shift=0,align=off,sleep=off", "seed": 42,
               "rtc": "base=2023-11-14T22:13:20,clock=vm,driftfix=none", "hostEnvironment": host_env,
-              "watchdogSeconds": args.watchdog, "maxSerialBytes": MAX_SERIAL,
+              "watchdogSeconds": args.watchdog, "releaseWatchdogSeconds": release_watchdog, "maxSerialBytes": MAX_SERIAL,
               "network": "no NIC; guest-owned loopback only", "blockDevices": [], "hostMounts": [],
               "inputChannels": [], "output": "output-only file chardev bound to a root-only guest UART",
               "diagnostics": {"schema": "quod-native-vm-progress-v1", "completionAuthority": False,
@@ -324,7 +327,8 @@ def main():
                     "random.trust_cpu=off random.trust_bootloader=off panic=-1 oops=panic quod.command=" + command,
                     "-chardev", f"file,id=trusted-output,path={serial}", "-device", "isa-serial,chardev=trusted-output,index=0",
                     "-no-reboot"]
-            timeout = 60 if command in {"boundary", "background"} else args.watchdog
+            timeout = (60 if command in {"boundary", "background"} else
+                       release_watchdog if command == "release" else args.watchdog)
             invocation = {"argv": argv, "environment": host_env, "stdin": "DEVNULL", "watchdogSeconds": timeout,
                           "imageMetadataSha256": policy["imageMetadataSha256"], "policySha256": digest(out / "policy.json")}
             write_json(case / "invocation.json", invocation)
