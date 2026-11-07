@@ -6,7 +6,7 @@ an uncached managed control. Its separately versioned receipt policy requires
 the exact same native image/class and trusted seed-job byte digest. Production
 admission remains disabled. The v0 design and its original remaining-work list
 below are historical; the follow-up records what has since been closed and the
-currently pending legacy-handler regressions.
+verified legacy-handler regressions.
 
 The founder authorized investigating an opt-in managed mode, with unsupported
 work running normally. The ordinary twelve-commit benchmark remains separate.

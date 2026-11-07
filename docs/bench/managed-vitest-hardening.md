@@ -2,7 +2,11 @@
 
 This research branch continues the [first execution gate](managed-vitest-feasibility.md).
 The saved handoff changes were restored from `ac17261` and independently hashed
-before further work. No Action, Cloud deployment or reusable result is enabled.
+before further work. Production Action and Cloud behavior remain unchanged.
+
+**Current result:** the fixed policy now passes independently audited
+[fresh-runner replay](managed-vitest-verified-replay.md). The history below
+retains the earlier gates and the defect closed before that result.
 
 The candidate compiler parses original modules and the final bundle, admits only
 its reviewed adapter imports and a restricted AsyncLocalStorage facade, and
@@ -58,14 +62,16 @@ consumer jobs. The consumer executed zero managed tests. Commands took
 195 and 33 s respectively. This is one observed workload on a matching native
 class, not the original twelve-commit benchmark or a general cost forecast.
 
-That admission policy remains provisional: pinned-source review then identified
+That earlier admission policy was provisional: pinned-source review then identified
 legacy workerd `on<type>` handlers running before registered error listeners.
-The next revision freezes global error/rejection/fetch handler slots, declines
+The verified revision freezes global error/rejection/fetch handler slots, declines
 AbortSignal.onabort, and rejects local legacy descriptors before invoking any
 getter. It installs an immutable null slot before local native dispatch so a
 second property read cannot evade the check. Eighteen isolated boundary modes
 now cover suppression, async failure, pending work and the changing-getter case.
-The final fixed-policy batch is pending.
+The fixed-policy batch now passes in
+[gate 42376989108](https://github.com/pango07/quod/actions/runs/42376989108),
+including its independent artifact audits.
 
 Local events support registered listeners. Legacy handler attributes are outside
 this managed contract. A dispatch installs a non-enumerable immutable null
@@ -100,4 +106,4 @@ zero test/unit replays. Its 50% bar is still unmet.
 
 The 31-check preflight, symbol inventory and shared supervisor pass in
 `42376167015`; the 18-mode legacy-handler revision and actual compiler-to-receipt
-mutation matrix require their own remote validation. Production remains off.
+mutation matrix subsequently pass in `42376989108`. Production remains off.

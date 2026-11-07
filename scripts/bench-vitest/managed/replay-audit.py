@@ -210,7 +210,13 @@ def verify_build(path, available_workers):
     require(built['identitySha256'] == canonical_hash(identity), 'compiler canonical identity SHA differs')
     require(built['sha256'] in available_workers, 'no retained compiled bundle matches build SHA')
     require(valid_sha(identity['compilerSha256']), 'missing compiler implementation identity')
-    require(identity['configurationSha256'] == canonical_hash(built.get('options', BASE)), 'compiler options SHA differs')
+    options = built.get('options', BASE)
+    if path.parent.name == 'admission-integration' and path.name == 'baseline-build.json':
+        options = {'epoch': 1700000000000, 'seed': 42,
+                   'env': {'NODE_ENV': 'test', 'QUOD_RECEIPT_VALUE': 'declared'},
+                   'vitest': {'root': '/project/.quod-managed-receipt-fixtures', 'sequence': {'seed': 42}},
+                   'file': '/project/.quod-managed-receipt-fixtures/fixture.test.mjs'}
+    require(identity['configurationSha256'] == canonical_hash(options), 'compiler options SHA differs')
     require(identity['globs'] == built['globs'] and identity['adapters'] == built['adapters'], 'compiler collection identity differs')
     require(identity['moduleNameSetsSha256'] == canonical_hash(built['globs']), 'module-name set SHA differs')
     require(identity['sources'] and all(isinstance(row['source'], str) and valid_sha(row['sourceSha256']) and
@@ -438,7 +444,8 @@ for role, root in roots.items():
 available_workers = set()
 for root in roots.values():
     for path in sorted(root.rglob('*.mjs')):
-        if path.name == 'worker.mjs' or path.parent.name == 'compiler-checks':
+        if (path.name == 'worker.mjs' or path.parent.name == 'compiler-checks' or
+                path.name == 'baseline-bundle.mjs' and path.parent.name == 'admission-integration'):
             value = attempt('bundle bytes ' + str(path), lambda path=path: file_hash(path))
             if value:
                 available_workers.add(value)
@@ -455,7 +462,7 @@ for role in ('seed', 'control', 'replay'):
         if verified:
             roles[role] = verified
 
-compiler_count = receipt_count = None
+compiler_count = receipt_count = integration_count = None
 if 'hardening' in located:
     hardening_dir, hardening = located['hardening']
     def hardening_matrix():
@@ -469,6 +476,46 @@ if 'hardening' in located:
             require(bundle['sha256'] == built['sha256'] and bundle['identitySha256'] == built['identitySha256'], 'compiler matrix bundle record differs')
         return len(value['checks'])
     compiler_count = attempt('hardening/compiler fixture matrix', hardening_matrix)
+    if hardening.get('boundaryChecksVersion', 1) >= 6:
+        def admission_integration():
+            folder = hardening_dir / 'receipt-checks'
+            required = receipt_names() | {
+                'admission integration records actual dependency source',
+                'admission integration records actual glob module names',
+                'admission integration repeated real compilation keeps identity',
+                'admission integration repeated real compilation hits receipt',
+                'admission integration unrelated file leaves real compile identity unchanged',
+                'admission integration unrelated file hits recorded receipt',
+            }
+            names = {'test source comment', 'dependency value', 'glob module-name addition',
+                     'declared environment', 'configuration seed'}
+            for name in names:
+                required |= {'admission integration ' + name + ' changes recompiled identity',
+                             'admission integration ' + name + ' misses recorded receipt'}
+            value = matrix(folder / 'result.json', 'quod-managed-receipt-fixtures-v1', 'pass', required)
+            require(value['researchOnly'] is True and value['cacheEnabled'] is False, 'integration enabled production')
+            detail = read(folder / 'admission-integration/result.json')
+            require(detail == value['admissionIntegration'] and detail['runtimeExecuted'] is False and
+                    detail['responseOrigin'] == 'constructed passing response; not runtime execution' and
+                    detail['preparationOrigin'] == 'synthetic own-data configuration', 'integration scope differs')
+            built = builds[folder / 'admission-integration/baseline-build.json']
+            require(detail['compileIdentitySha256'] == built['identitySha256'], 'actual baseline compiler identity differs')
+            receipt_file = folder / 'admission-integration/constructed-response-receipt.json'
+            require(detail['receipt']['receiptSha256'] == file_hash(receipt_file), 'constructed receipt byte digest differs')
+            receipt = read(receipt_file)
+            execution = receipt['execution']
+            require(execution['identity']['compile'] == built['identity'], 'constructed receipt uses different compilation')
+            key = digest('quod-managed-execution-v1-research\n' + encode(execution['identity']))
+            require(key == execution['key'] == detail['baselineExecutionKey'], 'baseline ledger key differs')
+            require({row['name'] for row in detail['mutations']} == names and len(detail['mutations']) == 5,
+                    'actual-input mutation inventory differs')
+            for row in detail['mutations']:
+                require(row['hit'] is False and valid_sha(row['executionKey']) and row['executionKey'] != key and
+                        valid_sha(row['compileIdentitySha256']) and row['compileIdentitySha256'] != built['identitySha256'],
+                        'actual-input mutation admitted the old receipt')
+            require(detail['unrelated'] == {'executionKey': key, 'hit': True}, 'unrelated real-file change did not hit')
+            return len(value['checks'])
+        integration_count = attempt('actual compiler-to-ledger mutation integration', admission_integration)
 if 'seed' in located:
     def receipt_matrix():
         path, value = discover(roots['seed'], lambda value: value.get('schema') == 'quod-managed-receipt-fixtures-v1', 'receipt matrix')
@@ -510,6 +557,7 @@ summary = {
     'trustedReceipt': receipt_summary,
     'compilerRegressionChecks': compiler_count,
     'receiptMutationChecks': receipt_count,
+    'compilerAdmissionChecks': integration_count,
     'passingTestsCompared': 47 if receipt_summary else None,
     'effectsSha256': roles.get('seed', {}).get('result', {}).get('effectSha256'),
     'freshConsumerHit': roles.get('replay', {}).get('result', {}).get('hit'),
