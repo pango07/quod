@@ -49,11 +49,16 @@ expected instance independently. No ledger change is made here.
 
 ## Finite compiler input argument
 
-The implementation is restricted to Linux x64, Node 24.18.0, esbuild 0.28.2 and
-TypeScript 6.0.3. It hashes the complete installed TypeScript, esbuild and
-platform-binary packages, Node executable and current compiler/verifier source.
+The implementation is restricted to Linux x64, Node 24.18.0, esbuild 0.28.2,
+the installed `@typescript/typescript6` 6.0.2 wrapper under `typescript`, and its
+delegated `@typescript/old` implementation with package name `typescript` 6.0.3.
+It hashes all four complete installed packages (esbuild, platform binary,
+TypeScript wrapper and delegated implementation), Node executable and current
+compiler/verifier source. The wrapper's exact 45 bytes are pinned by SHA:
+`module.exports = require("@typescript/old");` followed by newline.
 Actual ESM and CJS esbuild API entries must both be the hashed package's
-`lib/main.js`; the TypeScript require entry must be `lib/typescript.js` and the
+`lib/main.js`; both TypeScript wrapper and delegated require entries must be
+their hashed package's `lib/typescript.js`, and the
 platform binary must be the hashed `bin/esbuild`. Manifest identity alone cannot
 substitute for actual entry selection through package self-references or
 conditional exports. The adapter package manifest is also retained. The source
@@ -70,6 +75,41 @@ hooks or all loaded JavaScript state. Sequential on-disk tool changes must still
 decline, and restoration is allowed only when exact original bytes and recorded
 loaded API identities recover. These controls do not claim general hostile
 Node-host protection.
+
+The first resolved gate [42412794953](https://github.com/pango07/quod/actions/runs/42412794953)
+at `7cebf45b65fb9a4fca2f66641273b6931aaaccbd` failed at the initial tool-version
+check before any candidate validation or workers. Its 55 compiler checks passed;
+the matrix and 108-pair steps were skipped. Artifact 13590067499 remains a failed
+gate's evidence: 2,208,194 bytes, SHA-256
+`3c241c0fc838691f5072ea9c03c3ef4fd87aedc14d02ec99c81f0a69cd839d0d`.
+The loaded API version 6.0.3 had incorrectly been treated as the wrapper manifest
+version. Fixing the version alone would have left the delegated tool bytes out.
+
+The exact installed primary bytes were streamed as data from the already
+SHA-verified [native image artifact](https://github.com/pango07/quod/actions/runs/42409495211/artifacts/13589761021),
+without installing or executing anything:
+
+| Installed file | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Wrapper package manifest | 841 | `d9b8fb53c67c947fece83bcb73fa8512227ea6a12b110e096fdab8ecdc02b655` |
+| Wrapper `lib/typescript.js` | 45 | `d3f3cd2b04b7f466f4484df921b744223f7bd1f3e353ec9110bdf52695b983d5` |
+| Delegated package manifest | 3,527 | `9332e97c30d3e53ed54910b89207ed657fb444066484df6e5b6965bf130865e9` |
+| Delegated `lib/typescript.js` | 9,144,216 | `569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39` |
+
+The corrected epoch resolves the delegated API from the actual wrapper location,
+hashes its full package before load, guards both cache Module/export identities,
+and checks that the wrapper exposes exactly the delegated export object. Any
+newly loaded CJS dependency outside the four measured tool roots declines.
+Warm delegated-file and delegated-exports changes must reject and exact original
+restoration must recover.
+
+The conservative `5c6aa48` diagnostic passed 92 controls, observed twelve exact
+bundle pairs and 108 native-conformant instances, but its toolIdentity also
+hashed only the wrapper. Its namespace retained JSON/path facts rather than
+the delegated TS JavaScript bytes. That historical result remains an unused
+diagnostic and does not establish future tool closure under delegated API changes.
+The prior 108-instance SDK gate still compiled and hashed every actual complete
+bundle before receipt lookup; it did not rely on a compile-input certificate.
 
 Nonempty Node CLI flags and `NODE_OPTIONS`, `NODE_PATH`,
 `NODE_PRESERVE_SYMLINKS`, `NODE_COMPILE_CACHE` or `ESBUILD_BINARY_PATH` decline.
@@ -141,10 +181,10 @@ in a separate plain Node process; the two prior failed conservative investigatio
 remain documented in `compile-input-certificate.md`.
 
 Additional controls warm the producer, mutate the same compiler/esbuild/TS API
-file while keeping package versions unchanged, and require capture/build/new
+file (including the delegated TS API) while keeping package versions unchanged, and require capture/build/new
 factory rejection. A fresh plain child must compile the actual changed explicit
 target policy, while ordinary warm outputs cannot acquire certified provenance.
-Exact restored bytes recover the original epoch. Replacing TS `.exports` must
+Exact restored bytes recover the original epoch. Replacing wrapper or delegated TS `.exports` must
 also decline. Fresh-child package self-reference fixtures keep the old manifest
 target while routing esbuild ESM/CJS or TypeScript require through another API;
 they must miss, with all files restored in `finally`.

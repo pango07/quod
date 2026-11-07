@@ -307,7 +307,8 @@ async function warmToolControls(initial, seed, config, entry) {
       recovered.bundle === initial.bundle && capture(recovered, config, entry).sha256 === seed.sha256)
   }
   for (const [name, file] of [['compiler-source', path.join(here, 'compiler.mjs')],
-    ['esbuild-api', own.resolve('esbuild')], ['typescript-api', projectRequire.resolve('typescript')]]) {
+    ['esbuild-api', own.resolve('esbuild')], ['typescript-wrapper-api', projectRequire.resolve('typescript')],
+    ['typescript-delegated-api', createRequire(projectRequire.resolve('typescript')).resolve('@typescript/old')]]) {
     const bytes = fs.readFileSync(file)
     assert(bytes.length < 16 * 1024 * 1024)
     const changed = name === 'compiler-source' ? Buffer.from(bytes.toString('utf8').replaceAll("target: 'es2022'", "target: 'es2021'"))
@@ -323,6 +324,12 @@ async function warmToolControls(initial, seed, config, entry) {
     tsModule.exports = {...originalExports, createSourceFile: () => { throw new Error('QUOD_REPLACED_TS_API') }}
     return {moduleFile: projectRequire.resolve('typescript'), changed: 'module.exports and used createSourceFile'}
   }, () => { tsModule.exports = originalExports })
+  const delegatedModule = own.cache[createRequire(projectRequire.resolve('typescript')).resolve('@typescript/old')]
+  const delegatedExports = delegatedModule.exports
+  await controls('typescript-delegated-exports', () => {
+    delegatedModule.exports = {...delegatedExports, createSourceFile: () => { throw new Error('QUOD_REPLACED_DELEGATED_TS_API') }}
+    return {changed: 'delegated @typescript/old module.exports and used createSourceFile'}
+  }, () => { delegatedModule.exports = delegatedExports })
 }
 async function apiRouteControls(seed, config, entry) {
   const here = path.dirname(fileURLToPath(import.meta.url)), own = createRequire(import.meta.url)

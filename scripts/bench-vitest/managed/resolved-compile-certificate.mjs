@@ -150,16 +150,25 @@ function toolIdentity(ctx) {
     assert(!process.env[key], 'unreviewed compiler environment: ' + key)
   const own = createRequire(import.meta.url), project = createRequire(path.join(ctx.project, 'package.json'))
   const packages = [own.resolve('esbuild/package.json'), own.resolve('@esbuild/linux-x64/package.json'), project.resolve('typescript/package.json')]
+  const wrapperAPI = path.join(fs.realpathSync(path.dirname(packages[2])), 'lib/typescript.js')
+  const delegated = createRequire(wrapperAPI)
+  packages.push(delegated.resolve('@typescript/old/package.json'))
   const roots = packages.map(file => fs.realpathSync(path.dirname(file)))
   const esbuildAPI = path.join(roots[0], 'lib/main.js'), tsAPI = path.join(roots[2], 'lib/typescript.js')
+  const delegatedAPI = path.join(roots[3], 'lib/typescript.js')
   const binary = path.join(roots[1], 'bin/esbuild')
   const entries = {esbuildESM: fs.realpathSync(fileURLToPath(import.meta.resolve('esbuild'))),
     esbuildCJS: fs.realpathSync(own.resolve('esbuild')), typescriptCJS: fs.realpathSync(project.resolve('typescript')),
+    typescriptDelegatedCJS: fs.realpathSync(delegated.resolve('@typescript/old')),
     esbuildBinary: fs.realpathSync(createRequire(esbuildAPI).resolve('@esbuild/linux-x64/bin/esbuild'))}
   assert(entries.esbuildESM === esbuildAPI && entries.esbuildCJS === esbuildAPI &&
-    entries.typescriptCJS === tsAPI && entries.esbuildBinary === binary, 'unreviewed actual compiler API or binary entry')
+    entries.typescriptCJS === tsAPI && entries.typescriptDelegatedCJS === delegatedAPI && entries.esbuildBinary === binary,
+  'unreviewed actual compiler API or binary entry')
   assert(packages.slice(0, 2).every(file => JSON.parse(regular(file).toString('utf8')).version === '0.28.2'), 'unreviewed esbuild source version')
-  assert(JSON.parse(regular(packages[2]).toString('utf8')).version === '6.0.3', 'unreviewed TypeScript source version')
+  const wrapperPackage = JSON.parse(regular(packages[2]).toString('utf8')), delegatedPackage = JSON.parse(regular(packages[3]).toString('utf8'))
+  assert(wrapperPackage.name === '@typescript/typescript6' && wrapperPackage.version === '6.0.2' &&
+    delegatedPackage.name === 'typescript' && delegatedPackage.version === '6.0.3', 'unreviewed TypeScript source version')
+  assert(sha(regular(tsAPI)) === 'd3f3cd2b04b7f466f4484df921b744223f7bd1f3e353ec9110bdf52695b983d5', 'unreviewed TypeScript delegation wrapper')
   const files = [], counts = {paths: 0, bytes: 0}
   function walk(file, label) {
     assert(++counts.paths <= LIMITS.paths, 'compiler tool path bound exceeded')
@@ -183,6 +192,8 @@ function toolIdentity(ctx) {
     'running bootstrap or Node file epoch changed')
   return {platform: process.platform, arch: process.arch, node: process.version,
     nodeSha256,
+    typescript: {wrapper: {name: wrapperPackage.name, version: wrapperPackage.version},
+      implementation: {name: delegatedPackage.name, version: delegatedPackage.version}},
     environment: {NODE_ENV: process.env.NODE_ENV ?? null, ESBUILD_WORKER_THREADS: process.env.ESBUILD_WORKER_THREADS ?? null},
     adapterPackageJsonSha256: sha(regular(path.join(here, 'package.json'))),
     packageRoots: roots.map(root => ctx.name(root)),
@@ -204,7 +215,8 @@ const usedTS = ['version', 'createSourceFile', 'forEachChild', 'isBinaryExpressi
 
 function snapshotAPIs(ctx, tools) {
   const cache = createRequire(import.meta.url).cache
-  return [[tools.entries.esbuildCJS, ['build', 'version']], [tools.entries.typescriptCJS, usedTS]].map(([file, names]) => {
+  return [[tools.entries.esbuildCJS, ['build', 'version']], [tools.entries.typescriptCJS, usedTS],
+    [tools.entries.typescriptDelegatedCJS, usedTS]].map(([file, names]) => {
     const module = cache[ctx.file(file)]
     assert(module && module.exports, 'expected loaded compiler API missing')
     return {module, exports: module.exports, properties: names.map(name => {
@@ -248,6 +260,7 @@ export async function createCertifiedManagedCompiler({project, adapterRoot = her
     if (!initialization) initialization = (async () => {
       const tools = toolIdentity(ctx), fingerprint = json(tools)
       assert(toolCache(ctx, tools).size === 0, 'compiler tools already loaded outside certified epoch')
+      const beforeCache = new Set(Object.keys(createRequire(import.meta.url).cache))
       const module = await import('./compiler.mjs')
       assert(json(toolIdentity(ctx)) === fingerprint, 'compiler tool epoch changed during import')
       assert(module.MANAGED_COMPILER_LOADED_IDENTITY.compilerSha256 === tools.hostSources[0].sha256 &&
@@ -256,6 +269,12 @@ export async function createCertifiedManagedCompiler({project, adapterRoot = her
       // This is the first project TypeScript load in this certified process.
       createRequire(path.join(ctx.project, 'package.json'))('typescript')
       assert(json(toolIdentity(ctx)) === fingerprint, 'compiler tool epoch changed during TypeScript load')
+      const cache = createRequire(import.meta.url).cache
+      assert(cache[ctx.file(tools.entries.typescriptCJS)].exports === cache[ctx.file(tools.entries.typescriptDelegatedCJS)].exports,
+        'TypeScript wrapper did not expose the reviewed delegated API')
+      assert(cache[ctx.file(tools.entries.typescriptDelegatedCJS)].exports.version === '6.0.3', 'loaded delegated TypeScript API version differs')
+      const loadedTools = toolCache(ctx, tools)
+      assert(Object.keys(cache).every(file => beforeCache.has(file) || loadedTools.has(file)), 'unreviewed compiler tool dependency loaded')
       compilerEpoch = {geometry: json(geometry(ctx)), tools: fingerprint, modules: toolCache(ctx, tools),
         apis: snapshotAPIs(ctx, tools), module}
     })()
