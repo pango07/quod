@@ -108,7 +108,7 @@ def audit(args):
         archive = pathlib.Path(args.archive)
         run = load(pathlib.Path(args.run_json))
         artifacts = load(pathlib.Path(args.artifacts_json))['artifacts']
-        candidates = [row for row in artifacts if row['name'] == 'managed-matrix']
+        candidates = [row for row in artifacts if row['name'] == args.artifact_name]
         require(len(candidates) == 1, 'one retained matrix artifact required')
         if len(candidates) == 1:
             artifact = candidates[0]
@@ -418,6 +418,7 @@ if __name__ == '__main__':
     parser.add_argument('--archive')
     parser.add_argument('--run-json')
     parser.add_argument('--artifacts-json')
+    parser.add_argument('--artifact-name', choices=('managed-matrix', 'managed-source-cache'), default='managed-matrix')
     arguments = parser.parse_args()
     try:
         output = audit(arguments)
