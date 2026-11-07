@@ -20,7 +20,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const reads={entries:0,directEntries:0,trampolineEntries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
   const slices={entries:0,checked:0,uint8:0,buffer:0,failures:0}
-  let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter
+  let uint8Constructor,uint8Prototype,bufferConstructor,bufferPrototype,fastBuffer,speciesSymbol,typedSpeciesGetter,bufferSpeciesGetter,ownDescriptor
   let reading=null,readReturn=null
   let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
@@ -77,11 +77,22 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     if(!p?.objectId||p.subtype==='proxy')throw Error('IPC decoder prototype unavailable')
     return p
   }
-  function descriptor(object,name) {
+  function descriptor(object,name,objectGroup=group) {
     for(let depth=0;depth<8&&object?.objectId;depth++) {
+      if(object.subtype==='proxy')throw Error('IPC slice descriptor receiver is a proxy')
+      // Inspector can expose native accessors as computed values. Use the
+      // captured native descriptor function to retain the actual getter.
+      const r=post('Runtime.callFunctionOn',{objectId:ownDescriptor.objectId,
+        functionDeclaration:'function(object,key){return this(object,key)}',
+        arguments:[{objectId:object.objectId},typeof name==='string'?{value:name}:{objectId:name.objectId}],
+        objectGroup,silent:true})
+      if(r.exceptionDetails)throw Error('IPC slice descriptor inspection failed')
+      if(r.result?.objectId) {
+        const row={}
+        for(const field of properties(r.result).result)row[field.name]=data([field],field.name)
+        return row
+      }
       const p=properties(object,true)
-      const row=p.result.find(p=>typeof name==='string'?p.name===name: p.symbol&&same(p.symbol,name))
-      if(row)return row
       object=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
     }
     throw Error('IPC slice descriptor unavailable')
@@ -94,11 +105,11 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       // species constructor can retain bytes before Deserializer is entered.
       const view=evaluate(frame,'concatenatedBuffer',objectGroup)
       const p=properties(view,true),proto=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
-      const ctorField=descriptor(view,'constructor')
+      const ctorField=descriptor(view,'constructor',objectGroup)
       if(!Object.hasOwn(ctorField,'value')||ctorField.get||ctorField.set)throw Error('constructor is observable')
       const ctor=ctorField.value,isUint8=same(ctor,uint8Constructor),isBuffer=same(ctor,bufferConstructor)
       if(!(isUint8&&same(proto,uint8Prototype))&&!(isBuffer&&same(proto,bufferPrototype)))throw Error('constructor or view prototype changed')
-      const species=descriptor(ctor,speciesSymbol),getter=isUint8?typedSpeciesGetter:bufferSpeciesGetter
+      const species=descriptor(ctor,speciesSymbol,objectGroup),getter=isUint8?typedSpeciesGetter:bufferSpeciesGetter
       if(Object.hasOwn(species,'value')||!same(species.get,getter)||(species.set&&species.set.type!=='undefined'))
         throw Error('species lookup changed')
       if(isBuffer&&(!same(prototype(fastBuffer),uint8Constructor)||!same(data(properties(fastBuffer).result,'prototype'),bufferPrototype)))
@@ -313,9 +324,13 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const literal=post('Runtime.evaluate',{expression:'({})',objectGroup:group,silent:true})
     if(literal.exceptionDetails)throw Error('IPC intrinsic object prototype unavailable')
     objectPrototype=prototype(literal.result)
-    const byteNamespace=post('Runtime.evaluate',{expression:'({Uint8Array,Symbol,buffer:process.getBuiltinModule("buffer")})',objectGroup:group,silent:true})
+    const byteNamespace=post('Runtime.evaluate',{expression:'({Uint8Array,Symbol,ownDescriptor:Object.getOwnPropertyDescriptor,buffer:process.getBuiltinModule("buffer")})',objectGroup:group,silent:true})
     if(byteNamespace.exceptionDetails)throw Error('IPC slice namespace unavailable')
     const byteFields=properties(byteNamespace.result).result
+    ownDescriptor=data(byteFields,'ownDescriptor')
+    const descriptorProperties=properties(ownDescriptor)
+    if(ownDescriptor.type!=='function'||descriptorProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
+      throw Error('IPC descriptor baseline is not an unbound native function')
     uint8Constructor=data(byteFields,'Uint8Array');uint8Prototype=data(properties(uint8Constructor).result,'prototype')
     const nativeByteProperties=properties(uint8Constructor)
     if(uint8Constructor.type!=='function'||nativeByteProperties.internalProperties?.some(p=>['[[FunctionLocation]]','[[TargetFunction]]','[[BoundTargetFunction]]'].includes(p.name)))
