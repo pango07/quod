@@ -34,11 +34,11 @@ async function run(kind,enabled,serialization='advanced') {
   const boundWire=ipcFrames([1,2].map(value=>({kind:'data',value,privatePath:'/private-ipc-delivery'})),serialization).toString('base64')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
-import {executionAsyncId,executionAsyncResource} from 'node:async_hooks';
+import {executionAsyncId,executionAsyncResource,createHook} from 'node:async_hooks';
 const enabled=${enabled},kind=${JSON.stringify(kind)};
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
 const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
-let preparations=0,gets=0;
+let preparations=0,gets=0,asyncHook=null;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
 const onread=pipe.onread;
 function activeRead(){return executionAsyncResource()===pipe?executionAsyncId():0}
@@ -54,7 +54,7 @@ function observer(message){
   deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead()});
   if(values.length===(kind==='synthetic'?3:2)) {
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
-    p.close();process.removeListener('message',observer);
+    asyncHook?.disable();p.close();process.removeListener('message',observer);
     if(kind==='onread-shadow-getter')delete pipe.onread;
     if(kind.startsWith('buffer-setter')){delete v8.Deserializer.prototype.buffer;delete Object.prototype.buffer;}
     const rawCopiedValues=rawCopies.map(bytes=>{const d=new v8.Deserializer(bytes);d.readHeader();return d.readValue().value});
@@ -65,7 +65,7 @@ function observer(message){
 }
 process.prependListener('message',observer);p.captureMessageObserver();
 const initial=enabled?p.captureIpcDelivery():null;
-if(['onread-copy','onread-self-restore'].includes(kind)) {
+if(['onread-copy','onread-self-restore','async-resource-copy'].includes(kind)) {
   const replacement=function(...args){
     if(kind!=='onread-copy')pipe.onread=onread;
     if(args[0])wireCopies.push(new Uint8Array(args[0]).slice());
@@ -79,7 +79,7 @@ if(kind==='onread-bound-extra') {
   const bytes=Buffer.from(${JSON.stringify(boundWire)},'base64'),copy=new Uint8Array(bytes.length);copy.set(bytes);
   pipe.onread=onread.bind(pipe,copy.buffer);
 }
-if(kind==='async-resource')executionAsyncResource();
+if(kind.startsWith('async-resource')){executionAsyncResource();asyncHook=createHook({before(){}}).enable();}
 if(kind==='emit-precopy') {
   const emit=process.emit;
   process.emit=function(event,...args){if(event==='message')copy(args[0]);return Reflect.apply(emit,this,[event,...args])};
@@ -183,7 +183,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['constructor-late-swap','advanced'],['buffer-setter','advanced'],['buffer-setter-self-restore','advanced'],
   ['buffer-setter-late-install','advanced'],['buffer-setter-root','advanced'],
   ['onread-copy','advanced'],['onread-self-restore','advanced'],['onread-shadow-getter','advanced'],['onread-bound','advanced'],
-  ['onread-bound-extra','advanced'],['async-resource','advanced']]) {
+  ['onread-bound-extra','advanced'],['async-resource','advanced'],['async-resource-copy','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -244,7 +244,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     if(kind==='generator-copy')assert(r.report.errors.includes('IPC parser has an unexpected caller'))
     if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedNativeEntries,2)
     if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedConstructorEntries,1)
-    if(['onread-copy','onread-self-restore'].includes(kind)) {
+    if(['onread-copy','onread-self-restore','async-resource-copy'].includes(kind)) {
       assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
       assert(r.report.errors.includes('IPC read callback has an unexpected caller'))
     }
