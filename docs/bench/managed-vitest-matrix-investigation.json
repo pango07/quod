@@ -1,0 +1,1088 @@
+{
+  "schema": "quod-managed-matrix-investigation-report-v1",
+  "conclusion": "74 actual project/file instances and 3369 original names/states agree with native under a sealed managed boundary; no receipt or cache admission",
+  "originalGoalComplete": false,
+  "sourcePin": "166bd2de80bcbf1153094a06380e8c1e3675d0f1",
+  "run": {
+    "id": 42404007739,
+    "url": "https://github.com/pango07/quod/actions/runs/42404007739",
+    "headSha": "166bd2de80bcbf1153094a06380e8c1e3675d0f1",
+    "conclusion": "success",
+    "attempt": 1
+  },
+  "artifact": {
+    "id": 13586299886,
+    "name": "managed-matrix",
+    "size_in_bytes": 33827872,
+    "digest": "sha256:8f54f906cf3cbecfcf0deb64a95b17168ad5116673552f697b0fa0e698f752e7"
+  },
+  "auditorSha256": "ade36abdf6dfc127c19e13066a5d182f457490997ec3534046f72ff2020f23c3",
+  "independentAudit": {
+    "schema": "quod-managed-matrix-independent-audit-v1",
+    "passed": true,
+    "dataIntegrityPassed": true,
+    "verifiedProvenance": true,
+    "experimentPassed": true,
+    "sourcePin": "166bd2de80bcbf1153094a06380e8c1e3675d0f1",
+    "coverage": {
+      "selected": 120,
+      "prepared": 118,
+      "supported": 74,
+      "managedPassing": 74,
+      "ordinary": 46,
+      "supportedFailures": 0,
+      "disagreements": 0,
+      "nativeAssertions": 4131
+    },
+    "supportedTests": 3369,
+    "supportedProjects": {
+      "zod-4.1": 8,
+      "zod-4.0": 6,
+      "zod-4.2": 8,
+      "zod-4.3": 8,
+      "zod-4.4": 8,
+      "zod-4.5": 8,
+      "zod-4.6": 8,
+      "convex-helpers": 20
+    },
+    "supportedRoster": [
+      {
+        "instanceId": "f79884922311e1057c3d6fda535a9de821271728407bbd034416f4407f7bbd20",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.1490681529999997
+      },
+      {
+        "instanceId": "2511595948aae3360ca77100e8737c8215563ffdeb363d310a19eb13f65e4979",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.15327915699999994
+      },
+      {
+        "instanceId": "ba3f39cd145acc1d55d619b50992cec04a59291e4b376680fbf75eb3bde9bf31",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.15943962199999986
+      },
+      {
+        "instanceId": "326e358c55648ff3f8bcde78cb0ba3064a38d90784ee08cbe1f3e9c2757a89c2",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.17515565400000013
+      },
+      {
+        "instanceId": "0f9d74426547617052dc4141eced71c132642e28bc5d822b7b395294c35c9962",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.15414493200000107
+      },
+      {
+        "instanceId": "ba6f0d3cc3f06771eb3b815a34cbc5ff7dffbaba88b1c0d0d493ccc079b7519e",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.17723644199999944
+      },
+      {
+        "instanceId": "7bac8dabd563b9c1147becb8be77b9ebf3b30fe58665031aef2307630b075a48",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.15760785700000088
+      },
+      {
+        "instanceId": "a8eb2ea57b9db5808780181cefad06db279686f903b2c085c1b1c8a7372ad918",
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.08887812199999826
+      },
+      {
+        "instanceId": "77ef865cec7a852de947263518160401146ba54b0ba51b0e5efd7a82eba2f714",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.11410652599999957
+      },
+      {
+        "instanceId": "cc43286e7db83b64f075d29944ecd5c26b825622d067bfc01ccc3a358867137d",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.09140689500000007
+      },
+      {
+        "instanceId": "0f7a96505f8f3f06bb762cb7a8ebce3ca85543fc0a72ec2bd7c3372fdd09897c",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.15895125199999893
+      },
+      {
+        "instanceId": "01916f6ab4f674068bb91ca840a06db8837b2d6f13591d487d83d9a3ae37e867",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.16896186600000146
+      },
+      {
+        "instanceId": "9c057bb6ed92df37834b4c94ee9f094b16bf3db288ff6f1c60d047850cada39b",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.170761391
+      },
+      {
+        "instanceId": "d96892ac9d5964b685e681902d0379c83730a9301b7375e71652b37741b67e1b",
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.14069434100000217
+      },
+      {
+        "instanceId": "654e14236a6b95e6b11e0498cd3efb2a99ee46b2077718e6f563f9b29aacfe9d",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.14849690199999896
+      },
+      {
+        "instanceId": "c82440bd9af4d0596e568ab82925067bdb678ae5de158cb7020d07ea3f949fe3",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.14650903200000176
+      },
+      {
+        "instanceId": "b83c3917511da22f923d2913b946d3bf96191fc19f8441aa475db1bf4fbab5b5",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.15120580899999914
+      },
+      {
+        "instanceId": "db69e7e5c375d3d47ef28887f986461217e3c053a9ba6705c33b417f82efbac1",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.1689439910000001
+      },
+      {
+        "instanceId": "8c472c967de0eb922e4260db812a302942762bf8dbd15e6fea23be0e90ae6902",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.14879740799999855
+      },
+      {
+        "instanceId": "86549d0a93f037d74568d8a7e5e616316c5499845a92f210b4bbad2c7d2fbc97",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.17004900899999484
+      },
+      {
+        "instanceId": "c078178997212846222b7e38d3da669ad83595d099bab46f786ef5fca34631ee",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.1555585859999992
+      },
+      {
+        "instanceId": "a18ab8d21eecebb2a3307a0c456a2348791515a7d0cedeac031f25aadc55c4af",
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.13954998799999885
+      },
+      {
+        "instanceId": "4fd58b58aed4ac160a095ef39be6460d501f5edcee5df929592e4f718b58bd42",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.14665986500000144
+      },
+      {
+        "instanceId": "673914346b1be6aa90924436137e954102af96e319883839735da18e72b75c8a",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.13851757099999668
+      },
+      {
+        "instanceId": "624fbb7416754520c9a1dd92722f63466c3c9326ada6c5ecde1825e709f187e3",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.1540789189999996
+      },
+      {
+        "instanceId": "ed063c4d73d659f1b6b8bb8b8ab9f3070b4f727c1475107ee9c4bc7a00b1741e",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.17201815599999828
+      },
+      {
+        "instanceId": "8e2ae05a09c74c21778df11abfdf95e403116ea44809cb8ee04cdb256e36c2e9",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.15202523800000198
+      },
+      {
+        "instanceId": "2a1285c6cca885bdcbc71a1db45ae79dec705878d9bb7fc715b5c910af0ac6ff",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.17923720599999796
+      },
+      {
+        "instanceId": "351db3ae1d6e7eeb576e23939525c531212afd3623559bb49e6f3575d5e66583",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.1523891780000049
+      },
+      {
+        "instanceId": "7a29784ee750071ece659df8e3a777205c28d7ef171d2d6651059170a8b56813",
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.14198167500000272
+      },
+      {
+        "instanceId": "a5fef28bc2c020f5ebfda7ade361f9c53d127518c9c996274079914169a2f2b2",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.14631759800000146
+      },
+      {
+        "instanceId": "e39d31824d8c4423d241a534c4ccfee78a36bdb4c7280b451d567f8f1aca2fa6",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.14888582599999792
+      },
+      {
+        "instanceId": "6130003303d93c61545ba4180a9e45ac659a3367c8a7cb629b5e61220e2d9ab4",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.14459601699999622
+      },
+      {
+        "instanceId": "f4093ecf83d31dbfa7e8af723c1a1dff67a85c55720c2f5353ac6180a70c831e",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.17451428499999747
+      },
+      {
+        "instanceId": "19067d5c34f5257bb071f48ea5537b5276a2dabafcb52c40f5cd59deadf07d61",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.1429901230000105
+      },
+      {
+        "instanceId": "9ac736ae9cc0d84b198225a694135c39bc7f9a049a1501ef02c46ffa59da0cfe",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.1904679279999982
+      },
+      {
+        "instanceId": "9ae2ec230ad0e1027780cdf3df7192ef8b5620fe866491c8a552a4185c54d7e8",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.15307821199999308
+      },
+      {
+        "instanceId": "2c3125c7e8563f906ce802f9c659e3eebb4e91265dd3791bbebb5e3f7a9ba803",
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.14871265599998879
+      },
+      {
+        "instanceId": "1d10f5efaffe8c56556886e36f02c3568b54fe396209fa203be65749d032b4a3",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.14761029500000586
+      },
+      {
+        "instanceId": "4566e0b89cbf2548493f5d60cf18ac16ecbc3dcd3453372496848d188f879265",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.1506020279999939
+      },
+      {
+        "instanceId": "068617b6d97a228a35323ca4a9b782a18adb5295eb8d878caf2cf82647cdc5c3",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.1529434279999987
+      },
+      {
+        "instanceId": "a70c603b5fd46c30e26a886d7a6d2979416eda77787c4c7b85532ebcbac23591",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.16767199499999696
+      },
+      {
+        "instanceId": "9f4e9f827f1219ab283cda836c3f90cc2c1a0d837731a0f157f474223ac72d8e",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.15226838100000167
+      },
+      {
+        "instanceId": "2c900ae396429563cf36c81a745955b5c87e627a9c59b8fd4e5d1271fed38024",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.17008496500000184
+      },
+      {
+        "instanceId": "28a673923ffa6803e59fbcdcca6abbb550ed700346d04487cd56f00f2bccf034",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.154231031000003
+      },
+      {
+        "instanceId": "567cb2654928c714846b9895704b27b500e36038174138e6dfd051de45381aef",
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.14043085399999108
+      },
+      {
+        "instanceId": "4173907b66bbce893abebd24116d6be12997932f8452a7dab6fa0ab99f3282eb",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.1507205549999926
+      },
+      {
+        "instanceId": "867dfcc25a41e4428e19420f78e1aa0a029917a8a9cd582185a86b999a83c35d",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.14032158799999161
+      },
+      {
+        "instanceId": "f6979b530ae8f446615da032661670bb6af1d5d0f1aeffc0a588be85474912b8",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.15853333299999942
+      },
+      {
+        "instanceId": "072fc36c262c555fe837cdad322536e4189dec845b81cc3ac77f2841be7fcda6",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.17725652799999808
+      },
+      {
+        "instanceId": "ab3777d611f43666879b98f11a676d114e7e9a82338382d630b7b9f220b932b6",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.16012906799999474
+      },
+      {
+        "instanceId": "2edf2e75109b646d629c2012a290dfe045b5c24213d1675ecf1fdd89633f91d6",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.19012598500000605
+      },
+      {
+        "instanceId": "799d0380052aaf38183a60863c84a3ef427c7cf44cd3b5cf96c94fb5f61c1cba",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.16017703900000196
+      },
+      {
+        "instanceId": "19a56d6f79c31dea46f7d54c51b8d9c0fb5557fcbcbfa3bc191ac126f28e9579",
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.14921850799999084
+      },
+      {
+        "instanceId": "1856333295b1ed24c6717596802ccbf0b0cd680ac0b30c36d31e2bcea825c88b",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/browser.test.ts",
+        "tests": 5,
+        "workerSeconds": 0.1459726670000091
+      },
+      {
+        "instanceId": "4f2ca3f952a45a2ce88e9914ccd8fe1fb7b5992298237eef1ab5d20454647f46",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/index.test.ts",
+        "tests": 6,
+        "workerSeconds": 0.14488857700000518
+      },
+      {
+        "instanceId": "3c1fd3912edefca2b8b4082d558586feeb0c2419856d752489ec5cc2c3940d65",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/standardSchema.test.ts",
+        "tests": 8,
+        "workerSeconds": 0.15980663099999948
+      },
+      {
+        "instanceId": "c1b80c3442b8bf6b81532b907e78c29945d2b61b6d719ed801a37113bd6b0338",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/validators.test.ts",
+        "tests": 39,
+        "workerSeconds": 0.14508069799999065
+      },
+      {
+        "instanceId": "9276c9c6d95abd996d7f4973f34c1d348b5f79fa510fb8697352a058a1fbdaa5",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/cli/functions.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.1506449799999973
+      },
+      {
+        "instanceId": "c90423a4006c8a3742da92d197db65b77ec90e9da8c144c8c1d4480d26e66553",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/filter.test.ts",
+        "tests": 2,
+        "workerSeconds": 0.15449118299999098
+      },
+      {
+        "instanceId": "f02e46aee519c821243429ce35e026b08fe437d4eb625ee01a7c0a13a1b3733d",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/pagination.test.ts",
+        "tests": 14,
+        "workerSeconds": 0.1715754469999956
+      },
+      {
+        "instanceId": "9b3232a9ad20e596c2cf393ba07ec0d2a07f55bbb9a4ffabf8c5897f768350fa",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/rowLevelSecurity.test.ts",
+        "tests": 9,
+        "workerSeconds": 0.1616630359999981
+      },
+      {
+        "instanceId": "f17aa662beff90a98d19188e4767d1f69ba6d824d4bd76267f25490c659f9977",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/setup.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.1445733509999991
+      },
+      {
+        "instanceId": "9c98091d49e2d4cd31e18e176ce89140caca028fac36c5f28962210906a11b32",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/stream.distinct.test.ts",
+        "tests": 27,
+        "workerSeconds": 0.20196598300000188
+      },
+      {
+        "instanceId": "1c76f1fc71b951a0a9ff847d1dc8a8241952a8507a983179ff7d6dc9fec56e1e",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/stream.flatmap.test.ts",
+        "tests": 9,
+        "workerSeconds": 0.19694329700000526
+      },
+      {
+        "instanceId": "ccda7135f8d1ede102763427b3efabcef8130aaed24822ce92a5ec7ef94a05b3",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/stream.property.test.ts",
+        "tests": 47,
+        "workerSeconds": 57.056206078
+      },
+      {
+        "instanceId": "56c3bdbe07c5dd00d90739e97deb628e1dee6f2992c8774e86e1377adbf0ffee",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/stream.test.ts",
+        "tests": 57,
+        "workerSeconds": 0.5575145179999818
+      },
+      {
+        "instanceId": "22150b1aa059d0add1f6926d0dd966f1d81cd250623f337cf669f9b67604a910",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod.test.ts",
+        "tests": 15,
+        "workerSeconds": 0.1478712499999965
+      },
+      {
+        "instanceId": "5ca8e8d1f3cdf8e9d108bbfa02596000d1153eb4e6e768d5ceb72dfb7da67d17",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.convextozod.test.ts",
+        "tests": 41,
+        "workerSeconds": 0.1615591790000035
+      },
+      {
+        "instanceId": "ac919d83737b1d2afe950578e5134f2cede397a215e2c205848a692c6dea1acb",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.test.ts",
+        "tests": 129,
+        "workerSeconds": 0.180834165999986
+      },
+      {
+        "instanceId": "6af5e4aba1578902b8e6eb6d169c915ddddb3e449623473b755123c581923b71",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.mini.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.16010840100000495
+      },
+      {
+        "instanceId": "7a7d86a16f78533fb82ab6ba945428a6c42f71c34d7c92fe363e467619d6a713",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.test.ts",
+        "tests": 158,
+        "workerSeconds": 0.19156933600001502
+      },
+      {
+        "instanceId": "fb5f025cb6d00fefb19070c4bfb66dfc45a8aa682b060957d1abdac73cb174a5",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.zodtoconvex.zod41.test.ts",
+        "tests": 24,
+        "workerSeconds": 0.16117427300001144
+      },
+      {
+        "instanceId": "c4dfc40ed5172e41d7a9e1cc12d09112c719e43f4a0f7e20b2902cc2d9ff8ac9",
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zodVersion.test.ts",
+        "tests": 1,
+        "workerSeconds": 0.15242123999999604
+      }
+    ],
+    "declines": {
+      "preparation: unreviewed project": 2,
+      "execution: closed boundary did not admit managed execution ['lazy module ./zod3.test.ts']": 8,
+      "execution: closed boundary did not admit managed execution ['lazy module ./zod4.functions.test.ts']": 8,
+      "execution: closed boundary did not admit managed execution ['lazy module ./zod4.functions.zod41.test.ts']": 7,
+      "execution: closed boundary did not admit managed execution ['lazy module ./zod4.zod3.test.ts']": 8,
+      "execution: closed boundary did not admit managed execution ['global reportError']": 2,
+      "compilation: native require reference remains in final bundle": 1,
+      "compilation: Build failed with 1 error:\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: fs": 1,
+      "compilation: Build failed with 2 errors:\nnode_modules/@typescript/old/lib/typescript.js:32551:17: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: perf_hooks\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: fs": 1,
+      "execution: closed boundary did not admit managed execution ['global Request', 'lazy module ./cors.test.http.ts']": 1,
+      "execution: closed boundary did not admit managed execution ['lazy module ./crud.test.ts']": 1,
+      "execution: closed boundary did not admit managed execution ['lazy module ./customFunctions.test.ts', 'process.env mutation']": 1,
+      "execution: closed boundary did not admit managed execution ['global mutation setTimeout']": 1,
+      "execution: closed boundary did not admit managed execution ['global Blob']": 1,
+      "execution: closed boundary did not admit managed execution ['lazy module ./table.test.ts']": 1,
+      "execution: closed boundary did not admit managed execution ['lazy module ./triggers.test.ts']": 1,
+      "compilation: Build failed with 1 error:\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: assert": 1
+    },
+    "nativeStatesSha256": "171d492ae86006d671f06795a634ed255c87fe5795a8f50f5d542b20054188cb",
+    "nativeProjectStatesSha256": "eb7962277f74c63e25c070d2c002182c37841acc031a82a8cff505adae9d8d3a",
+    "retainedFiles": 1186,
+    "issues": [],
+    "limits": "Correctness investigation only; each prepared instance has a fresh process; no receipt admission or amortized performance claim."
+  },
+  "sameRunnerSequentialDiagnostic": {
+    "coverage": {
+      "selected": 120,
+      "prepared": 118,
+      "supported": 74,
+      "managedPassing": 74,
+      "ordinary": 46,
+      "supportedFailures": 0,
+      "disagreements": 0,
+      "nativeAssertions": 4131
+    },
+    "supportedTests": 3369,
+    "supportedFraction": 0.8155410312273057,
+    "projects": {
+      "example-ui": {
+        "selected": 2,
+        "supported": 0,
+        "supportedTests": 0,
+        "ordinaryTests": 6,
+        "compileSeconds": 0,
+        "workerSeconds": 0,
+        "supportedWorkerSeconds": 0
+      },
+      "zod-4.1": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 8.272162581000002,
+        "workerSeconds": 1.8642604999999999,
+        "supportedWorkerSeconds": 1.2148099389999993
+      },
+      "zod-4.0": {
+        "selected": 9,
+        "supported": 6,
+        "supportedTests": 352,
+        "ordinaryTests": 66,
+        "compileSeconds": 5.752709877999998,
+        "workerSeconds": 1.344355155000001,
+        "supportedWorkerSeconds": 0.8448822710000021
+      },
+      "zod-4.2": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 8.096671382999997,
+        "workerSeconds": 1.8553778299999868,
+        "supportedWorkerSeconds": 1.2291107249999915
+      },
+      "zod-4.3": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 8.158666986999997,
+        "workerSeconds": 1.8769447650000075,
+        "supportedWorkerSeconds": 1.2369078080000036
+      },
+      "zod-4.4": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 8.390645300000024,
+        "workerSeconds": 1.8897702829999834,
+        "supportedWorkerSeconds": 1.2495626449999835
+      },
+      "zod-4.5": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 9.104835467000026,
+        "workerSeconds": 1.8541578079999743,
+        "supportedWorkerSeconds": 1.235842976999993
+      },
+      "zod-4.6": {
+        "selected": 12,
+        "supported": 8,
+        "supportedTests": 400,
+        "ordinaryTests": 70,
+        "compileSeconds": 9.247474266000006,
+        "workerSeconds": 1.9448578399999679,
+        "supportedWorkerSeconds": 1.2864826039999753
+      },
+      "convex-helpers": {
+        "selected": 37,
+        "supported": 20,
+        "supportedTests": 617,
+        "ordinaryTests": 270,
+        "compileSeconds": 19.02681642700001,
+        "workerSeconds": 62.60768430100004,
+        "supportedWorkerSeconds": 60.546864290999984
+      }
+    },
+    "probeSeconds": 246.16394899,
+    "nativeSeconds": 45.86086739500001,
+    "compilationSeconds": 76.04998228900008,
+    "workerSeconds": 75.23740848199996,
+    "supportedWorkerSeconds": 68.84446325999993,
+    "compileFailures": [
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/react.test.ts",
+        "reason": "native require reference remains in final bundle"
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/cli/openApiSpec.test.ts",
+        "reason": "Build failed with 1 error:\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: fs"
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "reason": "Build failed with 2 errors:\nnode_modules/@typescript/old/lib/typescript.js:32551:17: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: perf_hooks\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: fs"
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/validators.test.ts",
+        "reason": "Build failed with 1 error:\nnode_modules/@typescript/old/lib/typescript.js:32559:21: ERROR: [plugin: managed-closed-module-boundary] only a named AsyncLocalStorage import is supported: assert"
+      }
+    ],
+    "unsupported": [
+      {
+        "project": "example-ui",
+        "file": "example-ui/src/components/Counter.injection.test.tsx",
+        "unsupported": null,
+        "nativeTests": 3
+      },
+      {
+        "project": "example-ui",
+        "file": "example-ui/src/components/Counter.mock.test.tsx",
+        "unsupported": null,
+        "nativeTests": 3
+      },
+      {
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.1",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.0",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.2",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.3",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.4",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.5",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "zod-4.6",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/functionReferences.test.ts",
+        "unsupported": [
+          "global reportError"
+        ],
+        "nativeTests": 5
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/react.test.ts",
+        "unsupported": null,
+        "nativeTests": 6
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/cli/openApiSpec.test.ts",
+        "unsupported": null,
+        "nativeTests": 6
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/cli/tsApiSpec.test.ts",
+        "unsupported": null,
+        "nativeTests": 3
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/react/sessions.test.ts",
+        "unsupported": [
+          "global reportError"
+        ],
+        "nativeTests": 6
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/cors.test.ts",
+        "unsupported": [
+          "global Request",
+          "lazy module ./cors.test.http.ts"
+        ],
+        "nativeTests": 25
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/crud.test.ts",
+        "unsupported": [
+          "lazy module ./crud.test.ts"
+        ],
+        "nativeTests": 12
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/customFunctions.test.ts",
+        "unsupported": [
+          "lazy module ./customFunctions.test.ts",
+          "process.env mutation"
+        ],
+        "nativeTests": 19
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/rateLimit.test.ts",
+        "unsupported": [
+          "global mutation setTimeout"
+        ],
+        "nativeTests": 32
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/relationships.test.ts",
+        "unsupported": [
+          "global Blob"
+        ],
+        "nativeTests": 35
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/table.test.ts",
+        "unsupported": [
+          "lazy module ./table.test.ts"
+        ],
+        "nativeTests": 3
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/triggers.test.ts",
+        "unsupported": [
+          "lazy module ./triggers.test.ts"
+        ],
+        "nativeTests": 7
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/validators.test.ts",
+        "unsupported": null,
+        "nativeTests": 41
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod3.test.ts"
+        ],
+        "nativeTests": 28
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.functions.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.test.ts"
+        ],
+        "nativeTests": 14
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.functions.zod41.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.functions.zod41.test.ts"
+        ],
+        "nativeTests": 4
+      },
+      {
+        "project": "convex-helpers",
+        "file": "packages/convex-helpers/server/zod4.zod3.test.ts",
+        "unsupported": [
+          "lazy module ./zod4.zod3.test.ts"
+        ],
+        "nativeTests": 24
+      }
+    ]
+  },
+  "limits": [
+    "No receipts, product matrix dispatch, or cache hits are enabled by this probe.",
+    "The original120 native instances always execute, including unsupported managed attempts.",
+    "The 246.164-second serial investigation includes both managed attempts and the complete native control; it is not an acceleration or full-job benchmark.",
+    "The original12 cold-window cost and floor+8s requirements remain unfulfilled."
+  ],
+  "nextEvidence": [
+    "Close only the current actual test-module self loader while keeping every other lazy target visible and sticky-denied.",
+    "Validate real npm-ci materialization equivalence separately from install-key compatibility.",
+    "Run actual unchanged build and release commands in the diskless native guest; no future replay authority follows from two matching observations."
+  ]
+}
