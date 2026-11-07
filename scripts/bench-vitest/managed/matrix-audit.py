@@ -102,6 +102,7 @@ def audit(args):
         if name == 'compiler.mjs':
             compiler_source = data
     self_glob_policy = b'actual-real-test-entry-only; all-other-matches-sticky-denied' in compiler_source
+    keep_names_policy = b'keepNames: true' in compiler_source
     provenance = False
     if args.archive and args.run_json and args.artifacts_json:
         archive = pathlib.Path(args.archive)
@@ -218,6 +219,8 @@ def audit(args):
         closure = built['closure']
         require(closure['finalBundleParsed'] is True and closure['remainingDynamicImports'] == 0 and closure['remainingDynamicRequires'] == 0 and closure['externalImports'] == ['node:async_hooks'], 'final module graph is not closed')
         require(identity['policy']['dynamicCode'] == 'private-sticky-denial-plus-runtime-constructor-guards', 'actual eval guard policy changed')
+        if keep_names_policy:
+            require(identity['policy'].get('keepNames') is True, 'original class/function names were not preserved')
         if self_glob_policy:
             require(identity['policy'].get('lazyGlob') == 'actual-real-test-entry-only; all-other-matches-sticky-denied' and
                     identity['policy']['importMeta'] == 'literal-relative-glob-self-entry-only; all-other-access-sticky-denied', 'new self-entry-only lazy import policy differs')
@@ -253,14 +256,17 @@ def audit(args):
     regression_file = matrix.parent / 'matrix-compiler-checks/result.json'
     if regression_file.is_file():
         regressions = load(regression_file)
-        require(len(regressions['checks']) == (54 if self_glob_policy else 40) and all(row['passed'] is True for row in regressions['checks']), 'original40 or added14 compiler regressions failed/omitted')
+        extra_checks = 15 if keep_names_policy else 14 if self_glob_policy else 0
+        require(len(regressions['checks']) == 40 + extra_checks and all(row['passed'] is True for row in regressions['checks']), 'original40 or added compiler regressions failed/omitted')
         if self_glob_policy:
-            require(regressions['originalCheckCount'] == 40 and regressions['selfGlobCheckCount'] == 14, 'original/new compiler submatrix counts differ')
+            require(regressions['originalCheckCount'] == 40 and regressions['selfGlobCheckCount'] == extra_checks, 'original/new compiler submatrix counts differ')
             new_names = [
                 'adding a denied foreign glob name changes closed identity',
                 'removing that glob name restores the exact prior closed identity',
             ]
             for name in ('self-glob', 'foreign-glob'):
+                if name == 'self-glob' and keep_names_policy:
+                    new_names.append('original class and function names are an explicit compile policy')
                 new_names.extend(name + suffix for suffix in (
                     ' final module graph is closed', ' admits only its exact actual entry',
                     ' actual original assertions pass', ' private completion remains sealed',
@@ -270,8 +276,9 @@ def audit(args):
                 build(built)
                 data = phase(regression_file.parent / ('runtime-' + name), built)
                 expected_denials = [] if name == 'self-glob' else ['lazy module ./foreign-modules/native.mjs', 'lazy module ./foreign-modules/value.mjs']
-                require(data is not None and data.get('ok') is True and completed(data) and
-                        len(data['rows']) == (2 if name == 'self-glob' else 1) and all(row['state'] == 'pass' for row in data['rows']) and
+                expected_count = (3 if keep_names_policy else 2) if name == 'self-glob' else 1
+                require(data is not None and data.get('ok') is True and completed(data) and len(data['rows']) == expected_count and
+                        all(row['state'] == 'pass' for row in data['rows']) and
                         sorted(data['boundary']['unsupported']) == expected_denials, 'actual self/foreign glob runtime semantics or sticky denials failed')
                 admitted = [match for glob in built['globs'] for match in glob['admittedTargets']]
                 require(len(admitted) == (1 if name == 'self-glob' else 0), 'runtime fixture did not prove the bounded glob admission')
@@ -279,7 +286,7 @@ def audit(args):
                 'glob symlink cannot expose a private adapter even as a denied foreign key',
                 'glob target native imports remain denied when selected as the actual entry',
             ])
-            require(regressions['checks'][40:] == [{'name': name, 'passed': True} for name in new_names], 'added14 exact closed-glob control roster differs')
+            require(regressions['checks'][40:] == [{'name': name, 'passed': True} for name in new_names], 'added exact closed-glob/name control roster differs')
     else:
         require(False, 'original40 compiler regression evidence missing')
 
@@ -382,7 +389,14 @@ def audit(args):
         ('supported managed failures cannot be erased by ordinary execution', failures == 0),
         ('at least one complete original managed instance passes', managed_passing > 0),
     ])
-    require(result['checks'] == [{'name': name, 'pass': passed} for name, passed in checks], 'fixed control/check roster or derived pass states differ')
+    # check() aborts after the first false result. Preserve that exact prefix on
+    # a failed experiment instead of inventing later successful controls.
+    observed_checks = []
+    for name, passed in checks:
+        observed_checks.append({'name': name, 'pass': passed})
+        if not passed:
+            break
+    require(result['checks'] == observed_checks, 'fixed control/check roster or derived pass states differ')
     require(result['preflightPassed'] is True, 'private preflight result flag differs')
     require(result['passed'] is (not result.get('error') and all(passed for _, passed in checks)), 'whole experiment pass differs from original checks/sticky failures')
     integrity = not issues

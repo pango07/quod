@@ -135,7 +135,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
     const publicALS = new Set()
     const compiled = await build({
       entryPoints: [entryFile], absWorkingDir: project, bundle: true,
-      write: false, platform: 'browser', format: 'esm', target: 'es2022', metafile: true,
+      write: false, platform: 'browser', format: 'esm', target: 'es2022', metafile: true, keepNames: true,
       define: {__QUOD_CONFIG__: optionsJSON},
       // An unhandled require/import warning is a preparation failure, rather
       // than a dynamically resolved module accidentally reaching execution.
@@ -397,7 +397,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here})
     const sha256 = sha(bundle)
     const identity = {
       schema: 'quod-managed-compile-v1-research', compilerSha256, esbuildVersion, typescriptVersion: ts.version,
-      policy: {platform: 'browser', format: 'esm', target: 'es2022', external: ['node:async_hooks'],
+      policy: {platform: 'browser', format: 'esm', target: 'es2022', keepNames: true, external: ['node:async_hooks'],
         dynamicCode: 'private-sticky-denial-plus-runtime-constructor-guards',
         importMeta: 'literal-relative-glob-self-entry-only; all-other-access-sticky-denied',
         lazyGlob: 'actual-real-test-entry-only; all-other-matches-sticky-denied', preparationAlwaysRuns: true,
