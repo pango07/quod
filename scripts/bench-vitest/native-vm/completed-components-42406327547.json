@@ -1,0 +1,121 @@
+{
+  "schema": "quod-native-vm-completed-components-evidence-v1-investigation",
+  "gateUrl": "https://github.com/pango07/quod/actions/runs/42406327547",
+  "jobUrl": "https://github.com/pango07/quod/actions/runs/42406327547/job/128504716566",
+  "sourcePin": "7108de81d1f3a12063bc797cf73aa5e8bdfb8c38",
+  "artifact": {
+    "id": 13587429595,
+    "name": "managed-native-vm",
+    "bytes": 185051079,
+    "sha256": "30e070ca9a3043458d072cbf982f131cb9788b2d4e79a78c2ee436b51fae5895",
+    "url": "https://github.com/pango07/quod/actions/runs/42406327547/artifacts/13587429595",
+    "verifiedByDownloader": true,
+    "downloaderSha256": "bd48e24160d55a8b9997dadb1324af298071e6e4abee16f192ba3122420444b9"
+  },
+  "contract": "diskless-canonical-linux-native-v1-investigation",
+  "fullInvestigationPassed": false,
+  "receiptAdmission": false,
+  "kernelSha256": "646f7e41faa4b7c8899deee5f725c39eb46987977b5d0ab4340deb3463d9de86",
+  "initramfsSha256": "baa02aa7b1d2055216e349824a95728b73071a7a6e64721eaa7950fbbdc8866a",
+  "actualArchive": {
+    "entries": 32260,
+    "storedDataBytes": 499114944
+  },
+  "completedComponentsAudit": {
+    "passed": true,
+    "issues": [],
+    "rawAuditSha256": "2beee784afefbd00c911e4793e88e3c80b0f4a63e911b71df3d64b4ccf7e3c0f",
+    "analysisSourceSha256": "ea08a6c4034b60e575c084bc0485ea91ea8084d9aad04c5f340cd9ef80617459",
+    "trustedDataReaderSha256": "3728f638aac4a8bf72a5694e8b860b90c74cbd452baa9d052b493a6ec4c2878b",
+    "artifactCodeExecuted": false
+  },
+  "publishedStandaloneAudit": {
+    "reader": "components-audit.py",
+    "readerSha256": "60b897b5f4e0b717e897591797c41c3ae3f643ac08c90ee280643067fe7d7174",
+    "trustedCheckoutDataHelperSha256": "e62134df4fc0f9192034886aadf7007f3351bfa751dc99c92c076e1409d5dbea",
+    "outputSha256": "ec17c4c853eea70f89c85755349cbf4eea2538f81817d929f7dc6ea129b07702",
+    "zipBinding": {
+      "complete": true,
+      "files": 47,
+      "directories": 7,
+      "entries": 47,
+      "uncompressedBytes": 185043159,
+      "pathsSha256": "5658bec0bbf7ea097dfe0ce942c03d7a4878fa57b80fbc984eaa2ee5a678e0e2"
+    },
+    "componentsPassed": true,
+    "issues": [],
+    "artifactCodeExecuted": false
+  },
+  "phases": [
+    {
+      "name": "boundary",
+      "seconds": 25.109659154,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 711,
+      "stderrBytes": 0,
+      "distEntries": 1,
+      "distBytes": 0,
+      "effectsSha256": "2fdf3f3117d176f43acc0d9da6951fba1a2cb24fa674852c31b211f9b4675a8c",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "background",
+      "seconds": 25.46333044699999,
+      "commandComplete": false,
+      "expectedBackgroundRejection": true,
+      "stdoutBytes": 46,
+      "stderrBytes": 0,
+      "distEntries": 0,
+      "distBytes": 0,
+      "effectsSha256": "45fdf9e5c3c11bce84c830fcb39d89812a896d505c4c412f2d5a16d1d1b45d90",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "build-1",
+      "seconds": 83.06935644800001,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 248,
+      "stderrBytes": 43,
+      "distEntries": 130,
+      "distBytes": 1118349,
+      "effectsSha256": "8ffc15e935613034a4aa201cfa27ed63ab086087237ca210238ed52ad8bdc148",
+      "remainingProcesses": 0
+    },
+    {
+      "name": "build-2",
+      "seconds": 82.94459655999998,
+      "commandComplete": true,
+      "expectedBackgroundRejection": false,
+      "stdoutBytes": 248,
+      "stderrBytes": 43,
+      "distEntries": 130,
+      "distBytes": 1118349,
+      "effectsSha256": "8ffc15e935613034a4aa201cfa27ed63ab086087237ca210238ed52ad8bdc148",
+      "remainingProcesses": 0
+    }
+  ],
+  "repeatedBuild": {
+    "rawEffectsDeepEqual": true,
+    "stdoutStderrExact": true,
+    "fullDistMetadataExact": true,
+    "kernelEntropyEqual": true,
+    "effectsSha256": "8ffc15e935613034a4aa201cfa27ed63ab086087237ca210238ed52ad8bdc148"
+  },
+  "release": {
+    "completed": false,
+    "timedOut": true,
+    "hostSeconds": 180.03711395800002,
+    "serialBytes": 0,
+    "capturedProgressAvailable": false,
+    "reason": "Child output stays in guest capture pipes until final quiescence; no progress envelope was emitted"
+  },
+  "limitations": [
+    "The complete six-phase investigation failed at the first release watchdog; no release completion or second release run is claimed.",
+    "Two observations of the actual build establish this recorded repeat agreement, not future replay authority.",
+    "This profile normalizes image metadata and uses a fixed CPU, clock and seed; ordinary-runner equivalence is not claimed.",
+    "Host file and resource inventories do not establish exhaustive host-open or negative-lookup closure.",
+    "RNDADDENTROPY mixes a fixed seed; only the repeated build command's actual getrandom samples were compared."
+  ]
+}
