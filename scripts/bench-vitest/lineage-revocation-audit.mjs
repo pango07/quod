@@ -74,13 +74,18 @@ assert.equal(before.files[auditedId].promotion_stamp,stamp)
 
 // Model one erroneous stored signature. All input states, actual results,
 // witness counts, promotion stamps and file contents remain unchanged.
-const corrupted=structuredClone(before),oldTests=corrupted.files[pendingId].w.tests
+const oldTests=before.files[pendingId].w.tests
 const injected='0'.repeat(64);assert.notEqual(oldTests,injected)
-corrupted.files[pendingId].w.tests=injected
-fs.writeFileSync(ledgerPath,JSON.stringify(corrupted))
+// Keep every other byte, including integer nanosecond identities that a
+// JSON.parse/stringify round trip would round through JavaScript Numbers.
+const original=fs.readFileSync(ledgerPath,'utf8'),parts=original.split(JSON.stringify(oldTests))
+assert.equal(parts.length,2,'the selected signature must occur exactly once')
+const corrupted=parts.join(JSON.stringify(injected))
+fs.writeFileSync(ledgerPath,corrupted)
 fs.copyFileSync(ledgerPath,path.join(out,'fault-injected-ledger.json'))
 fs.writeFileSync(path.join(out,'fault-injection.json'),JSON.stringify({pendingId,auditedId,controlId,stamp,
- oldTests,injected,scope:'Only the pending record witness signature was deliberately corrupted'},null,2)+'\n')
+ oldTests,injected,originalSha256:digest(original),injectedSha256:digest(corrupted),
+ scope:'Only the pending record witness signature was deliberately corrupted'},null,2)+'\n')
 const bad=run('disagreeing-audit')
 assert.equal(bad.summary.lineage_audits,1)
 assert.equal(bad.summary.lineage_disagreed,1)
