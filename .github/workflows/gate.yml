@@ -1047,7 +1047,7 @@ jobs:
         run: node --test scripts/bench-vitest/descriptor-access-probe.test.mjs
       - name: Inventory native data-property semantics without enabling instrumentation
         if: inputs.only == 'benchmark-native-property'
-        run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs scripts/bench-vitest/native-context-guard.test.mjs
+        run: node --test --test-reporter=tap scripts/bench-vitest/native-data-property-semantics.test.mjs scripts/bench-vitest/native-scalar-capture.test.mjs scripts/bench-vitest/native-scalar-property-probe.test.mjs scripts/bench-vitest/native-context-guard.test.mjs scripts/bench-vitest/native-stat-fields.test.mjs
       - name: Capture native scalar integration crash backtrace
         if: failure() && inputs.only == 'benchmark-native-property'
         run: |
