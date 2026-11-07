@@ -292,3 +292,13 @@ of the repository's README and changelog symlinks. That makes a native
 operation/result boundary a concrete candidate to evaluate. It does not
 make the existing keys redundant: provenance, other observers, error cases,
 arguments and effects remain part of the correctness argument.
+
+The [realpath counterexample](bench/realpath-contract.md) demonstrates why
+the operation's actual result needs its own input representation. Changing
+only a parent symlink produced four stale per-test passes while Quod and
+plain both exited with failure. Shared directory metadata masked the defect
+until the fixture moved the mutation outside the project. The correction
+adds a bounded path-resolution footprint and retains the prior keys; it
+does not yet authorize dropping internal metadata observations or establish
+fresh-runner test reuse. Preserve this counterexample in any future
+operation-level refinement.

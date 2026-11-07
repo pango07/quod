@@ -200,12 +200,13 @@ artifact, source fingerprint, query/field groups and consumer sites.
 ## Prepared benchmark harness
 
 `pango07/ci-bench` branch `bench/descriptor-safe-codex`, commit
-`543dff7f2ac77c50ff4c1ae03a2b8b4168a05ad6`, starts from the original full-window
+`15cdda9b64b0548a771f1141dcff25fcebb68bb7`, starts from the original full-window
 harness `8131a61c3c614497d5b48a775e499010fee5f192`. Its only changes are the
 Action SHA, binary version and binary digest. It pins gated Action
-`57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3`, which includes deferred Cloud saves
-and `bin-800771d` with environment-descriptor tracking and conservative
-filesystem-descriptor fallback. Original comparison branches
+`beb12a8c9c32500ad2d19a87b10ee7cc7a95c197`, which includes deferred Cloud saves
+and `bin-c12a7fe` with environment-descriptor tracking, conservative
+filesystem-descriptor fallback and the gated [realpath correction](realpath-contract.md).
+Original comparison branches
 remain intact. No new window was dispatched for this pin-only change.
 
 The [last measured full window](convex-helpers-current-cloud-window.md)

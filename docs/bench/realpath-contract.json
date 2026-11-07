@@ -1,0 +1,343 @@
+{
+  "scope": "realpath parent-symlink correctness; not a performance benchmark",
+  "run": "https://github.com/pango07/quod/actions/runs/42362384290",
+  "gateCommit": "351fd0234d76bc194d75cbfcfcd3bc602477f452",
+  "baselineAction": "57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3",
+  "baselineBinary": "bin-800771d",
+  "baselineArchiveSha256": "51262a23754deffb5cfdf8f47cb5e4acbaa577487329d3f4f46e4709a5719205",
+  "artifact": {
+    "id": 13569849006,
+    "bytes": 31215,
+    "sha256": "c8a21a6aad37f41ee4ac67c6845dedc49d362785058b728518f4d80a2b7133c0"
+  },
+  "result": {
+    "expected": "stale",
+    "wrong": 4,
+    "wrongTests": [
+      "native_callback",
+      "native_sync",
+      "promise",
+      "sync"
+    ],
+    "warmReplayed": 5,
+    "changedReplayed": 5,
+    "quodExit": 1,
+    "plainExit": 1,
+    "sourceOverride": false,
+    "mutation": "Only a parent symlink changes; final file type and contents remain equal"
+  },
+  "phases": [
+    {
+      "label": "plain-before",
+      "exit": 0,
+      "states": [
+        [
+          "callback",
+          "passed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "passed"
+        ],
+        [
+          "native_sync",
+          "passed"
+        ],
+        [
+          "promise",
+          "passed"
+        ],
+        [
+          "sync",
+          "passed"
+        ]
+      ],
+      "replayed": null,
+      "reportSha256": "4c5578425f6a13e0b725cdb1fc9a8ccaef10c8d47e4b301a92efcc5f142d2b89"
+    },
+    {
+      "label": "record",
+      "exit": 0,
+      "states": [
+        [
+          "callback",
+          "passed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "passed"
+        ],
+        [
+          "native_sync",
+          "passed"
+        ],
+        [
+          "promise",
+          "passed"
+        ],
+        [
+          "sync",
+          "passed"
+        ]
+      ],
+      "replayed": 0,
+      "reportSha256": "b3ff14b9eb4ead00744055c3b3649242b59cbd762b2891aa8690b82fd9d89643"
+    },
+    {
+      "label": "witness",
+      "exit": 0,
+      "states": [
+        [
+          "callback",
+          "passed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "passed"
+        ],
+        [
+          "native_sync",
+          "passed"
+        ],
+        [
+          "promise",
+          "passed"
+        ],
+        [
+          "sync",
+          "passed"
+        ]
+      ],
+      "replayed": 0,
+      "reportSha256": "b3ff14b9eb4ead00744055c3b3649242b59cbd762b2891aa8690b82fd9d89643"
+    },
+    {
+      "label": "warm",
+      "exit": 0,
+      "states": [
+        [
+          "callback",
+          "passed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "passed"
+        ],
+        [
+          "native_sync",
+          "passed"
+        ],
+        [
+          "promise",
+          "passed"
+        ],
+        [
+          "sync",
+          "passed"
+        ]
+      ],
+      "replayed": 5,
+      "reportSha256": "0ad711393ccb12a9730374bc79f6d2bb5458e817e81a7327f0a3aeb0cfc0004d"
+    },
+    {
+      "label": "changed-quod",
+      "exit": 1,
+      "states": [
+        [
+          "callback",
+          "failed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "passed"
+        ],
+        [
+          "native_sync",
+          "passed"
+        ],
+        [
+          "promise",
+          "passed"
+        ],
+        [
+          "sync",
+          "passed"
+        ]
+      ],
+      "replayed": 5,
+      "reportSha256": "5df8d9510e6a1ee593b9f7629fd946eda39b7a5e70e6f4fdec8777a95d95da3f"
+    },
+    {
+      "label": "changed-plain",
+      "exit": 1,
+      "states": [
+        [
+          "callback",
+          "failed"
+        ],
+        [
+          "content control",
+          "passed"
+        ],
+        [
+          "native_callback",
+          "failed"
+        ],
+        [
+          "native_sync",
+          "failed"
+        ],
+        [
+          "promise",
+          "failed"
+        ],
+        [
+          "sync",
+          "failed"
+        ]
+      ],
+      "replayed": null,
+      "reportSha256": "7fca5d421f3943ddaca2573b4f34bf6a5413bd315a12819600b04a43e2bee86f"
+    }
+  ],
+  "sharedInputsChangedAfterMutation": false,
+  "independentlyChecked": [
+    "artifact size and digest",
+    "six reports and their per-test names/states",
+    "five warm and five changed-input replays",
+    "four stale states despite matching exit codes",
+    "shared project inputs unchanged"
+  ],
+  "initialMaskedAttempt": {
+    "run": "https://github.com/pango07/quod/actions/runs/42362251258",
+    "wrong": 0,
+    "warmReplayed": 6,
+    "changedReplayed": 0,
+    "sharedChangedKeys": [
+      "sm:"
+    ],
+    "interpretation": "A shared directory metadata invalidation masked the incomplete query key; mutation was moved outside the project"
+  },
+  "correction": {
+    "sourceCommit": "c12a7fe32f4957b6bd1cc09edbe63c7292b1c1d3",
+    "run": "https://github.com/pango07/quod/actions/runs/42363290768",
+    "rustTests": 122,
+    "javascriptTests": 92,
+    "clippy": "passed",
+    "status": "release and packaged Action gates passed; no new full window",
+    "earlierReleaseFailures": [
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42362602896",
+        "sourceCommit": "3dfd42e5798ebf3a4d0ffd1fb39a2802ff50a308",
+        "reason": "A generated .vite-temp config filename became a shared input and prevented warm replay"
+      },
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42362822734",
+        "sourceCommit": "3411b9514bbb6b76ab26aa9a287ffc567dd05615",
+        "reason": "Generated config input plus overly broad options-object rejection"
+      },
+      {
+        "run": "https://github.com/pango07/quod/actions/runs/42363054660",
+        "sourceCommit": "694c7da14209f0cda2efa97172652bcdf8cc167d",
+        "reason": "Shared inputs were now stable, but blanket options-object rejection prevented recording"
+      }
+    ],
+    "archiveSha256": "febefde32dec226741bc7e7e99aa6812e59f1605af85e28c8867b63830327c63",
+    "binarySha256": "d18f2618e859b5773968e11ab9269b7c72bc23817fb277e8ab0ff1e8839f9e8b",
+    "binaryArtifact": {
+      "id": 13570531849,
+      "bytes": 6075326,
+      "sha256": "2f83ffbbc26174e6a35e6e080cfb45f95edf1f42f6e42cde19ed3175554c7df6"
+    },
+    "regressionArtifact": {
+      "id": 13570980355,
+      "bytes": 36786,
+      "sha256": "10c1868a0765b7a6c85c5e55d433abf2b98af4c1cb286c81c7b1219e90e72d1b"
+    },
+    "result": {
+      "expected": "correct",
+      "wrong": 0,
+      "wrongTests": [],
+      "warmReplayed": 5,
+      "changedReplayed": 1,
+      "quodExit": 1,
+      "plainExit": 1,
+      "sourceOverride": false,
+      "mutation": "Only a parent symlink changes; final file type and contents remain equal"
+    },
+    "independentlyChecked": [
+      "both artifact sizes and digests",
+      "archive and contained ELF binary digest",
+      "six reports and per-test states",
+      "five warm and one changed-input replay",
+      "all five changed result failures agree with plain",
+      "shared inputs unchanged after external symlink mutation"
+    ]
+  },
+  "performanceClaim": false,
+  "action": {
+    "run": "https://github.com/pango07/quod/actions/runs/42363721621",
+    "sourceCommit": "ef4745d127a2fca3df2ac22f9f0dbd138a57d691",
+    "bundledCommit": "beb12a8c9c32500ad2d19a87b10ee7cc7a95c197",
+    "artifact": {
+      "id": 13570647795,
+      "bytes": 2515104,
+      "sha256": "ec84541a7311c8265b09a53c073d1d29701f470025f7bfc768d16d9024a4ca51"
+    },
+    "bundleArchiveSha256": "cd855e3d2abe8dc3675a86ee5dbbebda61d0b138d5d757c2110e851388315685",
+    "mainSha256": "8d889eedd8817d9b12b429b1e06b17f309b1f21afc137da1ababe186c521dd52",
+    "postSha256": "7a328273175023c41b6272dc8e26b3861338be6a62c8ca30935760bf2aa76129",
+    "result": {
+      "runs": 6,
+      "statesPerRun": 6,
+      "wrong": 0,
+      "changedReplayed": 1,
+      "changedFailures": 5
+    },
+    "lineageFixture": {
+      "promoted": 2,
+      "plainAudits": 1,
+      "disagreed": 0,
+      "revoked": 0
+    },
+    "independentlyChecked": [
+      "artifact size and digest",
+      "safe bundle members and exact compiled main/post digests",
+      "six JSON reports agree with saved states",
+      "all five changed realpath failures agree with plain",
+      "content control still replays",
+      "lineage fixture promotion and audit logs"
+    ]
+  },
+  "benchmark": {
+    "branch": "bench/descriptor-safe-codex",
+    "commit": "15cdda9b64b0548a771f1141dcff25fcebb68bb7",
+    "originalHarness": "8131a61c3c614497d5b48a775e499010fee5f192",
+    "onlyChanges": [
+      "Action SHA",
+      "binary version",
+      "binary archive SHA-256"
+    ],
+    "newWindowRun": false
+  }
+}

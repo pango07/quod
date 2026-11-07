@@ -68,5 +68,7 @@ are fixture results, not lineage activity in the full benchmark window.
 
 Action `57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3` contains those exact
 remotely built bundles, verified against the downloaded artifact. The bench
-workflow pins that Action and `bin-800771d`. This is an experimental-branch
+workflow initially pinned that Action and `bin-800771d`; the later
+[realpath correction](realpath-contract.md) supersedes it and retains these
+descriptor regression checks. This is an experimental-branch
 correctness update, with no new full-window performance result.
