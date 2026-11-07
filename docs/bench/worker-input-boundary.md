@@ -2191,3 +2191,72 @@ activity, complete worker inputs and parent effects remain unproven.
 This guard does not establish complete decoder ownership or enable
 production replay. There are zero product hits and lineage audits in this
 diagnostic; the full-window savings gap remains unchanged.
+
+## Constructor and native buffer initialization checks
+
+`7829b39` moves the first decoder check before construction and observes
+the actual native `Deserializer` entry. It requires the pinned implicit
+`DefaultDeserializer` and `ChildProcessDeserializer` callers, their exact
+constructor chain, the same IPC channel and exactly one constructor entry
+before accepting `readHeader`. The created instance must have the checked
+prototype. `f4cdb12` strengthens the late-swap regression: a species getter
+changes the constructor after the first check, and the replacement restores
+the chain before delegating. The actual native-entry check must reject it.
+
+The [constructor-only gate](https://github.com/pango07/quod/actions/runs/42317437089)
+passes 428 preflight checks and the full workload, whose log retains the
+established fingerprint. Subsequent review of Node's
+[native constructor](https://github.com/nodejs/node/blob/v24.18.0/src/node_serdes.cc)
+identified another callback path: its ordinary assignment to `buffer` can
+invoke an inherited setter. `355106f` checks that prototype chain before
+argument evaluation and again at native entry. The regressions retain
+actual input bytes through normal, self-restoring and late-installed
+setters, and compare those copies with the plain process after closing
+the observer.
+
+The [initial buffer-check gate](https://github.com/pango07/quod/actions/runs/42317728674)
+passes the setter cases but fails six existing cases because Inspector
+omits the null prototype at the chain's end. `e4fa740` accepts that omission
+only when the terminal object is identical to the intrinsic immutable
+`Object.prototype` captured from an object literal. Unknown chains remain
+rejected, and a new root-setter regression verifies that a callback on
+`Object.prototype` is still detected before accepting the terminus.
+
+The [focused gate](https://github.com/pango07/quod/actions/runs/42317998071)
+passes all 25 IPC regressions in 10.929 seconds, including eight constructor
+and buffer-hook cases. Existing message ordering, getter-count equality,
+identity pairing, cleanup and fail-closed checks remain in place.
+
+The [combined full gate](https://github.com/pango07/quod/actions/runs/42318105228)
+passes all 432 preflight checks and all workload phases. Independent
+comparison of raw test names and states matches the baseline in both
+observed runs: 120 file/project instances, 4,131 states (4,130 passed and
+one skipped), and the established fingerprint after 39 content-preserving
+mtime changes.
+
+| Phase | Seconds | Compared with baseline |
+| --- | ---: | ---: |
+| Baseline | 68.070 | 1.000x |
+| Observed before metadata change | 99.066 | 1.455x |
+| Observed after metadata change | 98.723 | 1.450x |
+
+Each observed phase records 1,784 matching constructor, header and value
+entries, decoded messages, preparations and paired callbacks. There are
+zero decoder failures, host callbacks, unrelated constructor/native entries,
+ignored receivers or pending messages. All 3,568 decoder groups, 3,568 IPC
+groups, 10,704 dispatch groups and 5,280 transport groups are released.
+Each phase still reconciles all 2,581 scalar reads, with zero seed reads or
+transport failures. Evaluator code sequences agree in all 120 workers;
+complete compilation and RPC sequences still differ in all workers. Each
+phase retains 79,382 unmatched anonymous events in the source accounting.
+
+The runner image remains `ubuntu-26.04/20261101.186.1`, with Node 24.18.0,
+Vite 8.2.0 and Vitest 5.0.0. The [evidence record](worker-message-dispatch.json)
+retains the counters, source pins, regressions, log digests and verified
+artifact digest. These timings measure tracing cost; changing baselines
+prevent treating differences between diagnostic runs as improvements.
+
+Earlier raw IPC buffer access, initial native integrity, pre-installation
+activity, complete worker inputs and parent effects remain unproven. No
+production replay predicate has changed, and there are zero product hits
+or lineage audits here. The real-window savings gap remains unchanged.
