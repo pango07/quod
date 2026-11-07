@@ -116,6 +116,19 @@ async function compile(entry, options, testFile) {
             policy: 'Retain Vitest private mock references for this file lifetime', adaptedSha256: sha(contents)})
           return {contents, loader: 'js'}
         }
+        if (args.path === path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/chunks/index.OVGXnVRj.js')) {
+          // The vendored fake-timer library probes Intl while loading. Intl
+          // is explicitly unavailable in this contract; do not let this
+          // optional framework probe acquire the guarded native namespace.
+          const sourceSha256 = sha(contents)
+          assert.equal(sourceSha256, '57c89e884bab20623afc06a58119c70c4f2e06397ae63e961ad0a0810c9a94b5')
+          const probe = 'isPresent.Intl = _global.Intl && typeof _global.Intl === "object";'
+          assert.equal(contents.split(probe).length, 2)
+          contents = contents.replace(probe, 'isPresent.Intl = false; // Quod managed: Intl unsupported')
+          adapters.push({source: path.relative(project, args.path), sourceSha256,
+            policy: 'Disable optional fake-timer Intl integration; test Intl remains denied', adaptedSha256: sha(contents)})
+          return {contents, loader: 'js'}
+        }
         if (!contents.includes('import.meta.glob')) return
         const tree = ts.createSourceFile(args.path, contents, ts.ScriptTarget.Latest, true)
         const edits = []
@@ -203,12 +216,10 @@ try {
     const fixtureOptions = {...base, env, vitest: structuredClone(config), file: '/project/.quod-managed-fixtures/fixture.test.mjs'}
     const built = await compile('runner.mjs', fixtureOptions, fixtureFile)
     write(name + '-build.json', {...built, bundle: undefined, adapters, options: fixtureOptions})
-    const actual = await execute(name, built.bundle)
-    assert.equal(actual.rows?.length, 4, name + ' must execute all four real Vitest tests')
+    let actual
+    try { actual = await execute(name, built.bundle) }
+    catch (error) { actual = {ok: false, error: {name: error?.name, message: error?.message}} }
     const isSupported = supported(actual)
-    assert.equal(isSupported, mode !== 'unsupported', name + ' support classification')
-    assert.equal(actual.ok, mode !== 'failure', name + ' must preserve the actual test outcome')
-    if (mode === 'unsupported') assert.deepEqual(actual.boundary.unsupported, ['global fetch'])
 
     // These ordinary runs are controls. For unsupported mode this is also
     // the normal execution the dispatcher must select as its fallback.
@@ -220,11 +231,15 @@ try {
     fs.closeSync(log)
     assert.equal(ordinary.status, mode === 'failure' ? 1 : 0, name + ' ordinary exit')
     const rows = JSON.parse(fs.readFileSync(report)).testResults.flatMap(f => f.assertionResults.map(a => [a.fullName, a.status])).sort()
-    assert.deepEqual(normalizedRows(actual.rows), rows, name + ' all names and states')
     results.fixtureEvidence.push({mode, managedSupported: isSupported, managedPassed: actual.ok,
       fallbackExecuted: !isSupported, ordinaryExit: ordinary.status, ordinarySeconds: (performance.now() - started) / 1000,
-      ordinaryReportSha256: sha(fs.readFileSync(report)), rows})
+      ordinaryReportSha256: sha(fs.readFileSync(report)), error: actual.error, rows})
     write('result.json', results)
+    assert.equal(actual.rows?.length, 4, name + ' must execute all four real Vitest tests')
+    assert.equal(isSupported, mode !== 'unsupported', name + ' support classification')
+    assert.equal(actual.ok, mode !== 'failure', name + ' must preserve the actual test outcome')
+    if (mode === 'unsupported') assert.deepEqual(actual.boundary.unsupported, ['global fetch'])
+    assert.deepEqual(normalizedRows(actual.rows), rows, name + ' all names and states')
   }
   results.fixtureChecksPassed = true
 
@@ -238,6 +253,16 @@ try {
   results.unsupportedOrSetupError = {name: error?.name, message: error?.message, stack: error?.stack}
   results.managedSupported = false
 } finally {
+  // Do not spend another expensive ordinary run debugging a small fixture.
+  // The selected real file has not been attempted if these gates failed;
+  // the fixture's own ordinary control/fallback above is the matching one.
+  if (!results.fixtureChecksPassed) {
+    results.expensiveTestAttempted = false
+    write('result.json', results)
+    console.log(JSON.stringify({...results, phases: results.phases.map(p => ({name: p.name, seconds: p.seconds, ok: p.data.ok}))}))
+    throw new Error('Managed fixture gate failed before the expensive test; inspect retained evidence')
+  }
+  results.expensiveTestAttempted = true
   // The ordinary run is mandatory and is the fallback for unsupported attempts.
   const report = path.join(out, 'ordinary-report.json'), log = fs.openSync(path.join(out, 'ordinary.log'), 'w')
   const started = performance.now()

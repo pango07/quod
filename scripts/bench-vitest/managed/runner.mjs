@@ -5,6 +5,7 @@ import {startTests, setSafeTimers} from 'vitest/internal/browser'
 export default {
   async fetch(request) {
     if (new URL(request.url).pathname === '/health') return runtime.response({ready: true})
+    runtime.begin()
     try {
       const config = runtime.options.vitest
       const cleanups = []
@@ -25,6 +26,10 @@ export default {
       if (config.globals) Object.assign(globalThis, api)
       setSafeTimers()
       const runner = new api.TestRunner(config)
+      // startTests installs Vitest's own defaultTrace when absent. The normal
+      // Node bootstrap otherwise injects an OpenTelemetry controller here;
+      // this managed investigation declares no telemetry exporter.
+      runner.trace = undefined
       runner.importFile = () => import('__QUOD_TEST_ENTRY__')
       const files = await startTests([runtime.options.file], runner)
       for (const fn of cleanups) await fn()

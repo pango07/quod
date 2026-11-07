@@ -4,6 +4,7 @@ import {AsyncLocalStorage} from 'node:async_hooks'
 export default {
   async fetch(request) {
     if (new URL(request.url).pathname === '/health') return runtime.response({ready: true})
+    runtime.begin()
     const checks = [], check = (name, pass) => checks.push({name, pass: Boolean(pass)})
     try {
       check('fixed date', Date.now() === runtime.options.epoch)

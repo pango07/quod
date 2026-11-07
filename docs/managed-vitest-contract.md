@@ -19,6 +19,11 @@ until the one-file process exits. It changes exactly two expressions in the
 SHA-256-pinned framework module; any other module version rejects admission.
 The bundle and evidence include this adapter. Test code still cannot access
 WeakRef or FinalizationRegistry. Assertions and spy behavior use Vitest itself.
+The pinned framework's optional fake-timer Intl feature probe is disabled;
+Intl remains unavailable to test code. Virtual timers created during module
+initialization are queued, and the native wake starts only inside the request
+handler, as required by workerd. The adapter uses startTests' own default
+tracing callback, without a telemetry exporter.
 
 Preparation runs normally in Node and produces a self-contained bundle.
 The prototype compiles before every execution/replay decision. A future key

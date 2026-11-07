@@ -7,7 +7,7 @@ const wake = globalThis.setTimeout.bind(globalThis)
 const cancelWake = globalThis.clearTimeout.bind(globalThis)
 const unsupported = new Set(), logs = [], timerErrors = []
 const inventory = Object.getOwnPropertyNames(globalThis).sort()
-let tick = 0, randomState = options.seed >>> 0, timerId = 0, pendingWake
+let tick = 0, randomState = options.seed >>> 0, timerId = 0, pendingWake, active = false
 const timers = new Map()
 export function deny(name) {
   unsupported.add(String(name))
@@ -39,7 +39,7 @@ function pump() {
   schedule()
 }
 function schedule() {
-  if (timers.size && pendingWake === undefined) pendingWake = wake(pump, 0)
+  if (active && timers.size && pendingWake === undefined) pendingWake = wake(pump, 0)
 }
 function addTimer(callback, delay = 0, repeat = null, args = []) {
   if (typeof callback !== 'function') return deny('string timer')
@@ -118,7 +118,9 @@ if (options.vitest) globalThis.__vitest_worker__ = {
 
 export const runtime = Object.freeze({
   options,
+  begin() { active = true; schedule() },
   finish(data) {
+    active = false
     if (pendingWake !== undefined) cancelWake(pendingWake)
     pendingWake = undefined
     return {...data, boundary: {inventory, guarded: [...new Set(guarded)].sort(), unguardable,
