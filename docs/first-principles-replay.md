@@ -67,6 +67,15 @@ not resolve these requirements.
 
 ## Measured starting point
 
+The [content opportunity audit](bench/convex-content-opportunity.md) adds a
+second constraint. Five tracked modules observed for the expensive test are
+unchanged across all eleven transitions, but a coarse manifest/configuration
+comparison is unchanged on only four. Removing every measured Quod test-step
+second on those four transitions would still leave 1,166 runner-seconds in
+an arithmetic scenario, above the 867.5-second target. Useful reuse needs
+both stable host observations and a precise dependency boundary. Merely
+moving an all-repository key into a managed environment is insufficient.
+
 The current measured implementation has 1,538 runner-seconds against
 1,735 plain. It needs to remove another 670.5 seconds. It replays no tests
 or units in that window. Dependency installation saves 471 seconds; test

@@ -1,0 +1,1180 @@
+{
+  "replayEligible": false,
+  "kind": "historical-content-opportunity-analysis",
+  "windowRun": "https://github.com/pango07/ci-bench/actions/runs/42349931075",
+  "workerRun": "https://github.com/pango07/quod/actions/runs/42169609242",
+  "workerSourceCommit": "ed70aaa",
+  "evidenceSha256": {
+    "window": "67ea2a7b5da5425dc34979be9af43fa822015a4ca5f47aa5990e623277f547fa",
+    "workerInputs": "4a2248a53f24c5018994e57c9a7e71bcb00f10541dd1889fca613c23e01565c1"
+  },
+  "repository": "https://github.com/get-convex/convex-helpers",
+  "test": "packages/convex-helpers/server/stream.property.test.ts",
+  "observedTransformedModules": [
+    {
+      "path": "packages/convex-helpers/server/stream.property.test.ts",
+      "body": {
+        "available": true,
+        "bytes": 140069,
+        "sha256": "2eeb7b58200f7daf72a3b9dbf4ce4d64ef22f1aa09a6eed0b720758a09f7a56e",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.property.test.ts",
+      "body": {
+        "available": true,
+        "bytes": 140069,
+        "sha256": "2eeb7b58200f7daf72a3b9dbf4ce4d64ef22f1aa09a6eed0b720758a09f7a56e",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.property.test.ts",
+      "body": {
+        "available": true,
+        "bytes": 140069,
+        "sha256": "2eeb7b58200f7daf72a3b9dbf4ce4d64ef22f1aa09a6eed0b720758a09f7a56e",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/stream.ts",
+      "body": {
+        "available": true,
+        "bytes": 186724,
+        "sha256": "455c28cd995b965c398d2679652d0831aa45cd1d23bcdf51c32ed4f9a5d25687",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/rowLevelSecurity.ts",
+      "body": {
+        "available": true,
+        "bytes": 33653,
+        "sha256": "aacf59e72a1b790ac32633d59b47ccdd6ed39f6b169dc780b9bf2f0ad741a52b",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/filter.ts",
+      "body": {
+        "available": true,
+        "bytes": 15566,
+        "sha256": "7d1224dca07a8c8cdd3c734ea4396eaff202eadd9802f31f6747c951b2d42198",
+        "noAtimeRead": true
+      }
+    },
+    {
+      "path": "packages/convex-helpers/server/setup.test.ts",
+      "body": {
+        "available": true,
+        "bytes": 6927,
+        "sha256": "a74e3ccf67d4749fc6ed6b237dbd37c6374e9d08018300508a733256523bd23a",
+        "noAtimeRead": true
+      }
+    }
+  ],
+  "externalModuleRecordsNotExpanded": [
+    {
+      "externalize": {
+        "available": true,
+        "hash": "4a5c595d21ce24858f62953d64088742c661759892f8b85a756bd00e515a244f"
+      },
+      "type": {
+        "available": true,
+        "hash": "9a4c0160826f2f1ec7788234bed76fcac3b19161d672243c7dafbc96f4c00982"
+      }
+    },
+    {
+      "externalize": {
+        "available": true,
+        "hash": "43c5d9eb02a9bcc021efa485aa5c2da615b82a4b0b1e5f2b1b6d9089d8a09125"
+      },
+      "type": {
+        "available": true,
+        "hash": "9a4c0160826f2f1ec7788234bed76fcac3b19161d672243c7dafbc96f4c00982"
+      }
+    },
+    {
+      "externalize": {
+        "available": true,
+        "hash": "af38d3d6870da55411ccf20c31cb0ba2802d024f103c7e2038935e47ec6d8153"
+      },
+      "type": {
+        "available": true,
+        "hash": "9a4c0160826f2f1ec7788234bed76fcac3b19161d672243c7dafbc96f4c00982"
+      }
+    },
+    {
+      "externalize": {
+        "available": true,
+        "hash": "6642e54a3481a77fb7a34e6fbbf385c10ea2fd951447fd80f3b19092c07295be"
+      },
+      "type": {
+        "available": true,
+        "hash": "9a4c0160826f2f1ec7788234bed76fcac3b19161d672243c7dafbc96f4c00982"
+      }
+    },
+    {
+      "externalize": {
+        "available": true,
+        "hash": "5dea23a2975317b468a02123a2aea24c474baed088ab54bfd9ca98d7f57a2498"
+      },
+      "type": {
+        "available": true,
+        "hash": "9a4c0160826f2f1ec7788234bed76fcac3b19161d672243c7dafbc96f4c00982"
+      }
+    }
+  ],
+  "summary": {
+    "trackedSourcePaths": 5,
+    "unchangedObservedSourceTransitions": 11,
+    "coarseContentUnchangedCommits": [
+      1,
+      7,
+      8,
+      9
+    ],
+    "coarseContentUnchangedPlainTestStepSeconds": 306.0,
+    "coarseContentUnchangedQuodTestStepSeconds": 372.0,
+    "arithmeticOnlyRemovingEntireQuodTestSteps": {
+      "remainingRunnerSeconds": 1166.0,
+      "ratioToPlain": 0.6720461095100865,
+      "furtherSecondsToHalfPlain": 298.5,
+      "modeledMinutes": 27,
+      "modeledMinutesRatioToPlain": 0.75
+    }
+  },
+  "commits": [
+    {
+      "i": 0,
+      "commit": "1d7c57881d153d366becbc5d8351276b0d09b086",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "b812a6ef372a4b83a1d7466d3de52dadda6fd126"
+        },
+        "packages/convex-helpers/package.json": {
+          "mode": "100644",
+          "oid": "af243e257a7806540ce8d5eac5923cad36948345"
+        },
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 68.0,
+      "quodTestStepSeconds": 111.0
+    },
+    {
+      "i": 1,
+      "commit": "290b146e0793f0d689150f3c53a1f1c7269020d1",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "b812a6ef372a4b83a1d7466d3de52dadda6fd126"
+        },
+        "packages/convex-helpers/package.json": {
+          "mode": "100644",
+          "oid": "af243e257a7806540ce8d5eac5923cad36948345"
+        },
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 79.0,
+      "quodTestStepSeconds": 84.0,
+      "changedFiles": [
+        "CHANGELOG.md"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [],
+      "coarseContentUnchanged": true,
+      "manifestTopLevelChanges": [],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 2,
+      "commit": "1815d4a72a9714311dfed82a101d8c817830fb0e",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "99d8e492c0d4e0d2e4d8bab60e7552d62d866f8e"
+        },
+        "packages/convex-helpers/package.json": {
+          "mode": "100644",
+          "oid": "af243e257a7806540ce8d5eac5923cad36948345"
+        },
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 111.0,
+      "quodTestStepSeconds": 78.0,
+      "changedFiles": [
+        ".github/workflows/release.yml",
+        "CONTRIBUTING.md",
+        "eslint.config.mjs",
+        "package.json",
+        "publish.sh",
+        "scripts/prepare-release.mjs",
+        "scripts/release-plan.mjs",
+        "scripts/release.mjs",
+        "scripts/release.test.mjs",
+        "scripts/tag-release.test.mjs",
+        "scripts/validate-release.mjs"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "scripts"
+      ],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 3,
+      "commit": "03ffe84ef4431d7b02dd0e6903e36c461ed9223e",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "52fcf64d3950dd947730f3e076bfa746743a7fe1"
+        },
+        "packages/convex-helpers/package.json": {
+          "mode": "100644",
+          "oid": "af243e257a7806540ce8d5eac5923cad36948345"
+        },
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 111.0,
+      "quodTestStepSeconds": 123.0,
+      "changedFiles": [
+        "package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "version"
+      ],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 4,
+      "commit": "6b17e1514f5222e9c019e177e36384df95a3ff25",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "1feaedfe9cdf288ca25b452d7c1c83987856b220"
+        },
+        "packages/convex-helpers/package.json": {
+          "mode": "100644",
+          "oid": "af243e257a7806540ce8d5eac5923cad36948345"
+        },
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 88.0,
+      "quodTestStepSeconds": 90.0,
+      "changedFiles": [
+        "README.md",
+        "package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "exports"
+      ],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 5,
+      "commit": "49a82e54416f9d7957dcbdf5953f628a54693355",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "dac1678cfa42ab42d88ce5c61e2d28be4794dabc"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "1feaedfe9cdf288ca25b452d7c1c83987856b220"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 54.0,
+      "quodTestStepSeconds": 112.0,
+      "changedFiles": [
+        "packages/convex-helpers/package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "packages/convex-helpers/package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 6,
+      "commit": "51f7bf84887625ae8fadbc29f1f9a028e271c8bb",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "4ed395d7b98386f02f79f453d554e62b629879e1"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "da4acd73ce162d8b8172d5734854549f271339e1"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 111.0,
+      "quodTestStepSeconds": 121.0,
+      "changedFiles": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "version"
+      ],
+      "lockPackageEntryChanges": [
+        ""
+      ]
+    },
+    {
+      "i": 7,
+      "commit": "f5c2b9e9ceb4c477e7216ab514ce0d370c3af311",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "4ed395d7b98386f02f79f453d554e62b629879e1"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "da4acd73ce162d8b8172d5734854549f271339e1"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 76.0,
+      "quodTestStepSeconds": 90.0,
+      "changedFiles": [
+        "CHANGELOG.md",
+        "packages/convex-helpers/cli/openApiSpec.test.ts",
+        "packages/convex-helpers/cli/openApiSpec.ts"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [],
+      "coarseContentUnchanged": true,
+      "manifestTopLevelChanges": [],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 8,
+      "commit": "d244cf22ddd8d5a12e4661edfa1ba6cc09468cb8",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "4ed395d7b98386f02f79f453d554e62b629879e1"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "da4acd73ce162d8b8172d5734854549f271339e1"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 75.0,
+      "quodTestStepSeconds": 92.0,
+      "changedFiles": [
+        "CHANGELOG.md",
+        "packages/convex-helpers/cli/openApiSpec.test.ts",
+        "packages/convex-helpers/cli/openApiSpec.ts"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [],
+      "coarseContentUnchanged": true,
+      "manifestTopLevelChanges": [],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 9,
+      "commit": "c976cabdff07b9fc671473a3f2020b0ded436d2f",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "4ed395d7b98386f02f79f453d554e62b629879e1"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "da4acd73ce162d8b8172d5734854549f271339e1"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 76.0,
+      "quodTestStepSeconds": 106.0,
+      "changedFiles": [
+        "README.md",
+        "packages/convex-helpers/server/cors.ts"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [],
+      "coarseContentUnchanged": true,
+      "manifestTopLevelChanges": [],
+      "lockPackageEntryChanges": []
+    },
+    {
+      "i": 10,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "eabd6d7575586c5808dace593d41ddfd94ec5bf1"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "7c008bb7d2291b28fcf87d9d39c596e4f058be0d"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 77.0,
+      "quodTestStepSeconds": 66.0,
+      "changedFiles": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "devDependencies"
+      ],
+      "lockPackageEntryChanges": [
+        "",
+        "node_modules/@jest/types/node_modules/chalk",
+        "node_modules/chalk",
+        "node_modules/eslint/node_modules/chalk",
+        "node_modules/jest-diff/node_modules/chalk",
+        "node_modules/jest-diff/node_modules/chalk/node_modules/ansi-styles",
+        "node_modules/jest-matcher-utils/node_modules/chalk",
+        "node_modules/jest-matcher-utils/node_modules/chalk/node_modules/ansi-styles",
+        "node_modules/jest-message-util/node_modules/chalk",
+        "node_modules/jest-message-util/node_modules/chalk/node_modules/ansi-styles",
+        "node_modules/jest-util/node_modules/chalk"
+      ]
+    },
+    {
+      "i": 11,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "observedSourceBlobs": {
+        "packages/convex-helpers/server/filter.ts": {
+          "mode": "100644",
+          "oid": "b7de266e1774080668fe9de1b38b43b601f9047f"
+        },
+        "packages/convex-helpers/server/rowLevelSecurity.ts": {
+          "mode": "100644",
+          "oid": "b54c560e9e11c71738faa87ecb596aa3862ae6ec"
+        },
+        "packages/convex-helpers/server/setup.test.ts": {
+          "mode": "100644",
+          "oid": "c050ae82bfcd5b70ec43723604d90e1d6617efde"
+        },
+        "packages/convex-helpers/server/stream.property.test.ts": {
+          "mode": "100644",
+          "oid": "903407aacffc7e408e06b83e11abeb0a742c41b0"
+        },
+        "packages/convex-helpers/server/stream.ts": {
+          "mode": "100644",
+          "oid": "526340c52e8352f8a446c925abc312b0d5ca2583"
+        }
+      },
+      "coarseConfigurationBlobs": {
+        "convex/tsconfig.json": {
+          "mode": "100644",
+          "oid": "6ba176340152e984a7a8e57ffff1de86dbcd256e"
+        },
+        "convex/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "a00e123e706602ae5d08331594d18684ec8a85b9"
+        },
+        "example-ui/vite.config.mts": {
+          "mode": "100644",
+          "oid": "59279d88dba1d6c456647b9005db7b46f403b899"
+        },
+        "package-lock.json": {
+          "mode": "100644",
+          "oid": "a86fac02079c27e3f822e008c2a3c4d743d6ca71"
+        },
+        "package.json": {
+          "mode": "100644",
+          "oid": "53ea21b88637e5fef43442122fb62ccfaa69b365"
+        },
+        "packages/convex-helpers/package.json": null,
+        "packages/convex-helpers/tsconfig.json": {
+          "mode": "100644",
+          "oid": "09cd9ba6be6b20433aae96e67d7cbde947ef75c2"
+        },
+        "packages/convex-helpers/vitest.config.mts": {
+          "mode": "100644",
+          "oid": "f67497ad8865f6cf832f1b71f9f09f7c6acb3085"
+        },
+        "scripts/zodVersions.mjs": {
+          "mode": "100644",
+          "oid": "50032d62940e9bf65ccd2318961e2e0dd0c21ec7"
+        },
+        "tsconfig.json": {
+          "mode": "100644",
+          "oid": "44efb997e956fbc50561161dbca8612716466667"
+        },
+        "vitest.config.mts": {
+          "mode": "100644",
+          "oid": "9baaf4a2155dc5e3d6744987b78899934761e35f"
+        }
+      },
+      "plainTestStepSeconds": 77.0,
+      "quodTestStepSeconds": 123.0,
+      "changedFiles": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "observedSourceChanges": [],
+      "coarseConfigurationChanges": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "coarseContentUnchanged": false,
+      "manifestTopLevelChanges": [
+        "devDependencies"
+      ],
+      "lockPackageEntryChanges": [
+        "",
+        "node_modules/commander"
+      ]
+    }
+  ],
+  "limitations": [
+    "The five tracked modules are observed at c11, not a complete dependency closure for all commits.",
+    "External package internals, dynamic resolution, configuration consumption and non-code inputs are not certified.",
+    "Equal Git blobs do not imply equal transforms, runtime configuration, filesystem metadata or test outcomes.",
+    "The coarse comparison set is an analysis scenario, not an implemented or sound replay key.",
+    "Removing entire measured test steps is an arithmetic scenario with all other timings held fixed, not measured savings or a performance bound.",
+    "No trust warm-up, audits, validation, transfer or changed runtime behavior is modeled.",
+    "No package.json field is excluded from any production unit key."
+  ]
+}
