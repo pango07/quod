@@ -2136,9 +2136,10 @@ fn installed(key: &str) -> bool {
         return false;
     };
     // Restoring identical package bytes cannot recreate inode, timestamps
-    // or other metadata. These observations must be checked before a job
-    // skips installation; the lockfile is insufficient evidence for them.
-    if kind == "sm" || kind == "sl" {
+    // or other metadata, nor prove an arbitrary symlink resolution graph.
+    // Check these observations before a job skips installation; the
+    // lockfile is insufficient evidence for them.
+    if matches!(kind, "sm" | "sl" | "rp") {
         return false;
     }
     !p.starts_with('/')
@@ -2781,6 +2782,12 @@ pub(crate) fn state(
             (result, None)
         }
         "e" => (exists(&path()), None),
+        "rp" => (
+            realpath_footprint(&path()).unwrap_or_else(|| {
+                format!("unobservable:realpath:{}", ulid::Ulid::generate())
+            }),
+            None,
+        ),
         "sm" | "sl" => (stat_metadata(&path(), kind == "sl"), None),
         // A proven synchronous stat whose result is used only by native
         // isFile/isDirectory or a success check. Follow links exactly as
@@ -3201,6 +3208,101 @@ fn wall_ns() -> i128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as i128)
+}
+
+/// A successful realpath depends on its path components and every symlink
+/// target traversed, not only on the last component's type. Retain both
+/// lexical and kernel paths: Node's JS implementation normalizes link
+/// targets while its native implementation delegates to the OS.
+///
+/// This only adds a dependency. It does not authorize dropping any stat
+/// observation made inside realpath. Errors, special files, non-UTF-8 link
+/// targets and excessive expansion fail closed instead of guessing an
+/// equivalent Node error or an incomplete resolution graph.
+fn realpath_footprint(input: &Path) -> Option<String> {
+    use std::path::Component;
+
+    fn lexical(path: &Path) -> PathBuf {
+        let mut result = PathBuf::new();
+        for part in path.components() {
+            match part {
+                Component::ParentDir => {
+                    result.pop();
+                }
+                Component::CurDir => {}
+                _ => result.push(part.as_os_str()),
+            }
+        }
+        result
+    }
+
+    if !input.is_absolute() || input.to_str().is_none() {
+        return None;
+    }
+    let normalized = lexical(input);
+    // Do not reuse a negative lookup even if another path spelling succeeds.
+    let native = fs::canonicalize(input).ok()?;
+    let normalized_native = fs::canonicalize(&normalized).ok()?;
+    let mut pending = vec![input.to_path_buf(), normalized];
+    let mut visited = HashSet::new();
+    let mut observations = BTreeMap::new();
+    while let Some(path) = pending.pop() {
+        if !visited.insert(path.clone()) {
+            continue;
+        }
+        if visited.len() > 128 || path.as_os_str().len() > 8192 {
+            return None;
+        }
+        let parts: Vec<_> = path.components().collect();
+        let mut prefix = PathBuf::new();
+        for (index, part) in parts.iter().enumerate() {
+            prefix.push(part.as_os_str());
+            let metadata = fs::symlink_metadata(&prefix).ok()?;
+            let value = if metadata.file_type().is_symlink() {
+                let target = fs::read_link(&prefix).ok()?;
+                let text = target.to_str()?;
+                let mut expanded = if target.is_absolute() {
+                    target.clone()
+                } else {
+                    prefix.parent()?.join(&target)
+                };
+                for suffix in &parts[index + 1..] {
+                    expanded.push(suffix.as_os_str());
+                }
+                pending.push(lexical(&expanded));
+                pending.push(expanded);
+                format!("link:{text}")
+            } else if metadata.is_dir() {
+                "directory".into()
+            } else if metadata.is_file() {
+                "file".into()
+            } else {
+                return None;
+            };
+            if let Some(previous) = observations.insert(prefix.clone(), value.clone())
+                && previous != value
+            {
+                return None;
+            }
+            if observations.len() > 2048 || pending.len() > 4096 {
+                return None;
+            }
+        }
+    }
+    let mut hash = blake3::Hasher::new();
+    for (path, value) in observations {
+        let bytes = path.as_os_str().as_encoded_bytes();
+        hash.update(&(bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+        hash.update(&(value.len() as u64).to_le_bytes());
+        hash.update(value.as_bytes());
+    }
+    for resolved in [native, normalized_native] {
+        let bytes = resolved.as_os_str().as_encoded_bytes();
+        hash.update(&(bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    Some(hash.finalize().to_hex().to_string())
 }
 
 pub(crate) fn exists(p: &Path) -> String {
@@ -4425,6 +4527,79 @@ mod tests {
         other[2] += 1;
         let (s, _) = state(root, "f:a", Some((other, "cached")), wall_ns(), &env, None);
         assert_ne!(s, "cached");
+    }
+
+    #[test]
+    fn realpath_observes_parent_links_without_volatile_metadata() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        for name in ["a", "b"] {
+            fs::create_dir(root.join(name)).unwrap();
+            fs::write(root.join(name).join("file"), "same").unwrap();
+        }
+        symlink("a", root.join("current")).unwrap();
+        let input = root.join("current/file");
+        let before = realpath_footprint(&input).unwrap();
+        fs::File::options().write(true).open(root.join("a/file")).unwrap()
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH)).unwrap();
+        assert_eq!(realpath_footprint(&input).unwrap(), before);
+        fs::remove_file(root.join("a/file")).unwrap();
+        fs::write(root.join("a/file"), "same").unwrap();
+        assert_eq!(realpath_footprint(&input).unwrap(), before, "a new inode at the same resolved path is immaterial");
+        fs::remove_file(root.join("current")).unwrap();
+        symlink("b", root.join("current")).unwrap();
+        assert_ne!(realpath_footprint(&input).unwrap(), before);
+        assert_eq!(exists(&input), "file", "leaf existence alone misses this change");
+        assert!(!installed("rp:node_modules/package/index.js"));
+    }
+
+    #[test]
+    fn realpath_covers_links_inside_targets_and_parent_components() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        for name in ["a", "b"] {
+            fs::create_dir_all(root.join(name).join("child")).unwrap();
+            fs::write(root.join(name).join("file"), "same").unwrap();
+        }
+        symlink("a/child", root.join("middle")).unwrap();
+        symlink("middle/../file", root.join("outer")).unwrap();
+        fs::write(root.join("file"), "same").unwrap();
+        let before = realpath_footprint(&root.join("outer")).unwrap();
+        fs::remove_file(root.join("middle")).unwrap();
+        symlink("b/child", root.join("middle")).unwrap();
+        assert_ne!(realpath_footprint(&root.join("outer")).unwrap(), before);
+        assert_eq!(fs::read_link(root.join("outer")).unwrap(), Path::new("middle/../file"));
+    }
+
+    #[test]
+    fn realpath_failures_do_not_produce_reusable_keys() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        fs::write(root.join("file"), "same").unwrap();
+        symlink("loop", root.join("loop")).unwrap();
+        for p in ["missing", "file/child", "loop"] {
+            assert!(realpath_footprint(&root.join(p)).is_none());
+        }
+        let env = std::sync::OnceLock::new();
+        let first = state(root, "rp:missing", None, wall_ns(), &env, None).0;
+        let next = state(root, "rp:missing", None, wall_ns(), &env, None).0;
+        assert_ne!(first, next);
+    }
+
+    #[test]
+    fn realpath_rejects_non_utf8_targets() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let target = std::ffi::OsStr::from_bytes(b"file-\xff");
+        fs::write(root.join(target), "same").unwrap();
+        symlink(target, root.join("link")).unwrap();
+        assert!(fs::canonicalize(root.join("link")).is_ok());
+        assert!(realpath_footprint(&root.join("link")).is_none());
     }
 
     #[test]

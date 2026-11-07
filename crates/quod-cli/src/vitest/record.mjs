@@ -16,6 +16,7 @@
 //   rj:<path>  the .json files under a directory, recursively, outside
 //              node_modules and .git (tsconfck's walk for tsconfig files)
 //   e:<path>   that a path exists, its type, and a symlink's target
+//   rp:<path>  the complete bounded filesystem path-resolution footprint
 //   p:<path>   an installed package (its root and package.json)
 //   env:<KEY>  one environment variable     envall:   all of them (but the
 //                                                     per-run CI ones)
@@ -134,6 +135,16 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
     },
     add(kind, p) {
       if (!r.on || p == null) return
+      if (kind === 'rp') {
+        // Preserve '..' until filesystem resolution: resolving it here can
+        // erase a symlink that the native realpath operation traverses.
+        // Never collapse these queries to an installed package's version.
+        if (process.platform !== 'linux' || typeof p !== 'string' || p.includes('\0')) {
+          r.unobs('unsupported realpath argument');return
+        }
+        keys.add(`rp:${p.startsWith('/') ? p : `${process.cwd()}/${p}`}`)
+        return
+      }
       let memo = null
       if (typeof p === 'string' && p.charCodeAt(0) === 47 && !(r.mode === 'main' && p.endsWith('package.json'))) {
         memo = `${kind}\0${p}`
@@ -500,9 +511,10 @@ export function patchFs(r, { sync = true } = {}) {
   })
   wrap(fs, 'existsSync', (a) => r.add('e', a[0]))
   wrap(fs, 'exists', (a) => r.add('e', a[0]))
-  both(['realpath', 'readlink'], (a) => r.add('e', a[0]))
-  wrap(fs.realpathSync, 'native', (a) => r.add('e', a[0]))
-  wrap(fs.realpath, 'native', (a) => r.add('e', a[0]))
+  both(['readlink'], (a) => r.add('e', a[0]))
+  both(['realpath'], (a) => r.add('rp', a[0]))
+  wrap(fs.realpathSync, 'native', (a) => r.add('rp', a[0]))
+  wrap(fs.realpath, 'native', (a) => r.add('rp', a[0]))
   const dir = (a) => {
     const o = a[1]
     r.add(o && typeof o === 'object' && o.recursive ? 'r' : 'd', a[0])
