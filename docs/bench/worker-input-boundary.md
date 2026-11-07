@@ -2260,3 +2260,76 @@ Earlier raw IPC buffer access, initial native integrity, pre-installation
 activity, complete worker inputs and parent effects remain unproven. No
 production replay predicate has changed, and there are zero product hits
 or lineage audits here. The real-window savings gap remains unchanged.
+
+## Native IPC read callback extent
+
+`26ff32b`, `ad0918d` and `8bf2ae5` extend the decoder checks to the actual
+native read callback. The observer pairs its pinned entry and return,
+checks the channel and argument list, and requires every decoder and
+delivery to occur inside that checked callback. Direct native calls and
+Node's pinned async trampoline have separate counters. A wrapper that
+copies bytes and restores itself before forwarding still fails the
+actual caller check.
+
+The first focused gate failed because it treated `onread` as an own data
+property. Node's [native stream implementation](https://github.com/nodejs/node/blob/v24.18.0/src/stream_base.cc)
+dispatches through an internal callback slot; its public accessor may be
+shadowed without replacing that slot. The corrected regression verifies
+that the shadow getter is never invoked. Another fixture initially failed
+to exercise async forwarding; enabling a real `before` hook now requires
+the trampoline counter and also exercises a copy wrapper beneath it.
+
+The [focused gate](https://github.com/pango07/quod/actions/runs/42320101990)
+passes all 32 IPC cases in 23.706 seconds. The
+[full gate](https://github.com/pango07/quod/actions/runs/42320247272)
+passes 439 preflight checks and all three workload phases. Independent
+comparison of the raw names and states confirms 120 file/project instances,
+4,130 passing tests and one skipped test in every phase, with the established
+fingerprint after 39 content-preserving mtime changes.
+
+| Phase | Seconds | Compared with baseline |
+| --- | ---: | ---: |
+| Baseline | 99.516 | 1.000x |
+| Observed before metadata change | 141.229 | 1.419x |
+| Observed after metadata change | 141.572 | 1.423x |
+
+The observed phases account for 1,637 and 1,627 complete read callbacks,
+respectively, all direct native entries in this workload. They deliver
+1,791 and 1,795 messages with matching constructor, header, value,
+preparation and dispatch counts. There are no pending reads, decoder
+failures, unrelated entries or ignored receivers. All 3,264 read groups,
+3,586 decoder groups, 3,586 delivery groups, 10,758 dispatch groups and
+5,280 transport groups are released. Each phase reconciles all 2,581
+scalar reads with zero seed reads or transport failures.
+
+Evaluator code sequences agree in all 120 workers; full compilation and
+RPC sequences still differ in every worker. Exact-source accounting retains
+88,141 and 88,271 unmatched anonymous events. Matching source sequences
+remain a diagnostic observation, not a worker-input equivalence rule.
+The runner image is `ubuntu-26.04/20261101.186.1`, with Node 24.18.0,
+Vite 8.2.0 and Vitest 5.0.0. The [evidence record](worker-message-dispatch.json)
+contains both failed focused attempts, the passing gates, source pins,
+counters, log digests and the independently verified artifact manifest.
+
+These timings measure observation cost. There are no product hits,
+lineage promotions or audits, and the 630-runner-second full-window gap
+remains. Raw-buffer aliases outside the checked path, startup integrity,
+complete worker inputs and parent effects still prevent replay authority.
+
+### Next startup boundary
+
+The current ESM bootstrap installs the delivery guard after loading Vite
+and Vitest modules. An earlier observer must cover that interval and retain
+failures across its handoff. Node's [pinned CLI contract](https://github.com/nodejs/node/blob/v24.18.0/doc/api/cli.md)
+runs `--require` modules before `--import` modules, with environment
+preloads preceding command-line preloads. A first CommonJS preload is
+therefore a candidate installation point, not a completed implementation.
+
+The [pinned startup source](https://github.com/nodejs/node/blob/v24.18.0/lib/internal/process/pre_execution.js)
+also runs snapshot deserialization callbacks before loading those modules.
+An implementation must validate the actual launch options and account for
+snapshots and custom loaders; a later `_preload_modules` or module-cache
+snapshot cannot prove that no earlier code executed. The next gate should
+test preload order, input arrival before handoff, temporary native
+replacements and failure persistence before using startup evidence in
+the full workload. No startup certificate is claimed by this run.
