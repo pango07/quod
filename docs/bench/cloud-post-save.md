@@ -36,9 +36,54 @@ The downloaded archive matched GitHub's digest, and only its remote-built
 `dist/main` and `dist/post` files were copied into the packaging commit.
 No local builds or test suites were run.
 
-The gate uses a fake Cloud child for error-path checks. A real Cloud-connected
-old/new comparison remains required before claiming a performance benefit.
-The existing CLI logs a Cloud transport failure and returns zero, so a
+The gate uses a fake Cloud child for error-path checks. The existing CLI
+logs a Cloud transport failure and returns zero, so a
 post-step completion line alone does not prove that the server stored the
 ledger. Verification must include the Cloud save log and the next job's
 restore. The Actions cache save remains independent.
+
+## Real Cloud comparison
+
+[Run 42352064625](https://github.com/pango07/ci-bench/actions/runs/42352064625)
+completed all eight jobs successfully. Harness
+`4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed` compared the old Action
+`e7098a6` with `41d6c96` over original commits c10 and c11, starting cold.
+Both use engine `f9d8153`, timing replay off, lineage on and Cloud on.
+Each Quod job prepares both Action revisions in this comparison harness.
+
+| Variant | c10 runner-s | c11 runner-s | Total runner-s | Rounded minutes |
+| --- | ---: | ---: | ---: | ---: |
+| Plain | 132 | 179 | 311 | 6 |
+| Inline Cloud save | 177 | 161 | 338 | 6 |
+| Deferred Cloud save | 172 | 95 | 267 | 5 |
+
+All four Quod/plain comparisons agree on test-state fingerprints, normalized
+output multiplicity and successful conclusions. Each job has 120 file/project
+instances and 4,131 test states. There are no test or unit replays, lineage
+promotions or lineage audits. All eight jobs use
+`ubuntu-26.04/20261101.186.1`. The [raw evidence](cloud-post-save-jobs.jsonl),
+[per-job report](cloud-post-save-report.md) and
+[independent verification](cloud-post-save-comparison.json) preserve the
+individual images, run identities, counts and arithmetic.
+
+Both new-Action jobs saved exactly one final ledger in `Post quod`, with
+121 new files each. Their Cloud save times were 5.024 s and 7.295 s. The
+next job restored 196 files / 3,559 KB from Cloud in 585 ms. Cache saves
+completed independently, before the Cloud saves ended, and post waited for
+Cloud completion. The two Cloud save intervals began approximately 0.42 s
+and 0.85 s before cache completion was logged. These timestamps confirm
+overlap; they do not establish a repeatable end-to-end saving of that size.
+
+The observed 71 runner-second difference is **not attributable to this
+upload change** from two samples. On c11 alone, the old test step took
+122 s and the new one 61 s; relocating a 6.427 s upload does not explain
+that gap. Install and other step times also differ. This run verifies
+publication, subsequent restore, awaited completion and result agreement.
+It does not establish a new 40–50% savings claim or replace the
+[full 12-commit result](convex-helpers-current-cloud-window.md).
+
+Artifact `13565224592` is 9,967 bytes, SHA-256
+`cedae56fd8d6716ca501a94858c172cbba9f46e3a088a41171e381e8f3b28b3b`.
+The archive digest, all eight exact harness/run identities, per-job rounding
+and four result comparisons were independently checked. Event excerpts and
+digests of the four Quod job logs are in the verification JSON.

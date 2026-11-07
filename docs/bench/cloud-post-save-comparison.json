@@ -1,0 +1,642 @@
+{
+  "coordinator": 42352064625,
+  "verifiedJobs": 8,
+  "observedWrong": 0,
+  "cloudEnabled": true,
+  "summary": {
+    "floor": {
+      "jobs": 2,
+      "window": {
+        "runnerSeconds": 21,
+        "modeledMinutes": 2,
+        "runnerSecondsRatioToPlain": 0.06752411575562701,
+        "modeledMinutesRatioToPlain": 0.3333333333333333
+      },
+      "afterFirst": {
+        "runnerSeconds": 9,
+        "modeledMinutes": 1,
+        "runnerSecondsRatioToPlain": 0.05027932960893855,
+        "modeledMinutesRatioToPlain": 0.3333333333333333
+      },
+      "medianJobSeconds": 10.5,
+      "replayedFiles": 0,
+      "ranFiles": 0,
+      "unitReplays": 0,
+      "fullHits": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "stepTotals": {
+        "install": 0,
+        "build": 0,
+        "test": 0,
+        "action": 0,
+        "post": 0.0,
+        "other": 14.0
+      },
+      "bestHitAboveFloorSeconds": null,
+      "medianHitAboveFloorSeconds": null
+    },
+    "plain": {
+      "jobs": 2,
+      "window": {
+        "runnerSeconds": 311,
+        "modeledMinutes": 6,
+        "runnerSecondsRatioToPlain": 1.0,
+        "modeledMinutesRatioToPlain": 1.0
+      },
+      "afterFirst": {
+        "runnerSeconds": 179,
+        "modeledMinutes": 3,
+        "runnerSecondsRatioToPlain": 1.0,
+        "modeledMinutesRatioToPlain": 1.0
+      },
+      "medianJobSeconds": 155.5,
+      "replayedFiles": 0,
+      "ranFiles": 0,
+      "unitReplays": 0,
+      "fullHits": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "stepTotals": {
+        "install": 104.0,
+        "build": 3.0,
+        "test": 187.0,
+        "action": 0,
+        "post": 1.0,
+        "other": 11.0
+      },
+      "bestHitAboveFloorSeconds": null,
+      "medianHitAboveFloorSeconds": null
+    },
+    "quod": {
+      "jobs": 2,
+      "window": {
+        "runnerSeconds": 338,
+        "modeledMinutes": 6,
+        "runnerSecondsRatioToPlain": 1.0868167202572347,
+        "modeledMinutesRatioToPlain": 1.0
+      },
+      "afterFirst": {
+        "runnerSeconds": 161,
+        "modeledMinutes": 3,
+        "runnerSecondsRatioToPlain": 0.8994413407821229,
+        "modeledMinutesRatioToPlain": 1.0
+      },
+      "medianJobSeconds": 169.0,
+      "replayedFiles": 0,
+      "ranFiles": 240,
+      "unitReplays": 0,
+      "fullHits": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "stepTotals": {
+        "install": 67.0,
+        "build": 5.0,
+        "test": 226.0,
+        "action": 4.0,
+        "post": 8.0,
+        "other": 22.0
+      },
+      "bestHitAboveFloorSeconds": null,
+      "medianHitAboveFloorSeconds": null
+    },
+    "quod-post": {
+      "jobs": 2,
+      "window": {
+        "runnerSeconds": 267,
+        "modeledMinutes": 5,
+        "runnerSecondsRatioToPlain": 0.8585209003215434,
+        "modeledMinutesRatioToPlain": 0.8333333333333334
+      },
+      "afterFirst": {
+        "runnerSeconds": 95,
+        "modeledMinutes": 2,
+        "runnerSecondsRatioToPlain": 0.5307262569832403,
+        "modeledMinutesRatioToPlain": 0.6666666666666666
+      },
+      "medianJobSeconds": 133.5,
+      "replayedFiles": 0,
+      "ranFiles": 240,
+      "unitReplays": 0,
+      "fullHits": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "stepTotals": {
+        "install": 62.0,
+        "build": 3.0,
+        "test": 163.0,
+        "action": 3.0,
+        "post": 14.0,
+        "other": 16.0
+      },
+      "bestHitAboveFloorSeconds": null,
+      "medianHitAboveFloorSeconds": null
+    }
+  },
+  "per": [
+    {
+      "variant": "floor",
+      "i": 0,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "run": 42352075324,
+      "job": 128342154830,
+      "runnerSeconds": 12,
+      "modeledMinutes": 1,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "",
+      "wrong": null,
+      "steps": {
+        "other": 8.0,
+        "post": 0.0
+      },
+      "ran": 0,
+      "recorded": 0,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [],
+      "hit": null
+    },
+    {
+      "variant": "plain",
+      "i": 0,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "run": 42352074278,
+      "job": 128342151393,
+      "runnerSeconds": 132,
+      "modeledMinutes": 3,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": null,
+      "steps": {
+        "other": 5.0,
+        "install": 46.0,
+        "build": 1.0,
+        "test": 76.0,
+        "post": 1.0
+      },
+      "ran": 0,
+      "recorded": 0,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [],
+      "hit": null
+    },
+    {
+      "variant": "quod",
+      "i": 0,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "run": 42352075154,
+      "job": 128342154047,
+      "runnerSeconds": 177,
+      "modeledMinutes": 3,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": 0,
+      "steps": {
+        "other": 13.0,
+        "action": 1.0,
+        "install": 48.0,
+        "build": 3.0,
+        "test": 104.0,
+        "post": 4.0
+      },
+      "ran": 120,
+      "recorded": 120,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [
+        8542
+      ],
+      "hit": "miss"
+    },
+    {
+      "variant": "quod-post",
+      "i": 0,
+      "commit": "6f830b66f7cdf80c969d21f9ee8cf49d35d64be2",
+      "run": 42352075191,
+      "job": 128342154774,
+      "runnerSeconds": 172,
+      "modeledMinutes": 3,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": 0,
+      "steps": {
+        "other": 7.0,
+        "action": 1.0,
+        "install": 51.0,
+        "build": 2.0,
+        "test": 102.0,
+        "post": 6.0
+      },
+      "ran": 120,
+      "recorded": 120,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [
+        5024
+      ],
+      "hit": "miss"
+    },
+    {
+      "variant": "floor",
+      "i": 1,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "run": 42352076750,
+      "job": 128342159187,
+      "runnerSeconds": 9,
+      "modeledMinutes": 1,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "",
+      "wrong": null,
+      "steps": {
+        "other": 6.0,
+        "post": 0.0
+      },
+      "ran": 0,
+      "recorded": 0,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [],
+      "hit": null
+    },
+    {
+      "variant": "plain",
+      "i": 1,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "run": 42352075684,
+      "job": 128342156102,
+      "runnerSeconds": 179,
+      "modeledMinutes": 3,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": null,
+      "steps": {
+        "other": 6.0,
+        "install": 58.0,
+        "build": 2.0,
+        "test": 111.0,
+        "post": 0.0
+      },
+      "ran": 0,
+      "recorded": 0,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [],
+      "hit": null
+    },
+    {
+      "variant": "quod",
+      "i": 1,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "run": 42352293766,
+      "job": 128342820940,
+      "runnerSeconds": 161,
+      "modeledMinutes": 3,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": 0,
+      "steps": {
+        "other": 9.0,
+        "action": 3.0,
+        "install": 19.0,
+        "build": 2.0,
+        "test": 122.0,
+        "post": 4.0
+      },
+      "ran": 120,
+      "recorded": 120,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [
+        6427
+      ],
+      "hit": "miss"
+    },
+    {
+      "variant": "quod-post",
+      "i": 1,
+      "commit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+      "run": 42352294203,
+      "job": 128342821660,
+      "runnerSeconds": 95,
+      "modeledMinutes": 2,
+      "image": "ubuntu-26.04/20261101.186.1",
+      "semantic": "09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd",
+      "wrong": 0,
+      "steps": {
+        "other": 9.0,
+        "action": 2.0,
+        "install": 11.0,
+        "build": 1.0,
+        "test": 61.0,
+        "post": 8.0
+      },
+      "ran": 120,
+      "recorded": 120,
+      "replayed": 0,
+      "unitReplays": 0,
+      "lineage": {
+        "promoted": 0,
+        "audits": 0,
+        "disagreed": 0,
+        "revoked": 0
+      },
+      "cloudSavesMs": [
+        7295
+      ],
+      "hit": "miss"
+    }
+  ],
+  "files": {
+    "settings.json": "3ea1cb61a9dbae3df1165a5785e0d7bcd6aac30b7f37bf2a564d0744e7021f2e",
+    "report.md": "9643a7565ba3becb7bcb902b590a2ee687222569acb84720cd967e287743ca30",
+    "expected.jsonl": "94e91dcffc5336deda49fedd38082980ba017bae80397cb6902d8e56a7e91a9a",
+    "job-metrics.json": "0f50abd85693f8a8e6947c026f7379e9a68d063aa22484e7e2510f8378de9f38",
+    "jobs.jsonl": "9c52bb8facce8eed4585c17face4409bf9e0cb784310ba58f697aede5689c338"
+  },
+  "artifact": {
+    "id": 13565224592,
+    "bytes": 9967,
+    "sha256": "cedae56fd8d6716ca501a94858c172cbba9f46e3a088a41171e381e8f3b28b3b"
+  },
+  "harness": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+  "actions": {
+    "quod": "e7098a6b5e5b8d460d0f63af782b25aaa23d4934",
+    "quod-post": "41d6c96a2c78b2e1989e1710bae23eb9e165b86b"
+  },
+  "engine": "f9d8153",
+  "runIdentities": [
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:41:01Z",
+      "databaseId": 42352294203,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-quod-post-1",
+      "headBranch": "bench/wj-42352064625-convex-helpers-quod-post",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352294203"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:41:00Z",
+      "databaseId": 42352293766,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-quod-1",
+      "headBranch": "bench/wj-42352064625-convex-helpers-quod",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352293766"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:47Z",
+      "databaseId": 42352076750,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-floor-1",
+      "headBranch": "bench/wj-42352064625-convex-helpers-floor",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352076750"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:46Z",
+      "databaseId": 42352075684,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-plain-1",
+      "headBranch": "bench/cloud-post-save-codex",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352075684"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:46Z",
+      "databaseId": 42352075324,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-floor-0",
+      "headBranch": "bench/wj-42352064625-convex-helpers-floor",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352075324"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:46Z",
+      "databaseId": 42352075191,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-quod-post-0",
+      "headBranch": "bench/wj-42352064625-convex-helpers-quod-post",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352075191"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:46Z",
+      "databaseId": 42352075154,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-quod-0",
+      "headBranch": "bench/wj-42352064625-convex-helpers-quod",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352075154"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-11-07T07:37:45Z",
+      "databaseId": 42352074278,
+      "displayTitle": "bench-job-one 42352064625-convex-helpers-plain-0",
+      "headBranch": "bench/cloud-post-save-codex",
+      "headSha": "4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed",
+      "status": "completed",
+      "url": "https://github.com/pango07/ci-bench/actions/runs/42352074278"
+    }
+  ],
+  "events": [
+    {
+      "variant": "post",
+      "commit": "c10",
+      "events": [
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:40:09.1043580Z",
+          "message": "quod vitest: ran 120 files (120 recorded, 0 failed, 0 not recordable), replayed 0, audited 0; quod 131 ms (select 97 ms, record 34 ms)"
+        },
+        {
+          "step": "compare evidence",
+          "timestamp": "2026-11-07T07:40:33.9786837Z",
+          "message": "QUOD_BENCH_STATES 09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd 120 4131"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:40:34.8706046Z",
+          "message": "Quod: saved the recording as quod-vitest-bench/wj-42352064625-convex-helpers-quod-post-4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed-42352075191-1-quod"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:40:39.4757865Z",
+          "message": "quod vitest: saved the ledger to Quod Cloud (scope ref-heads_bench_wj-42352064625-convex-helpers-quod-post-29f0585e5609, 121 new files, 2461 KB uploaded, 5024 ms)"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:40:39.4770432Z",
+          "message": "Quod: finished 1 deferred Cloud ledger save(s)"
+        }
+      ],
+      "cloudIntervalBeforeCacheCompletionSeconds": 0.418818
+    },
+    {
+      "variant": "post",
+      "commit": "c11",
+      "events": [
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:41:28.4322310Z",
+          "message": "quod vitest: restored the ledger of 4fe8a42fd3c1 (refs/heads/bench/wj-42352064625-convex-helpers-quod-post, newest of this branch) from Quod Cloud: 196 files, 3559 KB (bundle) in 585 ms"
+        },
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:42:20.1592610Z",
+          "message": "quod vitest: ran 120 files (120 recorded, 0 failed, 0 not recordable), replayed 0, audited 0; quod 611 ms (select 594 ms, record 17 ms)"
+        },
+        {
+          "step": "compare evidence",
+          "timestamp": "2026-11-07T07:42:28.2752862Z",
+          "message": "QUOD_BENCH_STATES 09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd 120 4131"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:42:29.4961865Z",
+          "message": "Quod: saved the recording as quod-vitest-bench/wj-42352064625-convex-helpers-quod-post-4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed-42352294203-1-quod"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:42:35.9459529Z",
+          "message": "quod vitest: saved the ledger to Quod Cloud (scope ref-heads_bench_wj-42352064625-convex-helpers-quod-post-29f0585e5609, 121 new files, 2460 KB uploaded, 7295 ms)"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:42:35.9472363Z",
+          "message": "Quod: finished 1 deferred Cloud ledger save(s)"
+        }
+      ],
+      "cloudIntervalBeforeCacheCompletionSeconds": 0.845234
+    },
+    {
+      "variant": "inline",
+      "commit": "c10",
+      "events": [
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:40:05.8507832Z",
+          "message": "quod vitest: ran 120 files (120 recorded, 0 failed, 0 not recordable), replayed 0, audited 0; quod 465 ms (select 432 ms, record 33 ms)"
+        },
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:40:14.6737040Z",
+          "message": "quod vitest: saved the ledger to Quod Cloud (scope ref-heads_bench_wj-42352064625-convex-helpers-quod-df3da2a73a2c, 121 new files, 2461 KB uploaded, 8542 ms)"
+        },
+        {
+          "step": "compare evidence",
+          "timestamp": "2026-11-07T07:40:39.0195694Z",
+          "message": "QUOD_BENCH_STATES 09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd 120 4131"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:40:40.7696017Z",
+          "message": "Quod: saved the recording as quod-vitest-bench/wj-42352064625-convex-helpers-quod-4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed-42352075154-1-quod"
+        }
+      ]
+    },
+    {
+      "variant": "inline",
+      "commit": "c11",
+      "events": [
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:41:36.9281175Z",
+          "message": "quod vitest: restored the ledger of 4fe8a42fd3c1 (refs/heads/bench/wj-42352064625-convex-helpers-quod, newest of this branch) from Quod Cloud: 196 files, 3559 KB (bundle) in 602 ms"
+        },
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:43:21.4697658Z",
+          "message": "quod vitest: ran 120 files (120 recorded, 0 failed, 0 not recordable), replayed 0, audited 0; quod 650 ms (select 627 ms, record 22 ms)"
+        },
+        {
+          "step": "test",
+          "timestamp": "2026-11-07T07:43:28.1931237Z",
+          "message": "quod vitest: saved the ledger to Quod Cloud (scope ref-heads_bench_wj-42352064625-convex-helpers-quod-df3da2a73a2c, 121 new files, 2459 KB uploaded, 6427 ms)"
+        },
+        {
+          "step": "compare evidence",
+          "timestamp": "2026-11-07T07:43:39.0810793Z",
+          "message": "QUOD_BENCH_STATES 09ebb9e3a722220d3a21ddfe9f63992a8a074b0fcaa95764e54c37be90d469cd 120 4131"
+        },
+        {
+          "step": "Post quod",
+          "timestamp": "2026-11-07T07:43:40.4448349Z",
+          "message": "Quod: saved the recording as quod-vitest-bench/wj-42352064625-convex-helpers-quod-4fe8a42fd3c1815bbd451af19d270d2e05d5d3ed-42352293766-1-quod"
+        }
+      ]
+    }
+  ],
+  "logDigests": {
+    "quod-cloud-post-smoke-c10.log": "866aecfa1fad775d0e7736c9843e62af518ec33ae14bc16fdeff8e3e25213420",
+    "quod-cloud-post-smoke-c11.log": "1010d78d90a034ff07561633f3f0e3bc3dc0679872228c0a79c4718dfd1696f2",
+    "quod-cloud-inline-smoke-c10.log": "e1adcf7ebdcc5ef87d12158db151c358e48dbf26a0b9209a00b390cbeabf86c5",
+    "quod-cloud-inline-smoke-c11.log": "aa4066c44e584524f26cff369edb294bca9889e858c1c95ab2ac5ba62745b32d"
+  }
+}
