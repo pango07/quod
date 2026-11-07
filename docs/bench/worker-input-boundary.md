@@ -2641,3 +2641,47 @@ not prove absence of pre-installation aliases, every allocator or native
 observation channel, complete startup integrity, or parent-side effects.
 The guard remains diagnostic, with replay eligibility and complete ownership
 false. It does not change the published Action or establish new savings.
+
+The [full workload gate](https://github.com/pango07/quod/actions/runs/42348845802)
+at `0a957f2` passed all 473 preflight tests, including 50 IPC cases. Baseline
+and both observed phases each produced 120 test-file instances and 4,131
+matching test states: 4,130 passed and one skipped. The baseline took 98.677
+seconds; the observed phases took 159.780 and 157.606 seconds, or 1.619x and
+1.597x baseline. These measurements include diagnostic overhead and are not
+hit-job timings.
+
+Across the two observed phases, all 3,281 native reads reconciled with
+6,562 empty entry/return boundaries. Each phase covered all 120 workers,
+with zero guarded field reads or transport failures and all 2,581 scalar
+reads recorded. The guard was armed once at startup and once after each
+native read. Its three live field observers per worker remained installed
+when reports were taken; the workload report does not claim later cleanup.
+Evaluator code sequences matched for every paired worker, but complete
+compilation and RPC sequences matched for none. Earlier aliases, native
+integrity, full worker inputs and parent effects remain unresolved.
+
+The runner was `ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0
+and Vitest 5.0.0. The `channelAccessFullRun` entry in the
+[evidence record](worker-message-dispatch.json) preserves earlier evidence
+alongside all 261 artifact digests, source pins, counters and log digests.
+The archive SHA-256 matched GitHub's published digest. Ten independent
+artifact analyses passed. No product replay, promotion or lineage audit was
+enabled by this result, so the benchmark target remains unmet.
+
+## Separate diagnostic comparison for assigned report directories
+
+`5e05796` retains the complete environment fingerprint and adds a second,
+diagnostic-only comparison for the three report-directory variables assigned
+by the probe wrapper. Exclusions require an exact match to the wrapper's
+absolute path; unknown names, relative paths and mismatches are rejected.
+All other environment values remain in that comparison. It neither changes
+the process environment nor permits excluding these observable variables
+from production replay keys.
+
+The [focused gate](https://github.com/pango07/quod/actions/runs/42349437226)
+passed all 46 tests. Its cases preserve full-fingerprint differences,
+detect other environment changes, reject unsafe objects without invoking
+accessors or proxies, and check that reports do not expose raw values.
+The full workload above predates this change. Its effect on real-workload
+comparisons has not yet been measured; worker and pool IDs, random seeds,
+other inputs and parent effects still require a complete replay argument.
