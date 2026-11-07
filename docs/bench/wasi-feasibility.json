@@ -1,0 +1,908 @@
+{
+  "run": "https://github.com/pango07/quod/actions/runs/42353101693",
+  "gateCommit": "d29561a0738dd8aeafc40eb26c933703a58039be",
+  "artifact": {
+    "id": 13566123084,
+    "bytes": 545380,
+    "sha256": "3fe007c89d72227b23dc5a27d4d00abfe5d62bf98d7f5218f00718cba9ef4a5a"
+  },
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "binarySha256": "255377381ab5b6fd6ea35b7657885ee37c2459f131347a6099a3ca8b7b9f4126",
+  "node": "v24.18.0",
+  "image": "ubuntu26/20261101.186.1",
+  "replayEligible": false,
+  "replayed": 0,
+  "independentChecks": [
+    {
+      "phase": "native-before",
+      "seconds": 99.776549811,
+      "testStatesMatch": true,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "4f1093366c0b6a3c40158d7f948424a6d87ed01a96a41263b1fba0030884d138",
+      "observedIsolates": 130,
+      "observedProcessIds": 130,
+      "completedObserverReports": 16,
+      "nativeLoadEvents": 1,
+      "wasiModules": []
+    },
+    {
+      "phase": "plain-wasi",
+      "seconds": 99.81118088600002,
+      "testStatesMatch": true,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "63e9e0d339f756148fc42655cdc60ffca5a31d62665e1dbcd2e1641d5b959e77",
+      "observedIsolates": 139,
+      "observedProcessIds": 130,
+      "completedObserverReports": 26,
+      "nativeLoadEvents": 0,
+      "wasiModules": [
+        "/tmp/quod-wasi-package/node_modules/@rolldown/binding-wasm32-wasi/rolldown-binding.wasi.cjs"
+      ]
+    },
+    {
+      "phase": "recorded-wasi",
+      "seconds": 105.999549742,
+      "testStatesMatch": true,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "5d1354cbff01c29a3da3003e21233f746b92bd914955af0eb4fa753509d563a9",
+      "observedIsolates": 144,
+      "observedProcessIds": 131,
+      "completedObserverReports": 20,
+      "nativeLoadEvents": 0,
+      "wasiModules": [
+        "/tmp/quod-wasi-package/node_modules/@rolldown/binding-wasm32-wasi/rolldown-binding.wasi.cjs"
+      ]
+    },
+    {
+      "phase": "native-after",
+      "seconds": 99.127578798,
+      "testStatesMatch": true,
+      "files": 120,
+      "states": 4131,
+      "statuses": {
+        "passed": 4130,
+        "skipped": 1
+      },
+      "reportSha256": "1448d1b70f942f0f16de3ac1d934d6fb47d60cc9909c39e484998109e0674a1b",
+      "observedIsolates": 130,
+      "observedProcessIds": 130,
+      "completedObserverReports": 12,
+      "nativeLoadEvents": 1,
+      "wasiModules": []
+    }
+  ],
+  "metadataKeys": {
+    "sm": 299,
+    "sl": 257,
+    "st": 104
+  },
+  "packages": {
+    "@emnapi/core": {
+      "version": "2.0.0-alpha.3",
+      "resolved": "https://registry.npmjs.org/@emnapi/core/-/core-2.0.0-alpha.3.tgz",
+      "integrity": "sha512-AZypUeJ/yByuxyS7BlSNRDOMLMlROYtjYdIAuBmJssVz1UJDSeYxLrdizhXCFYhedC5bqd/ASy8EuNXbVVXp9g==",
+      "license": "MIT",
+      "dependencies": {
+        "@emnapi/wasi-threads": "2.0.1",
+        "tslib": "^2.4.0"
+      }
+    },
+    "@emnapi/runtime": {
+      "version": "2.0.0-alpha.3",
+      "resolved": "https://registry.npmjs.org/@emnapi/runtime/-/runtime-2.0.0-alpha.3.tgz",
+      "integrity": "sha512-hFPAhMUjJD9BSyCANEISPOogeXC9Zo9ZQl7L6vKnaVsMkCtzznaW/naYypeyl0Gv5rYfWYsZbpixTMpjDJzQeA==",
+      "license": "MIT",
+      "dependencies": {
+        "tslib": "^2.4.0"
+      }
+    },
+    "@emnapi/wasi-threads": {
+      "version": "2.0.1",
+      "resolved": "https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-2.0.1.tgz",
+      "integrity": "sha512-9DsSk+o5NBX0CCJT8s0EROGSGxjR/tKu6aBTaVyq+SjAEQH4XcdcRxPBRzsBLizTTJ49MJjF+jgu3qnO9GLQcQ==",
+      "license": "MIT",
+      "dependencies": {
+        "tslib": "^2.4.0"
+      }
+    },
+    "@napi-rs/wasm-runtime": {
+      "version": "1.2.2",
+      "resolved": "https://registry.npmjs.org/@napi-rs/wasm-runtime/-/wasm-runtime-1.2.2.tgz",
+      "integrity": "sha512-JfB4kuJQjaoHuCTseIINHtHWeJnvgEcxjwA5t/Y00ZgaOO1Crz3fjT/p8kT28zA/Caz7oiUMn3d6H2yOVCVwuw==",
+      "license": "MIT",
+      "dependencies": {
+        "@tybys/wasm-util": "^0.10.3"
+      },
+      "engines": {
+        "node": "^20.19.0 || ^22.13.0 || >=23.5.0"
+      },
+      "funding": {
+        "type": "github",
+        "url": "https://github.com/sponsors/Brooooooklyn"
+      },
+      "peerDependencies": {
+        "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.3",
+        "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.3"
+      }
+    },
+    "@rolldown/binding-wasm32-wasi": {
+      "version": "1.2.2",
+      "resolved": "https://registry.npmjs.org/@rolldown/binding-wasm32-wasi/-/binding-wasm32-wasi-1.2.2.tgz",
+      "integrity": "sha512-lk8MaaL90mgObXaMtxEy7DbFLYBSkcyunn/s6bx3sCuAU+XW+DFMXAek+AUPrVaW3qfKClPptKpNH2gnfExkug==",
+      "license": "MIT",
+      "dependencies": {
+        "@emnapi/core": "2.0.0-alpha.3",
+        "@emnapi/runtime": "2.0.0-alpha.3",
+        "@napi-rs/wasm-runtime": "~1.2.2"
+      },
+      "engines": {
+        "node": "^20.19.0 || ^22.13.0 || >=23.5.0"
+      }
+    },
+    "@tybys/wasm-util": {
+      "version": "0.10.3",
+      "resolved": "https://registry.npmjs.org/@tybys/wasm-util/-/wasm-util-0.10.3.tgz",
+      "integrity": "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==",
+      "license": "MIT",
+      "dependencies": {
+        "tslib": "^2.4.0"
+      }
+    },
+    "tslib": {
+      "version": "2.8.1",
+      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
+      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+      "license": "0BSD"
+    }
+  },
+  "wasm": {
+    "bytes": 10548697,
+    "sha256": "52f234969469c4dd2d399a381d56928e4e1466350829348d04138d4762dd6ae4",
+    "importCount": 114,
+    "imports": [
+      {
+        "module": "env",
+        "name": "memory",
+        "kind": 2,
+        "flags": 3,
+        "initial": 997,
+        "maximum": 65536
+      },
+      {
+        "module": "env",
+        "name": "napi_wrap",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "env",
+        "name": "napi_unwrap",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_delete_reference",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_get_element",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_set_element",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_buffer_copy",
+        "kind": 0,
+        "typeIndex": 18
+      },
+      {
+        "module": "env",
+        "name": "napi_get_named_property",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_function",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "env",
+        "name": "napi_call_function",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "env",
+        "name": "napi_create_string_utf16",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_reject_deferred",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_resolve_deferred",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_undefined",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_create_promise",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_fatal_exception",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_get_and_clear_last_exception",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_get_cb_info",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "env",
+        "name": "napi_get_reference_value",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_new_instance",
+        "kind": 0,
+        "typeIndex": 18
+      },
+      {
+        "module": "env",
+        "name": "napi_instanceof",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_set_named_property",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_reference",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_reference_unref",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_create_object",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_define_properties",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_typeof",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_null",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_is_array",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_env_check_gc_access",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "env",
+        "name": "napi_coerce_to_object",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_coerce_to_string",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_node_emit_async_init",
+        "kind": 0,
+        "typeIndex": 80
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_node_emit_async_destroy",
+        "kind": 0,
+        "typeIndex": 122
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_runtime_keepalive_push",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_ctx_increase_waiting_request_counter",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_runtime_keepalive_pop",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_ctx_decrease_waiting_request_counter",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "napi_open_handle_scope",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "emnapi",
+        "name": "emnapi_is_node_binding_available",
+        "kind": 0,
+        "typeIndex": 1
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_node_make_callback",
+        "kind": 0,
+        "typeIndex": 44
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_callback_into_module",
+        "kind": 0,
+        "typeIndex": 17
+      },
+      {
+        "module": "env",
+        "name": "napi_close_handle_scope",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "napi",
+        "name": "napi_add_env_cleanup_hook",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_env_ref",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "env",
+        "name": "napi_throw_error",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_open_handle_scope",
+        "kind": 0,
+        "typeIndex": 1
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_create_function",
+        "kind": 0,
+        "typeIndex": 18
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_call_finalizer",
+        "kind": 0,
+        "typeIndex": 17
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_close_handle_scope",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "napi",
+        "name": "napi_remove_env_cleanup_hook",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_env_unref",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_async_work_pool_size",
+        "kind": 0,
+        "typeIndex": 1
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_tell_js_uvthreadpool",
+        "kind": 0,
+        "typeIndex": 8
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_emit_async_thread_ready",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_async_send_js",
+        "kind": 0,
+        "typeIndex": 12
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_set_immediate",
+        "kind": 0,
+        "typeIndex": 8
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "random_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_create_external_buffer",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "env",
+        "name": "napi_define_class",
+        "kind": 0,
+        "typeIndex": 25
+      },
+      {
+        "module": "env",
+        "name": "napi_get_global",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_create_array_with_length",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_double",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_uint32",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_int32",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_int64",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_string_utf8",
+        "kind": 0,
+        "typeIndex": 18
+      },
+      {
+        "module": "env",
+        "name": "napi_get_property_names",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_create_string_utf8",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_get_property",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_set_property",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_error",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_int32",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_create_int64",
+        "kind": 0,
+        "typeIndex": 85
+      },
+      {
+        "module": "env",
+        "name": "napi_create_uint32",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_is_error",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_is_exception_pending",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_throw",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "env",
+        "name": "napi_get_prototype",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_strict_equals",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_create_string_latin1",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_is_promise",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_boolean",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_buffer_info",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "env",
+        "name": "napi_get_array_length",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_get_value_bool",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_is_buffer",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "env",
+        "name": "napi_create_buffer",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "environ_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "environ_sizes_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "clock_time_get",
+        "kind": 0,
+        "typeIndex": 85
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_close",
+        "kind": 0,
+        "typeIndex": 5
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_fdstat_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_filestat_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_prestat_get",
+        "kind": 0,
+        "typeIndex": 9
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_prestat_dir_name",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_read",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_readdir",
+        "kind": 0,
+        "typeIndex": 56
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "fd_write",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_create_directory",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_filestat_get",
+        "kind": 0,
+        "typeIndex": 18
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_open",
+        "kind": 0,
+        "typeIndex": 43
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_readlink",
+        "kind": 0,
+        "typeIndex": 21
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_remove_directory",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "path_unlink_file",
+        "kind": 0,
+        "typeIndex": 13
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "poll_oneoff",
+        "kind": 0,
+        "typeIndex": 16
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "proc_exit",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "wasi_snapshot_preview1",
+        "name": "sched_yield",
+        "kind": 0,
+        "typeIndex": 1
+      },
+      {
+        "module": "wasi",
+        "name": "thread-spawn",
+        "kind": 0,
+        "typeIndex": 5
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_worker_ref",
+        "kind": 0,
+        "typeIndex": 4
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_unwind",
+        "kind": 0,
+        "typeIndex": 0
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_is_main_browser_thread",
+        "kind": 0,
+        "typeIndex": 1
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_get_now",
+        "kind": 0,
+        "typeIndex": 3
+      },
+      {
+        "module": "env",
+        "name": "_emnapi_is_main_runtime_thread",
+        "kind": 0,
+        "typeIndex": 1
+      }
+    ]
+  },
+  "limitations": [
+    "Four fixed-order phases on one runner",
+    "Load observer is not complete native provenance",
+    "WASI host imports and filesystem access still require an independent capability argument",
+    "No metadata keys were removed and no reusable ledger was published",
+    "Test-state agreement does not prove all observable behavior identical",
+    "The original observedProcesses field counts pid/thread reports; independentChecks separates isolates and process IDs",
+    "The static import inventory establishes the host interface, not how it is used"
+  ],
+  "dominantFileEvidence": [
+    {
+      "phase": "native-before",
+      "file": "packages/convex-helpers/server/stream.property.test.ts",
+      "tests": 47,
+      "fileElapsedSeconds": 98.57478466796876,
+      "suiteCommandSeconds": 99.776549811,
+      "reportSha256": "4f1093366c0b6a3c40158d7f948424a6d87ed01a96a41263b1fba0030884d138"
+    },
+    {
+      "phase": "native-after",
+      "file": "packages/convex-helpers/server/stream.property.test.ts",
+      "tests": 47,
+      "fileElapsedSeconds": 98.0637509765625,
+      "suiteCommandSeconds": 99.127578798,
+      "reportSha256": "1448d1b70f942f0f16de3ac1d934d6fb47d60cc9909c39e484998109e0674a1b"
+    }
+  ],
+  "dominantFileSource": {
+    "url": "https://github.com/get-convex/convex-helpers/blob/5eaa7e5160736054d53f8b71e2c522835eb427e0/packages/convex-helpers/server/stream.property.test.ts",
+    "sha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+    "defaultSeeds": [
+      1,
+      12648430,
+      3735928559
+    ],
+    "defaultCases": 24,
+    "overrideVariables": [
+      "CURSOR_TEST_SEED",
+      "CURSOR_TEST_CASES"
+    ],
+    "scope": "Fixed test-generator defaults; not a determinism proof for the runtime or dependencies"
+  }
+}
