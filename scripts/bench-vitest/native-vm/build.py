@@ -132,6 +132,7 @@ def main():
         src = Path(src)
         if not src.is_absolute():
             raise RuntimeError("System input must be absolute")
+        src = Path(os.path.normpath(src))
         # Canonicalize parent aliases (/lib -> /usr/lib) without copying an
         # entire host directory or opening any runner-home/config tree.
         actual = src.parent.resolve() / src.name
