@@ -1676,8 +1676,17 @@ jobs:
         run: node scripts/bench-vitest/managed/dispatcher-integration.mjs "$PWD/profile-project" "$RUNNER_TEMP/managed-dispatcher"
       - name: Independently audit dispatcher controls
         run: python3 scripts/bench-vitest/managed/dispatcher-audit.py "$RUNNER_TEMP/managed-dispatcher"
+      - name: Real managed candidate and native remainder pass and failure
+        run: node scripts/bench-vitest/managed/dispatcher-remainder-integration.mjs "$PWD/profile-project" "$RUNNER_TEMP/managed-dispatcher-remainder"
+      - name: Independently audit exact native remainder selection
+        run: python3 scripts/bench-vitest/managed/dispatcher-remainder-audit.py "$RUNNER_TEMP/managed-dispatcher-remainder"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: managed-dispatcher
           path: ${{ runner.temp }}/managed-dispatcher
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-dispatcher-remainder
+          path: ${{ runner.temp }}/managed-dispatcher-remainder

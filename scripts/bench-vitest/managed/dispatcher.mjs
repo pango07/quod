@@ -109,7 +109,7 @@ function reportFrom(file) {
  * transport metadata, never a manifest in the mutable cache payload. */
 export async function dispatchManaged({project: projectArg, out: outArg, cacheDir: cacheArg, args = ['run'],
   vitestEntry, node = process.execPath, control = false, epoch = 1700000000000, seed = 42,
-  env = {NODE_ENV: 'test'}, lookup, record, files, expectedCount, emitTelemetry = false} = {}) {
+  env = {NODE_ENV: 'test'}, lookup, record, files, suiteFiles, expectedCount, emitTelemetry = false} = {}) {
   const project = fs.realpathSync(path.resolve(projectArg)), out = path.resolve(outArg)
   fs.mkdirSync(out, {recursive: true})
   assert(fs.statSync(out).isDirectory() && fs.readdirSync(out).length === 0, 'dispatcher OUT must be empty')
@@ -124,11 +124,15 @@ export async function dispatchManaged({project: projectArg, out: outArg, cacheDi
     receipts: [], rows: [], reportPath: null, ordinaryRuns: []}
   let managedFailure = false, ordinaryFailure = false
   const save = () => write(path.join(out, 'result.json'), result)
-  const selected = files === undefined ? null : files.map(file => {
+  const selectionFilters = values => values.map(file => {
     assert(typeof file === 'string' && !path.isAbsolute(file) && !file.split(/[\\/]/).includes('..'), 'explicit files must be project relative')
     return file.split(path.sep).join('/')
   })
-  const originalArgs = [...args, ...(selected || [])]
+  const selected = files === undefined ? null : selectionFilters(files)
+  // Gate-only filters exercise a real small suite plus its one managed target.
+  // Product calls retain the original default selection of all actual specs.
+  const suiteSelection = suiteFiles === undefined ? selected : selectionFilters(suiteFiles)
+  const originalArgs = [...args, ...(suiteSelection || [])]
   result.candidate = selected?.[0] || defaultFile
   async function ordinaryAll(reason, knownFailure = false) {
     result.fallback = true; result.fallbackReason = String(reason)
@@ -148,13 +152,15 @@ export async function dispatchManaged({project: projectArg, out: outArg, cacheDi
   try {
     if (!parsed) { await ordinaryAll('unsupported Vitest arguments'); return result }
     if (selected && selected.length !== 1) { await ordinaryAll('one explicit managed file is supported'); return result }
+    assert(suiteFiles === undefined || selected?.length === 1 && suiteSelection.length > 1 && suiteSelection.includes(selected[0]),
+      'gate suite filters must include the one explicit managed candidate')
     assert(Number.isSafeInteger(epoch) && epoch >= 0 && Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffffffff,
       'declared finite epoch and uint32 seed required')
     assert(env && typeof env === 'object' && !Array.isArray(env) && Object.values(env).every(value => typeof value === 'string'), 'declared environment must contain string values')
     canonicalManagedJSON(env)
     const target = selected?.[0] || defaultFile, count = selected ? expectedCount : 47
     assert(Number.isSafeInteger(count) && count > 0, 'explicit managed workload count required')
-    const suite = await prepareManagedSuite({project, files: selected || undefined, seed})
+    const suite = await prepareManagedSuite({project, files: suiteSelection || undefined, seed})
     write(path.join(out, 'preparation.json'), suite.evidence)
     result.preparationSeconds = suite.evidence.seconds
     const actual = suite.selected.filter(spec => spec.file === target)
@@ -183,7 +189,9 @@ export async function dispatchManaged({project: projectArg, out: outArg, cacheDi
       preflightIdentity: preflightBuild.identitySha256, inventory: preflight.boundary.inventory, symbols: preflight.boundary.symbolInventory}))}
     const execution = makeExecutionIdentity({built, prepared: candidate, runtimePolicy,
       supervisorPolicy: {receiptValidatorSha256: sha(fs.readFileSync(path.join(here, 'receipt.mjs'))),
-        experimentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), expected}, host: executor.host})
+        experimentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))),
+        ordinarySelectionPolicy: 'vitest-5-native-specifications-v1',
+        ordinaryAdapterSha256: sha(fs.readFileSync(path.join(here, 'ordinary-remainder.mjs'))), expected}, host: executor.host})
     write(path.join(out, 'execution-identity.json'), execution)
     result.executionKey = execution.key
     result.runtimeClassSha256 = sha(canonicalManagedJSON({runtimePolicy, host: executor.host}))
@@ -219,22 +227,24 @@ export async function dispatchManaged({project: projectArg, out: outArg, cacheDi
     result.effects = effect
     const decision = {file: target, decision: found.hit ? 'replay' : 'managed', executionKey: execution.key}
     result.files.push(decision)
-    // A basename exclusion is safe only when actual resolved selection proves
-    // it removes exactly this one file/project instance. Include the absolute
-    // path too; native Vite globbers differ in absolute ignore handling.
-    const basename = path.basename(target)
-    assert(/^[A-Za-z0-9_.-]+$/.test(basename) && suite.selected.filter(spec => path.basename(spec.file) === basename).length === 1,
-      'candidate basename is not unique in actual selection')
-    const remainder = suite.selected.filter(spec => spec.absolute !== candidate.absolute)
+    const remainder = suite.selected.filter(spec => spec.absolute !== candidate.absolute || spec.project !== candidate.project)
     let ordinaryReport = null
     if (remainder.length) {
       const ordinaryOutput = path.join(out, 'ordinary-report.json')
       const reporters = [...new Set([...parsed.reporters, 'json'])]
-      const ordinaryArgs = ['run', ...(selected || []), ...reporters.flatMap(name => ['--reporter', name]),
-        '--outputFile=' + ordinaryOutput, '--exclude=' + candidate.absolute, '--exclude=**/' + basename]
-      result.ordinary = await runOrdinary({project, node, entry, args: ordinaryArgs, name: 'ordinary-remainder', out})
+      const requestFile = path.join(out, 'ordinary-remainder-request.json')
+      result.ordinarySelectionPath = path.join(out, 'ordinary-remainder-selection.json')
+      write(requestFile, {schema: 'quod-ordinary-remainder-request-v1', project,
+        selected: suite.selected, excluded: {absolute: candidate.absolute, project: candidate.project},
+        filters: (suiteSelection || []).map(file => path.resolve(project, file)), reporters,
+        outputFile: ordinaryOutput, evidenceFile: result.ordinarySelectionPath})
+      result.ordinary = await runOrdinary({project, node, entry: path.join(here, 'ordinary-remainder.mjs'),
+        args: [requestFile], name: 'ordinary-remainder', out})
       result.ordinaryRuns.push(result.ordinary)
       ordinaryFailure ||= result.ordinary.exitCode !== 0
+      result.ordinarySelection = JSON.parse(fs.readFileSync(result.ordinarySelectionPath, 'utf8'))
+      assert(result.ordinarySelection.matched && result.ordinarySelection.completed,
+        'native ordinary remainder selection or execution did not complete')
       ordinaryReport = reportFrom(ordinaryOutput)
       assert(ordinaryReport, 'ordinary remainder did not produce its complete report')
       result.ordinaryRepeatedCandidate = ordinaryReport.testResults.some(file => path.resolve(file.name) === candidate.absolute)
@@ -250,7 +260,7 @@ export async function dispatchManaged({project: projectArg, out: outArg, cacheDi
     result.rows = normalizedRows(report)
     result.exitCode = result.ordinary?.exitCode || (managedFailure || ordinaryFailure || !report.success ? 1 : 0)
     for (const [method, values] of data.boundary.logs) (['error', 'warn'].includes(method) ? process.stderr : process.stdout).write(values.join(' ') + '\n')
-    if (!found.hit) {
+    if (!found.hit && result.exitCode === 0) {
       const receiptFile = path.join(out, 'receipt.json')
       const receipt = recordReceipt({file: receiptFile, execution, expected,
         responseBytes: fs.readFileSync(path.join(out, 'managed', 'response.json'))})
@@ -298,6 +308,7 @@ async function main() {
     epoch: Number(process.env.QUOD_MANAGED_EPOCH || 1700000000000), seed: Number(process.env.QUOD_MANAGED_SEED || 42),
     env: process.env.QUOD_MANAGED_ENV ? JSON.parse(process.env.QUOD_MANAGED_ENV) : {NODE_ENV: 'test'},
     files: process.env.QUOD_MANAGED_FILES ? JSON.parse(process.env.QUOD_MANAGED_FILES) : undefined,
+    suiteFiles: process.env.QUOD_MANAGED_SUITE_FILES ? JSON.parse(process.env.QUOD_MANAGED_SUITE_FILES) : undefined,
     expectedCount: Number(process.env.QUOD_MANAGED_EXPECTED_COUNT || 1), emitTelemetry: true,
     lookup: async ({execution}) => {
       const item = trusted.find(item => item.key === execution.key)
