@@ -201,7 +201,13 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
       assert(r.copies.length>0)
       assert(r.copies.every(c=>!c.prepared),'constructor copies occur before preparation and must reject the record')
       assert(r.report.errors.some(e=>e.startsWith('IPC decoder constructor chain changed')||e.startsWith('IPC native constructor has an unexpected caller')))
-      if(kind==='constructor-late-swap')assert.equal(r.gets,1)
+      if(kind==='constructor-late-swap') {
+        assert.equal(r.gets,1)
+        assert(!r.report.errors.includes('IPC decoder constructor chain changed'),
+          'the late swap must occur after the pre-construction chain check')
+        assert(r.report.errors.includes('IPC native constructor has an unexpected caller'),
+          'the actual native entry must reject the self-restored late replacement')
+      }
     }
     if(kind==='host-object'){assert.equal(r.report.decoder.hostEntries,2);assert(r.report.errors.includes('IPC host-object decoder callbacks are unverified'))}
     if(kind==='synthetic')assert(r.report.errors.includes('message callback did not match the next decoded IPC message'))
