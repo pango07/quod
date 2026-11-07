@@ -44,7 +44,7 @@ def sha(file):
 def attempt(name, action):
     try:
         return action()
-    except (ValueError, TypeError, KeyError, IndexError, OSError, UnicodeError) as error:
+    except (ValueError, TypeError, KeyError, IndexError, OSError, UnicodeError, StopIteration) as error:
         issues.append({'check': name, 'message': str(error)})
 
 
@@ -100,6 +100,7 @@ def audit(mode, expected_exit):
             result['ordinaryRepeatedCandidate'] is False, 'ordinary remainder was repeated or replaced')
     require(request['schema'] == 'quod-ordinary-remainder-request-v1' and
             specs(request['selected']) == specs(preparation['selected']) == expected_specs and
+            request['reporters'] == ['default', 'json'] and
             request['excluded'] == {'absolute': first, 'project': 'convex-helpers'}, 'actual original selection differs')
     require(selection['schema'] == 'quod-ordinary-remainder-selection-v1' and
             selection['matched'] is True and selection['runStarted'] is True and selection['completed'] is True and

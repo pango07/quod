@@ -32,7 +32,7 @@ if (process.argv[2] === '--case') {
   const {dispatchManaged} = await import('./dispatcher.mjs')
   let recordCalls = 0
   const result = await dispatchManaged({project, out, cacheDir,
-    args: ['run', '--reporter=json', '--outputFile=' + path.join(out, 'report.json')],
+    args: ['run', '--reporter=default', '--reporter=json', '--outputFile=' + path.join(out, 'report.json')],
     files: [first], suiteFiles: [first, second], expectedCount: 1,
     env: {NODE_ENV: 'test', QUOD_REMAINDER_MODE: mode},
     record: async () => { recordCalls++ }})
