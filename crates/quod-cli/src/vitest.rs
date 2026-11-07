@@ -235,7 +235,7 @@ pub struct VitestArgs {
     args: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct Ledger {
     version: u32,
     /// Recorder and key semantics that observed these dependencies. Older
@@ -589,7 +589,7 @@ fn near_timeout_factor() -> f64 {
         .unwrap_or(0.5)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct Out {
     facts: BTreeMap<String, String>,
@@ -610,7 +610,7 @@ struct Out {
     main_recorded: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct Ran {
     id: String,
     project: String,
@@ -642,6 +642,30 @@ struct Ran {
     /// Ran with the network denied (a plain witness of a networked record).
     #[serde(default)]
     denied: bool,
+}
+
+fn test_signature(r: &Ran) -> String {
+    r.tests.as_ref().map(|tests| {
+        blake3::hash(format!("{}\n{tests}", r.state).as_bytes()).to_hex().to_string()
+    }).unwrap_or_default()
+}
+
+/// Determine faulty cohorts before accepting any of their current replays.
+/// Plain audits compare the same signature as witness ingestion below.
+fn lineage_faults(ledger: &Ledger, out: &Out, plain_ids: &HashSet<String>) -> (HashSet<String>, HashSet<String>) {
+    let mut stamps = HashSet::new();
+    let mut files = HashSet::new();
+    for r in &out.ran {
+        let Some(p) = ledger.files.get(&r.id) else { continue };
+        let Some(stamp) = &p.promotion_stamp else { continue };
+        let plain_bad = out.facts == ledger.facts && r.plain && plain_ids.contains(&r.id) && (!p.net || r.denied)
+            && (!matches!(r.state.as_str(), "pass" | "skip") || test_signature(r) != p.w.tests);
+        if plain_bad || out.audit_mismatch.contains(&r.id) {
+            stamps.insert(stamp.clone());
+            files.insert(r.id.clone());
+        }
+    }
+    (stamps, files)
 }
 
 pub fn cli(mut a: VitestArgs) -> Result<u8> {
@@ -1108,7 +1132,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         .iter()
         .map(|(id, r)| (id.clone(), (r.file.clone(), r.duration)))
         .collect();
-    let report_base = Reporting {
+    let mut report_base = Reporting {
         cloud: cloud.as_ref(),
         used: used.clone(),
         recorded: &recorded,
@@ -1317,9 +1341,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         .status()
         .with_context(|| format!("running {}", a.node))?;
     let code = status.code().map_or(1, |c| c.clamp(0, 255) as u8);
-    let t_run = t0.elapsed();
-
-    let out: Out = match fs::read(&out_path)
+    let mut out: Out = match fs::read(&out_path)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
     {
@@ -1333,24 +1355,66 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest: the run was interrupted; nothing recorded");
         return Ok(code);
     }
+    let (faulty_stamps, faulty_files) = lineage_faults(&ledger, &out, &plain_ids);
+    let invalidated_replays: HashSet<String> = out.replayed.iter().filter(|id| {
+        ledger.files.get(*id).and_then(|r| r.promotion_stamp.as_ref())
+            .is_some_and(|stamp| faulty_stamps.contains(stamp))
+    }).cloned().collect();
+    let mut recovery = None;
+    let mut recovery_note = serde_json::Value::Null;
+    let code = if !invalidated_replays.is_empty() && !a.no_record {
+        // Persist revocation before starting another child. A failed or
+        // interrupted recovery must not leave known-bad trust on disk.
+        let mut rejected = ledger.clone();
+        for id in &faulty_files {
+            if let Some(r) = rejected.files.get_mut(id) {
+                r.quarantined = true;
+                r.w.disagreements += 1;
+            }
+        }
+        revoke_lineage(&mut rejected.files, &faulty_stamps);
+        rejected.render = None;
+        save_ledger(&ledger_path, &rejected)?;
+        let started = Instant::now();
+        match recover_lineage(&a, &code_dir, &plan, &replay, &out, &dir, &invalidated_replays) {
+            Ok((exit, recovered)) => {
+                recovery_note = serde_json::json!({
+                    "invalidated_replays": invalidated_replays.len(),
+                    "executed": recovered.ran.len(),
+                    "ms": started.elapsed().as_secs_f64() * 1e3,
+                    "driver": recovered.timings,
+                });
+                recovery = Some(recovered);
+                exit
+            }
+            Err(error) => {
+                if let Some(report) = &a.report { let _ = fs::remove_file(report); }
+                if let Some(summary) = &a.summary {
+                    fs::write(summary, serde_json::to_vec(&serde_json::json!({
+                        "exit": 1, "lineage_recovery_failed": true,
+                        "invalidated_replays": invalidated_replays.len(),
+                    }))?)?;
+                }
+                if let Some(c) = &cloud && !a.cloud_no_save { c.save(&dir); }
+                return Err(error.context("lineage recovery failed; faulty cohort revoked, combined report discarded"));
+            }
+        }
+    } else { code };
     // Inline recording never turns a green job red: the instrumentation (V8
     // coverage, the hooks) can slow a timing-sensitive test into a failure
     // (reselect's cache-hit performance check). The files that failed while
     // recording run once more, plain, as without Quod, and every other file
     // reports this run's own result; that run's outcome, outputs and report
     // are the job's. Failed files are not recorded either way.
-    let code = if !a.no_record && a.expect_report.is_none() && code != 0 {
+    let code = if recovery.is_none() && !a.no_record && a.expect_report.is_none() && code != 0 {
         confirm_failures(&a, &code_dir, &plan, &replay, &out, &dir).unwrap_or(code)
     } else {
         code
     };
-    let ran_facts: Vec<(String, String, String, f64)> = out
-        .ran
-        .iter()
-        .map(|r| (r.id.clone(), r.file.clone(), r.state.clone(), r.duration))
-        .collect();
-    let replayed_ids: Vec<&String> = out.replayed.iter().collect();
+    let t_run = t0.elapsed();
     if a.no_record {
+        let ran_facts: Vec<_> = out.ran.iter().map(|r| (r.id.clone(), r.file.clone(), r.state.clone(), r.duration)).collect();
+        let replayed_ids: Vec<_> = out.replayed.iter().collect();
         if adaptive_plain {
             anyhow::ensure!(
                 out.replayed.is_empty(),
@@ -1516,15 +1580,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
                 continue;
             }
             let ok = r.state == "pass" || r.state == "skip";
-            let tests = r
-                .tests
-                .as_ref()
-                .map(|t| {
-                    blake3::hash(format!("{}\n{t}", r.state).as_bytes())
-                        .to_hex()
-                        .to_string()
-                })
-                .unwrap_or_default();
+            let tests = test_signature(r);
             rec.runs += 1;
             if rec.net && !r.denied {
                 // A networked record's witness must run without network.
@@ -1682,15 +1738,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
                 cov,
                 pinned: BTreeMap::new(),
                 w: Witness {
-                    tests: r
-                        .tests
-                        .as_ref()
-                        .map(|t| {
-                            blake3::hash(format!("{}\n{t}", r.state).as_bytes())
-                                .to_hex()
-                                .to_string()
-                        })
-                        .unwrap_or_default(),
+                    tests: test_signature(r),
                     ..Witness::default()
                 },
                 near_timeout: hooked_near,
@@ -1703,6 +1751,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         );
     }
     for id in &out.replayed {
+        if invalidated_replays.contains(id) { continue; }
         if let Some(r) = ledger.files.get_mut(id) {
             r.replays += 1;
             for (d, old) in narrowed.get(id).into_iter().flatten() {
@@ -1840,6 +1889,29 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         }
     }
     let lineage_revoked = revoke_lineage(&mut ledger.files, &revoked_stamps);
+    if let Some(recovered) = recovery {
+        for r in recovered.ran {
+            // A recovery is execution evidence for this job, not a new
+            // witness of the faulty recorder's dependency set.
+            if let Some(rec) = ledger.files.get_mut(&r.id) {
+                rec.runs += 1;
+                if invalidated_replays.contains(&r.id)
+                    && (!matches!(r.state.as_str(), "pass" | "skip") || test_signature(&r) != rec.w.tests)
+                {
+                    rec.quarantined = true;
+                    rec.w.disagreements += 1;
+                }
+            }
+            let mut r = r;
+            if let Some(index) = out.ran.iter().position(|old| old.id == r.id) {
+                r.duration += out.ran[index].duration;
+                out.ran[index] = r;
+            } else { out.ran.push(r); }
+        }
+        out.replayed.retain(|id| !invalidated_replays.contains(id));
+        narrowed.retain(|id, _| !invalidated_replays.contains(id));
+        report_base.narrowed = narrowed.len();
+    }
     eprintln!(
         "quod vitest: lineage: {lineage_promoted} promoted, {} plain audits, {lineage_disagreed} disagreed, {lineage_revoked} revoked",
         lineage_audits.len()
@@ -1922,6 +1994,8 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
         eprintln!("quod vitest:   {n} files without function-level data: {u}");
     }
     let mism: HashSet<String> = out.audit_mismatch.iter().cloned().collect();
+    let ran_facts: Vec<_> = out.ran.iter().map(|r| (r.id.clone(), r.file.clone(), r.state.clone(), r.duration)).collect();
+    let replayed_ids: Vec<_> = out.replayed.iter().collect();
     report_base.with_select(t_select).send(
         "shadow",
         &ran_facts,
@@ -1944,7 +2018,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
             "replayed": out.replayed.len(),
             "audited": audit.len(),
             "audit_mismatches": out.audit_mismatch,
-            "failed": failed,
+            "failed": failed_all,
             "unrecordable": unobservable,
             "no_function_level": no_fn_level,
             "shared_inputs_changed": !global_ok,
@@ -1964,6 +2038,7 @@ pub fn cli(mut a: VitestArgs) -> Result<u8> {
             "lineage_audits": lineage_audits.len(),
             "lineage_disagreed": lineage_disagreed,
             "lineage_revoked": lineage_revoked,
+            "lineage_recovery": recovery_note,
             "witnesses_needed": need,
             "provisional": provisional,
             "promoted": promoted + pw.0,
@@ -2492,6 +2567,63 @@ fn install_key(root: &Path, w: &Walk, node: &str) -> Option<String> {
     Some(h.finalize().to_hex().to_string())
 }
 
+/// Only successful fresh results and unaffected cached results can stand
+/// in for execution during a plain retry. In particular, an audit's old
+/// replay entry must not overwrite the failure that the audit just found.
+fn plain_retry_replays(replay: &BTreeMap<String, String>, out: &Out, invalidated: &HashSet<String>) -> BTreeMap<String, String> {
+    let mut again = replay.clone();
+    again.retain(|id, _| !invalidated.contains(id));
+    for r in &out.ran {
+        again.remove(&r.id);
+        if matches!(r.state.as_str(), "pass" | "skip") {
+            again.insert(r.id.clone(), r.result.clone());
+        }
+    }
+    again
+}
+
+/// Recompute current replays whose promotion cohort just failed an audit.
+/// Preserve unrelated trusted replays and successful results executed in
+/// this invocation. Failures run plain too, as in confirm_failures; no
+/// stale passing result may replace a failed audit in the combined report.
+fn recover_lineage(
+    a: &VitestArgs,
+    code_dir: &Path,
+    plan: &serde_json::Value,
+    replay: &BTreeMap<String, String>,
+    out: &Out,
+    dir: &Path,
+    invalidated: &HashSet<String>,
+) -> Result<(u8, Out)> {
+    let again = plain_retry_replays(replay, out, invalidated);
+    eprintln!("quod vitest: lineage audit invalidated {} current replays; recomputing them plain before accepting the job", invalidated.len());
+    let mut p = plan.clone();
+    p["replay"] = serde_json::to_value(again)?;
+    p["record"] = serde_json::json!(false);
+    p["audit"] = serde_json::json!([]);
+    p["expect"] = serde_json::to_value(&out.facts)?;
+    let pp = dir.join("plan-lineage-recover.json");
+    let op = dir.join("out-lineage-recover.json");
+    let _ = fs::remove_file(&op);
+    fs::write(&pp, serde_json::to_vec(&p)?)?;
+    let status = without_credentials(&mut Command::new(&a.node))
+        .env("QUOD_VITEST_HIDE", hidden_env(a))
+        .arg(code_dir.join("driver.mjs"))
+        .arg(&pp)
+        .arg(&op)
+        .args(&a.args)
+        .status().context("starting plain lineage recovery")?;
+    let recovered: Out = serde_json::from_slice(&fs::read(&op).context("recovery left no result")?)
+        .context("invalid recovery result")?;
+    anyhow::ensure!(!recovered.interrupted && recovered.facts == out.facts, "recovery interrupted or toolchain changed");
+    let expected: HashSet<_> = out.ran.iter().map(|r| &r.id).chain(out.replayed.iter()).collect();
+    let actual: HashSet<_> = recovered.ran.iter().map(|r| &r.id).chain(recovered.replayed.iter()).collect();
+    anyhow::ensure!(expected == actual && actual.len() == recovered.ran.len() + recovered.replayed.len(), "recovery changed the selected test inventory");
+    anyhow::ensure!(invalidated.iter().all(|id| recovered.ran.iter().any(|r| &r.id == id)), "recovery did not execute every invalidated replay");
+    anyhow::ensure!(recovered.ran.iter().all(|r| matches!(r.state.as_str(), "pass" | "skip" | "fail")), "recovery left an incomplete test result");
+    Ok((status.code().map_or(1, |c| c.clamp(0, 255) as u8), recovered))
+}
+
 /// The failures of an inline recording, run again plain (see the caller).
 /// None when there is nothing to confirm (no failed file, or a file in
 /// another state) or the confirming run could not run.
@@ -2504,15 +2636,10 @@ fn confirm_failures(
     dir: &Path,
 ) -> Option<u8> {
     let failed = out.ran.iter().filter(|r| r.state == "fail").count();
-    let mut again = replay.clone();
-    for r in &out.ran {
-        if r.state == "pass" || r.state == "skip" {
-            again.insert(r.id.clone(), r.result.clone());
-        }
-    }
-    if failed == 0 || again.len() - replay.len() + failed != out.ran.len() {
+    if failed == 0 || out.ran.iter().any(|r| !matches!(r.state.as_str(), "pass" | "skip" | "fail")) {
         return None;
     }
+    let again = plain_retry_replays(replay, out, &HashSet::new());
     eprintln!(
         "quod vitest: {failed} files failed while recording; running them again without recording"
     );
@@ -4857,6 +4984,48 @@ mod tests {
         assert!(!installed("sm:node_modules/pkg/index.js"));
         assert!(!installed("sl:node_modules/pkg"));
         assert!(installed("p:node_modules/pkg"));
+    }
+
+    #[test]
+    fn failed_audit_never_becomes_an_old_pass_during_plain_retry() {
+        let replay = BTreeMap::from([
+            ("audit".into(), "old-pass".into()),
+            ("peer".into(), "cohort-pass".into()),
+            ("control".into(), "independent-pass".into()),
+        ]);
+        let out = Out { ran: vec![
+            Ran { id: "audit".into(), state: "fail".into(), result: "old-pass".into(), ..Ran::default() },
+            Ran { id: "fresh".into(), state: "pass".into(), result: "current-pass".into(), ..Ran::default() },
+        ], ..Out::default() };
+        let retry = plain_retry_replays(&replay, &out, &HashSet::new());
+        assert!(!retry.contains_key("audit"), "the failed audit must really execute again");
+        assert_eq!(retry.get("fresh").map(String::as_str), Some("current-pass"));
+        assert!(retry.contains_key("peer") && retry.contains_key("control"));
+        let recovered = plain_retry_replays(&replay, &out, &HashSet::from(["peer".into()]));
+        assert!(!recovered.contains_key("peer") && !recovered.contains_key("audit"));
+        assert!(recovered.contains_key("control") && recovered.contains_key("fresh"));
+    }
+
+    #[test]
+    fn lineage_fault_detection_keeps_audited_cohort_provenance() {
+        let ran = Ran { id: "audit".into(), state: "pass".into(), tests: Some("tests".into()), plain: true, ..Ran::default() };
+        let mut ledger = Ledger::default();
+        ledger.files.insert("audit".into(), Rec {
+            lineage: None, promotion_stamp: Some("batch".into()),
+            w: Witness { tests: test_signature(&ran), ..Witness::default() }, ..Rec::default()
+        });
+        let mut out = Out { ran: vec![ran], ..Out::default() };
+        let plain = HashSet::from(["audit".into()]);
+        assert!(lineage_faults(&ledger, &out, &plain).0.is_empty());
+        out.ran[0].state = "fail".into();
+        let (stamps, files) = lineage_faults(&ledger, &out, &plain);
+        assert_eq!(stamps, HashSet::from(["batch".into()]));
+        assert_eq!(files, plain);
+        assert!(lineage_faults(&ledger, &out, &HashSet::new()).0.is_empty());
+        out.facts.insert("node".into(), "changed".into());
+        assert!(lineage_faults(&ledger, &out, &plain).0.is_empty());
+        out.audit_mismatch.push("audit".into());
+        assert_eq!(lineage_faults(&ledger, &out, &HashSet::new()).0, stamps);
     }
 
     #[test]
