@@ -31,7 +31,7 @@ function ipcPipe(process) {
 
 const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
-  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'
+  const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')
   const boundWire=ipcFrames([1,2].map(value=>({kind:'data',value,privatePath:'/private-ipc-delivery'})),serialization).toString('base64')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
@@ -179,6 +179,41 @@ if(kind==='buffer-species-self-restore') {
     return view;
   }});
 }
+function copyWire(view){wireCopies.push(Buffer.from(view));byteCopyPreparations.push(preparations)}
+if(kind==='parser-length-getter') {
+  const original=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype),'length').get;
+  Object.defineProperty(Uint8Array.prototype,'length',{configurable:true,get(){
+    if(Object.getPrototypeOf(this)===Uint8Array.prototype){
+      gets++;delete Uint8Array.prototype.length;copyWire(this);
+    }
+    return Reflect.apply(original,this,[]);
+  }});
+}
+if(kind.startsWith('parser-buffer-')) {
+  const key=Object.getOwnPropertySymbols(pipe).find(s=>s.description==='kMessageBuffer');
+  if(!key)throw Error('fixture requires the pinned channel message buffer');
+  const original=Object.getOwnPropertyDescriptor(pipe,key);
+  if(kind==='parser-buffer-getter')Object.defineProperty(pipe,key,{configurable:true,get(){
+    gets++;
+    if(original.value.length){Object.defineProperty(pipe,key,original);copyWire(original.value[0]);}
+    return original.value;
+  }});
+  else Object.defineProperty(pipe,key,{configurable:true,get(){gets++;return original.value},set(value){
+    Object.defineProperty(pipe,key,{...original,value});if(value.length)copyWire(value[0]);
+  }});
+}
+if(kind.startsWith('parser-concat-')) {
+  const original=Object.getOwnPropertyDescriptor(Buffer,'concat');
+  function replacement(...args){
+    Object.defineProperty(Buffer,'concat',original);
+    for(const view of args[0])copyWire(view);
+    return Reflect.apply(original.value,this,args);
+  }
+  if(kind==='parser-concat-getter')Object.defineProperty(Buffer,'concat',{configurable:true,get(){
+    gets++;Object.defineProperty(Buffer,'concat',original);return replacement;
+  }});
+  else Object.defineProperty(Buffer,'concat',{...original,value:replacement});
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
@@ -229,7 +264,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['onread-copy','advanced'],['onread-self-restore','advanced'],['onread-shadow-getter','advanced'],['onread-bound','advanced'],
   ['onread-bound-extra','advanced'],['async-resource','advanced'],['async-resource-copy','advanced'],
   ['species-copy','advanced'],['species-self-restore','advanced'],['species-getter-self-restore','advanced'],
-  ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced']]) {
+  ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
+  ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
+  ['parser-concat-copy','advanced'],['parser-concat-getter','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -260,6 +297,11 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
+    if(kind.startsWith('parser-')) {
+      assert(r.wireCopyBytes>0,'the fixture must copy raw parser inputs')
+      assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve byte-copy behavior')
+      assert.equal(r.byteCopyPreparations[0],0,'the first raw-input copy must precede preparation')
+    }
     if(kind.includes('species-')||kind==='view-constructor-getter') {
       assert(r.wireCopyBytes>0,'the fixture must copy IPC bytes before decoding')
       assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve the byte-copy behavior')
