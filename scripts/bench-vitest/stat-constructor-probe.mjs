@@ -1,4 +1,4 @@
-// Diagnostic only. Observe actual Node Stats before constructor return.
+// Diagnostic only. Observe actual Node Stats from their constructor entry.
 // Startup/native/debugger integrity and query attribution are not certified.
 import {Session} from 'node:inspector'
 import {createHash,randomBytes} from 'node:crypto'
@@ -28,11 +28,24 @@ export function createStatConstructorProbe() {
     if(response.exceptionDetails)throw Error('constructor diagnostic evaluation failed')
     return response.result?.value
   }
-  function invoke(frame,method,kind) {
+  function properties(objectId) {
+    if(!objectId)throw Error('constructor provenance object unavailable')
+    return post('Runtime.getProperties',{objectId,ownProperties:true})
+  }
+  function lexicalFunction(objectId,name) {
+    const scopes=properties(objectId).internalProperties?.find(p=>p.name==='[[Scopes]]')?.value?.objectId
+    for(const scope of properties(scopes).result) {
+      if(!/^\d+$/.test(scope.name)||scope.value?.description==='Global')continue
+      const value=properties(scope.value?.objectId).result.find(p=>p.name===name)?.value
+      if(value?.type==='function'&&value.objectId)return value.objectId
+    }
+    throw Error('constructor provenance binding unavailable: '+name)
+  }
+  function invoke(frame,kind,primitiveArguments) {
     const response=post('Runtime.callFunctionOn',{objectId:frame.this.objectId,
-      functionDeclaration:`function(){return ${binding}.${method}(this,${JSON.stringify(kind)})}`,
+      functionDeclaration:`function(){return ${binding}.enter(this,${JSON.stringify(kind)},${primitiveArguments})}`,
       returnByValue:true,silent:true})
-    if(response.exceptionDetails||response.result?.value!==true)throw Error('constructor '+method+' callback failed')
+    if(response.exceptionDetails||response.result?.value!==true)throw Error('constructor entry callback failed')
   }
   session.connect()
   session.on('Debugger.scriptParsed',({params})=>scripts.set(params.scriptId,params.url))
@@ -44,7 +57,13 @@ export function createStatConstructorProbe() {
       if(!frame?.this?.objectId||frame.functionName!==target.kind||frame.location.scriptId!==source?.scriptId)
         throw Error('unexpected constructor frame')
       pauses++
-      invoke(frame,target.method,target.kind)
+      const local=frame.scopeChain.find(scope=>scope.type==='local')?.object?.objectId
+      if(!local)throw Error('constructor parameters unavailable')
+      const parameters=post('Runtime.getProperties',{objectId:local,ownProperties:true}).result
+      const names=commonFields.slice(0,10).concat(target.kind==='BigIntStats'?nsFields:commonFields.slice(10))
+      const expectedType=target.kind==='BigIntStats'?'bigint':'number'
+      const primitiveArguments=names.every(name=>parameters.find(p=>p.name===name)?.value?.type===expectedType)
+      invoke(frame,target.kind,primitiveArguments)
     }catch(error){failures.push(error.message)}
     finally {try{post('Debugger.resume')}catch{failures.push('constructor resume failed')}}
   })
@@ -62,60 +81,57 @@ export function createStatConstructorProbe() {
     evaluate(`let ${binding}=(()=>{
       const addon=process.getBuiltinModule('module').createRequire(${JSON.stringify(import.meta.url)})(${JSON.stringify(addon)});
       const ownKeys=Reflect.ownKeys,proto=Object.getPrototypeOf,descriptor=Object.getOwnPropertyDescriptor;
+      const define=Object.defineProperty,extensible=Object.isExtensible;
       const fields=${JSON.stringify(commonFields)},ns=${JSON.stringify(nsFields)};
-      const pending=new WeakMap(),installed=new WeakMap(),rows=[],rejections=[];
+      const installed=new WeakMap(),rows=[],rejections=[];
       function reject(kind,reason){rejections.push({kind,reason});return true}
       return {
-        enter(target,kind){
+        enter(target,kind,primitiveArguments){
+          if(!primitiveArguments)return reject(kind,'nonprimitive constructor arguments');
           if(!addon.isInspectableOwner(target)||ownKeys(target).length)return reject(kind,'nonempty or unsupported constructor owner');
+          if(!extensible(target))return reject(kind,'nonextensible constructor owner');
           let p=proto(target),depth=0;
           while(p!==null){
             if(++depth>8||!addon.isInspectableOwner(p))return reject(kind,'unsupported constructor prototype');
             for(const field of fields.concat(ns))if(descriptor(p,field))return reject(kind,'inherited constructor field: '+field);
             p=proto(p);
           }
-          pending.set(target,kind);return true;
-        },
-        leave(target,kind){
-          if(pending.get(target)!==kind)return true;
-          pending.delete(target);
-          const expected=fields.concat(kind==='BigIntStats'?ns:[]),keys=ownKeys(target);
-          if(keys.length!==expected.length||keys.some(k=>!expected.includes(k)))return reject(kind,'unexpected constructed fields');
-          for(const key of keys){const d=descriptor(target,key);if(!d||!Object.hasOwn(d,'value')||
-            !d.writable||!d.enumerable||!d.configurable||!['number','bigint'].includes(typeof d.value))return reject(kind,'unexpected constructed descriptor');}
-          const row={kind,owner:new WeakRef(target),reads:new Map()},observers=[];
-          try{for(const key of keys)observers.push(addon.createDataReadObserver(target,key,()=>row.reads.set(key,(row.reads.get(key)??0)+1)))}
-          catch{for(const o of observers)o.close();return reject(kind,'native field installation failed')}
-          installed.set(target,observers);rows.push(row);return true;
+          // The source-pinned constructors only assign these fields when
+          // their parameters are primitive. An inherited setter is rejected
+          // above before any field is installed. Each temporary setter turns
+          // itself into an ordinary-looking native data field on its first
+          // constructor assignment, before callers can receive the Stats.
+          const expected=fields.concat(kind==='BigIntStats'?ns:[]);
+          const row={kind,owner:new WeakRef(target),reads:new Map(),initialized:0,expected:expected.length,failed:false};
+          const observers=[];installed.set(target,observers);rows.push(row);
+          for(const key of expected)define(target,key,{enumerable:true,configurable:true,set(value){
+            define(this,key,{value,writable:true,enumerable:true,configurable:true});
+            if(this!==target){row.failed=true;return;}
+            row.initialized++;
+            try{observers.push(addon.createDataReadObserver(target,key,()=>row.reads.set(key,(row.reads.get(key)??0)+1)))}
+            catch{row.failed=true;}
+          }});
+          return true;
         },
         report(){return {rejections,rows:rows.map(row=>{const owner=row.owner.deref(),observers=owner&&installed.get(owner);return {
           kind:row.kind,fields:[...row.reads.keys()].sort(),calls:[...row.reads.values()].reduce((a,b)=>a+b,0),
-          collected:!owner,intact:observers?observers.every(o=>o.report().available):null};})}},
+          collected:!owner,initialized:row.initialized,expected:row.expected,
+          intact:observers?!row.failed&&row.initialized===row.expected&&observers.every(o=>o.report().available):null};})}},
         close(){for(const row of rows){const owner=row.owner.deref();if(owner)for(const o of installed.get(owner)||[])o.close();}rows.length=0;}
       };
     })();`)
     initialized=true
+    // fs.Stats is a deprecation wrapper. Resolve the actual constructors
+    // through the native promise stat function's lexical conversion helper.
+    const stat=post('Runtime.evaluate',{expression:"process.getBuiltinModule('fs').promises.stat",silent:true})
+    if(stat.exceptionDetails)throw Error('native stat function unavailable')
+    const convert=lexicalFunction(stat.result?.objectId,'getStatsFromBinding')
     for(const kind of ['Stats','BigIntStats']) {
-      const start=text.indexOf('function '+kind+'('),end=text.indexOf('\n}',start)
-      if(start<0||end<start)throw Error('constructor source extent unavailable')
-      const body=text.indexOf('{\n',start)+2
-      if(body<start||body>=end)throw Error('constructor body unavailable')
-      const line=offset=>text.slice(0,offset).split('\n').length-1
-      // A declaration header is outside the function's executable range.
-      // Query only the source-pinned constructor body (which has no nested
-      // function) and require its unique return breakpoint explicitly.
-      const locations=post('Debugger.getPossibleBreakpoints',{start:{scriptId,lineNumber:line(body),columnNumber:0},
-        end:{scriptId,lineNumber:line(end)+2,columnNumber:0}}).locations
-      const returns=locations.filter(location=>location.type==='return')
-      const entries=locations.filter(location=>location.type!=='return')
-      if(returns.length!==1||!entries.length)throw Error('constructor entry/return points unavailable: '+kind)
-      for(const [method,location] of [['enter',entries[0]],['leave',returns[0]]]) {
-        const {type,...position}=location
-        const result=post('Debugger.setBreakpoint',{location:position})
-        if(result.actualLocation.lineNumber!==position.lineNumber||result.actualLocation.columnNumber!==position.columnNumber)
-          throw Error('constructor breakpoint moved')
-        breakpoints.set(result.breakpointId,{kind,method})
-      }
+      const objectId=lexicalFunction(convert,kind)
+      const location=properties(objectId).internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
+      if(location?.scriptId!==scriptId)throw Error('constructor function source differs')
+      const result=post('Debugger.setBreakpointOnFunctionCall',{objectId})
+      breakpoints.set(result.breakpointId,{kind})
     }
   }catch(error){
     for(const id of breakpoints.keys())try{post('Debugger.removeBreakpoint',{breakpointId:id})}catch{}

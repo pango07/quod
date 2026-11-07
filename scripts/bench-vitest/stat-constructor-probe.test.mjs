@@ -9,10 +9,11 @@ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'quod-stat-constructor-'))
 const file=path.join(directory,'input')
 fs.writeFileSync(file,'fixture')
 test.after(()=>fs.rmSync(directory,{recursive:true,force:true}))
-function run(body) {
+function run(body,before='') {
   const source=`import fs from 'node:fs';
 import {createStatConstructorProbe} from ${JSON.stringify(new URL('./stat-constructor-probe.mjs',import.meta.url).href)};
 const file=${JSON.stringify(file)};
+${before}
 const probe=createStatConstructorProbe();
 try {${body}}finally{probe.close()}`
   const out=spawnSync(process.execPath,['--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
@@ -27,15 +28,21 @@ function checked(report) {
 
 for(const bigint of [false,true])test(`constructor observation precedes synchronous consumers, bigint=${bigint}`,t=>{
   const r=run(`const s=fs.statSync(file,{bigint:${bigint}});const value={file:s.isFile(),size:String(s.size)};
-console.log(JSON.stringify({value,report:probe.report()}));`)
+const report=probe.report();const {isDeepStrictEqual}=await import('node:util');
+console.log(JSON.stringify({value,report,samePrototype:Object.getPrototypeOf(s)===expectedPrototype,
+ sameDescriptors:isDeepStrictEqual(Object.getOwnPropertyDescriptors(s),expectedDescriptors)}));`,
+`const expected=fs.statSync(file,{bigint:${bigint}});
+const expectedPrototype=Object.getPrototypeOf(expected),expectedDescriptors=Object.getOwnPropertyDescriptors(expected);`)
   checked(r.report)
   assert.deepEqual(r.value,{file:true,size:'7'})
+  assert.equal(r.samePrototype,true);assert.equal(r.sameDescriptors,true)
   assert.deepEqual(r.report.rejections,[])
   assert.equal(r.report.rows.length,1)
   assert.equal(r.report.rows[0].kind,bigint?'BigIntStats':'Stats')
   assert.deepEqual(r.report.rows[0].fields,['mode','size'])
   assert.equal(r.report.rows[0].intact,true)
-  assert.equal(r.report.pauses,2)
+  assert.equal(r.report.rows[0].initialized,bigint?18:14)
+  assert.equal(r.report.pauses,1)
   t.diagnostic(JSON.stringify({synchronous:{bigint,...r}}))
 })
 
@@ -76,4 +83,39 @@ const report=probe.report();const afterReport=advanced;
 await Promise.resolve();console.log(JSON.stringify({value,before,afterReport,after:advanced,report}));`)
   checked(r.report)
   assert.equal(r.value,7);assert.equal(r.before,false);assert.equal(r.afterReport,false);assert.equal(r.after,true)
+})
+
+test('constructor entry rejects coercion that installs an inherited setter mid-construction',()=>{
+  const r=run(`let copied,coercions=0;
+const custom={ [Symbol.toPrimitive](){coercions++;
+ Object.defineProperty(BigIntStats.prototype,'birthtimeMs',{configurable:true,set(value){
+  copied=this.mtimeMs;delete BigIntStats.prototype.birthtimeMs;
+  Object.defineProperty(this,'birthtimeMs',{value,writable:true,enumerable:true,configurable:true});
+ }});return 1000000n;
+}};
+const s=new BigIntStats(...Array(10).fill(1n),custom,2000000n,3000000n,4000000n);
+console.log(JSON.stringify({coercions,copied:String(copied),atime:String(s.atimeMs),
+ prototypeRestored:!Object.hasOwn(BigIntStats.prototype,'birthtimeMs'),report:probe.report()}));`,
+`const BigIntStats=Object.getPrototypeOf(fs.statSync(file,{bigint:true})).constructor;`)
+  checked(r.report)
+  assert.equal(r.coercions,1);assert.equal(r.copied,'2');assert.equal(r.atime,'1')
+  assert.equal(r.prototypeRestored,true);assert.equal(r.report.rows.length,0)
+  assert.deepEqual(r.report.rejections,[{kind:'BigIntStats',reason:'nonprimitive constructor arguments'}])
+})
+
+test('constructor entry leaves nonextensible owners unchanged',()=>{
+  const r=run(`const target=Object.preventExtensions(Object.create(fs.Stats.prototype));let error;
+try {Reflect.apply(fs.Stats,target,Array(14).fill(0))}catch(e){error=e.name}
+console.log(JSON.stringify({error,keys:Reflect.ownKeys(target),report:probe.report()}));`)
+  checked(r.report)
+  assert.equal(r.error,'TypeError');assert.deepEqual(r.keys,[]);assert.equal(r.report.rows.length,0)
+  assert.deepEqual(r.report.rejections,[{kind:'Stats',reason:'nonextensible constructor owner'}])
+})
+
+test('writes after construction keep their value and invalidate field observation',()=>{
+  const r=run(`const s=fs.statSync(file);s.size=99;
+console.log(JSON.stringify({size:s.size,report:probe.report()}));`)
+  checked(r.report)
+  assert.equal(r.size,99);assert.equal(r.report.rows.length,1)
+  assert.equal(r.report.rows[0].initialized,14);assert.equal(r.report.rows[0].intact,false)
 })
