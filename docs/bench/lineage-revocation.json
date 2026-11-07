@@ -1,0 +1,116 @@
+{
+  "run": 42366964096,
+  "job": 128386944410,
+  "source": "31efac415300c41de6baef399351fa0b307c1511",
+  "action": "beb12a8c9c32500ad2d19a87b10ee7cc7a95c197",
+  "packagedEngine": "c12a7fe32f4957b6bd1cc09edbe63c7292b1c1d3",
+  "artifact": {
+    "id": 13572520382,
+    "bytes": 119952,
+    "sha256": "851b9599eba41ec91a89d08ae9788d1e0c3659c5944563e646029fc371cdc6ab"
+  },
+  "result": {
+    "scope": "Synthetic witness-signature fault; real binary promotion, audit and batch revocation",
+    "sourceOverride": false,
+    "binarySha256": "d18f2618e859b5773968e11ab9269b7c72bc23817fb277e8ab0ff1e8839f9e8b",
+    "node": "v24.18.0",
+    "image": "ubuntu26/20261101.186.1",
+    "promoted": 2,
+    "agreeingAudits": 1,
+    "disagreeingAudits": 1,
+    "revoked": 2,
+    "previouslyAuditedPeerRevoked": true,
+    "disagreedFileQuarantined": true,
+    "independentRecordPreserved": true,
+    "revokedFilesExecute": true,
+    "observedTestStatesMatch": true,
+    "benchmarkSavingsClaim": false
+  },
+  "reports": [
+    {
+      "phase": "plain-before",
+      "sha256": "b48652dce7217b6acdaebe863cde800d2f47f2739f4b00d64662676460281660",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "record",
+      "sha256": "1806b1f3887708621ba156c1de33bb6dff2776184c594f7cfa7c55287bbbd595",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "witness",
+      "sha256": "1806b1f3887708621ba156c1de33bb6dff2776184c594f7cfa7c55287bbbd595",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "warm",
+      "sha256": "1806b1f3887708621ba156c1de33bb6dff2776184c594f7cfa7c55287bbbd595",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "promote",
+      "sha256": "f10f02ddbc781161d52774e2323a088999a76274de0242a3179019266806b06b",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "agreeing-audit",
+      "sha256": "8f8adedcdd38e42908d027eea86227e815c9a359a734577faa34c81e77be0855",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "disagreeing-audit",
+      "sha256": "c35084cffbf6e1b947309126f52441b77e7a6c4679e5f2730b879de9daaa4294",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "after-revocation",
+      "sha256": "f10f02ddbc781161d52774e2323a088999a76274de0242a3179019266806b06b",
+      "files": 3,
+      "tests": 3
+    },
+    {
+      "phase": "plain-after",
+      "sha256": "6c4546ff68807e1032771dd25926508ec538729e7296ada4d70fd621f6d3aea5",
+      "files": 3,
+      "tests": 3
+    }
+  ],
+  "snapshots": {
+    "promote-ledger.json": "238b785485da05577617aa461424697fd18ca57fe9b709fd8786b89590a29e4e",
+    "agreeing-audit-ledger.json": "9867c0280abc83e4f21c38892471d45734d75549636e725971b9074810d30ccf",
+    "fault-injected-ledger.json": "ac5ef8266ec68986b88e5f64e44de40c9384f14c6575571259a76154ab55620b",
+    "disagreeing-audit-ledger.json": "4042e0985a656071dea1b246f0886864a0f551de40d885e260e5dc10dfeeb79c",
+    "after-revocation-ledger.json": "0db85d5d2e9259fdbd69c49f57bbd95c57de7b7b43d5180010bab018bb98dc28"
+  },
+  "independentVerification": {
+    "allReportStatesMatch": true,
+    "onlyInjectedWitnessSignatureBytesChanged": true,
+    "auditedPeerRevoked": true,
+    "controlWitnessPreserved": true,
+    "revokedFilesExecuted": true
+  },
+  "limitations": [
+    "Synthetic stored-signature fault, not a naturally occurring recorder fault.",
+    "Three-file fixture on one runner; not convex-helpers or a fresh-runner replay benchmark.",
+    "Explicitly disables fast rendering, narrowing and opportunistic audits to isolate E1 selection and revocation.",
+    "Verifies revocation for the next invocation; does not demonstrate same-job rerunning of other cohort members after a result-changing fault.",
+    "No savings or universal correctness claim."
+  ],
+  "supersededRuns": [
+    {
+      "run": 42366686740,
+      "reason": "Abbreviated ref treated as branch by checkout; regression did not execute."
+    },
+    {
+      "run": 42366773849,
+      "reason": "Gate passed but independent analysis found JSON round-trip rounding of nanosecond identities; superseded by byte-preserving fault injection."
+    }
+  ]
+}
