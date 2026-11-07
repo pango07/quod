@@ -45,6 +45,14 @@ try {
     nodeVersion: actual.node, vitestVersion: '5.0.0', host: actual.host}
   const control = validateMatrixNativeControl({selectionBytes, reportBytes, policy: nativePolicy})
   check('the actual full native control is validated once before minting', Boolean(control.reportSha256 && control.selectionSha256))
+  const compactControl = bytes(selection)
+  const duplicateControl = Buffer.from('{"schema":' + JSON.stringify(selection.schema) + ',' + compactControl.toString('utf8').slice(1))
+  rejects('duplicate native selection JSON keys cannot mint conformance', () => validateMatrixNativeControl({
+    selectionBytes: duplicateControl, reportBytes, policy: nativePolicy}))
+  const duplicateReport = Buffer.from('{"success":true,' + reportBytes.toString('utf8').slice(1))
+  const duplicateReportControl = {...selection, reportSha256: hash(duplicateReport)}
+  rejects('duplicate native reporter JSON keys cannot mint conformance', () => validateMatrixNativeControl({
+    selectionBytes: pretty(duplicateReportControl), reportBytes: duplicateReport, policy: nativePolicy}))
   const records = []
   fs.mkdirSync(path.join(out, 'receipts'))
   for (const row of actual.instances.filter(row => row.decision === 'managed')) {

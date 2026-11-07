@@ -166,10 +166,12 @@ function bytesOf(value, max) {
 }
 function parseBytes(value, {compact = false, max = 24 * 1024 * 1024} = {}) {
   const bytes = bytesOf(value, max), text = bytes.toString('utf8'), data = JSON.parse(text)
-  // Both trusted native producers emit one of these exact formats. Exact round
+  // Trusted native producers emit compact JSON or two-space JSON plus newline. Exact round
   // trips reject duplicate keys instead of silently accepting the last value.
   if (compact) assert.equal(JSON.stringify(data), text, 'non-compact or ambiguous response JSON')
-  else assert(text === json(data) || text.trimEnd() === JSON.stringify(data, null, 2), 'non-canonical or ambiguous native/receipt JSON')
+  else assert(text === json(data) || text === JSON.stringify(data) ||
+    text === JSON.stringify(data, null, 2) || text === JSON.stringify(data, null, 2) + '\n',
+    'non-canonical or ambiguous native/receipt JSON')
   json(data)
   return {bytes, data}
 }

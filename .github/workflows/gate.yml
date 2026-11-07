@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.ref || '' }}
-          fetch-depth: 4
+          fetch-depth: 1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '24.18.0'
@@ -84,6 +84,8 @@ jobs:
           13587034973 ff279ea5b59b359d26985f08f22e0749f9eccbde 42406036816
           36186785 f8e20f3a68cc3fbec7ce01a5ea90e8b50a1d558cbf08146a7fb049e242adc282
           "$RUNNER_TEMP/verified-matrix"
+      - name: Fetch the explicit compiler source pin for the independent audit
+        run: git fetch --no-tags --depth=1 origin ff279ea5b59b359d26985f08f22e0749f9eccbde
       - name: Recheck all original project instances and native names and states
         run: >-
           python3 scripts/bench-vitest/managed/matrix-audit.py
