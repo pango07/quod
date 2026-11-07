@@ -9,7 +9,7 @@ import {fileURLToPath} from 'node:url'
 import {canonicalManagedJSON, resolveManagedImports} from './compiler.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const SCHEMA = 'quod-managed-compile-input-certificate-v1-diagnostic'
+const SCHEMA = 'quod-managed-compile-input-certificate-v2-diagnostic'
 const LIMITS = {paths: 100000, metadataBytes: 128 * 1024 * 1024,
   toolBytes: 128 * 1024 * 1024, sourceBytes: 256 * 1024 * 1024,
   fileBytes: 16 * 1024 * 1024, certificateBytes: 16 * 1024 * 1024,
@@ -110,7 +110,9 @@ function namespace(ctx) {
     })
     ancestors.push({path: parent, nodeModules: 'absent', configs})
   }
-  return {rows, ancestors, counts}
+  // esbuild's comments and generated identifier names can depend on physical
+  // paths relative to absWorkingDir, even when canonical module names agree.
+  return {geometry: {project: ctx.project, adapter: ctx.adapter}, rows, ancestors, counts}
 }
 
 function checkSourceConfigs(ctx, compile) {

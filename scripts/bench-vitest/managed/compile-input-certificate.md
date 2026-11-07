@@ -14,7 +14,9 @@ build; it loads no imported modules and performs no bundling of tests. The
 imported esbuild API may reuse its existing operating-system service process.
 
 Certificates retain the full namespace path/kind/permission and symlink roster
-of the disjoint project and adapter roots. All regular JSON bytes are hashed,
+of the disjoint project and adapter roots. Their actual absolute real paths are
+also retained: equal canonical module names do not imply equal esbuild comments
+or generated identifiers after physical adapter relocation. All regular JSON bytes are hashed,
 including package metadata, lockfiles, tsconfig files and arbitrarily named
 in-root JSON extends targets. Applicable config extends chains may not escape
 the roots. Above both roots, the exact existing package/config JSON roster and
@@ -69,6 +71,34 @@ Every mutation retains the tiny actual fixture bytes and symlink target
 inventory, full resulting bundle/build metadata or rejection, and certificate
 decision before assertions. The tsconfig control additionally invokes a
 separate plain Node process with a 30-second watchdog, 16 MiB per output file and
-1 MiB per captured log. This separates process-local compiler caching from the
-observed compiler behavior. The expected semantic-change assertion remains in
-place until these retained bytes explain the first diagnostic failure.
+1 MiB per captured log. It requires a conservative metadata miss and exact equal
+full identities and bundle bytes from both fresh compilers. This checks the
+observed compiler behavior; it is not a TypeScript semantic-change control.
+
+The failed investigations [42408563595](https://github.com/pango07/quod/actions/runs/42408563595)
+and [42409190659](https://github.com/pango07/quod/actions/runs/42409190659) remain
+failures. The second retained actual `useDefineForClassFields: true` and `false`
+inputs, equal source bytes, and seed/same-process/separate-plain-Node bundles:
+all 884,283 bytes, SHA-256
+`2796f604f39b3b97a1416b9394ce0f3a9b1898a388cbe329ae0c0a1d7e9a275e`.
+All three complete compile identities also matched. This disproved the old
+fixture's expectation that that metadata mutation changes this compiler.
+
+That result agrees with the pinned esbuild 0.28.2 implementation at commit
+`609683d892977362a0f99026cb74b96263d728a9`:
+[successful plugin resolution](https://github.com/evanw/esbuild/blob/609683d892977362a0f99026cb74b96263d728a9/internal/bundler/bundler.go#L1147)
+returns its path without copying the default resolver's transform config or
+module-type metadata; [transform options](https://github.com/evanw/esbuild/blob/609683d892977362a0f99026cb74b96263d728a9/internal/bundler/bundler.go#L1574)
+only apply when those fields are present. Our ordinary resolver returns only
+the real path, and onLoad supplies an explicit loader. This observation does
+not remove any conservative metadata check in the validator.
+
+A separate relocation control copies the complete trusted installed adapter
+into two adjacent sibling directories, preserving every byte, mode and symlink
+target. It loads the compiler and verifier from each copy, verifies equal
+canonical namespaces, ancestor config rosters and tools, and compares both
+fresh bundles. The A certificate must validate in A and miss in B because the
+physical root geometry changed. Copies are bounded to 20,000 paths, 512 MiB
+total and 256 MiB per regular file and removed in `finally`. The result, full
+bounded data inventories, A/B certificates (including namespace and tools),
+bundles and build metadata are retained for independent byte comparisons.

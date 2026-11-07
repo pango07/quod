@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
-import {fileURLToPath} from 'node:url'
+import {fileURLToPath, pathToFileURL} from 'node:url'
 import {spawnSync} from 'node:child_process'
 import {createManagedCompiler, canonicalManagedJSON} from './compiler.mjs'
 import {prepareManagedMatrix} from './preparation.mjs'
@@ -102,6 +102,82 @@ function separateCompile(directory, config, file) {
   }
   return evidence
 }
+async function adapterRelocation(config, entry) {
+  const source = path.dirname(fileURLToPath(import.meta.url))
+  const copies = ['A', 'B'].map(name => path.join(path.dirname(source), '.quod-certificate-adapter-' + name))
+  const created = [], directory = path.join(out, 'adapter-relocation')
+  fs.mkdirSync(directory)
+  // Copy the complete installed adapter, including its tools, without changing
+  // symlink target text. Retain data inventories/certificates, never the copies.
+  function inventory(root) {
+    const rows = []; let bytes = 0
+    function walk(file, name = '.') {
+      assert(rows.length < 20000, 'adapter copy path bound')
+      const stat = fs.lstatSync(file), row = {name, mode: stat.mode & 0o7777}
+      if (stat.isDirectory()) {
+        row.kind = 'directory'; rows.push(row)
+        for (const child of fs.readdirSync(file).sort()) walk(path.join(file, child), name + '/' + child)
+      } else if (stat.isSymbolicLink()) {
+        row.kind = 'symlink'; row.target = fs.readlinkSync(file); rows.push(row)
+      } else {
+        assert(stat.isFile() && stat.size <= 256 * 1024 * 1024, 'bounded regular adapter copy input')
+        bytes += stat.size; assert(bytes <= 512 * 1024 * 1024, 'adapter copy byte bound')
+        row.kind = 'file'; row.bytes = stat.size; row.sha256 = sha(fs.readFileSync(file)); rows.push(row)
+      }
+    }
+    walk(root); return {rows, bytes}
+  }
+  try {
+    for (const copy of copies) assert(!fs.lstatSync(copy, {throwIfNoEntry: false}), 'owned adapter copy already exists')
+    const sourceInventory = inventory(source)
+    write(path.join(directory, 'source-inventory.json'), sourceInventory)
+    for (const copy of copies) {
+      created.push(copy)
+      fs.cpSync(source, copy, {recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true})
+    }
+    const inventories = copies.map(inventory)
+    inventories.forEach((value, index) => write(path.join(directory, index ? 'B-inventory.json' : 'A-inventory.json'), value))
+    check('adjacent adapter copies retain every source/tool byte mode and symlink target',
+      inventories.every(value => canonicalManagedJSON(value) === canonicalManagedJSON(sourceInventory)))
+    const compilerModules = await Promise.all(copies.map(copy => import(pathToFileURL(path.join(copy, 'compiler.mjs')).href)))
+    const certificateModules = await Promise.all(copies.map(copy => import(pathToFileURL(path.join(copy, 'compile-input-certificate.mjs')).href)))
+    const built = [], certificates = []
+    for (let index = 0; index < copies.length; index++) {
+      const compile = compilerModules[index].createManagedCompiler({project, sourceTreeCache: false})
+      built[index] = await compile('runner.mjs', config, entry)
+      certificates[index] = certificateModules[index].captureManagedCompileCertificate({project,
+        built: built[index], options: config, testFile: entry})
+      fs.writeFileSync(path.join(directory, index ? 'B-certificate.json' : 'A-certificate.json'), certificates[index].bytes)
+      fs.writeFileSync(path.join(directory, index ? 'B.mjs' : 'A.mjs'), built[index].bundle)
+      write(path.join(directory, index ? 'B-build.json' : 'A-build.json'), {...built[index], bundle: undefined, options: config})
+    }
+    const values = certificates.map(seed => JSON.parse(seed.bytes))
+    const withoutGeometry = value => { const {geometry, ...rest} = value; return rest }
+    const positive = (await certificateModules[0].validateManagedCompileCertificates({project,
+      requests: [request(certificates[0], config, entry)]}))[0]
+    const relocated = (await certificateModules[1].validateManagedCompileCertificates({project,
+      requests: [request(certificates[0], config, entry)]}))[0]
+    const compact = value => ({hit: value.hit, reason: value.reason || null, next: value.next || null,
+      identitySha256: value.identitySha256 || null, bundleSha256: value.bundleSha256 || null})
+    result.adapterRelocation = {roots: copies, sourceInventorySha256: sha(canonicalManagedJSON(sourceInventory)),
+      copiedPaths: sourceInventory.rows.length, copiedBytes: sourceInventory.bytes,
+      geometry: values.map(value => value.namespace.geometry),
+      sameCanonicalNamespaceExceptGeometry: canonicalManagedJSON(withoutGeometry(values[0].namespace)) === canonicalManagedJSON(withoutGeometry(values[1].namespace)),
+      sameTools: canonicalManagedJSON(values[0].tools) === canonicalManagedJSON(values[1].tools),
+      positive: compact(positive), relocated: compact(relocated), bundleSha256: built.map(value => value.sha256),
+      certificates: certificates.map(seed => ({bytes: seed.bytes.length, sha256: seed.sha256})),
+      bundleBytesEqual: built[0].bundle === built[1].bundle}
+    write(path.join(directory, 'result.json'), result.adapterRelocation); save()
+    check('relocation fixture has identical canonical namespace ancestor metadata and tools',
+      result.adapterRelocation.sameCanonicalNamespaceExceptGeometry && result.adapterRelocation.sameTools)
+    check('adapter A certificate validates against its actual physical roots', positive.hit === true)
+    check('adapter B rejects A certificate despite equal canonical namespace and tools',
+      !relocated.hit && relocated.next === 'full-compile' && relocated.reason === 'current namespace/tool inputs differ')
+    check('fresh adjacent adapter bundles expose actual physical path sensitivity', !result.adapterRelocation.bundleBytesEqual)
+  } finally {
+    for (const copy of created) fs.rmSync(copy, {recursive: true, force: true})
+  }
+}
 let fixtureCreated = false
 try {
   const suite = await prepareManagedMatrix({project, seed: base.seed})
@@ -194,6 +270,14 @@ try {
       check(name + ' certificate miss requires full compilation', !decision.hit && decision.next === 'full-compile')
       check(name + ' actual fresh compiler confirms expected changed or rejected input', reject ? Boolean(rejection)
         : !rejection && (rebuilt.identitySha256 !== initial.identitySha256) === identityChanges)
+      if (name === 'tsconfig bytes changed') {
+        const child = JSON.parse(fs.readFileSync(path.join(directory, 'separate-node/fresh-build.json'), 'utf8'))
+        check('tsconfig metadata mutation has equal exact bundle and full identity in both fresh compilers',
+          row.separateNode.status === 0 && row.separateNode.execArgv.length === 0 &&
+          canonicalManagedJSON(rebuilt.identity) === canonicalManagedJSON(initial.identity) &&
+          canonicalManagedJSON(child.identity) === canonicalManagedJSON(initial.identity) &&
+          rebuilt.bundle === initial.bundle && fs.readFileSync(path.join(directory, 'separate-node/fresh.mjs')).equals(Buffer.from(initial.bundle)))
+      }
     } finally { await restore() }
     check(name + ' restored inputs recover prior certificate', (await validate([request(seed, config, entry)]))[0].hit)
   }
@@ -213,7 +297,11 @@ try {
     () => fs.rmSync(path.join(fixture, 'types.js')), {reject: true})
   await mutation('package exports bytes changed', () => put('node_modules/quod-input-package/package.json', files['node_modules/quod-input-package/package.json'].replace('./one.mjs', './two.mjs')),
     () => put('node_modules/quod-input-package/package.json', files['node_modules/quod-input-package/package.json']))
-  await mutation('tsconfig bytes changed', () => put('tsconfig.json', files['tsconfig.json'].replace('true', 'false')), () => put('tsconfig.json', files['tsconfig.json']))
+  // Failed runs 42408563595 and 42409190659 retained the correction evidence:
+  // this path-only resolver drops TSConfig transform metadata before onLoad.
+  // A separate plain Node produced the exact same full identity and bundle.
+  await mutation('tsconfig bytes changed', () => put('tsconfig.json', files['tsconfig.json'].replace('true', 'false')),
+    () => put('tsconfig.json', files['tsconfig.json']), {identityChanges: false})
   await mutation('glob match added', () => put('modules/beta.mjs', 'export default 2;\n'), () => fs.rmSync(path.join(fixture, 'modules/beta.mjs')))
   await mutation('glob match renamed', () => fs.renameSync(path.join(fixture, 'modules/alpha.mjs'), path.join(fixture, 'modules/omega.mjs')),
     () => fs.renameSync(path.join(fixture, 'modules/omega.mjs'), path.join(fixture, 'modules/alpha.mjs')))
@@ -242,6 +330,7 @@ try {
   }
   const bad = {...request(seed, config, entry), trustedCertificateSha256: '0'.repeat(64)}
   check('unauthenticated bytes cannot seed a compile candidate', !(await validate([bad]))[0].hit)
+  await adapterRelocation(config, entry)
   result.passed = result.checks.every(row => row.pass)
 } catch (error) { result.error = {name: error.name, message: error.message, stack: error.stack}; process.exitCode = 1 }
 finally { if (fixtureCreated) fs.rmSync(fixture, {recursive: true, force: true}); save() }
