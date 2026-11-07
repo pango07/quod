@@ -61,6 +61,51 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  benchmark-managed-native-vm:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-native-vm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - name: Install bounded remote-only native VM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 linux-image-virtual gcc libc6-dev binutils cpio gzip
+          sudo chmod a+r /boot/vmlinuz-*
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Construct the closed diskless guest image
+        run: python3 scripts/bench-vitest/native-vm/build.py "$PWD/profile-project" "$RUNNER_TEMP/native-vm-image"
+      - name: Actual unchanged native commands and isolated boundary controls
+        run: python3 scripts/bench-vitest/native-vm/probe.py "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence" --watchdog 180
+      - name: Independently audit actual image and native command effects
+        if: always()
+        run: >-
+          python3 scripts/bench-vitest/native-vm/audit.py
+          "$RUNNER_TEMP/native-vm-image" "$RUNNER_TEMP/native-vm-evidence"
+          > "$RUNNER_TEMP/native-vm-audit.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-native-vm
+          compression-level: 0
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/native-vm-evidence
+            ${{ runner.temp }}/native-vm-image
+            ${{ runner.temp }}/native-vm-audit.json
+
   benchmark-managed-matrix:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix'
     runs-on: ubuntu-latest
