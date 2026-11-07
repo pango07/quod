@@ -15,6 +15,8 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const breakpoints=new Map(),nativeMethods=new Map()
   const decoder={started:0,constructorEntries:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
+  const reads={entries:0,completed:0,delivered:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
+  let reading=null,readReturn=null
   let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
   let decoded=0,prepared=0,paired=0,ignoredReceivers=0,failures=0,groupsCreated=0,groupsReleased=0
@@ -108,6 +110,45 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     catch{fail('IPC decoder handles could not be released')}
     decoding=null
   }
+  function readRelease() {
+    if(!reading)return
+    try{post('Runtime.releaseObjectGroup',{objectGroup:reading.group});reads.groupsReleased++}
+    catch{fail('IPC read handles could not be released')}
+    reading=null
+  }
+  function readPause(params,kind) {
+    const frame=params.callFrames?.[0]
+    if(kind==='read:entry') {
+      if(reading){fail('IPC read entered before its previous callback returned');readRelease()}
+      const eventGroup=group+'-read-'+(++reads.groupsCreated)
+      reading={group:eventGroup,channel:null,checked:false}
+      if(!frame||frame.location.lineNumber!==637)throw Error('IPC read entry moved from pinned source')
+      source(frame.location.scriptId,childSource)
+      if(!same(evaluate(frame,'target',eventGroup),receiver)){reads.ignoredReceivers++;readRelease();return}
+      reads.entries++
+      reading.channel=evaluate(frame,'channel',eventGroup)
+      if(params.callFrames.length!==1)throw Error('IPC read callback has an unexpected caller')
+      if(!same(frame.this,reading.channel))throw Error('IPC read callback has another receiver')
+      const args=properties(evaluate(frame,'arguments',eventGroup)).result
+      if(data(args,'length').value!==1)throw Error('IPC read callback has unexpected arguments')
+      const onread=data(properties(reading.channel).result,'onread')
+      pinnedFunction(onread,childSource,636)
+      reading.checked=true
+    }else {
+      if(!reading)return
+      try {
+        if(!frame||frame.location.lineNumber!==readReturn.lineNumber||frame.location.columnNumber!==readReturn.columnNumber)
+          throw Error('IPC read return moved from pinned source')
+        source(frame.location.scriptId,childSource)
+        if(!same(evaluate(frame,'channel',reading.group),reading.channel))throw Error('IPC read returned through another channel')
+        if(decoding){fail('IPC read returned before decoder delivery');decoderRelease()}
+        reads.completed++
+      }finally{readRelease()}
+    }
+  }
+  function requireRead(channel) {
+    if(!reading?.checked||!same(channel,reading.channel))throw Error('IPC decoder lacks a validated native read callback')
+  }
   function checkMethod(instance,name) {
     if(!same(inheritedData(instance,name),nativeMethods.get(name)))throw Error('IPC decoder method changed: '+name)
   }
@@ -146,6 +187,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         const frame=decoderFrame(params,92,eventGroup)
         if(!frame){decoder.ignoredReceivers++;decoderRelease();continue}
         decoding.channel=evaluate(frame,'channel',eventGroup)
+        requireRead(decoding.channel)
         decoder.started++
         decoding.prototype=constructorChain(frame,eventGroup)
       }else if(kind==='native:construct') {
@@ -222,6 +264,21 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       throw Error('IPC delivery location is not uniquely loaded')
     source(b.locations[0].scriptId,childSource)
     breakpoints.set(breakpointId,'delivery')
+    const readEntry=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process',lineNumber:637,columnNumber:0})
+    breakpoints.set(readEntry.breakpointId,'read:entry')
+    if(!readEntry.breakpointId||readEntry.locations?.length!==1||readEntry.locations[0].lineNumber!==637)
+      throw Error('IPC read entry is not uniquely loaded')
+    source(readEntry.locations[0].scriptId,childSource)
+    const possible=post('Debugger.getPossibleBreakpoints',{
+      start:{scriptId:b.locations[0].scriptId,lineNumber:637,columnNumber:0},
+      end:{scriptId:b.locations[0].scriptId,lineNumber:670,columnNumber:0},restrictToFunction:true})
+    const returns=possible.locations.filter(p=>p.type==='return')
+    if(returns.length!==1||returns[0].lineNumber!==669)throw Error('IPC read return is not uniquely pinned')
+    readReturn=returns[0]
+    const readExit=post('Debugger.setBreakpoint',{location:{scriptId:readReturn.scriptId,lineNumber:readReturn.lineNumber,columnNumber:readReturn.columnNumber}})
+    breakpoints.set(readExit.breakpointId,'read:return')
+    if(!readExit.breakpointId||readExit.actualLocation?.lineNumber!==readReturn.lineNumber||readExit.actualLocation?.columnNumber!==readReturn.columnNumber)
+      throw Error('IPC read return breakpoint moved')
     const namespace=post('Runtime.evaluate',{expression:'process.getBuiltinModule("v8")',objectGroup:group,silent:true})
     if(namespace.exceptionDetails)throw Error('IPC decoder namespace unavailable')
     const ctor=data(properties(namespace.result).result,'Deserializer'),proto=data(properties(ctor).result,'prototype')
@@ -256,10 +313,15 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(!kinds.includes('delivery')) {
         try {
           if(!installed||closed||kinds.length!==(params.hitBreakpoints??[]).length)throw Error('ambiguous IPC decoder pause')
-          decoderPause(params,kinds)
+          const readKind=kinds.find(k=>k.startsWith('read:'))
+          if(readKind) {
+            if(kinds.length!==1)throw Error('ambiguous IPC read pause')
+            readPause(params,readKind)
+          }else decoderPause(params,kinds)
         }catch(e){
           fail(e.message)
-          if(decoder.failureFrames.length<6)decoder.failureFrames.push({kinds,reason:e.message,
+          const failures=kinds.some(k=>k.startsWith('read:'))?reads.failureFrames:decoder.failureFrames
+          if(failures.length<6)failures.push({kinds,reason:e.message,
             frames:(params.callFrames??[]).slice(0,4).map(f=>({name:f.functionName,...f.location}))})
         }
         return true
@@ -273,6 +335,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
           throw Error('ambiguous IPC delivery pause')
         source(frame.location.scriptId,childSource)
         if(!same(evaluate(frame,'target',eventGroup),receiver)){ignoredReceivers++;return true}
+        requireRead(evaluate(frame,'channel',eventGroup));reads.delivered++
         decoded++
         const mode=parser(frame,eventGroup)
         if(mode==='advanced') {
@@ -308,16 +371,18 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
         return true
       }catch(e){fail(e.message);return false}
     },
-    report:()=>({available:installed&&!closed&&!failures&&!pending.length,installed,closed,
+    report:()=>({available:installed&&!closed&&!failures&&!pending.length&&!reading,installed,closed,
       decoded,prepared,paired,pending:pending.length,ignoredReceivers,groupsCreated,groupsReleased,baselineReleased,
       parsers:[...parsers.values()],failures,errors:[...errors],replayEligible:false,completeOwnership:false,
       decoder:{...decoder,pending:decoding!==null,initialNativeIntegrity:false,completeOwnership:false},
-      limitation:'Pinned advanced constructor call path, decoder lookup, native entries and delivery are checked; initial native integrity, earlier raw-byte aliases, host-object callbacks, JSON decoder ownership and pre-installation messages remain unproven'}),
+      reads:{...reads,pending:reading!==null,returnLocation:readReturn,completeOwnership:false},
+      limitation:'Pinned native read callback entry/return, advanced constructor call path, decoder lookup and delivery are checked; initial native integrity, raw-buffer aliases outside that call path, host-object callbacks, JSON decoder ownership and pre-installation activity remain unproven'}),
     close() {
       if(closed)return
       closed=true
       for(const breakpointId of breakpoints.keys())try{post('Debugger.removeBreakpoint',{breakpointId})}catch{fail('IPC breakpoint removal failed')}
       decoderRelease()
+      readRelease()
       for(const entry of pending)release(entry.group)
       pending.length=0
       try{post('Runtime.releaseObjectGroup',{objectGroup:group});baselineReleased=true}

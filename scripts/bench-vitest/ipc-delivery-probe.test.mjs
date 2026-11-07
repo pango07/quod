@@ -33,34 +33,48 @@ const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
+import {executionAsyncId,executionAsyncResource} from 'node:async_hooks';
 const enabled=${enabled},kind=${JSON.stringify(kind)};
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
-const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[];
-let preparations=0,gets=0,readId=0,activeRead=0;
+const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
+let preparations=0,gets=0;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
 const onread=pipe.onread;
-pipe.onread=function(...args){activeRead=++readId;try{return Reflect.apply(onread,this,args)}finally{activeRead=0}};
+function activeRead(){return executionAsyncResource()===pipe?executionAsyncId():0}
 function prepareWorkerMessage(message){
   if(kind==='callback-throw')throw Error('fixture preparation failure');
   if(message&&typeof message==='object')preparedMessages.add(message);
   preparations++;return true;
 }
-function copy(message){copies.push({prepared:message&&typeof message==='object'&&preparedMessages.has(message),value:message.value});order.push('copy');deliveryEvents.push({operation:'copy',value:message.value,read:activeRead})}
+function copy(message){copies.push({prepared:message&&typeof message==='object'&&preparedMessages.has(message),value:message.value});order.push('copy');deliveryEvents.push({operation:'copy',value:message.value,read:activeRead()})}
 function observer(message){
   if(!enabled&&kind!=='callback-throw')prepareWorkerMessage(message);
   values.push(typeof message==='object'?message.value:message);order.push('consumer');
-  deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead});
+  deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead()});
   if(values.length===(kind==='synthetic'?3:2)) {
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     p.close();process.removeListener('message',observer);
     if(kind.startsWith('buffer-setter')){delete v8.Deserializer.prototype.buffer;delete Object.prototype.buffer;}
     const rawCopiedValues=rawCopies.map(bytes=>{const d=new v8.Deserializer(bytes);d.readHeader();return d.readValue().value});
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
-      rawCopiedValues,compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
+      rawCopiedValues,wireCopyBytes:wireCopies.reduce((n,b)=>n+b.byteLength,0),
+      compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
 process.prependListener('message',observer);p.captureMessageObserver();
 const initial=enabled?p.captureIpcDelivery():null;
+if(['onread-copy','onread-self-restore','onread-getter'].includes(kind)) {
+  const replacement=function(...args){
+    if(kind!=='onread-copy')Object.defineProperty(pipe,'onread',{configurable:true,writable:true,enumerable:true,value:onread});
+    if(args[0])wireCopies.push(new Uint8Array(args[0]).slice());
+    return Reflect.apply(onread,this,args);
+  };
+  if(kind==='onread-getter')Object.defineProperty(pipe,'onread',{configurable:true,get(){
+    gets++;Object.defineProperty(pipe,'onread',{configurable:true,writable:true,enumerable:true,value:onread});return replacement;
+  }});
+  else pipe.onread=replacement;
+}
+if(kind==='onread-bound')pipe.onread=onread.bind(pipe);
 if(kind==='emit-precopy') {
   const emit=process.emit;
   process.emit=function(event,...args){if(event==='message')copy(args[0]);return Reflect.apply(emit,this,[event,...args])};
@@ -162,7 +176,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced'],
   ['constructor-copy','advanced'],['constructor-self-restore','advanced'],['constructor-proxy','advanced'],
   ['constructor-late-swap','advanced'],['buffer-setter','advanced'],['buffer-setter-self-restore','advanced'],
-  ['buffer-setter-late-install','advanced'],['buffer-setter-root','advanced']]) {
+  ['buffer-setter-late-install','advanced'],['buffer-setter-root','advanced'],
+  ['onread-copy','advanced'],['onread-self-restore','advanced'],['onread-getter','advanced'],['onread-bound','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -170,11 +185,15 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     if(['decoder-copy','generator-copy','protocol-getter'].includes(kind))for(const run of [plain,r]) {
       const copies=run.deliveryEvents.filter(e=>e.operation==='copy')
       assert.equal(copies.length,2)
-      assert.equal(new Set(copies.map(e=>e.read)).size,1,'both copies must occur in the same native read')
+      assert.equal(new Set(copies.map(e=>e.read)).size,1,'both copies must execute in the IPC pipe resource')
       assert(copies[0].read>0,'copies must occur inside the native read callback')
       assert.deepEqual(run.order,['copy','copy','consumer','consumer'])
       assert(run.deliveryEvents.filter(e=>e.operation==='consumer').every(e=>e.read===0),
         'message consumers must remain deferred until after the native read callback')
+    }
+    if(['decoder-copy','generator-copy','protocol-getter'].includes(kind)) {
+      assert.equal(r.report.reads.entries,1,'the observed packet batch must use one native read callback')
+      assert.equal(r.report.reads.completed,1)
     }
     assert.equal(r.gets,plain.gets,'the decoder checks must not invoke a getter')
     assert.equal(r.initial.available,true,JSON.stringify(r.initial))
@@ -184,6 +203,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     assert.equal(r.closed.groupsCreated,r.closed.groupsReleased)
     assert.equal(r.closed.decoder.groupsCreated,r.closed.decoder.groupsReleased)
     assert.equal(r.closed.decoder.pending,false)
+    assert.equal(r.closed.reads.pending,false)
+    assert.equal(r.closed.reads.groupsCreated,r.closed.reads.groupsReleased)
+    assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
     assert(!JSON.stringify(r.report).includes('/private-ipc-delivery'))
@@ -197,6 +219,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
       const count=serialization==='advanced'?2:0
       for(const key of ['started','constructorEntries','headerEntries','valueEntries','completed'])assert.equal(r.report.decoder[key],count)
       assert.equal(r.report.decoder.hostEntries,0);assert.deepEqual(r.report.decoder.failureFrames,[])
+      assert.equal(r.report.reads.entries,1);assert.equal(r.report.reads.completed,1)
+      assert.equal(r.report.reads.delivered,2);assert.deepEqual(r.report.reads.failureFrames,[])
+      assert.equal(r.report.reads.groupsCreated,r.report.reads.groupsReleased)
     }else assert.equal(r.report.available,false,JSON.stringify(r.report))
     if(['emit-precopy','prelistener','protocol-getter'].includes(kind)) {
       assert(r.copies.length>0)
@@ -212,6 +237,11 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     if(kind==='generator-copy')assert(r.report.errors.includes('IPC parser has an unexpected caller'))
     if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedNativeEntries,2)
     if(kind==='unrelated-decoder')assert.equal(r.report.decoder.unrelatedConstructorEntries,1)
+    if(['onread-copy','onread-self-restore','onread-getter'].includes(kind)) {
+      assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
+      assert(r.report.errors.includes('IPC read callback has an unexpected caller'))
+      if(kind==='onread-getter')assert.equal(r.gets,1)
+    }
     if(kind.startsWith('constructor-')) {
       assert(r.copies.length>0)
       assert(r.copies.every(c=>!c.prepared),'constructor copies occur before preparation and must reject the record')
