@@ -760,6 +760,37 @@ jobs:
           name: convex-profile-current
           path: /tmp/quod-profile-current/evidence
 
+  benchmark-realpath-contract:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-realpath-contract'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3
+          path: realpath-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+        working-directory: realpath-action/test
+      - name: Require a real stale replay after changing only a parent symlink
+        run: |
+          mkdir /tmp/quod-realpath-contract-bin
+          echo '51262a23754deffb5cfdf8f47cb5e4acbaa577487329d3f4f46e4709a5719205  realpath-action/dist/quod/bin-800771d.tar.gz' | sha256sum -c -
+          tar -xzf realpath-action/dist/quod/bin-800771d.tar.gz -C /tmp/quod-realpath-contract-bin
+          node scripts/bench-vitest/realpath-contract-audit.mjs "$PWD/realpath-action/test" /tmp/quod-realpath-contract-bin/quod /tmp/quod-realpath-contract/baseline stale
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: realpath-contract
+          path: /tmp/quod-realpath-contract
+
   benchmark-fd-contract:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-fd-contract'
     runs-on: ubuntu-latest
