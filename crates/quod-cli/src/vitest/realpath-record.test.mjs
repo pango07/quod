@@ -49,3 +49,24 @@ const resolved=fs.realpathSync.native(input,options);return {resolved,ordinary,o
   assert.equal(row.value.observed,row.value.ordinary)
   assert.deepEqual(row.unobservable,['unsupported realpath options'])
 })
+
+test('only a newly written main-process config bundle is an owned artifact',()=>{
+  const result=spawnSync(process.execPath,['--input-type=module','-e',`
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+import {createRecorder,patchFs} from ${JSON.stringify(new URL('./record.mjs',import.meta.url).href)};
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'quod-realpath-bundle-'));
+const dir=root+'/node_modules/.vite-temp';fs.mkdirSync(dir,{recursive:true});
+const existing=dir+'/vitest.config.mjs.timestamp-123-aaa.mjs',fresh=dir+'/vitest.config.mjs.timestamp-456-bbb.mjs';
+const other=dir+'/other.mjs';fs.writeFileSync(existing,'existing');
+const r=createRecorder({stateDir:'/not-quod-state',mode:'main'});patchFs(r);
+try{fs.writeFileSync(fresh,'generated');fs.writeFileSync(other,'other');
+fs.realpathSync.native(fresh);fs.realpathSync.native(existing);fs.realpathSync.native(other);
+r.on=false;console.log(JSON.stringify({keys:[...r.keys],fresh,existing,other}));
+}finally{r.on=false;fs.rmSync(root,{recursive:true,force:true})}
+`],{encoding:'utf8',timeout:10000})
+  assert.equal(result.status,0,result.stderr||String(result.error))
+  const row=JSON.parse(result.stdout)
+  assert.ok(!row.keys.includes('rp:'+row.fresh))
+  assert.ok(row.keys.includes('rp:'+row.existing))
+  assert.ok(row.keys.includes('rp:'+row.other))
+})

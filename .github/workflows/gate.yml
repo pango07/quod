@@ -673,6 +673,10 @@ jobs:
         if: hashFiles('test/fs-descriptor.mjs') != ''
         working-directory: test
         run: node fs-descriptor.mjs
+      - name: Packaged realpath result regression
+        if: hashFiles('test/realpath.mjs') != ''
+        working-directory: test
+        run: node realpath.mjs
       - name: Packaged deferred Cloud save and cleanup regression
         if: hashFiles('test/cloud-post.mjs') != ''
         working-directory: test
@@ -692,6 +696,7 @@ jobs:
             ${{ runner.temp }}/boolean-proof-logs/*.log
             ${{ runner.temp }}/env-descriptor-logs/*
             ${{ runner.temp }}/fs-descriptor-logs/*
+            ${{ runner.temp }}/realpath-logs/*
 
   benchmark-profile:
     if: github.event_name == 'workflow_dispatch' && (inputs.only == 'benchmark-profile' || inputs.only == 'benchmark-profile-full' || inputs.only == 'benchmark-profile-caller')

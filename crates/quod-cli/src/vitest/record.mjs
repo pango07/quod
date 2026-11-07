@@ -142,7 +142,19 @@ export function createRecorder({ stateDir, codeDir = stateDir, mode, wsRoot = nu
         if (process.platform !== 'linux' || typeof p !== 'string' || p.includes('\0')) {
           r.unobs('unsupported realpath argument');return
         }
-        keys.add(`rp:${p.startsWith('/') ? p : `${process.cwd()}/${p}`}`)
+        const absolute = p.startsWith('/') ? p : `${process.cwd()}/${p}`
+        const normalized = norm(p)
+        // Preserve the existing boundary for Quod's own embedded code and
+        // Vite's per-run config bundle. Only an exact, normalized spelling
+        // of a newly written bundle qualifies; a pre-existing .vite-temp
+        // input or a path that crosses '..' keeps its resolution dependency.
+        if (absolute === normalized && (
+          normalized === stateDir || normalized.startsWith(`${stateDir}/`) ||
+          normalized === codeDir || normalized.startsWith(`${codeDir}/`) ||
+          (r.mode === 'main' && /\/node_modules\/\.vite-temp\/[^/]+\.timestamp-\d+-[a-f0-9]+\.mjs$/.test(normalized) &&
+            r.fresh.has(normalized) && r.writes.has(normalized))
+        )) return
+        keys.add(`rp:${absolute}`)
         return
       }
       let memo = null
