@@ -38,6 +38,7 @@ import {executionAsyncId,executionAsyncResource,createHook} from 'node:async_hoo
 const enabled=${enabled},kind=${JSON.stringify(kind)};
 const p=inspectPromiseObservers({compiledScripts:true}),preparedMessages=new WeakSet();
 const values=[],order=[],copies=[],deliveryEvents=[],rawCopies=[],wireCopies=[];
+const byteCopyPreparations=[];
 let preparations=0,gets=0,asyncHook=null;
 const pipe=process[Object.getOwnPropertySymbols(process).find(s=>s.description==='kChannelHandle')];
 const onread=pipe.onread;
@@ -57,9 +58,11 @@ function observer(message){
     asyncHook?.disable();p.close();process.removeListener('message',observer);
     if(kind==='onread-shadow-getter')delete pipe.onread;
     if(kind.startsWith('buffer-setter')){delete v8.Deserializer.prototype.buffer;delete Object.prototype.buffer;}
+    if(kind.startsWith('species-'))delete Uint8Array[Symbol.species];
     const rawCopiedValues=rawCopies.map(bytes=>{const d=new v8.Deserializer(bytes);d.readHeader();return d.readValue().value});
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
       rawCopiedValues,wireCopyBytes:wireCopies.reduce((n,b)=>n+b.byteLength,0),
+      byteCopyPreparations,
       compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
   }
 }
@@ -144,6 +147,27 @@ if(kind.startsWith('buffer-setter')) {
   }});
   else install();
 }
+if(kind.startsWith('species-')) {
+  const original=Uint8Array;
+  function replacement(buffer,offset,length){
+    if(kind!=='species-copy')delete original[Symbol.species];
+    const view=new original(buffer,offset,length);
+    wireCopies.push(Buffer.from(view));byteCopyPreparations.push(preparations);
+    return view;
+  }
+  if(kind==='species-getter-self-restore')Object.defineProperty(original,Symbol.species,{configurable:true,get(){
+    gets++;delete original[Symbol.species];return replacement;
+  }});
+  else Object.defineProperty(original,Symbol.species,{configurable:true,value:replacement});
+}
+if(kind==='view-constructor-getter') {
+  const descriptor=Object.getOwnPropertyDescriptor(Uint8Array.prototype,'constructor');
+  Object.defineProperty(Uint8Array.prototype,'constructor',{configurable:true,get(){
+    gets++;Object.defineProperty(Uint8Array.prototype,'constructor',descriptor);
+    wireCopies.push(Buffer.from(this));byteCopyPreparations.push(preparations);
+    return descriptor.value;
+  }});
+}
 if(kind==='unrelated-decoder')v8.deserialize(v8.serialize({unrelated:true}));
 if(kind==='closed')p.close();
 if(kind==='synthetic')process.emit('message',{value:9,kind:'data'});
@@ -183,7 +207,9 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['constructor-late-swap','advanced'],['buffer-setter','advanced'],['buffer-setter-self-restore','advanced'],
   ['buffer-setter-late-install','advanced'],['buffer-setter-root','advanced'],
   ['onread-copy','advanced'],['onread-self-restore','advanced'],['onread-shadow-getter','advanced'],['onread-bound','advanced'],
-  ['onread-bound-extra','advanced'],['async-resource','advanced'],['async-resource-copy','advanced']]) {
+  ['onread-bound-extra','advanced'],['async-resource','advanced'],['async-resource-copy','advanced'],
+  ['species-copy','advanced'],['species-self-restore','advanced'],['species-getter-self-restore','advanced'],
+  ['view-constructor-getter','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -214,6 +240,12 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
+    if(kind.startsWith('species-')||kind==='view-constructor-getter') {
+      assert(r.wireCopyBytes>0,'the fixture must copy IPC bytes before decoding')
+      assert.equal(r.wireCopyBytes,plain.wireCopyBytes,'observation must preserve the byte-copy behavior')
+      assert.equal(r.byteCopyPreparations.length,plain.byteCopyPreparations.length)
+      assert.equal(r.byteCopyPreparations[0],0,'the first byte copy must precede preparation')
+    }
     assert(!JSON.stringify(r.report).includes('/private-ipc-delivery'))
     if(['normal','emit-precopy','prelistener','protocol-getter','unrelated-decoder','onread-shadow-getter','onread-bound','async-resource'].includes(kind)) {
       assert.equal(r.report.available,true,JSON.stringify(r.report))
