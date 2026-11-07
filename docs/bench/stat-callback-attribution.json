@@ -1,0 +1,170 @@
+{
+  "scope": "main-process metadata observation during the unchanged expensive test; no replay",
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "sourceSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+  "node": "v24.18.0",
+  "image": "ubuntu26/20261101.186.1",
+  "phases": [
+    {
+      "phase": "plain-before",
+      "seconds": 64.309998516,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "ab11619079c0301a428e209dc9bb8723c7d356270c066cf22b5249bb16517b24"
+    },
+    {
+      "phase": "observed",
+      "seconds": 64.4788993,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "d6878dc2f1298362bef324a6a45da0004a8cbe943f5637e033d53bb2457bcace"
+    },
+    {
+      "phase": "plain-after",
+      "seconds": 63.898578808999986,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "7e45de8cf5a99691c1015f018bf4083c6ff99c787c8c9c63c508f724d1f0fa7b"
+    }
+  ],
+  "statesMatch": true,
+  "replayEligible": false,
+  "replayed": 0,
+  "pauses": 291,
+  "rows": 291,
+  "rejections": [],
+  "queries": {
+    "statSync": 82,
+    "unmapped": 14,
+    "binding.lstat": 162,
+    "binding.stat": 32,
+    "stat": 1
+  },
+  "fields": {
+    "mode": 251,
+    "dev": 16,
+    "ino": 16,
+    "size": 1
+  },
+  "intact": {
+    "True": 291
+  },
+  "limitations": [
+    "startup, other native/debugger observers and query identity are not certified",
+    "the diagnostic bridge is observable through debugger capabilities",
+    "workers, earlier startup and later exit listeners are outside this diagnostic",
+    "Fixed phase order on one runner; no fresh-runner or whole-job savings claim"
+  ],
+  "run": "https://github.com/pango07/quod/actions/runs/42361091736",
+  "gateCommit": "58c067be3cb384a0a3ff9ef874070ed3642091ab",
+  "regressionTests": {
+    "passed": 52,
+    "failed": 0
+  },
+  "artifact": {
+    "id": 13570375079,
+    "bytes": 10896,
+    "sha256": "4875de09b4af2ddb1bae35976735be0a2a6d1f47a7c28e0b59dc0103edad71a9"
+  },
+  "callbackSource": {
+    "scriptId": "48",
+    "sha256": "9442d0c9969da2fa4a48cecdbf4b7f00dc73ddb9630f4821a499044bf5197ac4",
+    "lineNumber": 196,
+    "certified": false
+  },
+  "nativeQueries": 203,
+  "queryConflicts": 0,
+  "independentlyChecked": [
+    "archive size and digest",
+    "all three report digests",
+    "same 47 names and passed states in each phase",
+    "query and field groups from raw constructor report"
+  ],
+  "readGroups": [
+    {
+      "query": "statSync",
+      "fields": [
+        "mode"
+      ],
+      "count": 64
+    },
+    {
+      "query": "statSync",
+      "fields": [],
+      "count": 18
+    },
+    {
+      "query": "unmapped",
+      "fields": [
+        "mode"
+      ],
+      "count": 9
+    },
+    {
+      "query": "unmapped",
+      "fields": [],
+      "count": 5
+    },
+    {
+      "query": "binding.lstat",
+      "fields": [
+        "mode"
+      ],
+      "count": 146
+    },
+    {
+      "query": "binding.lstat",
+      "fields": [
+        "dev",
+        "ino",
+        "mode"
+      ],
+      "count": 16
+    },
+    {
+      "query": "binding.stat",
+      "fields": [],
+      "count": 16
+    },
+    {
+      "query": "binding.stat",
+      "fields": [
+        "mode"
+      ],
+      "count": 16
+    },
+    {
+      "query": "stat",
+      "fields": [
+        "size"
+      ],
+      "count": 1
+    }
+  ],
+  "inodeConsumers": [
+    {
+      "path": "packages/convex-helpers/CHANGELOG.md",
+      "objects": 8,
+      "gitMode": "120000",
+      "target": "../../CHANGELOG.md",
+      "consumer": {
+        "name": "gotStat",
+        "url": "node:fs",
+        "devLine": 2955,
+        "inoLine": 2956
+      }
+    },
+    {
+      "path": "packages/convex-helpers/README.md",
+      "objects": 8,
+      "gitMode": "120000",
+      "target": "../../README.md",
+      "consumer": {
+        "name": "gotStat",
+        "url": "node:fs",
+        "devLine": 2955,
+        "inoLine": 2956
+      }
+    }
+  ]
+}

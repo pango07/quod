@@ -9,11 +9,11 @@ document is a design review, not approval of a new execution policy.
 ## Reset: choose the execution contract before extending the observer
 
 Stop treating another Inspector/metadata patch as the default next step.
-Keep the evidence and regression cases. The
-[constructor follow-up](bench/native-stat-fields.md#constructor-follow-up)
-failed during debugger setup twice. This does not prove every early
-observation mechanism impossible, but it supplies no useful replay and
-does not justify another full-window benchmark.
+Keep the evidence and regression cases. The latest
+[callback-request diagnostic](bench/native-stat-fields.md#native-callback-requests-and-inode-consumers)
+passes 52 regressions and preserves the expensive test's observed results,
+but still supplies no fresh-runner replay or complete input boundary.
+Mechanism progress alone does not justify another full-window benchmark.
 
 The product must satisfy three separate requirements:
 
@@ -284,3 +284,11 @@ but 210 have no query attribution and 16 read device/inode values. This
 changes the mechanism's feasibility evidence; it still establishes no
 replay, complete input boundary or window savings. Resolve those specific
 coverage questions before enabling narrower keys.
+
+The [callback-request follow-up](bench/native-stat-fields.md#native-callback-requests-and-inode-consumers)
+reduces unmapped objects from 210 to 14 in another unchanged-test comparison.
+It locates all 16 observed device/inode reads in Node's `fs.realpath` handling
+of the repository's README and changelog symlinks. That makes a native
+operation/result boundary a concrete candidate to evaluate. It does not
+make the existing keys redundant: provenance, other observers, error cases,
+arguments and effects remain part of the correctness argument.

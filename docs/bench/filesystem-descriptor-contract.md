@@ -50,4 +50,23 @@ Release archive SHA-256:
 `51262a23754deffb5cfdf8f47cb5e4acbaa577487329d3f4f46e4709a5719205`.
 Contained binary SHA-256:
 `db7f59a22391cd2e1553a10d2b5ca8f47eda41c95727e91e75c1c6632c680b61`.
-Packaged-Action verification remains a separate gate.
+## Gated Action package
+
+[Action gate 42361428513](https://github.com/pango07/quod/actions/runs/42361428513)
+passed against source-stage Action `ecb4b229a545bf10845116253d29312519c0fb44`.
+It built the Action remotely and exercised its actual npm/node shim with the
+new embedded binary. The six descriptor-regression executions retain four
+assertions each. Both the warm and timestamp-mutated runs replay the content
+control; the three metadata failures agree with plain, with zero wrong
+assertions. The downloaded reports and replay logs independently confirm
+those counts.
+
+The same gate passed recorder-upgrade, configuration, boolean, environment,
+deferred-save and cleanup regressions. Its lineage fixture promoted two
+records and ran one plain audit, with no disagreement or revocation. These
+are fixture results, not lineage activity in the full benchmark window.
+
+Action `57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3` contains those exact
+remotely built bundles, verified against the downloaded artifact. The bench
+workflow pins that Action and `bin-800771d`. This is an experimental-branch
+correctness update, with no new full-window performance result.

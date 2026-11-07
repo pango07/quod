@@ -52,7 +52,7 @@
     "warm and changed-input replay counts"
   ],
   "limitations": [
-    "Release binary is gated; packaged Action verification is separate",
+    "Release binary and rebuilt Action package pass their separate regression gates; no new full-window measurement",
     "This regression does not certify every possible filesystem or runtime input",
     "No new performance benchmark result"
   ],
@@ -92,5 +92,42 @@
       "four per-test states agree after mutation",
       "content control replays before and after mutation"
     ]
+  },
+  "action": {
+    "run": "https://github.com/pango07/quod/actions/runs/42361428513",
+    "workflowCommit": "814518464476e0680214f17b201526e4fcffea08",
+    "sourceActionCommit": "ecb4b229a545bf10845116253d29312519c0fb44",
+    "bundledActionCommit": "57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3",
+    "binaryVersion": "bin-800771d",
+    "artifact": {
+      "id": 13569464647,
+      "bytes": 2502853,
+      "sha256": "b0003f4394615ba18da7134c01a4071fc0e9d002e2bc6d82d14991833ea396d5"
+    },
+    "bundleArchiveSha256": "7fe148586579668a193d0f92676ad6ace1b73e2577adf0646116889371a7c541",
+    "mainSha256": "49dac869578db10cc03aac903bd2b43fbb3d983dee20ede60d078baf53d13735",
+    "postSha256": "7a328273175023c41b6272dc8e26b3861338be6a62c8ca30935760bf2aa76129",
+    "result": {
+      "runs": 6,
+      "statesPerRun": 4,
+      "wrong": 0,
+      "warmReplayed": 1,
+      "changedReplayed": 1,
+      "changedFailures": 3
+    },
+    "lineageFixture": {
+      "promoted": 2,
+      "plainAudits": 1,
+      "disagreed": 0,
+      "revoked": 0
+    },
+    "independentlyChecked": [
+      "artifact size and SHA-256",
+      "safe bundle members and exact main/post digests",
+      "six JSON reports agree with saved per-test states",
+      "three changed metadata failures agree with plain",
+      "content control replays before and after timestamp change"
+    ],
+    "benchmarkWindowRun": false
   }
 }

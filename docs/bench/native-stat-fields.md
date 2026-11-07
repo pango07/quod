@@ -159,14 +159,53 @@ The [verified evidence](stat-constructor-workload.json) retains the exact
 archive digest, report digests, independent name/state comparison, image and
 field groups. No full window was repeated for this diagnostic.
 
+## Native callback requests and inode consumers
+
+[Gate 42361091736](https://github.com/pango07/quod/actions/runs/42361091736)
+at `58c067be3cb384a0a3ff9ef874070ed3642091ab` passed 52 regressions and
+the same 47 test names/states in three unchanged property-test executions.
+Ordinary controls took 64.310 and 63.899 seconds; observation took 64.479
+seconds. This is another fixed-order command comparison, with no replay or
+whole-job savings claim.
+
+The diagnostic captures primitive arguments at the actual native
+`stat`/`lstat`/`fstat` call and associates callback requests by resource
+identity. It uses that association only at Node's native Stats-conversion
+callback site. Concurrent stat/lstat requests remain distinct; descriptor
+queries remain descriptors, without a guessed pathname; a manually created
+Stats inside a callback does not inherit that callback's request identity.
+
+Of 291 observed objects, 277 now have diagnostic query associations and 14
+remain unmapped. All are intact at reporting; 203 native callback queries
+were captured with zero request-identity conflicts. Attribution is still
+marked uncertified and does not authorize input-key refinement.
+
+All 16 device/inode consumers now map to Node's `fs.realpath` handling of
+two repository symlinks: `packages/convex-helpers/README.md` and `CHANGELOG.md`
+(eight observations each). Git mode is `120000`, with targets
+`../../README.md` and `../../CHANGELOG.md`. The actual read sites are
+`gotStat` in `node:fs`, lines 2955–2956. The
+[pinned Node source](https://github.com/nodejs/node/blob/v24.18.0/lib/fs.js#L2941)
+uses this device/inode pair to look up an already-seen symlink target before
+performing `stat` and `readlink`.
+
+This identifies a possible stable operation boundary: validate symlink
+resolution results and required effects while retaining arbitrary direct
+metadata consumers. It is not permission to erase inode/device dependencies.
+Other observers, missing query associations, errors, symlink chains and
+operation arguments must be accounted for before such a rule can be enabled.
+The [verified evidence](stat-callback-attribution.json) retains the exact
+artifact, source fingerprint, query/field groups and consumer sites.
+
 ## Prepared benchmark harness
 
 `pango07/ci-bench` branch `bench/descriptor-safe-codex`, commit
-`919b5358fce819aa6bbf018e14a7761d40d083f2`, starts from the original full-window
+`543dff7f2ac77c50ff4c1ae03a2b8b4168a05ad6`, starts from the original full-window
 harness `8131a61c3c614497d5b48a775e499010fee5f192`. Its only changes are the
 Action SHA, binary version and binary digest. It pins gated Action
-`a1b9a37a4bf38e1883a4afc07d397616fa985942`, which includes deferred Cloud saves
-and the descriptor-safe `bin-2bd297b` engine. Original comparison branches
+`57269ba1c1b43ae003dd64a5a5cc6c0df8f0e4b3`, which includes deferred Cloud saves
+and `bin-800771d` with environment-descriptor tracking and conservative
+filesystem-descriptor fallback. Original comparison branches
 remain intact. No new window was dispatched for this pin-only change.
 
 The [last measured full window](convex-helpers-current-cloud-window.md)
