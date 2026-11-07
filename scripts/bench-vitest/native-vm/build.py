@@ -318,6 +318,15 @@ def main():
                     "sourceInventorySha256": hashlib.sha256(canonical(source_rows)).hexdigest()}
     (stage / "trusted/policy.json").write_bytes(canonical(guest_policy))
     (stage / "trusted/policy.json").chmod(0o600)
+    guest_isa_notes = []
+    for name in ["/init", "/usr/bin/env", "/lib/x86_64-linux-gnu/libc.so.6", "/lib64/ld-linux-x86-64.so.2",
+                 "/usr/bin/git", "/tools/node/bin/node"]:
+        actual = resolve_guest_path(stage, name)
+        notes = run(["readelf", "-nW", str(actual)]).stdout
+        guest_isa_notes.append({"path": name, "resolvedPath": "/" + actual.relative_to(stage).as_posix(),
+                                "sha256": digest(actual), "readelfNotes": notes.decode(),
+                                "readelfNotesSha256": hashlib.sha256(notes).hexdigest()})
+    (out / "guest-isa-notes.json").write_bytes(canonical({"schema": "quod-native-vm-guest-isa-notes-v1", "records": guest_isa_notes}) + b"\n")
 
     inventory = []
     for path in sorted(stage.rglob("*")):
@@ -362,8 +371,23 @@ def main():
     # executables. Its complete text is retained along with every named file.
     ldd_rows = []
     for executable in qemu_elf:
+        with executable.open("rb") as f:
+            header = f.read(64)
+        if len(header) < 20 or header[:4] != b"\x7fELF":
+            raise RuntimeError("ELF identity changed during host inventory")
+        machine = int.from_bytes(header[18:20], "little" if header[5] == 1 else "big")
+        host_elf = header[4] == 2 and header[5] == 1 and machine == 62
+        dynamic = run(["readelf", "-dW", str(executable)]).stdout.decode() if host_elf else ""
+        needed = re.findall(r"\(NEEDED\).*\[([^\]]+)\]", dynamic)
+        classification = {"path": str(executable), "elfClass": header[4], "encoding": header[5],
+                          "machine": machine, "dynamicNeeded": needed, "hostDependencyScan": host_elf and bool(needed)}
+        if not classification["hostDependencyScan"]:
+            # Firmware may itself be a foreign-architecture or static ELF. It
+            # remains a fully hashed resource; it is not loaded by host ld.so.
+            ldd_rows.append({**classification, "output": ""})
+            continue
         result = run(["ldd", str(executable)]).stdout.decode()
-        ldd_rows.append({"path": str(executable), "output": result})
+        ldd_rows.append({**classification, "output": result})
         for name in re.findall(r"(?:=>\s+)?(/[\w./+:-]+)\s+\(", result):
             path = Path(name)
             host_runtime[str(path)] = {"sha256": digest(path), "bytes": path.stat().st_size}
@@ -382,6 +406,7 @@ def main():
     metadata = {"schema": SCHEMA, "contract": guest_policy["contract"], "source": SOURCE,
                 "rootMetadata": {"mode": 0o755, "uid": 0, "gid": 0, "mtime": EPOCH},
                 "symlinkChecks": symlink_checks,
+                "guestIsaNotes": guest_isa_notes,
                 "sourceInventory": source_rows, "guestPolicy": guest_policy, "inventory": inventory,
                 "inventorySha256": hashlib.sha256(canonical(inventory)).hexdigest(),
                 "kernel": {"origin": str(kernel), "sha256": digest(out / "kernel"), "bytes": (out / "kernel").stat().st_size},

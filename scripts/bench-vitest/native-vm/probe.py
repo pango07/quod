@@ -16,7 +16,7 @@ SCHEMA = "quod-native-vm-repeat-v1-investigation"
 CONTRACT = "diskless-canonical-linux-native-v1-investigation"
 SOURCE = "5eaa7e5160736054d53f8b71e2c522835eb427e0"
 UUID = "3a84431b-2034-4c41-8f61-157200000001"
-CPU = "Nehalem,rdrand=off,rdseed=off,rdtscp=off,pmu=off"
+CPU = "Haswell-noTSX,rdrand=off,rdseed=off,rdtscp=off,pmu=off"
 MAX_SERIAL = 100 * 1024 * 1024
 BOUNDARY_NAMES = {
     "uid-gid-1000", "uart-read-denied", "uart-write-denied", "trusted-init-read-denied",

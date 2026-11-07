@@ -184,6 +184,17 @@ def main():
                 "Tracked source inventory hash differs")
         report["archive"] = audit_archive(image / "initramfs.cpio.gz", metadata["inventory"])
         inv = {r["path"]: r for r in metadata["inventory"]}
+        isa = load(image / "guest-isa-notes.json")
+        isa_rows = isa["records"]
+        require(isa["schema"] == "quod-native-vm-guest-isa-notes-v1" and isa_rows == metadata["guestIsaNotes"] and
+                len(isa_rows) == 6 and {r["path"] for r in isa_rows} ==
+                {"/init", "/usr/bin/env", "/lib/x86_64-linux-gnu/libc.so.6", "/lib64/ld-linux-x86-64.so.2", "/usr/bin/git", "/tools/node/bin/node"},
+                "Missing actual guest ISA-note records")
+        for row in isa_rows:
+            require(row["resolvedPath"].startswith("/") and row["resolvedPath"][1:] in inv and
+                    row["sha256"] == inv[row["resolvedPath"][1:]]["sha256"] and
+                    hashlib.sha256(row["readelfNotes"].encode()).hexdigest() == row["readelfNotesSha256"],
+                    "Guest ISA-note identity differs from actual archived bytes")
         require(inv["tools/node/bin/node"]["sha256"] == metadata["node"]["sha256"], "Actual guest Node differs")
         builds = {r["source"]: r for r in metadata["compile"]}
         require(set(builds) == {"guest-init.c", "guest-negative.c"} and builds["guest-init.c"]["sha256SelfTestPassed"] is True,
@@ -198,7 +209,7 @@ def main():
         require(policy["contract"] == CONTRACT and policy["source"] == SOURCE and policy["receiptAdmission"] is False and
                 policy["probeSha256"] == sha(HERE / "probe.py") and policy["imageMetadataSha256"] == sha(image / "image.json"),
                 "Wrong keyed supervisor or image")
-        require(policy["cpu"] == "Nehalem,rdrand=off,rdseed=off,rdtscp=off,pmu=off" and policy["vcpus"] == 1 and
+        require(policy["cpu"] == "Haswell-noTSX,rdrand=off,rdseed=off,rdtscp=off,pmu=off" and policy["vcpus"] == 1 and
                 policy["memoryMiB"] == 4096 and policy["tcgThread"] == "single" and
                 policy["icount"] == "shift=0,align=off,sleep=off" and policy["seed"] == 42 and
                 policy["rtc"] == "base=2023-11-14T22:13:20,clock=vm,driftfix=none" and
@@ -208,6 +219,20 @@ def main():
         require(30 <= policy["watchdogSeconds"] <= 180 and policy["maxSerialBytes"] == 100 * 1024**2, "Unbounded supervisor")
         for path in [metadata["qemu"]["path"], metadata["qemu"]["bios"], "/etc/ld.so.cache", "/etc/ld.so.preload"]:
             require(path in metadata["qemu"]["hostFiles"], "Incomplete actual emulator/loader identity")
+        scans = metadata["qemu"]["ldd"]
+        require(len(scans) == len({r["path"] for r in scans}) and
+                any(r["path"] == metadata["qemu"]["path"] and r["hostDependencyScan"] is True for r in scans),
+                "Actual emulator dynamic dependency scan missing")
+        for scan in scans:
+            expected_scan = scan["elfClass"] == 2 and scan["encoding"] == 1 and scan["machine"] == 62 and bool(scan["dynamicNeeded"])
+            require(scan["path"] in metadata["qemu"]["hostFiles"] and scan["hostDependencyScan"] is expected_scan,
+                    "Host ELF classification differs")
+            if expected_scan:
+                require(scan["output"] and "not found" not in scan["output"], "Host dynamic dependencies unresolved")
+                for name in re.findall(r"(?:=>\s+)?(/[\w./+:-]+)\s+\(", scan["output"]):
+                    require(name in metadata["qemu"]["hostFiles"], "Host dynamic dependency hash missing")
+            else:
+                require(scan["output"] == "", "Foreign/static firmware was treated as host dynamic code")
         summary = load(evidence / "result.json")
         require(summary["ok"] is True and summary["receiptAdmission"] is False and summary["policy"] == policy and
                 summary["fixedOrder"] == ORDER and [r["name"] for r in summary["runs"]] == ORDER,

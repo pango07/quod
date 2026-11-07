@@ -49,11 +49,16 @@ are verified unchanged before and after each run. This inventory is not an
 exhaustive trace of every host file QEMU might open, nor does it close all
 negative module, firmware or configuration lookups against newly added files.
 
-The launcher uses one vCPU, single-thread TCG, fixed `Nehalem` CPU with RDRAND,
+The launcher uses one vCPU, single-thread TCG, fixed `Haswell-noTSX` CPU with RDRAND,
 RDSEED, RDTSCP and PMU disabled, a fixed UUID, seed, RTC base and VM clock, and
 fixed instruction-count timing. It supplies no NIC, block device, host mount,
 QMP, monitor, guest agent, interactive serial source or stdin. The UART backend
 is an output-only regular file. The guest has real owned loopback networking.
+
+This fixed CPU includes x86-64-v3 instructions needed by the actual Ubuntu 26
+guest tools and static supervisor. The first retained image's GNU ISA-needed
+notes require v3 for `/init`, `env` and libc. The builder records actual guest
+ELF identities and raw `readelf` note output; no host CPU passthrough is used.
 
 Trusted root PID 1 enables loopback, disables ASLR and new user namespaces, seeds
 the kernel PRNG from fixed bytes before unprivileged execution, and records an
