@@ -2333,3 +2333,65 @@ snapshot cannot prove that no earlier code executed. The next gate should
 test preload order, input arrival before handoff, temporary native
 replacements and failure persistence before using startup evidence in
 the full workload. No startup certificate is claimed by this run.
+
+## First preload and persistent handoff
+
+`3bdf03a` installs the IPC and message guards synchronously from the first
+CommonJS preload. The later ESM bootstrap reuses the same registry, listener,
+native baselines and failure counters. Its one-time handoff supplies the
+prepared-message and transport consumers and adds the pinned warning-wrapper
+check. It does not disconnect Inspector or replace a failed observer.
+Messages arriving before consumers are ready leave a persistent failure.
+
+The diagnostic validates launch options before spawning the worker and
+again inside the preload. It accepts the reviewed switches, conditions,
+owned ESM bootstrap and exact warning-wrapper bytes. Unknown options,
+snapshots, custom loaders and nonempty `NODE_OPTIONS`, `LD_PRELOAD`,
+`LD_AUDIT` or `DYLD_INSERT_LIBRARIES` are rejected. Existing settings are
+not removed to force the experiment to run. These are limits on this
+diagnostic launch path, not new production compatibility claims.
+
+The [initial focused gate](https://github.com/pango07/quod/actions/runs/42343116875)
+passes 71 tests. `4f7bed1` adds real child-process checks for a late import,
+misordered command-line preloads and an environment preload; the
+[expanded gate](https://github.com/pango07/quod/actions/runs/42343645231)
+passes all 74 tests in 24.654 seconds. Normal startup and the pinned warning
+wrapper retain the plain process's values and ordering. Early delivery,
+self-restoring decoder and read-callback replacements, an unknown emit
+wrapper and a repeated handoff remain rejected. The three invalid actual
+Node startup paths exit before reaching application code.
+
+The [full-workload gate](https://github.com/pango07/quod/actions/runs/42343208268)
+at runtime commit `3bdf03a` passes 447 preflight tests and all three workload
+phases. Independent artifact checks confirm that all 240 observed workers
+start with the first preload, have no earlier cached CommonJS modules,
+validate one owned preload, one pinned warning preload and one owned ESM
+bootstrap, and complete exactly one handoff. There are zero premature
+messages or startup failures. The later commit changes only regression tests.
+
+| Phase | Seconds | Compared with baseline |
+| --- | ---: | ---: |
+| Baseline | 99.811 | 1.000x |
+| Observed before metadata change | 142.419 | 1.427x |
+| Observed after metadata change | 143.826 | 1.441x |
+
+Raw test names and states agree in all phases: 120 file/project instances,
+4,130 passing tests and one skipped test, with the established fingerprint
+after 39 content-preserving mtime changes. The observed phases account for
+1,634 and 1,651 complete read callbacks and 1,801 and 1,799 messages. All
+3,285 read groups, 3,600 decoder groups, 3,600 delivery groups, 10,800 dispatch
+groups and 5,280 transport groups are released. Each phase reconciles all
+2,581 scalar reads, with zero seed reads, pending messages or guard failures.
+
+Evaluator code sequences agree in all 120 workers; complete compilation
+and RPC sequences still differ in all workers. Source accounting retains
+88,772 and 88,743 unmatched anonymous events. The runner image remains
+`ubuntu-26.04/20261101.186.1`, with Node 24.18.0, Vite 8.2.0 and Vitest 5.0.0.
+The [evidence record](worker-message-dispatch.json) retains the startup
+records, counters, complete artifact manifest and verified log/archive digests.
+
+These are observation timings, not product savings. Complete startup and
+native integrity, raw-byte alias exclusion, complete worker inputs and
+parent effects remain unproven. There are no product hits, lineage
+promotions or audits, and no production replay predicate changes. The
+full-window savings gap remains 630 runner-seconds.
