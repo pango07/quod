@@ -9,6 +9,12 @@ import {build, version as esbuildVersion} from 'esbuild'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
+// The opt-in certified factory checks this module-evaluation observation;
+// a later constructor read alone must not relabel cached compiler code.
+export const MANAGED_COMPILER_LOADED_IDENTITY = Object.freeze({
+  compilerSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))),
+  esbuildAPI: import.meta.resolve('esbuild'), esbuildVersion,
+})
 const reserved = 'quod:compiler-capabilities'
 const nativeModules = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 const isNative = name => name.startsWith('node:') || nativeModules.has(name) || isBuiltin(name)
@@ -64,6 +70,46 @@ export function canonicalManagedJSON(value) {
     return result
   }
   return JSON.stringify(visit(value))
+}
+
+// The real compiler and the diagnostic certificate verifier share this exact
+// resolver. A resolver-only check never loads or bundles the resolved modules.
+async function ordinaryManagedResolution(builder, fromProject, vitestRoot, zodAlias, args) {
+  let resolved
+  const requested = zodAlias && /^zod(?=\/|$)/.test(args.path)
+    ? zodAlias + args.path.slice(3) : args.path
+  if (/^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/.test(args.path)) {
+    resolved = {path: args.path === 'vitest' ? path.join(vitestRoot, 'dist/index.js') : fromProject.resolve(args.path)}
+  } else {
+    resolved = await builder.resolve(requested, {importer: args.importer, resolveDir: args.resolveDir,
+      kind: args.kind, namespace: 'file', pluginData: {managedDefaultResolution: true}})
+    if (resolved.errors.length) return resolved
+    assert(!resolved.external, 'unreviewed external module: ' + args.path)
+    assert(!resolved.suffix, 'module query/hash loaders unsupported: ' + args.path)
+  }
+  return {path: fs.realpathSync(resolved.path)}
+}
+
+/** Diagnostic only: one new resolver-only esbuild build checks a suite's edges. */
+export async function resolveManagedImports({project: projectArg, requests}) {
+  const project = fs.realpathSync(path.resolve(projectArg))
+  const fromProject = createRequire(path.join(project, 'package.json'))
+  const vitestRoot = path.dirname(fromProject.resolve('vitest/package.json'))
+  assert(Array.isArray(requests) && requests.length <= 100000, 'bounded resolver requests required')
+  const results = []
+  await build({stdin: {contents: 'export {};', resolveDir: project, sourcefile: 'quod-resolve-only.mjs'},
+    absWorkingDir: project, write: false, bundle: true, platform: 'browser', format: 'esm', target: 'es2022',
+    keepNames: true, plugins: [{name: 'managed-certificate-resolver-only', setup(builder) {
+      builder.onStart(async () => {
+        for (const request of requests) {
+          assert(request.zodAlias === null || /^zod-4\.[0-6]$/.test(request.zodAlias), 'unreviewed resolver alias')
+          const result = await ordinaryManagedResolution(builder, fromProject, vitestRoot, request.zodAlias, request)
+          assert(!result.errors?.length, 'certificate import no longer resolves: ' + request.path)
+          results.push(result.path)
+        }
+      })
+    }}]})
+  return results
 }
 
 /**
@@ -163,7 +209,13 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
     } else if (options?.providedContext !== undefined) {
       assert.deepEqual(options.providedContext, {}, 'unreviewed managed provided context')
     }
-    const started = performance.now(), globs = [], adapters = [], transforms = [], sources = [], resolutions = [], injected = new Set()
+    const started = performance.now(), globs = [], adapters = [], transforms = [], sources = [], resolutions = [], resolutionFacts = [], injected = new Set()
+    const fact = (phase, args, target, route) => {
+      const source = args.namespace === 'quod-managed-als' ? '/virtual/public-async-local-storage'
+        : args.importer ? moduleName(fs.realpathSync(args.importer)) : null
+      resolutionFacts.push({phase, source, specifier: args.kind === 'entry-point' ? moduleName(target) : args.path,
+        kind: args.kind, route, target: route === 'ordinary' ? moduleName(target) : target, zodAlias})
+    }
     const trusted = new Set([entryFile, prelude])
     const publicALS = new Set()
     const compiled = await build({
@@ -174,21 +226,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
       // than a dynamically resolved module accidentally reaching execution.
       logOverride: {'unsupported-dynamic-import': 'error', 'unsupported-require-call': 'error'},
       plugins: [{name: 'managed-closed-module-boundary', setup(builder) {
-        const ordinaryResolution = async args => {
-          let resolved
-          const requested = zodAlias && /^zod(?=\/|$)/.test(args.path)
-            ? zodAlias + args.path.slice(3) : args.path
-          if (/^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/.test(args.path)) {
-            resolved = {path: args.path === 'vitest' ? path.join(vitestRoot, 'dist/index.js') : fromProject.resolve(args.path)}
-          } else {
-            resolved = await builder.resolve(requested, {importer: args.importer, resolveDir: args.resolveDir,
-              kind: args.kind, namespace: 'file', pluginData: {managedDefaultResolution: true}})
-            if (resolved.errors.length) return resolved
-            assert(!resolved.external, 'unreviewed external module: ' + args.path)
-            assert(!resolved.suffix, 'module query/hash loaders unsupported: ' + args.path)
-          }
-          return {path: fs.realpathSync(resolved.path)}
-        }
+        const ordinaryResolution = args => ordinaryManagedResolution(builder, fromProject, vitestRoot, zodAlias, args)
         const privateAdapterAllowed = (importer, target, specifier, kind) =>
           kind === 'entry-point' && target === entryFile ||
           trusted.has(importer) && target === prelude && specifier === './prelude.mjs'
@@ -196,30 +234,36 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
           if (args.pluginData?.managedDefaultResolution) return
           if (args.namespace === 'quod-managed-als') {
             assert.equal(args.path, 'quod:als-implementation')
+            fact('emitted', args, moduleName(prelude), 'als-implementation')
             return {path: prelude}
           }
           const importer = args.importer && fs.realpathSync(args.importer)
           if (args.path === reserved) {
             assert(injected.has(importer), 'private managed helper import is not generated')
+            fact('emitted', args, moduleName(prelude), 'injected-helper')
             return {path: prelude}
           }
           if (args.path === '__QUOD_TEST_ENTRY__') {
             assert(importer === entryFile && entry === 'runner.mjs' && testFile && args.kind === 'dynamic-import',
               'private test entry import is not a reviewed adapter')
+            fact('emitted', args, moduleName(testFile), 'test-entry')
             return {path: testFile}
           }
           assert(!privateSpecifier(args.path), 'private managed module namespace')
           if (isNative(args.path)) {
             if (importer === prelude && args.path === 'node:async_hooks' && args.kind === 'import-statement') {
+              fact('emitted', args, 'node:async_hooks', 'native-als')
               return {path: args.path, external: true}
             }
             assert(isALS(args.path) && args.kind === 'import-statement' && publicALS.has(importer),
               'unsupported native module: ' + args.path)
+            fact('emitted', args, '/virtual/public-async-local-storage', 'public-als')
             return {path: 'public-async-local-storage', namespace: 'quod-managed-als'}
           }
           const resolved = await ordinaryResolution(args)
           if (resolved.errors?.length) return resolved
           const real = resolved.path
+          fact('emitted', args, real, 'ordinary')
           if (inside(root, real)) {
             assert(privateAdapterAllowed(importer, real, args.path, args.kind),
               'project module cannot import a private managed adapter: ' + args.path)
@@ -256,6 +300,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
               const testEntryImport = specifier === '__QUOD_TEST_ENTRY__' && file === entryFile &&
                 entry === 'runner.mjs' && testFile && kind === 'dynamic-import'
               assert(testEntryImport || !privateSpecifier(specifier), 'original source requests private managed namespace')
+              if (testEntryImport) fact('original', {importer: file, path: specifier, kind}, moduleName(testFile), 'test-entry')
               if (!testEntryImport) {
                 if (isNative(specifier)) {
                   const clause = ts.isImportDeclaration(node) && node.importClause
@@ -265,6 +310,8 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
                       (element.propertyName || element.name).text === 'AsyncLocalStorage'),
                   'only a named AsyncLocalStorage import is supported: ' + specifier)
                   if (file !== prelude) publicALS.add(file)
+                  fact('original', {importer: file, path: specifier, kind}, file === prelude ? 'node:async_hooks' : '/virtual/public-async-local-storage',
+                    file === prelude ? 'native-als' : 'public-als')
                 } else originalImports.push({specifier, kind})
               }
             }
@@ -276,6 +323,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
             assert(!resolved.errors?.length, 'original module cannot be resolved: ' + specifier)
             assert(!inside(root, resolved.path) || privateAdapterAllowed(file, resolved.path, specifier, kind),
               'original source resolves to a private managed adapter: ' + specifier)
+            fact('original', {importer: file, path: specifier, kind}, resolved.path, 'ordinary')
           }
           if (/\/node_modules\/(?:zod|zod-4\.[0-6])\/v4\/core\/util\.js$/.test(slash(file))) {
             const expectedProbe = zodUtilAdapters.get(sourceSha256)
@@ -398,6 +446,26 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
       }}],
     })
     assert.equal(compiled.outputFiles.length, 1, 'managed preparation must produce one bundle')
+    // Successful onLoad callbacks are the only admitted physical module input
+    // authority. Reject an esbuild fallback loader or unknown virtual input,
+    // even if its output would otherwise pass the final JavaScript AST checks.
+    const physicalSources = [], virtualInputs = []
+    for (const input of Object.keys(compiled.metafile.inputs)) {
+      if (input === '<define:__QUOD_CONFIG__>' || input === 'quod-managed-als:public-async-local-storage') {
+        virtualInputs.push(input); continue
+      }
+      assert(!input.startsWith('<') && !input.includes('\0'), 'unreviewed virtual managed input: ' + input)
+      const absolute = path.resolve(project, input), real = fs.realpathSync(absolute)
+      assert.equal(absolute, real, 'metafile physical input is not a resolved real path')
+      assert(/\.(?:[cm]?[jt]sx?|json)$/.test(real), 'unreviewed physical managed loader: ' + input)
+      physicalSources.push(moduleName(real))
+    }
+    physicalSources.sort(); virtualInputs.sort()
+    assert.deepEqual(physicalSources, sources.map(row => row.source).sort(),
+      'physical metafile inputs differ from exact onLoad source multiset')
+    assert.equal(virtualInputs.includes('quod-managed-als:public-async-local-storage'),
+      resolutionFacts.some(row => row.phase === 'emitted' && row.route === 'public-als'), 'unreviewed ALS virtual input')
+    const inputCoverage = {schema: 'quod-managed-physical-input-coverage-v1', physicalSources, virtualInputs}
     const bundle = compiled.outputFiles[0].text
     const imports = Object.values(compiled.metafile.outputs).flatMap(output => output.imports)
     assert(imports.every(item => item.external && item.path === 'node:async_hooks'), 'bundle output is not closed')
@@ -426,7 +494,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
       const left = canonicalManagedJSON(a), right = canonicalManagedJSON(b)
       return left < right ? -1 : left > right ? 1 : 0
     })
-    sort(globs); sort(adapters); sort(sources); sort(transforms); sort(resolutions)
+    sort(globs); sort(adapters); sort(sources); sort(transforms); sort(resolutions); sort(resolutionFacts)
     const sha256 = sha(bundle)
     const identity = {
       schema: 'quod-managed-compile-v1-research', compilerSha256, esbuildVersion, typescriptVersion: ts.version,
@@ -437,7 +505,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
         ...(zodAlias ? {zodAlias, zodAliasPolicy: 'reviewed /^zod(?=\\/|$)/ replacement for every closed dependency'} : {})},
       entry: moduleName(entryFile), testEntry: testFile && moduleName(testFile), bundleSha256: sha256,
       configurationSha256: sha(optionsJSON), moduleNameSetsSha256: sha(canonicalManagedJSON(globs)),
-      sources, resolutions, adapters, globs, transforms,
+      sources, resolutions, adapters, globs, transforms, resolutionFacts, inputCoverage,
     }
     return {bundle, metadata: compiled.metafile, seconds: (performance.now() - started) / 1000, sha256,
       sourceTreeCache: {...treeCache, retainedEntries: trees.size},

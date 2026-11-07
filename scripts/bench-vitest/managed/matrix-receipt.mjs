@@ -141,19 +141,38 @@ export function makeMatrixExecutionIdentity({built, prepared, runtimePolicy, sup
   assert(typeof built?.bundle === 'string' && hash(built.bundle) === built.sha256, 'actual compiled bytes required')
   assert.equal(built.identity.bundleSha256, built.sha256)
   assert.equal(hash(json(built.identity)), built.identitySha256)
-  assert.equal(hash(json(built.options)), built.identity.configurationSha256)
-  assert.equal(hash(json(prepared.config)), prepared.identity.configurationSha256)
-  assert.equal(json(built.options.vitest), json(prepared.config))
   assert.equal(json(built.preparation), json(prepared.identity))
-  assert.equal(built.options.file, built.identity.testEntry)
-  assert.equal(built.options.zodAlias || null, prepared.identity.zodAlias)
-  assert.equal(json(built.options.providedContext), json(prepared.identity.providedContext))
+  return executionFromCompileIdentity({compile: built.identity, options: built.options,
+    prepared, runtimePolicy, supervisorPolicy, host, native})
+}
+
+// Separate research path. A copied, parsed or caller-constructed identity cannot
+// replace a successful fresh input-equivalence validation. The lazy import also
+// leaves the original byte-only ledger API independent of compiler packages.
+export async function makeMatrixExecutionIdentityFromProof({proof, options, prepared,
+  runtimePolicy, supervisorPolicy, host, nativePolicy: native}) {
+  const {readValidatedCompileIdentity} = await import('./resolved-compile-certificate.mjs')
+  const validated = readValidatedCompileIdentity(proof)
+  assert.equal(hash(json(validated.identity)), validated.identitySha256)
+  assert.equal(validated.identity.bundleSha256, validated.bundleSha256)
+  assert.equal(validated.identity.configurationSha256, validated.configurationSha256)
+  return executionFromCompileIdentity({compile: validated.identity, options,
+    prepared, runtimePolicy, supervisorPolicy, host, native})
+}
+
+function executionFromCompileIdentity({compile, options, prepared, runtimePolicy, supervisorPolicy, host, native}) {
+  assert.equal(hash(json(options)), compile.configurationSha256)
+  assert.equal(hash(json(prepared.config)), prepared.identity.configurationSha256)
+  assert.equal(json(options.vitest), json(prepared.config))
+  assert.equal(options.file, compile.testEntry)
+  assert.equal(options.zodAlias || null, prepared.identity.zodAlias)
+  assert.equal(json(options.providedContext), json(prepared.identity.providedContext))
   assert.equal(prepared.config.name, prepared.identity.specification.project)
   assert.equal(prepared.config.isolate, true)
   const spec = prepared.identity.specification
   const identity = copy({schema: MATRIX_EXECUTION_SCHEMA,
     instance: {instanceId: spec.instanceId, project: spec.project, file: spec.file, pool: spec.pool},
-    compile: built.identity, preparation: prepared.identity, runtimePolicy, supervisorPolicy, host, nativePolicy: native})
+    compile, preparation: prepared.identity, runtimePolicy, supervisorPolicy, host, nativePolicy: native})
   return checkedExecution({identity, key: domainHash(MATRIX_EXECUTION_SCHEMA, identity)})
 }
 

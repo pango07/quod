@@ -61,6 +61,261 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  matrix-input-dispatcher-fixtures:
+    permissions:
+      contents: read
+      actions: read
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix-input-sdk'
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Restore the exact independently audited legacy ledger regression data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/bench-vitest/managed/restore-matrix-evidence.py
+          13587034973 ff279ea5b59b359d26985f08f22e0749f9eccbde 42406036816
+          36186785 f8e20f3a68cc3fbec7ce01a5ea90e8b50a1d558cbf08146a7fb049e242adc282
+          "$RUNNER_TEMP/verified-input-ledger-matrix"
+      - name: Fetch the exact compiler source needed for the data-only regression audit
+        run: git fetch --no-tags --depth=1 origin ff279ea5b59b359d26985f08f22e0749f9eccbde
+      - name: Independently recheck original native names and states
+        run: >-
+          python3 scripts/bench-vitest/managed/matrix-audit.py
+          "$RUNNER_TEMP/verified-input-ledger-matrix" ff279ea5b59b359d26985f08f22e0749f9eccbde
+          --archive "$RUNNER_TEMP/verified-input-ledger-matrix.zip"
+          --run-json "$RUNNER_TEMP/verified-input-ledger-matrix-run.json"
+          --artifacts-json "$RUNNER_TEMP/verified-input-ledger-matrix-artifacts.json"
+          > "$RUNNER_TEMP/input-ledger-independent-audit.json"
+      - name: Preserve all 152 original ledger regression checks
+        run: >-
+          node scripts/bench-vitest/managed/matrix-receipt-fixtures.mjs
+          "$RUNNER_TEMP/verified-input-ledger-matrix/_temp/managed-matrix"
+          "$RUNNER_TEMP/input-legacy-ledger"
+      - name: Exact native remainder and actual failure preservation
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-dispatcher-fixtures.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/matrix-input-dispatcher-fixtures"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-matrix-input-dispatcher-fixtures
+          path: |
+            ${{ runner.temp }}/matrix-input-dispatcher-fixtures
+            ${{ runner.temp }}/input-legacy-ledger
+            ${{ runner.temp }}/input-ledger-independent-audit.json
+          retention-days: 7
+
+  matrix-input-sdk-seed:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix-input-sdk'
+    needs: matrix-input-dispatcher-fixtures
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    timeout-minutes: 20
+    outputs:
+      logical_sha256: ${{ steps.probe.outputs.logical_sha256 }}
+      collection_sha256: ${{ steps.probe.outputs.collection_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 02f65151206f3a12d6f17e3b3d1831b704f28a0b
+          path: collection-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - run: npm install --omit=dev --no-audit --no-fund
+        working-directory: collection-action
+      - name: Capture the private job-local cache session outside evidence
+        uses: ./scripts/bench-vitest/managed/cache-session-action
+        with:
+          action: ${{ github.workspace }}/collection-action
+          session: ${{ runner.temp }}/.matrix-input-cache-auth.json
+          artifacts: ${{ runner.temp }}/matrix-input-sdk-seed
+      - name: Actual seed with isolated original instances and cache-call accounting
+        id: probe
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-sdk-probe.mjs seed
+          "$PWD/profile-project" "$RUNNER_TEMP/matrix-input-sdk-seed"
+          "$PWD/collection-action" "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+      - name: Remove the private session even if an earlier step failed
+        if: always()
+        run: rm -f "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-matrix-input-sdk-seed
+          path: ${{ runner.temp }}/matrix-input-sdk-seed
+          retention-days: 7
+
+  matrix-input-sdk-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix-input-sdk'
+    needs: matrix-input-dispatcher-fixtures
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    timeout-minutes: 20
+    outputs:
+      logical_sha256: ${{ steps.probe.outputs.logical_sha256 }}
+      collection_sha256: ${{ steps.probe.outputs.collection_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 02f65151206f3a12d6f17e3b3d1831b704f28a0b
+          path: collection-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - run: npm install --omit=dev --no-audit --no-fund
+        working-directory: collection-action
+      - name: Capture the private job-local cache session outside evidence
+        uses: ./scripts/bench-vitest/managed/cache-session-action
+        with:
+          action: ${{ github.workspace }}/collection-action
+          session: ${{ runner.temp }}/.matrix-input-cache-auth.json
+          artifacts: ${{ runner.temp }}/matrix-input-sdk-control
+      - name: Actual control with isolated original instances and cache-call accounting
+        id: probe
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-sdk-probe.mjs control
+          "$PWD/profile-project" "$RUNNER_TEMP/matrix-input-sdk-control"
+          "$PWD/collection-action" "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+      - name: Remove the private session even if an earlier step failed
+        if: always()
+        run: rm -f "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-matrix-input-sdk-control
+          path: ${{ runner.temp }}/matrix-input-sdk-control
+          retention-days: 7
+
+  matrix-input-sdk-consumer:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix-input-sdk'
+    needs: [matrix-input-sdk-seed, matrix-input-sdk-control]
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    timeout-minutes: 20
+    outputs:
+      logical_sha256: ${{ steps.probe.outputs.logical_sha256 }}
+      collection_sha256: ${{ steps.probe.outputs.collection_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 02f65151206f3a12d6f17e3b3d1831b704f28a0b
+          path: collection-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - run: npm install --omit=dev --no-audit --no-fund
+        working-directory: collection-action
+      - name: Capture the private job-local cache session outside evidence
+        uses: ./scripts/bench-vitest/managed/cache-session-action
+        with:
+          action: ${{ github.workspace }}/collection-action
+          session: ${{ runner.temp }}/.matrix-input-cache-auth.json
+          artifacts: ${{ runner.temp }}/matrix-input-sdk-consumer
+      - name: Actual consumer with isolated original instances and cache-call accounting
+        id: probe
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-sdk-probe.mjs consumer
+          "$PWD/profile-project" "$RUNNER_TEMP/matrix-input-sdk-consumer"
+          "$PWD/collection-action" "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+          "${{ needs['matrix-input-sdk-seed'].outputs.logical_sha256 }}" "${{ needs['matrix-input-sdk-control'].outputs.logical_sha256 }}" "${{ needs['matrix-input-sdk-seed'].outputs.collection_sha256 }}"
+      - name: Remove the private session even if an earlier step failed
+        if: always()
+        run: rm -f "$RUNNER_TEMP/.matrix-input-cache-auth.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-matrix-input-sdk-consumer
+          path: ${{ runner.temp }}/matrix-input-sdk-consumer
+          retention-days: 7
+
   matrix-dispatcher-fixtures:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-matrix-sdk'
     runs-on: ubuntu-latest
