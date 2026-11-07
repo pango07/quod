@@ -736,6 +736,46 @@ jobs:
           name: convex-profile-current
           path: /tmp/quod-profile-current/evidence
 
+  benchmark-wasi:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-wasi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: 41d6c96a2c78b2e1989e1710bae23eb9e165b86b
+          path: profile-action
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci && npm run build
+        working-directory: profile-project
+      - name: Install isolated, pinned WASI dependencies without install scripts
+        run: |
+          mkdir /tmp/quod-wasi-package
+          cp scripts/bench-vitest/wasi-package.json /tmp/quod-wasi-package/package.json
+          npm install --prefix /tmp/quod-wasi-package --ignore-scripts --no-audit --no-fund
+      - name: Compare native controls, WASI and the current recorder
+        run: |
+          mkdir /tmp/quod-wasi-bin
+          echo 'e133b009115afd10c255d2e67f43a80bcf5c61e6853992c84290a0a56afd92d8  profile-action/dist/quod/bin-f9d8153.tar.gz' | sha256sum -c -
+          tar -xzf profile-action/dist/quod/bin-f9d8153.tar.gz -C /tmp/quod-wasi-bin
+          python3 scripts/bench-vitest/wasi-feasibility.py "$PWD/profile-project" /tmp/quod-wasi-bin/quod /tmp/quod-wasi-package /tmp/quod-wasi-feasibility
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: convex-wasi-feasibility
+          path: /tmp/quod-wasi-feasibility/evidence
+
   benchmark-heap:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-heap'
     runs-on: ubuntu-latest
