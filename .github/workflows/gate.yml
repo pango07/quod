@@ -550,6 +550,13 @@ jobs:
         run: node scripts/bench-vitest/realpath-contract-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod" /tmp/quod-realpath-built correct
       - name: Built binary backs off recording without skipping changed tests
         run: node scripts/bench-vitest/recording-admission-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod" /tmp/quod-admission-built
+      - name: Built binary revokes the entire lineage batch after a plain disagreement
+        run: node scripts/bench-vitest/lineage-revocation-audit.mjs "$PWD/metadata-action/test" "$PWD/target/release/quod" /tmp/quod-lineage-built
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: lineage-revocation-built
+          path: /tmp/quod-lineage-built
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -813,6 +820,37 @@ jobs:
         with:
           name: recording-admission-cost
           path: /tmp/quod-admission-cost/evidence
+
+  benchmark-lineage-revocation:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-lineage-revocation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pango07/quod-action
+          ref: beb12a8c9c32500ad2d19a87b10ee7cc7a95c197
+          path: lineage-action
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+        working-directory: lineage-action/test
+      - name: Verify packaged E1 disagreement handling and batch revocation
+        run: |
+          mkdir /tmp/quod-lineage-bin
+          echo 'febefde32dec226741bc7e7e99aa6812e59f1605af85e28c8867b63830327c63  lineage-action/dist/quod/bin-c12a7fe.tar.gz' | sha256sum -c -
+          tar -xzf lineage-action/dist/quod/bin-c12a7fe.tar.gz -C /tmp/quod-lineage-bin
+          node scripts/bench-vitest/lineage-revocation-audit.mjs "$PWD/lineage-action/test" /tmp/quod-lineage-bin/quod /tmp/quod-lineage-revocation
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: lineage-revocation
+          path: /tmp/quod-lineage-revocation
 
   benchmark-realpath-contract:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-realpath-contract'
