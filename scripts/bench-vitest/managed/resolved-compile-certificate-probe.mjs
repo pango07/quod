@@ -312,8 +312,9 @@ async function warmToolControls(initial, seed, config, entry) {
         plain ? row.plainCaptureError?.includes('actual certified compiler build required')
           : name === 'typescript-exports' && row.plainBuildError?.includes('QUOD_REPLACED_TS_API'))
       if (freshChild) {
-        check(name + ' fresh plain child loads changed compiler and certifies actual changed bytes', row.child.status === 0 &&
-          !fs.readFileSync(path.join(target, 'separate-node/fresh.mjs')).equals(Buffer.from(initial.bundle)))
+        const error = JSON.parse(fs.readFileSync(path.join(target, 'separate-node/error.json'), 'utf8'))
+        check(name + ' fresh plain child rejects an unreviewed compiler before first certified load', row.child.status === 1 &&
+          error.message === 'unreviewed compiler source bytes')
       }
     } finally { await restore() }
     const recovered = await build(entry, config)
@@ -352,6 +353,47 @@ async function warmToolControls(initial, seed, config, entry) {
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV
     else process.env.NODE_ENV = originalNodeEnv
   })
+}
+async function coldToolControls(seed, config, entry) {
+  const own = createRequire(import.meta.url), projectRequire = createRequire(path.join(project, 'package.json'))
+  const wrapper = projectRequire.resolve('typescript'), delegated = createRequire(wrapper).resolve('@typescript/old')
+  const platform = path.dirname(own.resolve('@esbuild/linux-x64/package.json'))
+  const manifest = projectRequire.resolve('typescript/package.json')
+  const cases = [
+    {name: 'esbuild-api', file: own.resolve('esbuild'), reason: 'unreviewed compiler tool file inventory'},
+    {name: 'typescript-wrapper-api', file: wrapper, reason: 'unreviewed TypeScript delegation wrapper'},
+    {name: 'typescript-delegated-api', file: delegated, reason: 'unreviewed compiler tool file inventory'},
+    {name: 'platform-tree-extra-file', file: path.join(platform, 'quod-unreviewed-tool.txt'), absent: true,
+      reason: 'unreviewed compiler tool file inventory'},
+    {name: 'typescript-wrapper-manifest', file: manifest, manifest: true, reason: 'unreviewed compiler tool file inventory'},
+  ]
+  const directory = path.join(out, 'cold-tools'); fs.mkdirSync(directory)
+  result.coldTools = []
+  for (const item of cases) {
+    const target = path.join(directory, item.name); fs.mkdirSync(target)
+    assert(!item.absent || !fs.lstatSync(item.file, {throwIfNoEntry: false}), 'owned cold tool fixture already exists')
+    const original = item.absent ? null : fs.readFileSync(item.file)
+    const changed = item.manifest ? Buffer.from(JSON.stringify({...JSON.parse(original), quodUnreviewedFixture: true}) + '\n')
+      : Buffer.concat([original || Buffer.alloc(0), Buffer.from('\n// QUOD_SAME_VERSION_COLD_TOOL_MUTATION\n')])
+    assert(changed.length <= 16 * 1024 * 1024 && (!original || !original.equals(changed)))
+    const row = {name: item.name, file: item.file, originalSha256: original ? sha(original) : null,
+      changedSha256: sha(changed), packageVersionUnchanged: !item.manifest || JSON.parse(original).version === JSON.parse(changed).version}
+    result.coldTools.push(row)
+    try {
+      fs.writeFileSync(item.file, changed); fs.writeFileSync(path.join(target, 'mutated-tool.data'), changed)
+      row.child = separateCompile(target, config, entry, {capture: true})
+      const errorFile = path.join(target, 'separate-node/error.json')
+      row.error = fs.existsSync(errorFile) ? JSON.parse(fs.readFileSync(errorFile, 'utf8')) : null
+      write(path.join(target, 'result.json'), row); save()
+      check(item.name + ' fresh plain producer rejects same-version unreviewed tool bytes before first load',
+        row.packageVersionUnchanged && row.child.status === 1 && row.child.signal === null && row.error?.message === item.reason &&
+        !fs.existsSync(path.join(target, 'separate-node/certificate.json')))
+    } finally {
+      if (original) fs.writeFileSync(item.file, original)
+      else fs.rmSync(item.file)
+    }
+    check(item.name + ' exact restored installed tree recovers original certificate', (await validate([request(seed, config, entry)]))[0].hit)
+  }
 }
 async function apiRouteControls(seed, config, entry) {
   const here = path.dirname(fileURLToPath(import.meta.url)), own = createRequire(import.meta.url)
@@ -588,6 +630,7 @@ try {
   const bad = {...request(seed, config, entry), trustedCertificateSha256: '0'.repeat(64)}
   check('unauthenticated bytes cannot seed a compile candidate', !(await validate([bad]))[0].hit)
   await warmToolControls(initial, seed, config, entry)
+  await coldToolControls(seed, config, entry)
   await apiRouteControls(seed, config, entry)
   const flagsRequest = path.join(out, 'flags-request.json')
   write(flagsRequest, {project, certificateFile: path.join(out, 'fixture-certificate.json'), sha256: seed.sha256, options: config, testFile: entry})
@@ -600,7 +643,8 @@ try {
   write(path.join(out, 'flags-child.json'), flagsEvidence)
   check('actual nonempty Node flags decline before resolver or proof issuance',
     flagsEvidence.status === 0 && flagsEvidence.result.execArgv[0] === '--stack-trace-limit=17' &&
-    flagsEvidence.result.decisions[0].hit === false && flagsEvidence.result.decisions[0].reason === 'unreviewed compiler Node CLI flags')
+    flagsEvidence.result.decisions[0].hit === false && flagsEvidence.result.decisions[0].next === 'full-compile' &&
+    flagsEvidence.result.decisions[0].reason.split('\n')[0] === 'unreviewed compiler Node CLI flags')
   await adapterRelocation(config, entry)
   result.passed = result.checks.every(row => row.pass)
 } catch (error) { result.error = {name: error.name, message: error.message, stack: error.stack}; process.exitCode = 1 }

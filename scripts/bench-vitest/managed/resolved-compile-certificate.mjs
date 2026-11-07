@@ -45,6 +45,10 @@ export function canonicalManagedJSON(value) {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA = 'quod-managed-resolved-compile-certificate-v1-diagnostic'
+// Reviewed public compiler plus the complete fresh npm-ci four-package tree.
+// A matching package version is not approval for a different implementation.
+const REVIEWED_COMPILER_SHA256 = 'a87f1f8fafea2e0f1b4a1e299199f5581172a2fe90f59882d3c64eb50f68acaf'
+const REVIEWED_TOOL_FILES_SHA256 = '7b7ae881ef3186e4b564c26ffa6e8d40b3d3875a15e41b10d93a6bb24cb3a354'
 const LIMITS = {paths: 100000, resolverBytes: 16 * 1024 * 1024, resolverTimeoutMs: 30000,
   toolBytes: 128 * 1024 * 1024, sourceBytes: 256 * 1024 * 1024,
   fileBytes: 16 * 1024 * 1024, certificateBytes: 16 * 1024 * 1024,
@@ -185,8 +189,10 @@ function toolIdentity(ctx) {
     }
   }
   for (const manifest of packages) walk(path.dirname(manifest), ctx.name(fs.realpathSync(path.dirname(manifest))))
+  assert(hash(files) === REVIEWED_TOOL_FILES_SHA256, 'unreviewed compiler tool file inventory')
   const hostSources = ['compiler.mjs', 'resolved-compile-certificate.mjs'].map(name => ({name,
     sha256: sha(regular(path.join(here, name)))}))
+  assert(hostSources[0].sha256 === REVIEWED_COMPILER_SHA256, 'unreviewed compiler source bytes')
   const nodeSha256 = sha(regular(fs.realpathSync(process.execPath), LIMITS.toolBytes))
   assert(hostSources[1].sha256 === initialSelfSha256 && nodeSha256 === initialNodeSha256,
     'running bootstrap or Node file epoch changed')

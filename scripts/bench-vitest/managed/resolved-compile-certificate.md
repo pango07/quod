@@ -56,6 +56,15 @@ It hashes all four complete installed packages (esbuild, platform binary,
 TypeScript wrapper and delegated implementation), Node executable and current
 compiler/verifier source. The wrapper's exact 45 bytes are pinned by SHA:
 `module.exports = require("@typescript/old");` followed by newline.
+The complete normalized four-tree file/directory/mode/size/SHA inventory must
+match the reviewed fresh `npm ci` inventory digest
+`7b7ae881ef3186e4b564c26ffa6e8d40b3d3875a15e41b10d93a6bb24cb3a354`
+(183 paths, 47,351,803 file bytes). The reviewed compiler source must match
+`a87f1f8fafea2e0f1b4a1e299199f5581172a2fe90f59882d3c64eb50f68acaf`.
+These are fixed admission constraints, not merely values copied into a key:
+fresh modified implementations keeping the same version must decline. The
+initial verifier and running Node remain part of the trusted parent bootstrap;
+this does not claim arbitrary host or self-authentication.
 Actual ESM and CJS esbuild API entries must both be the hashed package's
 `lib/main.js`; both TypeScript wrapper and delegated require entries must be
 their hashed package's `lib/typescript.js`, and the
@@ -129,6 +138,29 @@ tool digests, the two bounded compiler environment fields and differing top-leve
 field names, so another observed mismatch can be diagnosed without dumping
 complete tool inventories or unrelated environment variables.
 
+The [42414441305 gate](https://github.com/pango07/quod/actions/runs/42414441305)
+at `3947e3fd4a52033c6f9f3ac03b81607ddd2c5dfe` retained twelve equal raw bundle/full
+identity pairs, all eighteen mutations and seven warm controls: 195 targeted
+checks passed before a fixture string mismatch failed check 196. The actual
+plain child had `--stack-trace-limit=17`, returned `hit:false` and
+`next:'full-compile'`, and rejected with the intended first line; Node's
+`assert.equal` added `1 !== 0` on subsequent lines. The corrected fixture checks
+the actual flag, miss/next decision and exact guard first line. Product rejection
+is unchanged. Both full 108 stages were skipped and no full-matrix result is
+claimed. Artifact 13590848540 is 17,486,165 bytes, SHA-256
+`2e73c1b1a9687d9e110e08a38b5860d0f6c4a59221c8bd5309e3d04def7772be`.
+
+That artifact's initial four-tree observations provide the fixed inventory
+anchor above. The esbuild API (97,463 bytes,
+`61ec0ba144ff93f4bf0e96ad6fab6f430ede0aa13e27ace8063ed63ba416b3cd`)
+and platform binary (11,427,952 bytes,
+`e1698a3d5c6c0798fee4fd3b5cc816651f460c63d390a7a26ea4beb0b1884100`)
+also independently match the previously verified Action archive. Before this
+pin, fresh modified same-version tools could be loaded and recorded even though
+the metadata-drop argument applies only to the reviewed algorithm. The new pin
+closes that finite scope gap; it does not infer arbitrary tool behavior from a
+version number or a past observed passing result.
+
 Nonempty Node CLI flags and `NODE_OPTIONS`, `NODE_PATH`,
 `NODE_PRESERVE_SYMLINKS`, `NODE_COMPILE_CACHE` or `ESBUILD_BINARY_PATH` decline.
 `NODE_ENV` and `ESBUILD_WORKER_THREADS` remain keyed. These are on-disk hashes,
@@ -201,11 +233,18 @@ remain documented in `compile-input-certificate.md`.
 Additional controls warm the producer, mutate the same compiler/esbuild/TS API
 file (including the delegated TS API) while keeping package versions unchanged, and require capture/build/new
 factory rejection. A fresh plain child must compile the actual changed explicit
-target policy, while ordinary warm outputs cannot acquire certified provenance.
+target policy only under the older unpinned diagnostic (retained in the failed
+195-check artifact); under the corrected profile it must reject that unreviewed
+compiler source before loading it. Ordinary warm outputs cannot acquire certified provenance.
 Exact restored bytes recover the original epoch. Replacing wrapper or delegated TS `.exports` must
 also decline. Fresh-child package self-reference fixtures keep the old manifest
 target while routing esbuild ESM/CJS or TypeScript require through another API;
 they must miss, with all files restored in `finally`.
+Five additional fresh plain producer cases change the esbuild API, TypeScript
+wrapper/API, delegated API, platform package path roster, or wrapper manifest
+while keeping package versions unchanged. They retain the actual mutated bytes
+and child errors, must reject before first certified loading, and must recover
+the original certificate after exact restoration.
 
 The same current compiler then executes the complete native-conformance matrix:
 108 passing managed instances and all 120 original native instances. A final
