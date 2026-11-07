@@ -7,7 +7,7 @@ const entry=path.resolve(process.argv[1]||'')
 if(entry.endsWith('/node_modules/vitest/vitest.mjs')) {
   const output=process.env.QUOD_STAT_CONSTRUCTOR_REPORT
   if(!output||!path.isAbsolute(output))throw Error('absolute constructor report path required')
-  const probe=createStatConstructorProbe()
+  const probe=createStatConstructorProbe({captureConsumers:true})
   process.once('exit',()=>{
     const report=probe.report()
     report.scope='Vitest CLI main process, from preload through this exit listener'

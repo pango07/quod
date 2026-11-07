@@ -9,12 +9,12 @@ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'quod-stat-constructor-'))
 const file=path.join(directory,'input')
 fs.writeFileSync(file,'fixture')
 test.after(()=>fs.rmSync(directory,{recursive:true,force:true}))
-function run(body,before='',flags=[]) {
+function run(body,before='',flags=[],options={}) {
   const source=`import fs from 'node:fs';
 import {createStatConstructorProbe} from ${JSON.stringify(new URL('./stat-constructor-probe.mjs',import.meta.url).href)};
 const file=${JSON.stringify(file)};
 ${before}
-const probe=createStatConstructorProbe();
+const probe=createStatConstructorProbe(${JSON.stringify(options)});
 try {${body}}finally{probe.close()}`
   const out=spawnSync(process.execPath,[...flags,'--input-type=module','-e',source],{encoding:'utf8',timeout:15000})
   assert.equal(out.status,0,out.stderr||String(out.error))
@@ -73,6 +73,48 @@ console.log(JSON.stringify({symbolic,report:probe.report()}));}finally{fs.unlink
   assert.equal(r.symbolic,true);assert.equal(r.report.rows.length,1)
   assert.equal(r.report.rows[0].query?.kind,'lstat');assert.equal(r.report.rows[0].query?.path,file+'.link')
   assert.deepEqual(r.report.rows[0].fields,['mode']);assert.equal(r.report.rows[0].intact,true)
+})
+
+test('native request identity distinguishes concurrent stat and lstat callbacks',()=>{
+  const r=run(`const link=file+'.link';fs.symlinkSync(file,link);
+try {const values=await Promise.all([
+ new Promise((resolve,reject)=>fs.stat(file,(e,s)=>e?reject(e):resolve(s.size))),
+ new Promise((resolve,reject)=>fs.lstat(link,(e,s)=>e?reject(e):resolve(s.isSymbolicLink())))
+]);console.log(JSON.stringify({values,report:probe.report()}));}finally{fs.unlinkSync(link)}`)
+  checked(r.report);assert.deepEqual(r.values,[7,true]);assert.equal(r.report.queryConflicts,0)
+  assert.equal(r.report.rows.length,2)
+  const rows=r.report.rows.toSorted((a,b)=>a.query.kind.localeCompare(b.query.kind))
+  assert.deepEqual(rows.map(r=>[r.query.kind,r.query.path,r.query.via]),[
+    ['lstat',file+'.link','current FSReqCallback'],['stat',file,'current FSReqCallback']])
+  assert.ok(rows.every(r=>r.intact&&r.query.certified===false))
+})
+
+test('callback descriptor metadata keeps its descriptor identity without inventing a pathname',()=>{
+  const r=run(`const fd=fs.openSync(file,'r');let size;
+try{size=await new Promise((resolve,reject)=>fs.fstat(fd,(e,s)=>e?reject(e):resolve(s.size)));
+console.log(JSON.stringify({fd,size,report:probe.report()}));}finally{fs.closeSync(fd)}`)
+  checked(r.report);assert.equal(r.size,7);assert.equal(r.report.rows.length,1)
+  assert.equal(r.report.rows[0].query?.kind,'fstat');assert.equal(r.report.rows[0].query?.fd,r.fd)
+  assert.equal(Object.hasOwn(r.report.rows[0].query,'path'),false)
+})
+
+test('a manual Stats inside an I/O callback does not inherit its resource query',()=>{
+  const r=run(`await new Promise((resolve,reject)=>fs.stat(file,(e,s)=>{
+ if(e)return reject(e);s.size;const manual=new fs.Stats(...Array(14).fill(0));manual.size;resolve();
+}));console.log(JSON.stringify({report:probe.report()}));`)
+  checked(r.report);assert.equal(r.report.rows.length,2)
+  assert.equal(r.report.rows[0].query?.path,file);assert.equal(r.report.rows[1].query,null)
+})
+
+test('realpath inode consumers retain call sites and native query association',()=>{
+  const r=run(`const link=file+'.link';fs.symlinkSync(file,link);
+try{const resolved=await new Promise((resolve,reject)=>fs.realpath(link,(e,p)=>e?reject(e):resolve(p)));
+console.log(JSON.stringify({resolved,report:probe.report()}));}finally{fs.unlinkSync(link)}`,'',[],{captureConsumers:true})
+  checked(r.report);assert.equal(r.resolved,file)
+  const inode=r.report.rows.filter(row=>row.fields.includes('ino'))
+  assert.ok(inode.length>0)
+  assert.ok(inode.every(row=>row.query?.kind==='lstat'&&row.query.path===file+'.link'))
+  assert.ok(inode.every(row=>row.consumers.ino.some(frame=>frame.url==='node:fs')))
 })
 
 test('constructor entry rejects a transient inherited setter that publishes metadata',t=>{

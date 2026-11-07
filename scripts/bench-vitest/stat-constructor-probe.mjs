@@ -9,13 +9,13 @@ const commonFields=['dev','mode','nlink','uid','gid','rdev','blksize','ino','siz
   'atimeMs','mtimeMs','ctimeMs','birthtimeMs']
 const nsFields=['atimeNs','mtimeNs','ctimeNs','birthtimeNs']
 
-export function createStatConstructorProbe() {
+export function createStatConstructorProbe({captureConsumers=false}={}) {
   if(process.versions.node!=='24.18.0')throw Error('constructor probe requires pinned Node')
   const addon=process.env.QUOD_NATIVE_CAPTURE_ADDON
   if(!addon||!path.isAbsolute(addon))throw Error('constructor probe requires native helper')
   const session=new Session(),scripts=new Map(),breakpoints=new Map(),failures=[]
   const binding='__quod_stat_'+randomBytes(16).toString('hex')
-  let closed=false,initialized=false,pauses=0,source=null
+  let closed=false,initialized=false,pauses=0,source=null,callbackSource=null
   function post(method,params={}) {
     let done=false,error,result
     session.post(method,params,(e,r)=>{done=true;error=e;result=r})
@@ -32,32 +32,43 @@ export function createStatConstructorProbe() {
     if(!objectId)throw Error('constructor provenance object unavailable')
     return post('Runtime.getProperties',{objectId,ownProperties:true})
   }
-  function lexicalFunction(objectId,name) {
+  function lexicalValue(objectId,name) {
     const scopes=properties(objectId).internalProperties?.find(p=>p.name==='[[Scopes]]')?.value?.objectId
     for(const scope of properties(scopes).result) {
       if(!/^\d+$/.test(scope.name)||scope.value?.description==='Global')continue
       const value=properties(scope.value?.objectId).result.find(p=>p.name===name)?.value
-      if(value?.type==='function'&&value.objectId)return value.objectId
+      if(value)return value
     }
     throw Error('constructor provenance binding unavailable: '+name)
+  }
+  function lexicalFunction(objectId,name) {
+    const value=lexicalValue(objectId,name)
+    if(value.type!=='function'||!value.objectId)throw Error('constructor binding is not a function: '+name)
+    return value.objectId
   }
   function queryFor(frames) {
     for(const frame of frames.slice(1,8)) {
       const url=scripts.get(frame.location?.scriptId)
       if(!['node:fs','node:internal/fs/promises'].includes(url)||
-        !['stat','lstat','statSync','lstatSync'].includes(frame.functionName))continue
+        !['stat','lstat','statSync','lstatSync','fstatSync'].includes(frame.functionName))continue
       const local=frame.scopeChain.find(scope=>scope.type==='local')?.object?.objectId
       if(!local)continue
-      const value=properties(local).result.find(p=>p.name==='path')?.value
+      const args=properties(local).result
+      if(frame.functionName==='fstatSync') {
+        const fd=args.find(p=>p.name==='fd')?.value
+        if(fd?.type==='number')return {kind:'fstat',fd:fd.value,function:frame.functionName,url,certified:false}
+        continue
+      }
+      const value=args.find(p=>p.name==='path')?.value
       if(value?.type!=='string')continue
       return {kind:frame.functionName.startsWith('lstat')?'lstat':'stat',path:value.value,
         function:frame.functionName,url,certified:false}
     }
     return null
   }
-  function invoke(frame,kind,primitiveArguments,query) {
+  function invoke(frame,kind,primitiveArguments,query,nativeCallback) {
     const response=post('Runtime.callFunctionOn',{objectId:frame.this.objectId,
-      functionDeclaration:`function(){return ${binding}.enter(this,${JSON.stringify(kind)},${primitiveArguments},${JSON.stringify(query)})}`,
+      functionDeclaration:`function(){return ${binding}.enter(this,${JSON.stringify(kind)},${primitiveArguments},${JSON.stringify(query)},${nativeCallback})}`,
       returnByValue:true,silent:true})
     if(response.exceptionDetails||response.result?.value!==true)throw Error('constructor entry callback failed')
   }
@@ -77,7 +88,10 @@ export function createStatConstructorProbe() {
       const names=commonFields.slice(0,10).concat(target.kind==='BigIntStats'?nsFields:commonFields.slice(10))
       const expectedType=target.kind==='BigIntStats'?'bigint':'number'
       const primitiveArguments=names.every(name=>parameters.find(p=>p.name===name)?.value?.type===expectedType)
-      invoke(frame,target.kind,primitiveArguments,queryFor(params.callFrames))
+      const convert=params.callFrames[1],callback=params.callFrames[2]
+      const nativeCallback=convert?.functionName==='getStatsFromBinding'&&convert.location.scriptId===source.scriptId&&
+        callback?.location.scriptId===callbackSource.scriptId&&callback.location.lineNumber===callbackSource.lineNumber
+      invoke(frame,target.kind,primitiveArguments,queryFor(params.callFrames),!!nativeCallback)
     }catch(error){failures.push(error.message)}
     finally {try{post('Debugger.resume')}catch{failures.push('constructor resume failed')}}
   })
@@ -89,6 +103,13 @@ export function createStatConstructorProbe() {
     const actual=createHash('sha256').update(text).digest('hex')
     if(actual!==sourceHash)throw Error('native fs utils source differs: '+actual)
     source={scriptId,sha256:actual}
+    const fsScripts=[...scripts].filter(([,url])=>url==='node:fs')
+    if(fsScripts.length!==1)throw Error('native fs script is ambiguous')
+    const fsScriptId=fsScripts[0][0],fsText=post('Debugger.getScriptSource',{scriptId:fsScriptId}).scriptSource
+    const marker='cb(err, getStatsFromBinding(stats));',offset=fsText.indexOf(marker)
+    if(offset<0||fsText.lastIndexOf(marker)!==offset)throw Error('native Stats callback source unavailable')
+    callbackSource={scriptId:fsScriptId,sha256:createHash('sha256').update(fsText).digest('hex'),
+      lineNumber:fsText.slice(0,offset).split('\n').length-1,certified:false}
     // This private global lexical binding is a diagnostic bridge, not a
     // production ownership boundary. It is cleared on close. WeakMap values
     // keep observer handles alive only while their Stats owner is alive.
@@ -97,10 +118,23 @@ export function createStatConstructorProbe() {
       const ownKeys=Reflect.ownKeys,proto=Object.getPrototypeOf,descriptor=Object.getOwnPropertyDescriptor;
       const define=Object.defineProperty,extensible=Object.isExtensible;
       const fields=${JSON.stringify(commonFields)},ns=${JSON.stringify(nsFields)};
-      const installed=new WeakMap(),rows=[],rejections=[];
+      const installed=new WeakMap(),requests=new WeakMap(),rows=[],rejections=[];
+      const resource=process.getBuiltinModule('async_hooks').executionAsyncResource;
+      const callSites=process.getBuiltinModule('util').getCallSites;
+      let nativeQueries=0,queryConflicts=0;
       function reject(kind,reason){rejections.push({kind,reason});return true}
       return {
-        enter(target,kind,primitiveArguments,query){
+        bindQuery(kind,args){
+          const request=args[2];
+          if(!request||typeof request!=='object')return false;
+          if(kind==='fstat'?typeof args[0]!=='number':typeof args[0]!=='string')return false;
+          nativeQueries++;
+          if(requests.has(request)){requests.set(request,null);queryConflicts++;return false;}
+          requests.set(request,{kind,...(kind==='fstat'?{fd:args[0]}:{path:args[0]}),
+            function:'binding.'+kind,url:'node:fs',via:'current FSReqCallback',certified:false});
+          return false;
+        },
+        enter(target,kind,primitiveArguments,query,nativeCallback){
           if(!primitiveArguments)return reject(kind,'nonprimitive constructor arguments');
           if(!addon.isInspectableOwner(target)||ownKeys(target).length)return reject(kind,'nonempty or unsupported constructor owner');
           if(!extensible(target))return reject(kind,'nonextensible constructor owner');
@@ -116,19 +150,25 @@ export function createStatConstructorProbe() {
           // itself into an ordinary-looking native data field on its first
           // constructor assignment, before callers can receive the Stats.
           const expected=fields.concat(kind==='BigIntStats'?ns:[]);
-          const row={kind,query,owner:new WeakRef(target),reads:new Map(),initialized:0,expected:expected.length,failed:false};
+          if(!query&&nativeCallback)query=requests.get(resource())??null;
+          const row={kind,query,owner:new WeakRef(target),reads:new Map(),consumers:{},initialized:0,expected:expected.length,failed:false};
           const observers=[];installed.set(target,observers);rows.push(row);
           for(const key of expected)define(target,key,{enumerable:true,configurable:true,set(value){
             define(this,key,{value,writable:true,enumerable:true,configurable:true});
             if(this!==target){row.failed=true;return;}
             row.initialized++;
-            try{observers.push(addon.createDataReadObserver(target,key,()=>row.reads.set(key,(row.reads.get(key)??0)+1)))}
+            try{observers.push(addon.createDataReadObserver(target,key,()=>{
+              row.reads.set(key,(row.reads.get(key)??0)+1);
+              if(${captureConsumers===true}&&(key==='dev'||key==='ino')&&!row.consumers[key])
+                row.consumers[key]=callSites(8,{sourceMap:false}).map(f=>({name:f.functionName,url:f.scriptName,
+                  scriptId:f.scriptId,line:f.lineNumber,column:f.columnNumber}));
+            }))}
             catch{row.failed=true;}
           }});
           return true;
         },
-        report(){return {rejections,rows:rows.map(row=>{const owner=row.owner.deref(),observers=owner&&installed.get(owner);return {
-          kind:row.kind,query:row.query,fields:[...row.reads.keys()].sort(),calls:[...row.reads.values()].reduce((a,b)=>a+b,0),
+        report(){return {rejections,nativeQueries,queryConflicts,rows:rows.map(row=>{const owner=row.owner.deref(),observers=owner&&installed.get(owner);return {
+          kind:row.kind,query:row.query,consumers:row.consumers,fields:[...row.reads.keys()].sort(),calls:[...row.reads.values()].reduce((a,b)=>a+b,0),
           collected:!owner,initialized:row.initialized,expected:row.expected,
           intact:observers?!row.failed&&row.initialized===row.expected&&observers.every(o=>o.report().available):null};})}},
         close(){for(const row of rows){const owner=row.owner.deref();if(owner)for(const o of installed.get(owner)||[])o.close();}rows.length=0;}
@@ -140,6 +180,14 @@ export function createStatConstructorProbe() {
     const stat=post('Runtime.evaluate',{expression:"process.getBuiltinModule('fs').promises.stat",silent:true})
     if(stat.exceptionDetails)throw Error('native stat function unavailable')
     const convert=lexicalFunction(stat.result?.objectId,'getStatsFromBinding')
+    const nativeFs=lexicalValue(stat.result?.objectId,'binding')
+    for(const kind of ['stat','lstat','fstat']) {
+      const fn=properties(nativeFs.objectId).result.find(p=>p.name===kind)?.value
+      if(fn?.type!=='function'||!fn.objectId)throw Error('native query function unavailable')
+      const result=post('Debugger.setBreakpointOnFunctionCall',{objectId:fn.objectId,
+        condition:`${binding}.bindQuery(${JSON.stringify(kind)},arguments)`})
+      breakpoints.set(result.breakpointId,{query:true})
+    }
     for(const kind of ['Stats','BigIntStats']) {
       const objectId=lexicalFunction(convert,kind)
       const location=properties(objectId).internalProperties?.find(p=>p.name==='[[FunctionLocation]]')?.value?.value
@@ -155,7 +203,7 @@ export function createStatConstructorProbe() {
   return {
     report(){
       if(closed)throw Error('constructor probe closed')
-      return {source,pauses,failures:[...failures],...evaluate(`${binding}.report()`),
+      return {source,callbackSource,pauses,failures:[...failures],...evaluate(`${binding}.report()`),
         replayEligible:false,completeOwnership:false,
         limitations:['startup, other native/debugger observers and query identity are not certified',
           'the diagnostic bridge is observable through debugger capabilities']}
