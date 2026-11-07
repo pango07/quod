@@ -212,7 +212,7 @@ async function controller(projectArg, outArg) {
     for (const mode of modeNames) {
       const requestFile = path.join(out, mode + '-request.json'), directory = path.join(out, mode)
       write(requestFile, {project, out: directory, mode, authority: seed?.recorded || []})
-      const started = performance.now(), child = spawnSync(process.execPath, [self, '--child', requestFile],
+      const started = performance.now(), child = spawnSync(process.execPath, [self, '--batch-dispatch-fixture-child', requestFile],
         {cwd: project, env: process.env, timeout: 180000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024})
       fs.writeFileSync(path.join(out, mode + '-stdout.log'), child.stdout || Buffer.alloc(0), {flag: 'wx'})
       fs.writeFileSync(path.join(out, mode + '-stderr.log'), child.stderr || Buffer.alloc(0), {flag: 'wx'})
@@ -249,5 +249,5 @@ async function controller(projectArg, outArg) {
     write(path.join(out, 'result.json'), result)
   }
 }
-if (process.argv[2] === '--child') await fixtureChild(process.argv[3])
+if (process.argv[2] === '--batch-dispatch-fixture-child') await fixtureChild(process.argv[3])
 else await controller(...process.argv.slice(2))
