@@ -15,7 +15,7 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
   const breakpoints=new Map(),nativeMethods=new Map()
   const decoder={started:0,constructorEntries:0,headerEntries:0,valueEntries:0,completed:0,hostEntries:0,
     unrelatedConstructorEntries:0,unrelatedNativeEntries:0,ignoredReceivers:0,groupsCreated:0,groupsReleased:0,failureFrames:[]}
-  let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null
+  let decoding=null,hostMethod=null,nativeConstructor=null,defaultConstructor=null,objectPrototype=null
   let receiver,breakpointId=null,installed=false,closed=false,baselineReleased=false
   let decoded=0,prepared=0,paired=0,ignoredReceivers=0,failures=0,groupsCreated=0,groupsReleased=0
   function fail(reason){failures++;if(errors.length<20)errors.push(reason)}
@@ -85,6 +85,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
       if(p.result.some(p=>p.name==='buffer'))throw Error('IPC decoder buffer initialization is observable')
       const parent=p.internalProperties?.find(p=>p.name==='[[Prototype]]')?.value
       if(parent?.subtype==='null')return
+      // Inspector omits a null prototype. Accept that omission only for the
+      // intrinsic immutable Object.prototype captured from an object literal.
+      if(!parent&&same(object,objectPrototype))return
       if(!parent?.objectId||parent.subtype==='proxy')throw Error('IPC decoder buffer prototype chain unavailable')
       object=parent
     }
@@ -210,6 +213,9 @@ export function observeIpcDelivery(post,{callback,pendingLimit=128}={}) {
     const r=post('Runtime.evaluate',{expression:'process',objectGroup:group,silent:true})
     if(r.exceptionDetails||!r.result?.objectId)throw Error('IPC process receiver unavailable')
     receiver=r.result
+    const literal=post('Runtime.evaluate',{expression:'({})',objectGroup:group,silent:true})
+    if(literal.exceptionDetails)throw Error('IPC intrinsic object prototype unavailable')
+    objectPrototype=prototype(literal.result)
     const b=post('Debugger.setBreakpointByUrl',{url:'node:internal/child_process',lineNumber,columnNumber:0})
     breakpointId=b.breakpointId
     if(!breakpointId||b.locations?.length!==1||b.locations[0].lineNumber!==lineNumber)

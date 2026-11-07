@@ -53,7 +53,7 @@ function observer(message){
   if(values.length===(kind==='synthetic'?3:2)) {
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     p.close();process.removeListener('message',observer);
-    if(kind.startsWith('buffer-setter'))delete v8.Deserializer.prototype.buffer;
+    if(kind.startsWith('buffer-setter')){delete v8.Deserializer.prototype.buffer;delete Object.prototype.buffer;}
     const rawCopiedValues=rawCopies.map(bytes=>{const d=new v8.Deserializer(bytes);d.readHeader();return d.readValue().value});
     process.send({kind:'report',report,dispatch,preparations,gets,values,order,copies,deliveryEvents,
       rawCopiedValues,compilationErrors:compilation.errors,closed:p.ipcDelivery()},()=>process.disconnect());
@@ -114,8 +114,9 @@ if(['constructor-copy','constructor-self-restore','constructor-proxy','construct
   }}):replacement);
 }
 if(kind.startsWith('buffer-setter')) {
-  function install(){Object.defineProperty(v8.Deserializer.prototype,'buffer',{configurable:true,set(bytes){
-    if(kind!=='buffer-setter')delete v8.Deserializer.prototype.buffer;
+  const owner=kind==='buffer-setter-root'?Object.prototype:v8.Deserializer.prototype;
+  function install(){Object.defineProperty(owner,'buffer',{configurable:true,set(bytes){
+    if(kind!=='buffer-setter')delete owner.buffer;
     rawCopies.push(Buffer.from(bytes));
     Object.defineProperty(this,'buffer',{configurable:true,writable:true,enumerable:true,value:bytes});
   }})}
@@ -161,7 +162,7 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['emi
   ['protocol-getter','advanced'],['unrelated-decoder','advanced'],['host-object','advanced'],
   ['constructor-copy','advanced'],['constructor-self-restore','advanced'],['constructor-proxy','advanced'],
   ['constructor-late-swap','advanced'],['buffer-setter','advanced'],['buffer-setter-self-restore','advanced'],
-  ['buffer-setter-late-install','advanced']]) {
+  ['buffer-setter-late-install','advanced'],['buffer-setter-root','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
