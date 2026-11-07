@@ -61,6 +61,133 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  benchmark-managed-batch-certificate:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-batch-certificate'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      NODE_PRESERVE_SYMLINKS: ''
+      NODE_COMPILE_CACHE: ''
+      ESBUILD_BINARY_PATH: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Retain exact unchanged compiler and original targeted diagnostic
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/batch-controls"
+          git fetch --no-tags --depth=1 origin 766ff388f1dcc3305d43a14e99655404dc01b596
+          git show 766ff388f1dcc3305d43a14e99655404dc01b596:scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs > scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root = Path('scripts/bench-vitest/managed')
+          expected = {
+              'compiler.mjs': 'a87f1f8fafea2e0f1b4a1e299199f5581172a2fe90f59882d3c64eb50f68acaf',
+              'resolved-compile-certificate-probe.mjs': '3c6cf9be9cf705322ef9768da2dc5dc5a68e0369ba75be4d2817aa27613aa894',
+          }
+          for name, digest in expected.items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
+          PY
+          git rev-parse HEAD > "$RUNNER_TEMP/batch-controls/source-pin.txt"
+          sha256sum scripts/bench-vitest/managed/compiler.mjs scripts/bench-vitest/managed/resolved-compile-certificate.mjs scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs > "$RUNNER_TEMP/batch-controls/source-sha256.txt"
+      - name: Preserve all 55 actual compiler controls
+        run: >-
+          node scripts/bench-vitest/managed/compiler-fixtures/check.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/batch-controls/compiler"
+      - name: Preserve all 213 strict API and current-input controls
+        run: >-
+          node scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/batch-controls/resolved-targeted"
+      - name: Restore only the exact independently audited legacy regression data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/bench-vitest/managed/restore-matrix-evidence.py
+          13587034973 ff279ea5b59b359d26985f08f22e0749f9eccbde 42406036816
+          36186785 f8e20f3a68cc3fbec7ce01a5ea90e8b50a1d558cbf08146a7fb049e242adc282
+          "$RUNNER_TEMP/batch-reference"
+      - run: git fetch --no-tags --depth=1 origin ff279ea5b59b359d26985f08f22e0749f9eccbde
+      - name: Independently audit legacy data without executing it
+        run: >-
+          python3 scripts/bench-vitest/managed/matrix-audit.py
+          "$RUNNER_TEMP/batch-reference" ff279ea5b59b359d26985f08f22e0749f9eccbde
+          --archive "$RUNNER_TEMP/batch-reference.zip"
+          --run-json "$RUNNER_TEMP/batch-reference-run.json"
+          --artifacts-json "$RUNNER_TEMP/batch-reference-artifacts.json"
+          > "$RUNNER_TEMP/batch-controls/reference-audit.json"
+      - name: Preserve all 152 original ledger controls
+        run: >-
+          node scripts/bench-vitest/managed/matrix-receipt-fixtures.mjs
+          "$RUNNER_TEMP/batch-reference/_temp/managed-matrix"
+          "$RUNNER_TEMP/batch-controls/legacy-ledger"
+      - name: Preserve all 13 dispatcher cases, 142 assertions and 18 proof controls
+        run: >-
+          node scripts/bench-vitest/managed/matrix-input-dispatcher-fixtures.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/batch-controls/dispatcher"
+      - name: Check exact original assertion inventories
+        run: >-
+          node scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs
+          --controls "$RUNNER_TEMP/batch-controls"
+      - name: Execute all original native120 and current managed108 instances
+        run: >-
+          node scripts/bench-vitest/managed/matrix-probe.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/batch-current-matrix"
+      - name: Compare actual batch12 and batch108 bundles, certificates and proofs
+        run: >-
+          node scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs
+          "$PWD/profile-project" "$RUNNER_TEMP/batch-current-matrix" "$RUNNER_TEMP/batch-certificate"
+          "$RUNNER_TEMP/batch-reference/_temp/managed-matrix"
+      - name: Bound and hash each separate evidence role even on failure
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          for role in batch-controls batch-current-matrix batch-certificate; do
+            if test -d "$RUNNER_TEMP/$role"; then
+              node scripts/bench-vitest/managed/batch-compile-certificate-probe.mjs --bounds "$RUNNER_TEMP/$role" || failed=1
+            fi
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-batch-certificate-controls
+          path: ${{ runner.temp }}/batch-controls
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-batch-certificate-current-matrix
+          path: ${{ runner.temp }}/batch-current-matrix
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-batch-certificate-pairs
+          path: ${{ runner.temp }}/batch-certificate
+          retention-days: 7
+
   matrix-input-dispatcher-fixtures:
     permissions:
       contents: read

@@ -60,6 +60,13 @@ const digest = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value
 const proofs = new WeakMap()
 const certifiedBuilds = new WeakMap()
 let compilerEpoch = null, initialization = null
+let publicOperations = 0, activeBatch = false, batchPoisoned = false
+function enterPublicOperation() {
+  assert(!activeBatch, 'certified batch is reserved')
+  assert(!batchPoisoned, 'failed certified batch requires a fresh process')
+  publicOperations++
+  return () => { publicOperations-- }
+}
 const inside = (root, file) => file === root || file.startsWith(root + path.sep)
 const slash = value => value.split(path.sep).join('/')
 const exact = (value, keys) => assert(value && Object.getPrototypeOf(value) === Object.prototype &&
@@ -112,8 +119,11 @@ const geometry = ctx => ({project: ctx.project, adapter: ctx.adapter})
 // A ledger factory must call this reader, not trust the diagnostic identity
 // property or deserialize a token. The returned copy cannot edit stored proof.
 export function readValidatedCompileIdentity(proof) {
-  assert(proof && typeof proof === 'object' && proofs.has(proof), 'unissued compile equivalence proof')
-  return JSON.parse(proofs.get(proof))
+  const leave = enterPublicOperation()
+  try {
+    assert(proof && typeof proof === 'object' && proofs.has(proof), 'unissued compile equivalence proof')
+    return JSON.parse(proofs.get(proof))
+  } finally { leave() }
 }
 
 function resolveInNewNode(ctx, requests, tools) {
@@ -271,8 +281,7 @@ function assertCompilerEpoch(ctx) {
  * which may indirectly import the ordinary compiler. Unknown prior tool loads
  * decline instead of stamping a warm module with current on-disk bytes.
  */
-export async function createCertifiedManagedCompiler({project, adapterRoot = here, sourceTreeCache = true}) {
-  const ctx = context(project, adapterRoot)
+async function initializeCompilerEpoch(ctx) {
   if (!compilerEpoch) {
     if (!initialization) initialization = (async () => {
       const tools = toolIdentity(ctx), fingerprint = json(tools)
@@ -297,16 +306,30 @@ export async function createCertifiedManagedCompiler({project, adapterRoot = her
     })()
     await initialization
   }
+}
+
+export async function createCertifiedManagedCompiler(argumentValue) {
+  const leave = enterPublicOperation()
+  try { return await createCertifiedManagedCompilerInner(argumentValue) }
+  finally { leave() }
+}
+
+async function createCertifiedManagedCompilerInner({project, adapterRoot = here, sourceTreeCache = true}) {
+  const ctx = context(project, adapterRoot)
+  await initializeCompilerEpoch(ctx)
   assertCompilerEpoch(ctx)
   const compile = compilerEpoch.module.createManagedCompiler({project: ctx.project, adapterRoot: ctx.adapter, sourceTreeCache})
   assertCompilerEpoch(ctx)
   return async (...args) => {
-    assertCompilerEpoch(ctx)
-    const built = await compile(...args)
-    assertCompilerEpoch(ctx)
-    certifiedBuilds.set(built, {tools: compilerEpoch.tools, identity: json(built.identity),
-      identitySha256: built.identitySha256, bundleSha256: built.sha256, closure: json(built.closure)})
-    return built
+    const leave = enterPublicOperation()
+    try {
+      assertCompilerEpoch(ctx)
+      const built = await compile(...args)
+      assertCompilerEpoch(ctx)
+      certifiedBuilds.set(built, {tools: compilerEpoch.tools, identity: json(built.identity),
+        identitySha256: built.identitySha256, bundleSha256: built.sha256, closure: json(built.closure)})
+      return built
+    } finally { leave() }
   }
 }
 
@@ -410,7 +433,13 @@ function currentGlobs(ctx, compile) {
 }
 
 /** Called only after a real successful compile; result is still only data. */
-export function captureResolvedCompileCertificate({project, adapterRoot = here, built, options, testFile, entry}) {
+export function captureResolvedCompileCertificate(argumentValue) {
+  const leave = enterPublicOperation()
+  try { return captureResolvedCompileCertificateInner(argumentValue) }
+  finally { leave() }
+}
+
+function captureResolvedCompileCertificateInner({project, adapterRoot = here, built, options, testFile, entry}) {
   const ctx = context(project, adapterRoot), rootGeometry = geometry(ctx)
   assert(certifiedBuilds.has(built), 'actual certified compiler build required; warm or deserialized builds decline')
   assertCompilerEpoch(ctx)
@@ -434,12 +463,128 @@ export function captureResolvedCompileCertificate({project, adapterRoot = here, 
   return {bytes, sha256: sha(bytes)}
 }
 
+// Unwired investigation. A closed sequence can share an adjacent full fence:
+// after compile is before capture, and after capture is before the next compile.
+// No callable supplied by a caller runs inside this reserved interval.
+export async function compileAndCaptureCertifiedBatch(argumentsValue) {
+  assert(argumentsValue && Object.getPrototypeOf(argumentsValue) === Object.prototype, 'plain batch arguments required')
+  exact(argumentsValue, ['project', 'adapterRoot', 'requestsJSON'])
+  const descriptors = Object.getOwnPropertyDescriptors(argumentsValue)
+  for (const name of ['project', 'adapterRoot', 'requestsJSON']) {
+    assert(descriptors[name].enumerable && 'value' in descriptors[name] && typeof descriptors[name].value === 'string',
+      'primitive batch argument data required')
+  }
+  assert(Buffer.byteLength(descriptors.requestsJSON.value) <= LIMITS.resolverBytes &&
+    Buffer.byteLength(descriptors.project.value) <= 4096 && Buffer.byteLength(descriptors.adapterRoot.value) <= 4096,
+  'batch argument byte bound exceeded')
+  const argumentBytes = json(argumentsValue)
+  const args = JSON.parse(argumentBytes)
+  exact(args, ['project', 'adapterRoot', 'requestsJSON'])
+  assert(typeof args.project === 'string' && typeof args.adapterRoot === 'string', 'primitive batch roots required')
+  assert(typeof args.requestsJSON === 'string' && Buffer.byteLength(args.requestsJSON) <= LIMITS.resolverBytes,
+    'bounded primitive batch request JSON required')
+  const requests = JSON.parse(args.requestsJSON)
+  assert(json(requests) === args.requestsJSON, 'canonical batch request JSON required')
+  assert(Array.isArray(requests) && requests.length > 0 && requests.length <= LIMITS.certificates,
+    'bounded nonempty batch requests required')
+  const ctx = context(args.project, args.adapterRoot)
+  for (const request of requests) {
+    exact(request, ['entry', 'options', 'testFile'])
+    assert(request.entry === 'runner.mjs' && typeof request.testFile === 'string', 'runner-only batch selection required')
+    assert(inside(ctx.project, fs.realpathSync(request.testFile)), 'batch test entry outside project')
+    currentSelection(ctx, request)
+  }
+  assert(!activeBatch && !batchPoisoned && publicOperations === 0,
+    'batch requires no previous certified operation in flight and an unpoisoned process')
+  // Set before the first await: public initialization, compilation, capture,
+  // validation and proof reads cannot enter or overlap a reserved batch.
+  activeBatch = true
+  const trace = [], pending = []
+  let totalBundles = 0, totalCertificates = 0, totalIdentities = 0
+  try {
+    await initializeCompilerEpoch(ctx)
+    const cacheObject = createRequire(import.meta.url).cache
+    const cache = new Map(Object.entries(cacheObject).map(([file, module]) => [file, {module, exports: module.exports}]))
+    function fence(label) {
+      assertCompilerEpoch(ctx)
+      const current = createRequire(import.meta.url).cache
+      assert(current === cacheObject && Object.keys(current).length === cache.size &&
+        [...cache].every(([file, saved]) => current[file] === saved.module && current[file].exports === saved.exports),
+      'batch loaded an unknown or replaced cached module')
+      assert(publicOperations === 0, 'public certified operation entered a reserved batch')
+      trace.push(label)
+    }
+    fence('before-constructor')
+    const compile = compilerEpoch.module.createManagedCompiler({project: ctx.project, adapterRoot: ctx.adapter,
+      sourceTreeCache: true})
+    fence('after-constructor/before-compile:0')
+    const tools = JSON.parse(compilerEpoch.tools), rootGeometry = geometry(ctx)
+    for (const [index, request] of requests.entries()) {
+      const built = await compile(request.entry, request.options, request.testFile)
+      fence('after-compile:' + index + '/before-capture:' + index)
+      assert(built.closure?.finalBundleParsed && built.sha256 === built.identity.bundleSha256 &&
+        sha(built.bundle) === built.sha256, 'actual closed batch bundle required')
+      const selection = currentSelection(ctx, request)
+      checkedFacts(ctx, built.identity, selection)
+      const sourceFiles = sourceObservations(ctx, built.identity)
+      assert(json(currentGlobs(ctx, built.identity)) === json(built.identity.globs), 'batch glob names changed after compile')
+      assert(json(sourceObservations(ctx, built.identity)) === json(sourceFiles), 'batch source changed during capture')
+      const certificate = {schema: SCHEMA, limits: LIMITS, selection, compile: built.identity,
+        rootGeometry, tools, sourceFiles}
+      const bytes = Buffer.from(json(certificate) + '\n')
+      assert(bytes.length <= LIMITS.certificateBytes, 'batch certificate byte bound exceeded')
+      totalBundles += Buffer.byteLength(built.bundle); totalCertificates += bytes.length
+      const identity = json(built.identity); totalIdentities += Buffer.byteLength(identity)
+      assert(sha(identity) === built.identitySha256, 'batch compiled identity digest differs')
+      assert(Buffer.byteLength(built.bundle) <= LIMITS.fileBytes && totalBundles <= LIMITS.sourceBytes &&
+        totalCertificates <= LIMITS.certificateSetBytes && totalIdentities <= LIMITS.certificateSetBytes,
+      'aggregate batch output byte bound exceeded')
+      pending.push({built, certificate: {bytes, sha256: sha(bytes)}, sourceFiles,
+        issued: {tools: compilerEpoch.tools, identity, identitySha256: built.identitySha256,
+          bundleSha256: built.sha256, closure: json(built.closure)}})
+      if (index === requests.length - 1) {
+        // The last capture also rechecks every earlier source and glob before
+        // its closing full fence. A later input change cannot leave an older
+        // member publishable merely because its own capture already finished.
+        const cache = new Map(), retained = {bytes: 0}
+        for (const item of pending) {
+          assert(json(sourceObservations(ctx, item.built.identity, cache, retained)) === json(item.sourceFiles),
+            'batch source changed before final publication')
+          assert(json(currentGlobs(ctx, item.built.identity)) === json(item.built.identity.globs),
+            'batch glob changed before final publication')
+        }
+      }
+      fence(index === requests.length - 1 ? 'after-capture:' + index + '/before-publication'
+        : 'after-capture:' + index + '/before-compile:' + (index + 1))
+    }
+    // No await, callback, parsing or user-visible publication intervenes after
+    // the final full guard. Until now no pending object has certified provenance.
+    for (const item of pending) certifiedBuilds.set(item.built, item.issued)
+    return {schema: 'quod-managed-certified-compile-batch-v1-diagnostic',
+      results: pending.map(item => ({built: item.built, certificate: item.certificate})),
+      diagnostics: {requests: requests.length, fullFences: trace.length, trace,
+        totalBundles, totalCertificates, totalIdentities, publicOperationsAtReservation: 0,
+        authority: 'actual compilation and capture only; no response or receipt admission'}}
+  } catch (error) {
+    batchPoisoned = true
+    // Diagnostics contain no pending output or private issuance token.
+    error.batchFenceTrace = [...trace]
+    throw error
+  } finally { activeBatch = false }
+}
+
 /**
  * External trusted SHA must originate from an authenticated transport, never
  * from the certificate itself. The diagnostic fixtures pass constructed seeds.
  * Returns only an identity candidate; response admission remains the ledger's.
  */
-export async function validateResolvedCompileCertificates({project, adapterRoot = here, requests}) {
+export async function validateResolvedCompileCertificates(argumentValue) {
+  const leave = enterPublicOperation()
+  try { return await validateResolvedCompileCertificatesInner(argumentValue) }
+  finally { leave() }
+}
+
+async function validateResolvedCompileCertificatesInner({project, adapterRoot = here, requests}) {
   const misses = reason => requests.map(() => ({hit: false, reason, next: 'full-compile'}))
   if (!Array.isArray(requests) || requests.length > LIMITS.certificates) throw new Error('bounded certificate requests required')
   try {
