@@ -1,0 +1,116 @@
+{
+  "scope": "main-process metadata observation during the unchanged expensive test; no replay",
+  "projectCommit": "5eaa7e5160736054d53f8b71e2c522835eb427e0",
+  "sourceSha256": "9798bab303233bca846a89ccb39ce28bd968329e0704f3e5d67adca934c11c75",
+  "node": "v24.18.0",
+  "image": "ubuntu26/20261101.186.1",
+  "phases": [
+    {
+      "phase": "plain-before",
+      "seconds": 57.53130889399999,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "823c71b2dde68d41e9f862987e9166c22b67330157eca9463666b37eeb450bfe"
+    },
+    {
+      "phase": "observed",
+      "seconds": 58.21115711600001,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "c2eecb0be35ed331f3891e624229a0aaac8f213b538f206a00af5c09ae329497"
+    },
+    {
+      "phase": "plain-after",
+      "seconds": 56.75940223799998,
+      "exit": 0,
+      "tests": 47,
+      "reportSha256": "a71df2c9e6a277ec525eba3b4fdafbe4ada05b0b561bf35e9e642db7da02ecfc"
+    }
+  ],
+  "statesMatch": true,
+  "replayEligible": false,
+  "replayed": 0,
+  "pauses": 291,
+  "rows": 291,
+  "rejections": [],
+  "queries": {
+    "statSync": 80,
+    "unmapped": 210,
+    "stat": 1
+  },
+  "fields": {
+    "mode": 251,
+    "dev": 16,
+    "ino": 16,
+    "size": 1
+  },
+  "intact": {
+    "True": 291
+  },
+  "limitations": [
+    "startup, other native/debugger observers and query identity are not certified",
+    "the diagnostic bridge is observable through debugger capabilities",
+    "workers, earlier startup and later exit listeners are outside this diagnostic",
+    "Fixed phase order on one runner; no fresh-runner or whole-job savings claim"
+  ],
+  "run": "https://github.com/pango07/quod/actions/runs/42359952265",
+  "gateCommit": "998b9091f434f8758b2ebfb4f7cdc1764c718550",
+  "regressionTests": {
+    "passed": 48,
+    "failed": 0
+  },
+  "artifact": {
+    "id": 13568794598,
+    "bytes": 9923,
+    "sha256": "790604b31c7cd935e84916c954930a7227fd1770aa9a0e894f1308fe04d670bb"
+  },
+  "constructorReportSha256": "3b111e6c30593f4b2ad7db2595872d67b9c29ca080f040164222595dc0961ff8",
+  "independentlyChecked": [
+    "archive digest and size",
+    "all three test report digests",
+    "same 47 test names and passed states in every phase",
+    "291 rows, no failures/rejections, all intact at reporting"
+  ],
+  "readGroups": [
+    {
+      "query": "statSync",
+      "fields": [
+        "mode"
+      ],
+      "count": 62
+    },
+    {
+      "query": "statSync",
+      "fields": [],
+      "count": 18
+    },
+    {
+      "query": "unmapped",
+      "fields": [
+        "mode"
+      ],
+      "count": 173
+    },
+    {
+      "query": "unmapped",
+      "fields": [],
+      "count": 21
+    },
+    {
+      "query": "unmapped",
+      "fields": [
+        "dev",
+        "ino",
+        "mode"
+      ],
+      "count": 16
+    },
+    {
+      "query": "stat",
+      "fields": [
+        "size"
+      ],
+      "count": 1
+    }
+  ]
+}

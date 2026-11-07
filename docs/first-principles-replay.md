@@ -267,3 +267,12 @@ consumer case proves why late installation cannot authorize key refinement.
 Any further work on that candidate must establish a pre-publication boundary
 and retain the existing observer counterexamples. It has enabled no product
 replay and does not replace the fresh-runner or full-window acceptance gates.
+
+The [constructor-entry workload follow-up](bench/native-stat-fields.md#unchanged-expensive-test-2026-11-07)
+now passes 48 regressions and the expensive test's 47 unchanged test states
+between ordinary controls. Its observed command takes 58.211 seconds against
+57.531 and 56.759 seconds plain. It records 291 main-process Stats objects,
+but 210 have no query attribution and 16 read device/inode values. This
+changes the mechanism's feasibility evidence; it still establishes no
+replay, complete input boundary or window savings. Resolve those specific
+coverage questions before enabling narrower keys.

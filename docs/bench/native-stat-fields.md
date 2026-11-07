@@ -105,6 +105,60 @@ supplies no savings claim. The next remote diagnostic measures this mechanism
 around the unchanged expensive property test with ordinary controls; even a
 passing result would still require a fresh-runner replay and mutation gate.
 
+## Unchanged expensive test, 2026-11-07
+
+[Gate 42359952265](https://github.com/pango07/quod/actions/runs/42359952265)
+at `998b9091f434f8758b2ebfb4f7cdc1764c718550` passed 48 regressions and
+three executions of c11's unchanged `stream.property.test.ts`. All 47 test
+names and passed states agree. The test's cases, seeds and assertions were
+not changed. These are commands on one runner, not whole-job measurements.
+
+| Phase | Command seconds | Tests passed |
+| --- | ---: | ---: |
+| Ordinary before | 57.531 | 47 |
+| Constructor observation | 58.211 | 47 |
+| Ordinary after | 56.759 | 47 |
+
+The observed command took 0.680–1.452 seconds longer than the two controls.
+Fixed phase order and one sample do not establish causal overhead or a
+stable percentage. This result is encouraging for feasibility but contains
+zero replay and no fresh-runner or savings claim.
+
+The main-process diagnostic observed 291 Stats constructions, all fully
+initialized and intact at its reporting point, with no instrumentation
+failure or rejected construction. Its source-frame query heuristic mapped
+80 synchronous stats and one promise stat; 210 constructions remain unmapped.
+It is diagnostic attribution, not a certified path identity.
+
+| Observed field set | Objects |
+| --- | ---: |
+| Mode only | 235 |
+| No field read observed | 39 |
+| Device, inode and mode | 16 |
+| Size only | 1 |
+
+The size reader maps to the property-test source path. All 16 device/inode
+readers remain unmapped. Their consumers and meaning must be established;
+their values cannot be discarded because the final test results agree.
+The observation window excludes workers, earlier startup and later exit
+listeners. Query attribution and the complete observation boundary remain
+required before production keys can be narrowed.
+
+The added collection regression deliberately overwrites `size` with `99`,
+reads it and collects the object. Its callback integrity becomes unknown.
+This is **not** a demonstrated missed original metadata read: that program
+uses a replacement constant. A possible simpler dependency argument would
+track every consumption of the original immutable metadata value, including
+copies and value-preserving descriptor changes. It would still need to
+exclude unobserved earlier aliases/native or debugger reads and preserve
+durable read/failure evidence after collection. No such certificate is
+implemented or claimed here; retaining Stats objects to avoid collection
+would also need an argument about observable lifetime behavior.
+
+The [verified evidence](stat-constructor-workload.json) retains the exact
+archive digest, report digests, independent name/state comparison, image and
+field groups. No full window was repeated for this diagnostic.
+
 ## Prepared benchmark harness
 
 `pango07/ci-bench` branch `bench/descriptor-safe-codex`, commit
