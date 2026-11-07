@@ -65,6 +65,7 @@ const config :Workerd.Config = (
     const data = JSON.parse(text)
     const row = {name, seconds: (performance.now() - started) / 1000, responseSha256: sha(text), data}
     results.phases.push(row); write('result.json', results)
+    console.log(JSON.stringify({phase: name, seconds: row.seconds, ok: data.ok, unsupported: data.boundary?.unsupported}))
     return data
   } finally {
     if (!exit) child.kill('SIGTERM')
@@ -86,7 +87,10 @@ async function compile(entry, options, testFile) {
         if (args.path === 'node:async_hooks') return {path: args.path, external: true}
         throw new Error('unsupported native module: ' + args.path)
       })
-      builder.onResolve({filter: /^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/}, args => ({path: fromProject.resolve(args.path)}))
+      builder.onResolve({filter: /^(vitest(?:\/.*)?|vite\/module-runner|chai|tinybench|expect-type)$/}, args => ({path:
+        args.path === 'vitest'
+          ? path.join(path.dirname(fromProject.resolve('vitest/package.json')), 'dist/index.js')
+          : fromProject.resolve(args.path)}))
       builder.onLoad({filter: /\.[cm]?[jt]sx?$/}, args => {
         if (!ts || !args.path.startsWith(project + '/')) return
         let contents = fs.readFileSync(args.path, 'utf8')
@@ -130,11 +134,18 @@ try {
 
   const {createVitest} = await import(pathToFileURL(fromProject.resolve('vitest/node')).href)
   const ctx = await createVitest({root: project, watch: false, run: true, reporters: []})
+  const file = 'packages/convex-helpers/server/stream.property.test.ts'
   let config
   try {
-    const p = ctx.projects.find(p => p.config.root === path.join(project, 'packages/convex-helpers'))
-    assert(p, 'original convex-helpers project not found')
+    const specs = await ctx.globTestSpecifications([file])
+    assert.equal(specs.length, 1, 'expected one actual Vitest specification for the expensive test')
+    const p = specs[0].project
+    assert.equal(p.config.root, path.join(project, 'packages/convex-helpers'))
+    assert(!p.config.name?.startsWith('zod-'), 'a Zod-only project must not select this test')
     assert.equal(p.serializedConfig.setupFiles.length, 0)
+    assert.equal(p.serializedConfig.snapshotSerializers.length, 0)
+    assert(!p.serializedConfig.snapshotEnvironment)
+    assert(!fs.existsSync(path.join(project, 'packages/convex-helpers/server/__snapshots__/stream.property.test.ts.snap')))
     const encoded = JSON.stringify(p.serializedConfig, (_key, value) => {
       assert(typeof value !== 'function', 'function-valued configuration unsupported')
       assert(!(value instanceof RegExp), 'regexp configuration needs explicit serialization')
@@ -144,14 +155,13 @@ try {
     // A declared managed shuffle seed replaces the ambient default Date.now seed.
     config.sequence.seed = base.seed
   } finally { await ctx.close() }
-  const file = 'packages/convex-helpers/server/stream.property.test.ts'
   const testFile = path.join(project, file)
   results.testSourceSha256 = sha(fs.readFileSync(testFile))
   const options = {...base, vitest: config, file: '/project/' + file}
   const compiled = await compile('runner.mjs', options, testFile)
   write('test-build.json', {...compiled, bundle: undefined, globs, options})
   const managed = await execute('managed', compiled.bundle)
-  results.managedSupported = !managed.error && managed.boundary.unsupported.length === 0 && managed.boundary.unguardable.length === 0
+  results.managedSupported = !managed.error && managed.boundary.unsupported.length === 0 && managed.boundary.unguardable.length === 0 && managed.boundary.timerErrors.length === 0
   results.managedPassed = Boolean(managed.ok)
   results.managedRows = managed.rows || []
 } catch (error) {
