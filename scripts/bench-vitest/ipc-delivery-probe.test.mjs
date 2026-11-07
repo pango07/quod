@@ -32,6 +32,7 @@ function ipcPipe(process) {
 const registryUrl=new URL('./promise-observers-probe.mjs',import.meta.url).href
 async function run(kind,enabled,serialization='advanced') {
   const fragmented=kind.startsWith('normal-fragmented')||kind==='buffer-species-self-restore'||kind.startsWith('parser-concat-')||kind.startsWith('retained-')
+  const sequential=kind==='between-list-alias'
   const boundWire=ipcFrames([1,2].map(value=>({kind:'data',value,privatePath:'/private-ipc-delivery'})),serialization).toString('base64')
   const source=`import {inspectPromiseObservers} from ${JSON.stringify(registryUrl)};
 import v8 from 'node:v8';
@@ -57,8 +58,12 @@ function observer(message){
   if(!enabled&&kind!=='callback-throw')prepareWorkerMessage(message);
   values.push(typeof message==='object'?message.value:message);order.push('consumer');
   deliveryEvents.push({operation:'consumer',value:values.at(-1),read:activeRead()});
+  if(kind==='between-list-alias'&&values.length===1){
+    earlyBufferList=pipe[nativeBufferKey];earlyBufferListWasEmpty=earlyBufferList.length===0;
+    process.send({kind:'next'});
+  }
   if(values.length===(kind==='synthetic'?3:2)) {
-    if(kind==='early-list-alias')copyWire(earlyBufferList[0]);
+    if(['early-list-alias','early-list-descriptor','between-list-alias'].includes(kind))copyWire(earlyBufferList[0]);
     const report=p.ipcDelivery(),dispatch=p.messageDispatch(),compilation=p.compiledScriptReport();
     asyncHook?.disable();p.close();process.removeListener('message',observer);
     if(kind==='onread-shadow-getter')delete pipe.onread;
@@ -75,8 +80,9 @@ function observer(message){
 }
 process.prependListener('message',observer);p.captureMessageObserver();
 const initial=enabled?p.captureIpcDelivery():null;
-if(kind==='early-list-alias'){
-  earlyBufferList=pipe[nativeBufferKey];earlyBufferListWasEmpty=earlyBufferList.length===0;
+if(kind==='early-list-alias'||kind==='early-list-descriptor'){
+  earlyBufferList=kind==='early-list-descriptor'?Object.getOwnPropertyDescriptor(pipe,nativeBufferKey).value:pipe[nativeBufferKey];
+  earlyBufferListWasEmpty=earlyBufferList.length===0;
 }
 if(['onread-copy','onread-self-restore','async-resource-copy'].includes(kind)) {
   const replacement=function(...args){
@@ -267,15 +273,16 @@ process.send({kind:'ready',initial});`
           ...(kind==='host-object'?{bytes:Buffer.from([value,value+1])}:{})})
         const bytes=ipcFrames(inputs,serialization)
         // Hold the bytes until child exit even if the native write is async.
-        if(fragmented){const offset=kind.startsWith('retained-')?bytes.length-1:kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
+        if(sequential){const offset=ipcFrames([inputs[0]],serialization).length;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
+        else if(fragmented){const offset=kind.startsWith('retained-')?bytes.length-1:kind==='normal-fragmented-body'?8:3;remainingBytes=bytes.subarray(offset);write(bytes.subarray(0,offset),reject)}
         else write(bytes,reject)
       }
-      if(message.kind==='fragment-ready'){assert(remainingBytes);write(remainingBytes,reject);remainingBytes=null}
+      if(message.kind==='fragment-ready'||message.kind==='next'){assert(remainingBytes);write(remainingBytes,reject);remainingBytes=null}
     })
     child.on('exit',(code,signal)=>{clearTimeout(timer);resolve({code,signal})})
   })
   assert.equal(outcome.code,0,errors.join('')||String(outcome.signal))
-  assert.deepEqual(messages.map(m=>m.kind),fragmented?['ready','fragment-ready','report']:['ready','report'])
+  assert.deepEqual(messages.map(m=>m.kind),sequential?['ready','next','report']:fragmented?['ready','fragment-ready','report']:['ready','report'])
   return {initial:messages[0].initial,...messages.at(-1)}
 }
 
@@ -294,7 +301,8 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
   ['view-constructor-getter','advanced'],['buffer-species-self-restore','advanced'],
   ['parser-length-getter','advanced'],['parser-buffer-getter','advanced'],['parser-buffer-setter','advanced'],
   ['parser-concat-copy','advanced'],['parser-concat-getter','advanced'],['parser-protocol-remainder','advanced'],
-  ['retained-copy','advanced'],['retained-shadow','advanced'],['early-list-alias','advanced']]) {
+  ['retained-copy','advanced'],['retained-shadow','advanced'],['early-list-alias','advanced'],
+  ['early-list-descriptor','advanced'],['between-list-alias','advanced']]) {
   test('decoded IPC delivery: '+kind+' / '+serialization,async()=>{
     const plain=await run(kind,false,serialization),r=await run(kind,true,serialization)
     assert.deepEqual(r.values,plain.values)
@@ -325,14 +333,15 @@ for(const [kind,serialization] of [['normal','advanced'],['normal','json'],['nor
     assert.equal(r.report.reads.completeOwnership,false)
     assert.equal(r.report.decoder.initialNativeIntegrity,false)
     assert.equal(r.report.decoder.completeOwnership,false)
-    if(kind==='early-list-alias') {
+    if(['early-list-alias','early-list-descriptor','between-list-alias'].includes(kind)) {
       assert.equal(r.earlyBufferListWasEmpty,true);assert.equal(plain.earlyBufferListWasEmpty,true)
       assert(r.wireCopyBytes>0);assert.equal(r.wireCopyBytes,plain.wireCopyBytes)
       assert.equal(r.copiedPayloadContainsPath,true);assert.equal(plain.copiedPayloadContainsPath,true)
       assert.deepEqual(r.byteCopyPreparations,[2]);assert.deepEqual(plain.byteCopyPreparations,[2])
       assert.equal(r.gets,0,'retaining an ordinary array must not require a getter or parser replacement')
       assert.equal(r.report.boundaries.retainedEntries,0);assert.equal(r.report.boundaries.retainedReturns,0)
-      assert.equal(r.report.boundaries.checked,2,'a complete packet leaves both read boundaries empty')
+      assert.equal(r.report.boundaries.checked,kind==='between-list-alias'?4:2,
+        'complete packets leave every read boundary empty')
       assert.equal(r.report.channelAccess.byField.buffers,1)
       assert(r.report.channelAccess.errors.includes('channel field read outside native callback'))
     }
