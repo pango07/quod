@@ -4,7 +4,7 @@ import {AsyncLocalStorage} from 'node:async_hooks'
 const options = __QUOD_CONFIG__
 // This controller shares a realm with tests. Keep its bookkeeping independent
 // of prototypes a test (or a dependency) is allowed to replace temporarily.
-const NativeDate = Date, NativeResponse = Response, NativePromise = Promise
+const NativeDate = Date, NativeResponse = Response, NativePromise = Promise, NativeArray = Array
 const NativeString = String, NativeNumber = Number, NativeError = Error
 const freeze = Object.freeze, preventExtensions = Object.preventExtensions
 const ownKeys = Reflect.ownKeys, getPrototype = Object.getPrototypeOf, isExtensible = Object.isExtensible
@@ -52,6 +52,28 @@ let tick = 0, randomState = options.seed >>> 0, timerId = 0, pendingWake, active
 let timerCallbacks = 0, pendingTimerCallbacks = 0, pendingMicrotasks = 0, pendingEventCallbacks = 0
 let locked = false, completionRequested = false, finished = false
 const integrity = [], mutableSlots = [], protectedObjects = new Set()
+// Probe policy: these original native lookup slots remain data/accessor
+// descriptors until a captured Object.freeze performs one integrity transition.
+// Per-property redefinition invalidates V8's species/then/resolve protectors,
+// even when the original value is retained. Other writable slots keep the
+// receiver-aware setters below. Inherited assignment to these frozen data
+// slots now follows native nonwritable semantics, including caught TypeErrors.
+const intrinsicPolicy = 'quod-managed-frozen-array-promise-slots-v1-probe'
+const boundaryContract = 'quod-managed-v0-protectors-frozen-slots-investigation'
+const nativeFrozenTargets = new Set([NativeArray, NativeArray.prototype, NativePromise, NativePromise.prototype])
+const nativeFrozenSlots = [
+  [NativeArray.prototype, 'constructor', 'Array.prototype.constructor'],
+  [NativeArray.prototype, Symbol.iterator, 'Array.prototype[Symbol.iterator]'],
+  [NativeArray, Symbol.species, 'Array[Symbol.species]'],
+  [NativePromise.prototype, 'constructor', 'Promise.prototype.constructor'],
+  [NativePromise.prototype, 'then', 'Promise.prototype.then'],
+  [NativePromise, 'resolve', 'Promise.resolve'],
+  [NativePromise, Symbol.species, 'Promise[Symbol.species]'],
+]
+for (let index = 0; index < nativeFrozenSlots.length; index++) {
+  const row = nativeFrozenSlots[index]
+  row[3] = ownDescriptor(row[0], row[1])
+}
 let completion = {sealed: false, nativeTurnFences: 0, reason: 'completion was not requested'}
 const timers = new Map()
 // Test modules receive this facade from the compiler, never the runtime's
@@ -415,8 +437,22 @@ function descriptorEqual(left, right) {
   return sameValue(left.value, right.value) && left.get === right.get && left.set === right.set &&
     left.writable === right.writable && left.configurable === right.configurable && left.enumerable === right.enumerable
 }
+function nativeFrozenSlot(target, key) {
+  for (let index = 0; index < nativeFrozenSlots.length; index++) {
+    const row = nativeFrozenSlots[index]
+    if (row[0] === target && row[1] === key) return row
+  }
+}
 function lockdown() {
   if (locked) return
+  // Framework bootstrap may use the public intrinsics but must leave these
+  // exact native slots unchanged. Decline instead of freezing a replacement.
+  for (let index = 0; index < nativeFrozenSlots.length; index++) {
+    const row = nativeFrozenSlots[index]
+    if (!row[3] || !descriptorEqual(ownDescriptor(row[0], row[1]), row[3])) {
+      return deny('native frozen slot changed before lockdown: ' + row[2])
+    }
+  }
   // Workerd may omit one of V8's stack-formatting properties. Reserve it before
   // preventing extensions so the pinned framework can restore an undefined slot.
   for (const key of ['stackTraceLimit', 'prepareStackTrace']) {
@@ -448,7 +484,11 @@ function lockdown() {
     const target = queue[index], keys = ownKeys(target)
     for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
       const key = keys[keyIndex], descriptor = ownDescriptor(target, key)
-      if (mutableSlot(target, key)) {
+      if (nativeFrozenSlot(target, key)) {
+        // Leave both the original value and attributes untouched here. A
+        // same-value defineProperty still invalidates most native protectors.
+        continue
+      } else if (mutableSlot(target, key)) {
         arrayPush(mutableSlots, {target, key, descriptor})
       } else if (descriptor.configurable && 'value' in descriptor && descriptor.writable) {
         const value = descriptor.value
@@ -464,7 +504,8 @@ function lockdown() {
           : {...descriptor, configurable: false})
       }
     }
-    preventExtensions(target)
+    if (setHas(nativeFrozenTargets, target)) freeze(target)
+    else preventExtensions(target)
     arrayPush(integrity, {target, prototype: getPrototype(target), keys: ownKeys(target)})
   }
   // Keep bindings to intrinsics and deterministic host replacements fixed too.
@@ -517,6 +558,7 @@ function serialize(value, ancestors = []) {
 
 export const runtime = freeze({
   options,
+  intrinsicPolicy,
   begin() {
     if (active || completionRequested || finished) return deny('runtime execution reuse')
     active = true
@@ -570,7 +612,7 @@ export const runtime = freeze({
     return {...data, ok: asyncFailure ? false : data.ok, boundary: {inventory, guarded, unguardable, symbolInventory, symbolUnguardable,
       unsupported: unsupportedValues, timerErrors, unhandledErrors, pendingTimers: mapSize(timers),
       pendingTimerDetails, completion, virtualTime: tick,
-      logs, replayEligible: false, contract: 'quod-managed-v0-investigation'}}
+      logs, replayEligible: false, intrinsicPolicy, contract: boundaryContract}}
   },
   response(data) { return new NativeResponse(serialize(data), {status: 200, statusText: '', headers: {'content-type': 'application/json'}}) },
 })

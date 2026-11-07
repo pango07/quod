@@ -5,11 +5,29 @@ execution contract. Its default remains `off`; `control` executes the same
 managed workload without remote receipt reads or writes. This is an experimental
 branch integration, separate from the ordinary Quod mode and Quod Cloud.
 
-After `setup-node`, optional usage pinned to the built Action is:
+This candidate uses the separately keyed
+`quod-managed-frozen-array-promise-slots-v1-probe` intrinsic policy and
+`quod-managed-v0-protectors-frozen-slots-investigation` boundary contract.
+It retains seven original slots before freezing the four Array/Promise
+constructor and prototype objects: `Array.prototype.constructor`,
+`Array.prototype[Symbol.iterator]`, `Array[Symbol.species]`,
+`Promise.prototype.constructor`, `Promise.prototype.then`, `Promise.resolve`,
+and `Promise[Symbol.species]`. The other intrinsic guards remain in force.
 
-```yaml
-- {uses: pango07/quod-action@d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928, with: {managed-vitest: v0}}
-```
+This changes assignment semantics for those inherited data properties:
+assignment on instances or subclasses may fail because the inherited property
+is nonwritable. Strict assignment throws, and `Reflect.set` may return false.
+An own `Object.defineProperty` on a public instance remains possible. A caught
+failure from these native frozen-property rules is part of this declared
+managed contract; attempts through the guarded descriptor-mutation entry
+points remain unsupported. The default Action mode remains `off`.
+Receipts from the earlier accessor policy cannot be admitted under this policy.
+
+Performance validation for this candidate is pending. The completed or running
+window at Action `d79c8635f4dbc93c842ec1da8bd5ee6bf8e72928` measures the earlier
+accessor policy and supplies no performance result for this candidate.
+
+The new candidate Action pin will be documented after its GitHub build and gates pass.
 
 The initial profile handles
 `packages/convex-helpers/server/stream.property.test.ts` under the reviewed

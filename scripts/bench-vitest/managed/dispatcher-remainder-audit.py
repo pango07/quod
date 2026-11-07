@@ -4,6 +4,7 @@ import hashlib
 import json
 import pathlib
 import sys
+from frozen_policy_audit import CONTRACT, POLICY
 
 root = pathlib.Path(sys.argv[1])
 FIRST = 'packages/convex-helpers/server/quod-managed-remainder.first.test.ts'
@@ -83,6 +84,8 @@ def audit(mode, expected_exit):
     request = read(directory / 'ordinary-remainder-request.json')
     preparation = read(directory / 'preparation.json')
     response = read(directory / 'selected-response.json')
+    require(response['boundary']['contract'] == CONTRACT and response['boundary']['intrinsicPolicy'] == POLICY,
+            'managed remainder crossed intrinsic policy')
     first, second = str(pathlib.Path(result['project']) / FIRST), str(pathlib.Path(result['project']) / SECOND)
     expected_specs = sorted([(first, 'convex-helpers'), (second, 'convex-helpers')])
     expected_rows = sorted([[first, FIRST_NAME, 'passed'],

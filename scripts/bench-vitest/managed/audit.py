@@ -10,6 +10,7 @@ import pathlib
 import re
 import sys
 import urllib.parse
+from frozen_policy_audit import CONTRACT, POLICY, verify_protector, verify_policy_receipts
 
 root = pathlib.Path(sys.argv[1])
 issues = []
@@ -18,6 +19,7 @@ verified_phases = {}
 verified_invocations = {}
 preflight_checks = []
 preflight_random = []
+protector_checks = []
 sha_pattern = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -81,16 +83,20 @@ def sealed(boundary):
 def supported(response):
     boundary = response.get('boundary', {})
     return (not response.get('error') and sealed(boundary)
+            and (version < 7 or boundary.get('contract') == CONTRACT and boundary.get('intrinsicPolicy') == POLICY)
             and not boundary['unsupported'] and not boundary['unguardable'])
 
 
 result = attempt('integrity', 'result.json', lambda: read('result.json')) or {}
 version = result.get('boundaryChecksVersion', 1)
-check_count = {1: 13, 2: 16, 3: 17, 4: 26, 5: 31, 6: 31}.get(version)
+check_count = {1: 13, 2: 16, 3: 17, 4: 26, 5: 31, 6: 31, 7: 31}.get(version)
 attempt('integrity', 'supported evidence version', lambda: require(check_count is not None, 'unknown boundary version'))
 attempt('integrity', 'cache remains disabled', lambda: require(result.get('cacheEnabled') is False, 'cacheEnabled must be false'))
 if version >= 4:
     attempt('integrity', 'runtime binary identity', lambda: require(valid_sha(result['workerdSha256']), 'invalid workerd SHA256'))
+if version >= 7:
+    attempt('integrity', 'explicit frozen-slot policy', lambda: require(
+        result['boundaryContract'] == CONTRACT and result['intrinsicPolicy'] == POLICY, 'new policy declaration differs'))
 
 
 def verify_build(name, build, worker_names):
@@ -136,6 +142,7 @@ for path in sorted(root.glob('*-build.json')):
     name = path.name
     stem = name[:-len('-build.json')]
     worker_names = (['preflight-one/worker.mjs', 'preflight-two/worker.mjs'] if stem == 'preflight' else
+                    ['protector-one/worker.mjs', 'protector-two/worker.mjs'] if stem == 'protector' else
                     ['managed/worker.mjs'] if stem == 'test' else [stem + '/worker.mjs'])
     attempt('integrity', name, lambda name=name, worker_names=worker_names: verify_build(name, read(name), worker_names))
 
@@ -209,12 +216,15 @@ def verify_response(phase):
     require('globalOutbound = "deny"' in config, 'missing outbound deny policy')
     require('nodejs_compat' not in config and 'disk =' not in config, 'unexpected host capabilities')
     build_name = ('preflight-build.json' if name.startswith('preflight-') else
+                  'protector-build.json' if name.startswith('protector-') else
                   'test-build.json' if name == 'managed' else name + '-build.json')
     require(build_name in verified_builds, 'phase build record failed verification')
     require(name + '/worker.mjs' in verified_builds[build_name]['workerFiles'], 'phase bundle not verified')
     if name != 'native-outbound':
         boundary = response['boundary']
         require(boundary['replayEligible'] is False, 'replay was enabled')
+        if version >= 7:
+            require(boundary['contract'] == CONTRACT and boundary['intrinsicPolicy'] == POLICY, 'response crossed intrinsic policy')
         if version >= 4:
             require(boundary['completion']['intrinsicLockdown'] is True, 'intrinsics were not locked')
             require(boundary['completion']['protectedIntrinsicObjects'] > 0, 'intrinsic policy did not cover objects')
@@ -256,6 +266,8 @@ def verify_executor(name):
             invocation['args'][1].endswith('/' + name + '/config.capnp'), 'actual runtime arguments differ')
     policy = invocation['runtimePolicy']
     require(policy['schema'] == 'quod-managed-runtime-policy-v1-research', 'runtime policy schema differs')
+    if version >= 7:
+        require(policy['boundaryContract'] == CONTRACT and policy['intrinsicPolicy'] == POLICY, 'intrinsic policy omitted from keyed invocation')
     require(policy['workerdSha256'] == result['workerdSha256'], 'invoked runtime binary identity differs')
     require(policy['denyModuleSha256'] == sha(name + '/deny.mjs'), 'deny module identity differs')
     require(policy['compatibilityDate'] == '2026-07-01' and policy['compatibilityFlags'] == ['nodejs_als'],
@@ -359,6 +371,10 @@ for phase in result.get('phases', []):
         continue
     if name.startswith('preflight-'):
         attempt('semantic', name + ' checks', lambda name=name, response=response: verify_preflight(name, response))
+    elif name.startswith('protector-'):
+        count = attempt('semantic', name + ' explicit native-slot semantics', lambda response=response: verify_protector(response))
+        if count is not None:
+            protector_checks.append(response['checks'])
     elif name == 'native-outbound':
         attempt('semantic', name + ' policy', lambda response=response: require(
             bool(response.get('nativeOutboundError')) or response.get('nativeOutboundStatus', 0) >= 500, 'native fetch escaped deny'))
@@ -380,6 +396,14 @@ if len(preflight_checks) == 2:
         preflight_checks[0] == preflight_checks[1] and preflight_random[0] == preflight_random[1], 'fresh preflights differ'))
 elif result.get('preflightPassed'):
     issues.append({'category': 'semantic', 'check': 'fresh preflight determinism', 'message': 'two verified preflights required'})
+
+policy_receipts = None
+if version >= 7:
+    attempt('semantic', 'fresh protector determinism', lambda: require(
+        len(protector_checks) == 2 and protector_checks[0] == protector_checks[1] and
+        result.get('protectorCheckCount') == 51, 'two identical 51-check protector fixtures required'))
+    policy_receipts = attempt('semantic', '107 original and 16 cross-policy receipt checks',
+                              lambda: verify_policy_receipts(root / 'receipt-checks'))
 
 
 def verify_fixture(fixture, module=False):
@@ -457,6 +481,8 @@ if version >= 4:
             require(compiler['schema'] == 'quod-managed-compiler-regressions-v1' and compiler['cacheEnabled'] is False,
                     'compiler regression schema differs')
             require(compiler['checks'] and all(check['passed'] for check in compiler['checks']), 'compiler regression failed')
+            if version >= 7:
+                require(len(compiler['checks']) == 40, 'original 40 compiler checks changed')
             require(len({check['name'] for check in compiler['checks']}) == len(compiler['checks']), 'duplicate compiler check name')
             for bundle in compiler['bundles']:
                 built = verified_builds['compiler-checks/' + bundle['name'] + '.json']
@@ -493,6 +519,8 @@ if version >= 3 or 'fixtureEvidence' in result:
     required_flags.append('fixtureChecksPassed')
 if version >= 4:
     required_flags += ['compilerChecksPassed', 'boundaryFixtureChecksPassed', 'moduleFixtureChecksPassed', 'expensiveTestAttempted']
+if version >= 7:
+    required_flags += ['protectorChecksPassed', 'receiptChecksPassed']
 missing_flags = [flag for flag in required_flags if result.get(flag) is not True]
 artifact_complete = not missing_flags and ordinary_count is not None
 if missing_flags:
@@ -522,6 +550,9 @@ evidence = {
     'resultSha256': verified_files.get('result.json'),
     'preflightChecksPerProcess': check_count,
     'preflightFreshProcesses': len(preflight_checks),
+    'protectorChecksPerProcess': 51 if version >= 7 else None,
+    'protectorFreshProcesses': len(protector_checks),
+    'policyReceiptChecks': policy_receipts,
     'preflightRandomValues': preflight_random[0] if preflight_random else None,
     'compilerRegressionChecks': compiler_count,
     'boundaryFixtureModes': [name[len('boundary-'):] for name in verified_phases if name.startswith('boundary-')],

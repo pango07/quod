@@ -13,6 +13,7 @@ import pathlib
 import re
 import sys
 import urllib.parse
+from frozen_policy_audit import CONTRACT, POLICY, verify_protector, verify_policy_receipts
 
 EXECUTION_SCHEMA = 'quod-managed-execution-v1-research'
 RECEIPT_SCHEMA = 'quod-managed-receipt-v1-research'
@@ -159,8 +160,8 @@ def symbol_inventory(boundary):
 def boundary_complete(boundary, allow_denied=False):
     exact(boundary, ['inventory', 'guarded', 'unguardable', 'symbolInventory', 'symbolUnguardable', 'unsupported',
                      'timerErrors', 'unhandledErrors', 'pendingTimers', 'pendingTimerDetails', 'completion',
-                     'virtualTime', 'logs', 'replayEligible', 'contract'], 'boundary')
-    require(boundary['contract'] == 'quod-managed-v0-investigation' and boundary['replayEligible'] is False,
+                     'virtualTime', 'logs', 'replayEligible', 'contract', 'intrinsicPolicy'], 'boundary')
+    require(boundary['contract'] == CONTRACT and boundary['intrinsicPolicy'] == POLICY and boundary['replayEligible'] is False,
             'production admission policy changed')
     for key in ('inventory', 'guarded', 'unguardable', 'unsupported', 'timerErrors', 'unhandledErrors'):
         require(isinstance(boundary[key], list) and all(isinstance(item, str) for item in boundary[key]), 'invalid ' + key)
@@ -253,6 +254,7 @@ def verify_invocation(directory, phase, build):
             'actual invocation byte identities differ')
     policy = invocation['runtimePolicy']
     require(policy['schema'] == 'quod-managed-runtime-policy-v1-research' and valid_sha(policy['workerdSha256']), 'runtime binary identity missing')
+    require(policy['boundaryContract'] == CONTRACT and policy['intrinsicPolicy'] == POLICY, 'keyed frozen-slot policy differs')
     require(policy['denyModuleSha256'] == file_hash(folder / 'deny.mjs'), 'outbound deny module SHA differs')
     require(policy['compatibilityDate'] == '2026-07-01' and policy['compatibilityFlags'] == ['nodejs_als'] and
             policy['moduleName'] == 'worker.mjs' and policy['services'] == ['main', 'deny'] and
@@ -297,6 +299,8 @@ def verify_execution(execution):
     exact(identity, ['schema', 'compile', 'preparation', 'runtimePolicy', 'supervisorPolicy', 'host'], 'execution identity')
     require(identity['schema'] == EXECUTION_SCHEMA and execution['key'] == digest(EXECUTION_SCHEMA + '\n' + encode(identity)),
             'execution domain/key differs')
+    require(identity['runtimePolicy']['boundaryContract'] == CONTRACT and identity['runtimePolicy']['intrinsicPolicy'] == POLICY,
+            'execution crosses intrinsic semantics policy')
     return identity
 
 
@@ -463,19 +467,28 @@ for role in ('seed', 'control', 'replay'):
             roles[role] = verified
 
 compiler_count = receipt_count = integration_count = None
+policy_receipt_checks = None
 if 'hardening' in located:
     hardening_dir, hardening = located['hardening']
     def hardening_matrix():
         require(hardening['cacheEnabled'] is False and all(hardening.get(flag) is True for flag in (
             'compilerChecksPassed', 'preflightPassed', 'nativeOutboundDenied', 'boundaryFixtureChecksPassed',
-            'fixtureChecksPassed', 'moduleFixtureChecksPassed', 'expensiveTestAttempted', 'managedSupported', 'namesAndStatesAgree')),
+            'fixtureChecksPassed', 'moduleFixtureChecksPassed', 'expensiveTestAttempted', 'managedSupported', 'namesAndStatesAgree',
+            'protectorChecksPassed', 'receiptChecksPassed')),
             'separate hardening gate was not complete')
+        require(hardening['boundaryChecksVersion'] == 7 and hardening['intrinsicPolicy'] == POLICY and
+                hardening['boundaryContract'] == CONTRACT, 'hardening intrinsic policy differs')
+        protector = [row['data'] for row in hardening['phases'] if row['name'] in ('protector-one', 'protector-two')]
+        require(len(protector) == 2 and all(verify_protector(row) == 51 for row in protector) and
+                protector[0]['checks'] == protector[1]['checks'], '51-check fresh protector fixtures differ')
         value = matrix(hardening_dir / 'compiler-checks/result.json', 'quod-managed-compiler-regressions-v1', 'passed', compiler_names())
         for bundle in value['bundles']:
             built = builds[hardening_dir / 'compiler-checks' / (bundle['name'] + '.json')]
             require(bundle['sha256'] == built['sha256'] and bundle['identitySha256'] == built['identitySha256'], 'compiler matrix bundle record differs')
         return len(value['checks'])
     compiler_count = attempt('hardening/compiler fixture matrix', hardening_matrix)
+    policy_receipt_checks = attempt('strict frozen/legacy policy receipt submatrix',
+                                   lambda: verify_policy_receipts(hardening_dir / 'receipt-checks'))
     if hardening.get('boundaryChecksVersion', 1) >= 6:
         def admission_integration():
             folder = hardening_dir / 'receipt-checks'
@@ -558,6 +571,7 @@ summary = {
     'compilerRegressionChecks': compiler_count,
     'receiptMutationChecks': receipt_count,
     'compilerAdmissionChecks': integration_count,
+    'frozenPolicyReceiptChecks': policy_receipt_checks,
     'passingTestsCompared': 47 if receipt_summary else None,
     'effectsSha256': roles.get('seed', {}).get('result', {}).get('effectSha256'),
     'freshConsumerHit': roles.get('replay', {}).get('result', {}).get('hit'),

@@ -5,6 +5,7 @@ import json
 import pathlib
 import re
 import sys
+from frozen_policy_audit import CONTRACT, POLICY
 
 root = pathlib.Path(sys.argv[1])
 issues, verified = [], {}
@@ -118,6 +119,8 @@ def verify_case(name, expected):
             require(data['bundleSha256'] == sha(folder / 'worker.mjs') and data['configSha256'] == sha(folder / 'config.capnp'),
                     'actual worker/config byte identities differ')
             require(data['runtimePolicy']['denyModuleSha256'] == sha(folder / 'deny.mjs'), 'deny service byte identity differs')
+            require(data['runtimePolicy']['boundaryContract'] == CONTRACT and data['runtimePolicy']['intrinsicPolicy'] == POLICY,
+                    'invoked intrinsic policy differs')
             execution = read(folder / 'execution.json')
             require(execution['completed'] is True and execution['timedOut'] is False and execution['error'] is None,
                     'incomplete worker execution retained a result')
@@ -158,6 +161,7 @@ def verify_receipt_authority():
     data = json.loads(response, object_pairs_hook=pairs)
     require(data['ok'] is True and len(data['rows']) == 1 and data['rows'][0]['state'] == 'pass', 'seed did not pass')
     boundary, completion = data['boundary'], data['boundary']['completion']
+    require(boundary['contract'] == CONTRACT and boundary['intrinsicPolicy'] == POLICY, 'seed intrinsic policy differs')
     require(all(boundary[key] == [] for key in ('unsupported', 'unguardable', 'symbolUnguardable', 'timerErrors', 'unhandledErrors', 'pendingTimerDetails')),
             'seed has unsupported or pending asynchronous effects')
     require(boundary['pendingTimers'] == 0 and completion['sealed'] is True and completion['reason'] == '' and

@@ -3,7 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
-import {canonicalReceiptJSON, makeExecutionIdentity, validatePassingResponse, recordReceipt, lookupReceipt} from './receipt.mjs'
+import {canonicalReceiptJSON, makeExecutionIdentity, validatePassingResponse, recordReceipt, lookupReceipt,
+  MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from './receipt.mjs'
 
 const [outArg, projectArg] = process.argv.slice(2)
 assert(outArg, 'usage: receipt-fixtures.mjs EMPTY_OUTPUT_DIRECTORY [PROJECT]')
@@ -23,6 +24,7 @@ function inputs() {
     prepared: {config, identity: {schema: 'quod-managed-preparation-v1-research',
       configurationSha256: hash(canonicalReceiptJSON(config)), preparerSha256: hash('preparer')}},
     runtimePolicy: {schema: 'quod-managed-runtime-policy-v1-research', workerdSha256: hash('runtime'),
+      boundaryContract: MANAGED_BOUNDARY_CONTRACT, intrinsicPolicy: MANAGED_INTRINSIC_POLICY,
       nativeFingerprintSha256: hash('native fingerprint'), compatibilityDate: '2026-07-01',
       compatibilityFlags: ['nodejs_als'], moduleName: 'worker.mjs', services: ['main', 'deny'], globalOutbound: 'deny',
       denyModuleSha256: hash('outbound deny service'), bindings: [], processEnv: {PATH: '/declared/bin', TZ: 'UTC', LANG: 'C.UTF-8'},
@@ -47,7 +49,8 @@ const response = {ok: true, rows: [{name: 'closed managed fixture', state: 'pass
     pendingTimers: 0, pendingTimerDetails: [], virtualTime: 0,
     completion: {sealed: true, nativeTurnFences: 2, timerCallbacks: 0, pendingTimerCallbacks: 0,
       pendingMicrotasks: 0, pendingEventCallbacks: 0, intrinsicLockdown: true, protectedIntrinsicObjects: 12, reason: ''},
-    logs: [['log', ['fixture effect', '42']]], replayEligible: false, contract: 'quod-managed-v0-investigation'}}
+    logs: [['log', ['fixture effect', '42']]], replayEligible: false,
+    contract: MANAGED_BOUNDARY_CONTRACT, intrinsicPolicy: MANAGED_INTRINSIC_POLICY}}
 const expected = {count: 1, file: 'fixture.test.mjs'}, initial = inputs()
 const execution = makeExecutionIdentity(initial), file = path.join(out, 'seed-receipt.json')
 const recorded = recordReceipt({file, execution, responseBytes: JSON.stringify(response), expected})
@@ -152,6 +155,61 @@ for (const [group, key] of [['runtimePolicy', 'workerdSha256'], ['runtimePolicy'
   check(group + ' omitted ' + key + ' rejects identity', throws(() => makeExecutionIdentity(omitted)))
 }
 
+// This separately named submatrix leaves the original 107 checks unchanged.
+// Its legacy bytes are constructed data, never execution of the old runtime.
+const policyChecks = [], policyCheck = (name, pass) => {
+  policyChecks.push({name, pass: Boolean(pass)}); assert(pass, name)
+}
+const legacyExecution = copy(execution)
+delete legacyExecution.identity.runtimePolicy.boundaryContract
+delete legacyExecution.identity.runtimePolicy.intrinsicPolicy
+legacyExecution.key = hash('quod-managed-execution-v1-research\n' + canonicalReceiptJSON(legacyExecution.identity))
+policyCheck('frozen policy is explicit in execution identity', execution.identity.runtimePolicy.intrinsicPolicy === MANAGED_INTRINSIC_POLICY &&
+  execution.identity.runtimePolicy.boundaryContract === MANAGED_BOUNDARY_CONTRACT)
+policyCheck('legacy policy has a different execution domain key', legacyExecution.key !== execution.key)
+for (const [name, mutate] of [
+  ['missing runtime boundary contract', input => { delete input.runtimePolicy.boundaryContract }],
+  ['missing runtime intrinsic policy', input => { delete input.runtimePolicy.intrinsicPolicy }],
+  ['legacy runtime boundary contract', input => { input.runtimePolicy.boundaryContract = 'quod-managed-v0-investigation' }],
+  ['changed runtime intrinsic policy', input => { input.runtimePolicy.intrinsicPolicy = 'different-write-semantics' }],
+]) {
+  const changed = inputs(); mutate(changed)
+  policyCheck(name + ' rejects identity', throws(() => makeExecutionIdentity(changed)))
+}
+const legacyResponse = copy(response)
+legacyResponse.boundary.contract = 'quod-managed-v0-investigation'
+delete legacyResponse.boundary.intrinsicPolicy
+for (const [name, mutate] of [
+  ['legacy response policy', data => { data.boundary = copy(legacyResponse.boundary) }],
+  ['missing response intrinsic policy', data => { delete data.boundary.intrinsicPolicy }],
+  ['changed response intrinsic policy', data => { data.boundary.intrinsicPolicy = 'different-write-semantics' }],
+]) {
+  const changed = copy(response); mutate(changed)
+  policyCheck(name + ' rejects validation', throws(() => validatePassingResponse(changed, expected)))
+  policyCheck(name + ' cannot be recorded', throws(() => recordReceipt({file: path.join(out, name.replaceAll(' ', '-') + '.json'),
+    execution, responseBytes: JSON.stringify(changed), expected})))
+}
+function constructedReceipt(name, descriptor, data) {
+  const bytes = Buffer.from(JSON.stringify(data)), encoded = {schema: 'quod-managed-receipt-v1-research', researchOnly: true,
+    execution: descriptor, expected, response: {encoding: 'base64', bytes: bytes.toString('base64'), sha256: hash(bytes)},
+    resultDigest: hash('quod-managed-receipt-v1-research\n' + descriptor.key + '\n' + bytes.toString('base64'))}
+  const target = path.join(out, name), receiptBytes = Buffer.from(canonicalReceiptJSON(encoded))
+  fs.writeFileSync(target, receiptBytes)
+  return {file: target, trustedReceiptSha256: hash(receiptBytes)}
+}
+const legacyReceipt = constructedReceipt('legacy-policy-receipt.json', legacyExecution, legacyResponse)
+policyCheck('authenticated legacy receipt misses frozen policy', !lookup({...legacyReceipt}).hit)
+policyCheck('frozen receipt rejects legacy expected execution', !lookup({execution: legacyExecution}).hit)
+const relabeledLegacyResponse = constructedReceipt('frozen-key-legacy-response.json', execution, legacyResponse)
+policyCheck('coherent frozen key with legacy response still misses', !lookup({...relabeledLegacyResponse}).hit)
+policyCheck('new receipt retains exact declared frozen response policy', hit.data.boundary.contract === MANAGED_BOUNDARY_CONTRACT &&
+  hit.data.boundary.intrinsicPolicy === MANAGED_INTRINSIC_POLICY)
+assert.equal(policyChecks.length, 16)
+const policyAdmission = {intrinsicPolicy: MANAGED_INTRINSIC_POLICY, boundaryContract: MANAGED_BOUNDARY_CONTRACT,
+  responseOrigin: 'constructed cross-policy responses; not runtime execution', legacyExecutionKey: legacyExecution.key,
+  currentExecutionKey: execution.key, legacyReceipt: {file: path.basename(legacyReceipt.file), sha256: legacyReceipt.trustedReceiptSha256},
+  relabeledLegacyResponse: {file: path.basename(relabeledLegacyResponse.file), sha256: relabeledLegacyResponse.trustedReceiptSha256}}
+
 let admissionIntegration = null
 if (projectArg) {
   // This submatrix connects the real closed compiler to identity and ledger
@@ -245,6 +303,6 @@ if (projectArg) {
 }
 
 const result = {schema: 'quod-managed-receipt-fixtures-v1', cacheEnabled: false,
-  researchOnly: true, checks, seed: recorded, admissionIntegration}
+  researchOnly: true, checks, policyChecks, policyAdmission, seed: recorded, admissionIntegration}
 fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(result, null, 2) + '\n')
 console.log(JSON.stringify(result))

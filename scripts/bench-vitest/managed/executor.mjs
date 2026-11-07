@@ -9,6 +9,7 @@ import net from 'node:net'
 import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
 import {spawn} from 'node:child_process'
+import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from './receipt.mjs'
 
 const require = createRequire(import.meta.url)
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
@@ -83,6 +84,8 @@ export function createManagedExecutor({out: outArg, onPhase, watchdogMs = 180000
   const host = hostIdentity()
   const runtimePolicy = frozenData({
     schema: 'quod-managed-runtime-policy-v1-research',
+    boundaryContract: MANAGED_BOUNDARY_CONTRACT,
+    intrinsicPolicy: MANAGED_INTRINSIC_POLICY,
     workerdSha256: sha(fs.readFileSync(workerd)),
     moduleName: 'worker.mjs',
     services: ['main', 'deny'],

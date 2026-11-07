@@ -8,6 +8,7 @@ import {spawnSync} from 'node:child_process'
 import {createManagedCompiler} from './compiler.mjs'
 import {prepareManagedProject} from './preparation.mjs'
 import {createManagedExecutor} from './executor.mjs'
+import {MANAGED_BOUNDARY_CONTRACT, MANAGED_INTRINSIC_POLICY} from './receipt.mjs'
 
 const [projectArg, outArg] = process.argv.slice(2)
 const project = path.resolve(projectArg), out = path.resolve(outArg)
@@ -20,7 +21,8 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const write = (name, value) => fs.writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + '\n')
 const base = {epoch: 1700000000000, seed: 42, env: {NODE_ENV: 'test'}}
 const results = {scope: 'Managed runtime boundary and unchanged-test feasibility; no cache', cacheEnabled: false,
-  boundaryChecksVersion: 6, node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
+  boundaryChecksVersion: 7, boundaryContract: MANAGED_BOUNDARY_CONTRACT, intrinsicPolicy: MANAGED_INTRINSIC_POLICY,
+  node: process.version, image: `${process.env.ImageOS}/${process.env.ImageVersion}`,
   phases: []}
 write('result.json', results)
 
@@ -37,7 +39,9 @@ write('result.json', results)
 // Compatibility is deliberately stricter than a green test report. This probe
 // grants no replay; the separate host-only research ledger keys the full policy.
 const supported = data => !data.error && data.boundary?.completion?.sealed === true &&
+  data.boundary.contract === MANAGED_BOUNDARY_CONTRACT && data.boundary.intrinsicPolicy === MANAGED_INTRINSIC_POLICY &&
   data.boundary.unsupported.length === 0 && data.boundary.unguardable.length === 0 &&
+  data.boundary.symbolUnguardable.length === 0 &&
   data.boundary.timerErrors.length === 0 && data.boundary.unhandledErrors.length === 0 &&
   data.boundary.pendingTimers === 0 && data.boundary.completion.pendingTimerCallbacks === 0 &&
   data.boundary.completion.pendingMicrotasks === 0 && data.boundary.completion.pendingEventCallbacks === 0
@@ -73,6 +77,31 @@ try {
   assert.deepEqual(one.random, two.random)
   assert.deepEqual(one.checks, two.checks)
   results.preflightPassed = true; write('result.json', results)
+
+  const protector = await compile('protector-fixture.mjs', base)
+  write('protector-build.json', {...protector, bundle: undefined})
+  const protectorOne = await execute('protector-one', protector.bundle)
+  const protectorTwo = await execute('protector-two', protector.bundle)
+  for (const data of [protectorOne, protectorTwo]) {
+    assert.equal(data.ok, true, 'frozen native-slot semantics fixture failed')
+    assert.equal(data.policy, MANAGED_INTRINSIC_POLICY)
+    assert.equal(data.boundary.contract, MANAGED_BOUNDARY_CONTRACT)
+    assert.equal(data.boundary.intrinsicPolicy, MANAGED_INTRINSIC_POLICY)
+    assert.equal(data.checks.length, 51)
+    assert.equal(new Set(data.checks.map(row => row.name)).size, 51)
+    assert(data.checks.every(row => row.pass))
+    assert.deepEqual(data.boundary.unsupported.slice().sort(),
+      ['global fetch', 'intrinsic mutation constructor', 'intrinsic mutation then'])
+    assert(data.boundary.completion.sealed && data.boundary.completion.intrinsicLockdown)
+    assert.equal(data.boundary.pendingTimers, 0)
+    for (const key of ['pendingTimerCallbacks', 'pendingMicrotasks', 'pendingEventCallbacks']) assert.equal(data.boundary.completion[key], 0)
+    assert.deepEqual(data.boundary.timerErrors, [])
+    assert.deepEqual(data.boundary.unhandledErrors, [])
+  }
+  assert.deepEqual(protectorOne.checks, protectorTwo.checks)
+  results.protectorChecksPassed = true
+  results.protectorCheckCount = 51
+  write('result.json', results)
 
   const outbound = await compile('native-outbound.mjs', base)
   write('native-outbound-build.json', {...outbound, bundle: undefined})
@@ -245,6 +274,7 @@ try {
   assert.equal(results.ordinary.exit, 0, 'ordinary control failed')
   assert.equal(results.ordinary.rows?.length, 47, 'ordinary test count changed')
   assert.equal(results.preflightPassed, true, 'capability gate failed; no managed eligibility')
+  assert.equal(results.protectorChecksPassed, true, 'frozen native-slot policy fixture failed')
   assert.equal(results.nativeOutboundDenied, true, 'runtime outbound gate failed')
   assert.equal(results.fixtureChecksPassed, true, 'real runner failure/fallback gate failed')
   assert.equal(results.managedSupported, true, 'managed execution did not complete under the hardened contract')

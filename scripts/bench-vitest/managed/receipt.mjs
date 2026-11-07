@@ -8,6 +8,8 @@ import assert from 'node:assert/strict'
 
 const EXECUTION_SCHEMA = 'quod-managed-execution-v1-research'
 const RECEIPT_SCHEMA = 'quod-managed-receipt-v1-research'
+export const MANAGED_BOUNDARY_CONTRACT = 'quod-managed-v0-protectors-frozen-slots-investigation'
+export const MANAGED_INTRINSIC_POLICY = 'quod-managed-frozen-array-promise-slots-v1-probe'
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 const integer = value => Number.isSafeInteger(value) && value >= 0
@@ -74,11 +76,13 @@ function nonemptyData(value, label) {
 }
 function policies({runtimePolicy: runtime, supervisorPolicy: supervisor, host}) {
   for (const [label, value] of Object.entries({runtime, supervisor, host})) nonemptyData(value, label)
-  for (const key of ['schema', 'workerdSha256', 'nativeFingerprintSha256', 'compatibilityDate', 'compatibilityFlags', 'denyModuleSha256',
+  for (const key of ['schema', 'boundaryContract', 'intrinsicPolicy', 'workerdSha256', 'nativeFingerprintSha256', 'compatibilityDate', 'compatibilityFlags', 'denyModuleSha256',
     'moduleName', 'services', 'globalOutbound', 'bindings', 'processEnv', 'request', 'supervisor']) {
     assert(Object.hasOwn(runtime, key), 'runtime policy omitted ' + key)
   }
   assert.equal(runtime.schema, 'quod-managed-runtime-policy-v1-research', 'obsolete runtime policy')
+  assert.equal(runtime.boundaryContract, MANAGED_BOUNDARY_CONTRACT, 'explicit frozen-slot boundary contract required')
+  assert.equal(runtime.intrinsicPolicy, MANAGED_INTRINSIC_POLICY, 'explicit frozen-slot intrinsic policy required')
   assert(digest(runtime.workerdSha256) && digest(runtime.nativeFingerprintSha256) && digest(runtime.denyModuleSha256), 'runtime/native byte identities required')
   assert(typeof runtime.compatibilityDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(runtime.compatibilityDate), 'explicit compatibility date required')
   stringArray(runtime.compatibilityFlags, 'compatibility flags')
@@ -186,8 +190,9 @@ export function validatePassingResponse(data, expected) {
   assert(Array.isArray(file.errors) && file.errors.length === 0, 'file errors prevent reuse')
   const boundary = data.boundary
   exactKeys(boundary, ['inventory', 'guarded', 'unguardable', 'symbolInventory', 'symbolUnguardable', 'unsupported', 'timerErrors', 'unhandledErrors',
-    'pendingTimers', 'pendingTimerDetails', 'completion', 'virtualTime', 'logs', 'replayEligible', 'contract'], 'boundary')
-  assert.equal(boundary.contract, 'quod-managed-v0-investigation', 'obsolete worker contract')
+    'pendingTimers', 'pendingTimerDetails', 'completion', 'virtualTime', 'logs', 'replayEligible', 'contract', 'intrinsicPolicy'], 'boundary')
+  assert.equal(boundary.contract, MANAGED_BOUNDARY_CONTRACT, 'obsolete worker contract')
+  assert.equal(boundary.intrinsicPolicy, MANAGED_INTRINSIC_POLICY, 'obsolete intrinsic write policy')
   // This host-only research receipt never changes production admission flags.
   assert.equal(boundary.replayEligible, false, 'unexpected runtime admission policy')
   stringArray(boundary.inventory, 'inventory'); stringArray(boundary.guarded, 'guarded')
