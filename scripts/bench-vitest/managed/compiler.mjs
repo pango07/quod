@@ -9,6 +9,12 @@ import {build, version as esbuildVersion} from 'esbuild'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
+// The opt-in certified factory checks this module-evaluation observation;
+// a later constructor read alone must not relabel cached compiler code.
+export const MANAGED_COMPILER_LOADED_IDENTITY = Object.freeze({
+  compilerSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))),
+  esbuildAPI: import.meta.resolve('esbuild'), esbuildVersion,
+})
 const reserved = 'quod:compiler-capabilities'
 const nativeModules = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 const isNative = name => name.startsWith('node:') || nativeModules.has(name) || isBuiltin(name)
@@ -440,6 +446,26 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
       }}],
     })
     assert.equal(compiled.outputFiles.length, 1, 'managed preparation must produce one bundle')
+    // Successful onLoad callbacks are the only admitted physical module input
+    // authority. Reject an esbuild fallback loader or unknown virtual input,
+    // even if its output would otherwise pass the final JavaScript AST checks.
+    const physicalSources = [], virtualInputs = []
+    for (const input of Object.keys(compiled.metafile.inputs)) {
+      if (input === '<define:__QUOD_CONFIG__>' || input === 'quod-managed-als:public-async-local-storage') {
+        virtualInputs.push(input); continue
+      }
+      assert(!input.startsWith('<') && !input.includes('\0'), 'unreviewed virtual managed input: ' + input)
+      const absolute = path.resolve(project, input), real = fs.realpathSync(absolute)
+      assert.equal(absolute, real, 'metafile physical input is not a resolved real path')
+      assert(/\.(?:[cm]?[jt]sx?|json)$/.test(real), 'unreviewed physical managed loader: ' + input)
+      physicalSources.push(moduleName(real))
+    }
+    physicalSources.sort(); virtualInputs.sort()
+    assert.deepEqual(physicalSources, sources.map(row => row.source).sort(),
+      'physical metafile inputs differ from exact onLoad source multiset')
+    assert.equal(virtualInputs.includes('quod-managed-als:public-async-local-storage'),
+      resolutionFacts.some(row => row.phase === 'emitted' && row.route === 'public-als'), 'unreviewed ALS virtual input')
+    const inputCoverage = {schema: 'quod-managed-physical-input-coverage-v1', physicalSources, virtualInputs}
     const bundle = compiled.outputFiles[0].text
     const imports = Object.values(compiled.metafile.outputs).flatMap(output => output.imports)
     assert(imports.every(item => item.external && item.path === 'node:async_hooks'), 'bundle output is not closed')
@@ -479,7 +505,7 @@ export function createManagedCompiler({project: projectArg, adapterRoot = here, 
         ...(zodAlias ? {zodAlias, zodAliasPolicy: 'reviewed /^zod(?=\\/|$)/ replacement for every closed dependency'} : {})},
       entry: moduleName(entryFile), testEntry: testFile && moduleName(testFile), bundleSha256: sha256,
       configurationSha256: sha(optionsJSON), moduleNameSetsSha256: sha(canonicalManagedJSON(globs)),
-      sources, resolutions, adapters, globs, transforms, resolutionFacts,
+      sources, resolutions, adapters, globs, transforms, resolutionFacts, inputCoverage,
     }
     return {bundle, metadata: compiled.metafile, seconds: (performance.now() - started) / 1000, sha256,
       sourceTreeCache: {...treeCache, retainedEntries: trees.size},

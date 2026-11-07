@@ -61,6 +61,52 @@ env:
   QUOD_GATE_LOGS: ${{ github.workspace }}/target/gate-logs
 
 jobs:
+  benchmark-managed-resolved-certificate:
+    if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-resolved-certificate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: ''
+      NODE_PATH: ''
+      ESBUILD_BINARY_PATH: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: get-convex/convex-helpers
+          ref: 5eaa7e5160736054d53f8b71e2c522835eb427e0
+          path: profile-project
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.18.0'
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/bench-vitest/managed
+      - run: npm ci --no-audit --no-fund
+        working-directory: profile-project
+      - name: Retain all original closed-compiler regressions
+        run: node scripts/bench-vitest/managed/compiler-fixtures/check.mjs "$PWD/profile-project" "$RUNNER_TEMP/resolved-certificate-compiler-checks"
+      - name: Fresh resolved input equivalence and actual resolution mutations
+        run: node scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs "$PWD/profile-project" "$RUNNER_TEMP/resolved-compile-certificate"
+      - name: Exact isolated multi-project managed and native controls
+        run: node scripts/bench-vitest/managed/matrix-probe.mjs "$PWD/profile-project" "$RUNNER_TEMP/resolved-certificate-matrix"
+      - name: Validate all 108 current matrix certificates and retain exact payload sizes
+        run: node scripts/bench-vitest/managed/resolved-compile-certificate-probe.mjs --matrix-evidence "$PWD/profile-project" "$RUNNER_TEMP/resolved-certificate-matrix" "$RUNNER_TEMP/resolved-certificate-matrix-inputs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: managed-resolved-certificate
+          path: |
+            ${{ runner.temp }}/resolved-compile-certificate
+            ${{ runner.temp }}/resolved-certificate-matrix
+            ${{ runner.temp }}/resolved-certificate-matrix-inputs
+            ${{ runner.temp }}/resolved-certificate-compiler-checks
+            scripts/bench-vitest/managed/package-lock.json
+
+
   benchmark-managed-input-certificate:
     if: github.event_name == 'workflow_dispatch' && inputs.only == 'benchmark-managed-input-certificate'
     runs-on: ubuntu-latest
